@@ -14,7 +14,8 @@ use storage_service::{DatabaseId, DatabaseRuntime};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    ManagementClient, data_protocol::DATABASE_STREAM_KIND, database_transport::DatabaseTransport,
+    LocalReplicationAuthorizer, data_protocol::DATABASE_STREAM_KIND,
+    database_transport::DatabaseTransport,
 };
 
 type FrameAuthorizer = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
@@ -38,7 +39,7 @@ struct DatabaseSyncHandshake {
 #[derive(Clone)]
 pub(crate) struct DatabaseProtocolHandler {
     server: Server,
-    management: ManagementClient,
+    authorizer: LocalReplicationAuthorizer,
     databases: Arc<DatabaseRuntime>,
     staging_directory: PathBuf,
     cancellation_token: CancellationToken,
@@ -47,14 +48,14 @@ pub(crate) struct DatabaseProtocolHandler {
 impl DatabaseProtocolHandler {
     pub(crate) fn new(
         server: Server,
-        management: ManagementClient,
+        authorizer: LocalReplicationAuthorizer,
         databases: Arc<DatabaseRuntime>,
         staging_directory: PathBuf,
         cancellation_token: CancellationToken,
     ) -> Self {
         Self {
             server,
-            management,
+            authorizer,
             databases,
             staging_directory,
             cancellation_token,
@@ -62,10 +63,11 @@ impl DatabaseProtocolHandler {
     }
 
     pub(crate) async fn synchronize_selected_peers(&self) {
-        let Some(local) = self.management.local_replication_authorizer() else {
-            return;
-        };
-        let Ok(selected) = local.selected_resources(self.server.endpoint().id()).await else {
+        let Ok(selected) = self
+            .authorizer
+            .selected_resources(self.server.endpoint().id())
+            .await
+        else {
             return;
         };
         let selected_databases = selected
@@ -186,10 +188,7 @@ impl DatabaseProtocolHandler {
         {
             return false;
         }
-        let Some(local) = self.management.local_replication_authorizer() else {
-            return false;
-        };
-        local
+        self.authorizer
             .authorize(
                 self.server.endpoint().id(),
                 connection.remote_id(),
@@ -201,6 +200,11 @@ impl DatabaseProtocolHandler {
                 },
             )
             .await
+            && !self.cancellation_token.is_cancelled()
+            && self
+                .databases
+                .require_local_copy(&scope, database_id)
+                .is_ok()
     }
 
     async fn require_authorized(

@@ -332,10 +332,13 @@ impl RoleRepo for DbRoleRepo {
                     && user_role.revoked_at.is_none()
             })
             .collect::<Vec<_>>();
-        for user_role in &user_roles {
-            self.ensure_clear(&[SecurityRow::new(SecurityTable::UserRole, user_role.id)])
-                .await?;
-        }
+        self.ensure_clear(
+            &user_roles
+                .iter()
+                .map(|user_role| SecurityRow::new(SecurityTable::UserRole, user_role.id))
+                .collect::<Vec<_>>(),
+        )
+        .await?;
         let mut roles = Vec::new();
         for user_role in user_roles {
             if let Some(role) = self.role(application_id, user_role.role_id).await? {
@@ -356,10 +359,13 @@ impl RoleRepo for DbRoleRepo {
             .into_iter()
             .filter(|user_role| user_role.user_id == user_id && user_role.revoked_at.is_none())
             .collect::<Vec<_>>();
-        for user_role in &user_roles {
-            self.ensure_clear(&[SecurityRow::new(SecurityTable::UserRole, user_role.id)])
-                .await?;
-        }
+        self.ensure_clear(
+            &user_roles
+                .iter()
+                .map(|user_role| SecurityRow::new(SecurityTable::UserRole, user_role.id))
+                .collect::<Vec<_>>(),
+        )
+        .await?;
         let mut roles = Vec::new();
         for user_role in user_roles {
             if let Some(role) = self
@@ -386,10 +392,13 @@ impl RoleRepo for DbRoleRepo {
             .into_iter()
             .filter(|row| role_ids.contains(&row.role_id) && row.revoked_at.is_none())
             .collect::<Vec<_>>();
-        for row in &role_permissions {
-            self.ensure_clear(&[SecurityRow::new(SecurityTable::RolePermission, row.id)])
-                .await?;
-        }
+        self.ensure_clear(
+            &role_permissions
+                .iter()
+                .map(|row| SecurityRow::new(SecurityTable::RolePermission, row.id))
+                .collect::<Vec<_>>(),
+        )
+        .await?;
         let permission_ids = role_permissions
             .iter()
             .map(|row| row.permission_id)
@@ -406,10 +415,13 @@ impl RoleRepo for DbRoleRepo {
             .map(Permission::try_from)
             .collect::<ManagementResult<Vec<_>>>()?;
         permissions.sort_by_key(|permission| permission.name.clone());
-        for permission in &permissions {
-            self.ensure_clear(&[SecurityRow::new(SecurityTable::Permission, permission.id)])
-                .await?;
-        }
+        self.ensure_clear(
+            &permissions
+                .iter()
+                .map(|permission| SecurityRow::new(SecurityTable::Permission, permission.id))
+                .collect::<Vec<_>>(),
+        )
+        .await?;
         Ok(permissions)
     }
 

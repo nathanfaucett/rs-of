@@ -86,6 +86,19 @@ impl NodeJoinRequest {
 }
 
 impl NodeJoinApproval {
+    pub(crate) fn signed_by(
+        identity: &management_service::DeviceIdentity,
+        request: NodeJoinRequest,
+        owner_subject: Id,
+    ) -> io::Result<Self> {
+        let payload = Self::payload(&request, owner_subject)?;
+        Ok(Self {
+            request,
+            owner_subject,
+            signature: URL_SAFE_NO_PAD.encode(identity.sign(&payload).to_bytes()),
+        })
+    }
+
     pub(crate) fn payload(request: &NodeJoinRequest, owner: Id) -> io::Result<Vec<u8>> {
         Ok(serde_json::to_vec(&(
             "of.equal-node-join-approval.v1",

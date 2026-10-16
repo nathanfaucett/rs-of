@@ -65,8 +65,164 @@ async fn node_join_invalid_bearer_cannot_approve_pairing() {
 }
 
 #[tokio::test]
-async fn node_join_secure_store_loss_and_corrupt_journal_fail_closed() {
+async fn node_join_anchor_verification_is_existing_only_and_does_not_write() {
+    use std::time::SystemTime;
+
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+
+    let root = std::env::temp_dir().join(format!("node-join-read-only-{}", Id::now_v7()));
+    let config = AppConfig {
+        data_dir: root.to_string_lossy().into_owned(),
+        ..AppConfig::default()
+    };
+    let secrets = Secrets::default();
+    let owner = OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
+        .await
+        .expect("isolated owner");
+    let subject = Id::now_v7();
+    owner
+        .prepare_fresh_setup_secret_inventory(subject, &[])
+        .await
+        .expect("fresh secret inventory");
+    owner
+        .prepare_setup_client_slots(&[])
+        .await
+        .expect("ready inventory");
+    let binding = NodeSignerBinding {
+        member_id: Id::now_v7(),
+        key_id: Id::now_v7(),
+        endpoint_id: SecretKey::generate().public().to_string(),
+    };
+    let peer = SecretKey::generate();
+    let request = owner
+        .prepare_node_join(&binding, "Read-only verification", peer.public())
+        .expect("explicit preparation");
+    let signature = peer.sign(
+        &crate::NodeJoinApproval::payload(&request, subject).expect("exact approval payload"),
+    );
+    let approval = crate::NodeJoinApproval {
+        request,
+        owner_subject: subject,
+        signature: URL_SAFE_NO_PAD.encode(signature.to_bytes()),
+    };
+    owner
+        .record_node_join_approval(&approval)
+        .expect("retain approval");
+    for file in [
+        "setup-secret-inventory.json",
+        "node-join-request.json",
+        "node-join-approval.json",
+    ] {
+        std::fs::File::open(root.join(file))
+            .expect("retained journal")
+            .set_modified(SystemTime::UNIX_EPOCH)
+            .expect("mark isolated journal for read-only verification");
+    }
+    assert_eq!(
+        owner.node_join_anchor().expect("current exact anchor"),
+        approval
+    );
+    for file in [
+        "setup-secret-inventory.json",
+        "node-join-request.json",
+        "node-join-approval.json",
+    ] {
+        assert_eq!(
+            std::fs::metadata(root.join(file))
+                .expect("retained journal")
+                .modified()
+                .expect("journal modification time"),
+            SystemTime::UNIX_EPOCH,
+            "anchor verification must not rewrite {file}"
+        );
+    }
+    drop(owner);
+    let owner = OwnerProvisioner::open_with_private_keys(&config, Secrets::default())
+        .await
+        .expect("reopen without private signer");
+    assert!(
+        owner.node_join_anchor().is_err(),
+        "missing private signer denies without replacement"
+    );
+    drop(owner);
+    std::fs::remove_dir_all(root).expect("remove isolated owner");
+}
+
+#[tokio::test]
+async fn node_join_failed_private_write_cannot_regenerate_on_retry() {
     use std::sync::atomic::Ordering;
+
+    use idp_service::repo::PrivateKeyRepo;
+    use key::DerivationPath;
+
+    let root = std::env::temp_dir().join(format!("node-join-attempted-{}", Id::now_v7()));
+    let config = AppConfig {
+        data_dir: root.to_string_lossy().into_owned(),
+        ..AppConfig::default()
+    };
+    let secrets = Secrets::default();
+    let binding = NodeSignerBinding {
+        member_id: Id::now_v7(),
+        key_id: Id::now_v7(),
+        endpoint_id: SecretKey::generate().public().to_string(),
+    };
+    let peer = SecretKey::generate().public();
+    let owner = OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
+        .await
+        .expect("isolated joining owner");
+    owner
+        .prepare_fresh_setup_secret_inventory(Id::now_v7(), &[])
+        .await
+        .expect("fresh joining secret inventory");
+    owner
+        .prepare_setup_client_slots(&[])
+        .await
+        .expect("ready joining secret inventory");
+    secrets.fail.store(true, Ordering::SeqCst);
+    assert!(
+        owner
+            .prepare_node_join(&binding, "Joining Node", peer)
+            .is_err()
+    );
+    assert!(
+        !root.join("node-join-request.json").exists(),
+        "failed private production must not publish a request"
+    );
+    let attempted = std::fs::read(root.join("setup-secret-inventory.json"))
+        .expect("durable attempted material");
+    secrets.fail.store(false, Ordering::SeqCst);
+    drop(owner);
+    let owner = OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
+        .await
+        .expect("reopen exact attempted state");
+    assert!(
+        owner
+            .prepare_node_join(&binding, "Joining Node", peer)
+            .is_err(),
+        "an ambiguous failed write is not permission to generate another signer"
+    );
+    let namespace = format!(
+        "{}:node:{}:{}",
+        config.key_namespace, binding.member_id, binding.key_id
+    );
+    assert!(
+        secrets
+            .load(&namespace, &DerivationPath::default())
+            .expect("inspect isolated provider")
+            .is_none(),
+        "retry must leave absent attempted material absent"
+    );
+    assert_eq!(
+        std::fs::read(root.join("setup-secret-inventory.json")).expect("retained inventory"),
+        attempted
+    );
+    assert!(!root.join("node-join-request.json").exists());
+    drop(owner);
+    std::fs::remove_dir_all(root).expect("remove isolated owner");
+}
+
+#[tokio::test]
+async fn node_join_secure_store_loss_and_corrupt_journal_fail_closed() {
     let root = std::env::temp_dir().join(format!("node-join-failure-{}", Id::now_v7()));
     let config = AppConfig {
         data_dir: root.to_string_lossy().into_owned(),
@@ -82,17 +238,14 @@ async fn node_join_secure_store_loss_and_corrupt_journal_fail_closed() {
     let owner = OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
         .await
         .expect("native owner");
-    secrets.fail.store(true, Ordering::SeqCst);
-    assert!(
-        owner
-            .prepare_node_join(&binding, "Joining Node", peer)
-            .is_err()
-    );
-    assert!(
-        !root.join("node-join-request.json").exists(),
-        "secure-store failure must not publish request"
-    );
-    secrets.fail.store(false, Ordering::SeqCst);
+    owner
+        .prepare_fresh_setup_secret_inventory(Id::now_v7(), &[])
+        .await
+        .expect("fresh joining secret inventory");
+    owner
+        .prepare_setup_client_slots(&[])
+        .await
+        .expect("ready joining secret inventory");
     std::fs::write(
         root.join("node-join-request.interrupted.tmp"),
         b"partial interrupted temporary write",
@@ -100,7 +253,7 @@ async fn node_join_secure_store_loss_and_corrupt_journal_fail_closed() {
     .expect("interrupted pre-publish stage");
     let request = owner
         .prepare_node_join(&binding, "Joining Node", peer)
-        .expect("retry after secure-store failure");
+        .expect("prepare after interrupted journal staging");
     drop(owner);
     let missing = OwnerProvisioner::open_with_private_keys(&config, Secrets::default())
         .await
@@ -175,6 +328,14 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
     .await
     .expect("peer endpoint");
     let owner = Id::now_v7();
+    provisioner
+        .prepare_fresh_setup_secret_inventory(owner, &[])
+        .await
+        .expect("fresh approval owner secret inventory before mutation");
+    provisioner
+        .prepare_setup_client_slots(&[])
+        .await
+        .expect("ready approval owner secret inventory");
     provisioner
         .ensure_initial_user(owner, Id::now_v7(), "admin", "valid-password")
         .await
@@ -259,7 +420,10 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
         engine.clone(),
         Arc::new(provisioner.oauth2),
         Arc::new(management_service::replica::DbDeviceRepo::new(engine)),
-        Arc::new(crate::device_identity_from_server(&server, secret).expect("peer identity")),
+        Arc::new(
+            management_service::device_identity_from_server(&server, secret)
+                .expect("peer identity"),
+        ),
     )
     .with_local_permissions(management_service::LocalPermissions::new(
         management.clone(),
@@ -354,6 +518,14 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
     let provisioner = OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
         .await
         .expect("separate joining owner");
+    provisioner
+        .prepare_fresh_setup_secret_inventory(fixture.owner, &[])
+        .await
+        .expect("fresh joining secret inventory");
+    provisioner
+        .prepare_setup_client_slots(&[])
+        .await
+        .expect("ready joining secret inventory");
     let binding = NodeSignerBinding {
         member_id: Id::now_v7(),
         key_id: Id::now_v7(),
@@ -529,14 +701,13 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
         fixture
             .state
             .replica_signers
-            .is_trusted_peer(
-                &fixture.issuer,
-                binding.member_id,
-                &binding.endpoint_id,
-                i64::MAX
-            )
+            .trusted_signers(&fixture.issuer, i64::MAX)
             .await
             .expect("durable enrollment despite lost reply")
+            .iter()
+            .any(|(member, signer)| member.member_id == binding.member_id
+                && member.endpoint_id == binding.endpoint_id
+                && signer.public_jwk == request.public_signer)
     );
     let joining = iroh_chain::Server::bind_with_secret_key(
         iroh::endpoint::presets::Minimal,
@@ -581,14 +752,13 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
         fixture
             .state
             .replica_signers
-            .is_trusted_peer(
-                &fixture.issuer,
-                binding.member_id,
-                &binding.endpoint_id,
-                i64::MAX
-            )
+            .trusted_signers(&fixture.issuer, i64::MAX)
             .await
-            .expect("valid enrollment remains trusted"),
+            .expect("valid enrollment remains trusted")
+            .iter()
+            .any(|(member, signer)| member.member_id == binding.member_id
+                && member.endpoint_id == binding.endpoint_id
+                && signer.public_jwk == request.public_signer),
         "rejected mismatched retry must not revoke an existing valid enrollment"
     );
     let mut changed_receipt = received.clone();
@@ -670,6 +840,64 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
     drop(provisioner);
     fixture
         .state
+        .verify_node_join_enrollment(&approved)
+        .await
+        .expect("exact enrollment before timestamp-only revocation");
+    let trusted_before_revocation = fixture
+        .state
+        .replica_signers
+        .trusted_signers(&fixture.issuer, i64::MAX)
+        .await
+        .expect("valid signer enrollment");
+    fixture
+        .state
+        .engine
+        .client()
+        .translate_and_execute(
+            &format!(
+                "UPDATE devices SET revoked_at = 1 WHERE id = CAST('{}' AS UUID)",
+                binding.member_id
+            ),
+            &db::SqlTranslator,
+        )
+        .await
+        .expect("learn timestamp-only joining Device revocation");
+    let rows = fixture.state.engine.client().translate_and_execute(&format!(
+        "SELECT state, revoked_at, owner_subject FROM devices WHERE id = CAST('{}' AS UUID)", binding.member_id),
+        &db::SqlTranslator).await.expect("timestamp-only joining Device state");
+    assert_eq!(
+        rows[0].rows,
+        vec![db::Row::new(vec![
+            db::Value::Integer(1),
+            db::Value::Integer(1),
+            db::Value::Text(fixture.owner.to_string())
+        ])]
+    );
+    fixture
+        .state
+        .oauth2_service
+        .find_user_info(fixture.owner)
+        .await
+        .expect("owner remains active");
+    assert_eq!(
+        fixture
+            .state
+            .replica_signers
+            .trusted_signers(&fixture.issuer, i64::MAX)
+            .await
+            .expect("signer enrollment after Device timestamp revocation"),
+        trusted_before_revocation
+    );
+    assert!(
+        fixture
+            .state
+            .verify_node_join_enrollment(&approved)
+            .await
+            .is_err(),
+        "timestamp-only joining Device revocation must deny exact enrollment despite valid signer and active owner"
+    );
+    fixture
+        .state
         .devices
         .revoke(
             &fixture.owner.to_string(),
@@ -687,17 +915,21 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
         "exact retry must not resurrect learned revocation"
     );
     assert!(
-        !fixture
+        fixture
             .state
-            .replica_signers
-            .is_trusted_peer(
-                &fixture.issuer,
-                binding.member_id,
-                &binding.endpoint_id,
-                i64::MAX
-            )
+            .devices
+            .find_approved_by_public_key(&binding.endpoint_id)
             .await
-            .expect("revoked trust")
+            .expect("revoked endpoint admission")
+            .is_none()
+    );
+    assert!(
+        fixture
+            .state
+            .verify_node_join_enrollment(&approved)
+            .await
+            .is_err(),
+        "current Device revocation invalidates enrollment even while signer trust remains separate"
     );
     let root = fixture.root.clone();
     drop(policy);
@@ -749,6 +981,14 @@ async fn node_join_preparation_is_durable_exact_and_not_readiness() {
     let owner = OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
         .await
         .expect("open joining owner");
+    owner
+        .prepare_fresh_setup_secret_inventory(Id::now_v7(), &[])
+        .await
+        .expect("fresh joining secret inventory");
+    owner
+        .prepare_setup_client_slots(&[])
+        .await
+        .expect("ready joining secret inventory");
     let request = owner
         .prepare_node_join(&binding, "Joining Node", peer)
         .expect("persist request and independent private signer");
@@ -784,4 +1024,266 @@ async fn node_join_preparation_is_durable_exact_and_not_readiness() {
     );
     drop(owner);
     std::fs::remove_dir_all(root).expect("remove isolated join store");
+}
+
+#[tokio::test]
+async fn node_join_runtime_and_http_identity_deny_timestamp_only_device_revocation() {
+    use management_service::DeviceRepo;
+
+    let fixture = approval_fixture().await;
+    fixture
+        .state
+        .oauth2_service
+        .client_repo
+        .create_client(ClientRegistration {
+            application: ApplicationRegistration {
+                name: Some("Management lookup".into()),
+                uri: "https://management-lookup.test".into(),
+                description: None,
+            },
+            client_id: Some("management-lookup".into()),
+            client_secret: Some("lookup-secret".into()),
+            client_id_issued_at: None,
+            client_secret_expires_at: None,
+            client_name: "Management lookup".into(),
+            client_uri: None,
+            logo_uri: None,
+            contacts: vec![],
+            terms_of_service_uri: None,
+            policy_uri: None,
+            client_type: ClientType::Confidential,
+            profile: ClientProfile::Web,
+            redirect_uris: vec![],
+            allowed_grant_types: vec![GrantType::ClientCredentials],
+            response_types: vec![],
+            allowed_scopes: vec!["idp.token.validate".into(), "idp.device.lookup".into()],
+            allowed_audiences: vec!["idp-services".into()],
+            token_endpoint_auth_method: TokenEndpointAuthMethod::ClientSecretPost,
+            software_statement: None,
+            software_id: None,
+            software_version: None,
+        })
+        .await
+        .expect("least-privilege local service client");
+
+    let endpoint = fixture.server.endpoint().id();
+    let device = fixture
+        .state
+        .devices
+        .find_approved_by_public_key(&endpoint.to_string())
+        .await
+        .expect("initial Device lookup")
+        .expect("approved Device with signer");
+    let valid_endpoint = SecretKey::generate().public();
+    let valid_device = fixture
+        .state
+        .devices
+        .create(
+            fixture.owner.to_string(),
+            "Unrevoked Device without signer".into(),
+            valid_endpoint.to_string(),
+            String::new(),
+            b"enumeration-enrollment".to_vec(),
+            i64::MAX,
+        )
+        .await
+        .expect("pending signer-free Device");
+    fixture
+        .state
+        .devices
+        .approve(valid_device.id, b"enumeration-enrollment")
+        .await
+        .expect("approve signer-free Device")
+        .expect("approved signer-free Device");
+    let config = AppConfig {
+        oauth2: idp_service::oauth2::OAuth2Config {
+            issuer: fixture.issuer.clone(),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let runtime = crate::build_runtime(
+        &config,
+        fixture.state.engine.clone(),
+        fixture.state.device_identity.clone(),
+        fixture.server.clone(),
+        Some(management_service::LocalPermissions::new(
+            fixture.management.clone(),
+        )),
+    )
+    .await
+    .expect("runtime over existing owner handles");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("local owner listener");
+    let address = listener.local_addr().expect("listener address");
+    let router: axum::Router = crate::openapi_router(fixture.state.clone(), "").into();
+    let serving = tokio::spawn(async move {
+        axum::serve(listener, router).await.expect("local IdP HTTP");
+    });
+    let local = format!("http://{address}");
+    let control =
+        management_service::HostedControlPlane::new_with_services(&local, &local, &fixture.issuer)
+            .expect("local control plane")
+            .with_idp_service_client("management-lookup", "lookup-secret", "idp-services")
+            .expect("scoped identity client");
+    assert_eq!(
+        runtime
+            .approved_device_owner(endpoint)
+            .await
+            .expect("runtime identity before revocation")
+            .device_id,
+        device.id
+    );
+    assert_eq!(
+        runtime
+            .approved_management_device(device.id)
+            .await
+            .expect("Management identity before revocation")
+            .device_id,
+        device.id
+    );
+    assert!(
+        runtime
+            .approved_peer_ids()
+            .await
+            .expect("mesh admission before revocation")
+            .contains(&endpoint)
+    );
+    assert!(
+        runtime
+            .approved_storage_endpoints()
+            .await
+            .expect("Storage admission before revocation")
+            .contains(&endpoint.to_string())
+    );
+    assert_eq!(
+        control
+            .get_storage_device_identity(device.id)
+            .await
+            .expect("HTTP identity before revocation")
+            .device_id,
+        device.id
+    );
+    let trusted_before_revocation = fixture
+        .state
+        .replica_signers
+        .trusted_signers(&fixture.issuer, i64::MAX)
+        .await
+        .expect("valid initial signer");
+    assert!(
+        trusted_before_revocation
+            .iter()
+            .any(|(member, signer)| member.member_id == device.id
+                && member.endpoint_id == endpoint.to_string()
+                && signer.member_id == device.id)
+    );
+    assert!(
+        !trusted_before_revocation
+            .iter()
+            .any(|(member, signer)| member.member_id == valid_device.id
+                || signer.member_id == valid_device.id),
+        "unrevoked endpoint has no signer enrollment"
+    );
+    fixture
+        .state
+        .engine
+        .client()
+        .translate_and_execute(
+            &format!(
+                "UPDATE devices SET revoked_at = 1 WHERE id = CAST('{}' AS UUID)",
+                device.id
+            ),
+            &db::SqlTranslator,
+        )
+        .await
+        .expect("learn timestamp-only Device revocation");
+    let rows = fixture.state.engine.client().translate_and_execute(&format!(
+        "SELECT state, revoked_at, owner_subject FROM devices WHERE id = CAST('{}' AS UUID)", device.id),
+        &db::SqlTranslator).await.expect("timestamp-only Device state");
+    assert_eq!(
+        rows[0].rows,
+        vec![db::Row::new(vec![
+            db::Value::Integer(1),
+            db::Value::Integer(1),
+            db::Value::Text(fixture.owner.to_string())
+        ])]
+    );
+    fixture
+        .state
+        .oauth2_service
+        .find_user_info(fixture.owner)
+        .await
+        .expect("owner remains active");
+    assert_eq!(
+        fixture
+            .state
+            .replica_signers
+            .trusted_signers(&fixture.issuer, i64::MAX)
+            .await
+            .expect("signer trust after Device timestamp revocation"),
+        trusted_before_revocation
+    );
+    assert!(
+        runtime.approved_device_owner(endpoint).await.is_err(),
+        "timestamp-only revocation denies runtime endpoint identity"
+    );
+    assert!(
+        runtime.approved_management_device(device.id).await.is_err(),
+        "timestamp-only revocation denies Management identity"
+    );
+    let peers = runtime
+        .approved_peer_ids()
+        .await
+        .expect("mesh admission refresh excludes revoked Devices");
+    assert!(
+        !peers.contains(&endpoint),
+        "revoked endpoint must not be enumerated"
+    );
+    assert!(
+        peers.contains(&valid_endpoint),
+        "revocation must not disable other approved peers"
+    );
+    let storage_endpoints = runtime
+        .approved_storage_endpoints()
+        .await
+        .expect("Storage admission refresh excludes revoked Devices");
+    assert!(
+        !storage_endpoints.contains(&endpoint.to_string()),
+        "revoked endpoint must not be enumerated"
+    );
+    assert!(
+        storage_endpoints.contains(&valid_endpoint.to_string()),
+        "revocation must not disable other approved Storage endpoints"
+    );
+    assert_eq!(
+        runtime
+            .approved_device_owner(valid_endpoint)
+            .await
+            .expect("signer-free Device retains active-owner identity")
+            .device_id,
+        valid_device.id
+    );
+    assert_eq!(
+        control
+            .get_storage_device_identity(valid_device.id)
+            .await
+            .expect("unrevoked HTTP identity remains available")
+            .device_id,
+        valid_device.id
+    );
+    assert!(
+        control
+            .get_storage_device_identity(device.id)
+            .await
+            .is_err(),
+        "timestamp-only revocation denies HTTP identity with an existing service token"
+    );
+    serving.abort();
+    let _ = serving.await;
+    drop(runtime);
+    fixture.server.endpoint().close().await;
+    let root = fixture.root.clone();
+    drop(fixture);
+    std::fs::remove_dir_all(root).expect("remove isolated timestamp-revocation fixture");
 }

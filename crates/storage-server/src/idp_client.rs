@@ -1,12 +1,15 @@
 use std::{
     collections::HashSet,
-    sync::Mutex,
+    future::Future,
+    pin::Pin,
+    sync::{Arc, Mutex},
     time::{Duration, SystemTime},
 };
 
 use iroh::EndpointId;
 
-use idp_model::contract::{ApprovedDeviceEndpoints, IntrospectionRequest, IntrospectionResponse};
+use idp_model::contract::{IntrospectionRequest, IntrospectionResponse};
+use management_service::ApprovedDeviceEndpoints;
 use model::contract::{TokenResponse, TokenType};
 use reqwest::{Client, Url, redirect::Policy};
 use serde::Serialize;
@@ -23,6 +26,34 @@ pub enum IdpIntrospectionError {
 
 #[derive(Clone)]
 pub struct IdpClient {
+    backend: IdpBackend,
+    #[cfg(feature = "network")]
+    local_device_policy: Option<(EndpointId, crate::LocalReplicationAuthorizer)>,
+}
+
+type InspectToken = Arc<
+    dyn Fn(
+            String,
+        ) -> Pin<
+            Box<dyn Future<Output = Result<IntrospectionResponse, IdpIntrospectionError>> + Send>,
+        > + Send
+        + Sync,
+>;
+type ApprovedEndpoints = Arc<
+    dyn Fn() -> Pin<Box<dyn Future<Output = Result<Vec<String>, String>> + Send>> + Send + Sync,
+>;
+
+#[derive(Clone)]
+enum IdpBackend {
+    Local {
+        inspect: InspectToken,
+        endpoints: ApprovedEndpoints,
+    },
+    Http(HttpIdpClient),
+}
+
+#[derive(Clone)]
+struct HttpIdpClient {
     base_url: Url,
     client_id: String,
     client_secret: String,
@@ -30,8 +61,6 @@ pub struct IdpClient {
     audience: String,
     client: Client,
     cached_token: std::sync::Arc<Mutex<Option<CachedToken>>>,
-    #[cfg(feature = "network")]
-    local_device_policy: Option<(EndpointId, crate::LocalReplicationAuthorizer)>,
 }
 
 struct CachedToken {
@@ -72,16 +101,36 @@ impl IdpClient {
             .build()
             .map_err(|_| "could not create IdP HTTP client".to_owned())?;
         Ok(Self {
-            base_url,
-            client_id: client_id.to_owned(),
-            client_secret: client_secret.to_owned(),
-            issuer: issuer_url.to_string().trim_end_matches('/').to_owned(),
-            audience: audience.to_owned(),
-            client,
-            cached_token: std::sync::Arc::new(Mutex::new(None)),
+            backend: IdpBackend::Http(HttpIdpClient {
+                base_url,
+                client_id: client_id.to_owned(),
+                client_secret: client_secret.to_owned(),
+                issuer: issuer_url.to_string().trim_end_matches('/').to_owned(),
+                audience: audience.to_owned(),
+                client,
+                cached_token: Arc::new(Mutex::new(None)),
+            }),
             #[cfg(feature = "network")]
             local_device_policy: None,
         })
+    }
+
+    /// Callbacks must query the current local IdP owner on every invocation.
+    pub fn local<F, U, E, V>(inspect: F, endpoints: E) -> Self
+    where
+        F: Fn(String) -> U + Send + Sync + 'static,
+        U: Future<Output = Result<IntrospectionResponse, IdpIntrospectionError>> + Send + 'static,
+        E: Fn() -> V + Send + Sync + 'static,
+        V: Future<Output = Result<Vec<String>, String>> + Send + 'static,
+    {
+        Self {
+            backend: IdpBackend::Local {
+                inspect: Arc::new(move |token| Box::pin(inspect(token))),
+                endpoints: Arc::new(move || Box::pin(endpoints())),
+            },
+            #[cfg(feature = "network")]
+            local_device_policy: None,
+        }
     }
 
     #[cfg(feature = "network")]
@@ -94,6 +143,46 @@ impl IdpClient {
         self
     }
 
+    pub async fn introspect(
+        &self,
+        token: &str,
+    ) -> Result<IntrospectionResponse, IdpIntrospectionError> {
+        let response = match &self.backend {
+            IdpBackend::Local { inspect, .. } => inspect(token.to_owned()).await?,
+            IdpBackend::Http(http) => http.introspect(token).await?,
+        };
+        #[cfg(feature = "network")]
+        if let Some((endpoint, policy)) = &self.local_device_policy {
+            let owner = policy
+                .local_owner(*endpoint)
+                .await
+                .map_err(|_| IdpIntrospectionError::InvalidToken)?;
+            if response.claims.sub != owner {
+                return Err(IdpIntrospectionError::InvalidToken);
+            }
+        }
+        Ok(response)
+    }
+
+    pub async fn approved_storage_endpoints(&self) -> Result<Vec<String>, String> {
+        let endpoints = match &self.backend {
+            IdpBackend::Local { endpoints, .. } => endpoints().await?,
+            IdpBackend::Http(http) => http.approved_storage_endpoints().await?,
+        };
+        let mut endpoint_ids = HashSet::with_capacity(endpoints.len());
+        for endpoint_id in &endpoints {
+            let parsed = endpoint_id
+                .parse::<EndpointId>()
+                .map_err(|_| "IdP returned an invalid endpoint ID".to_owned())?;
+            if parsed.to_string() != *endpoint_id || !endpoint_ids.insert(endpoint_id.as_str()) {
+                return Err("IdP returned an invalid or duplicate endpoint ID".to_owned());
+            }
+        }
+        Ok(endpoints)
+    }
+}
+
+impl HttpIdpClient {
     async fn service_access_token(&self) -> Result<String, String> {
         if let Some(token) = self
             .cached_token
@@ -163,7 +252,7 @@ impl IdpClient {
         Ok(value)
     }
 
-    pub async fn introspect(
+    async fn introspect(
         &self,
         token: &str,
     ) -> Result<IntrospectionResponse, IdpIntrospectionError> {
@@ -204,20 +293,10 @@ impl IdpClient {
             .map_err(|_| IdpIntrospectionError::ServiceUnavailable)?;
         let response: IntrospectionResponse =
             serde_json::from_slice(&body).map_err(|_| IdpIntrospectionError::ServiceUnavailable)?;
-        #[cfg(feature = "network")]
-        if let Some((endpoint, policy)) = &self.local_device_policy {
-            let owner = policy
-                .local_owner(*endpoint)
-                .await
-                .map_err(|_| IdpIntrospectionError::InvalidToken)?;
-            if response.claims.sub != owner {
-                return Err(IdpIntrospectionError::InvalidToken);
-            }
-        }
         Ok(response)
     }
 
-    pub async fn approved_storage_endpoints(&self) -> Result<Vec<String>, String> {
+    async fn approved_storage_endpoints(&self) -> Result<Vec<String>, String> {
         let url = self
             .base_url
             .join("devices/endpoints")
@@ -239,15 +318,6 @@ impl IdpClient {
         let body = read_limited_body(&mut response, "IdP endpoint list response").await?;
         let response: ApprovedDeviceEndpoints = serde_json::from_slice(&body)
             .map_err(|_| "invalid IdP endpoint list response".to_owned())?;
-        let mut endpoint_ids = HashSet::with_capacity(response.endpoint_ids.len());
-        for endpoint_id in &response.endpoint_ids {
-            let parsed = endpoint_id
-                .parse::<EndpointId>()
-                .map_err(|_| "IdP returned an invalid endpoint ID".to_owned())?;
-            if parsed.to_string() != *endpoint_id || !endpoint_ids.insert(endpoint_id.as_str()) {
-                return Err("IdP returned an invalid or duplicate endpoint ID".to_owned());
-            }
-        }
         Ok(response.endpoint_ids)
     }
 }
@@ -303,7 +373,14 @@ mod tests {
         thread,
     };
 
-    use super::IdpClient;
+    use super::{HttpIdpClient, IdpBackend, IdpClient};
+
+    fn http(client: &IdpClient) -> &HttpIdpClient {
+        let IdpBackend::Http(http) = &client.backend else {
+            panic!("expected HTTP client");
+        };
+        http
+    }
 
     const CLIENT_ID: &str = "storage-service";
     const CLIENT_SECRET: &str = "test-secret";
@@ -382,11 +459,17 @@ mod tests {
         .expect("create test IdP client");
 
         assert_eq!(
-            client.service_access_token().await.expect("first token"),
+            http(&client)
+                .service_access_token()
+                .await
+                .expect("first token"),
             "service-token"
         );
         assert_eq!(
-            client.service_access_token().await.expect("renewed token"),
+            http(&client)
+                .service_access_token()
+                .await
+                .expect("renewed token"),
             "service-token"
         );
         server.join().expect("join test HTTP server");
@@ -422,7 +505,7 @@ mod tests {
         )
         .expect("create test IdP client");
 
-        assert!(client.service_access_token().await.is_err());
+        assert!(http(&client).service_access_token().await.is_err());
         server.join().expect("join test HTTP server");
         assert!(matches!(
             redirect_listener.accept(),
@@ -452,9 +535,9 @@ mod tests {
         )
         .expect("create test IdP client");
 
-        assert!(client.service_access_token().await.is_err());
+        assert!(http(&client).service_access_token().await.is_err());
         assert!(
-            client
+            http(&client)
                 .cached_token
                 .lock()
                 .expect("lock token cache")
@@ -483,9 +566,9 @@ mod tests {
         )
         .expect("create test IdP client");
 
-        assert!(client.service_access_token().await.is_err());
+        assert!(http(&client).service_access_token().await.is_err());
         assert!(
-            client
+            http(&client)
                 .cached_token
                 .lock()
                 .expect("lock token cache")
@@ -505,7 +588,7 @@ mod tests {
         )
         .expect("valid client configuration");
         assert_eq!(
-            client
+            http(&client)
                 .base_url
                 .join("devices/endpoints/")
                 .expect("join device endpoint")
@@ -513,7 +596,7 @@ mod tests {
             "/idp/devices/endpoints/"
         );
         assert_eq!(
-            client
+            http(&client)
                 .base_url
                 .join("oauth2/token")
                 .expect("join token endpoint")
@@ -521,7 +604,7 @@ mod tests {
             "/idp/oauth2/token"
         );
         assert_eq!(
-            client
+            http(&client)
                 .base_url
                 .join("oauth2/introspect")
                 .expect("join introspection endpoint")

@@ -1,6 +1,5 @@
 mod application;
 mod client;
-mod device;
 mod key;
 mod none_to_default;
 mod oauth2_authorization_code;
@@ -15,7 +14,6 @@ mod user_phone_number;
 
 pub use application::Application;
 pub use client::Client;
-pub use device::Device;
 pub use key::Key;
 pub use none_to_default::none_to_default;
 pub use oauth2_authorization_code::OAuth2AuthorizationCode;

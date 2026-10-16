@@ -153,7 +153,7 @@ where
         transaction.commit().await.map_err(db_error)?;
 
         self.key_service
-            .create_initial_key_with_capture(
+            .create_initial_root_with_capture(
                 EntityType::Client,
                 client.id,
                 client.client_name.clone(),
@@ -1226,7 +1226,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn creates_public_and_confidential_clients_with_root_keys() {
+    async fn creates_public_and_confidential_clients_with_metadata_roots_only() {
         let engine = Arc::new(db::Database::in_memory());
         up(&engine).await.unwrap();
         let key_service = Arc::new(KeyService::new(
@@ -1268,13 +1268,22 @@ mod tests {
                 repo.find_client_by_id(client.id).await.unwrap(),
                 Some(client.clone())
             );
+            let root = key_service
+                .key_repo()
+                .find_active_entity_root_key(EntityType::Client, client.id)
+                .await
+                .expect("read Principal root")
+                .expect("Client has a metadata root");
+            assert_eq!(root.entity_id, client.id);
+            assert!(root.parent_id.is_none());
+            assert!(root.public_jwk.is_none());
             assert!(
                 key_service
-                    .key_repo()
-                    .find_active_entity_root_key(EntityType::Client, client.id)
-                    .await
-                    .unwrap()
-                    .is_some()
+                    .private_key_repo()
+                    .0
+                    .lock()
+                    .expect("private store")
+                    .is_empty()
             );
         }
     }

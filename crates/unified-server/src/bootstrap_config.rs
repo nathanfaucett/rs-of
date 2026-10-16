@@ -1,0 +1,529 @@
+use std::{
+    fs::File,
+    io::{self, Write},
+    net::{Ipv4Addr, SocketAddr, TcpListener},
+    path::{Path, PathBuf},
+};
+
+use idp_model::model::Id;
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    UnifiedConfig,
+    local_provisioning::{
+        absolute, create_private_directory, lock, private_options, read_private, require_absent,
+        require_unix_bootstrap, sync_ancestry,
+    },
+};
+
+#[derive(Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BootstrapPurpose {
+    AwaitingChoice,
+    Create,
+    Join,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct Host {
+    version: u8,
+    root: PathBuf,
+    listen: SocketAddr,
+    key_namespace: Id,
+    purpose: BootstrapPurpose,
+    issuer: String,
+    trusted_peer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    setup_attempted: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    explicit: Option<serde_json::Value>,
+}
+
+/// Public host identity/settings only. Retain the guard through setup and serving.
+pub struct BootstrapConfig {
+    host: Host,
+    _operation: File,
+    explicit_config: Option<UnifiedConfig>,
+    fresh: bool,
+}
+impl BootstrapConfig {
+    pub fn default_directory() -> io::Result<PathBuf> {
+        if let Some(path) = std::env::var_os("XDG_DATA_HOME").filter(|value| !value.is_empty()) {
+            let path = PathBuf::from(path);
+            if !path.is_absolute() {
+                return Err(invalid("XDG_DATA_HOME must be absolute"));
+            }
+            return Ok(path.join("of/unified"));
+        }
+        let home = std::env::var_os("HOME")
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| invalid("HOME is unavailable; supply --data-dir"))?;
+        Ok(PathBuf::from(home).join(".local/share/of/unified"))
+    }
+
+    /// Authorizes only a positively fresh, absent Node root and retains its port before material production.
+    pub fn create(
+        root: &Path,
+        purpose: BootstrapPurpose,
+        peer_issuer: Option<(&str, &str)>,
+    ) -> io::Result<Self> {
+        require_unix_bootstrap()?;
+        let root = absolute(root)?;
+        require_absent(&root)?;
+        if (purpose == BootstrapPurpose::Join) != peer_issuer.is_some() {
+            return Err(invalid(
+                "join requires authenticated peer/issuer evidence; create does not",
+            ));
+        }
+        if let Some((peer, issuer)) = peer_issuer {
+            idp_server::NodeJoinRequest::validate_trusted_peer(peer)?;
+            validate_issuer(issuer)?;
+        }
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
+        let listen = listener.local_addr()?;
+        let key_namespace = Id::now_v7();
+        let host = Host {
+            version: 1,
+            root: root.clone(),
+            listen,
+            key_namespace,
+            purpose,
+            issuer: peer_issuer.map_or_else(
+                || match purpose {
+                    BootstrapPurpose::AwaitingChoice => String::new(),
+                    _ => installation_issuer(key_namespace),
+                },
+                |(_, issuer)| issuer.to_owned(),
+            ),
+            trusted_peer: peer_issuer.map(|(peer, _)| peer.to_owned()),
+            setup_attempted: (purpose == BootstrapPurpose::AwaitingChoice).then_some(false),
+            explicit: None,
+        };
+        let retained = Self::retain(host, None)?;
+        drop(listener);
+        Ok(retained)
+    }
+
+    fn retain(host: Host, explicit_config: Option<UnifiedConfig>) -> io::Result<Self> {
+        let root = &host.root;
+        create_private_directory(root, true)?;
+        let operation = lock(root, true)?;
+        let bytes = serde_json::to_vec(&host)?;
+        let mut file = private_options(true).open(root.join("host.json"))?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        sync_ancestry(root)?;
+        if read_private(&root.join("host.json"))? != bytes {
+            return Err(invalid("host identity durable readback mismatch"));
+        }
+        Ok(Self {
+            host,
+            _operation: operation,
+            explicit_config,
+            fresh: true,
+        })
+    }
+
+    /// Existing-only opening; missing or partial host identity is not freshness or port regeneration.
+    pub fn open(root: &Path) -> io::Result<Self> {
+        let host = Self::read(root)?;
+        if host.host.explicit.is_some() {
+            return Err(invalid(
+                "retained explicit host requires its exact configuration",
+            ));
+        }
+        Ok(host)
+    }
+
+    fn read(root: &Path) -> io::Result<Self> {
+        require_unix_bootstrap()?;
+        let root = absolute(root)?;
+        let operation = lock(&root, false)?;
+        require_absent(&root.join("host.pending"))?;
+        let bytes = read_private(&root.join("host.json"))?;
+        let host: Host = serde_json::from_slice(&bytes)?;
+        crate::LocalTls::api_base(host.listen)?;
+        if host.purpose != BootstrapPurpose::AwaitingChoice {
+            validate_issuer(&host.issuer)?;
+        }
+        if host.version != 1
+            || host.root != root
+            || host.key_namespace.is_nil()
+            || (host.purpose == BootstrapPurpose::AwaitingChoice && host.setup_attempted.is_none())
+            || (host.purpose != BootstrapPurpose::AwaitingChoice
+                && host.setup_attempted.is_some_and(|attempted| !attempted))
+            || (host.purpose == BootstrapPurpose::AwaitingChoice && !host.issuer.is_empty())
+            || (host.explicit.is_some() && host.setup_attempted.is_none())
+            || (host.purpose == BootstrapPurpose::Join) != host.trusted_peer.is_some()
+            || (host.purpose == BootstrapPurpose::Create
+                && host.issuer != installation_issuer(host.key_namespace))
+            || serde_json::to_value(&host)? != serde_json::from_slice::<serde_json::Value>(&bytes)?
+        {
+            return Err(invalid(
+                "invalid retained host identity; exact recovery required",
+            ));
+        }
+        if let Some(peer) = &host.trusted_peer {
+            idp_server::NodeJoinRequest::validate_trusted_peer(peer)?;
+        }
+        Ok(Self {
+            host,
+            _operation: operation,
+            explicit_config: None,
+            fresh: false,
+        })
+    }
+
+    pub(crate) fn setup_attempted(&self) -> bool {
+        self.host.setup_attempted == Some(true)
+    }
+
+    pub(crate) fn begin_setup(&mut self) -> io::Result<()> {
+        if !self.fresh
+            || self.host.purpose != BootstrapPurpose::AwaitingChoice
+            || self.host.setup_attempted != Some(false)
+        {
+            return Err(invalid(
+                "fresh setup production already consumed; exact recovery required",
+            ));
+        }
+        let path = self.host.root.join("host.json");
+        if read_private(&path)? != serde_json::to_vec(&self.host)? {
+            return Err(invalid("retained host metadata changed while guarded"));
+        }
+        self.fresh = false;
+        self.host.setup_attempted = Some(true);
+        let temporary = self.host.root.join("host.pending");
+        let bytes = serde_json::to_vec(&self.host)?;
+        let mut file = private_options(true).open(&temporary)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        std::fs::rename(temporary, &path)?;
+        sync_ancestry(&self.host.root)?;
+        if read_private(&path)? != bytes {
+            return Err(invalid("setup production marker readback mismatch"));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn select_create(&mut self) -> io::Result<()> {
+        if self.host.purpose == BootstrapPurpose::Create && self.setup_attempted() {
+            return Ok(());
+        }
+        if self.host.purpose != BootstrapPurpose::AwaitingChoice || !self.setup_attempted() {
+            return Err(invalid(
+                "Create requires retained neutral host prerequisites",
+            ));
+        }
+        let path = self.host.root.join("host.json");
+        if read_private(&path)? != serde_json::to_vec(&self.host)? {
+            return Err(invalid("retained host identity changed while guarded"));
+        }
+        let mut selected: Host = serde_json::from_slice(&serde_json::to_vec(&self.host)?)?;
+        selected.purpose = BootstrapPurpose::Create;
+        selected.issuer = installation_issuer(selected.key_namespace);
+        self.retain_selection(selected)
+    }
+
+    pub(crate) fn select_join(&mut self, peer: &str, issuer: &str) -> io::Result<()> {
+        idp_server::NodeJoinRequest::validate_trusted_peer(peer)?;
+        validate_issuer(issuer)?;
+        if self.host.purpose == BootstrapPurpose::Join
+            && self.setup_attempted()
+            && self.host.trusted_peer.as_deref() == Some(peer)
+            && self.host.issuer == issuer
+        {
+            return Ok(());
+        }
+        if self.host.purpose != BootstrapPurpose::AwaitingChoice || !self.setup_attempted() {
+            return Err(invalid(
+                "Join requires exact retained neutral host prerequisites",
+            ));
+        }
+        let mut selected: Host = serde_json::from_slice(&serde_json::to_vec(&self.host)?)?;
+        selected.purpose = BootstrapPurpose::Join;
+        selected.trusted_peer = Some(peer.into());
+        selected.issuer = issuer.into();
+        self.retain_selection(selected)
+    }
+
+    fn retain_selection(&mut self, selected: Host) -> io::Result<()> {
+        let path = self.host.root.join("host.json");
+        if read_private(&path)? != serde_json::to_vec(&self.host)? {
+            return Err(invalid("retained host identity changed while guarded"));
+        }
+        let bytes = serde_json::to_vec(&selected)?;
+        let pending = self.host.root.join("host.pending");
+        let mut file = private_options(true).open(&pending)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        std::fs::rename(pending, &path)?;
+        sync_ancestry(&self.host.root)?;
+        if read_private(&path)? != bytes {
+            return Err(invalid("host selection durable readback mismatch"));
+        }
+        self.host = selected;
+        Ok(())
+    }
+
+    pub fn directory(&self) -> &Path {
+        &self.host.root
+    }
+
+    pub fn explicit_directory(config: &UnifiedConfig) -> PathBuf {
+        config.endpoint_data_dir.with_extension("host")
+    }
+
+    pub fn create_explicit(mut config: UnifiedConfig) -> io::Result<Self> {
+        require_unix_bootstrap()?;
+        crate::setup_host::require_fresh_roots(&config, true)?;
+        let root = absolute(&Self::explicit_directory(&config))?;
+        crate::setup_host::require_host_separation(&config, &root)?;
+        require_absent(&root)?;
+        let explicit = explicit_identity(&config)?;
+        config.idp.oauth2.issuer.clear();
+        Self::retain(
+            Host {
+                version: 1,
+                root,
+                listen: config.listen_addr,
+                key_namespace: Id::now_v7(),
+                purpose: BootstrapPurpose::AwaitingChoice,
+                issuer: String::new(),
+                trusted_peer: None,
+                setup_attempted: Some(false),
+                explicit: Some(explicit),
+            },
+            Some(config),
+        )
+    }
+
+    pub fn open_explicit(mut config: UnifiedConfig) -> io::Result<Self> {
+        let mut host = Self::read(&Self::explicit_directory(&config))?;
+        if host.host.explicit.as_ref() != Some(&explicit_identity(&config)?)
+            || host.host.listen != config.listen_addr
+        {
+            return Err(invalid(
+                "explicit configuration conflicts with retained neutral host",
+            ));
+        }
+        config.idp.oauth2.issuer.clear();
+        host.explicit_config = Some(config);
+        Ok(host)
+    }
+
+    pub fn purpose(&self) -> BootstrapPurpose {
+        self.host.purpose
+    }
+    pub fn trusted_peer(&self) -> Option<&str> {
+        self.host.trusted_peer.as_deref()
+    }
+    pub fn config(&self) -> UnifiedConfig {
+        if let Some(config) = &self.explicit_config {
+            let mut config = config.clone();
+            config.idp.oauth2.issuer = self.host.issuer.clone();
+            return config;
+        }
+        let root = &self.host.root;
+        let base = format!("https://{}", self.host.listen);
+        let idp_uri = format!("{base}/idp");
+        let storage_uri = format!("{base}/storage");
+        let idp = idp_server::AppConfig {
+            data_dir: root.join("idp").to_string_lossy().into_owned(),
+            key_namespace: format!("unified-node:{}", self.host.key_namespace),
+            api_public_uri: idp_uri.clone(),
+            ui_public_uri: base.clone(),
+            oauth2: idp_service::oauth2::OAuth2Config {
+                issuer: self.host.issuer.clone(),
+                ..Default::default()
+            },
+            service_audience: Some(idp_uri),
+            ..Default::default()
+        };
+        let management = management_server::AppConfig {
+            data_dir: root.join("management").to_string_lossy().into_owned(),
+            api_public_uri: format!("{base}/management"),
+            storage_audience: storage_uri.clone(),
+            ..Default::default()
+        };
+        let storage = storage_server::AppConfig {
+            data_dir: root.join("storage").to_string_lossy().into_owned(),
+            api_public_uri: storage_uri,
+            ..Default::default()
+        };
+        UnifiedConfig {
+            listen_addr: self.host.listen,
+            endpoint_data_dir: root.join("endpoint"),
+            idp,
+            management,
+            storage,
+        }
+    }
+}
+
+fn explicit_identity(config: &UnifiedConfig) -> io::Result<serde_json::Value> {
+    if config.idp.oauth2.local_signer.is_some() {
+        return Err(invalid(
+            "neutral startup requires no configured Node signer",
+        ));
+    }
+    crate::LocalTls::api_base(config.listen_addr)?;
+    Ok(serde_json::json!({
+        "roots": [
+            absolute(Path::new(&config.idp.data_dir))?,
+            absolute(Path::new(&config.management.data_dir))?,
+            absolute(Path::new(&config.storage.data_dir))?,
+            absolute(&config.endpoint_data_dir)?,
+        ],
+        "listen": config.listen_addr,
+        "key_namespace": config.idp.key_namespace,
+        "applications": [config.idp.api_public_uri, config.management.api_public_uri, config.storage.api_public_uri],
+        "ui_origin": config.idp.ui_public_uri,
+        "audiences": [config.idp.service_audience, Some(config.management.storage_audience.clone())],
+    }))
+}
+
+fn installation_issuer(id: Id) -> String {
+    format!("https://{id}.installation.invalid/idp")
+}
+
+pub(crate) fn present(path: &Path) -> io::Result<bool> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+pub(crate) fn validate_issuer(issuer: &str) -> io::Result<()> {
+    let url = reqwest::Url::parse(issuer)
+        .map_err(|_| invalid("peer supplied an invalid Canonical Issuer"))?;
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(invalid(
+            "Canonical Issuer must be an HTTPS URI without credentials, query or fragment",
+        ));
+    }
+    Ok(())
+}
+fn invalid(message: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::{BootstrapConfig, BootstrapPurpose};
+    #[test]
+    fn ordinary_create_derives_and_retains_all_public_host_settings() {
+        let root = std::env::temp_dir().join(format!(
+            "unified-default-config-{}",
+            idp_model::model::Id::now_v7()
+        ));
+        let host = BootstrapConfig::create(&root, BootstrapPurpose::Create, None)
+            .expect("fresh automatic host");
+        let config = host.config();
+        assert_ne!(config.listen_addr.port(), 0);
+        assert_eq!(
+            config.idp.api_public_uri,
+            format!("https://{}/idp", config.listen_addr)
+        );
+        assert_ne!(config.idp.api_public_uri, config.idp.oauth2.issuer);
+        assert!(
+            config
+                .idp
+                .oauth2
+                .issuer
+                .ends_with(".installation.invalid/idp")
+        );
+        assert!(
+            !config
+                .idp
+                .oauth2
+                .issuer
+                .contains(&config.listen_addr.to_string())
+        );
+        assert_ne!(config.idp.data_dir, config.management.data_dir);
+        assert_ne!(config.management.data_dir, config.storage.data_dir);
+        drop(host);
+        let reopened = BootstrapConfig::open(&root)
+            .expect("retained host settings")
+            .config();
+        assert_eq!(reopened.listen_addr, config.listen_addr);
+        assert_eq!(reopened.idp.key_namespace, config.idp.key_namespace);
+        assert_eq!(reopened.idp.oauth2.issuer, config.idp.oauth2.issuer);
+        assert!(BootstrapConfig::create(&root, BootstrapPurpose::Create, None).is_err());
+        std::fs::remove_dir_all(root).expect("isolated cleanup");
+    }
+
+    #[test]
+    fn independent_installations_on_the_same_local_port_have_distinct_issuers() {
+        let root = std::env::temp_dir().join(format!(
+            "unified-distinct-installations-{}",
+            idp_model::model::Id::now_v7()
+        ));
+        let a = BootstrapConfig::create(&root.join("a"), BootstrapPurpose::Create, None)
+            .expect("first Installation");
+        let b = BootstrapConfig::create(&root.join("b"), BootstrapPurpose::Create, None)
+            .expect("second Installation");
+        let first = a.config();
+        drop(b);
+        let path = root.join("b/host.json");
+        let mut settings: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).expect("second host settings"))
+                .expect("public settings");
+        settings["listen"] = serde_json::json!(first.listen_addr.to_string());
+        std::fs::write(
+            &path,
+            serde_json::to_vec(&settings).expect("same-port host settings"),
+        )
+        .expect("simulate same port on another machine");
+        let b = BootstrapConfig::open(&root.join("b"))
+            .expect("retained separate Installation identity");
+        let second = b.config();
+        assert_eq!(first.listen_addr, second.listen_addr);
+        assert_eq!(first.idp.api_public_uri, second.idp.api_public_uri);
+        assert_ne!(first.idp.oauth2.issuer, second.idp.oauth2.issuer);
+        assert_ne!(first.idp.key_namespace, second.idp.key_namespace);
+        drop((a, b));
+        std::fs::remove_dir_all(root).expect("isolated cleanup");
+    }
+
+    #[test]
+    fn join_settings_require_peer_evidence_not_an_invented_installation() {
+        let root = std::env::temp_dir().join(format!(
+            "unified-default-join-config-{}",
+            idp_model::model::Id::now_v7()
+        ));
+        assert!(BootstrapConfig::create(&root, BootstrapPurpose::Join, None).is_err());
+        assert!(!root.exists());
+        let peer = iroh::SecretKey::generate().public().to_string();
+        let host = BootstrapConfig::create(
+            &root,
+            BootstrapPurpose::Join,
+            Some((&peer, "https://trusted-installation.test/idp")),
+        )
+        .expect("authenticated peer result");
+        assert_eq!(
+            host.config().idp.oauth2.issuer,
+            "https://trusted-installation.test/idp"
+        );
+        assert_eq!(host.trusted_peer(), Some(peer.as_str()));
+        drop(host);
+        std::fs::remove_file(root.join("host.json")).expect("simulate lost host identity");
+        assert!(BootstrapConfig::open(&root).is_err());
+        assert!(
+            BootstrapConfig::create(
+                &root,
+                BootstrapPurpose::Join,
+                Some((&peer, "https://trusted-installation.test/idp"))
+            )
+            .is_err()
+        );
+        std::fs::remove_dir_all(root).expect("isolated cleanup");
+    }
+}

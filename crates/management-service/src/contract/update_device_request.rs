@@ -15,5 +15,5 @@ pub struct UpdateDeviceRequest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DeviceTransferRequest {
     #[cfg_attr(feature = "utoipa", schema(value_type = String))]
-    pub owner_subject: crate::model::Id,
+    pub owner_subject: idp_model::model::Id,
 }

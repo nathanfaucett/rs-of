@@ -16,7 +16,7 @@ use idp_model::{
 };
 use idp_service::{
     oauth2::NodeSignerBinding,
-    repo::{ClientRepo, KeyRepo, PrivateKeyRepo, RepoError, RepoResult},
+    repo::{ApplicationRepo, ClientRepo, KeyRepo, PrivateKeyRepo, RepoError, RepoResult},
 };
 use key::{DerivationPath, DerivedKey};
 use model::contract::StandardClaims;
@@ -31,6 +31,8 @@ pub(crate) struct Secrets {
     retain_on_delete: Arc<AtomicBool>,
     discard_write: Arc<AtomicBool>,
     store_calls: Arc<AtomicUsize>,
+    load_calls: Arc<AtomicUsize>,
+    fail_load: Arc<AtomicBool>,
     interrupt_after_store: Arc<AtomicBool>,
     pause_store: Arc<Mutex<Option<StorePause>>>,
 }
@@ -42,6 +44,12 @@ struct StorePause {
 
 impl PrivateKeyRepo for Secrets {
     fn load(&self, namespace: &str, path: &DerivationPath) -> RepoResult<Option<DerivedKey>> {
+        self.load_calls.fetch_add(1, Ordering::SeqCst);
+        if self.fail_load.load(Ordering::SeqCst) {
+            return Err(RepoError::InvalidInput(
+                "injected secure-store read uncertainty".into(),
+            ));
+        }
         Ok(self
             .values
             .lock()
@@ -94,6 +102,45 @@ impl PrivateKeyRepo for Secrets {
             .remove(&(namespace.into(), path.to_string()));
         Ok(())
     }
+}
+
+fn retain_private_attempt(
+    owner: &OwnerProvisioner<Secrets>,
+    slot: &str,
+    root: &idp_model::model::Key,
+) {
+    let paths =
+        idp_service::repo::KeyService::<idp_service::replica::DbKeyRepo, Secrets>::private_paths(
+            root,
+        )
+        .expect("canonical attempted paths");
+    let record = serde_json::json!({"version":2,"issuer":owner.oauth2.oauth_config.issuer,
+        "key_namespace":owner.key_namespace,"slot":slot,"state":"resolved",
+        "entity_id":root.entity_id,"paths":paths.iter().map(ToString::to_string).collect::<Vec<_>>()});
+    std::fs::write(
+        owner
+            .data_dir
+            .join("local-client-key-references")
+            .join(format!("{}.json", slot.replace(':', "-"))),
+        serde_json::to_vec(&record).expect("private-attempt fixture"),
+    )
+    .expect("retain captured private attempt before explicit crypto writes");
+}
+
+async fn publish_private_attempt(
+    owner: &OwnerProvisioner<Secrets>,
+    root: &idp_model::model::Key,
+) -> RepoResult<DerivedKey> {
+    let keys = &owner.oauth2.key_service;
+    let namespace = keys.scoped_namespace(root.entity_type, root.entity_id);
+    keys.ensure_entity_master_key(root.entity_type, root.entity_id, "explicit-crypto-fixture")?;
+    let private = keys
+        .private_key_repo()
+        .ensure_derivation_path(&namespace, root.derivation_path()?)?;
+    keys.key_repo()
+        .set_public_jwk(root.id, root.to_jwk_public(&private)?)
+        .await?;
+    Ok(private)
 }
 
 #[tokio::test]
@@ -251,6 +298,25 @@ async fn node_preparation_stored_interruption_reopens_exactly_without_enrolled_t
         .verify_prepared_node_signer(&binding)
         .expect("existing-only pre-enrollment verification");
     assert_eq!(retained, expected);
+    let inventory_path = root.join("setup-secret-inventory.json");
+    std::fs::File::open(&inventory_path)
+        .expect("prepared inventory")
+        .set_modified(std::time::SystemTime::UNIX_EPOCH)
+        .expect("mark isolated inventory for read-only verification");
+    assert_eq!(
+        owner
+            .verify_prepared_node_signer(&binding)
+            .expect("verify already prepared signer without durable mutation"),
+        expected
+    );
+    assert_eq!(
+        std::fs::metadata(&inventory_path)
+            .expect("retained prepared inventory")
+            .modified()
+            .expect("inventory modification time"),
+        std::time::SystemTime::UNIX_EPOCH,
+        "steady-state signer verification must not rewrite durable preparation"
+    );
     assert_eq!(
         owner
             .prepare_node_signer(&binding)
@@ -624,6 +690,15 @@ async fn inventory_concurrent_public_operations_preserve_capture() {
         .ensure_initial_user(user, Id::now_v7(), "concurrent-user", "valid-password")
         .await
         .expect("User");
+    owner
+        .ensure_desktop_client(client)
+        .await
+        .expect("captured metadata-only Client");
+    let binding = NodeSignerBinding {
+        member_id: Id::now_v7(),
+        key_id: Id::now_v7(),
+        endpoint_id: iroh::SecretKey::generate().public().to_string(),
+    };
     let (entered_tx, entered_rx) = mpsc::sync_channel(1);
     let (resume_tx, resume_rx) = mpsc::sync_channel(1);
     *secrets.pause_store.lock().expect("install pause") = Some(StorePause {
@@ -631,13 +706,8 @@ async fn inventory_concurrent_public_operations_preserve_capture() {
         resume: resume_rx,
     });
     let worker_owner = Arc::clone(&owner);
-    let worker = std::thread::spawn(move || {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("worker runtime")
-            .block_on(worker_owner.ensure_desktop_client(client))
-    });
+    let worker_binding = binding.clone();
+    let worker = std::thread::spawn(move || worker_owner.prepare_node_signer(&worker_binding));
     entered_rx
         .recv_timeout(std::time::Duration::from_secs(30))
         .expect("actual store boundary");
@@ -647,7 +717,7 @@ async fn inventory_concurrent_public_operations_preserve_capture() {
     let captured = std::fs::read(&reference_path).expect("capture before first private write");
     let inventory = std::fs::read(root.join("setup-secret-inventory.json")).expect("inventory");
     let reset = owner
-        .delete_local_secrets(Id::now_v7(), Id::now_v7(), user, &[client])
+        .delete_local_secrets(binding.member_id, binding.key_id, user, &[client])
         .await;
     let mut request = owner
         .oauth2
@@ -664,15 +734,10 @@ async fn inventory_concurrent_public_operations_preserve_capture() {
             .await,
         owner.prepare_setup_client_slots(&[client]).await,
         owner.begin_client_provisioning(&client.to_string()).await,
-        owner.ensure_initial_user_signing_key(user).await,
-        owner.ensure_client_signing_key(&client.to_string()).await,
+        owner.ensure_initial_user_root(user).await,
+        owner.ensure_client_root(&client.to_string()).await,
         owner.ensure_desktop_client(client).await.map(|_| ()),
     ];
-    let binding = NodeSignerBinding {
-        member_id: Id::now_v7(),
-        key_id: Id::now_v7(),
-        endpoint_id: iroh::SecretKey::generate().public().to_string(),
-    };
     let node = owner.prepare_node_signer(&binding);
     let prepared = owner.verify_prepared_node_signer(&binding);
     let initial_node = owner
@@ -690,7 +755,7 @@ async fn inventory_concurrent_public_operations_preserve_capture() {
     resume_tx.send(()).expect("resume store");
     let creation = worker.join().expect("worker joined");
     owner
-        .delete_local_secrets(Id::now_v7(), Id::now_v7(), user, &[client])
+        .delete_local_secrets(binding.member_id, binding.key_id, user, &[client])
         .await
         .expect("cleanup after operation finishes");
     assert!(secrets.values.lock().expect("secrets").is_empty());
@@ -705,7 +770,7 @@ async fn inventory_concurrent_public_operations_preserve_capture() {
         .await
         .expect_err("cleanup cannot be followed by provisioning");
     owner
-        .ensure_initial_user_signing_key(user)
+        .ensure_initial_user_root(user)
         .await
         .expect_err("reset fence bars User private work");
     assert_eq!(
@@ -727,7 +792,7 @@ async fn inventory_concurrent_public_operations_preserve_capture() {
         .await
         .expect_err("reset fence survives native reopen");
     reopened
-        .delete_local_secrets(Id::now_v7(), Id::now_v7(), user, &[client])
+        .delete_local_secrets(binding.member_id, binding.key_id, user, &[client])
         .await
         .expect("explicit cleanup retry after reopen");
     assert_eq!(
@@ -812,7 +877,7 @@ async fn inventory_fresh_authorization_requires_exclusive_operation() {
 }
 
 #[tokio::test]
-async fn inventory_captures_client_identity_and_paths_before_first_private_write() {
+async fn inventory_captures_metadata_root_without_using_private_provider() {
     let root = std::env::temp_dir().join(format!("inventory-capture-{}", Id::now_v7()));
     let config = AppConfig {
         data_dir: root.to_string_lossy().into_owned(),
@@ -823,8 +888,9 @@ async fn inventory_captures_client_identity_and_paths_before_first_private_write
         .await
         .expect("owner");
     let client = Id::now_v7();
+    let user = Id::now_v7();
     owner
-        .prepare_fresh_setup_secret_inventory(Id::now_v7(), &[client])
+        .prepare_fresh_setup_secret_inventory(user, &[client])
         .await
         .expect("fresh");
     owner
@@ -835,7 +901,7 @@ async fn inventory_captures_client_identity_and_paths_before_first_private_write
     owner
         .ensure_desktop_client(client)
         .await
-        .expect_err("first private write fails");
+        .expect("metadata-only setup does not use the private provider");
     let record: serde_json::Value = serde_json::from_slice(
         &std::fs::read(
             root.join("local-client-key-references")
@@ -845,9 +911,954 @@ async fn inventory_captures_client_identity_and_paths_before_first_private_write
     )
     .expect("json");
     assert_eq!(record["state"], "resolved");
-    assert!(record["entity_id"].is_string());
-    assert!(!record["paths"].as_array().expect("paths").is_empty());
+    assert_eq!(record["mode"], "metadata-root");
+    let entity: Id = serde_json::from_value(record["entity_id"].clone()).expect("actual entity");
+    let key = owner
+        .oauth2
+        .key_service
+        .key_repo()
+        .find_active_entity_root_key(idp_model::contract::EntityType::Client, entity)
+        .await
+        .expect("root lookup")
+        .expect("captured root");
+    assert_eq!(record["root_id"], serde_json::json!(key.id));
+    assert_eq!(
+        record["paths"],
+        serde_json::json!([key.derivation_path, "m"])
+    );
+    assert!(key.public_jwk.is_none());
+    assert_eq!(secrets.store_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(secrets.load_calls.load(Ordering::SeqCst), 0);
     assert!(secrets.values.lock().expect("secrets").is_empty());
+    let before = std::fs::read(
+        root.join("local-client-key-references")
+            .join(format!("{client}.json")),
+    )
+    .expect("reference");
+    drop(owner);
+    let owner = OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
+        .await
+        .expect("offline reopen with exact capture");
+    owner
+        .ensure_desktop_client(client)
+        .await
+        .expect("exact retry after reopen");
+    assert_eq!(
+        std::fs::read(
+            root.join("local-client-key-references")
+                .join(format!("{client}.json"))
+        )
+        .expect("retained reference"),
+        before
+    );
+    owner
+        .oauth2
+        .rotate_client_key(&client.to_string())
+        .await
+        .expect("metadata rotation");
+    owner
+        .ensure_desktop_client(client)
+        .await
+        .expect("setup retry preserves legitimate active-root rotation");
+    assert_eq!(
+        secrets.load_calls.load(Ordering::SeqCst),
+        0,
+        "ordinary setup/rotation remains provider-free"
+    );
+    owner
+        .delete_local_secrets(Id::now_v7(), Id::now_v7(), user, &[client])
+        .await
+        .expect("metadata-only reset");
+    assert_eq!(secrets.store_calls.load(Ordering::SeqCst), 0);
+    assert!(
+        secrets.load_calls.load(Ordering::SeqCst) > 0,
+        "explicit reset probes private ancestry"
+    );
+    drop(owner);
+    std::fs::remove_dir_all(root).expect("fixture");
+}
+
+#[tokio::test]
+async fn metadata_root_retries_reject_corrupt_capture_and_missing_actual_root() {
+    let root = std::env::temp_dir().join(format!("metadata-root-integrity-{}", Id::now_v7()));
+    let config = AppConfig {
+        data_dir: root.to_string_lossy().into_owned(),
+        ..AppConfig::default()
+    };
+    let secrets = Secrets::default();
+    let owner = OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
+        .await
+        .expect("owner");
+    let user = Id::now_v7();
+    let client = Id::now_v7();
+    owner
+        .prepare_fresh_setup_secret_inventory(user, &[client])
+        .await
+        .expect("fresh");
+    owner
+        .prepare_setup_client_slots(&[client])
+        .await
+        .expect("slots");
+    owner
+        .ensure_initial_user(user, Id::now_v7(), "metadata-admin", "valid-password")
+        .await
+        .expect("User");
+    owner
+        .ensure_initial_user_root(user)
+        .await
+        .expect("User root");
+    owner
+        .ensure_desktop_client(client)
+        .await
+        .expect("Client root");
+    for (slot, entity, id) in [
+        (
+            format!("user:{user}"),
+            idp_model::contract::EntityType::User,
+            user,
+        ),
+        (
+            client.to_string(),
+            idp_model::contract::EntityType::Client,
+            owner
+                .oauth2
+                .client_repo
+                .find_client_by_client_id(&client.to_string())
+                .await
+                .expect("Client")
+                .expect("actual Client")
+                .id,
+        ),
+    ] {
+        let path = root
+            .join("local-client-key-references")
+            .join(format!("{}.json", slot.replace(':', "-")));
+        let retained = std::fs::read(&path).expect("retained capture");
+        let record: serde_json::Value = serde_json::from_slice(&retained).expect("capture JSON");
+        let original = owner
+            .oauth2
+            .key_service
+            .key_repo()
+            .find_active_entity_root_key(entity, id)
+            .await
+            .expect("root lookup")
+            .expect("root");
+        for fault in [
+            "mode",
+            "root_id",
+            "entity_id",
+            "paths",
+            "legacy",
+            "pending",
+            "never-started",
+        ] {
+            let mut corrupt = record.clone();
+            match fault {
+                "mode" => {
+                    corrupt.as_object_mut().expect("object").remove("mode");
+                }
+                "root_id" | "entity_id" => {
+                    corrupt[fault] = serde_json::json!(Id::now_v7());
+                }
+                "paths" => {
+                    corrupt["paths"] = serde_json::json!(["m/999'", "m"]);
+                }
+                "legacy" => {
+                    corrupt["version"] = serde_json::json!(2);
+                    corrupt.as_object_mut().expect("object").remove("mode");
+                    corrupt.as_object_mut().expect("object").remove("root_id");
+                }
+                "pending" | "never-started" => {
+                    corrupt["state"] = serde_json::json!(fault);
+                    corrupt["entity_id"] = serde_json::Value::Null;
+                    corrupt["root_id"] = serde_json::Value::Null;
+                    corrupt["paths"] = serde_json::json!([]);
+                }
+                _ => unreachable!("enumerated faults"),
+            }
+            let bytes = serde_json::to_vec(&corrupt).expect("fault fixture");
+            std::fs::write(&path, &bytes).expect("inject capture fault");
+            if entity == idp_model::contract::EntityType::User {
+                owner
+                    .ensure_initial_user_root(user)
+                    .await
+                    .expect_err("invalid retained User capture cannot produce a replacement");
+            } else {
+                owner
+                    .ensure_desktop_client(client)
+                    .await
+                    .expect_err("invalid retained Client capture cannot produce a replacement");
+                let registration = owner
+                    .oauth2
+                    .get_client(&client.to_string())
+                    .await
+                    .expect("unchanged registration");
+                owner
+                    .verify_public_login_client(registration)
+                    .await
+                    .expect_err("existing-only verification also refuses invalid root captures");
+            }
+            assert_eq!(
+                std::fs::read(&path).expect("capture remains"),
+                bytes,
+                "{fault}"
+            );
+            assert_eq!(
+                owner
+                    .oauth2
+                    .key_service
+                    .key_repo()
+                    .find_active_entity_root_key(entity, id)
+                    .await
+                    .expect("lookup")
+                    .expect("unchanged root")
+                    .id,
+                original.id
+            );
+        }
+        std::fs::write(&path, &retained).expect("restore exact capture");
+        owner
+            .engine
+            .client()
+            .translate_and_execute(
+                &format!(
+                    "UPDATE keys SET derivation_index = 4294967295 WHERE id = CAST('{}' AS UUID)",
+                    original.id
+                ),
+                &db::SqlTranslator,
+            )
+            .await
+            .expect("inject corrupt root metadata");
+        if entity == idp_model::contract::EntityType::User {
+            owner
+                .ensure_initial_user_root(user)
+                .await
+                .expect_err("corrupt captured User root is not repaired");
+        } else {
+            owner
+                .ensure_desktop_client(client)
+                .await
+                .expect_err("corrupt captured Client root is not repaired");
+        }
+        assert_eq!(
+            owner
+                .oauth2
+                .key_service
+                .key_repo()
+                .find_by_id(original.id)
+                .await
+                .expect("root lookup")
+                .expect("retained corrupt root")
+                .derivation_index,
+            u32::MAX
+        );
+        owner
+            .oauth2
+            .key_service
+            .key_repo()
+            .delete_by_entity_type_and_id(entity, id)
+            .await
+            .expect("lose captured metadata");
+        if entity == idp_model::contract::EntityType::User {
+            owner
+                .ensure_initial_user_root(user)
+                .await
+                .expect_err("lost User root is not recreated");
+        } else {
+            owner
+                .ensure_desktop_client(client)
+                .await
+                .expect_err("lost Client root is not recreated");
+        }
+        assert!(
+            owner
+                .oauth2
+                .key_service
+                .key_repo()
+                .find_active_entity_root_key(entity, id)
+                .await
+                .expect("lookup")
+                .is_none()
+        );
+        assert_eq!(std::fs::read(&path).expect("unchanged capture"), retained);
+    }
+    assert_eq!(secrets.store_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(secrets.load_calls.load(Ordering::SeqCst), 0);
+    drop(owner);
+    let owner = OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
+        .await
+        .expect("offline reopen");
+    owner
+        .ensure_initial_user_root(user)
+        .await
+        .expect_err("missing metadata remains incomplete after reopen");
+    owner
+        .delete_local_secrets(Id::now_v7(), Id::now_v7(), user, &[client])
+        .await
+        .expect("metadata cleanup can reset lost public rows");
+    assert_eq!(secrets.store_calls.load(Ordering::SeqCst), 0);
+    assert!(
+        secrets.load_calls.load(Ordering::SeqCst) > 0,
+        "lost metadata does not bypass captured provider paths during reset"
+    );
+    drop(owner);
+    std::fs::remove_dir_all(root).expect("fixture");
+}
+
+#[tokio::test]
+async fn metadata_root_retry_validates_rotated_active_root_independently() {
+    let root = std::env::temp_dir().join(format!("rotated-root-integrity-{}", Id::now_v7()));
+    let config = AppConfig {
+        data_dir: root.to_string_lossy().into_owned(),
+        ..AppConfig::default()
+    };
+    let secrets = Secrets::default();
+    let owner = OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
+        .await
+        .expect("owner");
+    let user = Id::now_v7();
+    let client = Id::now_v7();
+    owner
+        .prepare_fresh_setup_secret_inventory(user, &[client])
+        .await
+        .expect("fresh");
+    owner
+        .prepare_setup_client_slots(&[client])
+        .await
+        .expect("slots");
+    owner
+        .ensure_initial_user(user, Id::now_v7(), "rotating-admin", "valid-password")
+        .await
+        .expect("User");
+    owner
+        .ensure_initial_user_root(user)
+        .await
+        .expect("initial User root");
+    owner
+        .ensure_desktop_client(client)
+        .await
+        .expect("initial Client root");
+    let client_entity = owner
+        .oauth2
+        .client_repo
+        .find_client_by_client_id(&client.to_string())
+        .await
+        .expect("Client lookup")
+        .expect("Client")
+        .id;
+    for (slot, entity, id) in [
+        (
+            format!("user:{user}"),
+            idp_model::contract::EntityType::User,
+            user,
+        ),
+        (
+            client.to_string(),
+            idp_model::contract::EntityType::Client,
+            client_entity,
+        ),
+    ] {
+        let keys = &owner.oauth2.key_service;
+        let initial = keys
+            .key_repo()
+            .find_active_entity_root_key(entity, id)
+            .await
+            .expect("initial root")
+            .expect("root");
+        let active = keys
+            .rotate_active_entity_root_key(entity, id, "rotated metadata root".into(), None)
+            .await
+            .expect("valid rotation");
+        assert_ne!(active.id, initial.id);
+        assert_ne!(active.derivation_path, initial.derivation_path);
+        let reference_path = root
+            .join("local-client-key-references")
+            .join(format!("{}.json", slot.replace(':', "-")));
+        let reference = std::fs::read(&reference_path).expect("initial capture remains the anchor");
+        let record: serde_json::Value = serde_json::from_slice(&reference).expect("capture");
+        assert_eq!(record["root_id"], serde_json::json!(initial.id));
+        let valid = if entity == idp_model::contract::EntityType::User {
+            owner.ensure_initial_user_root(user).await
+        } else {
+            owner.ensure_client_root(&client.to_string()).await
+        };
+        valid.expect("valid active root need not use the captured initial path");
+        let public = serde_json::json!({"kid":active.id.to_string(),"use":"sig","alg":"ES256K","kty":"EC","crv":"secp256k1",
+            "x":"eb5mfvncu6xVoGKVzocLBwKb/NstzijZWfKBWxb4F5g","y":"SDradyajxGVdpPv8DhEIqP0XtEimhVQZnEfQj/sQ1Lg"});
+        for fault in [
+            "public-jwk",
+            "not-hardened",
+            "path-index",
+            "invalid-path",
+            "noncanonical-path",
+        ] {
+            let assignment = match fault {
+                "public-jwk" => format!("public_jwk = '{public}'"),
+                "not-hardened" => "hardened = 0".into(),
+                "path-index" => format!("derivation_index = {}", active.derivation_index + 1),
+                "invalid-path" => "derivation_path = 'not-a-path'".into(),
+                "noncanonical-path" => "derivation_path = 'm/000001'".into(),
+                _ => unreachable!("enumerated root faults"),
+            };
+            owner
+                .engine
+                .client()
+                .translate_and_execute(
+                    &format!(
+                        "UPDATE keys SET {assignment} WHERE id = CAST('{}' AS UUID)",
+                        active.id
+                    ),
+                    &db::SqlTranslator,
+                )
+                .await
+                .expect("corrupt only the rotated active root");
+            let query = format!(
+                "SELECT * FROM keys WHERE id = CAST('{}' AS UUID)",
+                active.id
+            );
+            let corrupted = owner
+                .engine
+                .client()
+                .translate_and_execute(&query, &db::SqlTranslator)
+                .await
+                .expect("fault fixture")
+                .remove(0)
+                .rows;
+            let result = if entity == idp_model::contract::EntityType::User {
+                owner.ensure_initial_user_root(user).await
+            } else {
+                owner.ensure_client_root(&client.to_string()).await
+            };
+            result.expect_err("corrupt active metadata must deny even with an intact initial root");
+            if entity == idp_model::contract::EntityType::Client {
+                let registration = owner
+                    .oauth2
+                    .get_client(&client.to_string())
+                    .await
+                    .expect("registration unchanged");
+                owner
+                    .verify_public_login_client(registration)
+                    .await
+                    .expect_err("existing-only verification rejects corrupt active root too");
+            }
+            assert_eq!(
+                std::fs::read(&reference_path).expect("unchanged capture"),
+                reference,
+                "{fault}"
+            );
+            assert_eq!(
+                owner
+                    .engine
+                    .client()
+                    .translate_and_execute(&query, &db::SqlTranslator)
+                    .await
+                    .expect("metadata unchanged")
+                    .remove(0)
+                    .rows,
+                corrupted,
+                "{fault}"
+            );
+            assert_eq!(secrets.store_calls.load(Ordering::SeqCst), 0);
+            assert_eq!(secrets.load_calls.load(Ordering::SeqCst), 0);
+            owner.engine.client().translate_and_execute(&format!("UPDATE keys SET hardened = 1, derivation_index = {}, derivation_path = '{}', public_jwk = NULL WHERE id = CAST('{}' AS UUID)", active.derivation_index, active.derivation_path.replace('\'', "''"), active.id), &db::SqlTranslator).await.expect("restore exact active metadata fixture");
+        }
+        let valid = if entity == idp_model::contract::EntityType::User {
+            owner.ensure_initial_user_root(user).await
+        } else {
+            owner.ensure_client_root(&client.to_string()).await
+        };
+        valid.expect("restored valid rotation remains usable");
+    }
+    drop(owner);
+    std::fs::remove_dir_all(root).expect("fixture");
+}
+
+#[tokio::test]
+async fn metadata_only_reset_refuses_uninventoried_cryptographic_material() {
+    for fault in [
+        "published",
+        "master-interrupted",
+        "derived-unpublished",
+        "derived-interrupted",
+        "revoked-derived",
+        "expired-derived",
+        "lost-metadata-master",
+        "provider-uncertain",
+        "retained-path-uncertain",
+    ] {
+        let root = std::env::temp_dir().join(format!("metadata-crypto-conflict-{}", Id::now_v7()));
+        let config = AppConfig {
+            data_dir: root.to_string_lossy().into_owned(),
+            ..AppConfig::default()
+        };
+        let secrets = Secrets::default();
+        let owner = OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
+            .await
+            .expect("owner");
+        let user = Id::now_v7();
+        owner
+            .prepare_fresh_setup_secret_inventory(user, &[])
+            .await
+            .expect("fresh");
+        owner.prepare_setup_client_slots(&[]).await.expect("slots");
+        owner
+            .ensure_initial_user(user, Id::now_v7(), "mixed-admin", "valid-password")
+            .await
+            .expect("User");
+        owner
+            .ensure_initial_user_root(user)
+            .await
+            .expect("metadata root");
+        let keys = &owner.oauth2.key_service;
+        let entity = idp_model::contract::EntityType::User;
+        let initial = keys
+            .key_repo()
+            .find_active_entity_root_key(entity, user)
+            .await
+            .expect("root lookup")
+            .expect("actual root");
+        let namespace = keys.scoped_namespace(entity, user);
+        match fault {
+            "published" => {
+                publish_private_attempt(&owner, &initial)
+                    .await
+                    .expect("explicit crypto fixture");
+            }
+            "master-interrupted" => {
+                secrets.interrupt_after_store.store(true, Ordering::SeqCst);
+                keys.ensure_entity_master_key(entity, user, "explicit-crypto-fixture")
+                    .expect_err("provider writes master then reports interruption");
+            }
+            "lost-metadata-master" => {
+                keys.ensure_entity_master_key(entity, user, "explicit-crypto-fixture")
+                    .expect("unpublished master");
+                keys.key_repo()
+                    .delete_by_entity_type_and_id(entity, user)
+                    .await
+                    .expect("lose metadata, retain captured ancestry");
+            }
+            "retained-path-uncertain" => {
+                let extra = keys
+                    .key_repo()
+                    .create_key(
+                        None,
+                        entity,
+                        user,
+                        true,
+                        "uncertain unpublished key".into(),
+                        None,
+                    )
+                    .await
+                    .expect("extra metadata");
+                owner
+                    .engine
+                    .client()
+                    .translate_and_execute(
+                        &format!(
+                            "UPDATE keys SET revoked_at = 1 WHERE id = CAST('{}' AS UUID)",
+                            extra.id
+                        ),
+                        &db::SqlTranslator,
+                    )
+                    .await
+                    .expect("inactive metadata");
+                secrets
+                    .values
+                    .lock()
+                    .expect("provider fault fixture")
+                    .insert(
+                        (namespace.clone(), extra.derivation_path.clone()),
+                        "invalid-private-key-encoding".into(),
+                    );
+            }
+            "provider-uncertain" => {
+                secrets.fail_load.store(true, Ordering::SeqCst);
+            }
+            _ => {
+                keys.ensure_entity_master_key(entity, user, "explicit-crypto-fixture")
+                    .expect("explicit master");
+                if fault == "derived-unpublished" {
+                    keys.private_key_repo()
+                        .ensure_derivation_path(
+                            &namespace,
+                            initial.derivation_path().expect("captured path"),
+                        )
+                        .expect("unpublished captured child");
+                } else {
+                    secrets.interrupt_after_store.store(true, Ordering::SeqCst);
+                    keys.create_key(
+                        None,
+                        entity,
+                        user,
+                        true,
+                        "interrupted explicit crypto".into(),
+                        None,
+                    )
+                    .await
+                    .expect_err("provider writes derived key before publication can complete");
+                    secrets.interrupt_after_store.store(false, Ordering::SeqCst);
+                    let extra = keys
+                        .key_repo()
+                        .find_active_entity_root_key(entity, user)
+                        .await
+                        .expect("extra root")
+                        .expect("unpublished metadata");
+                    assert_ne!(extra.id, initial.id);
+                    assert!(extra.public_jwk.is_none());
+                    if fault == "revoked-derived" || fault == "expired-derived" {
+                        let column = if fault == "revoked-derived" {
+                            "revoked_at"
+                        } else {
+                            "expires_at"
+                        };
+                        owner
+                            .engine
+                            .client()
+                            .translate_and_execute(
+                                &format!(
+                                    "UPDATE keys SET {column} = 1 WHERE id = CAST('{}' AS UUID)",
+                                    extra.id
+                                ),
+                                &db::SqlTranslator,
+                            )
+                            .await
+                            .expect("inactive unpublished private key");
+                    }
+                }
+                secrets
+                    .delete(&namespace, &DerivationPath::default())
+                    .expect("isolate derived material from master/captured ancestry");
+            }
+        }
+        secrets.interrupt_after_store.store(false, Ordering::SeqCst);
+        let inventory_path = root.join("setup-secret-inventory.json");
+        let reference_path = root
+            .join("local-client-key-references")
+            .join(format!("user-{user}.json"));
+        let inventory = std::fs::read(&inventory_path).expect("inventory");
+        let reference = std::fs::read(&reference_path).expect("capture");
+        let metadata = owner
+            .engine
+            .client()
+            .translate_and_execute("SELECT * FROM keys", &db::SqlTranslator)
+            .await
+            .expect("retained metadata")
+            .remove(0)
+            .rows;
+        let secrets_before = secrets.values.lock().expect("private store").clone();
+        let writes = secrets.store_calls.load(Ordering::SeqCst);
+        let loads = secrets.load_calls.load(Ordering::SeqCst);
+        owner
+            .delete_local_secrets(Id::now_v7(), Id::now_v7(), user, &[])
+            .await
+            .expect_err(
+                "unexpected or uncertain private material cannot be discarded with metadata",
+            );
+        assert!(
+            secrets.load_calls.load(Ordering::SeqCst) > loads,
+            "reset must consult provider: {fault}"
+        );
+        assert_eq!(
+            std::fs::read(&inventory_path).expect("inventory remains"),
+            inventory,
+            "{fault}"
+        );
+        assert_eq!(
+            std::fs::read(&reference_path).expect("capture remains"),
+            reference,
+            "{fault}"
+        );
+        assert_eq!(
+            owner
+                .engine
+                .client()
+                .translate_and_execute("SELECT * FROM keys", &db::SqlTranslator)
+                .await
+                .expect("unchanged metadata")
+                .remove(0)
+                .rows,
+            metadata,
+            "{fault}"
+        );
+        assert!(
+            secrets
+                .values
+                .lock()
+                .expect("private store")
+                .eq(&secrets_before),
+            "private material remains: {fault}"
+        );
+        assert_eq!(
+            secrets.store_calls.load(Ordering::SeqCst),
+            writes,
+            "reset never produces secrets"
+        );
+        drop(owner);
+        std::fs::remove_dir_all(root).expect("fixture");
+    }
+}
+
+#[tokio::test]
+async fn legacy_reset_verifies_inactive_unpublished_paths_before_discarding_metadata() {
+    for column in ["revoked_at", "expires_at"] {
+        let root = std::env::temp_dir().join(format!("inactive-private-reset-{}", Id::now_v7()));
+        let config = AppConfig {
+            data_dir: root.to_string_lossy().into_owned(),
+            ..AppConfig::default()
+        };
+        let secrets = Secrets::default();
+        let owner = OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
+            .await
+            .expect("owner");
+        let user = Id::now_v7();
+        owner
+            .prepare_fresh_setup_secret_inventory(user, &[])
+            .await
+            .expect("fresh");
+        owner.prepare_setup_client_slots(&[]).await.expect("slots");
+        owner
+            .ensure_initial_user(user, Id::now_v7(), "legacy-reset-admin", "valid-password")
+            .await
+            .expect("User");
+        owner
+            .ensure_initial_user_root(user)
+            .await
+            .expect("initial root");
+        let keys = &owner.oauth2.key_service;
+        let entity = idp_model::contract::EntityType::User;
+        let initial = keys
+            .key_repo()
+            .find_active_entity_root_key(entity, user)
+            .await
+            .expect("root lookup")
+            .expect("root");
+        retain_private_attempt(&owner, &format!("user:{user}"), &initial);
+        publish_private_attempt(&owner, &initial)
+            .await
+            .expect("explicit private history");
+        secrets.interrupt_after_store.store(true, Ordering::SeqCst);
+        keys.create_key(
+            None,
+            entity,
+            user,
+            true,
+            "interrupted explicit key".into(),
+            None,
+        )
+        .await
+        .expect_err("derived secret stored before publication");
+        secrets.interrupt_after_store.store(false, Ordering::SeqCst);
+        let extra = keys
+            .key_repo()
+            .find_active_entity_root_key(entity, user)
+            .await
+            .expect("extra key")
+            .expect("metadata");
+        assert_ne!(extra.id, initial.id);
+        assert!(extra.public_jwk.is_none());
+        owner
+            .engine
+            .client()
+            .translate_and_execute(
+                &format!(
+                    "UPDATE keys SET {column} = 1 WHERE id = CAST('{}' AS UUID)",
+                    extra.id
+                ),
+                &db::SqlTranslator,
+            )
+            .await
+            .expect("inactive unpublished key");
+        let namespace = keys.scoped_namespace(entity, user);
+        secrets
+            .delete(
+                &namespace,
+                &initial.derivation_path().expect("initial path"),
+            )
+            .expect("isolate extra secret");
+        secrets
+            .delete(&namespace, &DerivationPath::default())
+            .expect("isolate extra secret from master");
+        let retained_private = secrets.values.lock().expect("private store").clone();
+        assert_eq!(retained_private.len(), 1);
+        let reference_path = root
+            .join("local-client-key-references")
+            .join(format!("user-{user}.json"));
+        let reference = std::fs::read(&reference_path).expect("capture");
+        let metadata = owner
+            .engine
+            .client()
+            .translate_and_execute("SELECT * FROM keys", &db::SqlTranslator)
+            .await
+            .expect("metadata")
+            .remove(0)
+            .rows;
+        let writes = secrets.store_calls.load(Ordering::SeqCst);
+        secrets.retain_on_delete.store(true, Ordering::SeqCst);
+        owner
+            .delete_local_secrets(Id::now_v7(), Id::now_v7(), user, &[])
+            .await
+            .expect_err("inactive path deletion requires actual durable readback");
+        let inventory: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(root.join("setup-secret-inventory.json")).expect("durable fence"),
+        )
+        .expect("inventory");
+        assert_eq!(inventory["phase"], "resetting");
+        assert_eq!(
+            owner
+                .engine
+                .client()
+                .translate_and_execute("SELECT * FROM keys", &db::SqlTranslator)
+                .await
+                .expect("evidence remains")
+                .remove(0)
+                .rows,
+            metadata
+        );
+        assert!(
+            secrets
+                .values
+                .lock()
+                .expect("private store")
+                .eq(&retained_private)
+        );
+        secrets.retain_on_delete.store(false, Ordering::SeqCst);
+        owner
+            .delete_local_secrets(Id::now_v7(), Id::now_v7(), user, &[])
+            .await
+            .expect("exact verified cleanup retry");
+        assert!(secrets.values.lock().expect("private store").is_empty());
+        assert!(
+            owner
+                .engine
+                .client()
+                .translate_and_execute("SELECT * FROM keys", &db::SqlTranslator)
+                .await
+                .expect("metadata removed only after secrets")
+                .remove(0)
+                .rows
+                .is_empty()
+        );
+        assert_eq!(
+            std::fs::read(&reference_path).expect("capture retained"),
+            reference
+        );
+        assert_eq!(secrets.store_calls.load(Ordering::SeqCst), writes);
+        drop(owner);
+        std::fs::remove_dir_all(root).expect("fixture");
+    }
+}
+
+#[tokio::test]
+async fn legacy_private_attempt_is_unchanged_until_explicit_verified_reset() {
+    let root = std::env::temp_dir().join(format!("legacy-private-attempt-{}", Id::now_v7()));
+    let config = AppConfig {
+        data_dir: root.to_string_lossy().into_owned(),
+        ..AppConfig::default()
+    };
+    let secrets = Secrets::default();
+    let owner = OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
+        .await
+        .expect("owner");
+    let user = Id::now_v7();
+    owner
+        .prepare_fresh_setup_secret_inventory(user, &[])
+        .await
+        .expect("fresh fixture");
+    owner.prepare_setup_client_slots(&[]).await.expect("slots");
+    owner
+        .ensure_initial_user(user, Id::now_v7(), "legacy-admin", "valid-password")
+        .await
+        .expect("User");
+    owner
+        .ensure_initial_user_root(user)
+        .await
+        .expect("initial metadata fixture");
+    let key = owner
+        .oauth2
+        .key_service
+        .key_repo()
+        .find_active_entity_root_key(idp_model::contract::EntityType::User, user)
+        .await
+        .expect("root")
+        .expect("actual root");
+    retain_private_attempt(&owner, &format!("user:{user}"), &key);
+    let private = publish_private_attempt(&owner, &key)
+        .await
+        .expect("explicit private fixture");
+    owner
+        .oauth2
+        .key_service
+        .key_repo()
+        .delete_by_entity_type_and_id(idp_model::contract::EntityType::User, user)
+        .await
+        .expect("lose public rows after private attempt");
+    let inventory_path = root.join("setup-secret-inventory.json");
+    let mut inventory: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&inventory_path).expect("inventory")).expect("JSON");
+    inventory["version"] = serde_json::json!(2);
+    let inventory_bytes = serde_json::to_vec(&inventory).expect("legacy inventory");
+    std::fs::write(&inventory_path, &inventory_bytes).expect("legacy fixture");
+    let reference_path = root
+        .join("local-client-key-references")
+        .join(format!("user-{user}.json"));
+    let reference = std::fs::read(&reference_path).expect("capture");
+    let writes = secrets.store_calls.load(Ordering::SeqCst);
+    owner
+        .ensure_initial_user_root(user)
+        .await
+        .expect_err("legacy inventory is not fresh");
+    owner
+        .prepare_setup_client_slots(&[])
+        .await
+        .expect_err("no legacy upgrade");
+    assert_eq!(
+        std::fs::read(&inventory_path).expect("unchanged inventory"),
+        inventory_bytes
+    );
+    assert_eq!(
+        std::fs::read(&reference_path).expect("unchanged capture"),
+        reference
+    );
+    assert_eq!(secrets.store_calls.load(Ordering::SeqCst), writes);
+    secrets.retain_on_delete.store(true, Ordering::SeqCst);
+    owner
+        .delete_local_secrets(Id::now_v7(), Id::now_v7(), user, &[])
+        .await
+        .expect_err("reported success without actual deletion cannot finish reset");
+    let resetting: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&inventory_path).expect("fence")).expect("JSON");
+    assert_eq!(resetting["phase"], "resetting");
+    let namespace = owner
+        .oauth2
+        .key_service
+        .scoped_namespace(idp_model::contract::EntityType::User, user);
+    assert_eq!(
+        secrets
+            .load(&namespace, private.derivation_path())
+            .expect("readback")
+            .expect("retained secret")
+            .to_xprv_string(),
+        private.to_xprv_string()
+    );
+    drop(owner);
+    secrets.retain_on_delete.store(false, Ordering::SeqCst);
+    let owner = OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
+        .await
+        .expect("reopen reset fence");
+    owner
+        .ensure_initial_user_root(user)
+        .await
+        .expect_err("fence prevents provisioning");
+    owner
+        .delete_local_secrets(Id::now_v7(), Id::now_v7(), user, &[])
+        .await
+        .expect("exact verified reset retry");
+    assert!(secrets.values.lock().expect("private store").is_empty());
+    assert_eq!(secrets.store_calls.load(Ordering::SeqCst), writes);
+    assert_eq!(
+        std::fs::read(&reference_path).expect("capture retained for cleanup"),
+        reference
+    );
     drop(owner);
     std::fs::remove_dir_all(root).expect("fixture");
 }
@@ -931,9 +1942,22 @@ async fn inventory_user_cleanup_survives_lost_key_metadata() {
         .await
         .expect("user");
     owner
-        .ensure_initial_user_signing_key(user)
+        .ensure_initial_user_root(user)
         .await
         .expect("signing key");
+    let key = owner
+        .oauth2
+        .key_service
+        .key_repo()
+        .find_active_entity_root_key(idp_model::contract::EntityType::User, user)
+        .await
+        .expect("User root")
+        .expect("retained root");
+    retain_private_attempt(&owner, &format!("user:{user}"), &key);
+    publish_private_attempt(&owner, &key)
+        .await
+        .expect("explicit User crypto fixture");
+    assert!(!secrets.values.lock().expect("secrets").is_empty());
     owner
         .oauth2
         .key_service
@@ -942,7 +1966,7 @@ async fn inventory_user_cleanup_survives_lost_key_metadata() {
         .await
         .expect("lose metadata");
     owner
-        .ensure_initial_user_signing_key(user)
+        .ensure_initial_user_root(user)
         .await
         .expect_err("missing metadata cannot mint another private path");
     owner
@@ -1041,11 +2065,11 @@ async fn restricted_desktop_client_enables_local_user_signin_and_exact_retry() {
         .await
         .expect("independent trusted local signer");
     provisioner
-        .ensure_initial_user_signing_key(user)
+        .ensure_initial_user_root(user)
         .await
-        .expect("local User private/public key");
+        .expect("local User metadata root");
     provisioner
-        .ensure_initial_user_signing_key(user)
+        .ensure_initial_user_root(user)
         .await
         .expect("exact User key retry");
     let first = provisioner
@@ -1125,6 +2149,16 @@ async fn restricted_desktop_client_enables_local_user_signin_and_exact_retry() {
         .await
         .expect("retained public identity")
         .expect("User key");
+    assert!(user_key.public_jwk.is_none());
+    assert_eq!(
+        keys.private_key_repo().store_calls.load(Ordering::SeqCst),
+        1,
+        "User sign-in and exchange need only the Node private signer"
+    );
+    retain_private_attempt(&provisioner, &format!("user:{user}"), &user_key);
+    publish_private_attempt(&provisioner, &user_key)
+        .await
+        .expect("explicit published User crypto fixture");
     let namespace = keys.scoped_namespace(idp_model::contract::EntityType::User, user);
     keys.private_key_repo()
         .delete(&namespace, &user_key.derivation_path().expect("User path"))
@@ -1137,11 +2171,11 @@ async fn restricted_desktop_client_enables_local_user_signin_and_exact_retry() {
         .len();
     assert!(
         provisioner
-            .ensure_initial_user_signing_key(user)
+            .ensure_initial_user_root(user)
             .await
             .expect_err("published trust must not regenerate private material")
             .to_string()
-            .contains("explicit recovery")
+            .contains("explicit reset")
     );
     assert_eq!(
         keys.private_key_repo()
@@ -1156,7 +2190,7 @@ async fn restricted_desktop_client_enables_local_user_signin_and_exact_retry() {
 }
 
 #[tokio::test]
-async fn interrupted_desktop_client_retries_exact_key_and_reset_deletes_internal_namespace() {
+async fn private_attempt_client_never_regenerates_and_reset_deletes_internal_namespace() {
     let root = std::env::temp_dir().join(format!("desktop-client-retry-{}", Id::now_v7()));
     let config = AppConfig {
         data_dir: root.to_string_lossy().into_owned(),
@@ -1176,11 +2210,10 @@ async fn interrupted_desktop_client_retries_exact_key_and_reset_deletes_internal
         .prepare_setup_client_slots(&[external_id])
         .await
         .expect("prepare");
-    secrets.fail.store(true, Ordering::SeqCst);
     provisioner
         .ensure_desktop_client(external_id)
         .await
-        .expect_err("secure-store failure interrupts registration");
+        .expect("metadata-only registration");
     let client = provisioner
         .oauth2
         .client_repo
@@ -1192,19 +2225,38 @@ async fn interrupted_desktop_client_retries_exact_key_and_reset_deletes_internal
         client.id, external_id,
         "owner internal identity differs from OAuth client ID"
     );
-    secrets.fail.store(false, Ordering::SeqCst);
-    provisioner
-        .ensure_desktop_client(external_id)
-        .await
-        .expect("complete interrupted registration");
     let keys = &provisioner.oauth2.key_service;
     let key = keys
         .key_repo()
-        .find_by_entity_type_and_id(idp_model::contract::EntityType::Client, client.id)
+        .find_active_entity_root_key(idp_model::contract::EntityType::Client, client.id)
         .await
-        .expect("read client key")
-        .expect("retry must complete missing key");
-    assert!(key.public_jwk.is_some());
+        .expect("Client root")
+        .expect("retained metadata");
+    retain_private_attempt(&provisioner, &external_id.to_string(), &key);
+    secrets.fail.store(true, Ordering::SeqCst);
+    publish_private_attempt(&provisioner, &key)
+        .await
+        .expect_err("explicit first private write fails");
+    secrets.fail.store(false, Ordering::SeqCst);
+    let attempted = secrets.store_calls.load(Ordering::SeqCst);
+    provisioner
+        .ensure_desktop_client(external_id)
+        .await
+        .expect_err("unknown private attempt cannot be reclassified or regenerated");
+    assert_eq!(secrets.store_calls.load(Ordering::SeqCst), attempted);
+    let private = publish_private_attempt(&provisioner, &key)
+        .await
+        .expect("explicit fixture completion, not setup retry");
+    assert_eq!(
+        key.to_jwk_public(&private).expect("public key"),
+        keys.key_repo()
+            .find_by_id(key.id)
+            .await
+            .expect("metadata")
+            .expect("root")
+            .public_jwk
+            .expect("explicitly published")
+    );
     let namespace = keys.scoped_namespace(idp_model::contract::EntityType::Client, client.id);
     let path = key.derivation_path().expect("client key path");
     let retained = secrets
@@ -1214,7 +2266,7 @@ async fn interrupted_desktop_client_retries_exact_key_and_reset_deletes_internal
     provisioner
         .ensure_desktop_client(external_id)
         .await
-        .expect("exact completed retry");
+        .expect_err("private-attempt capture is reset-only even with complete material");
     assert_eq!(
         secrets
             .load(&namespace, &path)
@@ -1344,6 +2396,18 @@ async fn reset_retains_deleted_client_namespace_across_native_reopen_and_secret_
         .oauth2
         .key_service
         .scoped_namespace(idp_model::contract::EntityType::Client, client.id);
+    let key = provisioner
+        .oauth2
+        .key_service
+        .key_repo()
+        .find_active_entity_root_key(idp_model::contract::EntityType::Client, client.id)
+        .await
+        .expect("Client root")
+        .expect("metadata root");
+    retain_private_attempt(&provisioner, &external.to_string(), &key);
+    publish_private_attempt(&provisioner, &key)
+        .await
+        .expect("explicit Client crypto fixture");
     provisioner
         .oauth2
         .delete_client(&external.to_string())
@@ -1568,6 +2632,115 @@ async fn real_os_initial_node_signer_survives_native_reopen_and_offline_reset() 
 }
 
 #[tokio::test]
+async fn infrastructure_client_first_ensure_validates_reused_application() {
+    for (different_name, different_description) in [(true, false), (false, true), (false, false)] {
+        let root = std::env::temp_dir().join(format!("setup-client-application-{}", Id::now_v7()));
+        let config = AppConfig {
+            data_dir: root.to_string_lossy().into_owned(),
+            ..AppConfig::default()
+        };
+        let owner = OwnerProvisioner::open_with_private_keys(&config, Secrets::default())
+            .await
+            .expect("open isolated owner");
+        let client_id = Id::now_v7();
+        owner
+            .prepare_fresh_setup_secret_inventory(Id::now_v7(), &[client_id])
+            .await
+            .expect("fresh Client inventory");
+        owner
+            .prepare_setup_client_slots(&[client_id])
+            .await
+            .expect("prepare Client slot");
+        let registration = ClientRegistration {
+            application: ApplicationRegistration {
+                name: Some("Local service".into()),
+                uri: "https://service.test".into(),
+                description: Some("Local service identity".into()),
+            },
+            client_id: Some(client_id.to_string()),
+            client_secret: Some("stable-local-secret".into()),
+            client_id_issued_at: None,
+            client_secret_expires_at: None,
+            client_name: "Local service".into(),
+            client_uri: None,
+            logo_uri: None,
+            contacts: vec![],
+            terms_of_service_uri: None,
+            policy_uri: None,
+            client_type: ClientType::Confidential,
+            profile: ClientProfile::Web,
+            redirect_uris: vec![],
+            allowed_grant_types: vec![GrantType::ClientCredentials],
+            response_types: vec![],
+            allowed_scopes: vec!["idp.token.validate".into()],
+            allowed_audiences: vec!["https://service.test".into()],
+            token_endpoint_auth_method: TokenEndpointAuthMethod::ClientSecretBasic,
+            software_statement: None,
+            software_id: None,
+            software_version: None,
+        };
+        let existing = owner
+            .oauth2
+            .application_repo
+            .create_application(
+                if different_name {
+                    "Different service"
+                } else {
+                    "Local service"
+                }
+                .into(),
+                registration.application.uri.clone(),
+                Some(
+                    if different_description {
+                        "Different description"
+                    } else {
+                        "Local service identity"
+                    }
+                    .into(),
+                ),
+            )
+            .await
+            .expect("preexisting Application with the same URI");
+        let created = owner
+            .ensure_setup_infrastructure_client(registration.clone())
+            .await;
+        if different_name || different_description {
+            let error =
+                created.expect_err("first ensure must reject a reused Application mismatch");
+            assert!(error.to_string().contains("application conflicts"));
+            assert!(
+                owner
+                    .ensure_setup_infrastructure_client(registration)
+                    .await
+                    .is_err()
+            );
+        } else {
+            let created = created.expect("matching reused Application permits fresh creation");
+            let retried = owner
+                .ensure_setup_infrastructure_client(registration)
+                .await
+                .expect("matching Application permits exact retry");
+            assert_eq!(
+                created, retried,
+                "fresh and retry return the same registration"
+            );
+        }
+        assert_eq!(
+            owner
+                .oauth2
+                .application_repo
+                .find_by_id(existing.id)
+                .await
+                .expect("read retained Application"),
+            Some(existing),
+            "ensure must not repair or replace the preexisting Application"
+        );
+        drop(owner);
+        std::fs::remove_dir_all(root).expect("isolated Application fixture cleanup");
+    }
+}
+
+#[tokio::test]
 async fn native_initial_node_retries_and_reopens_with_independent_signing_capability() {
     let root = std::env::temp_dir().join(format!("node-setup-{}", Id::now_v7()));
     let mut config = AppConfig {
@@ -1664,14 +2837,36 @@ async fn native_initial_node_retries_and_reopens_with_independent_signing_capabi
                 .expect("approved signer"),
             public
         );
-        provisioner
+        let created = provisioner
             .ensure_setup_infrastructure_client(registration.clone())
             .await
             .expect("local service relationship");
-        provisioner
-            .ensure_setup_infrastructure_client(registration)
+        let retried = provisioner
+            .ensure_setup_infrastructure_client(registration.clone())
             .await
             .expect("exact service retry");
+        assert_eq!(
+            serde_json::to_value(&created).expect("created registration"),
+            serde_json::to_value(&retried).expect("retained registration"),
+            "fresh creation and exact retry expose the same owner contract"
+        );
+        for change_secret in [true, false] {
+            let mut conflicting = registration.clone();
+            if change_secret {
+                conflicting.client_secret = Some("different-local-secret".into());
+            } else {
+                conflicting
+                    .allowed_audiences
+                    .push("https://other.test".into());
+            }
+            assert!(
+                provisioner
+                    .ensure_setup_infrastructure_client(conflicting)
+                    .await
+                    .is_err(),
+                "retained retries verify both credentials and registration metadata"
+            );
+        }
         let token = provisioner
             .oauth2
             .token(request.clone(), Some(auth.clone()))

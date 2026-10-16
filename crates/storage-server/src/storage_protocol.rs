@@ -16,14 +16,14 @@ use storage_service::ScopedFileSystemRuntime;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    ManagementClient,
+    LocalReplicationAuthorizer,
     filesystem_transport::{FILESYSTEM_STREAM_KIND, IrohFileTransport, IrohResourceDescriptor},
 };
 
 #[derive(Clone)]
 pub(crate) struct StorageProtocolHandler {
     server: Server,
-    management: ManagementClient,
+    authorizer: LocalReplicationAuthorizer,
     file_systems: Arc<ScopedFileSystemRuntime<EndpointId>>,
     cancellation_token: CancellationToken,
 }
@@ -31,13 +31,13 @@ pub(crate) struct StorageProtocolHandler {
 impl StorageProtocolHandler {
     pub(crate) fn new(
         server: Server,
-        management: ManagementClient,
+        authorizer: LocalReplicationAuthorizer,
         file_systems: Arc<ScopedFileSystemRuntime<EndpointId>>,
         cancellation_token: CancellationToken,
     ) -> Self {
         Self {
             server,
-            management,
+            authorizer,
             file_systems,
             cancellation_token,
         }
@@ -46,12 +46,12 @@ impl StorageProtocolHandler {
     pub(crate) fn install_passthrough_reader(&self) -> Result<(), String> {
         let files = Arc::downgrade(&self.file_systems);
         let server = self.server.clone();
-        let management = self.management.clone();
+        let authorizer = self.authorizer.clone();
         let cancellation = self.cancellation_token.clone();
         self.file_systems.set_content_reader(move |owner, app, id, path| {
-            let files = files.clone(); let server = server.clone(); let management = management.clone(); let cancellation_token = cancellation.clone();
+            let files = files.clone(); let server = server.clone(); let authorizer = authorizer.clone(); let cancellation_token = cancellation.clone();
             async move {
-                let handler = Self { server, management, file_systems: files.upgrade().ok_or("Storage runtime is unavailable")?, cancellation_token };
+                let handler = Self { server, authorizer, file_systems: files.upgrade().ok_or("Storage runtime is unavailable")?, cancellation_token };
                 let resource = IrohResourceDescriptor { owner_subject: owner, application_id: app.to_string(), filesystem_id: id.as_uuid().to_string() };
                 let mut failure = "no configured peers".to_owned();
                 for peer in handler.server.peers().ids() {
@@ -112,10 +112,11 @@ impl StorageProtocolHandler {
     }
 
     pub(crate) async fn synchronize_selected_peers(&self) {
-        let Some(local) = self.management.local_replication_authorizer() else {
-            return;
-        };
-        let Ok(selected) = local.selected_resources(self.server.endpoint().id()).await else {
+        let Ok(selected) = self
+            .authorizer
+            .selected_resources(self.server.endpoint().id())
+            .await
+        else {
             return;
         };
         let selected_filesystems = selected
@@ -331,7 +332,11 @@ impl StorageProtocolHandler {
         })
     }
 
-    async fn authorize(&self, resource: &IrohResourceDescriptor, connection: &Connection) -> bool {
+    pub(super) async fn authorize(
+        &self,
+        resource: &IrohResourceDescriptor,
+        connection: &Connection,
+    ) -> bool {
         if self.cancellation_token.is_cancelled() {
             return false;
         }
@@ -352,10 +357,7 @@ impl StorageProtocolHandler {
         {
             return false;
         }
-        let Some(local) = self.management.local_replication_authorizer() else {
-            return false;
-        };
-        local
+        self.authorizer
             .authorize(
                 self.server.endpoint().id(),
                 connection.remote_id(),
@@ -367,6 +369,11 @@ impl StorageProtocolHandler {
                 },
             )
             .await
+            && !self.cancellation_token.is_cancelled()
+            && self
+                .file_systems
+                .require_local_copy(&scope, filesystem_id)
+                .is_ok()
     }
 
     async fn require_authorized(

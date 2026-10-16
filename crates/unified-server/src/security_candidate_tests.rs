@@ -8,6 +8,7 @@ use std::{
 
 use db::{Database, Row, Value};
 use idp_model::model::Id;
+use management_service::{DeviceRepo, replica::DbDeviceRepo};
 use ofdb_sql::{SyncMessage, SyncRole};
 
 use super::{Pair, Poison, RecoveryAttack, public_jwk, sync_fixture, unvalidated_initiate};
@@ -128,6 +129,112 @@ async fn marker3_revalidates_semantic_recovery_and_preserves_local_contender() {
 }
 
 #[tokio::test]
+async fn approved_endpoints_without_idp_signers_exchange_and_device_revocation_denies() {
+    tokio::time::timeout(Duration::from_secs(180), async {
+        let mut pair = Pair::new().await;
+        for database in [&pair.idp_a, &pair.idp_b] {
+            sql(
+                database,
+                "DELETE FROM idp_replica_signers; DELETE FROM idp_replica_members",
+            )
+            .await;
+            assert!(
+                idp_service::replica::DbReplicaSignerRepo::new(database.clone())
+                    .trusted_signers(super::INSTALLATION, 10)
+                    .await
+                    .expect("no token-signing trust")
+                    .is_empty()
+            );
+        }
+        pair.serve(true);
+        let connection = pair.connect().await;
+        pair.protocol_a
+            .synchronize(&connection, SecurityContext::Idp)
+            .await
+            .expect("approved endpoints with exact policy need no IdP signer or membership");
+        sql(
+            &pair.idp_b,
+            &format!(
+                "UPDATE devices SET revoked_at = 2 WHERE id = CAST('{}' AS UUID)",
+                pair.member_a
+            ),
+        )
+        .await;
+        enroll(
+            pair.idp_b.clone(),
+            pair.member_a,
+            pair.a.endpoint().id(),
+            Id::now_v7(),
+        )
+        .await;
+        assert!(
+            idp_service::replica::DbReplicaSignerRepo::new(pair.idp_b.clone())
+                .trusted_signers(super::INSTALLATION, 10)
+                .await
+                .expect("IdP signing trust is independent of revoked Device")
+                .iter()
+                .any(|(member, _)| member.member_id == pair.member_a)
+        );
+        let before = pair
+            .idp_b
+            .sync_manifest()
+            .await
+            .expect("revoked receiver manifest");
+        pair.protocol_a
+            .synchronize(&connection, SecurityContext::Idp)
+            .await
+            .expect_err("valid signer cannot override Device revocation on existing connection");
+        assert_eq!(
+            pair.idp_b
+                .sync_manifest()
+                .await
+                .expect("unchanged receiver"),
+            before
+        );
+        pair.close().await;
+    })
+    .await
+    .expect("bounded signer-independent transport admission");
+}
+
+#[tokio::test]
+async fn approved_devices_reject_conflicted_public_device_bindings() {
+    tokio::time::timeout(Duration::from_secs(180), async {
+        let pair = Pair::new().await;
+        let mut bindings = Vec::new();
+        for column in ["owner_subject", "name", "address"] {
+            bindings.push((column, seed(&pair.idp_a).await.member));
+        }
+        let fork = Database::open(pair.root.join("device-binding-fork.redb"))
+            .expect("independent Device contender");
+        idp_model::replica::up(&fork).await.expect("public schema");
+        sync_fixture(&pair.idp_a, &fork).await;
+        for (column, member) in &bindings {
+            for database in [pair.idp_a.as_ref(), &fork] {
+                let value = Id::now_v7();
+                sql(database, &format!("UPDATE devices SET {column} = '{value}' WHERE id = CAST('{member}' AS UUID)")).await;
+            }
+        }
+        sync_fixture(&pair.idp_a, &fork).await;
+        for database in [pair.idp_a.as_ref(), &fork] {
+            for (column, member) in &bindings {
+                assert!(database.client().row_conflicts("devices", &Row::new(vec![Value::Uuid(*member)])).await.expect("actual public Device conflict").contains(&column.to_string()));
+            }
+            let devices = DbDeviceRepo::new(Arc::new(database.clone()));
+            assert!(devices.find_approved_by_public_key(&pair.a.endpoint().id().to_string()).await.expect("unrelated conflict-clear Device").is_some());
+            for (_, member) in &bindings {
+                let Value::Text(endpoint) = &sql(database, &format!("SELECT public_key FROM devices WHERE id = CAST('{member}' AS UUID)")).await[0].rows[0].values[0] else {
+                    panic!("fixture endpoint")
+                };
+                assert!(devices.find_approved_by_public_key(endpoint).await.is_err(), "conflicted public Device binding cannot grant transport trust");
+            }
+        }
+        drop(fork);
+        pair.close().await;
+    }).await.expect("bounded Device binding conflict regression");
+}
+
+#[tokio::test]
 async fn marker3_persists_pending_conflicts_and_tombstones_without_trust() {
     tokio::time::timeout(Duration::from_secs(180), async {
         let mut pair = Pair::new().await;
@@ -147,8 +254,12 @@ async fn marker3_persists_pending_conflicts_and_tombstones_without_trust() {
         pair.protocol_a.synchronize(&connection, SecurityContext::Idp).await.expect("pending/conflicted/revoked history may persist");
         assert!(pair.idp_b.client().row_conflicts("devices", &Row::new(vec![Value::Uuid(conflicted.member)])).await.expect("public conflict inspection").contains(&"public_key".to_string()));
         for member in [pending.member, conflicted.member] {
-            assert!(!idp_service::replica::DbReplicaSignerRepo::new(pair.idp_b.clone()).trusted_signers(super::INSTALLATION, 10).await.expect("durable local trust evaluation").iter().any(|(entry, _)| entry.member_id == member), "persistence does not grant trust/readiness");
+            assert!(!idp_service::replica::DbReplicaSignerRepo::new(pair.idp_b.clone()).trusted_signers(super::INSTALLATION, 10).await.expect("durable local signer trust evaluation").iter().any(|(entry, _)| entry.member_id == member), "persistence does not grant signing trust/readiness");
         }
+        let Value::Text(endpoint) = &sql(&pair.idp_b, &format!("SELECT public_key FROM devices WHERE id = CAST('{}' AS UUID)", conflicted.member)).await[0].rows[0].values[0] else {
+            panic!("fixture endpoint")
+        };
+        assert!(DbDeviceRepo::new(pair.idp_b.clone()).find_approved_by_public_key(endpoint).await.is_err(), "persisted Device conflict cannot grant transport trust");
         assert!(sql(&pair.idp_b, &format!("SELECT * FROM devices WHERE id = CAST('{}' AS UUID)", pending.member)).await[0].rows.is_empty(), "tombstone retained");
         let signer = sql(&pair.idp_b, &format!("SELECT revoked_at FROM idp_replica_signers WHERE id = CAST('{}' AS UUID)", pending.signer)).await;
         assert_eq!(signer[0].rows[0].values[0], Value::Integer(2), "revocation retained");

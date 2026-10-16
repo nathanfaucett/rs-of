@@ -4,7 +4,7 @@ use api::{Environment, ServerConfig};
 use idp_service::{PasswordConfig, oauth2::OAuth2Config};
 use serde::{Deserialize, Serialize};
 
-use super::PairingConfig;
+use super::{ManagementPermissionConfig, PairingConfig};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -23,6 +23,7 @@ pub struct AppConfig {
     /// Defaults to `api_public_uri` when omitted; configurable as `LIDP_SERVICE_AUDIENCE`.
     pub service_audience: Option<String>,
     pub management_data_dir: Option<String>,
+    pub management_permissions: Option<ManagementPermissionConfig>,
 
     pub env: Environment,
 }
@@ -41,6 +42,7 @@ impl Default for AppConfig {
             api_public_uri: "https://idp-api.localhost:1355".to_string(),
             service_audience: None,
             management_data_dir: None,
+            management_permissions: None,
             log_level: "DEBUG".to_string(),
             env: Environment::default(),
         }

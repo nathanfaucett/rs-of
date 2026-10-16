@@ -15,37 +15,20 @@ impl DbReplicaSignerRepo {
         Self { engine }
     }
 
-    /// Check current local membership for an independently authenticated connection endpoint.
-    /// This is not actor authentication or resource permission.
-    pub async fn is_trusted_peer(
-        &self,
-        issuer: &str,
-        member_id: idp_model::model::Id,
-        authenticated_endpoint_id: &str,
-        now: i64,
-    ) -> RepoResult<bool> {
-        let records = self.trusted_signers(issuer, now).await?;
-        Ok(records
-            .iter()
-            .filter(|(member, _)| member.matches(issuer, member_id, authenticated_endpoint_id))
-            .count()
-            == 1)
-    }
-
+    /// Read current, unambiguous, conflict-clear IdP token-signing trust, not endpoint approval.
     pub async fn trusted_signers(
         &self,
         issuer: &str,
         now: i64,
     ) -> RepoResult<Vec<(ReplicaMembership, IdpSignerRecord)>> {
         let mut results = self.engine.client().translate_and_execute(
-            "SELECT id, installation_id, member_id, endpoint_id, issuer, approved_at, revoked_at FROM idp_replica_members; SELECT id, member_id, active_member_id, key_id, issuer, public_jwk, approved_at, revoked_at, expires_at FROM idp_replica_signers; SELECT id, public_key, state, revoked_at FROM devices", &SqlTranslator,
+            "SELECT id, installation_id, member_id, endpoint_id, issuer, approved_at, revoked_at FROM idp_replica_members; SELECT id, member_id, active_member_id, key_id, issuer, public_jwk, approved_at, revoked_at, expires_at FROM idp_replica_signers", &SqlTranslator,
         ).await.map_err(db_error)?;
-        if results.len() != 3 {
+        if results.len() != 2 {
             return Err(RepoError::InvalidInput(
                 "incomplete node trust results".into(),
             ));
         }
-        let devices = results.pop().expect("three query results").rows;
         let signers = results.pop().expect("two query results").rows;
         let members = results.pop().expect("one query result").rows;
         let mut trusted = Vec::new();
@@ -113,10 +96,6 @@ impl DbReplicaSignerRepo {
                 if !member.matches(issuer, *member_id, endpoint_id) {
                     continue;
                 }
-                let device = devices.iter().any(|device| matches!(device.values.as_slice(), [Value::Uuid(id), Value::Text(endpoint), Value::Integer(1), Value::Null] if id == member_id && endpoint == endpoint_id));
-                if !device {
-                    continue;
-                }
                 let rows = [
                     idp_model::replica::SecurityRow::new(
                         idp_model::replica::SecurityTable::ReplicaSigner,
@@ -125,10 +104,6 @@ impl DbReplicaSignerRepo {
                     idp_model::replica::SecurityRow::new(
                         idp_model::replica::SecurityTable::ReplicaMember,
                         *member_row_id,
-                    ),
-                    idp_model::replica::SecurityRow::new(
-                        idp_model::replica::SecurityTable::Device,
-                        *member_id,
                     ),
                 ];
                 if idp_model::replica::allows_authorization(&self.engine, &rows)
@@ -526,6 +501,351 @@ mod tests {
         (membership, signer)
     }
 
+    async fn public_trust_fixture() -> (Arc<db::Database>, ReplicaMembership, IdpSignerRecord) {
+        let engine = Arc::new(db::Database::in_memory());
+        replica::up(&engine)
+            .await
+            .expect("initialize public IdP schema");
+        let (mut member, mut signer) = records();
+        member.member_id = Id::now_v7();
+        signer.member_id = member.member_id;
+        signer.key_id = Id::now_v7();
+        signer.public_jwk.kid = signer.key_id.to_string();
+        DbReplicaSignerRepo::new(engine.clone())
+            .enroll(&member, &signer)
+            .await
+            .expect("enroll public Node trust");
+        (engine, member, signer)
+    }
+
+    #[tokio::test]
+    async fn trusted_signers_without_devices_and_key_repo_preserve_pairs() {
+        use crate::{replica::DbKeyRepo, repo::KeyRepo};
+
+        let (engine, member, signer) = public_trust_fixture().await;
+        engine
+            .client()
+            .translate_and_execute("DROP TABLE local_device_enrollments", &SqlTranslator)
+            .await
+            .expect("public trust needs no private enrollment table");
+        let trusted = DbReplicaSignerRepo::new(engine.clone())
+            .trusted_signers(&member.issuer, 10)
+            .await
+            .expect("current public trust");
+        assert_eq!(trusted, vec![(member.clone(), signer.clone())]);
+        assert_eq!(
+            DbKeyRepo::new(engine)
+                .trusted_node_signers(&member.issuer, 10)
+                .await
+                .expect("unchanged pair facade"),
+            vec![(member, signer)]
+        );
+    }
+
+    async fn execute(engine: &db::Database, sql: &str) {
+        engine
+            .client()
+            .translate_and_execute(sql, &SqlTranslator)
+            .await
+            .expect("change public trust fixture");
+    }
+
+    #[tokio::test]
+    async fn trusted_signers_ignore_malformed_revoked_and_duplicate_devices() {
+        let (engine, member, signer) = public_trust_fixture().await;
+        let repo = DbReplicaSignerRepo::new(engine.clone());
+        let expected = vec![(member.clone(), signer)];
+        let devices = [
+            (member.member_id, "endpoint-key"),
+            (Id::now_v7(), "unrelated-endpoint-key"),
+        ];
+        for (id, endpoint) in devices {
+            execute(&engine, &format!(
+                "INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES (CAST('{id}' AS UUID), 'owner', 'Device', '{endpoint}', 'local', 1, 1, NULL, 1, 2)"
+            )).await;
+        }
+        for assignment in [
+            "owner_subject = '  '",
+            "name = NULL",
+            "public_key = NULL",
+            "address = NULL",
+            "state = 9",
+            "approved_at = 'invalid'",
+            "revoked_at = 'invalid'",
+            "created_at = NULL",
+            "updated_at = 'invalid'",
+            "state = 0",
+            "state = 2, revoked_at = 1",
+            "state = 1, revoked_at = 11",
+            "created_at = 9223372036854775807",
+        ] {
+            for (id, _) in devices {
+                for (reset_id, endpoint) in devices {
+                    execute(&engine, &format!(
+                        "UPDATE devices SET owner_subject = 'owner', name = 'Device', public_key = '{endpoint}', address = 'local', state = 1, approved_at = 1, revoked_at = NULL, created_at = 1, updated_at = 2 WHERE id = CAST('{reset_id}' AS UUID)"
+                    )).await;
+                }
+                execute(
+                    &engine,
+                    &format!("UPDATE devices SET {assignment} WHERE id = CAST('{id}' AS UUID)"),
+                )
+                .await;
+                assert_eq!(
+                    repo.trusted_signers(&member.issuer, 10)
+                        .await
+                        .expect("Device state cannot revoke IdP signer trust"),
+                    expected,
+                    "device={id}, {assignment}"
+                );
+            }
+        }
+        let (engine, member, signer) = public_trust_fixture().await;
+        let repo = DbReplicaSignerRepo::new(engine.clone());
+        let expected = vec![(member.clone(), signer)];
+        execute(&engine, "DROP INDEX devices_public_key").await;
+        for state in [0, 1, 2] {
+            execute(&engine, &format!(
+                "INSERT INTO devices (id, owner_subject, public_key, state) VALUES (CAST('{}' AS UUID), 'owner', 'endpoint-key', {state})", Id::now_v7()
+            )).await;
+        }
+        assert_eq!(
+            repo.trusted_signers(&member.issuer, 10)
+                .await
+                .expect("duplicate Device endpoints are not IdP signer ambiguity"),
+            expected
+        );
+    }
+
+    #[tokio::test]
+    async fn trusted_signers_need_no_device_tables() {
+        let (engine, member, signer) = public_trust_fixture().await;
+        execute(
+            &engine,
+            "DROP TABLE local_device_enrollments; DROP TABLE devices",
+        )
+        .await;
+        assert_eq!(
+            DbReplicaSignerRepo::new(engine)
+                .trusted_signers(&member.issuer, 10)
+                .await
+                .expect("IdP trust reads only member and signer records"),
+            vec![(member, signer)]
+        );
+    }
+
+    #[tokio::test]
+    async fn trusted_signers_require_exact_active_member_and_signer_bindings() {
+        for (table, assignment) in [
+            (
+                "idp_replica_members",
+                "installation_id = 'https://other.example'",
+            ),
+            ("idp_replica_members", "issuer = 'https://other.example'"),
+            (
+                "idp_replica_members",
+                "member_id = CAST('00000000-0000-0000-0000-000000000003' AS UUID)",
+            ),
+            ("idp_replica_members", "endpoint_id = ''"),
+            ("idp_replica_members", "endpoint_id = ' endpoint-key'"),
+            ("idp_replica_members", "revoked_at = 11"),
+            ("idp_replica_members", "approved_at = 11"),
+            ("idp_replica_members", "approved_at = NULL"),
+            ("idp_replica_members", "approved_at = 'invalid'"),
+            ("idp_replica_signers", "issuer = 'https://other.example'"),
+            (
+                "idp_replica_signers",
+                "member_id = CAST('00000000-0000-0000-0000-000000000003' AS UUID)",
+            ),
+            ("idp_replica_signers", "active_member_id = NULL"),
+            (
+                "idp_replica_signers",
+                "active_member_id = CAST('00000000-0000-0000-0000-000000000003' AS UUID)",
+            ),
+            (
+                "idp_replica_signers",
+                "key_id = CAST('00000000-0000-0000-0000-000000000003' AS UUID)",
+            ),
+            ("idp_replica_signers", "revoked_at = 11"),
+            ("idp_replica_signers", "approved_at = 11"),
+            ("idp_replica_signers", "approved_at = NULL"),
+            ("idp_replica_signers", "approved_at = 'invalid'"),
+            ("idp_replica_signers", "expires_at = 10"),
+            ("idp_replica_signers", "expires_at = 'invalid'"),
+        ] {
+            let (engine, member, _) = public_trust_fixture().await;
+            execute(&engine, &format!("UPDATE {table} SET {assignment}")).await;
+            assert!(
+                DbReplicaSignerRepo::new(engine)
+                    .trusted_signers(&member.issuer, 10)
+                    .await
+                    .expect("invalid IdP binding is excluded")
+                    .is_empty(),
+                "{table}: {assignment}"
+            );
+        }
+        for (table, column) in [
+            ("idp_replica_members", "approved_at"),
+            ("idp_replica_signers", "approved_at"),
+            ("idp_replica_signers", "expires_at"),
+        ] {
+            let (engine, member, _) = public_trust_fixture().await;
+            engine
+                .client()
+                .execute(vec![db::Statement::Query(db::Query::Update(
+                    db::QueryUpdate {
+                        from: db::QueryFrom {
+                            table: table.into(),
+                            joins: vec![],
+                        },
+                        assignments: vec![db::QueryUpdateAssignment {
+                            column: db::QueryColumn::new(table.into(), column.into()),
+                            value: db::QueryExprValue::Value(Value::Integer(-1)),
+                        }],
+                        predicate: None,
+                        returning: None,
+                    },
+                ))])
+                .await
+                .expect("set negative timestamp without SQL unary minus");
+            assert!(
+                DbReplicaSignerRepo::new(engine)
+                    .trusted_signers(&member.issuer, 10)
+                    .await
+                    .expect("negative IdP timestamp is excluded")
+                    .is_empty(),
+                "{table}: {column} = -1"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn trusted_signers_enforce_issuer_and_approval_expiry_boundaries() {
+        let (engine, member, mut signer) = public_trust_fixture().await;
+        execute(&engine, "UPDATE idp_replica_signers SET expires_at = 20").await;
+        signer.expires_at = Some(20);
+        let repo = DbReplicaSignerRepo::new(engine);
+        for now in [-1, 9, 20, i64::MAX] {
+            assert!(
+                repo.trusted_signers(&member.issuer, now)
+                    .await
+                    .expect("date gate")
+                    .is_empty()
+            );
+        }
+        for now in [10, 19] {
+            assert_eq!(
+                repo.trusted_signers(&member.issuer, now)
+                    .await
+                    .expect("within validity"),
+                vec![(member.clone(), signer.clone())]
+            );
+        }
+        for issuer in [
+            "",
+            "https://other.example",
+            "https://installation.example/",
+            " https://installation.example",
+        ] {
+            assert!(
+                repo.trusted_signers(issuer, 10)
+                    .await
+                    .expect("exact canonical issuer")
+                    .is_empty()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn trusted_signers_reject_invalid_public_keys() {
+        for (field, value) in [
+            ("kid", "other-key"),
+            ("use", "enc"),
+            ("alg", "ES256"),
+            ("crv", "P-256"),
+            ("x", "invalid"),
+        ] {
+            let (engine, member, signer) = public_trust_fixture().await;
+            let mut jwk = serde_json::to_value(signer.public_jwk).expect("public JWK JSON");
+            jwk[field] = value.into();
+            execute(
+                &engine,
+                &format!(
+                    "UPDATE idp_replica_signers SET public_jwk = {}",
+                    super::text(&jwk.to_string())
+                ),
+            )
+            .await;
+            let result = DbReplicaSignerRepo::new(engine)
+                .trusted_signers(&member.issuer, 10)
+                .await;
+            assert!(
+                result.is_err() || result.expect("decoded public key").is_empty(),
+                "accepted {field}"
+            );
+        }
+        let (engine, member, _) = public_trust_fixture().await;
+        execute(
+            &engine,
+            "UPDATE idp_replica_signers SET public_jwk = 'invalid'",
+        )
+        .await;
+        assert!(
+            DbReplicaSignerRepo::new(engine)
+                .trusted_signers(&member.issuer, 10)
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn trusted_signers_reject_ambiguous_idp_bindings() {
+        for (table, indexes, columns) in [
+            (
+                "idp_replica_members",
+                "DROP INDEX idp_replica_members_installation_member; DROP INDEX idp_replica_members_installation_endpoint;",
+                "installation_id, member_id, endpoint_id, issuer, approved_at, revoked_at",
+            ),
+            (
+                "idp_replica_signers",
+                "DROP INDEX idp_replica_signers_key_id; DROP INDEX idp_replica_signers_active_member;",
+                "member_id, active_member_id, key_id, issuer, public_jwk, approved_at, revoked_at, expires_at",
+            ),
+        ] {
+            let (engine, member, _) = public_trust_fixture().await;
+            execute(&engine, indexes).await;
+            let mut row = engine
+                .client()
+                .translate_and_execute(
+                    &format!("SELECT id, {columns} FROM {table}"),
+                    &SqlTranslator,
+                )
+                .await
+                .expect("read duplicate binding fixture")
+                .remove(0)
+                .rows
+                .remove(0);
+            row.values[0] = Value::Uuid(Id::now_v7());
+            engine
+                .client()
+                .execute(vec![db::Statement::Query(db::Query::Insert(
+                    db::QueryInsert {
+                        table: table.into(),
+                        row,
+                        returning: None,
+                    },
+                ))])
+                .await
+                .expect("insert ambiguous IdP binding");
+            assert!(
+                DbReplicaSignerRepo::new(engine)
+                    .trusted_signers(&member.issuer, 10)
+                    .await
+                    .is_err(),
+                "{table} ambiguity must deny"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn caller_transaction_controls_enrollment_commit_and_rollback() {
         let engine = Arc::new(db::Database::in_memory());
@@ -635,6 +955,12 @@ mod tests {
                 .await
                 .expect("rotate signer")
         );
+        assert_eq!(
+            repo.trusted_signers(&membership.issuer, 20)
+                .await
+                .expect("only the replacement signer is active"),
+            vec![(membership.clone(), replacement.clone())]
+        );
         assert!(
             !repo
                 .rotate(membership.member_id, &membership.issuer, &replacement)
@@ -661,6 +987,12 @@ mod tests {
             repo.revoke(membership.member_id, &membership.issuer, 30)
                 .await
                 .expect("revoke member and signer")
+        );
+        assert!(
+            repo.trusted_signers(&membership.issuer, 30)
+                .await
+                .expect("revoked IdP trust is excluded")
+                .is_empty()
         );
         assert!(
             !repo

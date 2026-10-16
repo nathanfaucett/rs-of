@@ -1,7 +1,10 @@
 use std::{future::Future, io, path::Path, sync::Arc};
 
 use idp_model::{
-    contract::{PermissionEvaluationRequest, PermissionSubject, PermissionTarget},
+    contract::{
+        IdpSignerRecord, PermissionEvaluationRequest, PermissionSubject, PermissionTarget,
+        ReplicaMembership,
+    },
     model::Id,
 };
 use idp_server::{NodeJoinApproval, NodeJoinStage, OwnerProvisioner};
@@ -22,6 +25,8 @@ use ofdb_sql::{
 use serde::{Deserialize, Serialize};
 use storage_server::DatabaseTransport;
 
+use crate::local_provisioning::provisioning_stage;
+
 use super::{SecurityContext, SecurityProtocol, candidates, denied, now};
 
 #[cfg(test)]
@@ -40,6 +45,17 @@ struct BootstrapRequest {
 }
 
 impl SecurityProtocol {
+    pub fn into_runtime_owners(
+        self,
+        endpoint: Arc<crate::UnifiedEndpoint>,
+    ) -> crate::runtime::RuntimeOwners {
+        crate::runtime::RuntimeOwners {
+            endpoint,
+            idp: self.idp,
+            management: self.management,
+        }
+    }
+
     pub async fn open_node_bootstrap(
         endpoint: &crate::UnifiedEndpoint,
         config: &idp_server::AppConfig,
@@ -90,8 +106,9 @@ impl SecurityProtocol {
             owner.record_node_join_approval(&approval)?;
         }
         let approval = owner.node_join_anchor()?;
-        owner.check_node_join_local_binding().await?;
+        provisioning_stage(|| owner.check_node_join_local_binding()).await?;
         if owner.node_join_stage_recorded(NodeJoinStage::Idp)? {
+            self.refresh_learned_membership().await?;
             self.check_exact_join_trust(&approval).await?;
         }
         if owner.node_join_stage_recorded(NodeJoinStage::Management)? {
@@ -100,23 +117,104 @@ impl SecurityProtocol {
         if self.node_join_public_ready(owner).await? {
             return Ok(approval);
         }
-        let connection = self
-            .server
-            .endpoint()
-            .connect(peer, idp_server::BOOTSTRAP_ALPN)
-            .await
-            .map_err(io::Error::other)?;
-        let result = async {
-            for context in [SecurityContext::Idp, SecurityContext::Management] {
-                self.receive_node_bootstrap(&connection, owner, context)
-                    .await?;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            provisioning_stage(|| owner.check_node_join_local_binding()).await?;
+            if owner.node_join_anchor()? != approval {
+                return Err(denied("join anchor changed during admission refresh"));
             }
-            self.complete_node_join_public_bootstrap(owner).await?;
-            Ok(approval)
+            let attempt = async {
+                let connection = tokio::time::timeout(
+                    std::time::Duration::from_secs(10),
+                    self.server
+                        .endpoint()
+                        .connect(peer, idp_server::BOOTSTRAP_ALPN),
+                )
+                .await
+                .map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "trusted peer bootstrap handshake timed out",
+                    )
+                })?
+                .map_err(io::Error::other)?;
+                let result = async {
+                    for context in [SecurityContext::Idp, SecurityContext::Management] {
+                        if !owner.node_join_stage_recorded(stage(context))? {
+                            provisioning_stage(|| {
+                                self.receive_node_bootstrap(&connection, owner, context)
+                            })
+                            .await
+                            .inspect_err(|_error| {
+                                #[cfg(test)]
+                                eprintln!("bootstrap receiver stage=receive context={context:?} error={_error}");
+                            })?;
+                        }
+                    }
+                    provisioning_stage(|| self.complete_node_join_public_bootstrap(owner))
+                        .await
+                        .inspect_err(|_error| {
+                            #[cfg(test)]
+                            eprintln!("bootstrap receiver stage=complete_public error={_error}");
+                        })
+                }
+                .await;
+                connection.close(0u32.into(), b"public bootstrap finished");
+                result
+            };
+            match attempt.await {
+                Ok(()) => return Ok(approval),
+                Err(error) => {
+                    #[cfg(test)]
+                    eprintln!("bootstrap receiver stage=attempt error={error}");
+                    if tokio::time::Instant::now() >= deadline {
+                        return Err(error);
+                    }
+                    if owner.node_join_stage_recorded(NodeJoinStage::Idp)? {
+                        self.check_exact_join_trust(&approval).await?;
+                        self.refresh_learned_membership().await?;
+                    }
+                    if owner.node_join_stage_recorded(NodeJoinStage::Management)? {
+                        self.check_join_context_grants(&approval).await?;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+            }
         }
-        .await;
-        connection.close(0u32.into(), b"public bootstrap finished");
-        result
+    }
+
+    async fn refresh_learned_membership(&self) -> io::Result<()> {
+        let devices = DbDeviceRepo::new(self.idp.clone());
+        let users = DbUserRepo::new(self.idp.clone(), PasswordConfig::default());
+        let mut peers = Vec::new();
+        for device in devices.list().await.map_err(denied)? {
+            if devices
+                .find_approved_by_public_key(&device.public_key)
+                .await
+                .map_err(denied)?
+                .is_none()
+            {
+                continue;
+            }
+            let owner: Id = device.owner_subject.parse().map_err(denied)?;
+            if owner.is_nil()
+                || users
+                    .find_user_by_id(owner)
+                    .await
+                    .map_err(denied)?
+                    .is_none()
+            {
+                continue;
+            }
+            peers.push(
+                device
+                    .public_key
+                    .parse::<iroh::EndpointId>()
+                    .map_err(denied)?,
+            );
+        }
+        self.server.peers().replace(peers);
+        Ok(())
     }
 
     pub fn node_bootstrap_handler(&self) -> impl iroh::protocol::ProtocolHandler + use<> {
@@ -131,26 +229,38 @@ impl SecurityProtocol {
         owner: &OwnerProvisioner<P>,
         context: SecurityContext,
     ) -> io::Result<SyncResult> {
+        #[cfg(test)]
+        let started = std::time::Instant::now();
         let approval = owner.node_join_anchor()?;
-        self.check_bootstrap_receiver(connection, owner, &approval)
-            .await?;
+        provisioning_stage(|| self.check_bootstrap_receiver(connection, owner, &approval)).await?;
         self.validate_local_schema(context).await?;
+        #[cfg(test)]
+        eprintln!(
+            "bootstrap receiver stage=schema context={context:?} elapsed_ms={}",
+            started.elapsed().as_millis()
+        );
         let request = BootstrapRequest {
             purpose: PURPOSE.into(),
             context,
             approval: approval.clone(),
         };
         let (mut send, recv) = connection.open_bi().await.map_err(io::Error::other)?;
-        self.check_bootstrap_receiver(connection, owner, &approval)
-            .await?;
+        provisioning_stage(|| self.check_bootstrap_receiver(connection, owner, &approval)).await?;
         send.write_all(&[BOOTSTRAP_STREAM_KIND])
             .await
             .map_err(io::Error::other)?;
         let mut transport = DatabaseTransport::new(send, recv);
-        self.check_bootstrap_receiver(connection, owner, &approval)
-            .await?;
+        provisioning_stage(|| self.check_bootstrap_receiver(connection, owner, &approval)).await?;
         transport.send(serde_json::to_vec(&request)?).await?;
-        let accepted: BootstrapRequest = serde_json::from_slice(&transport.receive().await?)?;
+        let reply = tokio::time::timeout(std::time::Duration::from_secs(10), transport.receive())
+            .await
+            .map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "trusted peer bootstrap admission acknowledgment timed out",
+                )
+            })??;
+        let accepted: BootstrapRequest = serde_json::from_slice(&reply)?;
         if accepted != request {
             return Err(denied("bootstrap context/anchor reply mismatch"));
         }
@@ -161,27 +271,46 @@ impl SecurityProtocol {
             owner,
             approval: &approval,
         };
-        let result = self
-            .node_bootstrap_session(
+        let result = provisioning_stage(|| {
+            self.node_bootstrap_session(
                 &approval,
                 context,
                 SyncDirection::ReceiveOnly,
                 &mut transport,
                 || async {
-                    self.check_bootstrap_receiver(connection, owner, &approval)
-                        .await
-                        .map_err(|_| "bootstrap receiver no longer authorized".into())
+                    #[cfg(test)]
+                    let check_started = std::time::Instant::now();
+                    let result = provisioning_stage(|| {
+                        self.check_bootstrap_receiver(connection, owner, &approval)
+                    })
+                    .await
+                    .map_err(|_| "bootstrap receiver no longer authorized".into());
+                    #[cfg(test)]
+                    eprintln!(
+                        "bootstrap receiver stage=pre_apply context={context:?} elapsed_ms={}",
+                        check_started.elapsed().as_millis()
+                    );
+                    result
                 },
             )
-            .await?;
-        self.check_bootstrap_receiver(connection, owner, &approval)
-            .await?;
+        })
+        .await?;
+        provisioning_stage(|| self.check_bootstrap_receiver(connection, owner, &approval)).await?;
         #[cfg(test)]
         interruption_tests::interrupt(match context {
             SecurityContext::Idp => interruption_tests::Transition::IdpImported,
             SecurityContext::Management => interruption_tests::Transition::ManagementImported,
         })?;
+        #[cfg(test)]
+        eprintln!(
+            "bootstrap receiver stage=imported context={context:?} elapsed_ms={}",
+            started.elapsed().as_millis()
+        );
         owner.record_node_join_stage(stage(context))?;
+        if context == SecurityContext::Idp {
+            self.check_exact_join_trust(&approval).await?;
+            self.refresh_learned_membership().await?;
+        }
         Ok(result)
     }
 
@@ -196,9 +325,17 @@ impl SecurityProtocol {
         if request.purpose != PURPOSE {
             return Err(denied("invalid bootstrap purpose"));
         }
+        #[cfg(test)]
+        let started = std::time::Instant::now();
         self.authorize_bootstrap_source(&connection, &request.approval, request.context)
             .await?;
         self.validate_local_schema(request.context).await?;
+        #[cfg(test)]
+        eprintln!(
+            "bootstrap source stage=schema context={:?} elapsed_ms={}",
+            request.context,
+            started.elapsed().as_millis()
+        );
         self.authorize_bootstrap_source(&connection, &request.approval, request.context)
             .await?;
         transport.send(serde_json::to_vec(&request)?).await?;
@@ -208,19 +345,30 @@ impl SecurityProtocol {
             connection: &connection,
             approval: &request.approval,
             context: request.context,
+            #[cfg(test)]
+            last_send: std::time::Instant::now(),
         };
-        self.node_bootstrap_session(
-            &request.approval,
-            request.context,
-            SyncDirection::SendOnly,
-            &mut transport,
-            || async {
-                self.authorize_bootstrap_source(&connection, &request.approval, request.context)
-                    .await
-                    .map_err(|_| "bootstrap source no longer authorized".into())
-            },
-        )
-        .await?;
+        provisioning_stage(|| {
+            self.node_bootstrap_session(
+                &request.approval,
+                request.context,
+                SyncDirection::SendOnly,
+                &mut transport,
+                || async {
+                    self.authorize_bootstrap_source(&connection, &request.approval, request.context)
+                        .await
+                        .map_err(|_| "bootstrap source no longer authorized".into())
+                },
+            )
+        })
+        .await
+        .inspect_err(|_error| {
+            #[cfg(test)]
+            eprintln!(
+                "bootstrap source stage=sync context={:?} error={_error}",
+                request.context
+            );
+        })?;
         Ok(())
     }
 
@@ -243,17 +391,48 @@ impl SecurityProtocol {
                 "bootstrap Installation or authenticated endpoint mismatch",
             ));
         }
-        self.authorize(connection, request.member_id, context)
-            .await?;
-        self.check_exact_join_trust(approval).await?;
-        let local = self.local_handshake(context).await?;
+        let trusted = self.check_exact_join_trust(approval).await?;
+        let local = self
+            .binding
+            .as_ref()
+            .ok_or_else(|| denied("local node signer is not configured"))?;
+        let endpoint = self.server.endpoint().id().to_string();
+        if local.endpoint_id != endpoint {
+            return Err(denied("local node signer/member is not currently trusted"));
+        }
+        if !trusted.iter().any(|(member, signer)| {
+            member.member_id == local.member_id
+                && member.endpoint_id == endpoint
+                && signer.key_id == local.key_id
+        }) {
+            return Err(denied("local node signer/member is not currently trusted"));
+        }
         let device = DbDeviceRepo::new(self.idp.clone())
-            .find_approved_by_public_key(&self.server.endpoint().id().to_string())
+            .find_approved_by_public_key(&endpoint)
             .await
             .map_err(denied)?
-            .ok_or_else(|| denied("bootstrap source has no current approved Device"))?;
+            .ok_or_else(|| denied("bootstrap source has no approved Device"))?;
+        let (action, resource) = context.permission();
+        if approval.owner_subject.is_nil()
+            || !LocalPermissions::new(self.management.clone())
+                .evaluate(&PermissionEvaluationRequest {
+                    request_id: Id::now_v7(),
+                    subject: PermissionSubject::User {
+                        id: approval.owner_subject,
+                    },
+                    action,
+                    target: PermissionTarget::Installation { resource },
+                })
+                .await
+                .map_err(denied)?
+        {
+            return Err(denied(
+                "local actor lacks this context's security sync permission",
+            ));
+        }
+
         let owner: Id = device.owner_subject.parse().map_err(denied)?;
-        if device.id != local.member
+        if device.id != local.member_id
             || owner.is_nil()
             || DbUserRepo::new(self.idp.clone(), PasswordConfig::default())
                 .find_user_by_id(owner)
@@ -271,24 +450,26 @@ impl SecurityProtocol {
         Ok(())
     }
 
-    async fn check_exact_join_trust(&self, approval: &NodeJoinApproval) -> io::Result<()> {
+    async fn check_exact_join_trust(
+        &self,
+        approval: &NodeJoinApproval,
+    ) -> io::Result<Vec<(ReplicaMembership, IdpSignerRecord)>> {
         let request = &approval.request;
         let key: Id = request.public_signer.kid.parse().map_err(denied)?;
         let trusted = DbReplicaSignerRepo::new(self.idp.clone())
             .trusted_signers(&self.installation, now()?)
             .await
             .map_err(denied)?;
-        if trusted
-            .iter()
-            .filter(|(member, signer)| {
-                member.member_id == request.member_id
-                    && member.endpoint_id == request.endpoint_id
-                    && signer.key_id == key
-                    && signer.public_jwk == request.public_signer
-            })
-            .count()
-            != 1
-        {
+        let mut matching = trusted.iter().filter(|(member, signer)| {
+            member.member_id == request.member_id
+                && member.endpoint_id == request.endpoint_id
+                && signer.key_id == key
+                && signer.public_jwk == request.public_signer
+        });
+        matching.next().ok_or_else(|| {
+            denied("bootstrap requires exact current enrolled member and independent signer")
+        })?;
+        if matching.next().is_some() {
             return Err(denied(
                 "bootstrap requires exact current enrolled member and independent signer",
             ));
@@ -297,8 +478,9 @@ impl SecurityProtocol {
             .find_approved_by_public_key(&request.endpoint_id)
             .await
             .map_err(denied)?
-            .ok_or_else(|| denied("bootstrap requires approved conflict-clear joining Device"))?;
+            .ok_or_else(|| denied("bootstrap requires exact approved Device"))?;
         if device.id != request.member_id
+            || approval.owner_subject.is_nil()
             || device.owner_subject != approval.owner_subject.to_string()
             || device.name != request.name
         {
@@ -316,7 +498,7 @@ impl SecurityProtocol {
                 "bootstrap owner is not a current conflict-clear User",
             ));
         }
-        Ok(())
+        Ok(trusted)
     }
 
     async fn check_bootstrap_receiver<P: PrivateKeyRepo + Send + Sync>(
@@ -337,8 +519,7 @@ impl SecurityProtocol {
                 "bootstrap receiver requires persisted exact local anchor and pinned connection",
             ));
         }
-        owner
-            .check_node_join_local_binding()
+        provisioning_stage(|| owner.check_node_join_local_binding())
             .await
             .map_err(denied)?;
         if owner.node_join_stage_recorded(NodeJoinStage::Idp)? {
@@ -463,8 +644,7 @@ impl SecurityProtocol {
         {
             return Err(denied("both durable public context imports are required"));
         }
-        owner
-            .check_node_join_local_binding()
+        provisioning_stage(|| owner.check_node_join_local_binding())
             .await
             .map_err(denied)?;
         self.check_exact_join_trust(&approval).await?;
@@ -477,8 +657,7 @@ impl SecurityProtocol {
             configured.member_id == binding.member_id
                 && configured.key_id == binding.key_id
                 && configured.endpoint_id == binding.endpoint_id
-        }) || owner.verify_node_signer(&binding).await? != approval.request.public_signer
-        {
+        }) {
             return Err(denied("local independent signing capability is not ready"));
         }
         self.check_join_context_grants(&approval).await
@@ -597,7 +776,15 @@ impl iroh::protocol::ProtocolHandler for NodeBootstrapHandler {
         loop {
             tokio::select! {
                 _ = self.protocol.cancellation.cancelled() => break,
-                result = tasks.join_next(), if !tasks.is_empty() => { let _ = result; },
+                result = tasks.join_next(), if !tasks.is_empty() => {
+                    #[cfg(test)]
+                    match &result {
+                        Some(Ok(Err(error))) => eprintln!("bootstrap source stage=stream error={error}"),
+                        Some(Err(error)) => eprintln!("bootstrap source stage=task error={error}"),
+                        _ => {}
+                    }
+                    let _ = result;
+                },
                 streams = connection.accept_bi() => {
                     let Ok((send, mut recv)) = streams else { break; };
                     let protocol = self.protocol.clone();
@@ -606,10 +793,7 @@ impl iroh::protocol::ProtocolHandler for NodeBootstrapHandler {
                         let mut kind = [0u8; 1];
                         recv.read_exact(&mut kind).await.map_err(io::Error::other)?;
                         if kind[0] != BOOTSTRAP_STREAM_KIND { return Err(denied("only purpose-specific bootstrap streams are allowed")); }
-                        let result = protocol.accept_node_bootstrap(connection, send, recv).await;
-                        #[cfg(test)]
-                        if let Err(error) = &result { eprintln!("bootstrap source rejected: {error}"); }
-                        result
+                        provisioning_stage(|| protocol.accept_node_bootstrap(connection, send, recv)).await
                     });
                 }
             }
@@ -632,13 +816,29 @@ struct SourceTransport<'a, T> {
     connection: &'a Connection,
     approval: &'a NodeJoinApproval,
     context: SecurityContext,
+    #[cfg(test)]
+    last_send: std::time::Instant,
 }
 impl<T: SyncTransport<Error = io::Error>> SyncTransport for SourceTransport<'_, T> {
     type Error = io::Error;
     async fn send(&mut self, frame: Vec<u8>) -> io::Result<()> {
+        #[cfg(test)]
+        let started = std::time::Instant::now();
         self.protocol
             .authorize_bootstrap_source(self.connection, self.approval, self.context)
             .await?;
+        #[cfg(test)]
+        eprintln!(
+            "bootstrap source stage=outgoing_authorization context={:?} elapsed_ms={} interval_ms={} frame_bytes={}",
+            self.context,
+            started.elapsed().as_millis(),
+            self.last_send.elapsed().as_millis(),
+            frame.len()
+        );
+        #[cfg(test)]
+        {
+            self.last_send = std::time::Instant::now();
+        }
         self.inner.send(frame).await
     }
     async fn receive(&mut self) -> io::Result<Vec<u8>> {
@@ -658,9 +858,11 @@ impl<T: SyncTransport<Error = io::Error>, P: PrivateKeyRepo + Send + Sync> SyncT
 {
     type Error = io::Error;
     async fn send(&mut self, frame: Vec<u8>) -> io::Result<()> {
-        self.protocol
-            .check_bootstrap_receiver(self.connection, self.owner, self.approval)
-            .await?;
+        provisioning_stage(|| {
+            self.protocol
+                .check_bootstrap_receiver(self.connection, self.owner, self.approval)
+        })
+        .await?;
         self.inner.send(frame).await
     }
     async fn receive(&mut self) -> io::Result<Vec<u8>> {

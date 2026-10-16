@@ -1,5 +1,4 @@
 use std::{
-    fs::create_dir_all,
     io,
     net::{IpAddr, SocketAddr},
     path::Path,
@@ -9,8 +8,8 @@ use std::{
 
 use api::serve;
 use clap::Parser;
-use cli::{CliArgs, CliServerCommand, shutdown_signal};
-use db::Database;
+use cli::{CliArgs, shutdown_signal};
+
 use env_logger::Env;
 
 use management_service::HostedControlPlane;
@@ -18,7 +17,21 @@ use tokio::{select, spawn, time::sleep};
 use tokio_util::sync::CancellationToken;
 use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
 
-use crate::{AppConfig, build_router};
+#[cfg(not(unix))]
+use crate::AppConfig;
+use crate::build_router;
+
+#[derive(clap::Parser, Debug)]
+enum ManagementCommand {
+    Serve {
+        #[arg(long, short = 'p')]
+        port: Option<u16>,
+        #[arg(long, short = 'H')]
+        host: Option<IpAddr>,
+    },
+    #[cfg(feature = "completions")]
+    Completions { shell: cli::Shell },
+}
 
 pub async fn run() -> io::Result<()> {
     match dotenvy::dotenv() {
@@ -26,8 +39,11 @@ pub async fn run() -> io::Result<()> {
         Err(error) => eprintln!("failed to load .env file: {error}"),
     }
 
-    let args = CliArgs::parse();
+    let args = CliArgs::<ManagementCommand>::parse();
     let cancellation_token = CancellationToken::new();
+    #[cfg(unix)]
+    let app_config = Arc::new(crate::startup::load_config(Path::new(&args.config))?);
+    #[cfg(not(unix))]
     let app_config = Arc::new(match AppConfig::try_from(Path::new(&args.config)) {
         Ok(app_config) => app_config,
         Err(error) => {
@@ -35,6 +51,34 @@ pub async fn run() -> io::Result<()> {
             AppConfig::default()
         }
     });
+
+    #[cfg(unix)]
+    if matches!(args.command, None | Some(ManagementCommand::Serve { .. })) {
+        let (host, port) = match args.command.as_ref() {
+            Some(ManagementCommand::Serve { host, port }) => (*host, *port),
+            _ => (None, None),
+        };
+        let configured_host = app_config.server.host;
+        let setup_host = host.unwrap_or_else(|| {
+            if configured_host.is_unspecified() {
+                std::net::Ipv4Addr::LOCALHOST.into()
+            } else {
+                configured_host
+            }
+        });
+        let address = SocketAddr::new(setup_host, port.unwrap_or(app_config.server.port));
+        if let Some(setup) = crate::prepare_setup(&app_config, address)? {
+            env_logger::Builder::from_env(Env::default().default_filter_or(&app_config.log_level))
+                .init();
+            let shutdown = shutdown_signal(cancellation_token.clone());
+            let serving = setup.serve(cancellation_token.clone());
+            tokio::pin!(shutdown, serving);
+            return tokio::select! {
+                result = &mut serving => result,
+                () = &mut shutdown => serving.await,
+            };
+        }
+    }
 
     if app_config.idp_api_base.trim().is_empty()
         || app_config.storage_api_base.trim().is_empty()
@@ -89,11 +133,7 @@ pub async fn run() -> io::Result<()> {
 
     env_logger::Builder::from_env(Env::default().default_filter_or(&app_config.log_level)).init();
 
-    create_dir_all(&app_config.data_dir)?;
-    let engine = Arc::new(
-        Database::open(Path::new(&app_config.data_dir).join("management.redb"))
-            .map_err(io::Error::other)?,
-    );
+    let engine = crate::open_database(&app_config).await?;
     let router = build_router(
         engine,
         &app_config.api_public_uri,
@@ -105,8 +145,7 @@ pub async fn run() -> io::Result<()> {
     .map_err(io::Error::other)?
     .layer(CorsLayer::very_permissive().allow_private_network(true))
     .layer(TraceLayer::new_for_http())
-    .layer(CompressionLayer::new().gzip(app_config.server.gzip))
-    .into();
+    .layer(CompressionLayer::new().gzip(app_config.server.gzip));
 
     let run_serve = |host: Option<IpAddr>, port: Option<u16>| {
         let addr = SocketAddr::from((
@@ -118,10 +157,10 @@ pub async fn run() -> io::Result<()> {
 
     let command_handle = match args.command {
         #[cfg(feature = "completions")]
-        Some(CliServerCommand::Completions { shell }) => {
+        Some(ManagementCommand::Completions { shell }) => {
             spawn(async move { cli::run_completions(shell).await })
         }
-        Some(CliServerCommand::Serve { serve }) => run_serve(serve.host, serve.port),
+        Some(ManagementCommand::Serve { host, port }) => run_serve(host, port),
         None => run_serve(None, None),
     };
 
@@ -143,4 +182,25 @@ pub async fn run() -> io::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+    use cli::CliArgs;
+
+    use super::ManagementCommand;
+
+    #[test]
+    fn independent_startup_accepts_no_config_and_explicit_serve() {
+        CliArgs::<ManagementCommand>::try_parse_from(["management-server"])
+            .expect("default launch");
+        CliArgs::<ManagementCommand>::try_parse_from([
+            "management-server",
+            "serve",
+            "--port",
+            "3001",
+        ])
+        .expect("explicit serving launch");
+    }
 }

@@ -38,14 +38,17 @@ pub(crate) async fn require_identity_permission(
         action,
         target,
     };
-    let client = state.local_permissions.as_ref().ok_or_else(|| {
-        ErrorResponse::new(ErrorCode::AccessDenied)
-            .with_description("local Management policy is not configured")
-    })?;
-    let allowed = client
-        .evaluate(&request)
-        .await
-        .map_err(|_| ErrorResponse::new(ErrorCode::TemporarilyUnavailable))?;
+    let allowed = if let Some(local) = state.local_permissions.as_ref() {
+        local
+            .evaluate(&request)
+            .await
+            .map_err(|_| ErrorResponse::new(ErrorCode::TemporarilyUnavailable))?
+    } else if let Some(remote) = state.management_permissions.as_ref() {
+        remote.evaluate(state, &request).await?
+    } else {
+        return Err(ErrorResponse::new(ErrorCode::AccessDenied)
+            .with_description("Management permission evaluation is not configured"));
+    };
     if !allowed {
         return Err(ErrorResponse::new(ErrorCode::AccessDenied));
     }

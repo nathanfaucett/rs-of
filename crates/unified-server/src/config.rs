@@ -3,34 +3,22 @@ use std::{net::SocketAddr, path::Path};
 use serde::Deserialize;
 
 #[derive(Clone)]
-pub struct ServiceClientCredentials {
-    pub client_id: String,
-    pub client_secret: String,
-    pub audience: String,
-}
-
-#[derive(Clone)]
 pub struct UnifiedConfig {
     pub listen_addr: SocketAddr,
     pub endpoint_data_dir: std::path::PathBuf,
     pub idp: idp_server::AppConfig,
     pub management: management_server::AppConfig,
     pub storage: storage_server::AppConfig,
-    pub management_idp_client: ServiceClientCredentials,
-    pub storage_idp_client: ServiceClientCredentials,
-    pub storage_management_client: ServiceClientCredentials,
-    pub idp_management_client: Option<ServiceClientCredentials>,
 }
 
 #[derive(Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 struct FileConfig {
     listen_addr: String,
     endpoint_data_dir: String,
     idp: idp_server::AppConfig,
     management: management_server::AppConfig,
     storage: storage_server::AppConfig,
-    service_clients: ServiceClientConfig,
 }
 
 impl Default for FileConfig {
@@ -41,30 +29,24 @@ impl Default for FileConfig {
             idp: idp_server::AppConfig::default(),
             management: management_server::AppConfig::default(),
             storage: storage_server::AppConfig::default(),
-            service_clients: ServiceClientConfig::default(),
         }
     }
 }
 
-#[derive(Default, Deserialize)]
-#[serde(default)]
-struct ServiceClientConfig {
-    management_idp: ClientConfig,
-    storage_idp: ClientConfig,
-    storage_management: ClientConfig,
-    idp_management: Option<ClientConfig>,
-}
-
-#[derive(Default, Deserialize)]
-#[serde(default)]
-struct ClientConfig {
-    client_id: String,
-    audience: String,
-}
-
 impl UnifiedConfig {
+    pub fn credential_bootstrap_directory(&self) -> std::path::PathBuf {
+        self.endpoint_data_dir.with_extension("credentials")
+    }
+
     pub fn local_provisioning_directory(&self) -> std::path::PathBuf {
         self.endpoint_data_dir.with_extension("provisioning")
+    }
+
+    pub fn idp_audience(&self) -> &str {
+        self.idp
+            .service_audience
+            .as_deref()
+            .unwrap_or(&self.idp.api_public_uri)
     }
 }
 
@@ -84,43 +66,73 @@ impl TryFrom<&Path> for UnifiedConfig {
         let listen_addr = file.listen_addr.parse().map_err(|error| {
             config::ConfigError::Message(format!("invalid listen_addr: {error}"))
         })?;
-        let service_clients = file.service_clients;
-
         Ok(Self {
             listen_addr,
             endpoint_data_dir: file.endpoint_data_dir.into(),
             idp: file.idp,
             management: file.management,
             storage: file.storage,
-            management_idp_client: load_credentials(
-                service_clients.management_idp,
-                "UNIFIED_MANAGEMENT_IDP_CLIENT_SECRET",
-            )?,
-            storage_idp_client: load_credentials(
-                service_clients.storage_idp,
-                "UNIFIED_STORAGE_IDP_CLIENT_SECRET",
-            )?,
-            storage_management_client: load_credentials(
-                service_clients.storage_management,
-                "UNIFIED_STORAGE_MANAGEMENT_CLIENT_SECRET",
-            )?,
-            idp_management_client: service_clients
-                .idp_management
-                .map(|client| load_credentials(client, "UNIFIED_IDP_MANAGEMENT_CLIENT_SECRET"))
-                .transpose()?,
         })
     }
 }
 
-fn load_credentials(
-    config: ClientConfig,
-    secret_variable: &str,
-) -> Result<ServiceClientCredentials, config::ConfigError> {
-    let client_secret = std::env::var(secret_variable)
-        .map_err(|_| config::ConfigError::Message(format!("{secret_variable} must be set")))?;
-    Ok(ServiceClientCredentials {
-        client_id: config.client_id,
-        client_secret,
-        audience: config.audience,
-    })
+#[cfg(test)]
+mod tests {
+    use super::UnifiedConfig;
+    use std::fs;
+
+    #[test]
+    fn bundled_config_needs_no_relationship_secrets_and_refuses_removed_configuration() {
+        let root =
+            std::env::temp_dir().join(format!("unified-config-{}", idp_model::model::Id::now_v7()));
+        fs::create_dir(&root).expect("isolated config parent");
+        let path = root.join("unified.yaml");
+        fs::write(
+            &path,
+            "listen_addr: 127.0.0.1:3000\nendpoint_data_dir: ./data/endpoint\n",
+        )
+        .expect("ordinary config");
+        let mut config = UnifiedConfig::try_from(path.as_path()).expect("no relationship secrets");
+        assert_eq!(config.idp_audience(), config.idp.api_public_uri);
+        config.idp.service_audience = Some("https://identity.example/service".into());
+        assert_eq!(config.idp_audience(), "https://identity.example/service");
+        assert_eq!(
+            config.credential_bootstrap_directory(),
+            Path::new("./data/endpoint.credentials")
+        );
+        for bytes in [
+            "service_clients: {}\n",
+            "service_clients:\n  management_idp: {}\n",
+            "service_clients:\n  storage_idp: {}\n",
+            "service_clients:\n  storage_management: {}\n",
+            "service_clients:\n  idp_management: {}\n",
+        ] {
+            fs::write(&path, bytes).expect("obsolete configuration");
+            assert!(UnifiedConfig::try_from(path.as_path()).is_err());
+            assert_eq!(fs::read_to_string(&path).expect("unchanged config"), bytes);
+        }
+        fs::remove_dir_all(root).expect("isolated cleanup");
+    }
+
+    use std::path::Path;
+}
+
+#[cfg(test)]
+pub(crate) fn test_config(root: &Path) -> UnifiedConfig {
+    UnifiedConfig {
+        listen_addr: "127.0.0.1:3000".parse().expect("test loopback"),
+        endpoint_data_dir: root.join("endpoint"),
+        idp: idp_server::AppConfig {
+            data_dir: root.join("idp").to_string_lossy().into_owned(),
+            ..Default::default()
+        },
+        management: management_server::AppConfig {
+            data_dir: root.join("management").to_string_lossy().into_owned(),
+            ..Default::default()
+        },
+        storage: storage_server::AppConfig {
+            data_dir: root.join("storage").to_string_lossy().into_owned(),
+            ..Default::default()
+        },
+    }
 }

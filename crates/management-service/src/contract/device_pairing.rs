@@ -3,7 +3,7 @@ use alloc::{format, string::String};
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::Id;
+use idp_model::model::Id;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]

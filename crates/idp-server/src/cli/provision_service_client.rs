@@ -417,7 +417,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_child_keyring_write_removes_partial_client_and_key_material() {
+    fn provider_denied_registration_creates_metadata_only_but_node_signer_write_denies() {
         std::thread::Builder::new()
             .stack_size(16 * 1024 * 1024)
             .spawn(|| {
@@ -426,7 +426,7 @@ mod tests {
                     .expect("build test runtime")
                     .block_on(async {
                         let root = std::env::temp_dir().join(format!(
-                            "idp-service-client-failure-{}-{}",
+                            "idp-service-client-metadata-{}-{}",
                             std::process::id(),
                             idp_model::model::Id::now_v7()
                         ));
@@ -447,7 +447,7 @@ mod tests {
                             )
                             .await
                             .expect("create canonical application");
-                        let private_keys = TestPrivateKeyRepo::new(Some(2));
+                        let private_keys = TestPrivateKeyRepo::new(Some(1));
                         let key_service = Arc::new(KeyService::new(
                             DbKeyRepo::new(Arc::clone(&engine)),
                             private_keys.clone(),
@@ -456,7 +456,7 @@ mod tests {
                         let clients =
                             DbClientRepo::new(Arc::clone(&engine), Arc::clone(&key_service));
 
-                        let error = provision(
+                        provision(
                             &applications,
                             &clients,
                             &key_service,
@@ -467,30 +467,68 @@ mod tests {
                             &credentials_path,
                         )
                         .await
-                        .expect_err("injected keyring write failure must fail provisioning");
-                        assert!(error.to_string().contains("injected keyring write failure"));
-                        assert!(!credentials_path.exists());
+                        .expect("Client registration does not require provider writes");
+                        let credential_bytes =
+                            fs::read(&credentials_path).expect("retained confidential credentials");
+                        let credentials: serde_json::Value =
+                            serde_json::from_slice(&credential_bytes).expect("credential document");
+                        let client = clients
+                            .find_client_by_client_id(
+                                credentials["client_id"].as_str().expect("Client ID"),
+                            )
+                            .await
+                            .expect("lookup provisioned Client")
+                            .expect("durable Client");
+                        assert!(!client.client_secret_hash.is_empty());
                         assert!(
-                            private_keys
-                                .keys
-                                .lock()
-                                .expect("test key map lock")
-                                .is_empty()
+                            credentials["client_secret"]
+                                .as_str()
+                                .is_some_and(|secret| !secret.is_empty())
                         );
+                        let root_key = key_service
+                            .key_repo()
+                            .find_active_entity_root_key(EntityType::Client, client.id)
+                            .await
+                            .expect("Client root lookup")
+                            .expect("actual metadata root");
+                        assert_eq!(root_key.entity_type, EntityType::Client);
+                        assert_eq!(root_key.entity_id, client.id);
+                        assert!(root_key.parent_id.is_none());
+                        assert!(root_key.public_jwk.is_none());
+                        assert_eq!(*private_keys.store_calls.lock().expect("store count"), 0);
+                        assert!(private_keys.keys.lock().expect("private store").is_empty());
+
+                        let binding = idp_service::oauth2::NodeSignerBinding {
+                            member_id: idp_model::model::Id::now_v7(),
+                            key_id: idp_model::model::Id::now_v7(),
+                            endpoint_id: "provider-denied-endpoint".into(),
+                        };
+                        let error = key_service
+                            .prepare_node_signer(&binding)
+                            .expect_err("required Node private write still fails closed");
+                        assert!(error.to_string().contains("injected keyring write failure"));
+                        assert_eq!(*private_keys.store_calls.lock().expect("store count"), 1);
+                        assert!(private_keys.keys.lock().expect("private store").is_empty());
                         assert!(
+                            fs::read(&credentials_path).expect("credentials remain")
+                                == credential_bytes
+                        );
+                        assert_eq!(
                             key_service
                                 .key_repo()
-                                .list_active()
+                                .find_active_entity_root_key(EntityType::Client, client.id)
                                 .await
-                                .expect("list keys after rollback")
-                                .is_empty()
+                                .expect("Client root remains")
+                                .expect("metadata root"),
+                            root_key
                         );
-                        assert!(
+                        assert_eq!(
                             clients
-                                .list_clients(0, 100)
+                                .find_client_by_client_id(&client.client_id)
                                 .await
-                                .expect("list clients after rollback")
-                                .is_empty()
+                                .expect("Client remains")
+                                .expect("durable Client"),
+                            client
                         );
 
                         drop(clients);
@@ -771,7 +809,10 @@ mod tests {
             Arc::clone(&engine),
             oauth2_service,
             Arc::clone(&devices),
-            Arc::new(crate::DeviceIdentity::new(endpoint.clone(), secret_key)),
+            Arc::new(
+                management_service::DeviceIdentity::new(endpoint.clone(), secret_key)
+                    .expect("matching endpoint identity key"),
+            ),
         )
         .with_local_permissions(LocalPermissions::new(Arc::clone(&policy_engine)));
         let app = crate::openapi_router(state.clone(), "/")
@@ -1337,7 +1378,7 @@ mod tests {
             endpoint_list_response.starts_with("HTTP/1.1 200"),
             "{endpoint_list_response}"
         );
-        let endpoint_list: idp_model::contract::ApprovedDeviceEndpoints =
+        let endpoint_list: management_service::ApprovedDeviceEndpoints =
             serde_json::from_str(http_response_body(&endpoint_list_response))
                 .expect("parse approved endpoint list");
         assert_eq!(endpoint_list.endpoint_ids.len(), 2);
@@ -1367,7 +1408,7 @@ mod tests {
             endpoint_identity_response.starts_with("HTTP/1.1 200"),
             "{endpoint_identity_response}"
         );
-        let endpoint_identity: idp_model::contract::DeviceEndpointIdentity =
+        let endpoint_identity: management_service::DeviceEndpointIdentity =
             serde_json::from_str(http_response_body(&endpoint_identity_response))
                 .expect("parse approved endpoint identity");
         assert_eq!(endpoint_identity.device_id, approved_device.id);

@@ -14,10 +14,7 @@ use idp_model::{
     model::Id,
 };
 use idp_service::{
-    PasswordConfig,
-    oauth2::NodeSignerBinding,
-    replica::{DbReplicaSignerRepo, DbUserRepo},
-    repo::UserRepo,
+    PasswordConfig, oauth2::NodeSignerBinding, replica::DbUserRepo, repo::UserRepo,
     security_sync::public_security_tables,
 };
 use iroh::endpoint::{Connection, RecvStream, SendStream};
@@ -152,15 +149,12 @@ impl SecurityProtocol {
         self.validate_local_schema(context).await?;
         let handshake = self.local_handshake(context).await?;
 
-        let trusted = DbReplicaSignerRepo::new(self.idp.clone())
-            .trusted_signers(&self.installation, now()?)
+        let remote_member = DbDeviceRepo::new(self.idp.clone())
+            .find_approved_by_public_key(&connection.remote_id().to_string())
             .await
-            .map_err(denied)?;
-        let remote_member = trusted
-            .iter()
-            .find(|(member, _)| member.endpoint_id == connection.remote_id().to_string())
-            .map(|(member, _)| member.member_id)
-            .ok_or_else(|| denied("remote endpoint has no local trusted member"))?;
+            .map_err(denied)?
+            .ok_or_else(|| denied("remote endpoint has no approved local Device"))?
+            .id;
         self.authorize(connection, remote_member, context).await?;
 
         let (mut send, recv) = connection.open_bi().await.map_err(io::Error::other)?;
@@ -251,21 +245,24 @@ impl SecurityProtocol {
                     .collect::<Vec<_>>(),
             ),
         };
-        for (table, expected) in tables {
-            let result = database
-                .client()
-                .translate_and_execute(
-                    &format!("SELECT * FROM {table} LIMIT 0"),
-                    &db::SqlTranslator,
-                )
-                .await
-                .map_err(io::Error::other)?;
-            let columns = &result
-                .first()
-                .ok_or_else(|| {
-                    io::Error::new(io::ErrorKind::InvalidData, "missing public schema result")
-                })?
-                .columns;
+        let query = tables
+            .iter()
+            .map(|(table, _)| format!("SELECT * FROM {table} LIMIT 0"))
+            .collect::<Vec<_>>()
+            .join("; ");
+        let results = database
+            .client()
+            .translate_and_execute(&query, &db::SqlTranslator)
+            .await
+            .map_err(io::Error::other)?;
+        if results.len() != tables.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "missing public schema result",
+            ));
+        }
+        for ((table, expected), result) in tables.into_iter().zip(results) {
+            let columns = &result.columns;
             if columns.len() != expected.len()
                 || columns
                     .iter()
@@ -297,28 +294,28 @@ impl SecurityProtocol {
         if self.cancellation.is_cancelled() {
             return Err(denied("security synchronization is shutting down"));
         }
-        let binding = self
-            .binding
-            .as_ref()
-            .ok_or_else(|| denied("local node signer is not configured"))?;
-        let endpoint = self.server.endpoint().id().to_string();
-        let trusted = DbReplicaSignerRepo::new(self.idp.clone())
-            .trusted_signers(&self.installation, now()?)
+        let device = DbDeviceRepo::new(self.idp.clone())
+            .find_approved_by_public_key(&self.server.endpoint().id().to_string())
             .await
-            .map_err(denied)?;
-        if binding.endpoint_id != endpoint
-            || !trusted.iter().any(|(member, signer)| {
-                member.member_id == binding.member_id
-                    && member.endpoint_id == endpoint
-                    && signer.key_id == binding.key_id
-            })
+            .map_err(denied)?
+            .ok_or_else(|| denied("local endpoint has no approved Device"))?;
+        let owner: Id = device.owner_subject.parse().map_err(denied)?;
+        if device.id.is_nil()
+            || owner.is_nil()
+            || DbUserRepo::new(self.idp.clone(), PasswordConfig::default())
+                .find_user_by_id(owner)
+                .await
+                .map_err(denied)?
+                .is_none()
         {
-            return Err(denied("local node signer/member is not currently trusted"));
+            return Err(denied(
+                "local Device requires its active conflict-clear owner",
+            ));
         }
         Ok(Handshake {
             version: 1,
             installation: self.installation.clone(),
-            member: binding.member_id,
+            member: device.id,
             context,
         })
     }
@@ -331,22 +328,13 @@ impl SecurityProtocol {
     ) -> io::Result<()> {
         self.local_handshake(context).await?;
         let endpoint = connection.remote_id().to_string();
-        if !DbReplicaSignerRepo::new(self.idp.clone())
-            .is_trusted_peer(&self.installation, member, &endpoint, now()?)
-            .await
-            .map_err(denied)?
-        {
-            return Err(denied(
-                "remote member is not currently trusted for this authenticated endpoint",
-            ));
-        }
         let device = DbDeviceRepo::new(self.idp.clone())
             .find_approved_by_public_key(&endpoint)
             .await
             .map_err(denied)?
             .ok_or_else(|| denied("remote endpoint has no approved local Device"))?;
-        if device.id != member {
-            return Err(denied("Device and Installation member differ"));
+        if member.is_nil() || device.id != member {
+            return Err(denied("Device and security handshake identity differ"));
         }
         let actor: Id = device.owner_subject.parse().map_err(denied)?;
         if actor.is_nil()

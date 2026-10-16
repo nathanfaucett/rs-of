@@ -4,9 +4,10 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-use idp_server::{DeviceIdentity, IdpRuntime, device_identity_from_server};
+use idp_server::IdpRuntime;
 use iroh::{EndpointId, SecretKey, endpoint::presets};
 use iroh_chain::{EndpointIdStore, Server};
+use management_service::{DeviceIdentity, device_identity_from_server};
 
 const ENDPOINT_KEY_FILE: &str = "endpoint.key";
 
@@ -30,14 +31,22 @@ impl UnifiedEndpoint {
         sync_directory_ancestry(&data_dir)?;
         let allowed_peers = EndpointIdStore::default();
         allowed_peers.replace([secret_key.public()]);
+        #[cfg(not(test))]
+        let preset = presets::N0;
+        #[cfg(test)]
+        let preset = TestPreset;
         let server = idp_server::bind_node_join_endpoint(
             idp_config,
-            presets::N0,
+            preset,
             secret_key.clone(),
             allowed_peers.clone(),
         )
         .await?;
 
+        #[cfg(test)]
+        if let Some(lookup) = TEST_LOOKUP.get() {
+            lookup.add_endpoint_info(server.endpoint().addr());
+        }
         Ok(Self {
             server,
             allowed_peers,
@@ -53,6 +62,7 @@ impl UnifiedEndpoint {
         data_dir: &Path,
         idp_config: &idp_server::AppConfig,
     ) -> io::Result<Self> {
+        crate::local_provisioning::require_unix_bootstrap()?;
         reject_symlink_ancestry(data_dir)?;
         let parent = data_dir
             .parent()
@@ -114,6 +124,31 @@ impl UnifiedEndpoint {
 
     pub async fn close(&self) {
         self.server.endpoint().close().await;
+    }
+}
+
+#[cfg(test)]
+static TEST_LOOKUP: std::sync::OnceLock<iroh::address_lookup::MemoryLookup> =
+    std::sync::OnceLock::new();
+
+#[cfg(test)]
+pub(crate) fn use_isolated_address_lookup() {
+    TEST_LOOKUP.get_or_init(iroh::address_lookup::MemoryLookup::new);
+}
+
+#[cfg(test)]
+pub(crate) struct TestPreset;
+
+#[cfg(test)]
+impl presets::Preset for TestPreset {
+    fn apply(self, builder: iroh::endpoint::Builder) -> iroh::endpoint::Builder {
+        if let Some(lookup) = TEST_LOOKUP.get() {
+            presets::Preset::apply(presets::Minimal, builder)
+                .address_lookup(lookup.clone())
+                .relay_mode(iroh::RelayMode::Disabled)
+        } else {
+            presets::Preset::apply(presets::N0, builder)
+        }
     }
 }
 

@@ -189,11 +189,12 @@ type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 struct Fixture {
     runtime: Arc<idp_server::IdpRuntime>,
     issuer: String,
+    binding: NodeSignerBinding,
     keys: Arc<KeyService<DbKeyRepo, PrivateKeyKeyringRepo>>,
     idp: Arc<Database>,
     management: Arc<Database>,
     clients: DbClientRepo,
-    device: idp_model::contract::DeviceEndpointIdentity,
+    device: management_service::DeviceEndpointIdentity,
     owner: Id,
     scope: StorageNamespace,
     resource: FileSystemId,
@@ -211,6 +212,9 @@ impl Fixture {
         Self::with_catalog_gate(gate, None).await
     }
     async fn with_catalog_gate(gate: Gate, catalog_gate: Option<Gate>) -> Self {
+        Self::with_idp_backend(gate, catalog_gate, false).await
+    }
+    async fn with_idp_backend(gate: Gate, catalog_gate: Option<Gate>, remote: bool) -> Self {
         let directory = TestDirectory::new();
         let secret = SecretKey::generate();
         let identity = Server::bind_with_secret_key(
@@ -259,7 +263,7 @@ impl Fixture {
             .await
             .expect("real local User");
         provisioner
-            .ensure_initial_user_signing_key(owner)
+            .ensure_initial_user_root(owner)
             .await
             .expect("captured initial User signing key");
         provisioner
@@ -346,7 +350,7 @@ impl Fixture {
             &config,
             idp.clone(),
             Arc::new(
-                idp_server::device_identity_from_server(&identity, secret)
+                management_service::device_identity_from_server(&identity, secret)
                     .expect("injected endpoint identity"),
             ),
             identity.clone(),
@@ -358,8 +362,9 @@ impl Fixture {
             .approved_device_owner(identity.endpoint().id())
             .await
             .expect("current locally trusted Device owner");
+        let runtime = Arc::new(runtime);
         let mut idp_router = runtime.router();
-        if let Some(gate) = catalog_gate {
+        if let Some(gate) = catalog_gate.clone().filter(|_| remote) {
             let calls = Arc::new(AtomicUsize::new(0));
             idp_router = idp_router.layer(axum::middleware::from_fn(
                 move |request: axum::extract::Request, next: axum::middleware::Next| {
@@ -377,14 +382,47 @@ impl Fixture {
             ));
         }
         let idp_listener = Listener::start(idp_router).await;
-        let client = IdpClient::new(
-            &idp_listener.base,
-            &service_client.to_string(),
-            "storage-service-secret",
-            &config.oauth2.issuer,
-            "idp-services",
-        )
-        .expect("Node-local IdP client");
+        let client = if remote {
+            IdpClient::new(
+                &idp_listener.base,
+                &service_client.to_string(),
+                "storage-service-secret",
+                &config.oauth2.issuer,
+                "idp-services",
+            )
+            .expect("independent HTTPS-capable IdP client")
+        } else if let Some(gate) = catalog_gate {
+            let inspect = Arc::clone(&runtime);
+            let endpoints = Arc::clone(&runtime);
+            let calls = Arc::new(AtomicUsize::new(0));
+            IdpClient::local(
+                move |token| {
+                    let runtime = Arc::clone(&inspect);
+                    let gate = gate.clone();
+                    let calls = Arc::clone(&calls);
+                    async move {
+                        if calls.fetch_add(1, Ordering::SeqCst) == 1 {
+                            gate.pause().await;
+                        }
+                        runtime
+                            .authorize_storage_bearer(&token)
+                            .await
+                            .map_err(crate::runtime::storage_introspection_error)
+                    }
+                },
+                move || {
+                    let runtime = Arc::clone(&endpoints);
+                    async move {
+                        runtime
+                            .approved_storage_endpoints()
+                            .await
+                            .map_err(|error| error.to_string())
+                    }
+                },
+            )
+        } else {
+            crate::runtime::local_storage_idp_client(Arc::clone(&runtime))
+        };
         let files = Arc::new(
             ScopedFileSystemRuntime::new(directory.0.join("files"), identity.endpoint().id())
                 .expect("native filesystems"),
@@ -411,8 +449,9 @@ impl Fixture {
         .nest("/gated", gated);
         let storage_listener = Listener::start(router).await;
         Self {
-            runtime: Arc::new(runtime),
+            runtime,
             issuer: config.oauth2.issuer,
+            binding,
             keys,
             idp,
             management,
@@ -770,10 +809,10 @@ async fn native_local_token_authorized_write_survives_revoked_response_and_next_
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn native_local_owner_service_loss_denies_response_and_api_without_cached_fallback() {
+async fn independent_idp_service_loss_denies_response_and_api_without_cached_fallback() {
     tokio::time::timeout(Duration::from_secs(240), async {
         let gate = Gate::default();
-        let mut fixture = Fixture::new(gate.clone()).await;
+        let mut fixture = Fixture::with_idp_backend(gate.clone(), None, true).await;
         let token = fixture
             .token(
                 "storage:filesystems",

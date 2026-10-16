@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     fs,
+    io::Write,
     os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     sync::{
@@ -11,13 +12,24 @@ use std::{
 };
 
 use idp_model::model::Id;
-use idp_service::repo::PrivateKeyKeyringRepo;
+use idp_service::{
+    oauth2::OAuth2Service,
+    replica::{
+        DbApplicationRepo, DbClientRepo, DbKeyRepo, DbOAuth2AuthorizationCodeRepo,
+        DbOAuth2RefreshTokenRepo, DbOAuth2UserConsentRepo, DbUserRepo,
+    },
+    repo::{KeyService, PrivateKeyKeyringRepo},
+};
 
-use crate::{LocalProvisioner, ServiceClientCredentials, UnifiedConfig};
+use crate::{LocalProvisioner, UnifiedConfig};
 
-struct SecretStore {
-    store: Arc<keyring_core::mock::Store>,
-    fail_node_readback: Arc<AtomicBool>,
+#[cfg(target_os = "linux")]
+#[path = "https_bootstrap_tests.rs"]
+mod https_bootstrap_tests;
+
+pub(crate) struct SecretStore {
+    pub(crate) store: Arc<keyring_core::mock::Store>,
+    pub(crate) fail_node_readback: Arc<AtomicBool>,
 }
 impl keyring_core::api::CredentialStoreApi for SecretStore {
     fn vendor(&self) -> String {
@@ -91,33 +103,12 @@ impl Fixture {
             api_public_uri: "https://storage.test".into(),
             ..Default::default()
         };
-        let credentials = |secret: &str, audience: &str| ServiceClientCredentials {
-            client_id: Id::now_v7().to_string(),
-            client_secret: secret.into(),
-            audience: audience.into(),
-        };
         let config = UnifiedConfig {
             listen_addr: "127.0.0.1:0".parse().expect("local ephemeral listener"),
             endpoint_data_dir: root.join("endpoint"),
             idp,
             management,
             storage,
-            management_idp_client: credentials(
-                "fixture-management-idp-secret",
-                "https://identity.test/service",
-            ),
-            storage_idp_client: credentials(
-                "fixture-storage-idp-secret",
-                "https://identity.test/service",
-            ),
-            storage_management_client: credentials(
-                "fixture-storage-management-secret",
-                "https://storage.test",
-            ),
-            idp_management_client: Some(credentials(
-                "fixture-idp-management-secret",
-                "idp-management",
-            )),
         };
         let fail_node_readback = Arc::new(AtomicBool::new(false));
         let store: Arc<keyring_core::CredentialStore> = Arc::new(SecretStore {
@@ -165,6 +156,200 @@ impl Drop for Fixture {
     }
 }
 
+#[test]
+fn in_memory_password_create_retains_only_its_verifier() {
+    let fixture = Fixture::new();
+    let password = "hidden-terminal-initial-password";
+    let local = LocalProvisioner::create_with_password(
+        fixture.config.clone(),
+        "operator",
+        "Local Node",
+        password,
+    )
+    .expect("in-memory secure prompt seam");
+    assert!(!local.is_complete().expect("explicit incomplete intent"));
+    let login = local
+        .login_client()
+        .expect("public bootstrap login registration");
+    assert!(login.client_secret.is_none());
+    assert_eq!(login.client_type, idp_model::contract::ClientType::Public);
+    assert_eq!(login.profile, idp_model::contract::ClientProfile::Native);
+    assert_eq!(
+        login.allowed_grant_types,
+        [
+            idp_model::contract::GrantType::Password,
+            idp_model::contract::GrantType::RefreshToken,
+            idp_model::contract::GrantType::TokenExchange,
+        ]
+    );
+    assert_eq!(login.allowed_scopes, ["openid", "profile", "email"]);
+    assert_eq!(
+        login.allowed_audiences,
+        [
+            "https://identity.test/service",
+            "idp-management",
+            "https://storage.test",
+            "storage:databases",
+            "storage:filesystems",
+        ]
+    );
+    assert!(fixture.journal()["intent"].get("clients").is_none());
+    drop(local);
+    let reopened =
+        LocalProvisioner::open(fixture.config.clone()).expect("retain exact create intent");
+    assert_eq!(
+        reopened
+            .login_client()
+            .expect("stable public login ID on retry"),
+        login
+    );
+    let bytes = fs::read(
+        fixture
+            .config
+            .local_provisioning_directory()
+            .join("intent.json"),
+    )
+    .expect("public intent");
+    assert!(!String::from_utf8(bytes).expect("JSON").contains(password));
+    secret_files_absent(&fixture.root);
+}
+
+#[test]
+fn live_credential_guard_refuses_missing_or_changed_intent_before_provider_work() {
+    let fixture = Fixture::new();
+    let config = crate::config::test_config(&fixture.root);
+    let path = config
+        .credential_bootstrap_directory()
+        .join("credentials.json");
+    let credentials =
+        crate::CredentialBootstrap::create(config).expect("fresh protected references only");
+    let retained = fs::read(&path).expect("exact public references");
+    let secrets = fixture.secrets();
+    fs::remove_file(&path).expect("simulate lost references under live guard");
+    assert!(
+        credentials.load().is_err(),
+        "absence cannot authorize replacement"
+    );
+    assert!(!path.exists(), "missing retained state stays missing");
+    crate::local_provisioning::private_options(true)
+        .open(&path)
+        .expect("restore isolated checkpoint")
+        .write_all(&retained)
+        .expect("write checkpoint");
+    fs::write(&path, b"invalid retained credential intent").expect("simulate retained corruption");
+    assert!(
+        credentials.load().is_err(),
+        "changed references cannot be overwritten"
+    );
+    assert_eq!(
+        fs::read(&path).expect("fault remains"),
+        b"invalid retained credential intent"
+    );
+    assert_eq!(
+        fixture.secrets(),
+        secrets,
+        "denial performs no provider production"
+    );
+}
+
+#[test]
+fn old_one_two_and_four_relationship_references_deny_without_rewriting_or_provider_work() {
+    for old_count in [1, 2, 4] {
+        let fixture = Fixture::new();
+        let automatic = fixture.config.clone();
+        drop(
+            crate::CredentialBootstrap::create(automatic.clone()).expect("fresh public references"),
+        );
+        let path = automatic
+            .credential_bootstrap_directory()
+            .join("credentials.json");
+        let mut old: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).expect("references")).expect("JSON");
+        assert!(old.get("clients").is_none());
+        assert_eq!(old["roots"].as_array().expect("roots").len(), 4);
+        old["namespace"] = serde_json::json!(Id::now_v7());
+        old["clients"] =
+            serde_json::json!((0..old_count).map(|_| Id::now_v7()).collect::<Vec<_>>());
+        old["attempted"] = serde_json::json!(vec![true; old_count]);
+        old["audiences"] = serde_json::json!(vec![automatic.idp_audience(); old_count]);
+        let bytes = serde_json::to_vec(&old).expect("old references");
+        fs::write(&path, &bytes).expect("retain old relationship evidence");
+        let secrets = fixture.secrets();
+        assert!(crate::CredentialBootstrap::open(automatic).is_err());
+        assert_eq!(fs::read(path).expect("unchanged evidence"), bytes);
+        assert_eq!(fixture.secrets(), secrets);
+    }
+}
+
+#[test]
+fn old_one_two_and_four_relationship_create_and_join_intents_deny_unchanged() {
+    for old_count in [1, 2, 4] {
+        for joining in [false, true] {
+            let fixture = Fixture::new();
+            let (name, field) = if joining {
+                let peer = iroh::SecretKey::generate().public().to_string();
+                drop(
+                    crate::LocalJoin::create(fixture.config.clone(), &peer, "Joining Node")
+                        .expect("fresh Join"),
+                );
+                ("join.json", "configuration")
+            } else {
+                drop(
+                    LocalProvisioner::create(
+                        fixture.config.clone(),
+                        "operator",
+                        "Node",
+                        &fixture.password,
+                    )
+                    .expect("fresh Create"),
+                );
+                ("intent.json", "intent")
+            };
+            let path = fixture.config.local_provisioning_directory().join(name);
+            let mut old: serde_json::Value =
+                serde_json::from_slice(&fs::read(&path).expect("intent")).expect("JSON");
+            assert!(old[field].get("clients").is_none());
+            assert_eq!(old[field]["roots"].as_array().expect("roots").len(), 4);
+            old[field]["clients"] = serde_json::json!(
+                (0..old_count)
+                    .map(|_| {
+                        crate::local_provisioning::login_registration(&fixture.config, Id::now_v7())
+                    })
+                    .collect::<Vec<_>>()
+            );
+            old["secret_verifiers"] =
+                serde_json::json!(vec!["retained-obsolete-verifier"; old_count]);
+            let bytes = serde_json::to_vec(&old).expect("old intent");
+            fs::write(&path, &bytes).expect("old relationship intent");
+            let secrets = fixture.secrets();
+            if joining {
+                assert!(crate::LocalJoin::open(fixture.config.clone()).is_err());
+            } else {
+                assert!(LocalProvisioner::open(fixture.config.clone()).is_err());
+            }
+            assert_eq!(fs::read(path).expect("unchanged intent"), bytes);
+            assert_eq!(fixture.secrets(), secrets);
+        }
+    }
+}
+
+#[test]
+fn host_bootstrap_reopens_without_relationship_secrets_or_provider_work() {
+    let fixture = Fixture::new();
+    let secrets = fixture.secrets();
+    let bootstrap =
+        crate::CredentialBootstrap::create(fixture.config.clone()).expect("fresh host references");
+    let prepared = bootstrap.load().expect("host settings");
+    drop(bootstrap);
+    let retained = crate::CredentialBootstrap::open(fixture.config.clone())
+        .expect("retained host references")
+        .load()
+        .expect("offline settings");
+    assert_eq!(retained.idp.oauth2.issuer, prepared.idp.oauth2.issuer);
+    assert_eq!(fixture.secrets(), secrets);
+    secret_files_absent(&fixture.root);
+}
+
 fn secret_files_absent(root: &Path) {
     assert!(
         !root.join("endpoint/endpoint.key").exists(),
@@ -176,414 +361,175 @@ fn secret_files_absent(root: &Path) {
     );
 }
 
+#[tokio::test]
+async fn bundled_management_direct_idp_rechecks_registration_and_device_owner_without_http() {
+    use idp_model::contract::{
+        PasswordGrantRequest, SubjectTokenType, TokenExchangeGrantRequest, TokenRequest,
+    };
+    use idp_service::repo::{ClientRepo, UserRepo};
+
+    let fixture = Fixture::new();
+    let mut local = LocalProvisioner::create(
+        fixture.config.clone(),
+        "operator",
+        "Direct Management",
+        &fixture.password,
+    )
+    .expect("fresh local intent");
+    local
+        .provision(&fixture.password)
+        .await
+        .expect("real owner seed");
+    let login = local
+        .login_client()
+        .expect("public login")
+        .client_id
+        .expect("login ID");
+    let runtime = local.build_runtime().await.expect("unserved local runtime");
+    let owner = runtime.join_owner();
+    let journal = fixture.journal();
+    let mut config = fixture.config.idp.clone();
+    config.oauth2.local_signer = Some(idp_service::oauth2::NodeSignerBinding {
+        member_id: serde_json::from_value(journal["member"].clone()).expect("retained member ID"),
+        key_id: serde_json::from_value(journal["key"].clone()).expect("retained signer ID"),
+        endpoint_id: runtime.endpoint_id().to_string(),
+    });
+    let oauth2 = fixture_oauth2(&config, owner.node_join_database());
+    let session = oauth2
+        .token(
+            TokenRequest::Password(PasswordGrantRequest {
+                client_id: login.clone(),
+                username: "operator".into(),
+                password: "fixture-initial-password".into(),
+                scope: Some("openid".into()),
+                resource: None,
+            }),
+            None,
+        )
+        .await
+        .expect("real User login");
+    let token = oauth2
+        .token(
+            TokenRequest::TokenExchange(TokenExchangeGrantRequest {
+                subject_token: session.access_token.0,
+                subject_token_type: SubjectTokenType::AccessToken,
+                actor_token: None,
+                actor_token_type: None,
+                resource: Some(management_service::MANAGEMENT_APPLICATION_URI.into()),
+                audience: None,
+                authorization_details: None,
+                scope: None,
+                requested_token_type: None,
+            }),
+            None,
+        )
+        .await
+        .expect("Management User bearer")
+        .access_token
+        .0;
+    let control = &runtime.management_control_plane;
+    let (claims, _) = control
+        .validate_actor_token(&token)
+        .await
+        .expect("direct current bearer validation");
+    let user: Id = claims.sub.parse().expect("User ID");
+    let endpoint = runtime.endpoint_id().to_string();
+    let identity = control
+        .get_storage_endpoint_identity(&endpoint)
+        .await
+        .expect("direct approved endpoint");
+    assert_eq!(identity.owner_subject, user.to_string());
+    assert_eq!(
+        control
+            .get_storage_device_identity(identity.device_id)
+            .await
+            .expect("direct Device identity")
+            .endpoint_id,
+        endpoint
+    );
+    oauth2
+        .client_repo
+        .delete_client_by_client_id(&login)
+        .await
+        .expect("learn login registration deletion");
+    assert!(control.validate_actor_token(&token).await.is_err());
+    assert!(
+        control
+            .get_storage_device_identity(identity.device_id)
+            .await
+            .is_ok(),
+        "Device trust is not login Client state"
+    );
+    oauth2
+        .user_repo
+        .delete_user_by_id(user)
+        .await
+        .expect("learn Device owner deletion");
+    assert!(
+        control
+            .get_storage_endpoint_identity(&endpoint)
+            .await
+            .is_err()
+    );
+    assert!(
+        control
+            .get_storage_device_identity(identity.device_id)
+            .await
+            .is_err()
+    );
+    drop(oauth2);
+    runtime.shutdown().await.expect("close unserved owners");
+}
+
+fn fixture_oauth2(
+    config: &idp_server::AppConfig,
+    engine: Arc<db::Database>,
+) -> OAuth2Service<
+    DbApplicationRepo,
+    DbClientRepo,
+    DbOAuth2AuthorizationCodeRepo,
+    DbOAuth2RefreshTokenRepo,
+    DbUserRepo,
+    DbOAuth2UserConsentRepo,
+    DbKeyRepo,
+    PrivateKeyKeyringRepo,
+> {
+    let keys = Arc::new(KeyService::new(
+        DbKeyRepo::new(Arc::clone(&engine)),
+        PrivateKeyKeyringRepo::new(&config.oauth2.issuer).expect("retained fixture private keys"),
+        config.key_namespace.clone(),
+    ));
+    OAuth2Service::new(
+        DbApplicationRepo::new(Arc::clone(&engine)),
+        DbClientRepo::new(Arc::clone(&engine), Arc::clone(&keys)),
+        DbOAuth2AuthorizationCodeRepo::new(Arc::clone(&engine)),
+        DbOAuth2RefreshTokenRepo::new(Arc::clone(&engine)),
+        DbUserRepo::new(Arc::clone(&engine), config.password.clone()),
+        DbOAuth2UserConsentRepo::new(engine),
+        keys,
+        config.oauth2.clone(),
+    )
+}
+
 async fn rotation_login_client(
     fixture: &Fixture,
     grants: Vec<idp_model::contract::GrantType>,
     audiences: Vec<String>,
 ) -> idp_model::contract::ClientRegistration {
-    use idp_model::contract::{ClientRegistration, ClientType, TokenEndpointAuthMethod};
-    use idp_service::{
-        oauth2::OAuth2Service,
-        replica::{
-            DbApplicationRepo, DbClientRepo, DbKeyRepo, DbOAuth2AuthorizationCodeRepo,
-            DbOAuth2RefreshTokenRepo, DbOAuth2UserConsentRepo, DbUserRepo,
-        },
-        repo::KeyService,
-    };
-    let engine =
-        Arc::new(db::Database::open(fixture.root.join("idp/idp.redb")).expect("retained IdP"));
-    let keys = Arc::new(KeyService::new(
-        DbKeyRepo::new(engine.clone()),
-        PrivateKeyKeyringRepo::new(&fixture.config.idp.oauth2.issuer)
-            .expect("fixture secure provider"),
-        fixture.config.idp.key_namespace.clone(),
-    ));
-    let service = OAuth2Service::new(
-        DbApplicationRepo::new(engine.clone()),
-        DbClientRepo::new(engine.clone(), keys.clone()),
-        DbOAuth2AuthorizationCodeRepo::new(engine.clone()),
-        DbOAuth2RefreshTokenRepo::new(engine.clone()),
-        DbUserRepo::new(engine.clone(), fixture.config.idp.password.clone()),
-        DbOAuth2UserConsentRepo::new(engine),
-        keys,
-        fixture.config.idp.oauth2.clone(),
-    );
-    let mut request: ClientRegistration =
-        serde_json::from_value(fixture.journal()["intent"]["clients"][1].clone())
-            .expect("public registration template");
-    request.client_id = None;
-    request.client_type = ClientType::Public;
-    request.token_endpoint_auth_method = TokenEndpointAuthMethod::None;
+    let owner = idp_server::OwnerProvisioner::open(&fixture.config.idp)
+        .await
+        .expect("stopped fixture IdP owner");
+    let mut request = crate::local_provisioning::login_registration(&fixture.config, Id::now_v7());
     request.allowed_grant_types = grants;
-    request.allowed_scopes = vec!["openid".into()];
     request.allowed_audiences = audiences;
-    service
+    fixture_oauth2(&fixture.config.idp, owner.node_join_database())
         .register_client(request)
         .await
-        .expect("public IdP login Client fixture API")
+        .expect("independent public login fixture")
 }
 
-async fn rotation_service_token(
-    http: &reqwest::Client,
-    base: &str,
-    credential: &ServiceClientCredentials,
-) -> reqwest::Response {
-    http.post(format!("{base}/idp/oauth2/token"))
-        .form(&[
-            ("grant_type", "client_credentials"),
-            ("client_id", credential.client_id.as_str()),
-            ("client_secret", credential.client_secret.as_str()),
-            ("audience", credential.audience.as_str()),
-            (
-                "scope",
-                "idp.token.validate idp.device.lookup idp.device.list",
-            ),
-        ])
-        .send()
-        .await
-        .expect("authenticated relationship token request")
-}
-
-#[tokio::test]
-async fn local_provisioning_authorized_rotation_reopens_completed_host() {
-    let fixture = Fixture::new();
-    let mut host = LocalProvisioner::create(
-        fixture.config.clone(),
-        "operator",
-        "Local Node",
-        &fixture.password,
-    )
-    .expect("explicit fresh host");
-    host.provision(&fixture.password)
-        .await
-        .expect("provision real isolated host");
-    let login = rotation_login_client(
-        &fixture,
-        vec![
-            idp_model::contract::GrantType::Password,
-            idp_model::contract::GrantType::TokenExchange,
-        ],
-        vec![fixture.config.storage_idp_client.audience.clone()],
-    )
-    .await;
-    let delivery = keyring_core::api::CredentialStoreApi::build(
-        &*fixture.store,
-        "rotation-fixture",
-        "storage-idp-current",
-        None,
-    )
-    .expect("narrow secure provider test delivery");
-    delivery
-        .set_secret(b"fixture-securely-delivered-rotation-secret")
-        .expect("protected test secret delivery");
-    let mut rotated = fixture.config.clone();
-    rotated.storage_idp_client.client_secret = String::from_utf8(
-        delivery
-            .get_secret()
-            .expect("secure provider supplied current test secret"),
-    )
-    .expect("UTF-8 relationship credential");
-    let journal_path = fixture
-        .config
-        .local_provisioning_directory()
-        .join("intent.json");
-    let journal = fs::read(&journal_path).expect("completed historical intent");
-    let secrets = fixture.secrets();
-    let runtime = host
-        .build_runtime()
-        .await
-        .expect("existing completed runtime");
-    drop(host);
-    let endpoint = runtime.endpoint_id().to_string();
-    let base = format!("http://{}", runtime.local_addr());
-    let cancellation = runtime.cancellation_token();
-    let task = tokio::spawn(runtime.serve());
-    let http = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()
-        .expect("HTTP client");
-    let login_id = login.client_id.as_deref().expect("login Client ID");
-    let response = http
-        .post(format!("{base}/idp/oauth2/token"))
-        .form(&[
-            ("grant_type", "password"),
-            ("client_id", login_id),
-            ("username", "operator"),
-            ("password", "fixture-initial-password"),
-            ("scope", "openid"),
-        ])
-        .send()
-        .await
-        .expect("administrator login");
-    assert_eq!(response.status(), reqwest::StatusCode::OK);
-    let token: serde_json::Value = response.json().await.expect("login response");
-    let response = http
-        .post(format!("{base}/idp/oauth2/token"))
-        .form(&[
-            (
-                "grant_type",
-                "urn:ietf:params:oauth:grant-type:token-exchange",
-            ),
-            ("client_id", login_id),
-            (
-                "subject_token",
-                token["access_token"].as_str().expect("login token"),
-            ),
-            (
-                "subject_token_type",
-                "urn:ietf:params:oauth:token-type:access_token",
-            ),
-            (
-                "resource",
-                fixture.config.storage_idp_client.audience.as_str(),
-            ),
-        ])
-        .send()
-        .await
-        .expect("IdP audience User token");
-    assert_eq!(response.status(), reqwest::StatusCode::OK);
-    let admin: serde_json::Value = response.json().await.expect("administrator bearer");
-    let admin = admin["access_token"].as_str().expect("User bearer");
-    let url = format!(
-        "{base}/idp/oauth2/register/{}",
-        fixture.config.storage_idp_client.client_id
-    );
-    let old_token = rotation_service_token(&http, &base, &fixture.config.storage_idp_client).await;
-    assert_eq!(old_token.status(), reqwest::StatusCode::OK);
-    let old_token: serde_json::Value = old_token.json().await.expect("original service bearer");
-    let old_token = old_token["access_token"].as_str().expect("original bearer");
-    let response = http
-        .get(&url)
-        .bearer_auth(admin)
-        .send()
-        .await
-        .expect("authorized exact infrastructure read");
-    assert_eq!(response.status(), reqwest::StatusCode::OK);
-    let mut registration: serde_json::Value =
-        response.json().await.expect("full current registration");
-    assert!(registration.get("client_secret").is_none());
-    assert!(
-        LocalProvisioner::open_runtime(rotated.clone())
-            .await
-            .is_err(),
-        "config alone is not authorization"
-    );
-    registration["client_secret"] = rotated.storage_idp_client.client_secret.clone().into();
-    let response = http
-        .put(&url)
-        .bearer_auth(admin)
-        .json(&registration)
-        .send()
-        .await
-        .expect("authorized same-ID secret rotation");
-    assert_eq!(response.status(), reqwest::StatusCode::OK);
-    let updated: serde_json::Value = response.json().await.expect("rotated registration");
-    assert_eq!(updated["allowed_scopes"], registration["allowed_scopes"]);
-    assert_eq!(
-        updated["allowed_audiences"],
-        registration["allowed_audiences"]
-    );
-    assert!(
-        !rotation_service_token(&http, &base, &fixture.config.storage_idp_client)
-            .await
-            .status()
-            .is_success(),
-        "old secret fails current owner state"
-    );
-    assert_eq!(
-        rotation_service_token(&http, &base, &rotated.storage_idp_client)
-            .await
-            .status(),
-        reqwest::StatusCode::OK
-    );
-    let mut widened = registration.clone();
-    widened["allowed_audiences"]
-        .as_array_mut()
-        .expect("audience list")
-        .push("https://unrelated.test".into());
-    let response = http
-        .put(&url)
-        .bearer_auth(admin)
-        .json(&widened)
-        .send()
-        .await
-        .expect("authorized metadata mutation control");
-    assert_eq!(response.status(), reqwest::StatusCode::OK);
-    assert!(
-        LocalProvisioner::open_runtime(rotated.clone())
-            .await
-            .is_err(),
-        "completed startup does not accept widened current relationship"
-    );
-    let response = http
-        .put(&url)
-        .bearer_auth(admin)
-        .json(&registration)
-        .send()
-        .await
-        .expect("authorized exact metadata restoration");
-    assert_eq!(response.status(), reqwest::StatusCode::OK);
-    cancellation.cancel();
-    tokio::time::timeout(Duration::from_secs(10), task)
-        .await
-        .expect("host shutdown bound")
-        .expect("host task")
-        .expect("host shutdown");
-    assert!(
-        LocalProvisioner::open_runtime(fixture.config.clone())
-            .await
-            .is_err(),
-        "original secret cannot reopen rotated owner state"
-    );
-    let endpoint_key_path = fixture.root.join("endpoint/endpoint.key");
-    let endpoint_key = fs::read(&endpoint_key_path).expect("retained protected endpoint key");
-    fs::write(&endpoint_key_path, iroh::SecretKey::generate().to_bytes())
-        .expect("simulate changed retained endpoint");
-    assert!(
-        LocalProvisioner::open_runtime(rotated.clone())
-            .await
-            .is_err(),
-        "changed endpoint is not accepted"
-    );
-    fs::write(&endpoint_key_path, &endpoint_key).expect("restore only isolated test endpoint");
-    let mut conflicting = rotated.clone();
-    conflicting.idp.oauth2.issuer = "https://changed-issuer.test".into();
-    assert!(LocalProvisioner::open_runtime(conflicting).await.is_err());
-    let mut conflicting = rotated.clone();
-    conflicting.idp.oauth2.local_signer = Some(idp_service::oauth2::NodeSignerBinding {
-        member_id: serde_json::from_value(fixture.journal()["member"].clone())
-            .expect("retained member"),
-        key_id: Id::now_v7(),
-        endpoint_id: endpoint.clone(),
-    });
-    assert!(LocalProvisioner::open_runtime(conflicting).await.is_err());
-    for context in 0..4 {
-        let mut conflicting = rotated.clone();
-        let absent = fixture.root.join(format!("changed-root-{context}"));
-        match context {
-            0 => conflicting.idp.data_dir = absent.to_string_lossy().into_owned(),
-            1 => conflicting.management.data_dir = absent.to_string_lossy().into_owned(),
-            2 => conflicting.storage.data_dir = absent.to_string_lossy().into_owned(),
-            _ => conflicting.endpoint_data_dir = absent.clone(),
-        }
-        assert!(LocalProvisioner::open_runtime(conflicting).await.is_err());
-        assert!(!absent.exists(), "conflicting roots are not initialized");
-    }
-    let owner_inventory_path = fixture.root.join("idp/setup-secret-inventory.json");
-    let owner_inventory = fs::read(&owner_inventory_path).expect("captured owner inventory");
-    let journal_modified = fs::metadata(&journal_path)
-        .expect("journal metadata")
-        .modified()
-        .expect("journal timestamp");
-    for reopen in 0..2 {
-        let (runtime, guard) = LocalProvisioner::open_runtime(rotated.clone())
-            .await
-            .expect("completed CLI reopen accepts owner-verified current secret");
-        assert_eq!(runtime.endpoint_id().to_string(), endpoint);
-        let base = format!("http://{}", runtime.local_addr());
-        let cancellation = runtime.cancellation_token();
-        let task = tokio::spawn(runtime.serve());
-        let client = storage_server::IdpClient::new(
-            &format!("{base}/idp"),
-            &rotated.storage_idp_client.client_id,
-            &rotated.storage_idp_client.client_secret,
-            &rotated.idp.oauth2.issuer,
-            &rotated.storage_idp_client.audience,
-        )
-        .expect("actual Storage owner IdP client");
-        assert!(
-            client
-                .approved_storage_endpoints()
-                .await
-                .expect("authorized Storage to IdP call after restart")
-                .contains(&endpoint)
-        );
-        if reopen == 1 {
-            let response = http
-                .delete(format!(
-                    "{base}/idp/oauth2/register/{}",
-                    rotated.storage_idp_client.client_id
-                ))
-                .bearer_auth(admin)
-                .send()
-                .await
-                .expect("authorized registration deletion");
-            assert!(response.status().is_success());
-            let response = http
-                .get(format!("{base}/idp/devices/endpoints"))
-                .bearer_auth(old_token)
-                .send()
-                .await
-                .expect("learned deletion rejects previously issued bearer");
-            assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
-            assert!(
-                !rotation_service_token(&http, &base, &rotated.storage_idp_client)
-                    .await
-                    .status()
-                    .is_success()
-            );
-        }
-        cancellation.cancel();
-        tokio::time::timeout(Duration::from_secs(10), task)
-            .await
-            .expect("reopened shutdown bound")
-            .expect("reopened task")
-            .expect("reopened shutdown");
-        drop(guard);
-        assert_eq!(fs::read(&journal_path).expect("unchanged journal"), journal);
-        assert_eq!(
-            fs::metadata(&journal_path)
-                .expect("journal metadata")
-                .modified()
-                .expect("journal timestamp"),
-            journal_modified
-        );
-        assert_eq!(
-            fs::read(&owner_inventory_path).expect("unchanged owner inventory"),
-            owner_inventory
-        );
-        assert!(
-            fixture.secrets() == secrets,
-            "host startup/reopen must not produce replacement private material"
-        );
-    }
-    assert!(
-        LocalProvisioner::open_runtime(rotated).await.is_err(),
-        "deleted relationship is not recreated by completed startup"
-    );
-    assert_eq!(
-        fs::read(&journal_path).expect("unchanged journal after denial"),
-        journal
-    );
-}
-
-#[test]
-fn local_provisioning_incomplete_rotation_requires_original_exact_secret() {
-    let fixture = Fixture::new();
-    let host = LocalProvisioner::create(
-        fixture.config.clone(),
-        "operator",
-        "Local Node",
-        &fixture.password,
-    )
-    .expect("explicit incomplete intent");
-    drop(host);
-    let journal = fixture.journal();
-    let mut changed = fixture.config.clone();
-    changed.storage_idp_client.client_secret = "fixture-incomplete-rotation-secret".into();
-    assert!(
-        LocalProvisioner::open(changed).is_err(),
-        "incomplete continuation retains original verifiers"
-    );
-    drop(
-        LocalProvisioner::open(fixture.config.clone())
-            .expect("original exact continuation still opens"),
-    );
-    assert_eq!(fixture.journal(), journal);
-    secret_files_absent(&fixture.root);
-}
-
-async fn exercise_running_host(runtime: crate::UnifiedRuntime, config: &UnifiedConfig, user: Id) {
+async fn exercise_running_host(runtime: crate::UnifiedRuntime, user: Id) {
+    let permissions = management_service::LocalPermissions::new(runtime.management_engine.clone());
     use idp_model::contract::{
         IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
         PermissionTarget,
@@ -609,53 +555,6 @@ async fn exercise_running_host(runtime: crate::UnifiedRuntime, config: &UnifiedC
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert!(healthy, "actual host listener starts without peer contact");
-    let mut evaluator = String::new();
-    for (credentials, scopes) in [
-        (
-            &config.management_idp_client,
-            "idp.token.validate idp.device.lookup",
-        ),
-        (
-            &config.storage_idp_client,
-            "idp.token.validate idp.device.lookup idp.device.list",
-        ),
-        (
-            &config.storage_management_client,
-            "management.replication.read management.replication.admit",
-        ),
-        (
-            config
-                .idp_management_client
-                .as_ref()
-                .expect("explicit evaluator relationship"),
-            "management.permission.evaluate",
-        ),
-    ] {
-        let response = http
-            .post(format!("{base}/idp/oauth2/token"))
-            .form(&[
-                ("grant_type", "client_credentials"),
-                ("client_id", credentials.client_id.as_str()),
-                ("client_secret", credentials.client_secret.as_str()),
-                ("audience", credentials.audience.as_str()),
-                ("scope", scopes),
-            ])
-            .send()
-            .await
-            .expect("ordinary authenticated service Client issuance");
-        assert_eq!(
-            response.status(),
-            reqwest::StatusCode::OK,
-            "exact local Client scopes/audience work through real listener"
-        );
-        let body: serde_json::Value = response.json().await.expect("token response");
-        let token = body["access_token"]
-            .as_str()
-            .expect("normal service bearer");
-        if scopes == "management.permission.evaluate" {
-            evaluator = token.to_owned();
-        }
-    }
     for (action, resource) in [
         (
             IdentityAction::InfrastructureClientsCreate,
@@ -687,22 +586,12 @@ async fn exercise_running_host(runtime: crate::UnifiedRuntime, config: &UnifiedC
                     resource: resource.clone(),
                 },
             };
-            let response = http
-                .post(format!("{base}/management/permissions/evaluate"))
-                .bearer_auth(&evaluator)
-                .header("content-type", "application/json")
-                .body(serde_json::to_vec(&request).expect("public permission request"))
-                .send()
-                .await
-                .expect("normal registered evaluator API");
             assert_eq!(
-                response.status(),
-                reqwest::StatusCode::OK,
-                "local permission evaluation uses real authenticated context composition"
-            );
-            let decision: serde_json::Value = response.json().await.expect("permission decision");
-            assert_eq!(
-                decision["allowed"], expected,
+                permissions
+                    .evaluate(&request)
+                    .await
+                    .expect("current owner-local permission decision"),
+                expected,
                 "grants belong only to the retained initial User"
             );
         }
@@ -716,36 +605,12 @@ async fn exercise_running_host(runtime: crate::UnifiedRuntime, config: &UnifiedC
             resource: IdentityResource::Client { client_id: None },
         },
     };
-    let response = http
-        .post(format!("{base}/management/permissions/evaluate"))
-        .bearer_auth(&evaluator)
-        .header("content-type", "application/json")
-        .body(serde_json::to_vec(&request).expect("application-scoped request"))
-        .send()
-        .await
-        .expect("normal application-scoped evaluation");
-    assert_eq!(response.status(), reqwest::StatusCode::OK);
-    let decision: serde_json::Value = response.json().await.expect("application-scoped decision");
-    assert_eq!(
-        decision["allowed"], false,
-        "initial Installation grants are not a global application role"
-    );
-    let credentials = &config.management_idp_client;
-    let denied = http
-        .post(format!("{base}/idp/oauth2/token"))
-        .form(&[
-            ("grant_type", "client_credentials"),
-            ("client_id", credentials.client_id.as_str()),
-            ("client_secret", credentials.client_secret.as_str()),
-            ("audience", credentials.audience.as_str()),
-            ("scope", "idp.device.list"),
-        ])
-        .send()
-        .await
-        .expect("scope escalation request");
     assert!(
-        !denied.status().is_success(),
-        "Management to IdP cannot obtain Storage-only list scope"
+        !permissions
+            .evaluate(&request)
+            .await
+            .expect("application-scoped decision"),
+        "initial Installation grants are not a global application role"
     );
     cancellation.cancel();
     tokio::time::timeout(Duration::from_secs(60), task)
@@ -932,7 +797,6 @@ async fn local_provisioning_restores_stopped_same_node_filesystem_with_retained_
     );
     exercise_running_host(
         runtime,
-        &config,
         serde_json::from_value(journal["user"].clone()).expect("retained initial User"),
     )
     .await;
@@ -953,23 +817,16 @@ async fn local_provisioning_restores_stopped_same_node_filesystem_with_retained_
         .await
         .expect("restored Node reopens again");
     assert_eq!(runtime.endpoint_id(), endpoint);
-    let base = format!("http://{}/idp", runtime.local_addr());
+    let client = runtime.management_control_plane.clone();
     let cancellation = runtime.cancellation_token();
     let task = tokio::spawn(runtime.serve());
-    let client = storage_server::IdpClient::new(
-        &base,
-        &config.storage_idp_client.client_id,
-        &config.storage_idp_client.client_secret,
-        &config.idp.oauth2.issuer,
-        &config.storage_idp_client.audience,
-    )
-    .expect("real consuming Storage owner client");
-    assert!(
+    assert_eq!(
         client
-            .approved_storage_endpoints()
+            .get_storage_endpoint_identity(&endpoint.to_string())
             .await
-            .expect("authenticated restored owner trust")
-            .contains(&endpoint.to_string())
+            .expect("authenticated restored Management owner trust")
+            .endpoint_id,
+        endpoint.to_string()
     );
     cancellation.cancel();
     tokio::time::timeout(Duration::from_secs(60), task)
@@ -1044,6 +901,100 @@ async fn local_provisioning_restores_stopped_same_node_filesystem_with_retained_
 }
 
 #[tokio::test]
+async fn host_references_drive_complete_owner_create_and_offline_reopen() {
+    let fixture = Fixture::new();
+    let unresolved = fixture.config.clone();
+
+    let credentials = crate::CredentialBootstrap::create(unresolved.clone())
+        .expect("explicit fresh public references");
+    let config = credentials.load().expect("retained host settings");
+    let mut host = LocalProvisioner::create(
+        config.clone(),
+        "operator",
+        "Automatic Node",
+        &fixture.password,
+    )
+    .expect("generated config works at public owner seam");
+    host.provision(&fixture.password)
+        .await
+        .expect("complete actual Node create");
+    let journal = fixture.journal();
+    let user = journal["user"]
+        .as_str()
+        .expect("administrator ID")
+        .parse()
+        .expect("canonical ID");
+    let runtime = host
+        .build_runtime()
+        .await
+        .expect("generated credentials compose all contexts");
+    let endpoint = runtime.endpoint_id();
+    exercise_running_host(runtime, user).await;
+    let retained_secrets = fixture.secrets();
+    drop(host);
+    drop(credentials);
+    let credentials =
+        crate::CredentialBootstrap::open(unresolved).expect("offline public credential reopen");
+    let config = credentials.load().expect("existing-only host settings");
+    let host = LocalProvisioner::open(config).expect("offline exact owner intent");
+    let runtime = host
+        .build_runtime()
+        .await
+        .expect("offline actual Node reopen");
+    assert_eq!(runtime.endpoint_id(), endpoint);
+    assert!(
+        runtime
+            .node_public_ready()
+            .await
+            .expect("current local readiness")
+    );
+    runtime.shutdown().await.expect("close all contexts");
+    assert_eq!(
+        retained_secrets,
+        fixture.secrets(),
+        "no regeneration on offline restart"
+    );
+}
+
+#[tokio::test]
+async fn join_intent_is_public_exact_and_never_startup_readiness() {
+    let fixture = Fixture::new();
+    let peer = iroh::SecretKey::generate().public().to_string();
+    let local = crate::LocalJoin::create(fixture.config.clone(), &peer, "Joining Node")
+        .expect("purpose-bound fresh join intent");
+    assert!(
+        local.build_runtime().await.is_err(),
+        "intent is not completion"
+    );
+    assert!(
+        crate::LocalJoin::open(fixture.config.clone()).is_err(),
+        "cooperating join exclusion"
+    );
+    secret_files_absent(&fixture.root);
+    let path = fixture
+        .config
+        .local_provisioning_directory()
+        .join("join.json");
+    let before = fs::read(&path).expect("retained public join intent");
+    drop(local);
+    let local = crate::LocalJoin::open(fixture.config.clone()).expect("exact continuation");
+    assert!(
+        local.build_https_runtime().await.is_err(),
+        "incomplete join cannot serve HTTPS"
+    );
+    drop(local);
+    assert!(
+        LocalProvisioner::open(fixture.config.clone()).is_err(),
+        "join cannot be reinterpreted as create"
+    );
+    let mut changed = fixture.config.clone();
+    changed.idp.oauth2.issuer = "https://wrong-installation.test/idp".into();
+    assert!(crate::LocalJoin::open(changed).is_err());
+    assert_eq!(fs::read(&path).expect("unchanged intent"), before);
+    secret_files_absent(&fixture.root);
+}
+
+#[tokio::test]
 async fn local_provisioning_creates_exact_host_and_reopens_offline() {
     let fixture = Fixture::new();
     let mut host = LocalProvisioner::create(
@@ -1073,13 +1024,7 @@ async fn local_provisioning_creates_exact_host_and_reopens_offline() {
             .join("intent.json"),
     )
     .expect("public-only manifest");
-    for secret in [
-        "fixture-initial-password",
-        "fixture-management-idp-secret",
-        "fixture-storage-idp-secret",
-        "fixture-storage-management-secret",
-        "fixture-idp-management-secret",
-    ] {
+    for secret in ["fixture-initial-password"] {
         assert!(
             !manifest.contains(secret),
             "raw credentials must not enter retained intent"
@@ -1099,7 +1044,6 @@ async fn local_provisioning_creates_exact_host_and_reopens_offline() {
     let endpoint = runtime.endpoint_id();
     exercise_running_host(
         runtime,
-        &fixture.config,
         intent["user"]
             .as_str()
             .expect("initial User")
@@ -1127,7 +1071,6 @@ async fn local_provisioning_creates_exact_host_and_reopens_offline() {
     );
     exercise_running_host(
         runtime,
-        &fixture.config,
         intent["user"]
             .as_str()
             .expect("initial User")
@@ -1156,7 +1099,7 @@ async fn local_provisioning_creates_exact_host_and_reopens_offline() {
 }
 
 #[tokio::test]
-async fn local_provisioning_continues_retained_attempt_and_refuses_changed_credentials() {
+async fn local_provisioning_continues_retained_attempt_and_refuses_changed_identity() {
     let mut fixture = Fixture::new();
     let occupied = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
@@ -1190,7 +1133,7 @@ async fn local_provisioning_continues_retained_attempt_and_refuses_changed_crede
     let secrets = fixture.secrets();
     drop(host);
     let mut changed = fixture.config.clone();
-    changed.storage_idp_client.client_secret = "changed-fixture-secret".into();
+    changed.idp.oauth2.issuer = "https://changed-issuer.test".into();
     assert!(
         LocalProvisioner::open(changed).is_err(),
         "env credential drift never rotates retained Client"
@@ -1336,7 +1279,7 @@ async fn local_provisioning_existing_cli_host_without_journal_starts_and_reopens
                 .await
                 .expect("current readiness")
         );
-        exercise_running_host(runtime, &fixture.config, user).await;
+        exercise_running_host(runtime, user).await;
         assert!(!directory.exists(), "no journal migration or synthesis");
         assert!(secrets == fixture.secrets(), "no private replacement");
         assert_eq!(
@@ -1360,15 +1303,6 @@ async fn local_provisioning_existing_cli_host_without_journal_starts_and_reopens
             .expect("preprovisioned readiness")
     );
     runtime.shutdown().await.expect("joined shutdown");
-    let mut optional = fixture.config.clone();
-    optional.idp_management_client = None;
-    let (runtime, _) = LocalProvisioner::open_runtime(optional)
-        .await
-        .expect("existing composition does not require fresh command's fourth relationship");
-    runtime
-        .shutdown()
-        .await
-        .expect("optional relationship shutdown");
     let endpoint = fs::read(fixture.root.join("endpoint/endpoint.key")).expect("retained endpoint");
 
     let management_before = fs::read(fixture.root.join("management/management.redb"))
@@ -1809,7 +1743,7 @@ fn local_provisioning_rejects_unprotected_input_and_missing_or_conflicting_inten
         .local_provisioning_directory()
         .join("intent.json");
     let mut unknown_request = fixture.journal();
-    unknown_request["intent"]["clients"][0]["unrecognized_request_field"] = true.into();
+    unknown_request["intent"]["unrecognized_request_field"] = true.into();
     fs::write(
         &journal,
         serde_json::to_vec(&unknown_request).expect("unknown request fixture"),

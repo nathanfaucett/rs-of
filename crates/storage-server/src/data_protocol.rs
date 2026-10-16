@@ -120,7 +120,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        ManagementClient, database_protocol::DatabaseProtocolHandler,
+        LocalReplicationAuthorizer, database_protocol::DatabaseProtocolHandler,
         storage_protocol::StorageProtocolHandler,
     };
 
@@ -162,15 +162,9 @@ mod tests {
         let peer_connection = peer_connection.expect("peer connects");
         let accepted_connection = accepted_connection.expect("Storage accepts peer");
         let cancellation_token = CancellationToken::new();
-        let management = ManagementClient::new(
-            "http://127.0.0.1:1/management",
-            "http://127.0.0.1:1/idp",
-            "storage-client",
-            "test-secret",
-            "https://idp.example",
-            "management-api",
-        )
-        .expect("build test Management client");
+        let authorizer = LocalReplicationAuthorizer::new(|_| async {
+            Err("local policy unavailable".to_owned())
+        });
         let root = std::env::temp_dir().join(format!(
             "storage-active-shutdown-{}",
             idp_model::model::Id::now_v7()
@@ -185,14 +179,14 @@ mod tests {
         );
         let database = DatabaseProtocolHandler::new(
             server.clone(),
-            management.clone(),
+            authorizer.clone(),
             databases,
             root.join("sync-staging"),
             cancellation_token.clone(),
         );
         let file_system = StorageProtocolHandler::new(
             server.clone(),
-            management,
+            authorizer,
             file_systems,
             cancellation_token.clone(),
         );

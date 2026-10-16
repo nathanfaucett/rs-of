@@ -1,4 +1,6 @@
 use std::{
+    future::Future,
+    pin::Pin,
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -6,10 +8,7 @@ use std::{
 use idp_service::oauth2::{decode_jwt, verify_jwt};
 
 use idp_model::{
-    contract::{
-        DeviceEndpointIdentity, DeviceSelfRevocationRequest, IntrospectionRequest,
-        IntrospectionResponse, Jwks, TrustedDevice,
-    },
+    contract::{IntrospectionRequest, IntrospectionResponse, Jwks},
     model::Id,
 };
 use iroh::EndpointId;
@@ -21,6 +20,8 @@ use reqwest::{Client, Url, redirect::Policy};
 use serde::Deserialize;
 use storage_model::ResourceKind;
 
+use crate::{DeviceEndpointIdentity, DeviceSelfRevocationRequest, TrustedDevice};
+
 #[derive(Clone)]
 pub struct HostedControlPlane {
     idp_base_url: Url,
@@ -29,6 +30,17 @@ pub struct HostedControlPlane {
     permission_evaluator_client_id: Option<String>,
     service_token_client: Option<Arc<ServiceTokenClient>>,
     client: Client,
+    local_idp: Option<LocalIdp>,
+}
+
+type LocalCall<I, O> =
+    Arc<dyn Fn(I) -> Pin<Box<dyn Future<Output = Result<O, String>> + Send>> + Send + Sync>;
+
+#[derive(Clone)]
+struct LocalIdp {
+    inspect: LocalCall<String, IntrospectionResponse>,
+    endpoint: LocalCall<String, DeviceEndpointIdentity>,
+    device: LocalCall<Id, DeviceEndpointIdentity>,
 }
 
 impl HostedControlPlane {
@@ -64,6 +76,7 @@ impl HostedControlPlane {
             expected_issuer: expected_issuer.to_owned(),
             permission_evaluator_client_id: None,
             service_token_client: None,
+            local_idp: None,
             client: Client::builder()
                 .connect_timeout(Duration::from_secs(3))
                 .timeout(Duration::from_secs(10))
@@ -71,6 +84,24 @@ impl HostedControlPlane {
                 .build()
                 .map_err(|error| error.to_string())?,
         })
+    }
+
+    /// Callbacks must validate against the current local IdP owner on every call.
+    pub fn with_local_idp<F, T, E, U, D, V>(mut self, inspect: F, endpoint: E, device: D) -> Self
+    where
+        F: Fn(String) -> T + Send + Sync + 'static,
+        T: Future<Output = Result<IntrospectionResponse, String>> + Send + 'static,
+        E: Fn(String) -> U + Send + Sync + 'static,
+        U: Future<Output = Result<DeviceEndpointIdentity, String>> + Send + 'static,
+        D: Fn(Id) -> V + Send + Sync + 'static,
+        V: Future<Output = Result<DeviceEndpointIdentity, String>> + Send + 'static,
+    {
+        self.local_idp = Some(LocalIdp {
+            inspect: Arc::new(move |token| Box::pin(inspect(token))),
+            endpoint: Arc::new(move |id| Box::pin(endpoint(id))),
+            device: Arc::new(move |id| Box::pin(device(id))),
+        });
+        self
     }
 
     pub fn with_permission_evaluator(mut self, client_id: &str) -> Result<Self, String> {
@@ -210,11 +241,22 @@ impl HostedControlPlane {
         Ok(value)
     }
 
-    /// Validates a user token through IdP's normal OAuth introspection API.
+    /// Validates an actor token through the local IdP owner or authenticated introspection.
     pub async fn validate_actor_token(
         &self,
         actor_token: &str,
     ) -> Result<(StandardClaims, Id), String> {
+        let response = match &self.local_idp {
+            Some(local) => (local.inspect)(actor_token.to_owned()).await?,
+            None => self.introspect_actor_token(actor_token).await?,
+        };
+        self.validate_actor_response(response)
+    }
+
+    async fn introspect_actor_token(
+        &self,
+        actor_token: &str,
+    ) -> Result<IntrospectionResponse, String> {
         let service_token = self.idp_service_access_token().await?;
         let request = IntrospectionRequest {
             token: actor_token.to_owned(),
@@ -246,8 +288,14 @@ impl HostedControlPlane {
             }
             body.extend_from_slice(&chunk);
         }
-        let response: IntrospectionResponse = serde_json::from_slice(&body)
-            .map_err(|_| "invalid IdP token validation response".to_owned())?;
+        serde_json::from_slice(&body)
+            .map_err(|_| "invalid IdP token validation response".to_owned())
+    }
+
+    fn validate_actor_response(
+        &self,
+        response: IntrospectionResponse,
+    ) -> Result<(StandardClaims, Id), String> {
         let application_id = response
             .application_id
             .parse()
@@ -273,6 +321,20 @@ impl HostedControlPlane {
     }
 
     pub async fn get_storage_endpoint_identity(
+        &self,
+        endpoint_id: &str,
+    ) -> Result<DeviceEndpointIdentity, String> {
+        let identity = match &self.local_idp {
+            Some(local) => (local.endpoint)(endpoint_id.to_owned()).await?,
+            None => self.lookup_endpoint_identity(endpoint_id).await?,
+        };
+        if identity.endpoint_id != endpoint_id {
+            return Err("IdP returned a mismatched endpoint identity".to_owned());
+        }
+        Ok(identity)
+    }
+
+    async fn lookup_endpoint_identity(
         &self,
         endpoint_id: &str,
     ) -> Result<DeviceEndpointIdentity, String> {
@@ -310,12 +372,7 @@ impl HostedControlPlane {
             }
             body.extend_from_slice(&chunk);
         }
-        let identity: DeviceEndpointIdentity = serde_json::from_slice(&body)
-            .map_err(|_| "invalid IdP endpoint response".to_owned())?;
-        if identity.endpoint_id != endpoint_id {
-            return Err("IdP returned a mismatched endpoint identity".to_owned());
-        }
-        Ok(identity)
+        serde_json::from_slice(&body).map_err(|_| "invalid IdP endpoint response".to_owned())
     }
 
     pub async fn validate_storage_resource(
@@ -369,10 +426,14 @@ impl HostedControlPlane {
         if device_id.is_nil() {
             return Err("invalid Device ID".into());
         }
-        let token = self.idp_service_access_token().await?;
-        let identity: DeviceEndpointIdentity = self
-            .get_idp(&format!("devices/identities/{device_id}"), &token)
-            .await?;
+        let identity = match &self.local_idp {
+            Some(local) => (local.device)(device_id).await?,
+            None => {
+                let token = self.idp_service_access_token().await?;
+                self.get_idp(&format!("devices/identities/{device_id}"), &token)
+                    .await?
+            }
+        };
         if identity.device_id != device_id
             || !identity
                 .endpoint_id
@@ -397,16 +458,11 @@ impl HostedControlPlane {
     }
 
     pub async fn verify_access_token(&self, token: &str) -> Result<StandardClaims, String> {
-        let (header, _) =
-            decode_jwt::<StandardClaims>(token).map_err(|_| "invalid token".to_owned())?;
-        let jwks: Jwks = self.get_idp(".well-known/jwks.json", "").await?;
-        let jwk = jwks
-            .keys
-            .iter()
-            .find(|jwk| jwk.kid == header.kid)
-            .ok_or_else(|| "token signing key is not trusted".to_owned())?;
-        let (_, claims) =
-            verify_jwt::<StandardClaims>(jwk, token).map_err(|_| "invalid token".to_owned())?;
+        let claims = if self.local_idp.is_some() {
+            self.validate_actor_token(token).await?.0
+        } else {
+            self.verify_remote_signature(token).await?
+        };
         self.check_issuer(&claims)?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -423,6 +479,20 @@ impl HostedControlPlane {
         {
             return Err("invalid storage access token".to_owned());
         }
+        Ok(claims)
+    }
+
+    async fn verify_remote_signature(&self, token: &str) -> Result<StandardClaims, String> {
+        let (header, _) =
+            decode_jwt::<StandardClaims>(token).map_err(|_| "invalid token".to_owned())?;
+        let jwks: Jwks = self.get_idp(".well-known/jwks.json", "").await?;
+        let jwk = jwks
+            .keys
+            .iter()
+            .find(|jwk| jwk.kid == header.kid)
+            .ok_or_else(|| "token signing key is not trusted".to_owned())?;
+        let (_, claims) =
+            verify_jwt::<StandardClaims>(jwk, token).map_err(|_| "invalid token".to_owned())?;
         Ok(claims)
     }
 
@@ -622,6 +692,231 @@ mod tests {
         validate_storage_read_claims(claims, "owner", "storage")
     }
 
+    #[tokio::test]
+    async fn local_idp_rechecks_owner_callbacks_without_service_credentials() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+
+        use crate::DeviceEndpointIdentity;
+        use idp_model::contract::IntrospectionResponse;
+        use idp_model::model::Id;
+
+        let revoked = Arc::new(AtomicBool::new(false));
+        let token_revoked = Arc::clone(&revoked);
+        let endpoint_revoked = Arc::clone(&revoked);
+        let device_revoked = Arc::clone(&revoked);
+        let endpoint = iroh::SecretKey::from_bytes(&[7; 32]).public().to_string();
+        let identity = DeviceEndpointIdentity {
+            device_id: ID.parse().expect("Device ID"),
+            owner_subject: ID.into(),
+            endpoint_id: endpoint.clone(),
+        };
+        let endpoint_identity = identity.clone();
+        let device_identity = identity.clone();
+        let control = HostedControlPlane::new_with_services(
+            "http://127.0.0.1:1",
+            "http://127.0.0.1:1",
+            "https://lidp.example",
+        )
+        .expect("unused HTTP endpoints")
+        .with_local_idp(
+            move |token| {
+                let revoked = Arc::clone(&token_revoked);
+                async move {
+                    assert_eq!(token, "actor");
+                    if revoked.load(Ordering::SeqCst) {
+                        return Err("actor token was rejected by IdP".into());
+                    }
+                    let mut claims = claims();
+                    claims.sub = ID.into();
+                    Ok(IntrospectionResponse {
+                        claims,
+                        application_id: APP_ID.into(),
+                    })
+                }
+            },
+            move |endpoint| {
+                let revoked = Arc::clone(&endpoint_revoked);
+                let identity = endpoint_identity.clone();
+                async move {
+                    assert_eq!(endpoint, identity.endpoint_id);
+                    if revoked.load(Ordering::SeqCst) {
+                        return Err("revoked Device".into());
+                    }
+                    Ok(identity)
+                }
+            },
+            move |device| {
+                let revoked = Arc::clone(&device_revoked);
+                let identity = device_identity.clone();
+                async move {
+                    assert_eq!(device, identity.device_id);
+                    if revoked.load(Ordering::SeqCst) {
+                        return Err("revoked Device".into());
+                    }
+                    Ok(identity)
+                }
+            },
+        );
+        assert_eq!(
+            control
+                .validate_actor_token("actor")
+                .await
+                .expect("local actor")
+                .1,
+            APP_ID.parse::<Id>().expect("Application ID")
+        );
+        assert!(control.verify_access_token("actor").await.is_ok());
+        assert_eq!(
+            control
+                .get_storage_endpoint_identity(&endpoint)
+                .await
+                .expect("endpoint")
+                .device_id,
+            identity.device_id
+        );
+        assert_eq!(
+            control
+                .get_storage_device_identity(identity.device_id)
+                .await
+                .expect("Device")
+                .owner_subject,
+            ID
+        );
+        revoked.store(true, Ordering::SeqCst);
+        assert_eq!(
+            control
+                .validate_actor_token("actor")
+                .await
+                .expect_err("revoked token"),
+            "actor token was rejected by IdP"
+        );
+        assert!(control.verify_access_token("actor").await.is_err());
+        assert!(
+            control
+                .get_storage_endpoint_identity(&endpoint)
+                .await
+                .is_err()
+        );
+        assert!(
+            control
+                .get_storage_device_identity(identity.device_id)
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn local_idp_preserves_claim_and_identity_response_checks() {
+        use crate::DeviceEndpointIdentity;
+        use idp_model::{contract::IntrospectionResponse, model::Id};
+
+        let endpoint = iroh::SecretKey::from_bytes(&[8; 32]).public().to_string();
+        let device_endpoint = endpoint.clone();
+        let control = HostedControlPlane::new_with_services(
+            "http://127.0.0.1:1",
+            "http://127.0.0.1:1",
+            "https://lidp.example",
+        )
+        .expect("unused HTTP endpoints")
+        .with_local_idp(
+            |token: String| async move {
+                let mut claims = claims();
+                claims.sub = ID.into();
+                let mut application_id = APP_ID.to_owned();
+                match token.as_str() {
+                    "issuer" => claims.iss = "https://other.example".into(),
+                    "expired" => claims.exp = 0,
+                    "token-type" => claims.r#type = TokenType::DPoP,
+                    "token-use" => claims.r#use = TokenUse::Refresh,
+                    "future-nbf" => claims.nbf = i64::MAX,
+                    "future-iat" => claims.iat = i64::MAX,
+                    "audience" => claims.aud.clear(),
+                    "client" => claims.client_id.clear(),
+                    "subject" => claims.sub = "not-an-id".into(),
+                    "application" => application_id = Id::nil().to_string(),
+                    "invalid-application" => application_id = "not-an-id".into(),
+                    "client-principal" => claims.principal_type = PrincipalType::Client,
+                    _ => {}
+                }
+                Ok(IntrospectionResponse {
+                    claims,
+                    application_id,
+                })
+            },
+            |_| async {
+                Ok(DeviceEndpointIdentity {
+                    device_id: ID.parse().expect("Device ID"),
+                    owner_subject: ID.into(),
+                    endpoint_id: "wrong-endpoint".into(),
+                })
+            },
+            move |device| {
+                let endpoint = device_endpoint.clone();
+                async move {
+                    Ok(DeviceEndpointIdentity {
+                        device_id: if device == APP_ID.parse::<Id>().expect("Application ID") {
+                            ID.parse().expect("Device ID")
+                        } else {
+                            device
+                        },
+                        owner_subject: if device == ID.parse::<Id>().expect("Device ID") {
+                            Id::nil().to_string()
+                        } else {
+                            ID.into()
+                        },
+                        endpoint_id: endpoint,
+                    })
+                }
+            },
+        );
+        for token in [
+            "issuer",
+            "expired",
+            "token-type",
+            "token-use",
+            "future-nbf",
+            "future-iat",
+            "audience",
+            "client",
+            "subject",
+            "application",
+            "invalid-application",
+        ] {
+            assert!(
+                control.validate_actor_token(token).await.is_err(),
+                "{token}"
+            );
+        }
+        assert!(
+            control
+                .validate_actor_token("client-principal")
+                .await
+                .is_ok()
+        );
+        assert!(
+            control
+                .verify_access_token("client-principal")
+                .await
+                .is_err()
+        );
+        assert!(
+            control
+                .get_storage_endpoint_identity(&endpoint)
+                .await
+                .is_err()
+        );
+        for device in [
+            Id::nil(),
+            ID.parse().expect("Device ID"),
+            APP_ID.parse().expect("Application ID"),
+        ] {
+            assert!(control.get_storage_device_identity(device).await.is_err());
+        }
+    }
+
     #[test]
     fn storage_read_requires_owner_audience_resource_and_read_detail() {
         let valid = claims();
@@ -791,8 +1086,11 @@ mod tests {
     async fn actor_validation_uses_scoped_client_bearer_and_returns_verified_claims() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind test HTTP server");
         let address = listener.local_addr().expect("read test HTTP address");
+        let mut actor_claims = claims();
+        actor_claims.iss = "https://issuer.example".into();
+        actor_claims.sub = ID.into();
         let introspection_body =
-            serde_json::json!({ "claims": claims(), "applicationId": APP_ID }).to_string();
+            serde_json::json!({ "claims": actor_claims, "applicationId": APP_ID }).to_string();
         let server = thread::spawn(move || {
             let (mut token_stream, _) = listener.accept().expect("accept token request");
             let mut token_request = [0; 4096];

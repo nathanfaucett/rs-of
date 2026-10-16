@@ -1,9 +1,31 @@
 import { error } from "@sveltejs/kit";
+
 import { isTauri } from "@tauri-apps/api/core";
-import { getSetupStage } from "$lib/common/state/setupClient.svelte";
+
+import {
+  getSetupStage,
+  getWebSetupHosts,
+} from "$lib/common/state/setupClient.svelte";
 
 export async function load() {
-  if (!isTauri()) return { stage: "desktop-only" };
+  if (!isTauri()) {
+    try {
+      const hosts = await getWebSetupHosts();
+      return {
+        stage: hosts.every((host) => host.status.ready)
+          ? "ready"
+          : hosts.some((host) => host.status.stage === "unavailable")
+            ? "unavailable"
+            : "installation",
+        hosts,
+      };
+    } catch (cause) {
+      throw error(
+        503,
+        cause instanceof Error ? cause.message : "Setup status unavailable",
+      );
+    }
+  }
   const stage = await getSetupStage();
   if (
     stage !== "installation" &&

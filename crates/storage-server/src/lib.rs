@@ -3,6 +3,10 @@
 #[cfg(feature = "cli")]
 mod cli;
 mod config;
+#[cfg(all(unix, feature = "cli"))]
+mod startup;
+#[cfg(all(unix, feature = "cli"))]
+pub use startup::prepare_setup;
 #[cfg(feature = "network")]
 mod copy_retirement;
 #[cfg(feature = "network")]

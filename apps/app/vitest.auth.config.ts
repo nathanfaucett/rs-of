@@ -9,6 +9,12 @@ export default defineConfig({
       "@aicacia/oidc-client": fileURLToPath(
         new URL("../../packages/oidc-client/src/index.ts", import.meta.url),
       ),
+      "@aicacia/idp-client/setup": fileURLToPath(
+        new URL(
+          "../../packages/idp-client/src/setup/index.ts",
+          import.meta.url,
+        ),
+      ),
       "@aicacia/idp-client": fileURLToPath(
         new URL("../../packages/idp-client/src/index.ts", import.meta.url),
       ),

@@ -11,12 +11,12 @@ use idp_model::{
         GrantType, IdpSignerRecord, JwkPublic, JwkPublicParameters, JwsAlgorithm, KeyUse,
         ReplicaMembership, TokenEndpointAuthMethod,
     },
-    model::Id,
+    model::{Client, Id, Key},
 };
 use idp_service::{
     oauth2::NodeSignerBinding,
     replica::DbReplicaSignerRepo,
-    repo::{ClientRepo, KeyRepo, KeyService, PrivateKeyRepo, RepoError},
+    repo::{ApplicationRepo, ClientRepo, KeyRepo, KeyService, PrivateKeyRepo, RepoError},
 };
 use iroh::EndpointId;
 use key::{DerivationPath, DerivedKey, MasterKey};
@@ -70,7 +70,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
         Ok(file)
     }
 
-    pub async fn ensure_initial_user_signing_key(&self, user: Id) -> io::Result<()> {
+    pub async fn ensure_initial_user_root(&self, user: Id) -> io::Result<()> {
         let _operation = self.setup_operation()?;
         if user.is_nil() {
             return Err(invalid("initial User identity is required"));
@@ -84,25 +84,54 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
         if inventory["owner"] != json!(user) {
             return Err(invalid("initial User conflicts with secret inventory"));
         }
-        let mut reference = self.read_client_reference(&slot)?;
+        let reference = self.read_metadata_reference(&slot)?;
         if reference["state"] == "never-started" {
-            reference["state"] = json!("pending");
-            self.write_client_reference(&slot, &reference)?;
+            if !self
+                .oauth2
+                .key_service
+                .key_repo()
+                .list_by_entity_type_and_id(EntityType::User, user)
+                .await
+                .map_err(io::Error::other)?
+                .is_empty()
+            {
+                return Err(invalid(
+                    "unexpected User root contradicts never-started capture",
+                ));
+            }
+            let mut pending = reference.clone();
+            pending["state"] = json!("pending");
+            self.write_client_reference(&slot, &pending)?;
         } else if reference["state"] == "pending" {
             return Err(invalid(
                 "unknown initial User history requires explicit recovery",
             ));
         }
-        self.ensure_local_entity_key(EntityType::User, user, "Local User", &slot)
+        if reference["state"] == "never-started" {
+            self.oauth2
+                .key_service
+                .create_initial_root_with_capture(
+                    EntityType::User,
+                    user,
+                    "Local User".into(),
+                    |key, paths| {
+                        self.capture_initial_root(&slot, key, paths)
+                            .map_err(|error| RepoError::InvalidInput(error.to_string()))
+                    },
+                )
+                .await
+                .map_err(io::Error::other)?;
+        }
+        self.verify_local_entity_root(EntityType::User, user, &slot)
             .await
     }
 
-    pub async fn ensure_client_signing_key(&self, client_id: &str) -> io::Result<()> {
+    pub async fn ensure_client_root(&self, client_id: &str) -> io::Result<()> {
         let _operation = self.setup_operation()?;
-        self.ensure_client_signing_key_locked(client_id).await
+        self.ensure_client_root_locked(client_id).await
     }
 
-    async fn ensure_client_signing_key_locked(&self, client_id: &str) -> io::Result<()> {
+    async fn ensure_client_root_locked(&self, client_id: &str) -> io::Result<()> {
         let client = self
             .oauth2
             .client_repo
@@ -111,110 +140,61 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             .map_err(io::Error::other)?
             .ok_or_else(|| invalid("local setup client row is missing"))?;
         self.ready_inventory()?;
-        let reference = self.read_client_reference(client_id)?;
+        let reference = self.read_metadata_reference(client_id)?;
         if reference["state"] != "resolved" || reference["entity_id"] != json!(client.id) {
             return Err(invalid("Client lacks owner-captured secret inventory"));
         }
-        self.ensure_local_entity_key(
-            EntityType::Client,
-            client.id,
-            &client.client_name,
-            client_id,
-        )
-        .await
+        self.verify_local_entity_root(EntityType::Client, client.id, client_id)
+            .await
     }
 
-    async fn ensure_local_entity_key(
+    async fn verify_local_entity_root(
         &self,
         entity: EntityType,
         id: Id,
-        name: &str,
         slot: &str,
     ) -> io::Result<()> {
         let keys = &self.oauth2.key_service;
-        let key = match keys
-            .key_repo()
-            .find_by_entity_type_and_id(entity, id)
-            .await
-            .map_err(io::Error::other)?
-        {
-            Some(key) => key,
-            None => {
-                if self.read_client_reference(slot)?["state"] != "pending" {
-                    return Err(invalid(
-                        "retained key metadata was lost; no replacement key was created",
-                    ));
-                }
-                let (key, _) = keys
-                    .create_initial_key_with_capture(entity, id, name.into(), |key, paths| {
-                        self.capture_initial_key(slot, key.entity_id, paths)
-                            .map_err(|error| RepoError::InvalidInput(error.to_string()))
-                    })
-                    .await
-                    .map_err(io::Error::other)?;
-                key
-            }
-        };
-        let namespace = keys.scoped_namespace(entity, id);
-        let path = key.derivation_path().map_err(io::Error::other)?;
-        let reference = self.read_client_reference(slot)?;
-        if reference["entity_id"] != json!(id) {
-            return Err(invalid("entity conflicts with captured inventory"));
-        }
-        let paths: Vec<String> = serde_json::from_value(reference["paths"].clone())?;
-        for required in KeyService::<idp_service::replica::DbKeyRepo, P>::private_paths(&key)
-            .map_err(io::Error::other)?
-        {
-            if !paths.contains(&required.to_string()) {
-                return Err(invalid("key is outside captured initial inventory"));
-            }
-        }
-        let private = if key.public_jwk.is_some() {
-            keys.private_key_repo().load(&namespace, &path).map_err(io::Error::other)?
-                .ok_or_else(|| invalid("published local key has lost private material; explicit recovery required, no key was recreated"))?
-        } else {
-            keys.private_key_repo()
-                .ensure_master_key(&namespace)
-                .map_err(io::Error::other)?;
-            keys.private_key_repo()
-                .ensure_derivation_path(&namespace, path.clone())
-                .map_err(io::Error::other)?
-        };
-        let retained = keys
-            .private_key_repo()
-            .load(&namespace, &path)
-            .map_err(io::Error::other)?
-            .ok_or_else(|| {
-                invalid("local private key readback missing; setup remains incomplete")
-            })?;
-        if retained.to_xprv_string() != private.to_xprv_string() {
+        let reference = self.read_metadata_reference(slot)?;
+        if reference["state"] != "resolved" || reference["entity_id"] != json!(id) {
             return Err(invalid(
-                "local private key readback changed; setup remains incomplete",
+                "entity conflicts with captured metadata-root inventory",
             ));
         }
-        let public = key.to_jwk_public(&private).map_err(io::Error::other)?;
-        if let Some(existing) = &key.public_jwk {
-            if existing != &public {
-                return Err(invalid(
-                    "local public/private key conflict; no key was changed",
-                ));
-            }
-        } else {
-            keys.key_repo()
-                .set_public_jwk(key.id, public)
-                .await
-                .map_err(io::Error::other)?;
+        let root_id: Id = serde_json::from_value(reference["root_id"].clone())?;
+        let initial = keys
+            .key_repo()
+            .find_by_id(root_id)
+            .await
+            .map_err(io::Error::other)?
+            .ok_or_else(|| {
+                invalid("captured root metadata is missing or inactive; explicit recovery required")
+            })?;
+        validate_metadata_root(&initial, entity, id)?;
+        let paths = KeyService::<idp_service::replica::DbKeyRepo, P>::private_paths(&initial)
+            .map_err(io::Error::other)?;
+        if reference["paths"] != json!(paths.iter().map(ToString::to_string).collect::<Vec<_>>()) {
+            return Err(invalid(
+                "captured root metadata conflicts with retained identity",
+            ));
         }
+        let active = keys
+            .key_repo()
+            .find_active_entity_root_key(entity, id)
+            .await
+            .map_err(io::Error::other)?
+            .ok_or_else(|| {
+                invalid("active Principal root is missing; no replacement was created")
+            })?;
+        validate_metadata_root(&active, entity, id)?;
         Ok(())
     }
 
     pub async fn ensure_desktop_client(&self, client_id: Id) -> io::Result<ClientRegistration> {
-        let _operation = self.setup_operation()?;
         if client_id.is_nil() {
             return Err(invalid("stable desktop client ID is required"));
         }
         let client_id = client_id.to_string();
-        self.begin_client_provisioning_locked(&client_id).await?;
         let request = ClientRegistration {
             application: ApplicationRegistration {
                 name: Some("Local Desktop".into()),
@@ -247,24 +227,24 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             software_id: None,
             software_version: None,
         };
+        self.ensure_setup_public_login_client(request).await
+    }
+
+    pub async fn ensure_setup_public_login_client(
+        &self,
+        request: ClientRegistration,
+    ) -> io::Result<ClientRegistration> {
+        let _operation = self.setup_operation()?;
+        validate_public_login_client(&request)?;
+        let client_id = request
+            .client_id
+            .as_deref()
+            .expect("validated login Client ID")
+            .to_owned();
+        self.begin_client_provisioning_locked(&client_id).await?;
         let registration = match self.oauth2.get_client(&client_id).await {
             Ok(existing) => {
-                if existing.application.uri != request.application.uri
-                    || existing.client_name != request.client_name
-                    || existing.client_type != request.client_type
-                    || existing.profile != request.profile
-                    || existing.token_endpoint_auth_method != request.token_endpoint_auth_method
-                    || existing.allowed_grant_types != request.allowed_grant_types
-                    || existing.allowed_scopes != request.allowed_scopes
-                    || existing.allowed_audiences != request.allowed_audiences
-                    || existing.redirect_uris != request.redirect_uris
-                    || !existing.response_types.is_empty()
-                    || existing.client_secret.is_some()
-                {
-                    return Err(invalid(
-                        "existing desktop client conflicts with restricted setup; no client was changed",
-                    ));
-                }
+                verify_public_login_registration(&existing, &request)?;
                 Ok(existing)
             }
             Err(error) if error.error == idp_model::contract::ErrorCode::InvalidClient => {
@@ -276,8 +256,24 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             }
             Err(error) => Err(io::Error::other(format!("{error:?}"))),
         }?;
-        self.ensure_client_signing_key_locked(&client_id).await?;
+        self.ensure_client_root_locked(&client_id).await?;
         Ok(registration)
+    }
+
+    /// Existing-only validation: missing/revoked or changed Clients are never recreated.
+    pub async fn verify_public_login_client(&self, expected: ClientRegistration) -> io::Result<()> {
+        validate_public_login_client(&expected)?;
+        let id = expected
+            .client_id
+            .as_deref()
+            .expect("validated login Client ID");
+        let existing = self
+            .oauth2
+            .get_client(id)
+            .await
+            .map_err(|_| invalid("existing public login Client is missing or inactive"))?;
+        verify_public_login_registration(&existing, &expected)?;
+        self.ensure_client_root_locked(id).await
     }
 
     /// Caller must prove exact fresh setup intent, never an attempted/historical setup.
@@ -328,7 +324,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
         {
             return Err(invalid("existing User key material is not fresh"));
         }
-        self.write_inventory(&json!({"version":2,"issuer":self.oauth2.oauth_config.issuer,"key_namespace":self.key_namespace,"owner":owner,"clients":clients,"phase":"preparing","node":NodePreparation::NeverStarted}))
+        self.write_inventory(&json!({"version":3,"issuer":self.oauth2.oauth_config.issuer,"key_namespace":self.key_namespace,"owner":owner,"clients":clients,"phase":"preparing","node":NodePreparation::NeverStarted}))
     }
 
     fn read_inventory(&self) -> io::Result<JsonValue> {
@@ -343,7 +339,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
         unique.sort();
         unique.dedup();
         if record.as_object().map(|fields| fields.len()) != Some(7)
-            || record["version"] != 2
+            || !matches!(record["version"].as_u64(), Some(2 | 3))
             || record["issuer"] != self.oauth2.oauth_config.issuer
             || record["key_namespace"] != self.key_namespace
             || owner.is_nil()
@@ -379,6 +375,11 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
 
     fn ready_inventory(&self) -> io::Result<JsonValue> {
         let record = self.read_inventory()?;
+        if record["version"] != 3 {
+            return Err(invalid(
+                "retained private-attempt inventory requires explicit reset; no metadata mode was inferred",
+            ));
+        }
         if record["phase"] != "ready" {
             return Err(invalid(
                 "initial secret production requires a ready inventory; preparation or reset is pending",
@@ -394,11 +395,20 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
                 "reset secret cleanup has begun; ordinary preparation is barred",
             ));
         }
-        self.prepare_setup_client_slots_locked(clients).await
+        self.prepare_setup_client_slots_locked(clients, false).await
     }
 
-    async fn prepare_setup_client_slots_locked(&self, clients: &[Id]) -> io::Result<()> {
+    async fn prepare_setup_client_slots_locked(
+        &self,
+        clients: &[Id],
+        resetting: bool,
+    ) -> io::Result<()> {
         let mut inventory = self.read_inventory()?;
+        if !resetting && inventory["version"] != 3 {
+            return Err(invalid(
+                "retained private-attempt inventory requires explicit reset",
+            ));
+        }
         if inventory["clients"] != json!(clients) {
             return Err(invalid("setup Client slots conflict with inventory"));
         }
@@ -420,7 +430,11 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
                     &self.new_client_reference(&slot, "never-started"),
                 )?;
             }
-            let reference = self.read_client_reference(&slot)?;
+            let reference = if resetting {
+                self.read_client_reference(&slot)?
+            } else {
+                self.read_metadata_reference(&slot)?
+            };
             if inventory["phase"] == "preparing" && reference["state"] != "never-started" {
                 return Err(invalid("secret attempt contradicts preparation boundary"));
             }
@@ -483,7 +497,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
         {
             return Err(invalid("Client outside setup inventory"));
         }
-        let mut reference = self.read_client_reference(external)?;
+        let mut reference = self.read_metadata_reference(external)?;
         match reference["state"].as_str() {
             Some("resolved") => {
                 let current = self.current_client_entity(external).await?.ok_or_else(|| {
@@ -492,7 +506,8 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
                 if reference["entity_id"] != json!(current) {
                     return Err(invalid("Client identity changed"));
                 }
-                Ok(())
+                self.verify_local_entity_root(EntityType::Client, current, external)
+                    .await
             }
             Some("never-started") => {
                 if self.current_client_entity(external).await?.is_some() {
@@ -507,7 +522,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
         }
     }
 
-    async fn create_setup_client(&self, request: ClientRegistration) -> io::Result<()> {
+    async fn create_setup_client(&self, request: ClientRegistration) -> io::Result<Client> {
         let external = request
             .client_id
             .as_deref()
@@ -516,12 +531,11 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
         self.oauth2
             .client_repo
             .create_client_with_capture(request, |key, paths| {
-                self.capture_initial_key(&external, key.entity_id, paths)
+                self.capture_initial_root(&external, key, paths)
                     .map_err(|error| RepoError::InvalidInput(error.to_string()))
             })
             .await
-            .map_err(io::Error::other)?;
-        Ok(())
+            .map_err(io::Error::other)
     }
 
     pub async fn ensure_setup_infrastructure_client(
@@ -546,15 +560,39 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             .ok_or_else(|| invalid("stable Client ID required"))?
             .to_owned();
         self.begin_client_provisioning_locked(&external).await?;
-        if self.current_client_entity(&external).await?.is_none() {
-            self.create_setup_client(request.clone()).await?;
-        }
-        let registration = self
-            .oauth2
-            .ensure_infrastructure_client(request)
-            .await
-            .map_err(|error| io::Error::other(format!("{error:?}")))?;
-        self.ensure_client_signing_key_locked(&external).await?;
+        let registration = if self.current_client_entity(&external).await?.is_none() {
+            let client = self.create_setup_client(request.clone()).await?;
+            let application = self
+                .oauth2
+                .application_repo
+                .find_by_id(client.application_id)
+                .await
+                .map_err(io::Error::other)?
+                .ok_or_else(|| invalid("infrastructure client application is missing"))?;
+            if application.name
+                != request
+                    .application
+                    .name
+                    .as_deref()
+                    .unwrap_or(&request.client_name)
+                || application.uri != request.application.uri
+                || application.description != request.application.description
+            {
+                return Err(invalid(
+                    "infrastructure client application conflicts with requested registration",
+                ));
+            }
+            let mut registration = ClientRegistration::from(client);
+            registration.application = request.application;
+            registration.client_secret = request.client_secret;
+            registration
+        } else {
+            self.oauth2
+                .ensure_infrastructure_client(request)
+                .await
+                .map_err(|error| io::Error::other(format!("{error:?}")))?
+        };
+        self.ensure_client_root_locked(&external).await?;
         Ok(registration)
     }
 
@@ -571,7 +609,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
     }
 
     fn new_client_reference(&self, external: &str, state: &str) -> JsonValue {
-        json!({"version":2,"issuer":self.oauth2.oauth_config.issuer,"key_namespace":self.key_namespace,"slot":external,"state":state,"entity_id":null,"paths":[]})
+        json!({"version":3,"issuer":self.oauth2.oauth_config.issuer,"key_namespace":self.key_namespace,"slot":external,"mode":"metadata-root","state":state,"entity_id":null,"root_id":null,"paths":[]})
     }
 
     fn read_client_reference(&self, external: &str) -> io::Result<JsonValue> {
@@ -580,8 +618,14 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             return Err(invalid("Client key reference is not a regular file"));
         }
         let record: JsonValue = serde_json::from_slice(&fs::read(path)?)?;
-        if record.as_object().map(|fields| fields.len()) != Some(7)
-            || record["version"] != 2
+        let metadata_root = record["version"] == 3;
+        let shape = if metadata_root {
+            record.as_object().map(|fields| fields.len()) == Some(9)
+                && record["mode"] == "metadata-root"
+        } else {
+            record["version"] == 2 && record.as_object().map(|fields| fields.len()) == Some(7)
+        };
+        if !shape
             || record["issuer"] != self.oauth2.oauth_config.issuer
             || record["key_namespace"] != self.key_namespace
             || record["slot"] != external
@@ -613,10 +657,19 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
                 return Err(invalid("incomplete initial private path ancestry"));
             }
             let id: Id = serde_json::from_value(record["entity_id"].clone())?;
+            if metadata_root {
+                let root: Id = serde_json::from_value(record["root_id"].clone())?;
+                if root.is_nil() {
+                    return Err(invalid("captured metadata root identity is missing"));
+                }
+            }
             if id.is_nil() || record["paths"].as_array().is_none_or(Vec::is_empty) {
                 return Err(invalid("incomplete retained initial inventory"));
             }
-        } else if !record["entity_id"].is_null() || !paths.is_empty() {
+        } else if !record["entity_id"].is_null()
+            || !paths.is_empty()
+            || (metadata_root && !record["root_id"].is_null())
+        {
             return Err(invalid(
                 "unresolved Client contains an unverified internal identity",
             ));
@@ -642,21 +695,36 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
         Ok(())
     }
 
-    fn capture_initial_key(
+    fn read_metadata_reference(&self, slot: &str) -> io::Result<JsonValue> {
+        let record = self.read_client_reference(slot)?;
+        if record["version"] != 3 || record["mode"] != "metadata-root" {
+            return Err(invalid(
+                "retained private-attempt reference requires explicit reset; no metadata mode was inferred",
+            ));
+        }
+        Ok(record)
+    }
+
+    fn capture_initial_root(
         &self,
         slot: &str,
-        entity: Id,
-        paths: &[key::DerivationPath],
+        key: &Key,
+        paths: &[DerivationPath],
     ) -> io::Result<()> {
         self.ready_inventory()?;
-        let mut record = self.read_client_reference(slot)?;
-        if record["state"] != "pending" || entity.is_nil() || paths.is_empty() {
+        let mut record = self.read_metadata_reference(slot)?;
+        if record["state"] != "pending"
+            || key.entity_id.is_nil()
+            || key.id.is_nil()
+            || paths.is_empty()
+        {
             return Err(invalid(
-                "initial secret capture conflicts with pending intent",
+                "initial root capture conflicts with pending intent",
             ));
         }
         record["state"] = json!("resolved");
-        record["entity_id"] = json!(entity);
+        record["entity_id"] = json!(key.entity_id);
+        record["root_id"] = json!(key.id);
         record["paths"] = json!(paths.iter().map(ToString::to_string).collect::<Vec<_>>());
         self.write_client_reference(slot, &record)
     }
@@ -725,6 +793,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
         let mut inventory = self.ready_inventory()?;
         validate_binding(binding)?;
         let node: NodePreparation = serde_json::from_value(inventory["node"].clone())?;
+        let prepared = matches!(&node, NodePreparation::Prepared { .. });
         let (retained, expected) = match node {
             NodePreparation::Attempted {
                 binding,
@@ -756,11 +825,13 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
                 "Node private signer conflicts with captured public material; no signer was changed",
             ));
         }
-        inventory["node"] = json!(NodePreparation::Prepared {
-            binding: binding.clone(),
-            public_signer: public.clone()
-        });
-        self.write_inventory(&inventory)?;
+        if !prepared {
+            inventory["node"] = json!(NodePreparation::Prepared {
+                binding: binding.clone(),
+                public_signer: public.clone()
+            });
+            self.write_inventory(&inventory)?;
+        }
         Ok(public)
     }
 
@@ -793,7 +864,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             return Err(invalid("reset identities conflict with secret inventory"));
         }
         let node: NodePreparation = serde_json::from_value(inventory["node"].clone())?;
-        match node {
+        match &node {
             NodePreparation::Attempted { binding, .. }
             | NodePreparation::Prepared { binding, .. }
                 if binding.member_id != member_id || binding.key_id != key_id =>
@@ -804,7 +875,8 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             }
             _ => (),
         }
-        self.prepare_setup_client_slots_locked(clients).await?;
+        self.prepare_setup_client_slots_locked(clients, true)
+            .await?;
         let keys = &self.oauth2.key_service;
         let mut entities = Vec::with_capacity(clients.len() + 1);
         let mut slots: Vec<(String, EntityType)> = clients
@@ -820,18 +892,32 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
                 None
             };
             if reference["state"] == "never-started" {
-                if current.is_some()
-                    || (entity_type == EntityType::User
-                        && !keys
-                            .key_repo()
-                            .list_by_entity_type_and_id(entity_type, owner)
-                            .await
-                            .map_err(io::Error::other)?
-                            .is_empty())
-                {
+                if current.is_some() {
                     return Err(invalid(
                         "unexpected entity contradicts never-started inventory",
                     ));
+                }
+                if entity_type == EntityType::User {
+                    let retained = self.engine.client().translate_and_execute(
+                        &format!("SELECT id FROM keys WHERE entity_type = {} AND entity_id = CAST('{}' AS UUID)", entity_type as i64, owner),
+                        &SqlTranslator,
+                    ).await.map_err(io::Error::other)?;
+                    if !retained[0].rows.is_empty() {
+                        return Err(invalid(
+                            "unexpected User metadata contradicts never-started inventory",
+                        ));
+                    }
+                    let namespace = keys.scoped_namespace(entity_type, owner);
+                    if keys
+                        .private_key_repo()
+                        .load(&namespace, &DerivationPath::default())
+                        .map_err(io::Error::other)?
+                        .is_some()
+                    {
+                        return Err(invalid(
+                            "unexpected User private material contradicts never-started inventory",
+                        ));
+                    }
                 }
                 continue;
             }
@@ -846,46 +932,95 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             {
                 return Err(invalid("entity conflicts with captured inventory"));
             }
-            entities.push((entity_type, entity, reference));
+            let retained = self.engine.client().translate_and_execute(
+                &format!("SELECT derivation_path FROM keys WHERE entity_type = {} AND entity_id = CAST('{}' AS UUID)", entity_type as i64, entity),
+                &SqlTranslator,
+            ).await.map_err(io::Error::other)?;
+            let mut texts: Vec<String> = serde_json::from_value(reference["paths"].clone())?;
+            texts.push(DerivationPath::default().to_string());
+            for row in &retained[0].rows {
+                let [Value::Text(path)] = row.values.as_slice() else {
+                    return Err(invalid(
+                        "invalid retained private-key path metadata; reset remains incomplete",
+                    ));
+                };
+                texts.push(path.clone());
+            }
+            let mut paths = Vec::new();
+            for text in texts {
+                let path: DerivationPath = text.parse().map_err(io::Error::other)?;
+                if path.to_string() != text {
+                    return Err(invalid(
+                        "noncanonical retained private-key path; reset remains incomplete",
+                    ));
+                }
+                let mut current = Some(path);
+                while let Some(path) = current {
+                    current = path.parent();
+                    paths.push(path);
+                }
+            }
+            paths.sort_by_key(ToString::to_string);
+            paths.dedup();
+            let metadata_only = reference["version"] == 3;
+            let namespace = keys.scoped_namespace(entity_type, entity);
+            for path in &paths {
+                let private = keys
+                    .private_key_repo()
+                    .load(&namespace, path)
+                    .map_err(io::Error::other)?;
+                if metadata_only && private.is_some() {
+                    return Err(invalid(
+                        "unexpected private material contradicts metadata-only capture; explicit recovery required before reset",
+                    ));
+                }
+            }
+            entities.push((entity_type, entity, paths, metadata_only));
+        }
+        let node_namespace = format!("{}:node:{}:{}", self.key_namespace, member_id, key_id);
+        let node_path = DerivationPath::default();
+        let private = keys
+            .private_key_repo()
+            .load(&node_namespace, &node_path)
+            .map_err(io::Error::other)?;
+        if inventory["version"] == 3
+            && matches!(node, NodePreparation::NeverStarted)
+            && private.is_some()
+        {
+            return Err(invalid(
+                "unexpected Node private material contradicts never-started inventory",
+            ));
         }
         let mut inventory = self.read_inventory()?;
         inventory["phase"] = json!("resetting");
         self.write_inventory(&inventory)?;
-        for (entity_type, entity_id, reference) in entities {
-            let namespace = keys.scoped_namespace(entity_type, entity_id);
-            let paths: Vec<String> = serde_json::from_value(reference["paths"].clone())?;
+        for (entity_type, entity, paths, metadata_only) in &entities {
+            let namespace = keys.scoped_namespace(*entity_type, *entity);
             for path in paths {
-                delete_verified(
-                    keys.private_key_repo(),
-                    &namespace,
-                    &path.parse().map_err(io::Error::other)?,
-                )?;
+                if *metadata_only {
+                    if keys
+                        .private_key_repo()
+                        .load(&namespace, path)
+                        .map_err(io::Error::other)?
+                        .is_some()
+                    {
+                        return Err(invalid(
+                            "private material appeared during metadata-only reset; evidence retained",
+                        ));
+                    }
+                } else {
+                    delete_verified(keys.private_key_repo(), &namespace, path)?;
+                }
             }
-            for key in keys
-                .key_repo()
-                .list_by_entity_type_and_id(entity_type, entity_id)
-                .await
-                .map_err(io::Error::other)?
-            {
-                delete_verified(
-                    keys.private_key_repo(),
-                    &namespace,
-                    &key.derivation_path().map_err(io::Error::other)?,
-                )?;
-            }
-            delete_verified(
-                keys.private_key_repo(),
-                &namespace,
-                &key::DerivationPath::default(),
-            )?;
+        }
+        delete_verified(keys.private_key_repo(), &node_namespace, &node_path)?;
+        for (entity_type, entity, _, _) in entities {
             keys.key_repo()
-                .delete_by_entity_type_and_id(entity_type, entity_id)
+                .delete_by_entity_type_and_id(entity_type, entity)
                 .await
                 .map_err(io::Error::other)?;
         }
-        let namespace = format!("{}:node:{}:{}", self.key_namespace, member_id, key_id);
-        let path = key::DerivationPath::default();
-        delete_verified(keys.private_key_repo(), &namespace, &path)
+        Ok(())
     }
 
     /// Restricted owner-local fresh setup; never exposed as an unauthenticated HTTP mutation.
@@ -984,6 +1119,26 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
     }
 }
 
+fn validate_metadata_root(key: &Key, entity: EntityType, id: Id) -> io::Result<()> {
+    let path = key.derivation_path().map_err(io::Error::other)?;
+    if id.is_nil()
+        || key.id.is_nil()
+        || key.entity_id.is_nil()
+        || key.entity_type != entity
+        || key.entity_id != id
+        || key.parent_id.is_some()
+        || key.public_jwk.is_some()
+        || !key.hardened
+        || path.to_string() != key.derivation_path
+        || key.derivation_path != Key::build_derivation_path(None, key.derivation_index, true)
+    {
+        return Err(invalid(
+            "invalid Principal metadata-root shape; explicit recovery required",
+        ));
+    }
+    Ok(())
+}
+
 fn validate_node_preparation(node: &NodePreparation) -> io::Result<()> {
     let (binding, public) = match node {
         NodePreparation::NeverStarted => return Ok(()),
@@ -1066,6 +1221,57 @@ fn delete_verified<P: PrivateKeyRepo>(
                 "secure-store deletion was not durable; retry local reset",
             ));
         }
+    }
+    Ok(())
+}
+
+fn validate_public_login_client(request: &ClientRegistration) -> io::Result<()> {
+    let id = request
+        .client_id
+        .as_deref()
+        .ok_or_else(|| invalid("stable login Client ID required"))?;
+    let parsed: Id = id.parse().map_err(io::Error::other)?;
+    if parsed.is_nil()
+        || parsed.to_string() != id
+        || request.client_type != ClientType::Public
+        || request.profile != ClientProfile::Native
+        || request.token_endpoint_auth_method != TokenEndpointAuthMethod::None
+        || request.client_secret.is_some()
+        || request.allowed_grant_types
+            != [
+                GrantType::Password,
+                GrantType::RefreshToken,
+                GrantType::TokenExchange,
+            ]
+        || request.allowed_scopes != ["openid", "profile", "email"]
+        || !request.redirect_uris.is_empty()
+        || !request.response_types.is_empty()
+    {
+        return Err(invalid("restricted public login Client required"));
+    }
+    Ok(())
+}
+
+fn verify_public_login_registration(
+    existing: &ClientRegistration,
+    expected: &ClientRegistration,
+) -> io::Result<()> {
+    if existing.client_id != expected.client_id
+        || existing.application.uri != expected.application.uri
+        || existing.client_name != expected.client_name
+        || existing.client_type != expected.client_type
+        || existing.profile != expected.profile
+        || existing.token_endpoint_auth_method != expected.token_endpoint_auth_method
+        || existing.allowed_grant_types != expected.allowed_grant_types
+        || existing.allowed_scopes != expected.allowed_scopes
+        || existing.allowed_audiences != expected.allowed_audiences
+        || existing.redirect_uris != expected.redirect_uris
+        || !existing.response_types.is_empty()
+        || existing.client_secret.is_some()
+    {
+        return Err(invalid(
+            "existing public login Client conflicts with restricted setup; no Client was changed",
+        ));
     }
     Ok(())
 }

@@ -149,18 +149,6 @@ pub async fn allows_token_issuance(
     clear(engine, rows).await
 }
 
-pub async fn allows_tunnel_access(
-    engine: &Database,
-    devices: &[Uuid],
-) -> Result<bool, db::QueryError> {
-    let rows = devices
-        .iter()
-        .copied()
-        .map(|id| SecurityRow::new(SecurityTable::Device, id))
-        .collect::<Vec<_>>();
-    clear(engine, &rows).await
-}
-
 pub async fn resolve(
     engine: &Database,
     administrator_id: Uuid,
@@ -207,12 +195,14 @@ pub async fn resolve(
 }
 
 async fn clear(engine: &Database, rows: &[SecurityRow]) -> Result<bool, db::QueryError> {
-    for &row in rows {
-        if !engine
+    for group in rows.chunk_by(|left, right| left.table == right.table) {
+        let keys = group.iter().map(|row| row.key()).collect::<Vec<_>>();
+        if engine
             .client()
-            .row_conflicts(row.table.name(), &row.key())
+            .row_conflicts_batch(group[0].table.name(), &keys)
             .await?
-            .is_empty()
+            .iter()
+            .any(|conflicts| !conflicts.is_empty())
         {
             return Ok(false);
         }
@@ -238,7 +228,7 @@ mod tests {
 
     use super::{
         SecurityRow, SecurityTable, allows_authentication, allows_authorization,
-        allows_token_issuance, allows_tunnel_access, resolve, up,
+        allows_token_issuance, resolve, up,
     };
 
     const ADMIN: u128 = 100;
@@ -419,6 +409,76 @@ mod tests {
     }
 
     #[test]
+    fn authorization_checks_every_selected_row_and_refreshes_after_resolution() {
+        block_on(async {
+            let source = db::Database::in_memory();
+            let destination = db::Database::in_memory();
+            up(&source).await.expect("initialize identity schema");
+            seed(&source).await;
+            let second_role = uuid(101);
+            source
+                .client()
+                .translate_and_execute(
+                    &format!(
+                        "INSERT INTO roles (id, name) VALUES (CAST('{second_role}' AS UUID), 'second')"
+                    ),
+                    &db::SqlTranslator,
+                )
+                .await
+                .expect("insert second role");
+            synchronize(&source, &destination).await;
+            let roles = [
+                SecurityRow::new(SecurityTable::Role, uuid(ROLE)),
+                SecurityRow::new(SecurityTable::Role, second_role),
+            ];
+            let mixed = [
+                roles[0],
+                SecurityRow::new(SecurityTable::Client, uuid(CLIENT)),
+                roles[1],
+            ];
+            for selected in [&roles[..], &mixed[..]] {
+                assert!(
+                    allows_authorization(&source, selected)
+                        .await
+                        .expect("inspect clear authorization state")
+                );
+            }
+
+            update(&source, "roles", 101, "name", "'source'").await;
+            update(&destination, "roles", 101, "name", "'destination'").await;
+            synchronize(&source, &destination).await;
+            synchronize(&destination, &source).await;
+            for selected in [&roles[..], &mixed[..]] {
+                assert!(
+                    !allows_authorization(&source, selected)
+                        .await
+                        .expect("inspect conflicted authorization state")
+                );
+            }
+
+            assert!(
+                resolve(
+                    &source,
+                    uuid(ADMIN),
+                    roles[1],
+                    vec![("name".to_owned(), db::Value::Text("resolved".to_owned()))],
+                    3,
+                )
+                .await
+                .expect("resolve second role")
+                .is_some()
+            );
+            for selected in [&roles[..], &mixed[..]] {
+                assert!(
+                    allows_authorization(&source, selected)
+                        .await
+                        .expect("inspect freshly resolved authorization state")
+                );
+            }
+        });
+    }
+
+    #[test]
     fn security_decisions_fail_closed_until_an_administrator_resolves_the_selected_state() {
         block_on(async {
             let source = db::Database::in_memory();
@@ -443,9 +503,12 @@ mod tests {
             synchronize(&destination, &source).await;
 
             assert!(
-                !allows_tunnel_access(&source, &[uuid(DEVICE)])
-                    .await
-                    .unwrap()
+                !allows_authorization(
+                    &source,
+                    &[SecurityRow::new(SecurityTable::Device, uuid(DEVICE))],
+                )
+                .await
+                .unwrap()
             );
             assert!(
                 !allows_token_issuance(

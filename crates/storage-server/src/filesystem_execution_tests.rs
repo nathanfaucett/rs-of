@@ -234,6 +234,106 @@ impl Fixture {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn delayed_http_policy_cannot_release_queued_filesystem_content_after_local_denial() {
+    use std::{
+        collections::BTreeMap,
+        sync::{
+            Mutex as StdMutex,
+            atomic::{AtomicU64, AtomicUsize},
+        },
+    };
+
+    use axum::{
+        Json,
+        extract::Path,
+        http::HeaderMap,
+        routing::{get, post},
+    };
+    use tokio::sync::{Mutex, broadcast, mpsc, watch};
+
+    tokio::time::timeout(Duration::from_secs(120), async {
+        for denial in ["resource", "owner", "cancellation"] {
+            let fixture = Fixture::new().await;
+            let gate = Gate::default();
+            let armed = Arc::new(AtomicBool::new(false));
+            let response_gate = gate.clone();
+            let response_armed = armed.clone();
+            let ids = fixture.peers.ids();
+            let devices = fixture.nodes[0].devices;
+            let selected = fixture.resource.clone();
+            let app = axum::Router::new()
+                .route("/oauth2/token", post(|| async { Json(serde_json::json!({
+                    "access_token":"service-token", "token_type":"Bearer", "expires_in":300,
+                    "scope":"management.replication.read management.replication.admit", "iss":"https://idp.example"
+                })) }))
+                .route("/replication/devices/{endpoint}/selections", get(move |Path(endpoint): Path<String>, headers: HeaderMap| {
+                    let gate = response_gate.clone(); let armed = response_armed.clone(); let selected = selected.clone();
+                    async move {
+                        assert_eq!(headers["authorization"], "Bearer service-token");
+                        let side = ids.iter().position(|id| id.to_string() == endpoint).expect("authenticated fixture endpoint");
+                        let response = serde_json::json!({
+                            "deviceId":devices[side].to_string(), "endpointId":endpoint,
+                            "ownerSubject":selected.owner_subject, "adminAllowed":true, "resources":[selected]
+                        });
+                        if side == 1 && armed.load(Ordering::SeqCst) { gate.pause().await; }
+                        Json(response)
+                    }
+                }));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind Management policy fixture");
+            let base = format!("http://{}", listener.local_addr().expect("Management address"));
+            let http = tokio::spawn(async move { axum::serve(listener, app).await.expect("serve current policy") });
+            let policy = crate::LocalReplicationAuthorizer::from_management_client(crate::ManagementClient::new(
+                &base, &base, "storage-client", "storage-secret", "https://idp.example", "management-api",
+            ).expect("authenticated Management client"));
+            let cancellation = CancellationToken::new();
+            let handler = crate::storage_protocol::StorageProtocolHandler::new(
+                Server::new(fixture.peers.endpoints[0].clone(), EndpointIdStore::default()),
+                policy, fixture.runtimes[0].clone(), cancellation.clone(),
+            );
+            let resource = fixture.descriptor();
+            let connection = fixture.peers.connections[0].clone();
+            let authorize: FrameAuthorizer = Arc::new(move || {
+                let handler = handler.clone(); let resource = resource.clone(); let connection = connection.clone();
+                Box::pin(async move { handler.authorize(&resource, &connection).await })
+            });
+            let (mut peer_send, mut peer_recv) = fixture.peers.connections[1].open_bi().await.expect("existing authenticated connection");
+            peer_send.write_all(&[1]).await.expect("stream marker");
+            let (send, mut recv) = fixture.peers.connections[0].accept_bi().await.expect("queued response stream");
+            recv.read_exact(&mut [0]).await.expect("consume stream marker");
+            let (queued, received) = mpsc::channel(1);
+            let (metadata, _) = broadcast::channel(1);
+            let (sessions, _) = broadcast::channel(1);
+            let inner = Arc::new(super::Inner {
+                peer: ids[1], authorize_frame: Some(authorize), outgoing: StdMutex::new(Some(queued)),
+                metadata: StdMutex::new(Some(metadata)), sessions: StdMutex::new(Some(sessions)),
+                sessions_ready: watch::channel(false).0, pending: Mutex::new(BTreeMap::new()),
+                next_id: AtomicU64::new(1), transport_handles: AtomicUsize::new(1), shutdown: watch::channel(false).0,
+            });
+            super::send_response(&inner, 1, file_system::FileResponse::ReadChunk(bytes::Bytes::from_static(b"must-not-disclose")))
+                .await.expect("serialize and queue content while locally allowed");
+            inner.outgoing.lock().expect("queue lock").take();
+            armed.store(true, Ordering::SeqCst);
+            let writer = tokio::spawn(async move {
+                super::write_loop(inner.clone(), send, received, inner.shutdown.subscribe()).await;
+            });
+            gate.reached().await;
+            let scope = Scope { owner: fixture.resource.owner_subject.clone(), application: fixture.resource.application_id.parse().expect("Application") };
+            let id = storage_service::FileSystemId::parse(&fixture.resource.resource_id).expect("filesystem ID");
+            match denial {
+                "resource" => fixture.runtimes[0].remove_local_copy(&scope, id).await.expect("retire filesystem copy"),
+                "owner" => fixture.runtimes[0].remove_owner_copies(&scope.owner).await.expect("retire owner copies"),
+                _ => cancellation.cancel(),
+            }
+            gate.release();
+            writer.await.expect("queued content writer joins");
+            assert!(peer_recv.read_exact(&mut [0; 4]).await.is_err(), "queued content must not reach socket after {denial}");
+            http.abort(); let _ = http.await;
+            fixture.peers.close().await;
+        }
+    }).await.expect("bounded delayed policy filesystem regression");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn real_passthrough_read_uses_authorized_reachable_full_peer_without_local_content() {
     tokio::time::timeout(Duration::from_secs(120), async {
         let fixture = Fixture::new().await;
@@ -261,19 +361,10 @@ async fn real_passthrough_read_uses_authorized_reachable_full_peer_without_local
                 let peers = EndpointIdStore::default();
                 peers.add(fixture.peers.ids()[1 - side]);
                 let server = Server::new(fixture.peers.endpoints[side].clone(), peers);
-                let management = crate::ManagementClient::new(
-                    "http://127.0.0.1:9/management",
-                    "http://127.0.0.1:9/idp",
-                    "storage",
-                    "isolated-secret",
-                    "https://of03-installation.example",
-                    "management",
-                )
-                .expect("remote authority unavailable")
-                .with_local_replication_authorizer(fixture.nodes[side].authorizer());
+                let authorizer = fixture.nodes[side].authorizer();
                 crate::storage_protocol::StorageProtocolHandler::new(
                     server,
-                    management,
+                    authorizer,
                     Arc::clone(&fixture.runtimes[side]),
                     cancellation.clone(),
                 )
@@ -284,16 +375,7 @@ async fn real_passthrough_read_uses_authorized_reachable_full_peer_without_local
                 fixture.peers.endpoints[1].clone(),
                 EndpointIdStore::default(),
             ),
-            crate::ManagementClient::new(
-                "http://127.0.0.1:9/management",
-                "http://127.0.0.1:9/idp",
-                "storage",
-                "isolated-secret",
-                "https://of03-installation.example",
-                "management",
-            )
-            .expect("local facade")
-            .with_local_replication_authorizer(fixture.nodes[1].authorizer()),
+            fixture.nodes[1].authorizer(),
             Arc::new(
                 DatabaseRuntime::new(fixture.nodes[1].root.join("unused-sql")).expect("runtime"),
             ),
@@ -421,20 +503,11 @@ async fn real_selected_filesystem_parent_cancellation_releases_admitted_session(
         let (released, release) = tokio::sync::oneshot::channel();
         let lifetime = Arc::new(Released(Some(released)));
         let policy = fixture.nodes[1].authorizer_retaining(lifetime);
-        let management = crate::ManagementClient::new(
-            "http://127.0.0.1:9/management",
-            "http://127.0.0.1:9/idp",
-            "storage",
-            "isolated-secret",
-            "https://of03-installation.example",
-            "management",
-        )
-        .expect("unreachable remote services")
-        .with_local_replication_authorizer(policy);
+
         let cancellation = CancellationToken::new();
         let database = crate::database_protocol::DatabaseProtocolHandler::new(
             server.clone(),
-            management.clone(),
+            policy.clone(),
             Arc::new(
                 DatabaseRuntime::new(fixture.nodes[1].root.join("unused-databases"))
                     .expect("database runtime"),
@@ -444,7 +517,7 @@ async fn real_selected_filesystem_parent_cancellation_releases_admitted_session(
         );
         let filesystem = crate::storage_protocol::StorageProtocolHandler::new(
             server,
-            management,
+            policy,
             runtime,
             cancellation.clone(),
         );

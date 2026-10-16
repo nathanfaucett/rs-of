@@ -128,9 +128,9 @@ impl Peer {
             .await
             .expect("surviving User");
         owner
-            .ensure_initial_user_signing_key(ids.administrator_id)
+            .ensure_initial_user_root(ids.administrator_id)
             .await
-            .expect("real User signing key");
+            .expect("retained User root identity");
         let secret = iroh::SecretKey::generate();
         let endpoint = iroh_chain::Server::bind_with_secret_key(
             iroh::endpoint::presets::Minimal,
@@ -267,12 +267,16 @@ impl Peer {
             key_service,
             config.oauth2.clone(),
         );
-        let management = management_server::AppConfig {
-            data_dir: root.join("management").to_string_lossy().into_owned(),
-            ..Default::default()
-        };
+        fs::create_dir_all(root.join("management")).expect("policy owner directory");
+        let policy = Arc::new(
+            db::Database::open(root.join("management/management.redb"))
+                .expect("separate native policy owner"),
+        );
+        management_service::replica::up(&policy)
+            .await
+            .expect("initialize policy schema once");
         management_server::provision_initial_administrator(
-            &management,
+            policy.clone(),
             ids.administrator_id,
             ids.role_id,
             &[
@@ -286,10 +290,6 @@ impl Peer {
         )
         .await
         .expect("exact owner grants");
-        let policy = Arc::new(
-            db::Database::open(root.join("management/management.redb"))
-                .expect("separate native policy owner"),
-        );
         let state = RouterState::new(
             "https://operator.test",
             &api,
@@ -297,7 +297,7 @@ impl Peer {
             Arc::new(oauth2),
             Arc::new(DbDeviceRepo::new(engine)),
             Arc::new(
-                idp_server::device_identity_from_server(&endpoint, secret.clone())
+                management_service::device_identity_from_server(&endpoint, secret.clone())
                     .expect("peer identity"),
             ),
         )
@@ -481,9 +481,9 @@ impl Peer {
         assert_eq!(
             device.state,
             if device_approved {
-                idp_model::contract::DeviceState::Approved
+                management_service::DeviceState::Approved
             } else {
-                idp_model::contract::DeviceState::Revoked
+                management_service::DeviceState::Revoked
             }
         );
         assert_eq!(device.revoked_at.is_none(), device_approved);
@@ -504,7 +504,7 @@ impl Peer {
                 .find(|device| device.id == surviving.member_id)
                 .expect("surviving Device")
                 .state,
-            idp_model::contract::DeviceState::Approved
+            management_service::DeviceState::Approved
         );
     }
 
@@ -579,8 +579,11 @@ impl Peer {
             Arc::new(oauth2),
             Arc::new(DbDeviceRepo::new(engine)),
             Arc::new(
-                idp_server::device_identity_from_server(&self.endpoint, self.secret.clone())
-                    .expect("retained peer identity"),
+                management_service::device_identity_from_server(
+                    &self.endpoint,
+                    self.secret.clone(),
+                )
+                .expect("retained peer identity"),
             ),
         )
         .with_local_permissions(LocalPermissions::new(policy.clone()));

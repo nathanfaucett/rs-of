@@ -1,10 +1,9 @@
 use axum::{Json, extract::State};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use idp_model::contract::{
-    DeviceSelfRevocationRequest, ErrorCode, ErrorResponse, device_self_revocation_payload,
-};
+use idp_model::contract::{ErrorCode, ErrorResponse};
 use iroh::{EndpointId, Signature};
 use management_service::DeviceEnrollmentService;
+use management_service::{DeviceSelfRevocationRequest, device_self_revocation_payload};
 
 use crate::RouterState;
 

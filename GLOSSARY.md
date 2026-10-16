@@ -24,10 +24,10 @@ A logical product or resource identified by a stable URI. It groups OAuth Client
 The User or OAuth Client represented by a token's subject. A Node Signer identifies the issuing Node, while Device endpoint identity authenticates transport; neither is the token's subject.
 
 **Device**:
-An Installation member's persistent domain identity bound to a transport endpoint, with a locally supplied name, public key, and reachable address. It is pending, approved, or revoked and belongs to the User who introduces it; an endpoint alone is not an Installation Device or resource permission.
+A Management-owned persistent domain identity bound to a transport endpoint ID, with a locally supplied name, public key, and reachable address. Management owns its User association, approval, transfer and revocation. An endpoint alone is neither an approved Device nor resource permission; a Device's transport identity is distinct from an IdP token-signing identity.
 
 **Trusted Device**:
-An approved, non-revoked Device eligible to participate in the mesh. Approval is transport trust, not user or resource authorization.
+A Management-approved, non-revoked Device eligible to participate in the mesh. Approval is transport trust, not User authentication, token-signing authority or resource authorization.
 
 **Bootstrap Service**:
 The coordinator that establishes the repeatable system baseline for a new Installation through separate IdP and Management owner operations.

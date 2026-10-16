@@ -1,6 +1,5 @@
 mod application_registration;
 mod approve_for_user_request;
-mod approved_device_endpoints;
 mod authorization_code_grant_request;
 mod authorization_code_response;
 mod authorization_request;
@@ -11,16 +10,8 @@ mod client_profile;
 mod client_registration;
 mod client_type;
 mod code_challenge_method;
-mod device_approval_request;
 mod device_authorization;
 mod device_authorization_request;
-mod device_endpoint_identity;
-mod device_enrollment;
-mod device_enrollment_request;
-mod device_info;
-mod device_pairing;
-mod device_self_revocation;
-mod device_state;
 mod entity_type;
 mod error_code;
 mod error_response;
@@ -58,14 +49,11 @@ mod token_endpoint_auth_method;
 mod token_exchange;
 mod token_exchange_grant_request;
 mod token_request;
-mod trusted_device;
 
-mod update_device_request;
 mod user_info;
 
 pub use application_registration::ApplicationRegistration;
 pub use approve_for_user_request::ApproveForUserRequest;
-pub use approved_device_endpoints::ApprovedDeviceEndpoints;
 pub use authorization_code_grant_request::AuthorizationCodeGrantRequest;
 pub use authorization_code_response::AuthorizationCodeResponse;
 pub use authorization_request::AuthorizationRequest;
@@ -76,19 +64,8 @@ pub use client_profile::ClientProfile;
 pub use client_registration::ClientRegistration;
 pub use client_type::ClientType;
 pub use code_challenge_method::CodeChallengeMethod;
-pub use device_approval_request::DeviceApprovalRequest;
 pub use device_authorization::DeviceAuthorization;
 pub use device_authorization_request::DeviceAuthorizationRequest;
-pub use device_endpoint_identity::DeviceEndpointIdentity;
-pub use device_enrollment::DeviceEnrollment;
-pub use device_enrollment_request::DeviceEnrollmentRequest;
-pub use device_info::DeviceInfo;
-pub use device_pairing::{
-    DevicePairingApprovalPayload, DevicePairingApprovalRequest, DevicePairingRequest,
-    PairingAcceptance, device_pairing_approval_payload,
-};
-pub use device_self_revocation::{DeviceSelfRevocationRequest, device_self_revocation_payload};
-pub use device_state::DeviceState;
 pub use entity_type::EntityType;
 pub use error_code::ErrorCode;
 pub use error_response::{ErrorResponse, ErrorResponseResult};
@@ -132,7 +109,5 @@ pub use token_endpoint_auth_method::TokenEndpointAuthMethod;
 pub use token_exchange::TokenExchange;
 pub use token_exchange_grant_request::TokenExchangeGrantRequest;
 pub use token_request::TokenRequest;
-pub use trusted_device::TrustedDevice;
 
-pub use update_device_request::{DeviceTransferRequest, UpdateDeviceRequest};
 pub use user_info::UserInfo;

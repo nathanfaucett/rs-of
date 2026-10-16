@@ -27,9 +27,15 @@ pub struct SelectedResource {
     pub resource_id: String,
 }
 
+/// Current policy for an IdP-approved endpoint with an active owner.
+/// A successful read attests Device/owner trust, not permission to cache approval.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SelectedResourcesResponse {
+    pub device_id: String,
+    pub endpoint_id: String,
+    pub owner_subject: String,
+    pub admin_allowed: bool,
     pub resources: Vec<SelectedResource>,
 }

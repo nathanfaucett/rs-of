@@ -189,7 +189,7 @@ impl KeyRepo for DbKeyRepo {
             .await?
             .into_iter()
             .filter(|key| key.parent_id.is_none())
-            .max_by_key(|key| key.created_at);
+            .max_by_key(|key| (key.created_at, key.id));
         Ok(key)
     }
 

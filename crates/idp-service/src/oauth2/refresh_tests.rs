@@ -160,22 +160,28 @@ async fn setup() -> (Arc<TestEngine>, TestService, Client, UserPrincipal) {
         .create_user_with_password("refresh-user", "test-password")
         .await
         .expect("create user");
-    service
+    let key = service
         .key_service
-        .ensure_entity_master_key(EntityType::User, user.id, "test-password")
-        .expect("create user master key");
-    let (key, _) = service
-        .key_service
-        .create_key(
-            None,
+        .create_initial_root_with_capture(
             EntityType::User,
             user.id,
-            true,
-            "refresh key".into(),
-            None,
+            "refresh root".into(),
+            |_, _| Ok(()),
         )
         .await
-        .expect("create user signing key");
+        .expect("create User metadata root");
+    assert!(key.public_jwk.is_none());
+    assert_eq!(
+        service
+            .key_service
+            .private_key_repo()
+            .0
+            .lock()
+            .expect("private store")
+            .len(),
+        1,
+        "only the independent Node signer has private material"
+    );
     (engine, service, client, UserPrincipal { user, key })
 }
 
@@ -763,28 +769,13 @@ async fn persisted_node_binding_reopens_for_real_offline_issuance_and_rotation()
             .expect("binding survives reopen");
         assert_eq!(binding.key_id, expected_signer);
         let peers = crate::replica::DbReplicaSignerRepo::new(Arc::clone(&engine));
-        assert!(
-            peers
-                .is_trusted_peer(
-                    &config.issuer,
-                    binding.member_id,
-                    &binding.endpoint_id,
-                    chrono::Utc::now().timestamp()
-                )
-                .await
-                .expect("persisted peer trust")
-        );
-        assert!(
-            !peers
-                .is_trusted_peer(
-                    &config.issuer,
-                    binding.member_id,
-                    "forged-endpoint",
-                    chrono::Utc::now().timestamp()
-                )
-                .await
-                .expect("endpoint impersonation denial")
-        );
+        let signers = peers
+            .trusted_signers(&config.issuer, chrono::Utc::now().timestamp())
+            .await
+            .expect("persisted token-signing trust");
+        assert!(signers.iter().any(|(member, signer)| {
+            member.member_id == binding.member_id && signer.key_id == binding.key_id
+        }));
         let keys = Arc::new(KeyService::new(
             DbKeyRepo::new(Arc::clone(&engine)),
             private_store.clone(),

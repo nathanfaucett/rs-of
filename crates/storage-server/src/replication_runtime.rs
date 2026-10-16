@@ -7,7 +7,7 @@ use tokio::{select, task::JoinHandle, time::interval};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    ManagementClient, data_protocol::DataProtocolHandler,
+    LocalReplicationAuthorizer, data_protocol::DataProtocolHandler,
     database_protocol::DatabaseProtocolHandler, storage_protocol::StorageProtocolHandler,
 };
 
@@ -21,7 +21,7 @@ pub struct StorageReplicationRuntime {
 impl StorageReplicationRuntime {
     pub fn start(
         server: Server,
-        management: ManagementClient,
+        authorizer: LocalReplicationAuthorizer,
         databases: Arc<DatabaseRuntime>,
         file_systems: Arc<ScopedFileSystemRuntime<EndpointId>>,
         staging_directory: PathBuf,
@@ -29,14 +29,14 @@ impl StorageReplicationRuntime {
     ) -> Self {
         let database = DatabaseProtocolHandler::new(
             server.clone(),
-            management.clone(),
+            authorizer.clone(),
             databases,
             staging_directory,
             cancellation_token.clone(),
         );
         let file_system = StorageProtocolHandler::new(
             server.clone(),
-            management,
+            authorizer,
             file_systems,
             cancellation_token.clone(),
         );

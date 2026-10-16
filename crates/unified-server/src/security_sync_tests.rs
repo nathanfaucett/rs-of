@@ -21,10 +21,10 @@ use idp_service::{
 use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets, protocol::Router};
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
 use management_service::{
-    ManagementService,
-    replica::{DbPermissionRepo, DbRoleRepo},
+    DeviceRepo, ManagementService,
+    replica::{DbDeviceRepo, DbPermissionRepo, DbRoleRepo},
 };
-use storage_server::{IdpClient, ManagementClient, RouterState, build_runtime};
+use storage_server::{IdpClient, LocalReplicationAuthorizer, RouterState, build_runtime};
 use tokio_util::sync::CancellationToken;
 
 use crate::{SecurityContext, SecurityProtocol};
@@ -245,17 +245,9 @@ async fn exchange_history() {
                 )
                 .expect("IdP client"),
             )
-            .with_management_client(
-                ManagementClient::new(
-                    "http://127.0.0.1:1/management",
-                    "http://127.0.0.1:1/idp",
-                    "storage",
-                    "local",
-                    INSTALLATION,
-                    "management",
-                )
-                .expect("Management client"),
-            ),
+            .with_local_replication_authorizer(LocalReplicationAuthorizer::new(|_| async {
+                Err("resource access is not authorized in this fixture".to_owned())
+            })),
         &root.join("storage"),
         "/storage",
         "",
@@ -331,15 +323,11 @@ async fn exchange_history() {
             .is_some()
     );
     assert!(
-        DbReplicaSignerRepo::new(idp_b.clone())
-            .is_trusted_peer(
-                INSTALLATION,
-                learned_member,
-                &learned_endpoint.to_string(),
-                100
-            )
+        DbDeviceRepo::new(idp_b.clone())
+            .find_approved_by_public_key(&learned_endpoint.to_string())
             .await
-            .expect("learn approved public Device/member/signer history")
+            .expect("learn approved public Device history")
+            .is_some_and(|device| device.id == learned_member)
     );
     grants_b
         .issue_refresh_token(
@@ -394,14 +382,14 @@ async fn exchange_history() {
         root.join("unsigned-stage"),
         cancellation.clone(),
     );
-    assert_eq!(
-        unsigned
-            .synchronize(&connection, SecurityContext::Idp)
-            .await
-            .expect_err("missing local signer denies")
-            .kind(),
-        ErrorKind::PermissionDenied
-    );
+    DbReplicaSignerRepo::new(idp_a.clone())
+        .revoke(member_a, INSTALLATION, 2)
+        .await
+        .expect("learned token-signer revocation is not Device revocation");
+    unsigned
+        .synchronize(&connection, SecurityContext::Idp)
+        .await
+        .expect("approved transport works without configured or trusted local token signer");
     drop(unsigned);
 
     eprintln!(

@@ -24,7 +24,8 @@ use management_service::{
 };
 use ofdb_sql::{SessionConfig, SyncMessage, SyncRole, SyncTransport};
 use storage_server::{
-    DatabaseTransport, IdpClient, ManagementClient, RouterState, StorageRuntime, build_runtime,
+    DatabaseTransport, IdpClient, LocalReplicationAuthorizer, RouterState, StorageRuntime,
+    build_runtime,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -291,17 +292,9 @@ impl Pair {
                     )
                     .expect("IdP client"),
                 )
-                .with_management_client(
-                    ManagementClient::new(
-                        "http://127.0.0.1:1/management",
-                        "http://127.0.0.1:1/idp",
-                        "storage",
-                        "local",
-                        INSTALLATION,
-                        "management",
-                    )
-                    .expect("Management client"),
-                ),
+                .with_local_replication_authorizer(LocalReplicationAuthorizer::new(|_| async {
+                    Err("resource access is not authorized in this fixture".to_owned())
+                })),
             &root.join("storage"),
             "/storage",
             "",

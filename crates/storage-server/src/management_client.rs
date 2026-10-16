@@ -25,8 +25,6 @@ pub struct ManagementClient {
     audience: String,
     client: Client,
     cached_token: Arc<Mutex<Option<CachedToken>>>,
-    #[cfg(feature = "network")]
-    local_replication: Option<crate::LocalReplicationAuthorizer>,
 }
 
 struct CachedToken {
@@ -73,25 +71,7 @@ impl ManagementClient {
             audience: audience.to_owned(),
             client,
             cached_token: Arc::new(Mutex::new(None)),
-            #[cfg(feature = "network")]
-            local_replication: None,
         })
-    }
-
-    #[cfg(feature = "network")]
-    pub fn with_local_replication_authorizer(
-        mut self,
-        authorizer: crate::LocalReplicationAuthorizer,
-    ) -> Self {
-        self.local_replication = Some(authorizer);
-        self
-    }
-
-    #[cfg(feature = "network")]
-    pub(crate) fn local_replication_authorizer(
-        &self,
-    ) -> Option<&crate::LocalReplicationAuthorizer> {
-        self.local_replication.as_ref()
     }
 
     async fn service_access_token(&self) -> Result<String, String> {
@@ -310,6 +290,151 @@ mod tests {
     const CLIENT_SECRET: &str = "test-secret";
     const ISSUER: &str = "https://idp.example";
     const AUDIENCE: &str = "https://management-api.example";
+
+    #[cfg(feature = "network")]
+    #[tokio::test]
+    async fn remote_policy_is_fresh_bound_and_fail_closed() {
+        use std::sync::{Arc, Mutex};
+
+        use axum::{
+            Json,
+            extract::State,
+            http::{HeaderMap, StatusCode},
+            routing::{get, post},
+        };
+        use idp_model::model::Id;
+        use model::contract::SelectedResource;
+
+        let local = iroh::SecretKey::generate().public();
+        let remote = iroh::SecretKey::generate().public();
+        let owner = Id::now_v7().to_string();
+        let resource = SelectedResource {
+            owner_subject: owner.clone(),
+            application_id: Id::now_v7().to_string(),
+            kind: "database".into(),
+            resource_id: Id::now_v7().to_string(),
+        };
+        let local_device = Id::now_v7().to_string();
+        let remote_device = Id::now_v7().to_string();
+        let local_evidence = serde_json::json!({
+            "deviceId": local_device,
+            "endpointId": local.to_string(),
+            "ownerSubject": owner,
+            "adminAllowed": true,
+            "resources": [resource.clone()]
+        });
+        let mut remote_evidence = local_evidence.clone();
+        remote_evidence["deviceId"] = remote_device.into();
+        remote_evidence["endpointId"] = remote.to_string().into();
+        let evidence = Arc::new(Mutex::new([local_evidence, remote_evidence]));
+        let selected = evidence.clone();
+        let app = axum::Router::new()
+            .route("/idp/oauth2/token", post(|body: String| async move {
+                assert!(body.contains("client_secret=test-secret"));
+                assert!(body.contains("audience=https%3A%2F%2Fmanagement-api.example"));
+                Json(serde_json::json!({
+                    "access_token": "service-token", "token_type": "Bearer", "expires_in": 300,
+                    "scope": "management.replication.read management.replication.admit", "iss": ISSUER
+                }))
+            }))
+            .route("/management/replication/devices/{endpoint}/selections", get(
+                move |State(evidence): State<Arc<Mutex<[serde_json::Value; 2]>>>, axum::extract::Path(endpoint): axum::extract::Path<String>, headers: HeaderMap| async move {
+                    assert_eq!(headers["authorization"], "Bearer service-token");
+                    assert!(!headers.contains_key("client_secret"));
+                    let body = evidence.lock().expect("current evidence")[usize::from(endpoint == remote.to_string())].clone();
+                    if body.is_null() { return Err(StatusCode::SERVICE_UNAVAILABLE); }
+                    Ok(Json(body))
+                }
+            ))
+            .with_state(selected);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind policy API");
+        let base = format!("http://{}", listener.local_addr().expect("policy address"));
+        let server =
+            tokio::spawn(
+                async move { axum::serve(listener, app).await.expect("serve policy API") },
+            );
+        let client = ManagementClient::new(
+            &format!("{base}/management"),
+            &format!("{base}/idp"),
+            CLIENT_ID,
+            CLIENT_SECRET,
+            ISSUER,
+            AUDIENCE,
+        )
+        .expect("remote policy client");
+        let authorizer = crate::LocalReplicationAuthorizer::from_management_client(client);
+        assert_eq!(
+            authorizer.local_owner(local).await.expect("approved owner"),
+            owner
+        );
+        assert_eq!(
+            authorizer
+                .selected_resources(local)
+                .await
+                .expect("selection")
+                .len(),
+            1
+        );
+        assert!(authorizer.authorize(local, remote, &resource).await);
+        let baseline = evidence.lock().expect("current evidence").clone();
+        for peer in 0..2 {
+            for denial in 0..8 {
+                let mut body = baseline[peer].clone();
+                match denial {
+                    0 => body["adminAllowed"] = false.into(),
+                    1 => {
+                        body["endpointId"] = iroh::SecretKey::generate().public().to_string().into()
+                    }
+                    2 => body["deviceId"] = Id::nil().to_string().into(),
+                    3 => body["ownerSubject"] = "browser-owner".into(),
+                    4 => {
+                        body.as_object_mut().expect("object").remove("deviceId");
+                    }
+                    5 => body = serde_json::Value::Null,
+                    6 => {
+                        body.as_object_mut().expect("object").remove("adminAllowed");
+                    }
+                    _ => body["ownerSubject"] = Id::now_v7().to_string().into(),
+                }
+                *evidence.lock().expect("reset evidence") = baseline.clone();
+                evidence.lock().expect("replace evidence")[peer] = body;
+                if denial != 7 {
+                    assert!(
+                        authorizer.local_owner([local, remote][peer]).await.is_err(),
+                        "peer {peer}, denial {denial}"
+                    );
+                }
+                assert!(
+                    !authorizer.authorize(local, remote, &resource).await,
+                    "peer {peer}, denial {denial}"
+                );
+            }
+        }
+        *evidence.lock().expect("reset evidence") = baseline.clone();
+        let mut deselected = baseline[0].clone();
+        deselected["resources"] = serde_json::json!([]);
+        evidence.lock().expect("replace evidence")[0] = deselected;
+        assert!(
+            authorizer
+                .selected_resources(local)
+                .await
+                .expect("fresh deselection")
+                .is_empty()
+        );
+        *evidence.lock().expect("replace evidence") = baseline;
+        assert_eq!(
+            authorizer
+                .selected_resources(local)
+                .await
+                .expect("restored selection")
+                .len(),
+            1
+        );
+        server.abort();
+        let _ = server.await;
+    }
 
     #[test]
     fn validates_service_urls_and_credentials() {

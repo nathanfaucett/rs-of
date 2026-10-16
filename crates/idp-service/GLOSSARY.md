@@ -5,10 +5,10 @@ The identity and OAuth/OIDC context hosted by each Node of an Installation. Shar
 ## Language
 
 **Identity Provider (IdP)**:
-The OAuth 2.0 and OpenID Connect context for Users, Applications, clients, grants, signing-key metadata, and Device enrollment.
+The OAuth 2.0 and OpenID Connect context for Users, credentials, Applications, OAuth Clients, grants and token-signing identity/trust. Device identities, endpoint-ID bindings and their lifecycle authority belong to Management.
 
 **Node Signer**:
-An approved signing identity held independently by one Node. It identifies the issuing Node, not the User or service Principal represented by a token.
+An approved token-signing identity held independently by one Node. It identifies the issuing Node, not the User or service Principal represented by a token, and does not itself approve a Device or transport endpoint.
 _Avoid_: Replica Signer
 
 **Canonical Issuer**:

@@ -1,5 +1,4 @@
 use std::{
-    collections::BTreeMap,
     fs, io,
     path::Path,
     sync::{Arc, OnceLock},
@@ -11,34 +10,63 @@ use axum::Router;
 use db::Database;
 use idp_model::model::Id;
 use idp_server::{
-    IdpRuntime, NodeJoinApproval, NodeJoinRequest, OwnerProvisioner,
-    build_runtime as build_idp_runtime,
+    IdpRuntime, NodeJoinApproval, OwnerProvisioner, build_runtime as build_idp_runtime,
 };
 use iroh::protocol::Router as IrohRouter;
-use iroh_chain::PairingOffer;
 use management_service::{HostedControlPlane, LocalPermissions};
 use storage_server::{
-    DeviceReplicationPolicy, IdpClient, LocalReplicationAuthorizer, ManagementClient,
+    DeviceReplicationPolicy, IdpClient, LocalReplicationAuthorizer,
     RouterState as StorageRouterState, StorageRuntime, build_runtime as build_storage_runtime,
 };
-use tokio::{
-    net::TcpListener,
-    sync::{Mutex, broadcast},
-    task::JoinHandle,
-    time::sleep,
-};
+use tokio::{net::TcpListener, sync::Mutex, task::JoinHandle, time::sleep};
 use tokio_util::sync::CancellationToken;
 use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
 
 use crate::{
     SecurityContext, SecurityProtocol, UnifiedEndpoint, compose_protocol_router, compose_router,
-    config::{ServiceClientCredentials, UnifiedConfig},
+    config::UnifiedConfig,
 };
 
 const IDP_PREFIX: &str = "/idp";
 const MANAGEMENT_PREFIX: &str = "/management";
 const STORAGE_PREFIX: &str = "/storage";
 const PEER_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
+
+pub(crate) fn storage_introspection_error(
+    error: idp_model::contract::ErrorResponse,
+) -> storage_server::IdpIntrospectionError {
+    use idp_model::contract::ErrorCode;
+    use storage_server::IdpIntrospectionError;
+
+    match error.error {
+        ErrorCode::ServerError | ErrorCode::TemporarilyUnavailable => {
+            IdpIntrospectionError::ServiceUnavailable
+        }
+        _ => IdpIntrospectionError::InvalidToken,
+    }
+}
+
+pub(crate) fn local_storage_idp_client(idp: Arc<IdpRuntime>) -> IdpClient {
+    let endpoints = Arc::clone(&idp);
+    IdpClient::local(
+        move |token| {
+            let idp = Arc::clone(&idp);
+            async move {
+                idp.authorize_storage_bearer(&token)
+                    .await
+                    .map_err(storage_introspection_error)
+            }
+        },
+        move || {
+            let idp = Arc::clone(&endpoints);
+            async move {
+                idp.approved_storage_endpoints()
+                    .await
+                    .map_err(|error| error.to_string())
+            }
+        },
+    )
+}
 
 pub(crate) fn owner_replication_authorizer(
     idp: Arc<IdpRuntime>,
@@ -63,6 +91,7 @@ pub(crate) fn owner_replication_authorizer(
                 .approved_device_owner(endpoint)
                 .await
                 .map_err(|error| error.to_string())?;
+
             if endpoint == local_endpoint {
                 let policies = management_service::replica::DbSelectionPolicyRepo::new(Arc::clone(
                     &management,
@@ -103,8 +132,10 @@ pub(crate) fn owner_replication_authorizer(
                     }
                 }
             }
+
             let (admin_allowed, resources) =
                 management_server::replication_policy(management, &device).await?;
+
             if endpoint == local_endpoint {
                 copies
                     .upgrade()
@@ -114,11 +145,12 @@ pub(crate) fn owner_replication_authorizer(
                     .activate_owner(&device.owner_subject)
                     .map_err(|error| error.to_string())?;
             }
+
             Ok(DeviceReplicationPolicy {
                 device_id: device.device_id,
                 endpoint_id: endpoint,
                 owner_subject: device.owner_subject,
-                state: idp_model::contract::DeviceState::Approved,
+                state: management_service::DeviceState::Approved,
                 owner_active: true,
                 admin_allowed,
                 resources,
@@ -127,10 +159,35 @@ pub(crate) fn owner_replication_authorizer(
     })
 }
 
-struct PendingNodeJoins {
-    receiver: broadcast::Receiver<PairingOffer>,
-    offers: BTreeMap<Id, PairingOffer>,
-    answered: Vec<PairingOffer>,
+/// Already initialized owners retained by a bundled host from provisioning into serving.
+pub struct RuntimeOwners {
+    pub endpoint: Arc<UnifiedEndpoint>,
+    pub idp: Arc<Database>,
+    pub management: Arc<Database>,
+}
+
+impl RuntimeOwners {
+    pub(crate) async fn open(config: &UnifiedConfig) -> io::Result<Self> {
+        let endpoint =
+            Arc::new(UnifiedEndpoint::open(&config.endpoint_data_dir, &config.idp).await?);
+        let result = async {
+            let idp = open_service_engine(&config.idp.data_dir, "idp.redb")?;
+            idp_model::replica::up(&idp)
+                .await
+                .map_err(io::Error::other)?;
+            let management = management_server::open_database(&config.management).await?;
+            Ok(Self {
+                endpoint: Arc::clone(&endpoint),
+                idp,
+                management,
+            })
+        }
+        .await;
+        if result.is_err() {
+            endpoint.close().await;
+        }
+        result
+    }
 }
 
 pub struct UnifiedRuntime {
@@ -139,18 +196,19 @@ pub struct UnifiedRuntime {
     router: Router,
     endpoint: Arc<UnifiedEndpoint>,
     idp_runtime: Arc<IdpRuntime>,
-    api_base: String,
+    pub(crate) api_base: String,
+    pub(crate) management_control_plane: Arc<HostedControlPlane>,
     protocol_router: Option<IrohRouter>,
     storage_runtime: Option<StorageRuntime>,
     cancellation_token: CancellationToken,
     peer_refresh: Option<JoinHandle<()>>,
     security_protocol: SecurityProtocol,
-    owner: OwnerProvisioner,
-    pending_joins: Mutex<PendingNodeJoins>,
-    installation: String,
+    owner: Arc<OwnerProvisioner>,
+    node_joins: Arc<crate::node_join_source::NodeJoinSource>,
+    join_processing: Option<JoinHandle<io::Result<()>>>,
     _managed_copies: Arc<OnceLock<storage_server::StorageCopyRetirement>>,
     #[cfg(test)]
-    management_fixture: Arc<Database>,
+    pub(crate) management_engine: Arc<Database>,
 }
 
 impl UnifiedRuntime {
@@ -166,14 +224,56 @@ impl UnifiedRuntime {
     /// secret inventory before initial private production. Retries use existing opening;
     /// missing endpoint keys or preparation evidence require recovery, not fresh fallback.
     /// The unified CLI uses `LocalProvisioner` for this explicit local boundary.
+    pub async fn build_https(config: UnifiedConfig) -> io::Result<Self> {
+        let api_base = crate::LocalTls::api_base(config.listen_addr)?;
+        let listener = TcpListener::bind(config.listen_addr).await?;
+        Self::build_on_listener(config, listener, api_base).await
+    }
+
     pub async fn build_on_listener(
         config: UnifiedConfig,
         listener: TcpListener,
         api_base: String,
     ) -> io::Result<Self> {
+        let address = listener.local_addr()?;
+        Box::pin(Self::build_hosted(
+            config,
+            Some(listener),
+            address,
+            api_base,
+            None,
+        ))
+        .await
+    }
+
+    pub(crate) async fn build_hosted_https(config: UnifiedConfig) -> io::Result<Self> {
+        let address = config.listen_addr;
+        let base = crate::LocalTls::api_base(address)?;
+        Box::pin(Self::build_hosted(config, None, address, base, None)).await
+    }
+
+    pub async fn build_with_owners(
+        config: UnifiedConfig,
+        listener: Option<TcpListener>,
+        api_base: String,
+        owners: RuntimeOwners,
+    ) -> io::Result<Self> {
+        let address = match &listener {
+            Some(listener) => listener.local_addr()?,
+            None => config.listen_addr,
+        };
+        Self::build_hosted(config, listener, address, api_base, Some(owners)).await
+    }
+
+    async fn build_hosted(
+        config: UnifiedConfig,
+        listener: Option<TcpListener>,
+        listener_addr: std::net::SocketAddr,
+        api_base: String,
+        owners: Option<RuntimeOwners>,
+    ) -> io::Result<Self> {
         validate_config(&config)?;
         validate_data_dirs(&config)?;
-        let listener_addr = listener.local_addr()?;
         if !listener_addr.ip().is_loopback() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -182,193 +282,144 @@ impl UnifiedRuntime {
         }
         validate_api_base(&api_base, listener_addr)?;
         let cancellation_token = CancellationToken::new();
-        let endpoint =
-            Arc::new(UnifiedEndpoint::open(&config.endpoint_data_dir, &config.idp).await?);
+        let RuntimeOwners {
+            endpoint,
+            idp: idp_engine,
+            management: management_engine,
+        } = match owners {
+            Some(owners) => owners,
+            None => RuntimeOwners::open(&config).await?,
+        };
         let mut pending_storage = None;
-        let result: io::Result<Self> = async {
-            let server = endpoint.server().clone();
-            let pending_joins = Mutex::new(PendingNodeJoins {
-                receiver: server.subscribe_pairing_offers(),
-                offers: BTreeMap::new(),
-                answered: Vec::new(),
-            });
+        let result: io::Result<Self> =
+            async {
+                let server = endpoint.server().clone();
+                let local_permissions = LocalPermissions::new(Arc::clone(&management_engine));
+                let mut idp_config = config.idp;
+                idp_config.server.prefix = Some(IDP_PREFIX.to_owned());
+                idp_config.control_plane_uri = None;
+                let idp_runtime = Arc::new(
+                    build_idp_runtime(
+                        &idp_config,
+                        Arc::clone(&idp_engine),
+                        Arc::new(endpoint.identity()?),
+                        server.clone(),
+                        Some(local_permissions),
+                    )
+                    .await?,
+                );
 
-            let management_engine =
-                open_service_engine(&config.management.data_dir, "management.redb")?;
-            management_service::replica::up(&management_engine)
+                let idp_api_base = format!("{api_base}{IDP_PREFIX}/");
+                let storage_api_base = format!("{api_base}{STORAGE_PREFIX}/");
+                let management_control_plane = build_control_plane(
+                    Arc::clone(&idp_runtime),
+                    &idp_api_base,
+                    &storage_api_base,
+                    &idp_config.oauth2.issuer,
+                )?;
+                let management_control_plane = Arc::new(management_control_plane);
+
+                let mut management_config = config.management;
+                management_config.server.prefix = Some(MANAGEMENT_PREFIX.to_owned());
+                let management_router = management_server::build_router(
+                    Arc::clone(&management_engine),
+                    &management_config.api_public_uri,
+                    MANAGEMENT_PREFIX,
+                    &management_config.storage_audience,
+                    Arc::clone(&management_control_plane),
+                )
                 .await
                 .map_err(io::Error::other)?;
-            let local_permissions = LocalPermissions::new(Arc::clone(&management_engine));
-            let idp_engine = open_service_engine(&config.idp.data_dir, "idp.redb")?;
-            let mut idp_config = config.idp;
-            idp_config.server.prefix = Some(IDP_PREFIX.to_owned());
-            idp_config.control_plane_uri = None;
-            let idp_runtime = Arc::new(
-                build_idp_runtime(
+
+                let mut storage_config = config.storage;
+                storage_config.server.prefix = Some(STORAGE_PREFIX.to_owned());
+                let copies = Arc::new(OnceLock::new());
+                let authorizer = owner_replication_authorizer(
+                    Arc::clone(&idp_runtime),
+                    Arc::clone(&management_engine),
+                    server.endpoint().id(),
+                    Arc::clone(&copies),
+                );
+                let storage_state = StorageRouterState::new(&storage_config.api_public_uri)
+                    .with_idp_client(local_storage_idp_client(Arc::clone(&idp_runtime)))
+                    .with_local_replication_authorizer(authorizer);
+                let storage_runtime = build_storage_runtime(
+                    storage_state,
+                    Path::new(&storage_config.data_dir),
+                    STORAGE_PREFIX,
+                    "",
+                    Some(server.clone()),
+                    cancellation_token.clone(),
+                )?;
+
+                pending_storage = Some(storage_runtime);
+                let storage_runtime = pending_storage.as_ref().expect("Storage was just built");
+                copies
+                    .set(storage_runtime.copy_retirement().ok_or_else(|| {
+                        io::Error::other("local Storage retirement is unavailable")
+                    })?)
+                    .map_err(|_| io::Error::other("Storage retirement was already initialized"))?;
+
+                let owner = Arc::new(OwnerProvisioner::from_database(
                     &idp_config,
                     Arc::clone(&idp_engine),
-                    Arc::new(endpoint.identity()?),
+                )?);
+                let security_protocol = SecurityProtocol::new(
                     server.clone(),
-                    Some(local_permissions),
-                )
-                .await?,
-            );
-
-            let idp_api_base = format!("{api_base}{IDP_PREFIX}/");
-            let management_api_base = format!("{api_base}{MANAGEMENT_PREFIX}/");
-            let storage_api_base = format!("{api_base}{STORAGE_PREFIX}/");
-            let management_control_plane = build_control_plane(
-                &config.management_idp_client,
-                &idp_api_base,
-                &storage_api_base,
-                &idp_config.oauth2.issuer,
-            )?;
-            let management_control_plane = Arc::new(match config.idp_management_client.as_ref() {
-                Some(credentials) => management_control_plane
-                    .with_permission_evaluator(&credentials.client_id)
-                    .map_err(invalid_config)?,
-                None => management_control_plane,
-            });
-
-            let mut management_config = config.management;
-            management_config.server.prefix = Some(MANAGEMENT_PREFIX.to_owned());
-            let management_router = management_server::build_router(
-                Arc::clone(&management_engine),
-                &management_config.api_public_uri,
-                MANAGEMENT_PREFIX,
-                &management_config.storage_audience,
-                management_control_plane,
-            )
-            .await
-            .map_err(io::Error::other)?;
-
-            let mut storage_config = config.storage;
-            storage_config.server.prefix = Some(STORAGE_PREFIX.to_owned());
-            storage_config.idp_api_base_uri = idp_api_base.clone();
-            storage_config.idp_issuer_uri = idp_config.oauth2.issuer.clone();
-            storage_config.idp_oauth_client_id = Some(config.storage_idp_client.client_id.clone());
-            storage_config.idp_oauth_client_secret =
-                Some(config.storage_idp_client.client_secret.clone());
-            storage_config.idp_service_audience = Some(config.storage_idp_client.audience.clone());
-            storage_config.management_api_base_uri = management_api_base;
-            storage_config.management_oauth_client_id =
-                Some(config.storage_management_client.client_id.clone());
-            storage_config.management_oauth_client_secret =
-                Some(config.storage_management_client.client_secret.clone());
-            storage_config.management_service_audience =
-                Some(config.storage_management_client.audience.clone());
-
-            let idp_client = IdpClient::new(
-                &storage_config.idp_api_base_uri,
-                storage_config
-                    .idp_oauth_client_id
-                    .as_deref()
-                    .expect("unified Storage IdP client ID was set"),
-                storage_config
-                    .idp_oauth_client_secret
-                    .as_deref()
-                    .expect("unified Storage IdP client secret was set"),
-                &storage_config.idp_issuer_uri,
-                storage_config
-                    .idp_service_audience
-                    .as_deref()
-                    .expect("unified Storage IdP audience was set"),
-            )
-            .map_err(invalid_config)?;
-            let management_client = ManagementClient::new(
-                &storage_config.management_api_base_uri,
-                &storage_config.idp_api_base_uri,
-                storage_config
-                    .management_oauth_client_id
-                    .as_deref()
-                    .expect("unified Storage Management client ID was set"),
-                storage_config
-                    .management_oauth_client_secret
-                    .as_deref()
-                    .expect("unified Storage Management client secret was set"),
-                &storage_config.idp_issuer_uri,
-                storage_config
-                    .management_service_audience
-                    .as_deref()
-                    .expect("unified Storage Management audience was set"),
-            )
-            .map_err(invalid_config)?;
-            let copies = Arc::new(OnceLock::new());
-            let authorizer = owner_replication_authorizer(
-                Arc::clone(&idp_runtime),
-                Arc::clone(&management_engine),
-                server.endpoint().id(),
-                Arc::clone(&copies),
-            );
-            let management_client = management_client.with_local_replication_authorizer(authorizer);
-            let storage_state = StorageRouterState::new(&storage_config.api_public_uri)
-                .with_idp_client(idp_client)
-                .with_management_client(management_client);
-            let storage_runtime = build_storage_runtime(
-                storage_state,
-                Path::new(&storage_config.data_dir),
-                STORAGE_PREFIX,
-                "",
-                Some(server.clone()),
-                cancellation_token.clone(),
-            )?;
-
-            pending_storage = Some(storage_runtime);
-            let storage_runtime = pending_storage.as_ref().expect("Storage was just built");
-            copies
-                .set(
-                    storage_runtime.copy_retirement().ok_or_else(|| {
-                        io::Error::other("local Storage retirement is unavailable")
-                    })?,
-                )
-                .map_err(|_| io::Error::other("Storage retirement was already initialized"))?;
-
-            let owner = OwnerProvisioner::from_database(&idp_config, Arc::clone(&idp_engine))?;
-            let security_protocol = SecurityProtocol::new(
-                server.clone(),
-                idp_engine,
-                Arc::clone(&management_engine),
-                idp_config.oauth2.issuer.clone(),
-                idp_config.oauth2.local_signer.clone(),
-                Path::new(&config.endpoint_data_dir).join("security-sync-staging"),
-                cancellation_token.clone(),
-            );
-            endpoint.refresh_approved_peers(&idp_runtime).await?;
-            if storage_runtime.data_handler().is_none() {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "Storage replication handler is unavailable in unified mode",
+                    idp_engine,
+                    Arc::clone(&management_engine),
+                    idp_config.oauth2.issuer.clone(),
+                    idp_config.oauth2.local_signer.clone(),
+                    Path::new(&config.endpoint_data_dir).join("security-sync-staging"),
+                    cancellation_token.clone(),
+                );
+                endpoint.refresh_approved_peers(&idp_runtime).await?;
+                if storage_runtime.data_handler().is_none() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Storage replication handler is unavailable in unified mode",
+                    ));
+                }
+                let node_joins = Arc::new(crate::node_join_source::NodeJoinSource::new(
+                    endpoint.clone(),
+                    idp_runtime.clone(),
+                    owner.clone(),
+                    security_protocol.clone(),
+                    management_engine.clone(),
+                    idp_config.oauth2.issuer.clone(),
+                    cancellation_token.clone(),
                 ));
+                let router = compose_router(
+                    idp_runtime.router(),
+                    management_router,
+                    storage_runtime.router(),
+                )
+                .merge(node_joins.router())
+                .layer(CorsLayer::very_permissive().allow_private_network(true))
+                .layer(TraceLayer::new_for_http())
+                .layer(CompressionLayer::new().gzip(idp_config.server.gzip));
+                Ok(Self {
+                    listener,
+                    listener_addr,
+                    router,
+                    endpoint: Arc::clone(&endpoint),
+                    idp_runtime,
+                    api_base,
+                    management_control_plane,
+                    protocol_router: None,
+                    storage_runtime: pending_storage.take(),
+                    cancellation_token: cancellation_token.clone(),
+                    peer_refresh: None,
+                    security_protocol,
+                    owner,
+                    node_joins,
+                    join_processing: None,
+                    _managed_copies: copies,
+                    #[cfg(test)]
+                    management_engine,
+                })
             }
-            let router = compose_router(
-                idp_runtime.router(),
-                management_router,
-                storage_runtime.router(),
-            )
-            .layer(CorsLayer::very_permissive().allow_private_network(true))
-            .layer(TraceLayer::new_for_http())
-            .layer(CompressionLayer::new().gzip(idp_config.server.gzip));
-            Ok(Self {
-                listener: Some(listener),
-                listener_addr,
-                router,
-                endpoint: Arc::clone(&endpoint),
-                idp_runtime,
-                api_base,
-                protocol_router: None,
-                storage_runtime: pending_storage.take(),
-                cancellation_token: cancellation_token.clone(),
-                peer_refresh: None,
-                security_protocol,
-                owner,
-                pending_joins,
-                installation: idp_config.oauth2.issuer.clone(),
-                _managed_copies: copies,
-                #[cfg(test)]
-                management_fixture: management_engine,
-            })
-        }
-        .await;
+            .await;
         if result.is_err() {
             cancellation_token.cancel();
             if let Some(storage_runtime) = pending_storage.take() {
@@ -381,13 +432,21 @@ impl UnifiedRuntime {
 
     pub async fn node_public_ready(&self) -> io::Result<bool> {
         self.security_protocol
-            .local_node_public_ready(&self.owner)
+            .local_node_public_ready(self.owner.as_ref())
             .await
+    }
+
+    pub(crate) fn readiness(&self) -> (SecurityProtocol, Arc<OwnerProvisioner>) {
+        (self.security_protocol.clone(), Arc::clone(&self.owner))
+    }
+
+    pub(crate) fn join_owner(&self) -> &OwnerProvisioner {
+        self.owner.as_ref()
     }
 
     pub async fn node_join_public_ready(&self) -> io::Result<bool> {
         self.security_protocol
-            .node_join_public_ready(&self.owner)
+            .node_join_public_ready(self.owner.as_ref())
             .await
     }
 
@@ -396,64 +455,11 @@ impl UnifiedRuntime {
         bearer: &str,
         accepting: Option<bool>,
     ) -> io::Result<bool> {
-        if self.cancellation_token.is_cancelled() {
-            return Err(io::Error::other("runtime is shutting down"));
-        }
-        let mut pending = self.pending_joins.lock().await;
-        let accepting = self
-            .idp_runtime
-            .node_join_accepting(bearer, accepting)
-            .await?;
-        if !accepting {
-            pending.offers.clear();
-            while let Ok(_) | Err(broadcast::error::TryRecvError::Lagged(_)) =
-                pending.receiver.try_recv()
-            {}
-        }
-        Ok(accepting)
-    }
-
-    fn display_node_join(&self, offer: &PairingOffer) -> io::Result<NodeJoinRequest> {
-        let request: NodeJoinRequest = serde_json::from_slice(&offer.payload)?;
-        request.validate()?;
-        if request.installation != self.installation
-            || request.approving_peer != self.endpoint_id().to_string()
-            || request.endpoint_id != offer.remote_id.to_string()
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "join Installation or authenticated endpoint mismatch",
-            ));
-        }
-        Ok(request)
+        self.node_joins.accepting(bearer, accepting).await
     }
 
     pub async fn pending_node_joins(&self, bearer: &str) -> io::Result<serde_json::Value> {
-        self.idp_runtime
-            .authorize_node_join_approver(bearer)
-            .await?;
-        let mut pending = self.pending_joins.lock().await;
-        loop {
-            match pending.receiver.try_recv() {
-                Ok(offer) => {
-                    if self.display_node_join(&offer).is_ok()
-                        && self.endpoint.server().pairing_enabled()
-                    {
-                        pending.offers.insert(Id::now_v7(), offer);
-                    }
-                }
-                Err(broadcast::error::TryRecvError::Lagged(_)) => continue,
-                Err(_) => break,
-            }
-        }
-        if !self.endpoint.server().pairing_enabled() || self.cancellation_token.is_cancelled() {
-            pending.offers.clear();
-        }
-        let mut display = Vec::new();
-        for (id, offer) in &pending.offers {
-            display.push(serde_json::json!({"offer_id": id, "authenticated_endpoint": offer.remote_id.to_string(), "request": self.display_node_join(offer)?}));
-        }
-        Ok(serde_json::json!(display))
+        self.node_joins.pending(bearer).await
     }
 
     pub async fn approve_pending_node_join(
@@ -461,47 +467,11 @@ impl UnifiedRuntime {
         bearer: &str,
         id: Id,
     ) -> io::Result<NodeJoinApproval> {
-        let mut pending = self.pending_joins.lock().await;
-        if self.cancellation_token.is_cancelled() || !self.endpoint.server().pairing_enabled() {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "pairing acceptance has ended",
-            ));
-        }
-        let offer = pending.offers.get(&id).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                "pending authenticated offer is unavailable",
-            )
-        })?;
-        self.display_node_join(offer)?;
-        let approval = self.idp_runtime.approve_node_join(offer, bearer).await?;
-        // reply finishes the stream but does not await delivery; retain its connection until shutdown.
-        let answered = pending
-            .offers
-            .remove(&id)
-            .expect("approved offer remains under the pending lock");
-        pending.answered.push(answered);
-        self.endpoint
-            .refresh_approved_peers(&self.idp_runtime)
-            .await?;
-        Ok(approval)
+        crate::local_provisioning::provisioning_stage(|| self.node_joins.approve(bearer, id)).await
     }
 
     pub async fn reject_pending_node_join(&self, bearer: &str, id: Id) -> io::Result<()> {
-        self.idp_runtime
-            .authorize_node_join_approver(bearer)
-            .await?;
-        let mut pending = self.pending_joins.lock().await;
-        let offer = pending.offers.remove(&id).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                "pending authenticated offer is unavailable",
-            )
-        })?;
-        let result = offer.reply(b"").await;
-        pending.answered.push(offer);
-        result
+        self.node_joins.reject(bearer, id).await
     }
 
     pub async fn synchronize_security(
@@ -584,6 +554,8 @@ impl UnifiedRuntime {
             })?,
         );
         storage_runtime.start_background_tasks();
+        let source = self.node_joins.clone();
+        self.join_processing = Some(tokio::spawn(async move { source.run().await }));
         self.peer_refresh = Some(spawn_peer_refresh(
             Arc::clone(&self.endpoint),
             Arc::clone(&self.idp_runtime),
@@ -593,6 +565,13 @@ impl UnifiedRuntime {
     }
 
     pub async fn serve(mut self) -> io::Result<()> {
+        if self.api_base.starts_with("https://") {
+            self.shutdown().await?;
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "HTTPS runtime requires serve_https; plaintext fallback is forbidden",
+            ));
+        }
         let listener = match self.take_listener() {
             Ok(listener) => listener,
             Err(error) => {
@@ -605,6 +584,68 @@ impl UnifiedRuntime {
             listener,
             self.cancellation_token.clone(),
         ));
+        self.finish_serving(serve_task).await
+    }
+
+    #[cfg(test)]
+    pub(crate) fn node_join_source_for_test(&self) -> Arc<crate::node_join_source::NodeJoinSource> {
+        self.node_joins.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn trace_bootstrap_http_stages(&mut self) {
+        self.router = self.router.clone().layer(axum::middleware::from_fn(
+            |request: axum::extract::Request, next: axum::middleware::Next| async move {
+                let stage = match request.uri().path() {
+                    "/storage/filesystems" => Some("storage_catalog"),
+                    "/idp/oauth2/token" => Some("token"),
+                    "/idp/oauth2/introspect" => Some("introspect"),
+                    _ => None,
+                };
+                let started = std::time::Instant::now();
+                if let Some(stage) = stage {
+                    eprintln!("bootstrap HTTP stage={stage} begin");
+                }
+                let response = next.run(request).await;
+                if let Some(stage) = stage {
+                    eprintln!(
+                        "bootstrap HTTP stage={stage} status={} elapsed={:?}",
+                        response.status(),
+                        started.elapsed()
+                    );
+                }
+                response
+            },
+        ));
+    }
+
+    pub async fn serve_https(mut self, tls: crate::LocalTls) -> io::Result<()> {
+        if !self.api_base.starts_with("https://") {
+            self.shutdown().await?;
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "HTTPS runtime must be built with an HTTPS API base",
+            ));
+        }
+        let listener = match self.take_listener() {
+            Ok(listener) => listener,
+            Err(error) => {
+                let _ = self.shutdown().await;
+                return Err(error);
+            }
+        };
+        let listener = tls.listener(listener);
+        let router = self.router.clone();
+        let cancellation = self.cancellation_token.clone();
+        let serve_task = tokio::spawn(async move {
+            axum::serve(listener, router.into_make_service())
+                .with_graceful_shutdown(cancellation.cancelled_owned())
+                .await
+        });
+        self.finish_serving(serve_task).await
+    }
+
+    async fn finish_serving(mut self, serve_task: JoinHandle<io::Result<()>>) -> io::Result<()> {
         if let Err(error) = wait_until_ready(&self.api_base, &self.cancellation_token).await {
             self.cancellation_token.cancel();
             let _ = serve_task.await;
@@ -629,9 +670,19 @@ impl UnifiedRuntime {
     pub async fn shutdown(mut self) -> io::Result<()> {
         self.cancellation_token.cancel();
         self.endpoint.server().set_pairing_enabled(false);
-        self.pending_joins.get_mut().offers.clear();
-        self.pending_joins.get_mut().answered.clear();
         let mut shutdown_error = None;
+        if let Some(task) = self.join_processing.take() {
+            match task.await {
+                Ok(Ok(())) => (),
+                Ok(Err(error)) => {
+                    shutdown_error = Some(error);
+                }
+                Err(error) => {
+                    shutdown_error = Some(io::Error::other(error));
+                }
+            }
+        }
+        self.node_joins.clear().await;
         if let Some(peer_refresh) = self.peer_refresh.take()
             && let Err(error) = peer_refresh.await
         {
@@ -657,72 +708,10 @@ impl UnifiedRuntime {
 }
 
 pub(crate) fn validate_config(config: &UnifiedConfig) -> io::Result<()> {
-    let idp_service_audience = config
-        .idp
-        .service_audience
-        .as_deref()
-        .unwrap_or(&config.idp.api_public_uri);
-    for (name, credentials) in [
-        ("Management→IdP", &config.management_idp_client),
-        ("Storage→IdP", &config.storage_idp_client),
-        ("Storage→Management", &config.storage_management_client),
-    ] {
-        if credentials.client_id.trim().is_empty()
-            || credentials.client_secret.is_empty()
-            || credentials.audience.trim().is_empty()
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("{name} OAuth client credentials are required"),
-            ));
-        }
-    }
-    if config.management_idp_client.audience != idp_service_audience
-        || config.storage_idp_client.audience != idp_service_audience
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Management and Storage IdP client audiences must match IdP's configured service audience",
+    if config.idp_audience().trim().is_empty() {
+        return Err(invalid_config(
+            "IdP service audience must not be empty".to_owned(),
         ));
-    }
-    if config.storage_management_client.audience != config.management.storage_audience {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Storage Management audience must match Management's configured Storage audience",
-        ));
-    }
-    let client_ids = [
-        config.management_idp_client.client_id.as_str(),
-        config.storage_idp_client.client_id.as_str(),
-        config.storage_management_client.client_id.as_str(),
-    ];
-    if client_ids[0] == client_ids[1]
-        || client_ids[0] == client_ids[2]
-        || client_ids[1] == client_ids[2]
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Management→IdP, Storage→IdP, and Storage→Management must use distinct OAuth clients",
-        ));
-    }
-    if let Some(evaluator) = &config.idp_management_client {
-        if evaluator.client_id.trim().is_empty()
-            || evaluator.client_secret.is_empty()
-            || evaluator.audience != management_service::MANAGEMENT_APPLICATION_URI
-            || client_ids.contains(&evaluator.client_id.as_str())
-            || [
-                &config.management_idp_client,
-                &config.storage_idp_client,
-                &config.storage_management_client,
-            ]
-            .iter()
-            .any(|client| client.client_secret == evaluator.client_secret)
-        {
-            return Err(invalid_config(
-                "IdP→Management requires a distinct client and secret with idp-management audience"
-                    .to_owned(),
-            ));
-        }
     }
     Ok(())
 }
@@ -758,20 +747,29 @@ fn open_service_engine(data_dir: &str, file_name: &str) -> io::Result<Arc<Databa
 }
 
 fn build_control_plane(
-    credentials: &ServiceClientCredentials,
+    idp: Arc<idp_server::IdpRuntime>,
     idp_api_base: &str,
     storage_api_base: &str,
     issuer: &str,
 ) -> io::Result<HostedControlPlane> {
-    HostedControlPlane::new_with_services(idp_api_base, storage_api_base, issuer)
-        .and_then(|control_plane| {
-            control_plane.with_idp_service_client(
-                credentials.client_id.clone(),
-                credentials.client_secret.clone(),
-                credentials.audience.clone(),
-            )
-        })
-        .map_err(invalid_config)
+    let inspect = Arc::clone(&idp);
+    let endpoint = Arc::clone(&idp);
+    Ok(HostedControlPlane::new_with_services(idp_api_base, storage_api_base, issuer)
+        .map_err(invalid_config)?
+        .with_local_idp(
+            move |token| {
+                let idp = Arc::clone(&inspect);
+                async move { idp.authorize_management_bearer(&token).await }
+            },
+            move |endpoint_id| {
+                let idp = Arc::clone(&endpoint);
+                async move { idp_server::approved_management_endpoint(&idp, &endpoint_id).await }
+            },
+            move |device_id| {
+                let idp = Arc::clone(&idp);
+                async move { idp.approved_management_device(device_id).await }
+            },
+        ))
 }
 
 fn validate_api_base(api_base: &str, listener_addr: std::net::SocketAddr) -> io::Result<()> {
@@ -813,12 +811,7 @@ async fn wait_until_ready(
     api_base: &str,
     cancellation_token: &CancellationToken,
 ) -> io::Result<()> {
-    let client = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(1))
-        .timeout(Duration::from_secs(2))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(io::Error::other)?;
+    let client = crate::LocalTls::verification_client()?;
     let health_url = format!("{api_base}{IDP_PREFIX}/health");
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     loop {
@@ -879,7 +872,7 @@ mod tests {
     use tokio::net::TcpListener;
     use tower::ServiceExt;
 
-    use crate::{ServiceClientCredentials, UnifiedConfig};
+    use crate::UnifiedConfig;
 
     use super::{UnifiedRuntime, loopback_base, validate_api_base, validate_config};
 
@@ -917,28 +910,66 @@ mod tests {
         approved_peer_id: iroh::EndpointId,
         device_only_peer: iroh::EndpointId,
     ) -> idp_service::oauth2::NodeSignerBinding {
+        use idp_service::repo::UserRepo;
         use management_service::DeviceRepo;
+
         let issuer = &config.oauth2.issuer;
         let engine = super::open_service_engine(&config.data_dir, "idp.redb")
             .expect("open native trust fixture");
+        let users = idp_service::replica::DbUserRepo::new(
+            std::sync::Arc::clone(&engine),
+            config.password.clone(),
+        );
+        let owner = users
+            .find_user_by_username_or_email("administrator")
+            .await
+            .expect("local owner lookup")
+            .expect("fixture active owner");
         let devices =
             management_service::replica::DbDeviceRepo::new(std::sync::Arc::clone(&engine));
+        for endpoint_id in [
+            config
+                .oauth2
+                .local_signer
+                .as_ref()
+                .expect("local binding")
+                .endpoint_id
+                .clone(),
+            approved_peer_id.to_string(),
+        ] {
+            let device = devices
+                .find_approved_by_public_key(&endpoint_id)
+                .await
+                .expect("lookup approved fixture Device")
+                .expect("approved fixture Device");
+            assert!(
+                devices
+                    .transfer_owned(device.id, &device.owner_subject, &owner.id.to_string())
+                    .await
+                    .expect("transfer fixture Device to active User")
+            );
+        }
         let approved = devices
             .find_approved_by_public_key(&approved_peer_id.to_string())
             .await
             .expect("lookup approved peer")
             .expect("approved peer Device");
-        devices
+        let unsigned = devices
             .create(
-                "unified-test-owner".into(),
+                owner.id.to_string(),
                 "device-without-signer".into(),
                 device_only_peer.to_string(),
                 "".into(),
                 vec![],
-                0,
+                i64::MAX,
             )
             .await
-            .expect("Device-only approval is not Node trust");
+            .expect("enroll Device without signer");
+        devices
+            .approve(unsigned.id, &[])
+            .await
+            .expect("approve Device without signer")
+            .expect("pending Device has exact unexpired enrollment");
         let binding = idp_service::oauth2::NodeSignerBinding {
             member_id: approved.id,
             key_id: idp_model::model::Id::now_v7(),
@@ -982,7 +1013,7 @@ mod tests {
                 },
             )
             .await
-            .expect("trusted fixture approval binds peer Device and independent signer");
+            .expect("enroll independent peer signer separately from Device approval");
         binding
     }
 
@@ -1035,14 +1066,13 @@ mod tests {
             endpoint
                 .refresh_approved_peers(&idp)
                 .await
-                .expect("restore trusted signer admission");
-            assert!(
-                idp.approved_device_owner(local).await.is_err(),
-                "synthetic fixture owner is not an active User; Node admission alone cannot authorize resources"
-            );
+                .expect("restore approved Device admission");
             assert_eq!(endpoint.server().peers().contains(peer), !revoked);
             assert!(endpoint.server().peers().contains(local));
-            assert!(!endpoint.server().peers().contains(device_only));
+            assert!(
+                endpoint.server().peers().contains(device_only),
+                "approved Device needs no token signer for endpoint admission"
+            );
             if !revoked {
                 use idp_service::repo::UserRepo;
                 let users = idp_service::replica::DbUserRepo::new(
@@ -1060,17 +1090,7 @@ mod tests {
                     .as_ref()
                     .expect("local binding")
                     .member_id;
-                engine
-                    .client()
-                    .translate_and_execute(
-                        &format!(
-                            "UPDATE devices SET owner_subject = '{}' WHERE id = CAST('{}' AS UUID)",
-                            owner.id, member
-                        ),
-                        &db::SqlTranslator,
-                    )
-                    .await
-                    .expect("bind trusted fixture Device to real local owner");
+
                 assert_eq!(
                     idp.approved_device_owner(local)
                         .await
@@ -1135,9 +1155,16 @@ mod tests {
                         .expect("production owner-service callback works offline")
                         .is_empty()
                 );
+                assert_eq!(
+                    idp.approved_device_owner(device_only)
+                        .await
+                        .expect("unsigned approved Device has an active User owner")
+                        .owner_subject,
+                    owner.id.to_string()
+                );
                 assert!(
                     authorizer.selected_resources(device_only).await.is_err(),
-                    "Device-only pairing cannot supply policy evidence"
+                    "endpoint approval without exact resource policy cannot authorize resources"
                 );
                 policies
                     .set_admin_allowed_prevalidated(member, &owner.id.to_string(), false)
@@ -1147,6 +1174,55 @@ mod tests {
                     authorizer.selected_resources(local).await.is_err(),
                     "production callback reads newly learned restrictions"
                 );
+                idp_service::replica::DbReplicaSignerRepo::new(std::sync::Arc::clone(&engine))
+                    .revoke(binding.member_id, &config.oauth2.issuer, 2)
+                    .await
+                    .expect("learn signer-only revocation");
+                endpoint
+                    .refresh_approved_peers(&idp)
+                    .await
+                    .expect("refresh approval after signer revocation");
+                assert!(
+                    endpoint.server().peers().contains(peer),
+                    "signer revocation does not revoke Device approval"
+                );
+                assert!(endpoint.server().peers().contains(device_only));
+                assert_eq!(
+                    idp.approved_device_owner(peer)
+                        .await
+                        .expect("approved Device remains valid without signer trust")
+                        .owner_subject,
+                    owner.id.to_string()
+                );
+                engine
+                    .client()
+                    .translate_and_execute(
+                        &format!(
+                            "UPDATE devices SET revoked_at = 2 WHERE id = CAST('{}' AS UUID)",
+                            binding.member_id
+                        ),
+                        &db::SqlTranslator,
+                    )
+                    .await
+                    .expect("learn timestamp-only Device revocation while state remains Approved");
+                endpoint
+                    .refresh_approved_peers(&idp)
+                    .await
+                    .expect("apply Device admission removal");
+                assert!(!endpoint.server().peers().contains(peer));
+                assert!(endpoint.server().peers().contains(device_only));
+                assert!(idp.approved_device_owner(peer).await.is_err());
+            } else {
+                use idp_service::repo::UserRepo;
+                let users = idp_service::replica::DbUserRepo::new(
+                    std::sync::Arc::clone(&engine),
+                    config.password.clone(),
+                );
+                let owner = users
+                    .find_user_by_username_or_email("administrator")
+                    .await
+                    .expect("reopened owner lookup")
+                    .expect("fixture owner remains active through offline reopen");
                 users
                     .delete_user_by_id(owner.id)
                     .await
@@ -1155,15 +1231,6 @@ mod tests {
                     idp.approved_device_owner(local).await.is_err(),
                     "next owner-service call denies deleted User without peer contact"
                 );
-                idp_service::replica::DbReplicaSignerRepo::new(std::sync::Arc::clone(&engine))
-                    .revoke(binding.member_id, &config.oauth2.issuer, 2)
-                    .await
-                    .expect("learn revocation");
-                endpoint
-                    .refresh_approved_peers(&idp)
-                    .await
-                    .expect("update admission from current local trust");
-                assert!(!endpoint.server().peers().contains(peer));
             }
             endpoint.close().await;
         }
@@ -1195,21 +1262,10 @@ mod tests {
             idp,
             management,
             storage,
-            management_idp_client: credentials("management-idp", "idp-services"),
-            storage_idp_client: credentials("storage-idp", "idp-services"),
-            storage_management_client: credentials("storage-management", "storage-service"),
-            idp_management_client: Some(ServiceClientCredentials {
-                client_id: "idp-evaluator".into(),
-                client_secret: "idp-evaluator-secret".into(),
-                audience: management_service::MANAGEMENT_APPLICATION_URI.into(),
-            }),
         };
-        config.storage_idp_client.client_id = config.management_idp_client.client_id.clone();
-        assert!(validate_config(&config).is_err());
-        config.storage_idp_client.client_id = "storage-idp".to_owned();
-        config.management_idp_client.client_secret = "management-idp-secret".to_owned();
-        config.storage_idp_client.client_secret = "storage-idp-secret".to_owned();
-        config.storage_management_client.client_secret = "storage-management-secret".to_owned();
+        let mut invalid = config.clone();
+        invalid.idp.service_audience = Some(String::new());
+        assert!(validate_config(&invalid).is_err());
         let endpoint = crate::UnifiedEndpoint::open_fresh(&config.endpoint_data_dir, &config.idp)
             .await
             .expect("open endpoint for initial test provisioning");
@@ -1231,21 +1287,15 @@ mod tests {
         let persisted_idp_config = config.idp.clone();
         let mut public_context_grant = None;
         {
-            let owner = super::open_service_engine(&config.idp.data_dir, "idp.redb")
-                .expect("owner fixture");
-            owner
-                .client()
-                .translate_and_execute(
-                    &format!(
-                        "UPDATE devices SET owner_subject = '{}'",
-                        fixture.administrator
-                    ),
-                    &db::SqlTranslator,
-                )
-                .await
-                .expect("bind real active fixture owner");
             let policy = super::open_service_engine(&config.management.data_dir, "management.redb")
                 .expect("policy fixture");
+            management_server::provision_initial_device(
+                std::sync::Arc::clone(&policy),
+                fixture.local_signer.member_id,
+                fixture.administrator,
+            )
+            .await
+            .expect("provision empty local Device policy for its active User owner");
             let service = management_service::ManagementService::new(
                 management_service::replica::DbPermissionRepo::new(policy.clone()),
                 management_service::replica::DbRoleRepo::new(policy),
@@ -1330,11 +1380,11 @@ mod tests {
         assert_eq!(runtime.endpoint_id(), endpoint_id);
         assert!(
             runtime.endpoint.server().peers().contains(approved_peer_id),
-            "trusted peers restored before handler composition without manual refresh"
+            "approved peers restored before handler composition without manual refresh"
         );
         assert!(
-            !runtime.endpoint.server().peers().contains(device_only_peer),
-            "Device-only approval must not grant Node admission"
+            runtime.endpoint.server().peers().contains(device_only_peer),
+            "approved Device is admitted without a token signer"
         );
         assert!(runtime.endpoint.server().peers().contains(endpoint_id));
 
@@ -1386,7 +1436,7 @@ mod tests {
             .expect("call normal Management route");
         assert_eq!(response.status(), http::StatusCode::UNAUTHORIZED);
 
-        let policy = runtime.management_fixture.clone();
+        let policy = runtime.management_engine.clone();
         let service = management_service::ManagementService::new(
             management_service::replica::DbPermissionRepo::new(policy.clone()),
             management_service::replica::DbRoleRepo::new(policy),
@@ -1748,7 +1798,7 @@ mod tests {
             .await
             .expect("call authenticated IdP device API through unified listener");
         assert_eq!(response.status(), http::StatusCode::OK);
-        let identity: idp_model::contract::DeviceEndpointIdentity = response
+        let identity: management_service::DeviceEndpointIdentity = response
             .json()
             .await
             .expect("parse approved endpoint identity");
@@ -1775,15 +1825,23 @@ mod tests {
         let selection_status = response.status();
         let selection_body = response.text().await.expect("read selection response");
         assert_eq!(selection_status, http::StatusCode::OK, "{selection_body}");
-        let selected: serde_json::Value =
+        let selected: model::contract::SelectedResourcesResponse =
             serde_json::from_str(&selection_body).expect("parse selection response");
-        assert_eq!(selected["resources"], serde_json::json!([]));
+        assert_eq!(
+            selected.device_id,
+            fixture.local_signer.member_id.to_string()
+        );
+        assert_eq!(selected.endpoint_id, endpoint_id.to_string());
+        assert_eq!(selected.owner_subject, fixture.administrator.to_string());
+        assert!(selected.admin_allowed);
+        assert!(selected.resources.is_empty());
 
         run_permission_http_checks(
             &client,
             &format!("http://{server_address}"),
             &format!("http://{server_address}"),
             &fixture,
+            http::StatusCode::FORBIDDEN,
         )
         .await;
 
@@ -1798,7 +1856,7 @@ mod tests {
             format!("{issuer}/oauth2/token")
         );
 
-        let policy = runtime.management_fixture.clone();
+        let policy = runtime.management_engine.clone();
         let service = management_service::ManagementService::new(
             management_service::replica::DbPermissionRepo::new(policy.clone()),
             management_service::replica::DbRoleRepo::new(policy),
@@ -1881,24 +1939,52 @@ mod tests {
                 .contains(approved_peer_id)
         );
         assert!(
-            !restored_endpoint
+            restored_endpoint
                 .server()
                 .peers()
                 .contains(device_only_peer)
         );
-        idp_service::replica::DbReplicaSignerRepo::new(reopened_engine)
+        idp_service::replica::DbReplicaSignerRepo::new(std::sync::Arc::clone(&reopened_engine))
             .revoke(peer_binding.member_id, &issuer, 2)
             .await
-            .expect("learn local member revocation");
+            .expect("learn signer-only revocation");
         restored_endpoint
             .refresh_approved_peers(&restored_idp)
             .await
-            .expect("apply learned admission removal");
+            .expect("refresh approval after signer revocation");
+        assert!(
+            restored_endpoint
+                .server()
+                .peers()
+                .contains(approved_peer_id),
+            "signer revocation leaves Device approval intact"
+        );
+        use management_service::DeviceRepo;
+        assert!(
+            management_service::replica::DbDeviceRepo::new(reopened_engine)
+                .revoke(
+                    &fixture.administrator.to_string(),
+                    peer_binding.member_id,
+                    &endpoint_id.to_string(),
+                )
+                .await
+                .expect("learn Device revocation")
+        );
+        restored_endpoint
+            .refresh_approved_peers(&restored_idp)
+            .await
+            .expect("apply learned Device admission removal");
         assert!(
             !restored_endpoint
                 .server()
                 .peers()
                 .contains(approved_peer_id)
+        );
+        assert!(
+            restored_endpoint
+                .server()
+                .peers()
+                .contains(device_only_peer)
         );
         assert!(restored_endpoint.server().peers().contains(endpoint_id));
         restored_endpoint.close().await;
@@ -1944,14 +2030,6 @@ mod tests {
         assert_eq!(response.status(), http::StatusCode::OK);
         let body = response.bytes().await.expect("read JSON response");
         serde_json::from_slice(&body).expect("parse JSON response")
-    }
-
-    fn credentials(client_id: &str, audience: &str) -> ServiceClientCredentials {
-        ServiceClientCredentials {
-            client_id: client_id.to_owned(),
-            client_secret: "test-secret".to_owned(),
-            audience: audience.to_owned(),
-        }
     }
 }
 

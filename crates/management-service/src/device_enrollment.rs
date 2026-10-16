@@ -1,17 +1,13 @@
 use std::sync::Arc;
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use idp_model::{
-    contract::{
-        DeviceEnrollment, DeviceEnrollmentRequest, DeviceInfo, DevicePairingApprovalRequest,
-        DevicePairingRequest, ErrorCode, ErrorResponse, ErrorResponseResult, UpdateDeviceRequest,
-        device_pairing_approval_payload,
-    },
-    model::Device,
-};
+use idp_model::contract::{ErrorCode, ErrorResponse, ErrorResponseResult};
 use iroh::{EndpointId, Signature};
 
-use crate::DeviceRepo;
+use crate::{
+    Device, DeviceEnrollment, DeviceEnrollmentRequest, DeviceInfo, DevicePairingApprovalRequest,
+    DevicePairingRequest, DeviceRepo, UpdateDeviceRequest, device_pairing_approval_payload,
+};
 
 pub struct DeviceEnrollmentService<R> {
     repo: Arc<R>,

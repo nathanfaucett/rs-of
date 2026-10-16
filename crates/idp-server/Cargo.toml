@@ -57,7 +57,7 @@ idp-model = { path = "../idp-model", default-features = false, features = [
 ] }
 idp-service = { path = "../idp-service", default-features = false, features = ["replica", "std"] }
 
-management-service = { path = "../management-service", default-features = false, features = ["replica", "std"] }
+management-service = { path = "../management-service", default-features = false, features = ["replica", "std", "utoipa"] }
 
 iroh-chain = { path = "../../../ofnet/crates/iroh-chain", default-features = false, features = [] }
 
@@ -101,6 +101,7 @@ tower-http = { version = "0.7", features = [
   "compression-gzip",
 ], default-features = false }
 http = { version = "1.4", default-features = false }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
 utoipa = { version = "5.5", default-features = false, features = ["macros"] }
 utoipa-axum = { version = "0.2", default-features = false, features = [] }
 utoipa-swagger-ui = { version = "9.0", default-features = false, features = ["axum"], optional = true }

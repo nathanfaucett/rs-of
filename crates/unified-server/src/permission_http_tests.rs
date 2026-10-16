@@ -102,7 +102,7 @@ async fn run_separate_permission_acceptance(lifecycle_only: bool) {
         &config,
         Arc::clone(&idp_engine),
         Arc::new(
-            idp_server::device_identity_from_server(&server, secret.clone())
+            management_service::device_identity_from_server(&server, secret.clone())
                 .expect("create local identity"),
         ),
         server.clone(),
@@ -153,7 +153,8 @@ async fn run_separate_permission_acceptance(lifecycle_only: bool) {
             &config,
             Arc::clone(&idp_engine),
             Arc::new(
-                idp_server::device_identity_from_server(&server, secret).expect("local identity"),
+                management_service::device_identity_from_server(&server, secret)
+                    .expect("local identity"),
             ),
             server.clone(),
             None,
@@ -182,7 +183,14 @@ async fn run_separate_permission_acceptance(lifecycle_only: bool) {
         std::fs::remove_dir_all(root).expect("remove lifecycle fixture data");
         return;
     }
-    run_permission_http_checks(&client, &idp_base, &management_base, &fixture).await;
+    run_permission_http_checks(
+        &client,
+        &idp_base,
+        &management_base,
+        &fixture,
+        http::StatusCode::OK,
+    )
+    .await;
     let admin = user_token(&client, &idp_base, "administrator", "idp-services").await;
     let management_user = user_token(&client, &idp_base, "administrator", "idp-management").await;
     idp_task.abort();
@@ -441,7 +449,7 @@ pub(crate) async fn seed_idp(
                 .await
                 .expect("initial fixture User");
             owner
-                .ensure_initial_user_signing_key(administrator)
+                .ensure_initial_user_root(administrator)
                 .await
                 .expect("captured initial fixture User signing key");
             user_ids.push(administrator);
@@ -1065,6 +1073,7 @@ pub(crate) async fn run_permission_http_checks(
     base: &str,
     management_base: &str,
     fixture: &PermissionFixture,
+    evaluator_status: http::StatusCode,
 ) {
     let admin = user_token(client, base, "administrator", "idp-services").await;
     let app_admin = user_token(client, base, "app-administrator", "idp-services").await;
@@ -1099,7 +1108,7 @@ pub(crate) async fn run_permission_http_checks(
         http::StatusCode::OK,
     )
     .await;
-    let pairing_update = idp_model::contract::PairingAcceptance { accepting: false };
+    let pairing_update = management_service::PairingAcceptance { accepting: false };
     expect_status(
         client
             .put(&pairing_url)
@@ -1430,15 +1439,17 @@ pub(crate) async fn run_permission_http_checks(
             .send()
             .await
             .expect("normal service evaluation"),
-        http::StatusCode::OK,
+        evaluator_status,
     )
     .await;
-    let decision: PermissionEvaluationResponse =
-        serde_json::from_value(decision).expect("typed decision");
-    assert!(decision.allowed);
-    assert_eq!(decision.request, evaluation);
-    assert_eq!(decision.audit.actor, evaluation.subject);
-    assert_ne!(decision.audit.service_subject, fixture.administrator);
+    if evaluator_status == http::StatusCode::OK {
+        let decision: PermissionEvaluationResponse =
+            serde_json::from_value(decision).expect("typed decision");
+        assert!(decision.allowed);
+        assert_eq!(decision.request, evaluation);
+        assert_eq!(decision.audit.actor, evaluation.subject);
+        assert_ne!(decision.audit.service_subject, fixture.administrator);
+    }
     evaluation.target = PermissionTarget::Application {
         application_id: fixture.other_application_id,
         resource: IdentityResource::Client {
@@ -1453,10 +1464,12 @@ pub(crate) async fn run_permission_http_checks(
             .send()
             .await
             .expect("cross-app evaluation"),
-        http::StatusCode::OK,
+        evaluator_status,
     )
     .await;
-    assert_eq!(decision["allowed"], false);
+    if evaluator_status == http::StatusCode::OK {
+        assert_eq!(decision["allowed"], false);
+    }
     evaluation.target = PermissionTarget::Application {
         application_id: fixture.application_id,
         resource: IdentityResource::Client {

@@ -248,10 +248,10 @@ async fn real_selected_production_data_handler_uses_injected_local_policy_on_exi
         let fixture = Fixture::new().await;
         let peers = EndpointIdStore::default(); peers.add(fixture.peers.ids()[0]);
         let server = Server::new(fixture.peers.endpoints[1].clone(), peers);
-        let management = crate::ManagementClient::new("http://127.0.0.1:9/management", "http://127.0.0.1:9/idp", "storage", "isolated-test-secret", "https://of03-installation.example", "https://management.example").expect("remote endpoints intentionally unavailable").with_local_replication_authorizer(fixture.nodes[1].authorizer());
+        let authorizer = fixture.nodes[1].authorizer();
         let cancellation = CancellationToken::new();
-        let database = super::DatabaseProtocolHandler::new(server.clone(), management.clone(), fixture.runtimes[1].clone(), fixture.nodes[1].root.join("staging"), cancellation.clone());
-        let filesystem = crate::storage_protocol::StorageProtocolHandler::new(server, management, Arc::new(storage_service::ScopedFileSystemRuntime::new(fixture.nodes[1].root.join("unused-filesystems"), fixture.peers.ids()[1]).expect("filesystem runtime")), cancellation.clone());
+        let database = super::DatabaseProtocolHandler::new(server.clone(), authorizer.clone(), fixture.runtimes[1].clone(), fixture.nodes[1].root.join("staging"), cancellation.clone());
+        let filesystem = crate::storage_protocol::StorageProtocolHandler::new(server, authorizer, Arc::new(storage_service::ScopedFileSystemRuntime::new(fixture.nodes[1].root.join("unused-filesystems"), fixture.peers.ids()[1]).expect("filesystem runtime")), cancellation.clone());
         let handler = crate::DataProtocolHandler::new(database, filesystem, cancellation.clone());
         let connection = fixture.peers.connections[1].clone();
         let task = tokio::spawn(async move { handler.accept(connection).await });
@@ -273,6 +273,86 @@ async fn real_selected_production_data_handler_uses_injected_local_policy_on_exi
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn delayed_http_policy_cannot_release_database_frame_after_local_denial() {
+    use axum::{
+        Json,
+        extract::Path,
+        http::HeaderMap,
+        routing::{get, post},
+    };
+    use ofdb_sql::SyncTransport;
+
+    tokio::time::timeout(std::time::Duration::from_secs(120), async {
+        for denial in ["resource", "owner", "cancellation"] {
+            let fixture = Fixture::new().await;
+            let gate = Gate::default();
+            let response_gate = gate.clone();
+            let ids = fixture.peers.ids();
+            let devices = fixture.nodes[0].devices;
+            let selected = fixture.resource.clone();
+            let app = axum::Router::new()
+                .route("/oauth2/token", post(|| async { Json(serde_json::json!({
+                    "access_token":"service-token", "token_type":"Bearer", "expires_in":300,
+                    "scope":"management.replication.read management.replication.admit", "iss":"https://idp.example"
+                })) }))
+                .route("/replication/devices/{endpoint}/selections", get(move |Path(endpoint): Path<String>, headers: HeaderMap| {
+                    let gate = response_gate.clone();
+                    let selected = selected.clone();
+                    async move {
+                        assert_eq!(headers["authorization"], "Bearer service-token");
+                        let side = ids.iter().position(|id| id.to_string() == endpoint).expect("authenticated fixture endpoint");
+                        let response = serde_json::json!({
+                            "deviceId": devices[side].to_string(), "endpointId": endpoint,
+                            "ownerSubject": selected.owner_subject, "adminAllowed":true, "resources":[selected]
+                        });
+                        if side == 1 { gate.pause().await; }
+                        Json(response)
+                    }
+                }));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind Management policy fixture");
+            let base = format!("http://{}", listener.local_addr().expect("Management address"));
+            let http = tokio::spawn(async move { axum::serve(listener, app).await.expect("serve current policy") });
+            let policy = crate::LocalReplicationAuthorizer::from_management_client(crate::ManagementClient::new(
+                &base, &base, "storage-client", "storage-secret", "https://idp.example", "management-api",
+            ).expect("authenticated Management client"));
+            let cancellation = CancellationToken::new();
+            let handler = super::DatabaseProtocolHandler::new(
+                Server::new(fixture.peers.endpoints[0].clone(), EndpointIdStore::default()),
+                policy, fixture.runtimes[0].clone(), fixture.nodes[0].root.join("staging"), cancellation.clone(),
+            );
+            let resource = super::descriptor(&fixture.resource);
+            let connection = fixture.peers.connections[0].clone();
+            let authorize: FrameAuthorizer = Arc::new(move || {
+                let handler = handler.clone(); let resource = resource.clone(); let connection = connection.clone();
+                Box::pin(async move { handler.authorize(&resource, &connection).await })
+            });
+            let [source, mut target] = fixture.peers.streams().await;
+            let sender = tokio::spawn(async move {
+                let mut transport = AuthorizedTransport { transport: source, authorize };
+                transport.send(b"must-not-disclose".to_vec()).await
+            });
+            gate.reached().await;
+            let scope = Namespace {
+                owner_subject: fixture.resource.owner_subject.clone(),
+                application_id: fixture.resource.application_id.parse().expect("Application"),
+            };
+            let id = fixture.resource.resource_id.parse().expect("database ID");
+            match denial {
+                "resource" => fixture.runtimes[0].remove_local_copy(&scope, id).await.expect("retire database and KV copy"),
+                "owner" => fixture.runtimes[0].remove_owner_copies(&scope.owner_subject).await.expect("retire owner copies"),
+                _ => cancellation.cancel(),
+            }
+            gate.release();
+            let result = sender.await.expect("join queued frame sender");
+            assert_eq!(result.expect_err("delayed approval cannot bypass local denial").kind(), std::io::ErrorKind::PermissionDenied, "{denial}");
+            assert!(target.receive().await.is_err(), "no database frame reaches socket after {denial}");
+            http.abort(); let _ = http.await;
+            fixture.peers.close().await;
+        }
+    }).await.expect("bounded delayed policy database regression");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn real_production_database_retirement_denies_existing_connection_with_selection_still_allowed()
  {
     tokio::time::timeout(std::time::Duration::from_secs(120), async {
@@ -280,27 +360,18 @@ async fn real_production_database_retirement_denies_existing_connection_with_sel
         let peers = EndpointIdStore::default();
         peers.add(fixture.peers.ids()[0]);
         let server = Server::new(fixture.peers.endpoints[1].clone(), peers);
-        let management = crate::ManagementClient::new(
-            "http://127.0.0.1:9/management",
-            "http://127.0.0.1:9/idp",
-            "storage",
-            "isolated-test-secret",
-            "https://of03-installation.example",
-            "https://management.example",
-        )
-        .expect("unreachable remote owners")
-        .with_local_replication_authorizer(fixture.nodes[1].authorizer());
+        let authorizer = fixture.nodes[1].authorizer();
         let cancellation = CancellationToken::new();
         let database = super::DatabaseProtocolHandler::new(
             server.clone(),
-            management.clone(),
+            authorizer.clone(),
             fixture.runtimes[1].clone(),
             fixture.nodes[1].root.join("staging"),
             cancellation.clone(),
         );
         let filesystem = crate::storage_protocol::StorageProtocolHandler::new(
             server,
-            management,
+            authorizer,
             Arc::new(
                 storage_service::ScopedFileSystemRuntime::new(
                     fixture.nodes[1].root.join("unused-filesystems"),
@@ -377,10 +448,10 @@ async fn real_production_database_admission_checks_identity_both_selections_and_
             let peers = EndpointIdStore::default(); peers.add(fixture.peers.ids()[source]);
             let server = Server::new(fixture.peers.endpoints[receiver].clone(), peers);
             assert!(server.peers().ids().contains(&fixture.peers.ids()[source]));
-            let management = crate::ManagementClient::new("http://127.0.0.1:9/management", "http://127.0.0.1:9/idp", "storage", "isolated-secret", "https://of03-installation.example", "management").expect("independent remote services unavailable").with_local_replication_authorizer(fixture.nodes[receiver].authorizer());
+            let authorizer = fixture.nodes[receiver].authorizer();
             let cancellation = CancellationToken::new();
-            let database = super::DatabaseProtocolHandler::new(server.clone(), management.clone(), fixture.runtimes[receiver].clone(), fixture.nodes[receiver].root.join("staging"), cancellation.clone());
-            let filesystem = crate::storage_protocol::StorageProtocolHandler::new(server, management, Arc::new(storage_service::ScopedFileSystemRuntime::new(fixture.nodes[receiver].root.join("unused-files"), fixture.peers.ids()[receiver]).expect("filesystem runtime")), cancellation.clone());
+            let database = super::DatabaseProtocolHandler::new(server.clone(), authorizer.clone(), fixture.runtimes[receiver].clone(), fixture.nodes[receiver].root.join("staging"), cancellation.clone());
+            let filesystem = crate::storage_protocol::StorageProtocolHandler::new(server, authorizer, Arc::new(storage_service::ScopedFileSystemRuntime::new(fixture.nodes[receiver].root.join("unused-files"), fixture.peers.ids()[receiver]).expect("filesystem runtime")), cancellation.clone());
             let handler = crate::DataProtocolHandler::new(database, filesystem, cancellation.clone());
             let connection = fixture.peers.connections[receiver].clone();
             let task = tokio::spawn(async move { handler.accept(connection).await });
@@ -552,8 +623,13 @@ async fn real_selected_identity_namespace_and_local_evaluation_failures_deny() {
         );
         fixture.nodes[1].revoke_signer(0).await;
         assert!(
+            authorizer.authorize(local, remote, &fixture.resource).await,
+            "token signer revocation does not revoke an approved endpoint's exact policy"
+        );
+        fixture.nodes[1].revoke(0).await;
+        assert!(
             !authorizer.authorize(local, remote, &fixture.resource).await,
-            "approved Device alone is not signer-backed Installation membership"
+            "Device revocation denies transport despite retained policy"
         );
         sql(
             &fixture.nodes[0].management,

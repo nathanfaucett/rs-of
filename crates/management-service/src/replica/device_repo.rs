@@ -6,13 +6,9 @@ use db::{
     QueryFrom, QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid,
     Value,
 };
-use idp_model::{
-    contract::{DeviceState, TrustedDevice},
-    model::{Device, Id},
-    replica::allows_tunnel_access,
-};
+use idp_model::model::Id;
 
-use crate::{DeviceRepo, ManagementError, ManagementResult};
+use crate::{Device, DeviceRepo, DeviceState, ManagementError, ManagementResult, TrustedDevice};
 
 const TABLE: &str = "devices";
 const COLUMNS: [&str; 10] = [
@@ -142,9 +138,13 @@ impl DbDeviceRepo {
     }
 
     async fn ensure_clear(&self, id: Id) -> ManagementResult<()> {
-        if allows_tunnel_access(&self.engine, &[id])
+        if self
+            .engine
+            .client()
+            .row_conflicts(TABLE, &Row::new(vec![Value::Uuid(id)]))
             .await
             .map_err(db_error)?
+            .is_empty()
             && self
                 .engine
                 .client()
@@ -357,18 +357,42 @@ impl DeviceRepo for DbDeviceRepo {
         &self,
         public_key: &str,
     ) -> ManagementResult<Option<Device>> {
-        let mut matching = self
-            .records()
-            .await?
-            .into_iter()
-            .filter(|row| row.public_key == public_key);
+        let mut results = self
+            .engine
+            .client()
+            .execute(vec![Statement::Query(select())])
+            .await
+            .map_err(db_error)?;
+        let rows = results
+            .pop()
+            .ok_or_else(|| ManagementError::InvalidInput("missing device query result".into()))?
+            .rows_as::<DeviceRow>()
+            .map_err(row_error)?;
+        if rows.iter().any(|row| row.owner_subject.trim().is_empty()) {
+            return Err(ManagementError::InvalidInput(
+                "device record has no owner".into(),
+            ));
+        }
+        let mut matching = rows.into_iter().filter(|row| row.public_key == public_key);
         let Some(row) = matching.next() else {
             return Ok(None);
         };
-        if matching.next().is_some() || row.state != DeviceState::Approved {
+        if matching.next().is_some()
+            || row.state != DeviceState::Approved
+            || row.revoked_at.is_some()
+        {
             return Ok(None);
         }
-        self.ensure_clear(row.id).await?;
+        if !self
+            .engine
+            .client()
+            .row_conflicts(TABLE, &Row::new(vec![Value::Uuid(row.id)]))
+            .await
+            .map_err(db_error)?
+            .is_empty()
+        {
+            return Err(ManagementError::InvalidInput("conflicted device".into()));
+        }
         row.try_into().map(Some)
     }
 
@@ -388,10 +412,11 @@ impl DeviceRepo for DbDeviceRepo {
     async fn list_approved(&self, owner_subject: &str) -> ManagementResult<Vec<TrustedDevice>> {
         let rows = self.records().await?;
         let mut devices = Vec::new();
-        for row in rows
-            .into_iter()
-            .filter(|row| row.state == DeviceState::Approved && row.owner_subject == owner_subject)
-        {
+        for row in rows.into_iter().filter(|row| {
+            row.state == DeviceState::Approved
+                && row.revoked_at.is_none()
+                && row.owner_subject == owner_subject
+        }) {
             self.ensure_clear(row.id).await?;
             devices.push(TrustedDevice {
                 public_key: row.public_key,
@@ -411,7 +436,7 @@ impl DeviceRepo for DbDeviceRepo {
         let mut remote = false;
         for row in rows
             .into_iter()
-            .filter(|row| row.state == DeviceState::Approved)
+            .filter(|row| row.state == DeviceState::Approved && row.revoked_at.is_none())
         {
             self.ensure_clear(row.id).await?;
             local |= row.public_key == local_public_key;
@@ -744,8 +769,8 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
+    use crate::DeviceState;
     use db::Database;
-    use idp_model::contract::DeviceState;
 
     use crate::{DeviceRepo, replica::DbDeviceRepo};
 
@@ -946,6 +971,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn revoked_timestamp_denies_approved_transport_without_signer_evidence() {
+        let repo = repo().await;
+        let device = repo
+            .create(
+                "owner".into(),
+                "approved".into(),
+                "transport-key".into(),
+                "address".into(),
+                Vec::new(),
+                0,
+            )
+            .await
+            .expect("create approved Device");
+        repo.engine
+            .client()
+            .translate_and_execute(
+                &format!(
+                    "UPDATE devices SET revoked_at = 1 WHERE id = CAST('{}' AS UUID)",
+                    device.id
+                ),
+                &db::SqlTranslator,
+            )
+            .await
+            .expect("retain contradictory approved state with explicit revocation");
+        assert!(
+            repo.find_approved_by_public_key("transport-key")
+                .await
+                .expect("resolve revoked endpoint")
+                .is_none()
+        );
+        assert!(
+            repo.list_approved("owner")
+                .await
+                .expect("list trusted endpoints")
+                .is_empty()
+        );
+        assert!(
+            !repo
+                .are_approved("transport-key", "transport-key")
+                .await
+                .expect("check current endpoint admission")
+        );
+    }
+
+    #[tokio::test]
     async fn transport_key_resolves_only_to_one_approved_device() {
         let repo = repo().await;
         let approved = repo
@@ -988,6 +1058,225 @@ mod tests {
                 .expect("resolve pending transport key")
                 .is_none()
         );
+        assert!(
+            repo.revoke_self("transport-key")
+                .await
+                .expect("revoke approved Device")
+        );
+        assert!(
+            repo.find_approved_by_public_key("transport-key")
+                .await
+                .expect("revoked transport key denies")
+                .is_none()
+        );
+    }
+
+    struct Channel {
+        sender: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
+        receiver: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
+    }
+
+    impl ofdb_sql::SyncTransport for Channel {
+        type Error = &'static str;
+
+        async fn send(&mut self, frame: Vec<u8>) -> Result<(), Self::Error> {
+            self.sender.send(frame).map_err(|_| "closed")
+        }
+
+        async fn receive(&mut self) -> Result<Vec<u8>, Self::Error> {
+            self.receiver.recv().await.ok_or("closed")
+        }
+    }
+
+    async fn sync_devices(source: &Database, destination: &Database) {
+        let (a, ar) = tokio::sync::mpsc::unbounded_channel();
+        let (b, br) = tokio::sync::mpsc::unbounded_channel();
+        let mut left = Channel {
+            sender: a,
+            receiver: br,
+        };
+        let mut right = Channel {
+            sender: b,
+            receiver: ar,
+        };
+        let config = ofdb_sql::SessionConfig::default();
+        let (sent, received) = tokio::join!(
+            source.synchronize_tables_checked(
+                &mut left,
+                &config,
+                ofdb_sql::SyncRole::Initiator,
+                &["devices"],
+                || async { Ok(()) },
+            ),
+            destination.synchronize_tables_checked(
+                &mut right,
+                &config,
+                ofdb_sql::SyncRole::Responder,
+                &["devices"],
+                || async { Ok(()) },
+            ),
+        );
+        sent.expect("send public Device fixture");
+        received.expect("receive public Device fixture");
+    }
+
+    #[tokio::test]
+    async fn approved_identity_requires_no_local_enrollment_workflow() {
+        let source = repo().await;
+        let approved = source
+            .create(
+                "owner".into(),
+                "approved".into(),
+                "approved-key".into(),
+                "address".into(),
+                Vec::new(),
+                0,
+            )
+            .await
+            .expect("create approved Device");
+        source
+            .create(
+                "other-owner".into(),
+                "pending".into(),
+                "pending-key".into(),
+                "pending-address".into(),
+                vec![42; 32],
+                i64::MAX,
+            )
+            .await
+            .expect("create unrelated local enrollment");
+        let public = Arc::new(Database::in_memory());
+        idp_model::replica::up(&public)
+            .await
+            .expect("initialize public Device schema");
+        public
+            .client()
+            .translate_and_execute("DROP TABLE local_device_enrollments", &db::SqlTranslator)
+            .await
+            .expect("exclude local workflow from public-only fixture");
+        sync_devices(&source.engine, &public).await;
+        let public_repo = DbDeviceRepo::new(public);
+        assert_eq!(
+            public_repo
+                .find_approved_by_public_key("approved-key")
+                .await
+                .expect("public approval does not require any local enrollment table"),
+            Some(approved)
+        );
+        assert!(
+            public_repo
+                .find_approved_by_public_key("pending-key")
+                .await
+                .expect("public pending Device is not trusted")
+                .is_none()
+        );
+        assert!(public_repo.list().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn transport_key_rejects_duplicates_in_every_state() {
+        for state in [
+            DeviceState::Pending,
+            DeviceState::Approved,
+            DeviceState::Revoked,
+        ] {
+            let repo = repo().await;
+            repo.create(
+                "owner".into(),
+                "approved".into(),
+                "transport-key".into(),
+                "address".into(),
+                Vec::new(),
+                0,
+            )
+            .await
+            .expect("create approved Device");
+            repo.engine
+                .client()
+                .translate_and_execute("DROP INDEX devices_public_key", &db::SqlTranslator)
+                .await
+                .expect("allow ambiguous endpoint fixture");
+            let duplicate = repo
+                .create(
+                    "other-owner".into(),
+                    "duplicate".into(),
+                    "transport-key".into(),
+                    "other-address".into(),
+                    vec![1],
+                    i64::MAX,
+                )
+                .await
+                .expect("create duplicate endpoint");
+            if state == DeviceState::Approved {
+                repo.approve(duplicate.id, &[1])
+                    .await
+                    .expect("approve duplicate")
+                    .expect("pending duplicate exists");
+            } else if state == DeviceState::Revoked {
+                repo.revoke("other-owner", duplicate.id, "another-key")
+                    .await
+                    .expect("revoke duplicate");
+            }
+            assert!(
+                repo.find_approved_by_public_key("transport-key")
+                    .await
+                    .expect("ambiguous endpoint denies regardless of duplicate state")
+                    .is_none()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn approved_identity_requires_current_conflict_clear_owner() {
+        let first = repo().await;
+        let device = first
+            .create(
+                "owner".into(),
+                "approved".into(),
+                "transport-key".into(),
+                "address".into(),
+                Vec::new(),
+                0,
+            )
+            .await
+            .expect("create approved Device");
+        assert!(
+            first
+                .transfer_owned(device.id, "owner", "new-owner")
+                .await
+                .expect("transfer Device")
+        );
+        assert_eq!(
+            first
+                .find_approved_by_public_key("transport-key")
+                .await
+                .expect("read current owner")
+                .expect("approved Device exists")
+                .owner_subject,
+            "new-owner"
+        );
+        let second = repo().await;
+        sync_devices(&first.engine, &second.engine).await;
+        for (repo, owner) in [(&first, "owner-a"), (&second, "owner-b")] {
+            repo.engine
+                .client()
+                .translate_and_execute(
+                    &format!(
+                        "UPDATE devices SET owner_subject = '{owner}' WHERE id = CAST('{}' AS UUID)",
+                        device.id
+                    ),
+                    &db::SqlTranslator,
+                )
+                .await
+                .expect("concurrent public Device owner change");
+        }
+        sync_devices(&first.engine, &second.engine).await;
+        for repo in [&first, &second] {
+            assert!(matches!(
+                repo.find_approved_by_public_key("transport-key").await,
+                Err(crate::ManagementError::InvalidInput(message)) if message == "conflicted device"
+            ));
+        }
     }
 
     #[tokio::test]

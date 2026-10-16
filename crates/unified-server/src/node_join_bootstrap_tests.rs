@@ -7,8 +7,8 @@ use idp_service::{oauth2::NodeSignerBinding, replica::DbReplicaSignerRepo};
 use iroh::{SecretKey, endpoint::presets::Minimal};
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
 use management_service::{
-    ManagementService,
-    replica::{DbPermissionRepo, DbRoleRepo},
+    DeviceRepo, ManagementService,
+    replica::{DbDeviceRepo, DbPermissionRepo, DbRoleRepo},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -83,7 +83,7 @@ async fn issue_local_token(
         &issuing,
         owner.node_join_database(),
         Arc::new(
-            idp_server::device_identity_from_server(server, secret.clone())
+            management_service::device_identity_from_server(server, secret.clone())
                 .expect("retained local endpoint identity"),
         ),
         server.clone(),
@@ -231,17 +231,9 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
                 )
                 .expect("unused resource client"),
             )
-            .with_management_client(
-                storage_server::ManagementClient::new(
-                    "http://127.0.0.1:1/management",
-                    "http://127.0.0.1:1/idp",
-                    "storage",
-                    "local",
-                    &issuer,
-                    "management",
-                )
-                .expect("unused resource policy client"),
-            ),
+            .with_local_replication_authorizer(storage_server::LocalReplicationAuthorizer::new(
+                |_| async { Err("resource access is not authorized in this fixture".to_owned()) },
+            )),
         &source_root.join("storage"),
         "/storage",
         "",
@@ -272,7 +264,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
         &source_config,
         source_idp.clone(),
         Arc::new(
-            idp_server::device_identity_from_server(&source, source_secret)
+            management_service::device_identity_from_server(&source, source_secret)
                 .expect("source identity"),
         ),
         source.clone(),
@@ -405,7 +397,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
         assert!(
             error
                 .to_string()
-                .contains("local node signer/member is not currently trusted"),
+                .contains("local endpoint has no approved Device"),
             "{context:?}: {error}"
         );
     }
@@ -607,6 +599,38 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
                 .is_err(),
             "existing connection cannot reuse receipt after source grant revocation"
         );
+        let devices = DbDeviceRepo::new(source_idp.clone());
+        devices
+            .rename(
+                &received.owner_subject.to_string(),
+                binding.member_id,
+                "Changed Node".into(),
+            )
+            .await
+            .expect("source changes approved Device name")
+            .expect("current Device");
+        assert!(
+            DbReplicaSignerRepo::new(source_idp.clone())
+                .trusted_signers(&issuer, i64::MAX)
+                .await
+                .expect("unchanged exact signing trust")
+                .iter()
+                .any(|(member, signer)| member.member_id == binding.member_id
+                    && signer.public_jwk == request.public_signer)
+        );
+        protocol
+            .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Idp)
+            .await
+            .expect_err("exact Join denies changed Device independently of signer trust");
+        devices
+            .rename(
+                &received.owner_subject.to_string(),
+                binding.member_id,
+                request.name.clone(),
+            )
+            .await
+            .expect("restore exact approved Device name")
+            .expect("current Device");
         DbReplicaSignerRepo::new(source_idp.clone())
             .revoke(binding.member_id, &issuer, 10)
             .await

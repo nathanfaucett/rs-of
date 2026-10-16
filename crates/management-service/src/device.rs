@@ -3,8 +3,9 @@ use alloc::string::String;
 
 use chrono::{DateTime, Utc};
 
-use super::Id;
-use crate::contract::{DeviceInfo, DeviceState};
+use idp_model::model::Id;
+
+use crate::{DeviceInfo, DeviceState};
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Device {
@@ -13,7 +14,7 @@ pub struct Device {
     pub name: String,
     pub public_key: String,
     pub address: String,
-    #[serde(with = "super::sql_enum::device_state")]
+    #[serde(with = "crate::device_state_sql")]
     pub state: DeviceState,
     #[serde(with = "chrono::serde::ts_seconds")]
     pub created_at: DateTime<Utc>,

@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
+use crate::DeviceState;
 use db::{
     Database, FromRow, FromRowError, Query, QueryColumn, QueryExpr, QueryExprValue, QueryFrom,
     QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid, Value,
 };
-use idp_model::contract::DeviceState;
 
 use crate::{DeviceRepo, ManagementError, ManagementResult};
 
@@ -990,8 +990,8 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
+    use crate::DeviceState;
     use db::{Database, Uuid, Value};
-    use idp_model::contract::DeviceState;
 
     use crate::{DeviceRepo, replica::DbDeviceRepo};
 

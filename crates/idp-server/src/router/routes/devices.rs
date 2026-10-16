@@ -5,19 +5,21 @@ use axum::{
 };
 use idp_model::{
     contract::{
-        ApprovedDeviceEndpoints, DeviceEndpointIdentity, DeviceEnrollment, DeviceEnrollmentRequest,
-        DeviceInfo, DeviceState, ErrorCode, ErrorResponse, IDP_DEVICE_LIST_SCOPE,
-        IDP_DEVICE_LOOKUP_SCOPE, IdentityAction, IdentityResource, PairingAcceptance,
-        PermissionTarget, TrustedDevice, UpdateDeviceRequest,
+        ErrorCode, ErrorResponse, IDP_DEVICE_LIST_SCOPE, IDP_DEVICE_LOOKUP_SCOPE, IdentityAction,
+        IdentityResource, PermissionTarget,
     },
     model::Id,
 };
 use iroh::EndpointId;
-use management_service::{DeviceEnrollmentService, DeviceRepo};
+use management_service::{
+    ApprovedDeviceEndpoints, DeviceEndpointIdentity, DeviceEnrollment, DeviceEnrollmentRequest,
+    DeviceInfo, DeviceState, PairingAcceptance, TrustedDevice, UpdateDeviceRequest,
+};
+use management_service::{DeviceEnrollmentService, DeviceRepo, PairingAcceptanceController};
 use model::contract::PrincipalType;
 
 use crate::router::{
-    PairingAcceptanceController, RouterState,
+    RouterState,
     middleware::{StandardAuthorization, authorize_bearer_client, require_identity_permission},
 };
 
@@ -25,13 +27,13 @@ use crate::router::{
 #[path = "device_policy_tests.rs"]
 mod policy_tests;
 
-#[utoipa::path(put, path = "/devices/{device_id}/owner", params(("device_id" = String, Path)), request_body = idp_model::contract::DeviceTransferRequest,
+#[utoipa::path(put, path = "/devices/{device_id}/owner", params(("device_id" = String, Path)), request_body = management_service::DeviceTransferRequest,
     responses((status = 204, description = "Ownership updated; each Node must finish learned local cleanup before new-owner use")), security(("authorization" = [])))]
 pub(crate) async fn transfer_device(
     State(state): State<RouterState>,
     Path(device_id): Path<Id>,
     actor: StandardAuthorization,
-    Json(request): Json<idp_model::contract::DeviceTransferRequest>,
+    Json(request): Json<management_service::DeviceTransferRequest>,
 ) -> Result<axum::http::StatusCode, ErrorResponse> {
     require_identity_permission(
         &state,
@@ -117,11 +119,7 @@ pub(crate) async fn lookup_device_endpoint(
         .await
         .map_err(|_| ErrorResponse::new(ErrorCode::ServerError))?
         .ok_or_else(|| ErrorResponse::new(ErrorCode::NotFound))?;
-    Ok(Json(DeviceEndpointIdentity {
-        device_id: device.id,
-        owner_subject: device.owner_subject,
-        endpoint_id,
-    }))
+    trusted_device_identity(&state, device.id).await.map(Json)
 }
 
 #[utoipa::path(
@@ -159,40 +157,35 @@ async fn trusted_device_identity(
     state: &RouterState,
     device_id: Id,
 ) -> Result<DeviceEndpointIdentity, ErrorResponse> {
-    let device = state
+    let candidate = state
         .devices
         .list()
         .await
         .map_err(|_| ErrorResponse::new(ErrorCode::ServerError))?
         .into_iter()
-        .find(|device| device.id == device_id && device.state == DeviceState::Approved)
+        .find(|device| device.id == device_id)
+        .ok_or_else(|| ErrorResponse::new(ErrorCode::NotFound))?;
+    let device = state
+        .devices
+        .find_approved_by_public_key(&candidate.public_key)
+        .await
+        .map_err(|_| ErrorResponse::new(ErrorCode::AccessDenied))?
+        .filter(|device| device.id == device_id)
         .ok_or_else(|| ErrorResponse::new(ErrorCode::NotFound))?;
     let endpoint = device
         .public_key
         .parse::<EndpointId>()
         .map_err(|_| ErrorResponse::new(ErrorCode::AccessDenied))?;
-    let issuer = state.oauth2_service.metadata().issuer;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|_| ErrorResponse::new(ErrorCode::ServerError))?
-        .as_secs() as i64;
-    if endpoint.to_string() != device.public_key
-        || !state
-            .replica_signers
-            .trusted_signers(&issuer, now)
-            .await
-            .map_err(|_| ErrorResponse::new(ErrorCode::AccessDenied))?
-            .iter()
-            .any(|(member, _)| {
-                member.member_id == device.id && member.endpoint_id == device.public_key
-            })
-    {
+    if endpoint.to_string() != device.public_key {
         return Err(ErrorResponse::new(ErrorCode::AccessDenied));
     }
     let owner = device
         .owner_subject
         .parse::<Id>()
         .map_err(|_| ErrorResponse::new(ErrorCode::AccessDenied))?;
+    if owner.is_nil() || owner.to_string() != device.owner_subject {
+        return Err(ErrorResponse::new(ErrorCode::AccessDenied));
+    }
     state.oauth2_service.find_user_info(owner).await?;
     Ok(DeviceEndpointIdentity {
         device_id,
@@ -230,15 +223,21 @@ pub(crate) async fn list_approved_device_endpoints(
     ) {
         return Err(ErrorResponse::new(ErrorCode::AccessDenied));
     }
-    let endpoint_ids = state
+    let mut endpoint_ids = Vec::new();
+    for device in state
         .devices
         .list()
         .await
         .map_err(|_| ErrorResponse::new(ErrorCode::ServerError))?
         .into_iter()
-        .filter(|device| device.state == DeviceState::Approved)
-        .map(|device| device.public_key)
-        .collect();
+        .filter(|device| device.state == DeviceState::Approved && device.revoked_at.is_none())
+    {
+        endpoint_ids.push(
+            trusted_device_identity(&state, device.id)
+                .await?
+                .endpoint_id,
+        );
+    }
     Ok(Json(ApprovedDeviceEndpoints { endpoint_ids }))
 }
 
@@ -504,4 +503,170 @@ pub(crate) async fn revoke_device(
             &state.device_identity.endpoint_id().to_string(),
         )
         .await
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use idp_model::model::Id;
+    use management_service::DeviceRepo;
+
+    #[tokio::test]
+    async fn device_identity_http_admits_approved_endpoint_without_signer_and_rechecks_revocation()
+    {
+        use idp_model::contract::{
+            ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, GrantType,
+            TokenEndpointAuthMethod,
+        };
+        use idp_service::repo::ClientRepo;
+        let fixture = crate::node_join_tests::approval_fixture().await;
+        fixture
+            .state
+            .oauth2_service
+            .client_repo
+            .create_client(ClientRegistration {
+                application: ApplicationRegistration {
+                    name: Some("Management lookup".into()),
+                    uri: "https://management-lookup.test".into(),
+                    description: None,
+                },
+                client_id: Some("management-lookup".into()),
+                client_secret: Some("lookup-secret".into()),
+                client_id_issued_at: None,
+                client_secret_expires_at: None,
+                client_name: "Management lookup".into(),
+                client_uri: None,
+                logo_uri: None,
+                contacts: vec![],
+                terms_of_service_uri: None,
+                policy_uri: None,
+                client_type: ClientType::Confidential,
+                profile: ClientProfile::Web,
+                redirect_uris: vec![],
+                allowed_grant_types: vec![GrantType::ClientCredentials],
+                response_types: vec![],
+                allowed_scopes: vec!["idp.token.validate".into(), "idp.device.lookup".into()],
+                allowed_audiences: vec!["idp-services".into()],
+                token_endpoint_auth_method: TokenEndpointAuthMethod::ClientSecretPost,
+                software_statement: None,
+                software_id: None,
+                software_version: None,
+            })
+            .await
+            .expect("least-privilege local service client");
+
+        let endpoint = iroh::SecretKey::generate().public();
+        let device = fixture
+            .state
+            .devices
+            .create(
+                fixture.owner.to_string(),
+                "Device only".into(),
+                endpoint.to_string(),
+                String::new(),
+                b"http-enrollment".to_vec(),
+                i64::MAX,
+            )
+            .await
+            .expect("pending Device");
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("local owner listener");
+        let address = listener.local_addr().expect("listener address");
+        let router: axum::Router = crate::openapi_router(fixture.state.clone(), "").into();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.expect("local IdP HTTP");
+        });
+        let local = format!("http://{address}");
+        let control = management_service::HostedControlPlane::new_with_services(
+            &local,
+            &local,
+            &fixture.issuer,
+        )
+        .expect("local control plane")
+        .with_idp_service_client("management-lookup", "lookup-secret", "idp-services")
+        .expect("scoped service");
+
+        assert!(
+            control
+                .get_storage_device_identity(device.id)
+                .await
+                .is_err(),
+            "pending Device denies"
+        );
+        fixture
+            .state
+            .devices
+            .approve(device.id, b"http-enrollment")
+            .await
+            .expect("approve endpoint")
+            .expect("approved Device");
+        let identity = control
+            .get_storage_device_identity(device.id)
+            .await
+            .expect("Device needs no signer");
+        assert_eq!(identity.device_id, device.id);
+        assert_eq!(identity.owner_subject, fixture.owner.to_string());
+        assert_eq!(identity.endpoint_id, endpoint.to_string());
+        assert!(
+            control
+                .get_storage_device_identity(Id::now_v7())
+                .await
+                .is_err()
+        );
+        assert!(
+            fixture
+                .state
+                .devices
+                .revoke_self(&endpoint.to_string())
+                .await
+                .expect("learn Device revocation")
+        );
+        assert!(
+            control
+                .get_storage_device_identity(device.id)
+                .await
+                .is_err(),
+            "existing service token cannot bypass revocation"
+        );
+        fixture
+            .state
+            .engine
+            .client()
+            .translate_and_execute("DROP INDEX devices_public_key", &db::SqlTranslator)
+            .await
+            .expect("allow ambiguous endpoint fixture");
+        let duplicate = fixture
+            .state
+            .devices
+            .create(
+                fixture.owner.to_string(),
+                "Reused endpoint".into(),
+                endpoint.to_string(),
+                String::new(),
+                b"duplicate-enrollment".to_vec(),
+                i64::MAX,
+            )
+            .await
+            .expect("duplicate endpoint Device");
+        fixture
+            .state
+            .devices
+            .approve(duplicate.id, b"duplicate-enrollment")
+            .await
+            .expect("approve duplicate Device")
+            .expect("approved duplicate");
+        assert!(
+            control
+                .get_storage_device_identity(duplicate.id)
+                .await
+                .is_err(),
+            "an approved Device cannot bypass a duplicate revoked endpoint binding"
+        );
+        server.abort();
+        let _ = server.await;
+        fixture.server.endpoint().close().await;
+        let root = fixture.root.clone();
+        drop(fixture);
+        std::fs::remove_dir_all(root).expect("remove isolated HTTP fixture");
+    }
 }

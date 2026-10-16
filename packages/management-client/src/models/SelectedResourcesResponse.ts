@@ -15,67 +15,104 @@
 import { mapValues } from "../runtime.js";
 import type { SelectedResource } from "./SelectedResource.js";
 import {
-	SelectedResourceFromJSON,
-	SelectedResourceFromJSONTyped,
-	SelectedResourceToJSON,
-	SelectedResourceToJSONTyped,
+    SelectedResourceFromJSON,
+    SelectedResourceFromJSONTyped,
+    SelectedResourceToJSON,
+    SelectedResourceToJSONTyped,
 } from "./SelectedResource.js";
 
 /**
- *
+ * Current policy for an IdP-approved endpoint with an active owner.
+ * A successful read attests Device/owner trust, not permission to cache approval.
  * @export
  * @interface SelectedResourcesResponse
  */
 export interface SelectedResourcesResponse {
-	/**
-	 *
-	 */
-	resources: Array<SelectedResource>;
+    /**
+     *
+     */
+    adminAllowed: boolean;
+    /**
+     *
+     */
+    deviceId: string;
+    /**
+     *
+     */
+    endpointId: string;
+    /**
+     *
+     */
+    ownerSubject: string;
+    /**
+     *
+     */
+    resources: Array<SelectedResource>;
 }
 
 /**
  * Check if a given object implements the SelectedResourcesResponse interface.
  */
 export function instanceOfSelectedResourcesResponse(
-	value: object,
+    value: object,
 ): value is SelectedResourcesResponse {
-	if (!("resources" in value) || value["resources"] === undefined) return false;
-	return true;
+    if (!("adminAllowed" in value) || value["adminAllowed"] === undefined)
+        return false;
+    if (!("deviceId" in value) || value["deviceId"] === undefined) return false;
+    if (!("endpointId" in value) || value["endpointId"] === undefined)
+        return false;
+    if (!("ownerSubject" in value) || value["ownerSubject"] === undefined)
+        return false;
+    if (!("resources" in value) || value["resources"] === undefined)
+        return false;
+    return true;
 }
 
 export function SelectedResourcesResponseFromJSON(
-	json: any,
+    json: any,
 ): SelectedResourcesResponse {
-	return SelectedResourcesResponseFromJSONTyped(json, false);
+    return SelectedResourcesResponseFromJSONTyped(json, false);
 }
 
 export function SelectedResourcesResponseFromJSONTyped(
-	json: any,
-	ignoreDiscriminator: boolean,
+    json: any,
+    ignoreDiscriminator: boolean,
 ): SelectedResourcesResponse {
-	if (json == null) {
-		return json;
-	}
-	return {
-		resources: (json["resources"] as Array<any>).map(SelectedResourceFromJSON),
-	};
+    if (json == null) {
+        return json;
+    }
+    return {
+        adminAllowed: json["adminAllowed"],
+        deviceId: json["deviceId"],
+        endpointId: json["endpointId"],
+        ownerSubject: json["ownerSubject"],
+        resources: (json["resources"] as Array<any>).map(
+            SelectedResourceFromJSON,
+        ),
+    };
 }
 
 export function SelectedResourcesResponseToJSON(
-	json: any,
+    json: any,
 ): SelectedResourcesResponse {
-	return SelectedResourcesResponseToJSONTyped(json, false);
+    return SelectedResourcesResponseToJSONTyped(json, false);
 }
 
 export function SelectedResourcesResponseToJSONTyped(
-	value?: SelectedResourcesResponse | null,
-	ignoreDiscriminator: boolean = false,
+    value?: SelectedResourcesResponse | null,
+    ignoreDiscriminator: boolean = false,
 ): any {
-	if (value == null) {
-		return value;
-	}
+    if (value == null) {
+        return value;
+    }
 
-	return {
-		resources: (value["resources"] as Array<any>).map(SelectedResourceToJSON),
-	};
+    return {
+        adminAllowed: value["adminAllowed"],
+        deviceId: value["deviceId"],
+        endpointId: value["endpointId"],
+        ownerSubject: value["ownerSubject"],
+        resources: (value["resources"] as Array<any>).map(
+            SelectedResourceToJSON,
+        ),
+    };
 }

@@ -1,10 +1,11 @@
 use std::{future::Future, pin::Pin, sync::Arc};
 
-use idp_model::{contract::DeviceState, model::Id};
+use idp_model::model::Id;
 use iroh::EndpointId;
+use management_service::DeviceState;
 use model::contract::SelectedResource;
 
-/// Current evidence supplied by the local IdP and Management services, not by a peer.
+/// Current evidence supplied by trusted IdP and Management services, not by a peer.
 #[derive(Clone, Debug)]
 pub struct DeviceReplicationPolicy {
     pub device_id: Id,
@@ -30,6 +31,30 @@ pub struct LocalReplicationAuthorizer {
 }
 
 impl LocalReplicationAuthorizer {
+    pub fn from_management_client(client: crate::ManagementClient) -> Self {
+        Self::new(move |endpoint| {
+            let client = client.clone();
+            async move {
+                let response = client.selected_resources(&endpoint.to_string()).await?;
+                Ok(DeviceReplicationPolicy {
+                    device_id: response
+                        .device_id
+                        .parse()
+                        .map_err(|_| "invalid Management Device ID")?,
+                    endpoint_id: response
+                        .endpoint_id
+                        .parse()
+                        .map_err(|_| "invalid Management endpoint ID")?,
+                    owner_subject: response.owner_subject,
+                    state: DeviceState::Approved,
+                    owner_active: true,
+                    admin_allowed: response.admin_allowed,
+                    resources: response.resources,
+                })
+            }
+        })
+    }
+
     /// The callback must evaluate current, conflict-clear owner-service state on each call.
     pub fn new<F, U>(resolve: F) -> Self
     where
@@ -122,7 +147,8 @@ mod native_tests;
 #[cfg(test)]
 mod tests {
     use super::{DeviceReplicationPolicy, LocalReplicationAuthorizer};
-    use idp_model::{contract::DeviceState, model::Id};
+    use idp_model::model::Id;
+    use management_service::DeviceState;
     use model::contract::SelectedResource;
 
     #[tokio::test]

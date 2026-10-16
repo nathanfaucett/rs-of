@@ -10,7 +10,7 @@ use idp_model::{
 use management_service::replica::SelectedResource as StoredSelectedResource;
 use model::contract::{
     MANAGEMENT_REPLICATION_ADMIT_SCOPE, MANAGEMENT_REPLICATION_READ_SCOPE, PrincipalType,
-    ReplicationAdmissionRequest, SelectedResource, SelectedResourcesResponse, StandardClaims,
+    ReplicationAdmissionRequest, SelectedResourcesResponse, StandardClaims,
 };
 
 use crate::router::RouterState;
@@ -41,28 +41,30 @@ pub(crate) async fn selected_resources(
             log::warn!("Management endpoint identity lookup failed: {error}");
             unavailable()
         })?;
-    if !state
-        .selection_policies
-        .reconcile_owner_prevalidated(identity.device_id, &identity.owner_subject)
+    let trusted = state
+        .control_plane
+        .get_storage_device_identity(identity.device_id)
         .await
-        .map_err(|_| unavailable())?
+        .map_err(|_| unavailable())?;
+    if trusted.endpoint_id != identity.endpoint_id
+        || trusted.owner_subject != identity.owner_subject
     {
         return Err(denied());
     }
-    let selected = state
-        .selection_policies
-        .selected_resources_for_device(identity.device_id)
-        .await
-        .map_err(|error| {
-            log::warn!("failed to read selected replication resources: {error}");
-            unavailable()
-        })?;
-    let resources = selected
-        .into_iter()
-        .filter(|resource| resource.owner_subject == identity.owner_subject)
-        .map(selected_resource_response)
-        .collect();
-    Ok(Json(SelectedResourcesResponse { resources }))
+    let (admin_allowed, resources) =
+        crate::runtime::replication_policy_from_repo(&state.selection_policies, &trusted)
+            .await
+            .map_err(|error| {
+                log::warn!("failed to evaluate replication policy: {error}");
+                unavailable()
+            })?;
+    Ok(Json(SelectedResourcesResponse {
+        device_id: identity.device_id.to_string(),
+        endpoint_id: identity.endpoint_id,
+        owner_subject: identity.owner_subject,
+        admin_allowed,
+        resources,
+    }))
 }
 
 #[utoipa::path(
@@ -201,15 +203,6 @@ fn resource_is_selected(
     })
 }
 
-fn selected_resource_response(resource: StoredSelectedResource) -> SelectedResource {
-    SelectedResource {
-        owner_subject: resource.owner_subject,
-        application_id: resource.application_id.to_string(),
-        kind: resource.kind,
-        resource_id: resource.resource_id.to_string(),
-    }
-}
-
 fn denied() -> ErrorResponse {
     ErrorResponse::new(ErrorCode::AccessDenied)
 }
@@ -254,7 +247,233 @@ mod tests {
 
     #[cfg(feature = "cli")]
     use super::selected_resources;
-    use super::{replication_client_authorized, resource_is_selected, selected_resource_response};
+    use super::{replication_client_authorized, resource_is_selected};
+
+    #[cfg(feature = "cli")]
+    #[tokio::test]
+    async fn selections_return_current_authenticated_device_policy() {
+        use std::sync::{
+            Mutex,
+            atomic::{AtomicBool, Ordering},
+        };
+
+        use axum::{
+            Json,
+            body::{Body, to_bytes},
+            http::{Request, StatusCode},
+            routing::{get, post},
+        };
+        use management_service::DeviceEndpointIdentity;
+        use management_service::replica::{SelectionPolicy, up};
+        use model::contract::SelectedResourcesResponse;
+        use tower::ServiceExt;
+
+        let device = Id::now_v7();
+        let owner = Id::now_v7().to_string();
+        let application = Id::now_v7();
+        let resource = Id::now_v7();
+        let endpoint =
+            "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".to_owned();
+        let identity = DeviceEndpointIdentity {
+            device_id: device,
+            owner_subject: owner.clone(),
+            endpoint_id: endpoint.clone(),
+        };
+        let current = Arc::new(Mutex::new(Some(identity)));
+        let lookup = current.clone();
+        let trusted = current.clone();
+        let owner_active = Arc::new(AtomicBool::new(true));
+        let active = owner_active.clone();
+        let idp = axum::Router::new()
+            .route("/oauth2/token", post(|body: String| async move {
+                assert!(body.contains("client_secret=management-secret"));
+                Json(serde_json::json!({"access_token":"management-token", "token_type":"Bearer", "expires_in":300,
+                    "scope":"idp.token.validate idp.device.lookup", "iss":"https://issuer.example"}))
+            }))
+            .route("/oauth2/introspect", post(|headers: HeaderMap, body: String| async move {
+                assert_eq!(headers[AUTHORIZATION], "Bearer management-token");
+                assert!(body.contains("storage-token"));
+                assert!(!body.contains("management-secret"));
+                Json(IntrospectionResponse {
+                    claims: StandardClaims {
+                        r#type: TokenType::Bearer, r#use: TokenUse::Access, exp: i64::MAX, iat: 0, nbf: 0,
+                        iss: "https://issuer.example".into(), aud: "storage-api".into(),
+                        client_id: "storage-client".into(), sub: "00000000-0000-0000-0000-000000000002".into(),
+                        principal_type: PrincipalType::Client, resource: None, authorization_details: None,
+                        scope: vec![MANAGEMENT_REPLICATION_READ_SCOPE.into()],
+                    },
+                    application_id: Id::from_u128(1).to_string(),
+                })
+            }))
+            .route("/devices/endpoints/{endpoint}", get(move |headers: HeaderMap| {
+                let current = lookup.clone();
+                async move {
+                    assert_eq!(headers[AUTHORIZATION], "Bearer management-token");
+                    current.lock().expect("current IdP identity").clone().map(Json).ok_or(StatusCode::NOT_FOUND)
+                }
+            }))
+            .route("/devices/identities/{device}", get(move |headers: HeaderMap| {
+                let current = trusted.clone();
+                let active = active.clone();
+                async move {
+                    assert_eq!(headers[AUTHORIZATION], "Bearer management-token");
+                    if !active.load(Ordering::SeqCst) { return Err(StatusCode::FORBIDDEN); }
+                    current.lock().expect("current trusted owner").clone().map(Json).ok_or(StatusCode::FORBIDDEN)
+                }
+            }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind IdP");
+        let base = format!("http://{}", listener.local_addr().expect("IdP address"));
+        let server =
+            tokio::spawn(async move { axum::serve(listener, idp).await.expect("serve IdP") });
+        let root =
+            std::env::temp_dir().join(format!("management-current-policy-{}.redb", Id::now_v7()));
+        let engine = Arc::new(db::Database::open(&root).expect("open policy"));
+        up(&engine).await.expect("initialize policy");
+        let policies = Arc::new(DbSelectionPolicyRepo::new(engine.clone()));
+
+        let state = RouterState::new(
+            "http://management.example",
+            Arc::new(ManagementService::new(
+                DbPermissionRepo::new(engine.clone()),
+                DbRoleRepo::new(engine.clone()),
+            )),
+            policies.clone(),
+            Arc::new(
+                HostedControlPlane::new_with_services(&base, &base, "https://issuer.example")
+                    .expect("control plane")
+                    .with_idp_service_client("management-client", "management-secret", "idp-api")
+                    .expect("authenticated IdP relationship"),
+            ),
+            "storage-api",
+        );
+        let router = crate::router::openapi_router(state, "/")
+            .split_for_parts()
+            .0;
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/replication/devices/{endpoint}/selections"))
+                    .header(AUTHORIZATION, "Bearer storage-token")
+                    .body(Body::empty())
+                    .expect("missing policy request"),
+            )
+            .await
+            .expect("read missing policy");
+        assert_eq!(
+            response.status(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            "missing policy must fail like the local owner evaluator"
+        );
+        policies
+            .set_prevalidated(SelectionPolicy {
+                device_id: device,
+                owner_subject: owner.clone(),
+                application_id: None,
+                selected_kind: None,
+                selected_id: None,
+                admin_allowed: true,
+            })
+            .await
+            .expect("allow Device");
+        policies
+            .set_prevalidated(SelectionPolicy {
+                device_id: device,
+                owner_subject: owner.clone(),
+                application_id: Some(application),
+                selected_kind: Some("database".into()),
+                selected_id: Some(resource),
+                admin_allowed: true,
+            })
+            .await
+            .expect("select database");
+        for step in 0..7 {
+            match step {
+                1 => {
+                    policies
+                        .set_admin_allowed_prevalidated(device, &owner, false)
+                        .await
+                        .expect("restrict Device");
+                }
+                2 => {
+                    policies
+                        .set_admin_allowed_prevalidated(device, &owner, true)
+                        .await
+                        .expect("allow Device");
+                    policies
+                        .deselect_owned(device, &owner)
+                        .await
+                        .expect("deselect current resources");
+                }
+                3 => {
+                    owner_active.store(false, Ordering::SeqCst);
+                }
+                4 => {
+                    owner_active.store(true, Ordering::SeqCst);
+                    *current.lock().expect("change IdP owner") = Some(DeviceEndpointIdentity {
+                        device_id: device,
+                        owner_subject: Id::now_v7().to_string(),
+                        endpoint_id: endpoint.clone(),
+                    });
+                }
+                5 => {
+                    *current.lock().expect("revoke IdP Device") = None;
+                }
+                6 => {
+                    *current.lock().expect("restore old IdP owner") =
+                        Some(DeviceEndpointIdentity {
+                            device_id: device,
+                            owner_subject: owner.clone(),
+                            endpoint_id: endpoint.clone(),
+                        });
+                }
+                _ => {}
+            }
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(format!("/replication/devices/{endpoint}/selections"))
+                        .header(AUTHORIZATION, "Bearer storage-token")
+                        .body(Body::empty())
+                        .expect("read policy request"),
+                )
+                .await
+                .expect("read current policy");
+            if step >= 3 {
+                assert!(
+                    !response.status().is_success(),
+                    "owner change/revocation/pending cleanup must deny"
+                );
+                continue;
+            }
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = to_bytes(response.into_body(), 65536)
+                .await
+                .expect("policy response");
+            let policy: SelectedResourcesResponse =
+                serde_json::from_slice(&body).expect("Device policy contract");
+            assert_eq!(policy.device_id, device.to_string());
+            assert_eq!(policy.endpoint_id, endpoint);
+            assert_eq!(policy.owner_subject, owner);
+            assert_eq!(policy.admin_allowed, step != 1);
+            assert_eq!(policy.resources.len(), usize::from(step != 2));
+            if let Some(selected) = policy.resources.first() {
+                assert_eq!(selected.owner_subject, owner);
+                assert_eq!(selected.application_id, application.to_string());
+                assert_eq!(selected.kind, "database");
+                assert_eq!(selected.resource_id, resource.to_string());
+            }
+        }
+        server.abort();
+        let _ = server.await;
+        drop(router);
+        drop(policies);
+        drop(engine);
+        fs::remove_file(root).expect("remove isolated policy database");
+    }
 
     #[test]
     fn replication_authorization_requires_client_storage_audience_and_exact_scope() {
@@ -343,10 +562,6 @@ mod tests {
             "filesystem",
             resource_id,
         ));
-
-        let response = selected_resource_response(selected[0].clone());
-        assert_eq!(response.owner_subject, "owner");
-        assert_eq!(response.application_id, application_id.to_string());
     }
 
     #[cfg(feature = "cli")]
@@ -363,7 +578,7 @@ mod tests {
             iss: "https://issuer.example".to_owned(),
             aud: "storage-api".to_owned(),
             client_id: "storage-client".to_owned(),
-            sub: "storage-client".to_owned(),
+            sub: "00000000-0000-0000-0000-000000000002".to_owned(),
             principal_type: PrincipalType::Client,
             resource: None,
             authorization_details: None,
@@ -485,7 +700,7 @@ mod tests {
                 iss: "https://issuer.example".to_owned(),
                 aud: audience.to_owned(),
                 client_id: "storage-client".to_owned(),
-                sub: "storage-client".to_owned(),
+                sub: "00000000-0000-0000-0000-000000000002".to_owned(),
                 principal_type,
                 resource: None,
                 authorization_details: None,

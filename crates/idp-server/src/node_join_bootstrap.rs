@@ -43,11 +43,8 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
                 .map_err(io::Error::other)?,
             endpoint_id: request.endpoint_id.clone(),
         };
-        if self.prepare_node_join(
-            &binding,
-            &request.name,
-            request.approving_peer.parse().map_err(io::Error::other)?,
-        )? != *request
+        if request.installation != self.oauth2.oauth_config.issuer
+            || self.verify_prepared_node_signer(&binding)? != request.public_signer
         {
             return Err(invalid(
                 "join anchor does not match retained local private signer",
@@ -91,7 +88,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             .await
             .map_err(io::Error::other)?;
         let result = async {
-            for (table, predicate, columns, expected) in [
+            let bindings = [
                 ("devices", format!("id = CAST('{member}' AS UUID)"),
                  vec!["owner_subject", "name", "public_key", "state", "revoked_at"],
                  vec![Value::Text(anchor.owner_subject.to_string()), Value::Text(request.name.clone()), Value::Text(request.endpoint_id.clone()), Value::Integer(1), Value::Null]),
@@ -101,12 +98,19 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
                 ("idp_replica_signers", format!("key_id = CAST('{key}' AS UUID) OR active_member_id = CAST('{member}' AS UUID)"),
                  vec!["member_id", "active_member_id", "key_id", "issuer", "public_jwk", "revoked_at"],
                  vec![Value::Uuid(member), Value::Uuid(member), Value::Uuid(key), issuer.clone(), Value::Text(serde_json::to_string(&request.public_signer)?), Value::Null]),
-            ] {
-                let results = transaction.translate_and_execute(&format!("SELECT id, {} FROM {table} WHERE {predicate}", columns.join(", ")), &SqlTranslator).await.map_err(io::Error::other)?;
-                if results[0].rows.len() > 1 {
+            ];
+            let query = bindings.iter().map(|(table, predicate, columns, _)| {
+                format!("SELECT id, {} FROM {table} WHERE {predicate}", columns.join(", "))
+            }).collect::<Vec<_>>().join("; ");
+            let results = transaction.translate_and_execute(&query, &SqlTranslator).await.map_err(io::Error::other)?;
+            if results.len() != bindings.len() {
+                return Err(invalid("incomplete local join binding results"));
+            }
+            for ((table, _, columns, expected), result) in bindings.into_iter().zip(results) {
+                if result.rows.len() > 1 {
                     return Err(invalid("non-unique local join binding"));
                 }
-                for row in &results[0].rows {
+                for row in &result.rows {
                     let id = row.values.first().ok_or_else(|| invalid("missing join row identity"))?;
                     let conflicts = transaction.row_conflicts(table, &Row::new(vec![id.clone()])).await.map_err(io::Error::other)?;
                     if !conflicts.is_empty() {

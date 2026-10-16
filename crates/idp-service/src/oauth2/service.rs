@@ -1257,12 +1257,12 @@ where
             .await
             .map_err(ErrorResponse::from)?
             .ok_or_else(|| ErrorResponse::new(ErrorCode::NotFound))?;
-        let (key, _) = self
+        let key = self
             .key_service
             .rotate_active_entity_root_key(
                 EntityType::Client,
                 client.id,
-                "client signing key".into(),
+                "Client Principal root".into(),
                 None,
             )
             .await

@@ -21,6 +21,10 @@
       "types": "./types/index.d.ts",
       "default": "./esm/index.js"
     },
+    "./setup": {
+      "types": "./types/setup/index.d.ts",
+      "default": "./esm/setup/index.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -40,6 +44,7 @@
     "preCommit": "pnpm run lint:fix && pnpm run coverage",
     "postopenapi": "pnpm format:fix",
     "openapi": "node ../../scripts/generate-openapi-client.mjs idp",
+    "openapi:setup": "node ../../scripts/generate-openapi-client.mjs idp-setup",
     "prepare": "husky"
   },
   "husky": {

@@ -10,6 +10,9 @@ const MIGRATIONS: &[&str] = &[
     "CREATE UNIQUE INDEX IF NOT EXISTS role_permissions_role_permission ON role_permissions (role_id, permission_id)",
     "CREATE TABLE IF NOT EXISTS application_user_roles (id UUID PRIMARY KEY, user_id UUID, application_id UUID, role_id UUID, revoked_at INTEGER, created_at INTEGER, updated_at INTEGER)",
     "CREATE UNIQUE INDEX IF NOT EXISTS application_user_roles_user_application_role ON application_user_roles (user_id, application_id, role_id)",
+    "CREATE TABLE IF NOT EXISTS devices (id UUID PRIMARY KEY, owner_subject TEXT NOT NULL, name TEXT, public_key TEXT, address TEXT, state INTEGER, approved_at INTEGER, revoked_at INTEGER, created_at INTEGER, updated_at INTEGER)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS devices_public_key ON devices (public_key)",
+    "CREATE TABLE IF NOT EXISTS local_device_enrollments (device_id UUID PRIMARY KEY, enrollment_code_hash BLOB, enrollment_expires_at INTEGER, pairing_accepting_public_key TEXT)",
     "CREATE TABLE IF NOT EXISTS device_selection_policies (device_id UUID PRIMARY KEY, owner_subject TEXT NOT NULL, application_id UUID, selected_kind TEXT, selected_id UUID, admin_allowed BOOLEAN NOT NULL)",
     "CREATE TABLE IF NOT EXISTS device_resource_selections (id UUID PRIMARY KEY, device_id UUID NOT NULL, owner_subject TEXT NOT NULL, application_id UUID NOT NULL, selected_kind TEXT NOT NULL, selected_id UUID NOT NULL, selected BOOLEAN NOT NULL)",
 ];
@@ -35,14 +38,19 @@ mod tests {
 
         up(&engine).await.expect("initialize management schema");
 
-        for table in ["roles", "permissions", "device_selection_policies"] {
+        for table in [
+            "roles",
+            "permissions",
+            "device_selection_policies",
+            "devices",
+        ] {
             engine
                 .client()
                 .translate_and_execute(&format!("SELECT * FROM {table}"), &db::SqlTranslator)
                 .await
                 .expect("management-owned table exists");
         }
-        for table in ["users", "applications", "clients", "devices", "keys"] {
+        for table in ["users", "applications", "clients", "keys"] {
             assert!(
                 engine
                     .client()

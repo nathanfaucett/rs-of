@@ -409,3 +409,87 @@ it("renders Device policy as owner-authorized mutations, not a ready resource di
     expect(body).not.toContain("Management acknowledged selection");
     expect(fetchApi).not.toHaveBeenCalled();
 });
+
+it("uses ordinary current User owner authorization for web source acceptance and exact offer decisions without native IPC", async () => {
+  host.desktop = false;
+  const idp = await import("./idpClient.svelte");
+  idp.setIdpApiUrl("https://source.test/idp");
+  const offers = [
+    {
+      offer_id: "01900000-0000-7000-8000-000000000004",
+      authenticated_endpoint: "b".repeat(64),
+      request: {
+        installation: "https://installation.test",
+        member_id: "01900000-0000-7000-8000-000000000005",
+        endpoint_id: "b".repeat(64),
+        approving_peer: "a".repeat(64),
+        name: "Joining Node",
+        public_signer: { kty: "OKP" },
+      },
+    },
+  ];
+  fetchApi.mockImplementation(async (url: string) => {
+    if (url.endsWith("/oauth2/token"))
+      return Response.json({
+        access_token: "owner-token",
+        token_type: "Bearer",
+      });
+    if (url.endsWith("/acceptance")) return Response.json({ accepting: true });
+    if (url.endsWith("/pending")) return Response.json(offers);
+    if (url.endsWith("/approve"))
+      return Response.json({ request: offers[0].request });
+    return new Response(null, { status: 204 });
+  });
+  const devices = await import("./devices.svelte");
+  await expect(devices.nodeJoinAccepting(true)).resolves.toBe(true);
+  await expect(devices.pendingNodeJoins()).resolves.toEqual(offers);
+  await devices.approvePendingNodeJoin(offers[0].offer_id);
+  await devices.rejectPendingNodeJoin(offers[0].offer_id);
+  const calls = fetchApi.mock.calls.filter(([url]) =>
+    url.includes("/node-joins/"),
+  );
+  expect(calls.map(([url, init]) => [url, init.method, init.body])).toEqual([
+    [
+      "https://source.test/idp/node-joins/acceptance",
+      "PUT",
+      '{"accepting":true}',
+    ],
+    ["https://source.test/idp/node-joins/pending", "GET", undefined],
+    [
+      "https://source.test/idp/node-joins/01900000-0000-7000-8000-000000000004/approve",
+      "POST",
+      undefined,
+    ],
+    [
+      "https://source.test/idp/node-joins/01900000-0000-7000-8000-000000000004/reject",
+      "POST",
+      undefined,
+    ],
+  ]);
+  for (const [, init] of calls)
+    expect(init).toMatchObject({
+      headers: { Authorization: "Bearer owner-token" },
+      credentials: "omit",
+      redirect: "error",
+      cache: "no-store",
+    });
+  expect(host.invoke).not.toHaveBeenCalled();
+});
+
+it("web source approval refuses missing User authorization, insecure targets and malformed offer identity", async () => {
+  host.desktop = false;
+  const idp = await import("./idpClient.svelte");
+  const devices = await import("./devices.svelte");
+  idp.setIdpApiUrl("http://source.test/idp");
+  await expect(devices.nodeJoinAccepting(true)).rejects.toThrow(/HTTPS/);
+  expect(fetchApi).not.toHaveBeenCalled();
+  idp.setIdpApiUrl("https://source.test/idp");
+  host.token = "";
+  await expect(devices.pendingNodeJoins()).rejects.toThrow(/Sign in/);
+  expect(fetchApi).not.toHaveBeenCalled();
+  await expect(
+    devices.approvePendingNodeJoin("../acceptance"),
+  ).rejects.toThrow();
+  expect(fetchApi).not.toHaveBeenCalled();
+  expect(host.invoke).not.toHaveBeenCalled();
+});

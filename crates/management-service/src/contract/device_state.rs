@@ -28,7 +28,7 @@ mod tests {
     #[test]
     fn serializes_as_a_stable_name() {
         assert_eq!(
-            serde_json::to_string(&DeviceState::Approved).unwrap(),
+            serde_json::to_string(&DeviceState::Approved).expect("serialize device state"),
             "\"approved\""
         );
     }

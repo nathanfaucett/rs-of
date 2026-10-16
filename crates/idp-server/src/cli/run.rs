@@ -28,7 +28,7 @@ enum IdpCommand {
     Serve {
         #[arg(long, short = 'p')]
         port: Option<u16>,
-        #[arg(long, short = 'h')]
+        #[arg(long, short = 'H')]
         host: Option<IpAddr>,
     },
     #[cfg(feature = "completions")]
@@ -80,6 +80,9 @@ pub async fn run() -> io::Result<()> {
     }
 
     let cancellation_token = CancellationToken::new();
+    #[cfg(unix)]
+    let app_config = Arc::new(crate::startup::load_config(Path::new(&args.config))?);
+    #[cfg(not(unix))]
     let app_config = Arc::new(match AppConfig::try_from(Path::new(&args.config)) {
         Ok(app_config) => app_config,
         Err(error) => {
@@ -89,14 +92,43 @@ pub async fn run() -> io::Result<()> {
     });
     env_logger::Builder::from_env(Env::default().default_filter_or(&app_config.log_level)).init();
 
+    #[cfg(unix)]
+    if matches!(args.command, None | Some(IdpCommand::Serve { .. })) {
+        let (host, port) = match args.command.as_ref() {
+            Some(IdpCommand::Serve { host, port }) => (*host, *port),
+            _ => (None, None),
+        };
+        let configured_host = app_config.server.host;
+        let setup_host = host.unwrap_or_else(|| {
+            if configured_host.is_unspecified() {
+                std::net::Ipv4Addr::LOCALHOST.into()
+            } else {
+                configured_host
+            }
+        });
+        let address = SocketAddr::new(setup_host, port.unwrap_or(app_config.server.port));
+        if let Some(setup) = crate::prepare_setup(&app_config, address)? {
+            let shutdown = shutdown_signal(cancellation_token.clone());
+            let serving = setup.serve(cancellation_token.clone());
+            tokio::pin!(shutdown, serving);
+            return tokio::select! {
+                result = &mut serving => result,
+                () = &mut shutdown => serving.await,
+            };
+        }
+    }
+
     std::fs::create_dir_all(&app_config.data_dir)?;
     let engine = Arc::new(
         Database::open(Path::new(&app_config.data_dir).join("idp.redb"))
             .map_err(io::Error::other)?,
     );
+    idp_model::replica::up(&engine)
+        .await
+        .map_err(io::Error::other)?;
     let allowed_peers = EndpointIdStore::default();
     let (device_identity, server) =
-        crate::open_device_identity_with_allowlist(allowed_peers.clone()).await?;
+        management_service::open_device_identity_with_allowlist(allowed_peers.clone()).await?;
     let runtime = Arc::new(
         build_runtime(
             &app_config,
@@ -175,4 +207,17 @@ pub async fn run() -> io::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+    use cli::CliArgs;
+
+    #[test]
+    fn independent_startup_accepts_no_config_and_explicit_serve() {
+        CliArgs::<super::IdpCommand>::try_parse_from(["idp-server"]).expect("default launch");
+        CliArgs::<super::IdpCommand>::try_parse_from(["idp-server", "serve", "--port", "3000"])
+            .expect("explicit serving launch");
+    }
 }

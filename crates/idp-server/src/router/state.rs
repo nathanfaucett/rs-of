@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use idp_model::contract::{DeviceSelfRevocationRequest, device_self_revocation_payload};
+use crate::ManagementPermissionClient;
 use idp_service::{
     oauth2::OAuth2Service,
     replica::{
@@ -9,10 +9,10 @@ use idp_service::{
     },
     repo::PrivateKeyKeyringRepo,
 };
-use iroh::{Endpoint, EndpointId, SecretKey};
-use management_service::{HostedControlPlane, LocalPermissions, replica::DbDeviceRepo};
-
-use super::PairingAcceptanceControllerSlot;
+use management_service::{
+    DeviceIdentity, HostedControlPlane, LocalPermissions, PairingAcceptanceControllerSlot,
+    replica::DbDeviceRepo,
+};
 
 pub(super) type NativeOAuth2Service = OAuth2Service<
     DbApplicationRepo,
@@ -29,62 +29,6 @@ pub type NativeDeviceRepo = DbDeviceRepo;
 pub type NativeReplicaSignerRepo = DbReplicaSignerRepo;
 
 #[derive(Clone)]
-pub struct DeviceIdentity {
-    endpoint: Endpoint,
-    secret_key: SecretKey,
-}
-
-impl DeviceIdentity {
-    #[must_use]
-    pub fn new(endpoint: Endpoint, secret_key: SecretKey) -> Self {
-        Self {
-            endpoint,
-            secret_key,
-        }
-    }
-
-    #[must_use]
-    pub fn endpoint_id(&self) -> EndpointId {
-        self.endpoint.id()
-    }
-
-    #[must_use]
-    pub fn endpoint(&self) -> Endpoint {
-        self.endpoint.clone()
-    }
-
-    pub(crate) fn node_join_approval(
-        &self,
-        request: crate::NodeJoinRequest,
-        owner_subject: idp_model::model::Id,
-    ) -> std::io::Result<crate::NodeJoinApproval> {
-        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-        let payload = crate::NodeJoinApproval::payload(&request, owner_subject)?;
-        Ok(crate::NodeJoinApproval {
-            request,
-            owner_subject,
-            signature: URL_SAFE_NO_PAD.encode(self.secret_key.sign(&payload).to_bytes()),
-        })
-    }
-
-    pub fn endpoint_address(&self) -> Result<String, String> {
-        serde_json::to_string(&self.endpoint.addr()).map_err(|error| error.to_string())
-    }
-
-    #[must_use]
-    pub fn self_revocation_request(&self) -> DeviceSelfRevocationRequest {
-        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-
-        let public_key = self.endpoint_id().to_string();
-        let payload = device_self_revocation_payload(&public_key);
-        DeviceSelfRevocationRequest {
-            public_key,
-            signature: URL_SAFE_NO_PAD.encode(self.secret_key.sign(payload.as_bytes()).to_bytes()),
-        }
-    }
-}
-
-#[derive(Clone)]
 pub struct RouterState {
     pub ui_base_uri: String,
     pub api_base_uri: String,
@@ -97,6 +41,7 @@ pub struct RouterState {
     pub pairing_acceptance: Arc<PairingAcceptanceControllerSlot>,
     pub hosted_control_plane: Option<Arc<HostedControlPlane>>,
     pub local_permissions: Option<Arc<LocalPermissions>>,
+    pub management_permissions: Option<Arc<ManagementPermissionClient>>,
     #[cfg(test)]
     pub(crate) before_node_join_activation:
         Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>,
@@ -125,6 +70,7 @@ impl RouterState {
             pairing_acceptance: Arc::new(PairingAcceptanceControllerSlot::new()),
             hosted_control_plane: None,
             local_permissions: None,
+            management_permissions: None,
             #[cfg(test)]
             before_node_join_activation: None,
         }
@@ -132,6 +78,11 @@ impl RouterState {
 
     pub fn with_local_permissions(mut self, client: LocalPermissions) -> Self {
         self.local_permissions = Some(Arc::new(client));
+        self
+    }
+
+    pub fn with_management_permissions(mut self, client: ManagementPermissionClient) -> Self {
+        self.management_permissions = Some(Arc::new(client));
         self
     }
 

@@ -223,19 +223,23 @@ fn protect_private_key_file(path: &Path) -> io::Result<()> {
 }
 
 pub async fn ensure_localhost_certificate(data_dir: &Path) -> io::Result<PathBuf> {
+    ensure_localhost_certificate_with_installer(data_dir, install_ca_to_user_trust_store).await
+}
+
+async fn ensure_localhost_certificate_with_installer(
+    data_dir: &Path,
+    install: impl FnOnce(&Path) -> io::Result<()>,
+) -> io::Result<PathBuf> {
     validate_localhost_paths(data_dir)?;
     fs::create_dir_all(data_dir)?;
 
     let cert_path = localhost_ca_cert_path(data_dir);
-    let trust_path = localhost_ca_trust_path(data_dir);
-    let (ca, is_new_ca) = load_or_create_ca(data_dir).await?;
-    let (_, is_new_pem) = ensure_ca_certificate_pem(data_dir, &ca).await?;
+    invalidate_localhost_certificate_trust(data_dir)?;
+    let (ca, _) = load_or_create_ca(data_dir).await?;
+    ensure_ca_certificate_pem(data_dir, &ca).await?;
     load_or_create_server_cert(data_dir, &ca).await?;
 
-    if is_new_ca || is_new_pem || !regular_file_exists(&trust_path)? {
-        install_ca_to_user_trust_store(&cert_path)?;
-        fs::write(trust_path, [])?;
-    }
+    install(&cert_path)?;
 
     Ok(cert_path)
 }
@@ -250,8 +254,20 @@ pub fn invalidate_localhost_certificate_trust(data_dir: &Path) -> io::Result<()>
     Ok(())
 }
 
+fn localhost_verification_client() -> io::Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .tls_built_in_webpki_certs(false)
+        .tls_built_in_native_certs(true)
+        .https_only(true)
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(2))
+        .build()
+        .map_err(io::Error::other)
+}
+
 pub async fn verify_localhost_server(base_url: &str) -> io::Result<()> {
-    let client = reqwest::Client::new();
+    let client = localhost_verification_client()?;
     let setup_status_url = format!("{base_url}/lidp/setup/status");
 
     for _ in 0..50 {
@@ -285,7 +301,7 @@ pub async fn verify_localhost_server(base_url: &str) -> io::Result<()> {
 }
 
 pub async fn verify_unified_localhost_server(base_url: &str) -> io::Result<()> {
-    let client = reqwest::Client::new();
+    let client = localhost_verification_client()?;
     let health_url = format!("{base_url}/idp/health");
     for _ in 0..50 {
         if client
@@ -726,11 +742,11 @@ mod tests {
     async fn tls_paths_regular_state_reopens_without_identity_replacement() {
         let root = tls_path_fixture().await;
         let directory = root.join("retained/tls");
-        ensure_localhost_certificate(&directory)
+        ensure_localhost_certificate_with_installer(&directory, |_| Ok(()))
             .await
             .expect("reuse explicit fixture trust");
         let before = tls_path_snapshot(&directory);
-        ensure_localhost_certificate(&directory)
+        ensure_localhost_certificate_with_installer(&directory, |_| Ok(()))
             .await
             .expect("reopen retained TLS state");
         let (listener, port) = reserve_localhost_listener(&directory)
@@ -754,13 +770,138 @@ mod tests {
     async fn localhost_certificate_is_reusable() {
         let data_dir = std::env::temp_dir().join(format!("idp-{}", uuid::Uuid::new_v4()));
 
-        let certificate = ensure_localhost_certificate(&data_dir).await.unwrap();
+        let certificate = ensure_localhost_certificate_with_installer(&data_dir, |_| Ok(()))
+            .await
+            .expect("create certificate with injected OS trust success");
         assert!(certificate.exists());
-        assert!(data_dir.join("localhost-ca.trusted").exists());
+        assert!(!data_dir.join("localhost-ca.trusted").exists());
         assert!(data_dir.join("localhost-server.der").exists());
-        ensure_localhost_certificate(&data_dir).await.unwrap();
+        ensure_localhost_certificate_with_installer(&data_dir, |_| Ok(()))
+            .await
+            .expect("reuse certificate with injected OS trust success");
 
         fs::remove_dir_all(data_dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn trust_installation_is_required_even_with_a_stale_success_marker() {
+        for stale_marker in [false, true] {
+            let directory =
+                std::env::temp_dir().join(format!("trust-state-{}", uuid::Uuid::new_v4()));
+            prepare_test_tls(&directory).await;
+            let ca_key =
+                fs::read(localhost_ca_key_path(&directory)).expect("original local CA key");
+            let ca_pem = fs::read(localhost_ca_cert_path(&directory))
+                .expect("original local CA certificate");
+            if stale_marker {
+                fs::write(localhost_ca_trust_path(&directory), []).expect("legacy success marker");
+            }
+            let mut called = false;
+            let error = ensure_localhost_certificate_with_installer(&directory, |path| {
+                called = true;
+                assert_eq!(path, localhost_ca_cert_path(&directory));
+                Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "OS trust denied",
+                ))
+            })
+            .await
+            .expect_err("OS installation failure must stop bootstrap");
+            assert!(called);
+            assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+            assert!(!localhost_ca_trust_path(&directory).exists());
+            ensure_localhost_certificate_with_installer(&directory, |_| Ok(()))
+                .await
+                .expect("successful OS installation retry");
+            assert!(!localhost_ca_trust_path(&directory).exists());
+            assert_eq!(
+                fs::read(localhost_ca_key_path(&directory)).expect("retained CA key"),
+                ca_key
+            );
+            assert_eq!(
+                fs::read(localhost_ca_cert_path(&directory)).expect("retained CA certificate"),
+                ca_pem
+            );
+            fs::remove_dir_all(directory).expect("remove trust state fixture");
+        }
+    }
+
+    #[tokio::test]
+    async fn fresh_bootstrap_failure_has_no_success_marker_and_nodes_keep_independent_ca_keys() {
+        let root = std::env::temp_dir().join(format!("node-trust-{}", uuid::Uuid::new_v4()));
+        let creator = root.join("creator");
+        let joining = root.join("joining");
+        for directory in [&creator, &joining] {
+            ensure_localhost_certificate_with_installer(directory, |_| {
+                Err(io::Error::other("OS installation failed"))
+            })
+            .await
+            .expect_err("fresh bootstrap must fail closed");
+            assert!(!localhost_ca_trust_path(directory).exists());
+        }
+        assert_ne!(
+            fs::read(localhost_ca_key_path(&creator)).expect("creator CA key"),
+            fs::read(localhost_ca_key_path(&joining)).expect("joining Node's independent CA key"),
+        );
+        fs::remove_dir_all(root).expect("remove independent Node fixtures");
+    }
+
+    #[tokio::test]
+    async fn verification_rejects_plain_http_and_untrusted_local_tls() {
+        assert!(
+            localhost_verification_client()
+                .expect("native-root verifier")
+                .get("http://localhost/lidp/setup/status")
+                .send()
+                .await
+                .is_err()
+        );
+        let directory =
+            std::env::temp_dir().join(format!("untrusted-tls-{}", uuid::Uuid::new_v4()));
+        let fixture_ca = prepare_test_tls(&directory).await;
+        let (listener, port) = reserve_localhost_listener(&directory)
+            .await
+            .expect("isolated listener");
+        let router = Router::new()
+            .route(
+                "/lidp/setup/status",
+                axum::routing::get(|| async {
+                    axum::Json(serde_json::json!({"stage": "installation"}))
+                }),
+            )
+            .route("/idp/health", axum::routing::get(|| async { "ok" }));
+        let server = start_unified_localhost_server(router, listener, &directory)
+            .expect("start untrusted local TLS fixture");
+        let base_url = localhost_server_base_url(port);
+        let fixture_client = reqwest::Client::builder()
+            .add_root_certificate(fixture_ca)
+            .no_proxy()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .expect("explicit fixture-only trust");
+        assert!(
+            fixture_client
+                .get(format!("{base_url}/idp/health"))
+                .send()
+                .await
+                .expect("fixture server is reachable with explicit trust")
+                .status()
+                .is_success()
+        );
+        let (setup, unified) = tokio::join!(
+            verify_localhost_server(&base_url),
+            verify_unified_localhost_server(&base_url),
+        );
+        assert!(
+            setup.is_err(),
+            "setup must not accept a locally generated but uninstalled CA"
+        );
+        assert!(
+            unified.is_err(),
+            "unified runtime must not bypass native CA trust"
+        );
+        server.close().await.expect("close untrusted TLS fixture");
+        fs::remove_dir_all(directory).expect("remove untrusted TLS fixture");
     }
 
     #[cfg(unix)]
@@ -769,9 +910,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let data_dir = std::env::temp_dir().join(format!("private-key-{}", uuid::Uuid::new_v4()));
-        ensure_localhost_certificate(&data_dir)
-            .await
-            .expect("create localhost keys");
+        prepare_test_tls(&data_dir).await;
         for path in [
             localhost_ca_key_path(&data_dir),
             localhost_server_cert_paths(&data_dir).1,

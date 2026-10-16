@@ -4,33 +4,25 @@ use std::{
     io::{self, Write},
     net::SocketAddr,
     path::Path,
-    sync::{Mutex as StdMutex, OnceLock},
+    sync::{Arc, Mutex as StdMutex, OnceLock},
 };
 
 use axum::Router;
-use idp_model::{
-    contract::{
-        ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, GrantType,
-        IDP_DEVICE_LIST_SCOPE, IDP_DEVICE_LOOKUP_SCOPE, IDP_TOKEN_VALIDATE_SCOPE, IdentityAction,
-        MANAGEMENT_PERMISSION_EVALUATE_SCOPE, TokenEndpointAuthMethod,
-    },
-    model::Id,
-};
+use idp_model::{contract::IdentityAction, model::Id};
 use idp_server::{AppConfig as IdpAppConfig, OwnerProvisioner};
 use idp_service::oauth2::NodeSignerBinding;
-use management_server::{AppConfig as ManagementAppConfig, MANAGEMENT_APPLICATION_URI};
-use model::contract::{MANAGEMENT_REPLICATION_ADMIT_SCOPE, MANAGEMENT_REPLICATION_READ_SCOPE};
+use management_server::AppConfig as ManagementAppConfig;
 use serde_json::{Value, json};
 use storage_server::AppConfig as StorageAppConfig;
 use tauri::{AppHandle, Manager, Wry, async_runtime::Mutex};
 use tokio::net::TcpListener;
-use unified_server::{ServiceClientCredentials, UnifiedConfig, UnifiedEndpoint, UnifiedRuntime};
+use unified_server::{RuntimeOwners, UnifiedConfig, UnifiedEndpoint, UnifiedRuntime};
 
 use crate::localhost_server::{
     LocalhostServer, localhost_server_base_url, reserve_localhost_listener,
     start_unified_localhost_server, verify_unified_localhost_server,
 };
-use crate::{local_api, service_secrets, service_secrets::ServiceRelationship, setup};
+use crate::{local_api, service_secrets, setup};
 
 #[path = "setup_peer_revocation.rs"]
 mod peer_revocation;
@@ -89,10 +81,6 @@ struct SetupIds {
     signer_key_id: Id,
     role_id: Id,
     permission_ids: Vec<Id>,
-    management_to_idp_client_id: Id,
-    storage_to_idp_client_id: Id,
-    storage_to_management_client_id: Id,
-    idp_to_management_client_id: Id,
 }
 
 #[derive(Clone, Default)]
@@ -156,109 +144,118 @@ pub async fn provision_initial_administrator(
     }
     require_setup_runtime_stopped(&app_handle).await?;
     let ids = load_or_create_setup_ids(&app_data_dir).map_err(|error| error.to_string())?;
-    persist_setup_intent(
-        &app_data_dir,
-        &json!({"purpose": "create", "issuer": format!("{base_url}/idp")}),
-    )
-    .map_err(|error| error.to_string())?;
+    let intent = create_setup_intent(&app_data_dir, &ids).map_err(|error| error.to_string())?;
+    persist_setup_intent(&app_data_dir, &intent).map_err(|error| error.to_string())?;
 
     let mut idp_config = IdpAppConfig::default();
     idp_config.data_dir = app_data_dir
         .join("services/idp")
         .to_string_lossy()
         .into_owned();
-    idp_config.oauth2.issuer = format!("{base_url}/idp");
+    idp_config.oauth2.issuer = intent["issuer"]
+        .as_str()
+        .expect("validated canonical issuer")
+        .to_owned();
     idp_config.api_public_uri = format!("{base_url}/idp");
     idp_config.ui_public_uri = base_url.clone();
     let (endpoint, fresh) = open_setup_endpoint(&app_data_dir, &idp_config)
         .await
         .map_err(|error| error.to_string())?;
-    endpoint.close().await;
-    let idp = OwnerProvisioner::open(&idp_config)
-        .await
-        .map_err(|error| error.to_string())?;
-    prepare_setup_inventory(&idp, &ids, fresh)
-        .await
-        .map_err(|error| error.to_string())?;
-    let administrator_id = idp
-        .ensure_initial_user(ids.administrator_id, ids.credential_id, &name, &password)
-        .await
-        .map_err(|error| error.to_string())?;
+    let endpoint = Arc::new(endpoint);
+    let result = async {
+        let idp = OwnerProvisioner::open(&idp_config)
+            .await
+            .map_err(|error| error.to_string())?;
+        prepare_setup_inventory(&idp, &ids, fresh)
+            .await
+            .map_err(|error| error.to_string())?;
+        let administrator_id = idp
+            .ensure_initial_user(ids.administrator_id, ids.credential_id, &name, &password)
+            .await
+            .map_err(|error| error.to_string())?;
 
-    idp.ensure_initial_user_signing_key(administrator_id)
-        .await
-        .map_err(|error| error.to_string())?;
+        idp.ensure_initial_user_root(administrator_id)
+            .await
+            .map_err(|error| error.to_string())?;
 
-    let idp_service_audience = idp_config
-        .service_audience
-        .as_deref()
-        .unwrap_or(&idp_config.api_public_uri)
-        .to_owned();
-    let storage_audience = format!("{base_url}/storage");
-    let mut management_config = ManagementAppConfig::default();
-    management_config.data_dir = app_data_dir
-        .join("services/management")
-        .to_string_lossy()
-        .into_owned();
-    management_config.storage_audience = storage_audience.clone();
-    let permissions = INITIAL_ADMIN_ACTIONS
-        .iter()
-        .copied()
-        .zip(ids.permission_ids.iter().copied())
-        .map(|(action, permission_id)| (permission_id, action))
-        .collect::<Vec<_>>();
-    management_server::provision_initial_administrator(
-        &management_config,
-        administrator_id,
-        ids.role_id,
-        &permissions,
-    )
-    .await
-    .map_err(|error| error.to_string())?;
-
-    management_server::provision_initial_device(
-        &management_config,
-        ids.member_id,
-        administrator_id,
-    )
-    .await
-    .map_err(|error| error.to_string())?;
-    idp.ensure_initial_node(
-        &node_binding(&app_data_dir, &ids).map_err(|error| error.to_string())?,
-        administrator_id,
-        "Local Node",
-    )
-    .await
-    .map_err(|error| error.to_string())?;
-    provision_service_clients(
-        &app_data_dir,
-        &idp,
-        &ids,
-        &base_url,
-        &idp_service_audience,
-        &storage_audience,
-    )
-    .await
-    .map_err(|error| error.to_string())?;
-    drop(idp);
-    close(&app_handle)
-        .await
-        .map_err(|error| error.to_string())?;
-    let (listener, base_url) = reserve_unified_localhost_server(&app_handle)
-        .await
-        .map_err(|error| error.to_string())?;
-    if let Err(error) = start_composed_unified_runtime(&app_handle, listener, base_url, true).await
-    {
-        let restore = restore_setup_listener(&app_handle).await;
-        return match restore {
-            Ok(()) => Err(error.to_string()),
-            Err(restore_error) => Err(format!(
-                "unified runtime startup failed ({error}); setup status listener restore failed ({restore_error})"
-            )),
+        let management_config = ManagementAppConfig {
+            data_dir: app_data_dir
+                .join("services/management")
+                .to_string_lossy()
+                .into_owned(),
+            ..ManagementAppConfig::default()
         };
-    }
+        let management = management_server::open_database(&management_config)
+            .await
+            .map_err(|error| error.to_string())?;
+        let permissions = INITIAL_ADMIN_ACTIONS
+            .iter()
+            .copied()
+            .zip(ids.permission_ids.iter().copied())
+            .map(|(action, permission_id)| (permission_id, action))
+            .collect::<Vec<_>>();
+        management_server::provision_initial_administrator(
+            management.clone(),
+            administrator_id,
+            ids.role_id,
+            &permissions,
+        )
+        .await
+        .map_err(|error| error.to_string())?;
 
-    Ok(administrator_id.to_string())
+        management_server::provision_initial_device(
+            management.clone(),
+            ids.member_id,
+            administrator_id,
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+        idp.ensure_initial_node(
+            &node_binding(&app_data_dir, &ids).map_err(|error| error.to_string())?,
+            administrator_id,
+            "Local Node",
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+        idp.ensure_desktop_client(ids.installation_id)
+        .await
+        .map_err(|error| error.to_string())?;
+        let owners = RuntimeOwners {
+            endpoint: Arc::clone(&endpoint),
+            idp: idp.node_join_database(),
+            management,
+        };
+        close(&app_handle)
+            .await
+            .map_err(|error| error.to_string())?;
+        let (listener, base_url) = reserve_unified_localhost_server(&app_handle)
+            .await
+            .map_err(|error| error.to_string())?;
+        if let Err(error) = start_composed_unified_runtime(
+            &app_handle,
+            listener,
+            base_url,
+            true,
+            Some(owners),
+        )
+        .await
+        {
+            let restore = restore_setup_listener(&app_handle).await;
+            return match restore {
+                Ok(()) => Err(error.to_string()),
+                Err(restore_error) => Err(format!(
+                    "unified runtime startup failed ({error}); setup status listener restore failed ({restore_error})"
+                )),
+            };
+        }
+
+        Ok(administrator_id.to_string())
+    }
+    .await;
+    if result.is_err() {
+        endpoint.close().await;
+    }
+    result
 }
 
 #[tauri::command]
@@ -279,7 +276,6 @@ pub fn get_setup_intent(app_handle: AppHandle<Wry>) -> Result<Option<Value>, Str
 #[tauri::command]
 pub async fn join_installation(
     app_handle: AppHandle<Wry>,
-    issuer: String,
     peer: String,
     name: String,
 ) -> Result<(), String> {
@@ -302,71 +298,130 @@ pub async fn join_installation(
             "Installation setup is already complete; reset explicitly before joining".into(),
         );
     }
-    let intent = json!({"purpose": "join", "issuer": issuer, "peer": peer, "name": name});
-    validate_setup_intent(&intent).map_err(|error| error.to_string())?;
     let base_url = localhost_server_base_url_for(&app_handle).await;
     if base_url.is_empty() {
         return Err("local HTTPS setup listener is unavailable".into());
     }
     require_setup_runtime_stopped(&app_handle).await?;
+    let intent = tokio::select! {
+        biased;
+        _ = cancellation.changed() => return Err("join cancelled before retaining setup identity".into()),
+        result = join_setup_intent(&data_dir, &peer, &name, unified_server::discover_installation_issuer(&peer)) => result.map_err(|error| error.to_string())?,
+    };
     let ids = load_or_create_setup_ids(&data_dir).map_err(|error| error.to_string())?;
     persist_setup_intent(&data_dir, &intent).map_err(|error| error.to_string())?;
     let mut config = IdpAppConfig {
         data_dir: data_dir.join("services/idp").to_string_lossy().into_owned(),
         ..IdpAppConfig::default()
     };
-    config.oauth2.issuer = issuer;
+    config.oauth2.issuer = intent["issuer"]
+        .as_str()
+        .expect("validated canonical issuer")
+        .to_owned();
     config.api_public_uri = format!("{base_url}/idp");
     config.ui_public_uri = base_url.clone();
     let (endpoint, fresh) = open_setup_endpoint(&data_dir, &config)
         .await
         .map_err(|error| error.to_string())?;
-    let result = tokio::select! {
-        biased;
-        _ = cancellation.changed() => Err(io::Error::new(io::ErrorKind::Interrupted, "join cancelled; retained setup can be retried or reset locally")),
-        result = async {
-        let binding = node_binding(&data_dir, &ids)?;
-        let (protocol, owner) = unified_server::SecurityProtocol::open_node_bootstrap(
-            &endpoint,
-            &config,
-            &data_dir.join("services/management"),
-            binding,
-        )
-        .await?;
-        prepare_setup_inventory(&owner, &ids, fresh).await?;
-        protocol
-            .join_from_trusted_peer(&owner, &name, &peer)
-            .await?;
-        provision_service_clients(
-            &data_dir,
-            &owner,
-            &ids,
-            &base_url,
-            &format!("{base_url}/idp"),
-            &format!("{base_url}/storage"),
-        )
-        .await
-    } => result,
-    };
-    endpoint.close().await;
-    result.map_err(|error| error.to_string())?;
-    close(&app_handle)
-        .await
+    let endpoint = Arc::new(endpoint);
+    let result = async {
+        let owners = tokio::select! {
+            biased;
+            _ = cancellation.changed() => Err(io::Error::new(io::ErrorKind::Interrupted, "join cancelled; retained setup can be retried or reset locally")),
+            result = async {
+                let binding = node_binding(&data_dir, &ids)?;
+                let (protocol, owner) = unified_server::SecurityProtocol::open_node_bootstrap(
+                    &endpoint,
+                    &config,
+                    &data_dir.join("services/management"),
+                    binding,
+                )
+                .await?;
+                prepare_setup_inventory(&owner, &ids, fresh).await?;
+                protocol
+                    .join_from_trusted_peer(&owner, &name, &peer)
+                    .await?;
+                owner.ensure_desktop_client(ids.installation_id)
+                .await?;
+                Ok(protocol.into_runtime_owners(Arc::clone(&endpoint)))
+            } => result,
+        }
         .map_err(|error| error.to_string())?;
-    let (listener, base_url) = reserve_unified_localhost_server(&app_handle)
-        .await
-        .map_err(|error| error.to_string())?;
-    if let Err(error) = start_composed_unified_runtime(&app_handle, listener, base_url, true).await
-    {
-        let restore = restore_setup_listener(&app_handle).await;
-        return Err(match restore {
-            Ok(()) => error.to_string(),
-            Err(restore) => {
-                format!("local runtime failed ({error}); setup listener restore failed ({restore})")
-            }
-        });
+        close(&app_handle)
+            .await
+            .map_err(|error| error.to_string())?;
+        let (listener, base_url) = reserve_unified_localhost_server(&app_handle)
+            .await
+            .map_err(|error| error.to_string())?;
+        if let Err(error) =
+            start_composed_unified_runtime(&app_handle, listener, base_url, true, Some(owners)).await
+        {
+            let restore = restore_setup_listener(&app_handle).await;
+            return Err(match restore {
+                Ok(()) => error.to_string(),
+                Err(restore) => {
+                    format!("local runtime failed ({error}); setup listener restore failed ({restore})")
+                }
+            });
+        }
+        Ok(())
     }
-    Ok(())
+    .await;
+    if result.is_err() {
+        endpoint.close().await;
+    }
+    result
+}
+
+fn create_setup_intent(directory: &Path, ids: &SetupIds) -> io::Result<Value> {
+    match fs::symlink_metadata(directory.join("node-setup.json")) {
+        Ok(_) => {
+            let intent = read_setup_intent(directory)?;
+            if intent["purpose"] != "create" {
+                return Err(io::Error::other(
+                    "Node setup purpose changed; explicit reset required",
+                ));
+            }
+            Ok(intent)
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(json!({
+            "purpose": "create",
+            "issuer": format!("https://{}.installation.invalid/idp", ids.installation_id),
+        })),
+        Err(error) => Err(error),
+    }
+}
+
+async fn join_setup_intent(
+    directory: &Path,
+    peer: &str,
+    name: &str,
+    discovery: impl core::future::Future<Output = io::Result<String>>,
+) -> io::Result<Value> {
+    idp_server::NodeJoinRequest::validate_trusted_peer(peer)?;
+    if name.trim().is_empty() || name.len() > 256 {
+        return Err(io::Error::other(
+            "local Node name is required and must not exceed 256 bytes",
+        ));
+    }
+    match fs::symlink_metadata(directory.join("node-setup.json")) {
+        Ok(_) => {
+            let intent = read_setup_intent(directory)?;
+            if intent["purpose"] != "join" || intent["peer"] != peer || intent["name"] != name {
+                return Err(io::Error::other(
+                    "Node setup purpose or identity changed; explicit reset required",
+                ));
+            }
+            Ok(intent)
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            let issuer = discovery.await?;
+            let intent = json!({"purpose": "join", "issuer": issuer, "peer": peer, "name": name});
+            validate_setup_intent(&intent)?;
+            Ok(intent)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn validate_setup_intent(value: &Value) -> io::Result<()> {
@@ -540,92 +595,8 @@ async fn prepare_setup_inventory(
     owner.prepare_setup_client_slots(&clients).await
 }
 
-fn setup_client_ids(ids: &SetupIds) -> [Id; 5] {
-    [
-        ids.installation_id,
-        ids.management_to_idp_client_id,
-        ids.storage_to_idp_client_id,
-        ids.storage_to_management_client_id,
-        ids.idp_to_management_client_id,
-    ]
-}
-
-async fn provision_service_clients(
-    data: &Path,
-    idp: &OwnerProvisioner,
-    ids: &SetupIds,
-    base_url: &str,
-    idp_audience: &str,
-    storage_audience: &str,
-) -> io::Result<()> {
-    idp.ensure_desktop_client(ids.installation_id).await?;
-    for (relationship, client_id) in [
-        (
-            ServiceRelationship::ManagementToIdp,
-            ids.management_to_idp_client_id,
-        ),
-        (
-            ServiceRelationship::StorageToIdp,
-            ids.storage_to_idp_client_id,
-        ),
-        (
-            ServiceRelationship::StorageToManagement,
-            ids.storage_to_management_client_id,
-        ),
-        (
-            ServiceRelationship::IdpToManagement,
-            ids.idp_to_management_client_id,
-        ),
-    ] {
-        provision_service_client(
-            data,
-            idp,
-            ids,
-            relationship,
-            client_id,
-            base_url,
-            idp_audience,
-            storage_audience,
-        )
-        .await?;
-    }
-    Ok(())
-}
-
-async fn provision_service_client(
-    data: &Path,
-    idp: &OwnerProvisioner,
-    ids: &SetupIds,
-    relationship: ServiceRelationship,
-    client_id: Id,
-    base_url: &str,
-    idp_audience: &str,
-    storage_audience: &str,
-) -> io::Result<()> {
-    let never_produced =
-        reset::start_relationship_provisioning(data, ids.installation_id, relationship, client_id)?;
-    let client_secret = service_secrets::ensure_secret(
-        ids.installation_id,
-        relationship,
-        client_id,
-        never_produced,
-    )
-    .map_err(|error| {
-        io::Error::other(format!(
-            "could not persist {} credential: {error}",
-            relationship.key_name()
-        ))
-    })?;
-    idp.ensure_setup_infrastructure_client(service_client_registration(
-        client_id,
-        client_secret,
-        relationship,
-        base_url,
-        idp_audience,
-        storage_audience,
-    ))
-    .await?;
-    Ok(())
+fn setup_client_ids(ids: &SetupIds) -> [Id; 1] {
+    [ids.installation_id]
 }
 
 fn unified_runtime_config(
@@ -661,8 +632,6 @@ fn unified_runtime_config(
     management.storage_api_base = storage_api.clone();
     management.expected_issuer = idp.oauth2.issuer.clone();
     management.storage_audience = storage_api.clone();
-    management.idp_permission_evaluator_client_id =
-        Some(ids.idp_to_management_client_id.to_string());
 
     let mut storage = StorageAppConfig::default();
     storage.data_dir = app_data_dir
@@ -671,41 +640,12 @@ fn unified_runtime_config(
         .into_owned();
     storage.api_public_uri = storage_api.clone();
 
-    let management_idp_client = load_service_credentials(
-        ids,
-        ServiceRelationship::ManagementToIdp,
-        ids.management_to_idp_client_id,
-        &idp_api,
-    )?;
-    let storage_idp_client = load_service_credentials(
-        ids,
-        ServiceRelationship::StorageToIdp,
-        ids.storage_to_idp_client_id,
-        &idp_api,
-    )?;
-    let storage_management_client = load_service_credentials(
-        ids,
-        ServiceRelationship::StorageToManagement,
-        ids.storage_to_management_client_id,
-        &storage_api,
-    )?;
-    let idp_management_client = load_service_credentials(
-        ids,
-        ServiceRelationship::IdpToManagement,
-        ids.idp_to_management_client_id,
-        MANAGEMENT_APPLICATION_URI,
-    )?;
-
     Ok(UnifiedConfig {
         listen_addr,
         endpoint_data_dir: app_data_dir.join("services/unified-endpoint"),
         idp,
         management,
         storage,
-        management_idp_client,
-        storage_idp_client,
-        storage_management_client,
-        idp_management_client: Some(idp_management_client),
     })
 }
 
@@ -723,95 +663,6 @@ fn node_binding(app_data_dir: &Path, ids: &SetupIds) -> io::Result<NodeSignerBin
         key_id: ids.signer_key_id,
         endpoint_id,
     })
-}
-
-fn load_service_credentials(
-    ids: &SetupIds,
-    relationship: ServiceRelationship,
-    client_id: Id,
-    audience: &str,
-) -> io::Result<ServiceClientCredentials> {
-    Ok(ServiceClientCredentials {
-        client_id: client_id.to_string(),
-        client_secret: service_secrets::load_secret(ids.installation_id, relationship, client_id)?,
-        audience: audience.to_owned(),
-    })
-}
-
-fn service_client_registration(
-    client_id: Id,
-    client_secret: String,
-    relationship: ServiceRelationship,
-    base_url: &str,
-    idp_audience: &str,
-    storage_audience: &str,
-) -> ClientRegistration {
-    let (application_name, path, client_name, audiences, scopes): (_, _, _, Vec<&str>, &[&str]) =
-        match relationship {
-            ServiceRelationship::ManagementToIdp => (
-                "Management",
-                "management",
-                "Management service to IdP",
-                vec![idp_audience, MANAGEMENT_APPLICATION_URI, storage_audience],
-                &[IDP_TOKEN_VALIDATE_SCOPE, IDP_DEVICE_LOOKUP_SCOPE],
-            ),
-            ServiceRelationship::StorageToIdp => (
-                "Storage",
-                "storage",
-                "Storage service to IdP",
-                vec![idp_audience, "storage:databases", "storage:filesystems"],
-                &[
-                    IDP_TOKEN_VALIDATE_SCOPE,
-                    IDP_DEVICE_LOOKUP_SCOPE,
-                    IDP_DEVICE_LIST_SCOPE,
-                ],
-            ),
-            ServiceRelationship::StorageToManagement => (
-                "Storage",
-                "storage",
-                "Storage service to Management",
-                vec![storage_audience],
-                &[
-                    MANAGEMENT_REPLICATION_READ_SCOPE,
-                    MANAGEMENT_REPLICATION_ADMIT_SCOPE,
-                ],
-            ),
-            ServiceRelationship::IdpToManagement => (
-                "IdP",
-                "idp",
-                "IdP service to Management",
-                vec![MANAGEMENT_APPLICATION_URI],
-                &[MANAGEMENT_PERMISSION_EVALUATE_SCOPE],
-            ),
-        };
-    ClientRegistration {
-        application: ApplicationRegistration {
-            name: Some(application_name.to_owned()),
-            uri: format!("{base_url}/{path}"),
-            description: Some(format!("{application_name} service identity")),
-        },
-        client_id: Some(client_id.to_string()),
-        client_secret: Some(client_secret),
-        client_id_issued_at: None,
-        client_secret_expires_at: None,
-        client_name: client_name.to_owned(),
-        client_uri: None,
-        logo_uri: None,
-        contacts: Vec::new(),
-        terms_of_service_uri: None,
-        policy_uri: None,
-        client_type: ClientType::Confidential,
-        profile: ClientProfile::Web,
-        redirect_uris: Vec::new(),
-        allowed_grant_types: vec![GrantType::ClientCredentials],
-        response_types: Vec::new(),
-        allowed_scopes: scopes.iter().map(|scope| (*scope).to_owned()).collect(),
-        allowed_audiences: audiences.into_iter().map(str::to_owned).collect(),
-        token_endpoint_auth_method: TokenEndpointAuthMethod::ClientSecretPost,
-        software_statement: None,
-        software_id: None,
-        software_version: None,
-    }
 }
 
 pub fn setup_ready(app_data_dir: &Path) -> io::Result<bool> {
@@ -838,7 +689,7 @@ pub async fn start_persisted_unified_runtime(
     listener: TcpListener,
     base_url: String,
 ) -> io::Result<()> {
-    start_composed_unified_runtime(app_handle, listener, base_url, false).await
+    start_composed_unified_runtime(app_handle, listener, base_url, false, None).await
 }
 
 async fn start_composed_unified_runtime(
@@ -846,6 +697,7 @@ async fn start_composed_unified_runtime(
     listener: TcpListener,
     base_url: String,
     persist_ready: bool,
+    owners: Option<RuntimeOwners>,
 ) -> io::Result<()> {
     let app_data_dir = app_handle.path().app_data_dir().map_err(io::Error::other)?;
     let ids = read_setup_ids(&app_data_dir.join("setup-ids.json"))?;
@@ -855,7 +707,7 @@ async fn start_composed_unified_runtime(
         &ids.installation_id.to_string(),
     )?;
     let config = unified_runtime_config(&app_data_dir, listener.local_addr()?, &base_url, &ids)?;
-    let mut runtime = UnifiedRuntime::build_on_listener(config, listener, base_url.clone()).await?;
+    let mut runtime = build_desktop_runtime(config, listener, base_url.clone(), owners).await?;
     let startup = async {
         if !current_public_ready(&runtime, &app_data_dir).await? {
             return Err(io::Error::other(
@@ -883,6 +735,26 @@ async fn start_composed_unified_runtime(
     let runtime = finish_runtime_startup(runtime, startup, close(app_handle)).await?;
     store_unified_runtime(app_handle, runtime).await;
     Ok(())
+}
+
+async fn build_desktop_runtime(
+    config: UnifiedConfig,
+    listener: TcpListener,
+    base_url: String,
+    owners: Option<RuntimeOwners>,
+) -> io::Result<UnifiedRuntime> {
+    match owners {
+        Some(owners) => {
+            let endpoint = Arc::clone(&owners.endpoint);
+            let result =
+                UnifiedRuntime::build_with_owners(config, Some(listener), base_url, owners).await;
+            if result.is_err() {
+                endpoint.close().await;
+            }
+            result
+        }
+        None => UnifiedRuntime::build_on_listener(config, listener, base_url).await,
+    }
 }
 
 pub(crate) async fn finish_managed_startup<E>(
@@ -980,10 +852,6 @@ fn load_or_create_setup_ids(app_data_dir: &Path) -> io::Result<SetupIds> {
         signer_key_id: Id::now_v7(),
         role_id: Id::now_v7(),
         permission_ids: INITIAL_ADMIN_ACTIONS.iter().map(|_| Id::now_v7()).collect(),
-        management_to_idp_client_id: Id::now_v7(),
-        storage_to_idp_client_id: Id::now_v7(),
-        storage_to_management_client_id: Id::now_v7(),
-        idp_to_management_client_id: Id::now_v7(),
     };
     let value = json!({
         "version": 2,
@@ -995,12 +863,7 @@ fn load_or_create_setup_ids(app_data_dir: &Path) -> io::Result<SetupIds> {
         "signer_key_id": ids.signer_key_id.to_string(),
         "role_id": ids.role_id.to_string(),
         "permission_ids": ids.permission_ids.iter().map(ToString::to_string).collect::<Vec<_>>(),
-        "service_client_ids": {
-            "management_to_idp": ids.management_to_idp_client_id.to_string(),
-            "storage_to_idp": ids.storage_to_idp_client_id.to_string(),
-            "storage_to_management": ids.storage_to_management_client_id.to_string(),
-            "idp_to_management": ids.idp_to_management_client_id.to_string(),
-        },
+        "service_client_ids": {},
     });
     let bytes = serde_json::to_vec(&value).map_err(io::Error::other)?;
     let temporary_path = app_data_dir.join(format!(".setup-ids-{}.tmp", ids.installation_id));
@@ -1045,6 +908,14 @@ fn parse_setup_ids(value: &Value) -> io::Result<SetupIds> {
             "unsupported setup manifest version; explicit reset is required",
         ));
     }
+    let clients = value["service_client_ids"].as_object().ok_or_else(|| {
+        io::Error::other("missing service Client identities; explicit reset required")
+    })?;
+    if !clients.is_empty() {
+        return Err(io::Error::other(
+            "unsupported service relationships; explicit reset required",
+        ));
+    }
     let permission_ids = value
         .get("permission_ids")
         .and_then(Value::as_array)
@@ -1078,34 +949,6 @@ fn parse_setup_ids(value: &Value) -> io::Result<SetupIds> {
         )?,
         role_id: parse_setup_id(value.get("role_id").unwrap_or(&Value::Null), "role ID")?,
         permission_ids,
-        management_to_idp_client_id: parse_setup_id(
-            value
-                .get("service_client_ids")
-                .and_then(|ids| ids.get("management_to_idp"))
-                .unwrap_or(&Value::Null),
-            "Management-to-IdP client ID",
-        )?,
-        storage_to_idp_client_id: parse_setup_id(
-            value
-                .get("service_client_ids")
-                .and_then(|ids| ids.get("storage_to_idp"))
-                .unwrap_or(&Value::Null),
-            "Storage-to-IdP client ID",
-        )?,
-        storage_to_management_client_id: parse_setup_id(
-            value
-                .get("service_client_ids")
-                .and_then(|ids| ids.get("storage_to_management"))
-                .unwrap_or(&Value::Null),
-            "Storage-to-Management client ID",
-        )?,
-        idp_to_management_client_id: parse_setup_id(
-            value
-                .get("service_client_ids")
-                .and_then(|ids| ids.get("idp_to_management"))
-                .unwrap_or(&Value::Null),
-            "IdP-to-Management client ID",
-        )?,
     })
 }
 
@@ -1356,7 +1199,8 @@ pub fn pending_reset_revocations(app_handle: AppHandle<Wry>) -> Result<Value, St
         .map_err(|error| error.to_string())?;
     let mut targets = reset::revocations(&data).map_err(|error| error.to_string())?;
     if let Ok(references) = reset::recovery_references(&data) {
-        let ids = parse_setup_ids(&references["ids"]).map_err(|error| error.to_string())?;
+        let (ids, _) =
+            reset::reset_identities(&references["ids"]).map_err(|error| error.to_string())?;
         let member = ids.member_id.to_string();
         if !targets.iter().any(|target| target["member_id"] == member) {
             targets.push(json!({"version":1,"issuer":references["issuer"],"member_id":member,"status":"pending"}));
@@ -1428,33 +1272,18 @@ async fn delete_setup_secrets(data: &Path, references: reset::ResetSecrets) -> i
     config.oauth2.issuer = references.issuer;
     let owner = OwnerProvisioner::open(&config).await?;
 
+    let mut clients = vec![ids.installation_id];
+    clients.extend(references.clients.iter().map(|(_, client)| *client));
     owner
         .delete_local_secrets(
             ids.member_id,
             ids.signer_key_id,
             ids.administrator_id,
-            &setup_client_ids(&ids),
+            &clients,
         )
         .await?;
-    for (relationship, client_id) in [
-        (
-            ServiceRelationship::ManagementToIdp,
-            ids.management_to_idp_client_id,
-        ),
-        (
-            ServiceRelationship::StorageToIdp,
-            ids.storage_to_idp_client_id,
-        ),
-        (
-            ServiceRelationship::StorageToManagement,
-            ids.storage_to_management_client_id,
-        ),
-        (
-            ServiceRelationship::IdpToManagement,
-            ids.idp_to_management_client_id,
-        ),
-    ] {
-        service_secrets::delete_secret(ids.installation_id, relationship, client_id)?;
+    for (relationship, client_id) in references.clients {
+        service_secrets::delete_secret(ids.installation_id, &relationship, client_id)?;
     }
     Ok(())
 }
@@ -1711,7 +1540,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "writes isolated initial owner and relationship credentials to the real OS provider"]
+    #[ignore = "writes isolated initial owner credentials to the real OS provider"]
     async fn owner_cutover_native_startup_retry_and_reset() {
         let _operation = super::SETUP_OPERATION_LOCK.lock().await;
         let root = std::env::temp_dir().join(format!("owner-cutover-native-{}", Id::now_v7()));
@@ -1756,16 +1585,18 @@ mod tests {
             .await
             .expect("initial User");
         owner
-            .ensure_initial_user_signing_key(ids.administrator_id)
+            .ensure_initial_user_root(ids.administrator_id)
             .await
             .expect("captured initial User key");
-        let management = super::ManagementAppConfig {
-            data_dir: data
-                .join("services/management")
-                .to_string_lossy()
-                .into_owned(),
-            ..super::ManagementAppConfig::default()
-        };
+        let management_dir = data.join("services/management");
+        fs::create_dir_all(&management_dir).expect("native Management directory");
+        let management = std::sync::Arc::new(
+            db::Database::open(management_dir.join("management.redb"))
+                .expect("open native Management once"),
+        );
+        management_service::replica::up(&management)
+            .await
+            .expect("initialize native Management schema once");
         let permissions = super::INITIAL_ADMIN_ACTIONS
             .iter()
             .copied()
@@ -1773,7 +1604,7 @@ mod tests {
             .map(|(action, id)| (id, action))
             .collect::<Vec<_>>();
         management_server::provision_initial_administrator(
-            &management,
+            management.clone(),
             ids.administrator_id,
             ids.role_id,
             &permissions,
@@ -1781,7 +1612,7 @@ mod tests {
         .await
         .expect("native Management administrator");
         management_server::provision_initial_device(
-            &management,
+            management.clone(),
             ids.member_id,
             ids.administrator_id,
         )
@@ -1796,22 +1627,10 @@ mod tests {
             .verify_node_signer(&binding)
             .await
             .expect("independent signer");
-        super::provision_service_clients(
-            &data,
-            &owner,
-            &ids,
-            &base,
-            &format!("{base}/idp"),
-            &format!("{base}/storage"),
-        )
-        .await
-        .expect("captured five initial Clients and exact relationship credentials");
-        let relationship = super::service_secrets::load_secret(
-            ids.installation_id,
-            super::ServiceRelationship::ManagementToIdp,
-            ids.management_to_idp_client_id,
-        )
-        .expect("retained relationship secret");
+        owner
+            .ensure_desktop_client(ids.installation_id)
+            .await
+            .expect("captured public login Client");
         drop(owner);
         let (endpoint, fresh) = super::open_setup_endpoint(&data, &config)
             .await
@@ -1826,19 +1645,13 @@ mod tests {
             .await
             .expect("continuation uses only exact slots");
         owner
-            .ensure_initial_user_signing_key(ids.administrator_id)
+            .ensure_initial_user_root(ids.administrator_id)
             .await
             .expect("same User key");
-        super::provision_service_clients(
-            &data,
-            &owner,
-            &ids,
-            &base,
-            &format!("{base}/idp"),
-            &format!("{base}/storage"),
-        )
-        .await
-        .expect("exact service retry without a second pending begin");
+        owner
+            .ensure_desktop_client(ids.installation_id)
+            .await
+            .expect("exact public login retry");
         assert_eq!(
             owner
                 .verify_node_signer(&binding)
@@ -1846,61 +1659,8 @@ mod tests {
                 .expect("same native signer"),
             signer
         );
-        assert_eq!(
-            super::service_secrets::load_secret(
-                ids.installation_id,
-                super::ServiceRelationship::ManagementToIdp,
-                ids.management_to_idp_client_id
-            )
-            .expect("same relationship"),
-            relationship
-        );
-        super::service_secrets::delete_secret(
-            ids.installation_id,
-            super::ServiceRelationship::ManagementToIdp,
-            ids.management_to_idp_client_id,
-        )
-        .expect("simulate loss after resolved Client provisioning");
-        let missing_retry = super::provision_service_clients(
-            &data,
-            &owner,
-            &ids,
-            &base,
-            &format!("{base}/idp"),
-            &format!("{base}/storage"),
-        )
-        .await;
-        let replacement = super::service_secrets::load_secret(
-            ids.installation_id,
-            super::ServiceRelationship::ManagementToIdp,
-            ids.management_to_idp_client_id,
-        );
-        idp_service::repo::RawKeyringRepo::new("local.unified-service-credentials")
-            .expect("isolated fixture provider")
-            .store(
-                &ids.installation_id.to_string(),
-                &ids.management_to_idp_client_id.to_string(),
-                "management-to-idp",
-                relationship.as_bytes(),
-            )
-            .expect("restore exact original fixture credential, not a replacement");
-        let error = missing_retry.expect_err("historical missing relationship refuses app retry");
-        assert!(error.to_string().contains("replacement is not authorized"));
-        assert!(
-            replacement.is_err(),
-            "app retry must not write a replacement"
-        );
-        super::provision_service_clients(
-            &data,
-            &owner,
-            &ids,
-            &base,
-            &format!("{base}/idp"),
-            &format!("{base}/storage"),
-        )
-        .await
-        .expect("restored original credential permits exact retry");
         drop(owner);
+        drop(management);
         let runtime_config = super::unified_runtime_config(&data, address, &base, &ids)
             .expect("real desktop host configuration");
         let runtime =
@@ -1943,9 +1703,7 @@ mod tests {
                     &super::setup_client_ids(&references.ids),
                 )
                 .await?;
-            Err(std::io::Error::other(
-                "interrupted before relationship deletion",
-            ))
+            Err(std::io::Error::other("interrupted during secret cleanup"))
         })
         .await
         .expect_err("partial real secret cleanup must retain all owner references");
@@ -1967,7 +1725,7 @@ mod tests {
         );
         assert!(
             owner
-                .ensure_initial_user_signing_key(ids.administrator_id)
+                .ensure_initial_user_root(ids.administrator_id)
                 .await
                 .is_err(),
             "published missing User key must not be replaced"
@@ -1979,31 +1737,14 @@ mod tests {
                 .is_err(),
             "published missing Client key must not be replaced"
         );
-        assert_eq!(
-            super::service_secrets::load_secret(
-                ids.installation_id,
-                super::ServiceRelationship::ManagementToIdp,
-                ids.management_to_idp_client_id
-            )
-            .expect("relationship credential retained for cleanup retry"),
-            relationship
-        );
         drop(owner);
         super::reset::run(&data, &config_dir, |references| {
             super::delete_setup_secrets(&data, references)
         })
         .await
-        .expect("real native and relationship deletion/readback retry before owner removal");
+        .expect("real native secret deletion/readback retry before owner removal");
         assert!(!data.join("services").exists());
         assert!(!data.join("setup-ids.json").exists());
-        assert!(
-            super::service_secrets::load_secret(
-                ids.installation_id,
-                super::ServiceRelationship::ManagementToIdp,
-                ids.management_to_idp_client_id
-            )
-            .is_err()
-        );
         fs::remove_dir_all(root).expect("owned native fixture cleanup after secret cleanup");
     }
 
@@ -2090,6 +1831,121 @@ mod tests {
         .expect("real pending join signer cleanup before native owner removal");
         assert!(!data.join("services").exists());
         fs::remove_dir_all(root).expect("owned join fixture cleanup after secret deletion");
+    }
+
+    #[test]
+    fn fresh_create_issuer_is_unique_and_reused_without_a_listener_address() {
+        let root = std::env::temp_dir().join(format!("desktop-create-issuer-{}", Id::now_v7()));
+        let first = load_or_create_setup_ids(&root.join("first")).expect("first IDs");
+        let second = load_or_create_setup_ids(&root.join("second")).expect("second IDs");
+        let intent = super::create_setup_intent(&root.join("first"), &first).expect("fresh issuer");
+        assert_eq!(
+            intent["issuer"],
+            format!("https://{}.installation.invalid/idp", first.installation_id)
+        );
+        assert_ne!(
+            intent["issuer"],
+            super::create_setup_intent(&root.join("second"), &second).expect("independent issuer")
+                ["issuer"]
+        );
+        super::persist_setup_intent(&root.join("first"), &intent).expect("retained issuer");
+        let reopened = load_or_create_setup_ids(&root.join("first")).expect("reopened IDs");
+        assert_eq!(
+            super::create_setup_intent(&root.join("first"), &reopened).expect("retry issuer"),
+            intent
+        );
+        let existing =
+            serde_json::json!({"purpose":"create", "issuer":"https://localhost:443/idp"});
+        super::persist_setup_intent(&root.join("second"), &existing).expect("existing state");
+        assert_eq!(
+            super::create_setup_intent(&root.join("second"), &second).expect("no issuer migration"),
+            existing
+        );
+        fs::remove_dir_all(root).expect("create issuer fixture cleanup");
+    }
+
+    #[tokio::test]
+    async fn join_discovery_binds_and_retains_issuer_peer_and_name_without_reprobing() {
+        let root = std::env::temp_dir().join(format!("desktop-join-discovery-{}", Id::now_v7()));
+        let peer = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
+        let intent = super::join_setup_intent(&root, peer, "Local Node", async {
+            Ok("https://discovered.installation.invalid/idp".into())
+        })
+        .await
+        .expect("authenticated discovery");
+        assert_eq!(
+            intent,
+            serde_json::json!({"purpose":"join", "issuer":"https://discovered.installation.invalid/idp", "peer":peer, "name":"Local Node"})
+        );
+        assert!(!root.exists());
+        load_or_create_setup_ids(&root).expect("IDs after discovery");
+        super::persist_setup_intent(&root, &intent).expect("retain discovered binding");
+        let retry = super::join_setup_intent(&root, peer, "Local Node", async {
+            panic!("retained retry must not probe the peer");
+        })
+        .await
+        .expect("offline retained intent");
+        assert_eq!(retry, intent);
+        let other_peer = iroh::SecretKey::generate().public().to_string();
+        for (peer, name) in [(other_peer.as_str(), "Local Node"), (peer, "Changed Node")] {
+            assert!(
+                super::join_setup_intent(&root, peer, name, async {
+                    panic!("changed binding must fail before discovery");
+                })
+                .await
+                .is_err()
+            );
+        }
+        assert!(
+            super::create_setup_intent(
+                &root,
+                &load_or_create_setup_ids(&root).expect("retained IDs")
+            )
+            .is_err()
+        );
+        assert_eq!(
+            super::read_setup_intent(&root).expect("unchanged binding"),
+            intent
+        );
+        fs::remove_dir_all(root).expect("join discovery fixture cleanup");
+    }
+
+    #[tokio::test]
+    async fn failed_or_invalid_join_discovery_does_not_retain_an_intent() {
+        let root = std::env::temp_dir().join(format!("desktop-failed-discovery-{}", Id::now_v7()));
+        let peer = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
+        assert!(
+            super::join_setup_intent(&root, peer, "Local Node", async {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "issuer response binding rejected",
+                ))
+            })
+            .await
+            .is_err()
+        );
+        assert!(
+            super::join_setup_intent(&root, peer, "Local Node", async {
+                Ok("http://untrusted.test/idp".into())
+            })
+            .await
+            .is_err()
+        );
+        assert!(
+            super::join_setup_intent(&root, "invalid-peer", "Local Node", async {
+                panic!("invalid peer must fail before discovery");
+            })
+            .await
+            .is_err()
+        );
+        assert!(
+            super::join_setup_intent(&root, peer, "", async {
+                panic!("invalid name must fail before discovery");
+            })
+            .await
+            .is_err()
+        );
+        assert!(!root.exists());
     }
 
     #[test]
@@ -2240,22 +2096,6 @@ mod tests {
         assert_eq!(first.credential_id, second.credential_id);
         assert_eq!(first.role_id, second.role_id);
         assert_eq!(first.permission_ids, second.permission_ids);
-        assert_eq!(
-            first.management_to_idp_client_id,
-            second.management_to_idp_client_id
-        );
-        assert_eq!(
-            first.storage_to_idp_client_id,
-            second.storage_to_idp_client_id
-        );
-        assert_eq!(
-            first.storage_to_management_client_id,
-            second.storage_to_management_client_id
-        );
-        assert_eq!(
-            first.idp_to_management_client_id,
-            second.idp_to_management_client_id
-        );
         assert!(data_dir.join("setup-ids.json").is_file());
         fs::remove_dir_all(data_dir).expect("remove temporary setup manifest");
     }

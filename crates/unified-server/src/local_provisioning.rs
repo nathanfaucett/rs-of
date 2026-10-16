@@ -1,23 +1,24 @@
 use std::{
     fs::{self, File, OpenOptions},
+    future::Future,
     io::{self, Read, Write},
     path::{Component, Path, PathBuf},
+    pin::Pin,
+    sync::Arc,
 };
 
 use idp_model::{
     contract::{
         ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, GrantType,
-        IDP_DEVICE_LIST_SCOPE, IDP_DEVICE_LOOKUP_SCOPE, IDP_TOKEN_VALIDATE_SCOPE, IdentityAction,
-        JwkPublic, MANAGEMENT_PERMISSION_EVALUATE_SCOPE, TokenEndpointAuthMethod,
+        IdentityAction, JwkPublic, TokenEndpointAuthMethod,
     },
     model::Id,
 };
 use idp_server::OwnerProvisioner;
 use idp_service::{encrypt_password, oauth2::NodeSignerBinding};
-use model::contract::{MANAGEMENT_REPLICATION_ADMIT_SCOPE, MANAGEMENT_REPLICATION_READ_SCOPE};
 use serde::{Deserialize, Serialize};
 
-use crate::{ServiceClientCredentials, UnifiedConfig, UnifiedEndpoint, UnifiedRuntime};
+use crate::{UnifiedConfig, UnifiedEndpoint, UnifiedRuntime};
 
 const INITIAL_ACTIONS: [IdentityAction; 24] = [
     IdentityAction::InfrastructureClientsRead,
@@ -48,12 +49,13 @@ const INITIAL_ACTIONS: [IdentityAction; 24] = [
 
 #[derive(Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
-struct Intent {
+pub(crate) struct Intent {
     issuer: String,
     key_namespace: String,
     roots: [PathBuf; 4],
     password_policy: serde_json::Value,
-    clients: Vec<ClientRegistration>,
+    applications: [String; 3],
+    audiences: [String; 2],
 }
 
 #[derive(Serialize, Deserialize, PartialEq)]
@@ -64,6 +66,7 @@ struct Journal {
     installation: Id,
     user: Id,
     credential: Id,
+    login_client: Id,
     member: Id,
     key: Id,
     role: Id,
@@ -71,7 +74,6 @@ struct Journal {
     administrator: String,
     node: String,
     password_verifier: String,
-    secret_verifiers: Vec<String>,
     endpoint_attempted: bool,
     endpoint: Option<String>,
     inventory_attempted: bool,
@@ -96,10 +98,23 @@ pub struct LocalProvisioner {
 impl LocalProvisioner {
     /// CLI existing-only startup decision; a present local journal is authoritative.
     pub async fn open_runtime(config: UnifiedConfig) -> io::Result<(UnifiedRuntime, Option<Self>)> {
+        Self::open_runtime_for_transport(config, false).await
+    }
+
+    pub async fn open_runtime_https(
+        config: UnifiedConfig,
+    ) -> io::Result<(UnifiedRuntime, Option<Self>)> {
+        Self::open_runtime_for_transport(config, true).await
+    }
+
+    async fn open_runtime_for_transport(
+        config: UnifiedConfig,
+        https: bool,
+    ) -> io::Result<(UnifiedRuntime, Option<Self>)> {
         match fs::symlink_metadata(config.local_provisioning_directory()) {
             Ok(_) => {
                 let local = Self::open(config)?;
-                let runtime = local.build_runtime().await?;
+                let runtime = local.build_runtime_for_transport(https).await?;
                 Ok((runtime, Some(local)))
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -129,10 +144,12 @@ impl LocalProvisioner {
                         "existing endpoint conflicts with retained Node signer binding",
                     ));
                 }
-                let owner = OwnerProvisioner::open(&config.idp).await?;
-                owner.verify_node_signer(binding).await?;
-                drop(owner);
-                let runtime = UnifiedRuntime::build(config).await?;
+
+                let runtime = if https {
+                    UnifiedRuntime::build_https(config).await?
+                } else {
+                    UnifiedRuntime::build(config).await?
+                };
                 match runtime.node_public_ready().await {
                     Ok(true) => Ok((runtime, None)),
                     result => {
@@ -154,8 +171,20 @@ impl LocalProvisioner {
         node: &str,
         password_file: &Path,
     ) -> io::Result<Self> {
-        let config = normalized_config(config)?;
+        require_unix_bootstrap()?;
         let password = read_password(password_file)?;
+        Self::create_with_password(config, administrator, node, &password)
+    }
+
+    pub fn create_with_password(
+        config: UnifiedConfig,
+        administrator: &str,
+        node: &str,
+        password: &str,
+    ) -> io::Result<Self> {
+        require_unix_bootstrap()?;
+        validate_password(password)?;
+        let config = normalized_config(config)?;
         if administrator.trim().is_empty()
             || node.trim().is_empty()
             || config.idp.oauth2.local_signer.is_some()
@@ -176,21 +205,15 @@ impl LocalProvisioner {
             installation: Id::now_v7(),
             user: Id::now_v7(),
             credential: Id::now_v7(),
+            login_client: Id::now_v7(),
             member: Id::now_v7(),
             key: Id::now_v7(),
             role: Id::now_v7(),
             permissions: INITIAL_ACTIONS.iter().map(|_| Id::now_v7()).collect(),
             administrator: administrator.to_owned(),
             node: node.to_owned(),
-            password_verifier: encrypt_password(&config.idp.password, &password)
+            password_verifier: encrypt_password(&config.idp.password, password)
                 .map_err(io::Error::other)?,
-            secret_verifiers: credentials(&config)?
-                .iter()
-                .map(|client| {
-                    encrypt_password(&config.idp.password, &client.client_secret)
-                        .map_err(io::Error::other)
-                })
-                .collect::<io::Result<_>>()?,
             endpoint_attempted: false,
             endpoint: None,
             inventory_attempted: false,
@@ -223,6 +246,7 @@ impl LocalProvisioner {
         let directory = config.local_provisioning_directory();
         require_directory(&directory)?;
         let operation = lock(&directory, false)?;
+        require_absent(&directory.join("join.json"))?;
         let host = Self {
             config,
             directory,
@@ -235,11 +259,107 @@ impl LocalProvisioner {
     /// Continues only the retained exact local intent, using protected password input.
     pub async fn provision(&mut self, password_file: &Path) -> io::Result<()> {
         let password = read_password(password_file)?;
+        self.provision_with_tls(&password, None).await
+    }
+
+    pub async fn provision_https(
+        &mut self,
+        password_file: &Path,
+        tls: &crate::LocalTls,
+    ) -> io::Result<()> {
+        require_unix_bootstrap()?;
+        crate::LocalTls::api_base(self.config.listen_addr)?;
+        let password = read_password(password_file)?;
+        self.provision_https_with_password(&password, tls).await
+    }
+
+    pub async fn provision_https_with_password(
+        &mut self,
+        password: &str,
+        tls: &crate::LocalTls,
+    ) -> io::Result<()> {
+        require_unix_bootstrap()?;
+        crate::LocalTls::api_base(self.config.listen_addr)?;
+        self.provision_with_tls(password, Some(tls)).await
+    }
+
+    /// Public registration only; passwords, tokens and service secrets are never exposed.
+    pub fn login_client(&self) -> io::Result<ClientRegistration> {
+        let journal = self.read()?;
+        Ok(login_registration(&self.config, journal.login_client))
+    }
+
+    pub fn is_complete(&self) -> io::Result<bool> {
+        Ok(self.read()?.complete)
+    }
+
+    pub async fn verify_https(&self, tls: &crate::LocalTls) -> io::Result<()> {
+        self.build_runtime_for_transport(true)
+            .await?
+            .verify_local_bootstrap(Some(tls))
+            .await
+    }
+
+    async fn provision_with_tls(
+        &mut self,
+        password: &str,
+        tls: Option<&crate::LocalTls>,
+    ) -> io::Result<()> {
+        let runtime = self
+            .prepare_runtime(
+                password,
+                tls.is_some(),
+                false,
+                &tokio_util::sync::CancellationToken::new(),
+            )
+            .await?;
+        runtime.verify_local_bootstrap(tls).await?;
+        self.mark_complete()
+    }
+
+    pub(crate) fn validate_retry(
+        &self,
+        administrator: &str,
+        node: &str,
+        password: &str,
+    ) -> io::Result<()> {
+        let journal = self.read()?;
+        if journal.administrator != administrator || journal.node != node {
+            return Err(invalid(
+                "human Create intent conflicts with retained owner state",
+            ));
+        }
+        verify(password, &journal.password_verifier)
+    }
+
+    pub(crate) async fn prepare_hosted_runtime(
+        &mut self,
+        password: &str,
+        cancellation: &tokio_util::sync::CancellationToken,
+    ) -> io::Result<UnifiedRuntime> {
+        Box::pin(self.prepare_runtime(password, true, true, cancellation)).await
+    }
+
+    pub(crate) fn mark_complete(&self) -> io::Result<()> {
         let mut journal = self.read()?;
-        verify(&password, &journal.password_verifier)?;
+        journal.complete = true;
+        self.write(&journal)
+    }
+
+    async fn prepare_runtime(
+        &mut self,
+        password: &str,
+        https: bool,
+        hosted: bool,
+        cancellation: &tokio_util::sync::CancellationToken,
+    ) -> io::Result<UnifiedRuntime> {
+        let started = std::time::Instant::now();
+        validate_password(password)?;
+        check_cancellation(cancellation)?;
+        let mut journal = self.read()?;
+        verify(password, &journal.password_verifier)?;
         if journal.complete {
-            let runtime = self.build_runtime().await?;
-            return runtime.shutdown().await;
+            return Box::pin(self.build_runtime_for_host(https, hosted)).await;
         }
         if journal.management_attempted {
             require_directory(Path::new(&self.config.management.data_dir))?;
@@ -272,146 +392,213 @@ impl LocalProvisioner {
             self.write(&journal)?;
             UnifiedEndpoint::open_fresh(&self.config.endpoint_data_dir, &self.config.idp).await?
         };
-        let endpoint_id = endpoint.endpoint_id().to_string();
-        endpoint.close().await;
-        if journal
-            .endpoint
-            .as_ref()
-            .is_some_and(|retained| retained != &endpoint_id)
-        {
-            return Err(invalid(
-                "endpoint identity changed; exact recovery required",
-            ));
-        }
-        journal.endpoint = Some(endpoint_id);
-        self.write(&journal)?;
-        let fresh_inventory = !journal.inventory_attempted;
-        if fresh_inventory {
-            require_absent(Path::new(&self.config.idp.data_dir))?;
-            journal.inventory_attempted = true;
+        let endpoint = Arc::new(endpoint);
+        let result = async {
+            let endpoint_id = endpoint.endpoint_id().to_string();
+            if journal
+                .endpoint
+                .as_ref()
+                .is_some_and(|retained| retained != &endpoint_id)
+            {
+                return Err(invalid(
+                    "endpoint identity changed; exact recovery required",
+                ));
+            }
+            journal.endpoint = Some(endpoint_id);
             self.write(&journal)?;
-            create_private_directory(Path::new(&self.config.idp.data_dir), false)?;
-        } else {
-            require_file(
-                &Path::new(&self.config.idp.data_dir).join("idp.redb"),
-                false,
-            )?;
-        }
-        let owner = OwnerProvisioner::open(&self.config.idp).await?;
-        let clients = client_ids(&journal)?;
-        if fresh_inventory {
-            owner
-                .prepare_fresh_setup_secret_inventory(journal.user, &clients)
+            log::info!(
+                "Node Create stage=endpoint elapsed_ms={}",
+                started.elapsed().as_millis()
+            );
+            let started = std::time::Instant::now();
+            check_cancellation(cancellation)?;
+            let fresh_inventory = !journal.inventory_attempted;
+            if fresh_inventory {
+                require_absent(Path::new(&self.config.idp.data_dir))?;
+                journal.inventory_attempted = true;
+                self.write(&journal)?;
+                create_private_directory(Path::new(&self.config.idp.data_dir), false)?;
+            } else {
+                require_file(
+                    &Path::new(&self.config.idp.data_dir).join("idp.redb"),
+                    false,
+                )?;
+            }
+            let owner = OwnerProvisioner::open(&self.config.idp).await?;
+            let clients = [journal.login_client];
+            if fresh_inventory {
+                provisioning_stage(|| {
+                    owner.prepare_fresh_setup_secret_inventory(journal.user, &clients)
+                })
                 .await?;
-        }
-        owner.prepare_setup_client_slots(&clients).await?;
-        owner
-            .ensure_initial_user(
-                journal.user,
-                journal.credential,
-                &journal.administrator,
-                &password,
-            )
+            }
+            provisioning_stage(|| owner.prepare_setup_client_slots(&clients)).await?;
+            provisioning_stage(|| {
+                owner.ensure_initial_user(
+                    journal.user,
+                    journal.credential,
+                    &journal.administrator,
+                    password,
+                )
+            })
             .await?;
-        owner.ensure_initial_user_signing_key(journal.user).await?;
-        let binding = binding(&journal)?;
-        let public = if journal.node_attempted {
-            owner.verify_prepared_node_signer(&binding)?
-        } else {
-            journal.node_attempted = true;
+            provisioning_stage(|| owner.ensure_initial_user_root(journal.user)).await?;
+            let binding = binding(&journal)?;
+            let public = if journal.node_attempted {
+                owner.verify_prepared_node_signer(&binding)?
+            } else {
+                journal.node_attempted = true;
+                self.write(&journal)?;
+                owner.prepare_node_signer(&binding)?
+            };
+            if journal
+                .public_signer
+                .as_ref()
+                .is_some_and(|retained| retained != &public)
+            {
+                return Err(invalid(
+                    "prepared Node signer changed; exact recovery required",
+                ));
+            }
+            journal.public_signer = Some(public);
             self.write(&journal)?;
-            owner.prepare_node_signer(&binding)?
-        };
-        if journal
-            .public_signer
-            .as_ref()
-            .is_some_and(|retained| retained != &public)
-        {
-            return Err(invalid(
-                "prepared Node signer changed; exact recovery required",
-            ));
-        }
-        journal.public_signer = Some(public);
-        self.write(&journal)?;
-        owner
-            .ensure_initial_node(&binding, journal.user, &journal.node)
+            provisioning_stage(|| owner.ensure_initial_node(&binding, journal.user, &journal.node))
+                .await?;
+            if Some(provisioning_stage(|| owner.verify_node_signer(&binding)).await?)
+                != journal.public_signer
+            {
+                return Err(invalid(
+                    "approved Node signer differs from retained preparation",
+                ));
+            }
+            provisioning_stage(|| {
+                owner.ensure_setup_public_login_client(login_registration(
+                    &self.config,
+                    journal.login_client,
+                ))
+            })
             .await?;
-        if Some(owner.verify_node_signer(&binding).await?) != journal.public_signer {
-            return Err(invalid(
-                "approved Node signer differs from retained preparation",
-            ));
-        }
-        for (mut request, credential) in journal
-            .intent
-            .clients
-            .iter()
-            .cloned()
-            .zip(credentials(&self.config)?)
-        {
-            request.client_secret = Some(credential.client_secret.clone());
-            owner.ensure_setup_infrastructure_client(request).await?;
-        }
-        drop(owner);
-        if !journal.management_attempted {
-            require_absent(Path::new(&self.config.management.data_dir))?;
-            journal.management_attempted = true;
-            self.write(&journal)?;
-            create_private_directory(Path::new(&self.config.management.data_dir), false)?;
-            let permissions = journal
-                .permissions
-                .iter()
-                .copied()
-                .zip(INITIAL_ACTIONS)
-                .collect::<Vec<_>>();
-            management_server::provision_initial_administrator(
-                &self.config.management,
-                journal.user,
-                journal.role,
-                &permissions,
-            )
+            let idp_engine = owner.node_join_database();
+            log::info!(
+                "Node Create stage=idp elapsed_ms={}",
+                started.elapsed().as_millis()
+            );
+            let started = std::time::Instant::now();
+            check_cancellation(cancellation)?;
+            if !journal.management_attempted {
+                require_absent(Path::new(&self.config.management.data_dir))?;
+                journal.management_attempted = true;
+                self.write(&journal)?;
+                create_private_directory(Path::new(&self.config.management.data_dir), false)?;
+            }
+            let management_engine =
+                management_server::open_database(&self.config.management).await?;
+            if !journal.management_complete {
+                let permissions = journal
+                    .permissions
+                    .iter()
+                    .copied()
+                    .zip(INITIAL_ACTIONS)
+                    .collect::<Vec<_>>();
+                provisioning_stage(|| {
+                    management_server::provision_initial_administrator(
+                        Arc::clone(&management_engine),
+                        journal.user,
+                        journal.role,
+                        &permissions,
+                    )
+                })
+                .await?;
+                provisioning_stage(|| {
+                    management_server::provision_initial_device(
+                        Arc::clone(&management_engine),
+                        journal.member,
+                        journal.user,
+                    )
+                })
+                .await?;
+                journal.management_complete = true;
+                self.write(&journal)?;
+            }
+            log::info!(
+                "Node Create stage=management elapsed_ms={}",
+                started.elapsed().as_millis()
+            );
+            let started = std::time::Instant::now();
+            check_cancellation(cancellation)?;
+            let listener = if hosted {
+                None
+            } else {
+                Some(tokio::net::TcpListener::bind(self.config.listen_addr).await?)
+            };
+            let api_base = match &listener {
+                Some(listener) if !https => format!("http://{}", listener.local_addr()?),
+                Some(listener) => crate::LocalTls::api_base(listener.local_addr()?)?,
+                None => crate::LocalTls::api_base(self.config.listen_addr)?,
+            };
+            if !journal.storage_attempted {
+                require_absent(Path::new(&self.config.storage.data_dir))?;
+                journal.storage_attempted = true;
+                self.write(&journal)?;
+                create_private_directory(Path::new(&self.config.storage.data_dir), false)?;
+            }
+            let mut config = self.config.clone();
+            config.idp.oauth2.local_signer = Some(binding);
+            let runtime = Box::pin(UnifiedRuntime::build_with_owners(
+                config,
+                listener,
+                api_base,
+                crate::runtime::RuntimeOwners {
+                    endpoint: Arc::clone(&endpoint),
+                    idp: idp_engine,
+                    management: management_engine,
+                },
+            ))
             .await?;
-            management_server::provision_initial_device(
-                &self.config.management,
-                journal.member,
-                journal.user,
-            )
-            .await?;
-            journal.management_complete = true;
-            self.write(&journal)?;
+            log::info!(
+                "Node Create stage=runtime elapsed_ms={}",
+                started.elapsed().as_millis()
+            );
+            journal.storage_initialized = true;
+            if let Err(error) = self.write(&journal) {
+                runtime.shutdown().await?;
+                return Err(error);
+            }
+            if let Err(error) = check_cancellation(cancellation) {
+                runtime.shutdown().await?;
+                return Err(error);
+            }
+            Ok(runtime)
         }
-        let listener = tokio::net::TcpListener::bind(self.config.listen_addr).await?;
-        let api_base = format!("http://{}", listener.local_addr()?);
-        if !journal.storage_attempted {
-            require_absent(Path::new(&self.config.storage.data_dir))?;
-            journal.storage_attempted = true;
-            self.write(&journal)?;
-            create_private_directory(Path::new(&self.config.storage.data_dir), false)?;
+        .await;
+        if result.is_err() {
+            endpoint.close().await;
         }
-        let mut config = self.config.clone();
-        config.idp.oauth2.local_signer = Some(binding);
-        let runtime = UnifiedRuntime::build_on_listener(config, listener, api_base).await?;
-        journal.storage_initialized = true;
-        if let Err(error) = self.write(&journal) {
-            runtime.shutdown().await?;
-            return Err(error);
-        }
-        let ready = runtime.node_public_ready().await;
-        runtime.shutdown().await?;
-        if !ready? {
-            return Err(invalid(
-                "local contexts are not currently ready; setup remains incomplete",
-            ));
-        }
-        journal.complete = true;
-        self.write(&journal)
+        result
     }
 
     /// Requires explicit completion and current local evidence; never provisions at startup.
     pub async fn build_runtime(&self) -> io::Result<UnifiedRuntime> {
+        self.build_runtime_for_transport(false).await
+    }
+
+    async fn build_runtime_for_transport(&self, https: bool) -> io::Result<UnifiedRuntime> {
+        self.build_runtime_for_host(https, false).await
+    }
+
+    pub(crate) async fn reopen_hosted_runtime(&self) -> io::Result<UnifiedRuntime> {
+        self.build_runtime_for_host(true, true).await
+    }
+
+    async fn build_runtime_for_host(
+        &self,
+        https: bool,
+        hosted: bool,
+    ) -> io::Result<UnifiedRuntime> {
         let journal = self.read()?;
         if !journal.complete {
             return Err(invalid(
-                "local provisioning is incomplete; run the explicit provision command",
+                "local provisioning is incomplete; continue the retained create command",
             ));
         }
         for root in &journal.intent.roots {
@@ -437,36 +624,72 @@ impl LocalProvisioner {
         }
         let mut config = self.config.clone();
         config.idp.oauth2.local_signer = Some(binding.clone());
-        let owner = OwnerProvisioner::open(&config.idp).await?;
-        if Some(owner.verify_node_signer(&binding).await?) != journal.public_signer {
-            return Err(invalid(
-                "current Node signing capability does not match completed intent",
-            ));
+        let owners = crate::runtime::RuntimeOwners::open(&config).await?;
+        let result = async {
+            let owner = OwnerProvisioner::from_database(&config.idp, Arc::clone(&owners.idp))?;
+            if Some(owner.verify_node_signer(&binding).await?) != journal.public_signer {
+                return Err(invalid(
+                    "current Node signing capability does not match completed intent",
+                ));
+            }
+            owner
+                .verify_public_login_client(login_registration(&self.config, journal.login_client))
+                .await?;
+            let listener = if hosted {
+                None
+            } else {
+                Some(tokio::net::TcpListener::bind(config.listen_addr).await?)
+            };
+            let address = match &listener {
+                Some(listener) => listener.local_addr()?,
+                None => config.listen_addr,
+            };
+            let api_base = if https {
+                crate::LocalTls::api_base(address)?
+            } else {
+                format!("http://{address}")
+            };
+            Box::pin(UnifiedRuntime::build_with_owners(
+                config,
+                listener,
+                api_base,
+                crate::runtime::RuntimeOwners {
+                    endpoint: Arc::clone(&owners.endpoint),
+                    idp: Arc::clone(&owners.idp),
+                    management: Arc::clone(&owners.management),
+                },
+            ))
+            .await
         }
-        for (mut request, credential) in journal
-            .intent
-            .clients
-            .iter()
-            .cloned()
-            .zip(credentials(&self.config)?)
-        {
-            request.client_secret = Some(credential.client_secret.clone());
-            owner.verify_infrastructure_client(request).await?;
-        }
-        drop(owner);
-        let runtime = UnifiedRuntime::build(config).await?;
+        .await;
+        let mut runtime = match result {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                owners.endpoint.close().await;
+                return Err(error);
+            }
+        };
+        drop(owners);
         if journal.endpoint.as_deref() != Some(&runtime.endpoint_id().to_string()) {
             runtime.shutdown().await?;
             return Err(invalid(
                 "endpoint identity changed; exact recovery required",
             ));
         }
-        match runtime.node_public_ready().await {
-            Ok(true) => Ok(runtime),
-            result => {
+        let readiness = if hosted {
+            runtime.start_background_tasks().await
+        } else {
+            match runtime.node_public_ready().await {
+                Ok(true) => Ok(()),
+                Ok(false) => Err(invalid("completed intent is not current local readiness")),
+                Err(error) => Err(error),
+            }
+        };
+        match readiness {
+            Ok(()) => Ok(runtime),
+            Err(error) => {
                 runtime.shutdown().await?;
-                result?;
-                Err(invalid("completed intent is not current local readiness"))
+                Err(error)
             }
         }
     }
@@ -481,7 +704,6 @@ impl LocalProvisioner {
             || journal.administrator.trim().is_empty()
             || journal.node.trim().is_empty()
             || journal.permissions.len() != INITIAL_ACTIONS.len()
-            || journal.secret_verifiers.len() != journal.intent.clients.len()
             || journal.endpoint.is_some() && !journal.endpoint_attempted
             || journal.inventory_attempted && journal.endpoint.is_none()
             || journal.node_attempted && !journal.inventory_attempted
@@ -505,7 +727,7 @@ impl LocalProvisioner {
             journal.role,
         ];
         identities.extend(&journal.permissions);
-        identities.extend(client_ids(&journal)?);
+        identities.push(journal.login_client);
         let count = identities.len();
         identities.sort();
         identities.dedup();
@@ -514,14 +736,7 @@ impl LocalProvisioner {
                 "local intent identities must be distinct and non-nil",
             ));
         }
-        if !journal.complete {
-            for (credential, verifier) in credentials(&self.config)?
-                .iter()
-                .zip(&journal.secret_verifiers)
-            {
-                verify(&credential.client_secret, verifier)?;
-            }
-        }
+
         if let Some(configured) = &self.config.idp.oauth2.local_signer
             && !same_binding(configured, &binding(&journal)?)
         {
@@ -547,23 +762,33 @@ impl LocalProvisioner {
     }
 }
 
-fn intent(config: &UnifiedConfig) -> io::Result<Intent> {
+// Construct large owner futures outside the caller's poll frame as well as storing them on the heap.
+#[inline(never)]
+pub(crate) fn provisioning_stage<'a, T: 'a, F>(
+    make: impl FnOnce() -> F,
+) -> Pin<Box<dyn Future<Output = io::Result<T>> + Send + 'a>>
+where
+    F: Future<Output = io::Result<T>> + Send + 'a,
+{
+    Box::pin(make())
+}
+
+fn check_cancellation(cancellation: &tokio_util::sync::CancellationToken) -> io::Result<()> {
+    if cancellation.is_cancelled() {
+        Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "Create cancelled; retained owner state requires exact continuation",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+pub(crate) fn intent(config: &UnifiedConfig) -> io::Result<Intent> {
     crate::runtime::validate_config(config)?;
+    crate::LocalTls::validate_ip(config.listen_addr.ip())?;
     if !config.listen_addr.ip().is_loopback() {
         return Err(invalid("local host must use a loopback listener"));
-    }
-    let clients = credentials(config)?;
-    let mut secrets: Vec<&str> = Vec::new();
-    for credential in &clients {
-        canonical_id(&credential.client_id)?;
-        if credential.client_secret.trim().is_empty()
-            || secrets.contains(&credential.client_secret.as_str())
-        {
-            return Err(invalid(
-                "each service relationship requires a distinct nonempty secret",
-            ));
-        }
-        secrets.push(credential.client_secret.as_str());
     }
     let roots = [
         PathBuf::from(&config.idp.data_dir),
@@ -587,55 +812,6 @@ fn intent(config: &UnifiedConfig) -> io::Result<Intent> {
             ));
         }
     }
-    let mut requests = [
-        registration(
-            clients[0],
-            "Management",
-            &config.management.api_public_uri,
-            "Management service to IdP",
-            &[IDP_TOKEN_VALIDATE_SCOPE, IDP_DEVICE_LOOKUP_SCOPE],
-        ),
-        registration(
-            clients[1],
-            "Storage",
-            &config.storage.api_public_uri,
-            "Storage service to IdP",
-            &[
-                IDP_TOKEN_VALIDATE_SCOPE,
-                IDP_DEVICE_LOOKUP_SCOPE,
-                IDP_DEVICE_LIST_SCOPE,
-            ],
-        ),
-        registration(
-            clients[2],
-            "Storage",
-            &config.storage.api_public_uri,
-            "Storage service to Management",
-            &[
-                MANAGEMENT_REPLICATION_READ_SCOPE,
-                MANAGEMENT_REPLICATION_ADMIT_SCOPE,
-            ],
-        ),
-        registration(
-            clients[3],
-            "IdP",
-            &config.idp.api_public_uri,
-            "IdP service to Management",
-            &[MANAGEMENT_PERMISSION_EVALUATE_SCOPE],
-        ),
-    ];
-    // IdP's introspection contract uses the Client audience allowlist for inspected tokens too.
-    allow_inspection(
-        &mut requests[0],
-        &[
-            management_service::MANAGEMENT_APPLICATION_URI,
-            &config.management.storage_audience,
-        ],
-    );
-    allow_inspection(
-        &mut requests[1],
-        &["storage:databases", "storage:filesystems"],
-    );
     if config.idp.oauth2.issuer.trim().is_empty() || config.idp.key_namespace.trim().is_empty() {
         return Err(invalid("Canonical Issuer and key namespace are required"));
     }
@@ -644,94 +820,60 @@ fn intent(config: &UnifiedConfig) -> io::Result<Intent> {
         key_namespace: config.idp.key_namespace.clone(),
         roots,
         password_policy: serde_json::to_value(&config.idp.password)?,
-        clients: requests.into(),
+        applications: [
+            config.idp.api_public_uri.clone(),
+            config.management.api_public_uri.clone(),
+            config.storage.api_public_uri.clone(),
+        ],
+        audiences: [
+            config.idp_audience().to_owned(),
+            config.management.storage_audience.clone(),
+        ],
     })
 }
 
-fn credentials(config: &UnifiedConfig) -> io::Result<[&ServiceClientCredentials; 4]> {
-    Ok([
-        &config.management_idp_client,
-        &config.storage_idp_client,
-        &config.storage_management_client,
-        config.idp_management_client.as_ref().ok_or_else(|| {
-            invalid("local provisioning requires the explicit IdP to Management relationship")
-        })?,
-    ])
-}
-
-fn registration(
-    credential: &ServiceClientCredentials,
-    application: &str,
-    uri: &str,
-    name: &str,
-    scopes: &[&str],
-) -> ClientRegistration {
+pub(crate) fn login_registration(config: &UnifiedConfig, client_id: Id) -> ClientRegistration {
     ClientRegistration {
         application: ApplicationRegistration {
-            name: Some(application.into()),
-            uri: uri.into(),
-            description: Some(format!("{application} service identity")),
+            name: Some("Local Node operator".into()),
+            uri: format!(
+                "{}/operator",
+                config.idp.api_public_uri.trim_end_matches('/')
+            ),
+            description: None,
         },
-        client_id: Some(credential.client_id.clone()),
+        client_id: Some(client_id.to_string()),
         client_secret: None,
         client_id_issued_at: None,
         client_secret_expires_at: None,
-        client_name: name.into(),
+        client_name: "Local Node operator".into(),
         client_uri: None,
         logo_uri: None,
         contacts: Vec::new(),
         terms_of_service_uri: None,
         policy_uri: None,
-        client_type: ClientType::Confidential,
-        profile: ClientProfile::Web,
+        client_type: ClientType::Public,
+        profile: ClientProfile::Native,
         redirect_uris: Vec::new(),
-        allowed_grant_types: vec![GrantType::ClientCredentials],
+        allowed_grant_types: vec![
+            GrantType::Password,
+            GrantType::RefreshToken,
+            GrantType::TokenExchange,
+        ],
         response_types: Vec::new(),
-        allowed_scopes: scopes.iter().map(|scope| (*scope).into()).collect(),
-        allowed_audiences: vec![credential.audience.clone()],
-        token_endpoint_auth_method: TokenEndpointAuthMethod::ClientSecretPost,
+        allowed_scopes: vec!["openid".into(), "profile".into(), "email".into()],
+        allowed_audiences: vec![
+            config.idp_audience().to_owned(),
+            management_service::MANAGEMENT_APPLICATION_URI.into(),
+            config.management.storage_audience.clone(),
+            "storage:databases".into(),
+            "storage:filesystems".into(),
+        ],
+        token_endpoint_auth_method: TokenEndpointAuthMethod::None,
         software_statement: None,
         software_id: None,
         software_version: None,
     }
-}
-
-fn allow_inspection(request: &mut ClientRegistration, audiences: &[&str]) {
-    for audience in audiences {
-        if !request
-            .allowed_audiences
-            .iter()
-            .any(|allowed| allowed == audience)
-        {
-            request.allowed_audiences.push((*audience).to_owned());
-        }
-    }
-}
-
-fn client_ids(journal: &Journal) -> io::Result<Vec<Id>> {
-    journal
-        .intent
-        .clients
-        .iter()
-        .map(|request| {
-            canonical_id(
-                request
-                    .client_id
-                    .as_deref()
-                    .ok_or_else(|| invalid("missing retained Client ID"))?,
-            )
-        })
-        .collect()
-}
-
-fn canonical_id(value: &str) -> io::Result<Id> {
-    let id: Id = value
-        .parse()
-        .map_err(|_| invalid("canonical UUID service Client ID required"))?;
-    if id.is_nil() || id.to_string() != value {
-        return Err(invalid("canonical non-nil UUID service Client ID required"));
-    }
-    Ok(id)
 }
 
 fn binding(journal: &Journal) -> io::Result<NodeSignerBinding> {
@@ -755,7 +897,7 @@ fn same_binding(left: &NodeSignerBinding, right: &NodeSignerBinding) -> bool {
         && left.endpoint_id == right.endpoint_id
 }
 
-fn normalized_config(mut config: UnifiedConfig) -> io::Result<UnifiedConfig> {
+pub(crate) fn normalized_config(mut config: UnifiedConfig) -> io::Result<UnifiedConfig> {
     config.endpoint_data_dir = absolute(&config.endpoint_data_dir)?;
     config.idp.data_dir = absolute(Path::new(&config.idp.data_dir))?
         .to_string_lossy()
@@ -770,7 +912,7 @@ fn normalized_config(mut config: UnifiedConfig) -> io::Result<UnifiedConfig> {
     Ok(config)
 }
 
-fn absolute(path: &Path) -> io::Result<PathBuf> {
+pub(crate) fn absolute(path: &Path) -> io::Result<PathBuf> {
     if path.as_os_str().is_empty()
         || path
             .components()
@@ -803,7 +945,7 @@ fn reject_symlinks(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn require_absent(path: &Path) -> io::Result<()> {
+pub(crate) fn require_absent(path: &Path) -> io::Result<()> {
     reject_symlinks(path)?;
     match fs::symlink_metadata(path) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -814,7 +956,7 @@ fn require_absent(path: &Path) -> io::Result<()> {
     }
 }
 
-fn require_retained_directory(path: &Path) -> io::Result<fs::Metadata> {
+pub(crate) fn require_retained_directory(path: &Path) -> io::Result<fs::Metadata> {
     reject_symlinks(path)?;
     let metadata = fs::symlink_metadata(path)?;
     if !metadata.is_dir() {
@@ -827,7 +969,7 @@ fn require_directory(path: &Path) -> io::Result<()> {
     private_permissions(&require_retained_directory(path)?)
 }
 
-fn require_file(path: &Path, private: bool) -> io::Result<File> {
+pub(crate) fn require_file(path: &Path, private: bool) -> io::Result<File> {
     reject_symlinks(path)?;
     if !fs::symlink_metadata(path)?.is_file() {
         return Err(invalid("input or retained state must be a regular file"));
@@ -864,7 +1006,22 @@ fn private_permissions(metadata: &fs::Metadata) -> io::Result<()> {
     }
 }
 
-fn create_private_directory(path: &Path, recursive: bool) -> io::Result<()> {
+pub(crate) fn require_unix_bootstrap() -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Node bootstrap supports Unix owner-only permissions only",
+        ))
+    }
+}
+
+pub(crate) fn create_private_directory(path: &Path, recursive: bool) -> io::Result<()> {
+    require_unix_bootstrap()?;
     reject_symlinks(path)?;
     let mut builder = fs::DirBuilder::new();
     #[cfg(unix)]
@@ -876,7 +1033,7 @@ fn create_private_directory(path: &Path, recursive: bool) -> io::Result<()> {
     sync_ancestry(path)
 }
 
-fn require_storage(config: &UnifiedConfig) -> io::Result<()> {
+pub(crate) fn require_storage(config: &UnifiedConfig) -> io::Result<()> {
     let root = Path::new(&config.storage.data_dir);
     require_retained_directory(root)?;
     for name in ["databases", "filesystems"] {
@@ -891,7 +1048,7 @@ fn require_storage(config: &UnifiedConfig) -> io::Result<()> {
     Ok(())
 }
 
-fn private_options(create_new: bool) -> OpenOptions {
+pub(crate) fn private_options(create_new: bool) -> OpenOptions {
     let mut options = OpenOptions::new();
     options.read(true).write(true).create_new(create_new);
     #[cfg(unix)]
@@ -902,7 +1059,7 @@ fn private_options(create_new: bool) -> OpenOptions {
     options
 }
 
-fn lock(directory: &Path, fresh: bool) -> io::Result<File> {
+pub(crate) fn lock(directory: &Path, fresh: bool) -> io::Result<File> {
     require_directory(directory)?;
     let path = directory.join("operation.lock");
     if !fresh {
@@ -921,14 +1078,14 @@ fn lock(directory: &Path, fresh: bool) -> io::Result<File> {
     Ok(file)
 }
 
-fn read_private(path: &Path) -> io::Result<Vec<u8>> {
+pub(crate) fn read_private(path: &Path) -> io::Result<Vec<u8>> {
     let mut file = require_file(path, true)?;
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)?;
     Ok(bytes)
 }
 
-fn read_password(path: &Path) -> io::Result<String> {
+pub(crate) fn read_password(path: &Path) -> io::Result<String> {
     let mut password = String::from_utf8(read_private(path)?)
         .map_err(|_| invalid("password input must be UTF-8"))?;
     if password.ends_with('\n') {
@@ -937,10 +1094,15 @@ fn read_password(path: &Path) -> io::Result<String> {
             password.pop();
         }
     }
+    validate_password(&password)?;
+    Ok(password)
+}
+
+pub(crate) fn validate_password(password: &str) -> io::Result<()> {
     if password.trim().is_empty() || password.contains(['\r', '\n']) {
         return Err(invalid("password input must contain one nonempty line"));
     }
-    Ok(password)
+    Ok(())
 }
 
 fn verify(secret: &str, verifier: &str) -> io::Result<()> {
@@ -954,7 +1116,7 @@ fn verify(secret: &str, verifier: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn sync_ancestry(directory: &Path) -> io::Result<()> {
+pub(crate) fn sync_ancestry(directory: &Path) -> io::Result<()> {
     for ancestor in directory.ancestors() {
         File::open(ancestor)?.sync_all()?;
     }

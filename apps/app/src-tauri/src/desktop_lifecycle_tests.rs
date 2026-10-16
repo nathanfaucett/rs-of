@@ -10,13 +10,13 @@ use std::{
 use idp_model::model::Id;
 use idp_service::repo::PrivateKeyKeyringRepo;
 use tokio::net::TcpListener;
-use unified_server::{LocalProvisioner, ServiceClientCredentials, UnifiedConfig};
+use unified_server::{LocalProvisioner, RuntimeOwners, UnifiedConfig, UnifiedEndpoint};
 
 use crate::localhost_server::{
     prepare_test_tls, start_unified_localhost_server, verify_localhost_server,
 };
 
-use super::{finish_managed_startup, finish_runtime_startup};
+use super::{build_desktop_runtime, finish_managed_startup, finish_runtime_startup};
 
 struct TestStore(Arc<keyring_core::mock::Store>);
 
@@ -68,11 +68,6 @@ impl Fixture {
         idp.service_audience = Some("https://identity.test/service".into());
         idp.password.memory_mib = 1;
         idp.password.iterations = 1;
-        let credentials = |secret: &str, audience: &str| ServiceClientCredentials {
-            client_id: Id::now_v7().to_string(),
-            client_secret: secret.into(),
-            audience: audience.into(),
-        };
         let config = UnifiedConfig {
             listen_addr: "127.0.0.1:0".parse().expect("isolated listener"),
             endpoint_data_dir: root.join("endpoint"),
@@ -88,16 +83,6 @@ impl Fixture {
                 api_public_uri: "https://storage.test".into(),
                 ..Default::default()
             },
-            management_idp_client: credentials(
-                "fixture-management-idp",
-                "https://identity.test/service",
-            ),
-            storage_idp_client: credentials("fixture-storage-idp", "https://identity.test/service"),
-            storage_management_client: credentials(
-                "fixture-storage-management",
-                "https://storage.test",
-            ),
-            idp_management_client: Some(credentials("fixture-idp-management", "idp-management")),
         };
         let store: Arc<keyring_core::CredentialStore> = Arc::new(TestStore(
             keyring_core::mock::Store::new().expect("isolated credential provider"),
@@ -113,6 +98,79 @@ impl Fixture {
         drop(provisioner);
         Self { root, config }
     }
+}
+
+#[tokio::test]
+async fn desktop_composition_reuses_initialized_owners_and_closes_endpoint_on_invalid_config() {
+    let fixture = Fixture::provision().await;
+    let owner = idp_server::OwnerProvisioner::open(&fixture.config.idp)
+        .await
+        .expect("open retained IdP once");
+    let management = management_server::open_database(&fixture.config.management)
+        .await
+        .expect("open retained Management once");
+    let endpoint = Arc::new(
+        UnifiedEndpoint::open(&fixture.config.endpoint_data_dir, &fixture.config.idp)
+            .await
+            .expect("open retained endpoint once"),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("desktop listener");
+    let address = listener.local_addr().expect("desktop address");
+    let runtime = build_desktop_runtime(
+        fixture.config.clone(),
+        listener,
+        format!("http://{address}"),
+        Some(RuntimeOwners {
+            endpoint: Arc::clone(&endpoint),
+            idp: owner.node_join_database(),
+            management: Arc::clone(&management),
+        }),
+    )
+    .await
+    .expect("compose while original owner database handles remain open");
+    assert_eq!(runtime.endpoint_id(), endpoint.endpoint_id());
+    assert!(!endpoint.server().endpoint().is_closed());
+
+    runtime
+        .shutdown()
+        .await
+        .expect("shutdown handed-off owners");
+    assert!(endpoint.server().endpoint().is_closed());
+
+    let endpoint = Arc::new(
+        UnifiedEndpoint::open(&fixture.config.endpoint_data_dir, &fixture.config.idp)
+            .await
+            .expect("reopen stopped endpoint"),
+    );
+    let listener = TcpListener::bind(address)
+        .await
+        .expect("released desktop listener");
+    let result = build_desktop_runtime(
+        fixture.config.clone(),
+        listener,
+        "http://not-the-loopback-listener.invalid".into(),
+        Some(RuntimeOwners {
+            endpoint: Arc::clone(&endpoint),
+            idp: owner.node_join_database(),
+            management: Arc::clone(&management),
+        }),
+    )
+    .await;
+    assert!(result.is_err(), "invalid API base must retain validation");
+    assert!(
+        endpoint.server().endpoint().is_closed(),
+        "validation before handoff must close the endpoint"
+    );
+    drop(
+        TcpListener::bind(address)
+            .await
+            .expect("failed build releases listener"),
+    );
+    drop(owner);
+    drop(management);
+    fs::remove_dir_all(fixture.root).expect("remove only isolated desktop fixture");
 }
 
 #[tokio::test]

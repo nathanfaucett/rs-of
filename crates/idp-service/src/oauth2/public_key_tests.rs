@@ -27,7 +27,6 @@ async fn public_verifier(source: &TestEngine) -> (Arc<TestEngine>, TestService) 
         "clients",
         "users",
         "keys",
-        "devices",
         "idp_replica_members",
         "idp_replica_signers",
         "oauth2_refresh_tokens",
@@ -126,7 +125,6 @@ async fn approve_independent_signer(engine: &Arc<TestEngine>, service: &mut Test
         .key_service
         .prepare_node_signer(&binding)
         .expect("prepare independent private signer");
-    engine.client().translate_and_execute(&format!("INSERT INTO devices (id, public_key, owner_subject, state, approved_at, revoked_at) VALUES (CAST('{}' AS UUID), 'independent-endpoint', 'owner', 1, 1, NULL)", binding.member_id), &SqlTranslator).await.expect("approve Device fixture");
     let member = ReplicaMembership {
         installation_id: service.oauth_config.issuer.clone(),
         issuer: service.oauth_config.issuer.clone(),
@@ -292,10 +290,40 @@ async fn public_node_signers_verify_without_private_material_or_principal_impers
 }
 
 #[tokio::test]
-async fn learned_device_signer_client_and_principal_revocations_deny_locally() {
+async fn token_verification_is_independent_of_device_state() {
     let (source, service, client, principal) = setup().await;
     let token = issue(&service, &client, &principal).await.access_token.0;
-    for kind in ["device", "signer", "client", "principal", "corrupt-key"] {
+    let binding = service
+        .oauth_config
+        .local_signer
+        .as_ref()
+        .expect("signer binding");
+    for device_state in ["absent", "malformed", "revoked"] {
+        let (engine, verifier) = public_verifier(&source).await;
+        if device_state != "absent" {
+            let fields = if device_state == "malformed" {
+                "'  ', 9, 'invalid'"
+            } else {
+                "'owner', 2, 1"
+            };
+            engine.client().translate_and_execute(
+                &format!("INSERT INTO devices (id, public_key, owner_subject, state, revoked_at) VALUES (CAST('{}' AS UUID), '{}', {fields})", binding.member_id, binding.endpoint_id),
+                &SqlTranslator,
+            ).await.expect("independent Device state fixture");
+        }
+        verifier
+            .validate_access_token(&token, &client.client_id)
+            .await
+            .expect(device_state);
+        assert_eq!(verifier.list_jwks().await.expect("IdP JWKS").keys.len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn learned_member_signer_client_and_principal_revocations_deny_locally() {
+    let (source, service, client, principal) = setup().await;
+    let token = issue(&service, &client, &principal).await.access_token.0;
+    for kind in ["member", "signer", "client", "principal", "corrupt-key"] {
         let (engine, verifier) = public_verifier(&source).await;
         assert!(
             verifier
@@ -304,41 +332,24 @@ async fn learned_device_signer_client_and_principal_revocations_deny_locally() {
                 .is_ok()
         );
         match kind {
-            "device" => {
-                set(
-                    &engine,
-                    "devices",
-                    service
-                        .oauth_config
-                        .local_signer
-                        .as_ref()
-                        .expect("binding")
-                        .member_id,
-                    "revoked_at",
-                    Value::Integer(1),
-                )
-                .await
-            }
-            "signer" => {
+            "member" | "signer" => {
+                let table = if kind == "member" {
+                    "idp_replica_members"
+                } else {
+                    "idp_replica_signers"
+                };
                 let row = engine
                     .client()
-                    .translate_and_execute("SELECT id FROM idp_replica_signers", &SqlTranslator)
+                    .translate_and_execute(&format!("SELECT id FROM {table}"), &SqlTranslator)
                     .await
-                    .expect("signer rows")
+                    .expect("IdP trust rows")
                     .remove(0)
                     .rows
                     .remove(0);
                 let Value::Uuid(id) = row.values[0] else {
-                    panic!("signer row ID")
+                    panic!("IdP trust row ID")
                 };
-                set(
-                    &engine,
-                    "idp_replica_signers",
-                    id,
-                    "revoked_at",
-                    Value::Integer(1),
-                )
-                .await;
+                set(&engine, table, id, "revoked_at", Value::Integer(1)).await;
             }
             "client" => {
                 set(
@@ -667,10 +678,59 @@ async fn independent_nodes_issue_client_tokens_with_distinct_local_signers() {
             .await
             .is_ok()
     );
-    first
+    let before = first
+        .key_service
+        .private_key_repo()
+        .0
+        .lock()
+        .expect("private store")
+        .iter()
+        .map(|(slot, key)| (slot.clone(), key.to_xprv_string().to_string()))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let root = first
         .rotate_client_key(&client.client_id)
         .await
-        .expect("rotate local Client authentication root");
+        .expect("rotate local Client authentication root without an entity master");
+    assert!(root.public_jwk.is_none());
+    let renewed = first
+        .token(
+            TokenRequest::ClientCredentials(ClientCredentialsGrantRequest {
+                client_id: client.client_id.clone(),
+                client_secret: String::new(),
+                scope: Some("idp.token.validate".into()),
+                audience: Some("https://service.example".into()),
+                resource: None,
+            }),
+            Some(idp_model::contract::OAuth2ClientAuth {
+                client_id: client.client_id.clone(),
+                client_secret: Some("stable-secret".into()),
+                method: client.token_endpoint_auth_method,
+            }),
+        )
+        .await
+        .expect("issue against rotated metadata root");
+    let (header, bound) =
+        decode_jwt::<serde_json::Value>(&renewed.access_token.0).expect("rotated binding");
+    assert_eq!(bound["principal_key_id"], root.id.to_string());
+    assert_eq!(bound["sub"], client.id.to_string());
+    assert_eq!(header.kid, a.kid);
+    first
+        .validate_access_token(&renewed.access_token.0, "https://service.example")
+        .await
+        .expect("new root token is valid");
+    let after = first
+        .key_service
+        .private_key_repo()
+        .0
+        .lock()
+        .expect("private store")
+        .iter()
+        .map(|(slot, key)| (slot.clone(), key.to_xprv_string().to_string()))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    assert!(
+        after == before,
+        "metadata rotation/issuance cannot create or replace private material"
+    );
     assert!(
         first
             .validate_access_token(&left.access_token.0, "https://service.example")

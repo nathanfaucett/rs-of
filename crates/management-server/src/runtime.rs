@@ -2,10 +2,11 @@ use std::sync::Arc;
 
 use axum::Router;
 use db::Database;
-use idp_model::{contract::DeviceEndpointIdentity, model::Id};
+use idp_model::model::Id;
+use management_service::DeviceEndpointIdentity;
 use management_service::{
     HostedControlPlane, ManagementService,
-    replica::{DbPermissionRepo, DbRoleRepo, DbSelectionPolicyRepo, up},
+    replica::{DbPermissionRepo, DbRoleRepo, DbSelectionPolicyRepo},
 };
 use model::contract::SelectedResource;
 
@@ -13,6 +14,13 @@ use crate::{RouterState, router::openapi_router};
 
 pub async fn replication_policy(
     engine: Arc<Database>,
+    device: &DeviceEndpointIdentity,
+) -> Result<(bool, Vec<SelectedResource>), String> {
+    replication_policy_from_repo(&DbSelectionPolicyRepo::new(engine), device).await
+}
+
+pub(crate) async fn replication_policy_from_repo(
+    policies: &DbSelectionPolicyRepo,
     device: &DeviceEndpointIdentity,
 ) -> Result<(bool, Vec<SelectedResource>), String> {
     if device.device_id.is_nil()
@@ -23,7 +31,6 @@ pub async fn replication_policy(
     {
         return Err("invalid local Device owner binding".into());
     }
-    let policies = DbSelectionPolicyRepo::new(engine);
     if !policies
         .reconcile_owner_prevalidated(device.device_id, &device.owner_subject)
         .await
@@ -60,6 +67,7 @@ pub async fn replication_policy(
     ))
 }
 
+/// Composes serving from an already initialized owner database.
 pub async fn build_router(
     engine: Arc<Database>,
     api_base_uri: &str,
@@ -67,8 +75,6 @@ pub async fn build_router(
     storage_audience: &str,
     control_plane: Arc<HostedControlPlane>,
 ) -> Result<Router, db::QueryError> {
-    up(&engine).await?;
-
     let management_service = Arc::new(ManagementService::new(
         DbPermissionRepo::new(Arc::clone(&engine)),
         DbRoleRepo::new(Arc::clone(&engine)),
@@ -88,7 +94,8 @@ pub async fn build_router(
 mod tests {
     use super::replication_policy;
     use db::Database;
-    use idp_model::{contract::DeviceEndpointIdentity, model::Id};
+    use idp_model::model::Id;
+    use management_service::DeviceEndpointIdentity;
     use management_service::replica::{DbSelectionPolicyRepo, SelectionPolicy, up};
     use std::{fs, sync::Arc};
 

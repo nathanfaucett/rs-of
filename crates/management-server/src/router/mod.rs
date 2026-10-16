@@ -1,6 +1,8 @@
 mod middleware;
 mod openapi;
 mod openapi_router;
+#[cfg(test)]
+mod openapi_tests;
 mod routes;
 mod state;
 

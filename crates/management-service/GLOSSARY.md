@@ -1,11 +1,11 @@
 # Management
 
-The resource-policy and role-based access-control context hosted by every Node of an Installation. Shared terms are defined in [the root glossary](../../GLOSSARY.md). Service ownership is described in [system design](../../docs/design.md); resource selection and admission are described in [Storage design](../storage-service/docs/design.md).
+The Device, endpoint-trust, resource-policy and role-based access-control context hosted by every Node of an Installation. Shared terms are defined in [the root glossary](../../GLOSSARY.md). Service ownership is described in [system design](../../docs/design.md); resource selection and admission are described in [Storage design](../storage-service/docs/design.md).
 
 ## Language
 
 **Management Service**:
-The context for locally checked and peer-synchronized roles, permissions, assignments, resource restrictions, selections, and replication policy. Applications and Device identities belong to IdP.
+The authority for Devices, endpoint-ID bindings, User ownership, approval/enrollment, transfer/revocation, roles, permissions, assignments, restrictions, selections and replication policy. Users, credentials, Applications, OAuth Clients and token-signing identity/trust belong to IdP. Endpoint possession proves transport identity; current Management approval and policy determine permitted use.
 
 **Permission**:
 A named action with Application or Installation scope.

@@ -9,7 +9,7 @@ use idp_service::{oauth2::NodeSignerBinding, repo::PrivateKeyKeyringRepo};
 use iroh_chain::DATA_ALPN;
 use management_service::{
     ManagementService,
-    replica::{DbPermissionRepo, DbRoleRepo, DbSelectionPolicyRepo, SelectionPolicy},
+    replica::{DbPermissionRepo, DbRoleRepo, DbSelectionPolicyRepo},
 };
 use model::contract::TokenResponse;
 use storage_model::{StorageRequest, StorageResponse};
@@ -22,8 +22,8 @@ use crate::{LocalProvisioner, SecurityContext, SecurityProtocol, UnifiedEndpoint
 #[path = "full_node_probe.rs"]
 mod probe;
 
-struct NodeStores {
-    stores: [(String, Arc<keyring_core::CredentialStore>); 2],
+pub(super) struct NodeStores {
+    pub(super) stores: [(String, Arc<keyring_core::CredentialStore>); 2],
 }
 
 impl keyring_core::api::CredentialStoreApi for NodeStores {
@@ -429,24 +429,7 @@ async fn join_host(
     )
     .await
     .expect("production public bootstrap owner");
-    let credentials = [
-        &b.config.management_idp_client,
-        &b.config.storage_idp_client,
-        &b.config.storage_management_client,
-        b.config
-            .idp_management_client
-            .as_ref()
-            .expect("local evaluator"),
-    ];
-    let client_ids = credentials
-        .iter()
-        .map(|credential| {
-            credential
-                .client_id
-                .parse::<Id>()
-                .expect("local relationship ID")
-        })
-        .collect::<Vec<_>>();
+    let client_ids: [Id; 0] = [];
     joining_owner
         .prepare_fresh_setup_secret_inventory(owner, &client_ids)
         .await
@@ -507,24 +490,17 @@ async fn join_host(
     assert_eq!(approval.request.member_id, binding.member_id);
     assert_eq!(approval.request.endpoint_id, binding.endpoint_id);
     let policies = DbSelectionPolicyRepo::new(source.runtime().full_node_test_management());
-    assert!(
-        policies
-            .get(binding.member_id, &owner.to_string(), Id::nil())
-            .await
-            .expect("public existing Device policy lookup")
-            .is_none()
-    );
-    policies
-        .set_prevalidated(SelectionPolicy {
-            device_id: binding.member_id,
-            owner_subject: owner.to_string(),
-            application_id: None,
-            selected_kind: None,
-            selected_id: None,
-            admin_allowed: true,
-        })
+    let policy = policies
+        .get(binding.member_id, &owner.to_string(), Id::nil())
         .await
-        .expect("existing owner initializes the actually approved Device's empty policy");
+        .expect("public existing Device policy lookup")
+        .expect("authenticated approval initializes the empty Device policy");
+    assert!(policy.admin_allowed);
+    assert!(
+        policy.application_id.is_none()
+            && policy.selected_kind.is_none()
+            && policy.selected_id.is_none()
+    );
     drop(policies);
     joining_owner
         .record_node_join_approval(&approval)
@@ -588,17 +564,6 @@ async fn join_host(
         serde_json::from_value::<idp_model::contract::JwkPublic>(journal["public_signer"].clone())
             .expect("source public signer")
     );
-    let registrations: Vec<idp_model::contract::ClientRegistration> =
-        serde_json::from_value(journal["intent"]["clients"].clone())
-            .expect("public relationship registration templates");
-    for (mut registration, credential) in registrations.into_iter().zip(credentials) {
-        registration.client_id = Some(credential.client_id.clone());
-        registration.client_secret = Some(credential.client_secret.clone());
-        joining_owner
-            .ensure_setup_infrastructure_client(registration)
-            .await
-            .expect("independently provisioned local service secret, not imported private stores");
-    }
     bootstrap.close(0u32.into(), b"public bootstrap completed");
     drop(bootstrap);
     drop(protocol);
@@ -606,9 +571,7 @@ async fn join_host(
     endpoint.close().await;
     drop(endpoint);
     b.config.idp.oauth2.local_signer = Some(binding.clone());
-    management_server::provision_initial_device(&b.config.management, binding.member_id, owner)
-        .await
-        .expect("explicit ready local Device policy");
+
     let joined_runtime = UnifiedRuntime::build(b.config.clone())
         .await
         .expect("complete joined IdP Management Storage composition");
@@ -653,17 +616,6 @@ impl Pair {
         let started = std::time::Instant::now();
         let mut a = Fixture::new();
         let mut b = Fixture::new();
-        for credential in [
-            &mut b.config.management_idp_client,
-            &mut b.config.storage_idp_client,
-            &mut b.config.storage_management_client,
-            b.config
-                .idp_management_client
-                .as_mut()
-                .expect("local evaluator"),
-        ] {
-            credential.client_secret = format!("node-b-{}", Id::now_v7());
-        }
         b.config.idp.oauth2.issuer = a.config.idp.oauth2.issuer.clone();
         a.config.idp.key_namespace = format!("full-node-a-{}", Id::now_v7());
         b.config.idp.key_namespace = format!("full-node-b-{}", Id::now_v7());
@@ -725,7 +677,7 @@ impl Pair {
                 GrantType::TokenExchange,
             ],
             vec![
-                a.config.storage_idp_client.audience.clone(),
+                a.config.idp_audience().to_owned(),
                 management_service::MANAGEMENT_APPLICATION_URI.into(),
                 "storage:filesystems".into(),
             ],
@@ -787,7 +739,7 @@ impl Pair {
             &source,
             &login_id,
             &shared.access_token.0,
-            &a.config.storage_idp_client.audience,
+            a.config.idp_audience(),
         )
         .await;
         source
@@ -1035,7 +987,7 @@ async fn offline_reopen() {
             host,
             &login_id,
             &shared.access_token.0,
-            &fixture.config.storage_idp_client.audience,
+            fixture.config.idp_audience(),
         )
         .await;
         let updated = json(
@@ -1049,26 +1001,6 @@ async fn offline_reopen() {
         )
         .await;
         assert_eq!(updated["name"], label);
-        let credential = &fixture.config.storage_idp_client;
-        let issued = token(
-            &http,
-            host,
-            &[
-                ("grant_type", "client_credentials"),
-                ("client_id", &credential.client_id),
-                ("client_secret", &credential.client_secret),
-                ("audience", &credential.audience),
-                (
-                    "scope",
-                    "idp.token.validate idp.device.lookup idp.device.list",
-                ),
-            ],
-        )
-        .await;
-        assert_eq!(
-            issued.issuer.as_deref(),
-            Some(a.config.idp.oauth2.issuer.as_str())
-        );
         let policy = exchange(
             &http,
             host,
@@ -1094,7 +1026,7 @@ async fn offline_reopen() {
             .expect("close offline resource connection");
         delete_resource(&http, host, &storage, &resource).await;
         eprintln!(
-            "08 Offline: identity/policy/resource/user+client issuance completed for {label} at {:?}",
+            "08 Offline: identity/policy/resource/User issuance completed for {label} at {:?}",
             started.elapsed()
         );
     }

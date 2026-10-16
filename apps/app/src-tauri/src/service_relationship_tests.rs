@@ -2,8 +2,9 @@ use std::{collections::HashMap, fs, sync::Arc, time::Duration};
 
 use idp_model::{
     contract::{
-        ClientRegistration, IdentityAction, IdentityResource, PermissionEvaluationRequest,
-        PermissionSubject, PermissionTarget,
+        ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, GrantType,
+        IDP_DEVICE_LOOKUP_SCOPE, IDP_TOKEN_VALIDATE_SCOPE, IdentityAction, IdentityResource,
+        PermissionEvaluationRequest, PermissionSubject, PermissionTarget, TokenEndpointAuthMethod,
     },
     model::Id,
 };
@@ -15,10 +16,11 @@ use idp_service::{
     },
     repo::{ClientRepo, KeyService, PrivateKeyKeyringRepo},
 };
+use management_server::MANAGEMENT_APPLICATION_URI;
 use management_service::{HostedControlPlane, LocalPermissions, replica::DbDeviceRepo};
 use serde_json::{Value, json};
 
-use super::{IdpAppConfig, MANAGEMENT_APPLICATION_URI, OwnerProvisioner, ServiceRelationship};
+use super::{IdpAppConfig, OwnerProvisioner};
 
 struct TestStore(Arc<keyring_core::mock::Store>);
 impl keyring_core::api::CredentialStoreApi for TestStore {
@@ -45,7 +47,7 @@ impl keyring_core::api::CredentialStoreApi for TestStore {
 }
 
 #[test]
-fn desktop_relationship_audiences_authorize_only_local_consumers() {
+fn independent_management_relationship_authorizes_only_registered_audiences() {
     std::thread::Builder::new()
         .stack_size(16 * 1024 * 1024)
         .spawn(|| {
@@ -58,12 +60,12 @@ fn desktop_relationship_audiences_authorize_only_local_consumers() {
                 .block_on(async {
                     tokio::time::timeout(Duration::from_secs(120), check_relationships())
                         .await
-                        .expect("desktop relationship check completes within its bound");
+                        .expect("independent relationship check completes within its bound");
                 });
         })
         .expect("relationship test thread")
         .join()
-        .expect("desktop relationship check did not panic");
+        .expect("independent relationship check did not panic");
 }
 
 async fn issue(
@@ -109,7 +111,7 @@ async fn issue(
 }
 
 async fn check_relationships() {
-    let root = std::env::temp_dir().join(format!("desktop-audiences-{}", Id::now_v7()));
+    let root = std::env::temp_dir().join(format!("independent-audiences-{}", Id::now_v7()));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("local listener");
@@ -136,27 +138,18 @@ async fn check_relationships() {
     .await
     .expect("native IdP owner");
     let administrator = Id::now_v7();
-    let relationships = [
-        ServiceRelationship::ManagementToIdp,
-        ServiceRelationship::StorageToIdp,
-        ServiceRelationship::StorageToManagement,
-        ServiceRelationship::IdpToManagement,
-    ];
-    let registrations = relationships.map(|relationship| {
-        super::service_client_registration(
-            Id::now_v7(),
-            format!("fixture-secret-{}", Id::now_v7()),
-            relationship,
-            &base,
-            &idp_audience,
-            &storage_audience,
-        )
-    });
+    let registrations = [service_client_registration(
+        Id::now_v7(),
+        format!("fixture-secret-{}", Id::now_v7()),
+        &base,
+        &idp_audience,
+        &storage_audience,
+    )];
     let clients = registrations.each_ref().map(|request| {
         request
             .client_id
             .as_deref()
-            .expect("desktop Client ID")
+            .expect("independent Client ID")
             .parse::<Id>()
             .expect("canonical Client ID")
     });
@@ -167,20 +160,20 @@ async fn check_relationships() {
     owner
         .prepare_setup_client_slots(&clients)
         .await
-        .expect("exact desktop Client slots");
+        .expect("exact independent Client slots");
     owner
         .ensure_initial_user(administrator, Id::now_v7(), "admin", "fixture-password")
         .await
         .expect("initial User");
     owner
-        .ensure_initial_user_signing_key(administrator)
+        .ensure_initial_user_root(administrator)
         .await
-        .expect("User signer");
+        .expect("User root identity");
     for request in &registrations {
         owner
             .ensure_setup_infrastructure_client(request.clone())
             .await
-            .expect("actual desktop relationship request");
+            .expect("actual independent relationship request");
     }
     let secret = iroh::SecretKey::generate();
     let endpoint = iroh_chain::Server::bind_with_secret_key(
@@ -209,13 +202,16 @@ async fn check_relationships() {
         config.key_namespace.clone(),
     ));
     let client_repo = DbClientRepo::new(engine.clone(), keys.clone());
-    let mut subject = registrations[2].clone();
+    let mut subject = registrations[0].clone();
     subject.client_id = Some(Id::now_v7().to_string());
     subject.client_secret = Some("subject-fixture-secret".into());
+    subject.allowed_scopes = vec!["management.permission.evaluate".into()];
     subject.allowed_audiences = [
         "storage:databases",
         "storage:filesystems",
         "unrelated:service",
+        MANAGEMENT_APPLICATION_URI,
+        &storage_audience,
     ]
     .map(str::to_owned)
     .into();
@@ -233,13 +229,16 @@ async fn check_relationships() {
         keys,
         config.oauth2.clone(),
     );
-    let management = super::ManagementAppConfig {
-        data_dir: root.join("management").to_string_lossy().into_owned(),
-        storage_audience: storage_audience.clone(),
-        ..super::ManagementAppConfig::default()
-    };
+    fs::create_dir_all(root.join("management")).expect("Management owner directory");
+    let policy = Arc::new(
+        db::Database::open(root.join("management/management.redb"))
+            .expect("native Management owner"),
+    );
+    management_service::replica::up(&policy)
+        .await
+        .expect("initialize Management schema once");
     management_server::provision_initial_administrator(
-        &management,
+        policy.clone(),
         administrator,
         Id::now_v7(),
         &[
@@ -250,10 +249,6 @@ async fn check_relationships() {
     )
     .await
     .expect("real explicit local grant");
-    let policy = Arc::new(
-        db::Database::open(root.join("management/management.redb"))
-            .expect("native Management owner"),
-    );
     let state = idp_server::RouterState::new(
         &base,
         &idp_audience,
@@ -261,7 +256,8 @@ async fn check_relationships() {
         Arc::new(oauth2),
         Arc::new(DbDeviceRepo::new(engine.clone())),
         Arc::new(
-            idp_server::device_identity_from_server(&endpoint, secret).expect("local identity"),
+            management_service::device_identity_from_server(&endpoint, secret)
+                .expect("local identity"),
         ),
     )
     .with_local_permissions(LocalPermissions::new(policy.clone()));
@@ -279,14 +275,7 @@ async fn check_relationships() {
                     .expect("Management secret"),
                 &idp_audience,
             )
-            .expect("actual desktop introspection credentials")
-            .with_permission_evaluator(
-                registrations[3]
-                    .client_id
-                    .as_deref()
-                    .expect("evaluator Client ID"),
-            )
-            .expect("distinct evaluator relationship");
+            .expect("actual independent introspection credentials");
     let management_router = management_server::build_router(
         policy.clone(),
         &format!("{base}/management"),
@@ -310,52 +299,33 @@ async fn check_relationships() {
         .build()
         .expect("bounded HTTP client");
     let management_token = issue(&http, &base, &registrations[0], &idp_audience).await;
-    let storage_token = issue(&http, &base, &registrations[1], &idp_audience).await;
-    let storage_management_token = issue(&http, &base, &registrations[2], &storage_audience).await;
-    let evaluator = issue(&http, &base, &registrations[3], MANAGEMENT_APPLICATION_URI).await;
-    for (subject_id, allowed) in [(administrator, true), (Id::now_v7(), false)] {
-        let request = PermissionEvaluationRequest {
-            request_id: Id::now_v7(),
-            subject: PermissionSubject::User { id: subject_id },
-            action: IdentityAction::InfrastructureClientsRead,
-            target: PermissionTarget::Installation {
-                resource: IdentityResource::Client {
-                    client_id: registrations[3].client_id.clone(),
-                },
-            },
-        };
-        let response = http
-            .post(format!("{base}/management/permissions/evaluate"))
-            .bearer_auth(&evaluator)
-            .json(&request)
-            .send()
-            .await
-            .expect("real local permission evaluation");
-        assert_eq!(
-            response.status(),
-            reqwest::StatusCode::OK,
-            "Management must inspect the desktop evaluator's idp-management bearer"
-        );
-        let decision: Value = response.json().await.expect("real permission decision");
-        assert_eq!(
-            decision["allowed"], allowed,
-            "only explicitly granted User is permitted"
-        );
-    }
+    let management_actor = issue(&http, &base, &subject, MANAGEMENT_APPLICATION_URI).await;
+    let storage_actor = issue(&http, &base, &subject, &storage_audience).await;
+    let request = PermissionEvaluationRequest {
+        request_id: Id::now_v7(),
+        subject: PermissionSubject::User { id: administrator },
+        action: IdentityAction::InfrastructureClientsRead,
+        target: PermissionTarget::Installation {
+            resource: IdentityResource::Client { client_id: None },
+        },
+    };
+    let response = http
+        .post(format!("{base}/management/permissions/evaluate"))
+        .bearer_auth(&management_actor)
+        .json(&request)
+        .send()
+        .await
+        .expect("non-evaluator Management rejects service actor assertion");
+    assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN);
     let database = issue(&http, &base, &subject, "storage:databases").await;
     let filesystem = issue(&http, &base, &subject, "storage:filesystems").await;
     let unrelated = issue(&http, &base, &subject, "unrelated:service").await;
     for (caller, inspected, permitted) in [
-        (&management_token, &evaluator, true),
-        (&management_token, &storage_management_token, true),
-        (&storage_token, &database, true),
-        (&storage_token, &filesystem, true),
+        (&management_token, &management_actor, true),
+        (&management_token, &storage_actor, true),
         (&management_token, &database, false),
         (&management_token, &filesystem, false),
-        (&storage_token, &evaluator, false),
-        (&storage_token, &storage_management_token, false),
         (&management_token, &unrelated, false),
-        (&storage_token, &unrelated, false),
     ] {
         let response = http
             .post(format!("{base}/idp/oauth2/introspect"))
@@ -374,46 +344,22 @@ async fn check_relationships() {
             "least-privilege inspected audience"
         );
     }
-    for (request, audiences, scopes) in [
-        (
-            &registrations[0],
-            vec![
-                idp_audience.as_str(),
-                "idp-management",
-                storage_audience.as_str(),
-            ],
-            vec!["idp.token.validate", "idp.device.lookup"],
-        ),
-        (
-            &registrations[1],
-            vec![
-                idp_audience.as_str(),
-                "storage:databases",
-                "storage:filesystems",
-            ],
-            vec!["idp.token.validate", "idp.device.lookup", "idp.device.list"],
-        ),
-        (
-            &registrations[2],
-            vec![storage_audience.as_str()],
-            vec![
-                "management.replication.read",
-                "management.replication.admit",
-            ],
-        ),
-        (
-            &registrations[3],
-            vec!["idp-management"],
-            vec!["management.permission.evaluate"],
-        ),
-    ] {
+    for (request, audiences, scopes) in [(
+        &registrations[0],
+        vec![
+            idp_audience.as_str(),
+            "idp-management",
+            storage_audience.as_str(),
+        ],
+        vec!["idp.token.validate", "idp.device.lookup"],
+    )] {
         assert_eq!(
             request.allowed_audiences, audiences,
-            "exact desktop audience allowlist"
+            "exact independent audience allowlist"
         );
         assert_eq!(
             request.allowed_scopes, scopes,
-            "unchanged desktop least-privilege scopes"
+            "unchanged independent least-privilege scopes"
         );
     }
     task.abort();
@@ -423,4 +369,48 @@ async fn check_relationships() {
     drop(engine);
     drop(policy);
     fs::remove_dir_all(root).expect("isolated owner fixture cleanup");
+}
+
+fn service_client_registration(
+    client_id: Id,
+    client_secret: String,
+    base_url: &str,
+    idp_audience: &str,
+    storage_audience: &str,
+) -> ClientRegistration {
+    let (application_name, path, client_name, audiences, scopes): (_, _, _, Vec<&str>, &[&str]) = (
+        "Management",
+        "management",
+        "Management service to IdP",
+        vec![idp_audience, MANAGEMENT_APPLICATION_URI, storage_audience],
+        &[IDP_TOKEN_VALIDATE_SCOPE, IDP_DEVICE_LOOKUP_SCOPE],
+    );
+    ClientRegistration {
+        application: ApplicationRegistration {
+            name: Some(application_name.to_owned()),
+            uri: format!("{base_url}/{path}"),
+            description: Some(format!("{application_name} service identity")),
+        },
+        client_id: Some(client_id.to_string()),
+        client_secret: Some(client_secret),
+        client_id_issued_at: None,
+        client_secret_expires_at: None,
+        client_name: client_name.to_owned(),
+        client_uri: None,
+        logo_uri: None,
+        contacts: Vec::new(),
+        terms_of_service_uri: None,
+        policy_uri: None,
+        client_type: ClientType::Confidential,
+        profile: ClientProfile::Web,
+        redirect_uris: Vec::new(),
+        allowed_grant_types: vec![GrantType::ClientCredentials],
+        response_types: Vec::new(),
+        allowed_scopes: scopes.iter().map(|scope| (*scope).to_owned()).collect(),
+        allowed_audiences: audiences.into_iter().map(str::to_owned).collect(),
+        token_endpoint_auth_method: TokenEndpointAuthMethod::ClientSecretPost,
+        software_statement: None,
+        software_id: None,
+        software_version: None,
+    }
 }

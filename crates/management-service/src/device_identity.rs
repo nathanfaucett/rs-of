@@ -1,10 +1,61 @@
 use std::io;
 
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use idp_service::repo::RawKeyringRepo;
-use iroh::{Endpoint, SecretKey, endpoint::presets};
+use iroh::{Endpoint, EndpointId, SecretKey, Signature, endpoint::presets};
 use iroh_chain::{EndpointIdStore, Server};
 
-use crate::DeviceIdentity;
+use crate::{DeviceSelfRevocationRequest, device_self_revocation_payload};
+
+#[derive(Clone)]
+pub struct DeviceIdentity {
+    endpoint: Endpoint,
+    secret_key: SecretKey,
+}
+
+impl DeviceIdentity {
+    pub fn new(endpoint: Endpoint, secret_key: SecretKey) -> io::Result<Self> {
+        if endpoint.id() != secret_key.public() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Iroh endpoint does not match its secret key",
+            ));
+        }
+        Ok(Self {
+            endpoint,
+            secret_key,
+        })
+    }
+
+    #[must_use]
+    pub fn endpoint_id(&self) -> EndpointId {
+        self.endpoint.id()
+    }
+
+    #[must_use]
+    pub fn endpoint(&self) -> Endpoint {
+        self.endpoint.clone()
+    }
+
+    #[must_use]
+    pub fn sign(&self, payload: &[u8]) -> Signature {
+        self.secret_key.sign(payload)
+    }
+
+    pub fn endpoint_address(&self) -> Result<String, String> {
+        serde_json::to_string(&self.endpoint.addr()).map_err(|error| error.to_string())
+    }
+
+    #[must_use]
+    pub fn self_revocation_request(&self) -> DeviceSelfRevocationRequest {
+        let public_key = self.endpoint_id().to_string();
+        let payload = device_self_revocation_payload(&public_key);
+        DeviceSelfRevocationRequest {
+            public_key,
+            signature: URL_SAFE_NO_PAD.encode(self.sign(payload.as_bytes()).to_bytes()),
+        }
+    }
+}
 
 const KEYRING_SERVICE: &str = "local.device-identity";
 const KEYRING_ENTRY: &str = "device";
@@ -16,7 +67,7 @@ pub async fn open() -> io::Result<DeviceIdentity> {
         .bind()
         .await
         .map_err(io::Error::other)?;
-    Ok(DeviceIdentity::new(endpoint, secret_key))
+    DeviceIdentity::new(endpoint, secret_key)
 }
 
 pub async fn open_with_allowlist(allowed: EndpointIdStore) -> io::Result<(DeviceIdentity, Server)> {
@@ -29,13 +80,7 @@ pub async fn open_with_allowlist(allowed: EndpointIdStore) -> io::Result<(Device
 }
 
 pub fn identity_from_server(server: &Server, secret_key: SecretKey) -> io::Result<DeviceIdentity> {
-    if server.endpoint().id() != secret_key.public() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Iroh server endpoint does not match its secret key",
-        ));
-    }
-    Ok(DeviceIdentity::new(server.endpoint().clone(), secret_key))
+    DeviceIdentity::new(server.endpoint().clone(), secret_key)
 }
 
 fn load_or_create_secret_key() -> io::Result<SecretKey> {

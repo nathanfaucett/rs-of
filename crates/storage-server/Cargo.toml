@@ -40,6 +40,7 @@ cli = { path = "../cli", default-features = false, features = [
 api = { path = "../api", default-features = false, features = [] }
 file-system = { path = "../../../offs/crates/file-system", default-features = false, features = [] }
 idp-model = { path = "../idp-model", default-features = false, features = ["std"] }
+management-service = { path = "../management-service", default-features = false, features = ["std"] }
 key = { path = "../key", default-features = false, features = ["std"] }
 model = { path = "../model", default-features = false, features = ["std", "utoipa", "axum"] }
 ofdb-kv = { path = "../../../ofdb/crates/kv", default-features = false, features = ["redb", "sync"] }

@@ -7,10 +7,6 @@ use idp_model::{
     contract::{GrantType, INSTALLATION_POLICY_ID, IdentityAction},
     model::Id,
 };
-use idp_service::{
-    replica::{DbClientRepo, DbKeyRepo},
-    repo::{ClientRepo, KeyService, PrivateKeyKeyringRepo},
-};
 use management_service::{
     ManagementService,
     replica::{DbPermissionRepo, DbRoleRepo},
@@ -22,19 +18,12 @@ use super::{
 
 #[tokio::test]
 async fn single_full_host_refresh_replay_and_restriction_put() {
-    tokio::time::timeout(Duration::from_secs(120), probe(false))
+    tokio::time::timeout(Duration::from_secs(120), probe())
         .await
         .expect("bounded single full-host request-path probe");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn single_full_host_refresh_replay_and_restriction_put_with_extra_service_clients() {
-    tokio::time::timeout(Duration::from_secs(120), probe(true))
-        .await
-        .expect("bounded single full-host service Client inventory probe");
-}
-
-async fn probe(extra_service_clients: bool) {
+async fn probe() {
     let started = Instant::now();
     let fixture = Fixture::new();
     let mut provisioner = LocalProvisioner::create(
@@ -70,35 +59,6 @@ async fn probe(extra_service_clients: bool) {
     )
     .await;
     let client = login.client_id.expect("public login Client ID");
-    if extra_service_clients {
-        let engine = Arc::new(
-            db::Database::open(fixture.root.join("idp/idp.redb"))
-                .expect("stopped native IdP owner"),
-        );
-        let keys = Arc::new(KeyService::new(
-            DbKeyRepo::new(engine.clone()),
-            PrivateKeyKeyringRepo::new(&fixture.config.idp.oauth2.issuer)
-                .expect("retained isolated fixture credential store"),
-            fixture.config.idp.key_namespace.clone(),
-        ));
-        let clients = DbClientRepo::new(engine, keys);
-        let registrations: Vec<idp_model::contract::ClientRegistration> =
-            serde_json::from_value(journal["intent"]["clients"].clone())
-                .expect("four public service registration templates");
-        assert_eq!(registrations.len(), 4);
-        for mut registration in registrations {
-            registration.client_id = Some(Id::now_v7().to_string());
-            registration.client_secret = Some(format!("isolated-probe-{}", Id::now_v7()));
-            clients
-                .create_client(registration)
-                .await
-                .expect("independent native service Client workload control");
-        }
-        eprintln!(
-            "08 probe: added exactly four independent service Clients at {:?}",
-            started.elapsed()
-        );
-    }
     {
         let engine = Arc::new(
             db::Database::open(fixture.root.join("management/management.redb"))

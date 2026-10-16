@@ -9,6 +9,7 @@ pub struct ServerConfig {
     pub port: u16,
     pub gzip: bool,
     pub prefix: Option<String>,
+    pub setup_ui_origin: Option<String>,
 }
 
 impl Default for ServerConfig {
@@ -21,6 +22,7 @@ impl Default for ServerConfig {
                 .unwrap_or(3000),
             gzip: true,
             prefix: None,
+            setup_ui_origin: None,
         }
     }
 }

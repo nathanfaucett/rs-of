@@ -5,9 +5,10 @@ use axum::{
     extract::{Path, State},
 };
 use idp_model::{
-    contract::{DeviceEnrollmentRequest, ErrorCode, IdentityAction, UpdateDeviceRequest},
+    contract::{ErrorCode, IdentityAction},
     model::Id,
 };
+use management_service::{DeviceEnrollmentRequest, UpdateDeviceRequest};
 use management_service::{
     DeviceRepo, ManagementService,
     replica::{DbPermissionRepo, DbRoleRepo},

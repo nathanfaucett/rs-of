@@ -119,27 +119,6 @@ CREATE TABLE IF NOT EXISTS local_client_credentials (
     secret_hash TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS devices (
-    id UUID PRIMARY KEY,
-    owner_subject TEXT NOT NULL,
-    name TEXT,
-    public_key TEXT,
-    address TEXT,
-    state INTEGER,
-    approved_at INTEGER,
-    revoked_at INTEGER,
-    created_at INTEGER,
-    updated_at INTEGER
-);
-CREATE UNIQUE INDEX IF NOT EXISTS devices_public_key ON devices (public_key);
-
-CREATE TABLE IF NOT EXISTS local_device_enrollments (
-    device_id UUID PRIMARY KEY,
-    enrollment_code_hash BLOB,
-    enrollment_expires_at INTEGER,
-    pairing_accepting_public_key TEXT
-);
-
 CREATE TABLE IF NOT EXISTS roles (
     id UUID PRIMARY KEY,
     application_id UUID,

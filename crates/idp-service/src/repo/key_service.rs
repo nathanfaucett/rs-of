@@ -78,25 +78,20 @@ where
         Ok((key, private))
     }
 
-    /// Capture every path before the initial master or derived private writes.
-    pub async fn create_initial_key_with_capture(
+    /// Capture the actual Principal root and its canonical ancestry without producing secrets.
+    pub async fn create_initial_root_with_capture(
         &self,
         entity_type: EntityType,
         entity_id: Id,
         name: String,
         capture: impl FnOnce(&Key, &[DerivationPath]) -> RepoResult<()>,
-    ) -> RepoResult<(Key, DerivedKey)> {
+    ) -> RepoResult<Key> {
         let key = self
             .key_repo
             .create_key(None, entity_type, entity_id, true, name, None)
             .await?;
         capture(&key, &Self::private_paths(&key)?)?;
-        let namespace = self.scoped_namespace(entity_type, entity_id);
-        self.private_key_repo.ensure_master_key(&namespace)?;
-        let private = self.derive_private_key(&key)?;
-        let public = key.to_jwk_public(&private)?;
-        let key = self.key_repo.set_public_jwk(key.id, public).await?;
-        Ok((key, private))
+        Ok(key)
     }
 
     fn derive_private_key(&self, key: &Key) -> RepoResult<DerivedKey> {
@@ -170,8 +165,9 @@ where
         entity_id: Id,
         name: String,
         expires_at: Option<DateTime<Utc>>,
-    ) -> RepoResult<(Key, DerivedKey)> {
-        self.create_key(None, entity_type, entity_id, true, name, expires_at)
+    ) -> RepoResult<Key> {
+        self.key_repo
+            .create_key(None, entity_type, entity_id, true, name, expires_at)
             .await
     }
 }

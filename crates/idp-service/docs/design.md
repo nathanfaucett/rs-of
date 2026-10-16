@@ -10,7 +10,7 @@ Use standard authorization, token, userinfo, discovery, JWKS, PKCE, and refresh-
 
 ## Identity and keys
 
-Retain BIP32-style entity master keys and derived keys. Keep master keys private; do not expose them to relying parties. Per-client key choices must not replace the canonical User identity.
+Principal setup and root rotation allocate metadata identities without producing entity master keys, derived private keys or public JWKs. Tokens bind the current Principal root UUID but are signed by the independent Node signer. Explicit cryptographic key APIs retain BIP32-style master/derived keys for callers that actually require them; keep that private material local and do not expose it to relying parties. Per-client key choices must not replace the canonical User identity.
 
 Tokens identify the Principal by its stable entity ID, not a raw public key or user-selected per-client key. Key rotation need not change the Principal's identity. A stable entity subject does not promise pairwise unlinkability across clients.
 

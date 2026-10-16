@@ -9,6 +9,7 @@ use idp_model::{
 };
 use idp_service::replica::DbReplicaSignerRepo;
 use iroh_chain::{MAX_PAIRING_PAYLOAD_LENGTH, PairingOffer};
+use management_service::DeviceRepo;
 
 use super::middleware::require_identity_permission;
 use crate::{NodeJoinApproval, NodeJoinRequest, RouterState, authorize_bearer, node_join::invalid};
@@ -45,7 +46,30 @@ impl RouterState {
         offer: &PairingOffer,
         bearer: &str,
     ) -> io::Result<NodeJoinApproval> {
+        let approval = self.enroll_node_join_offer(offer, bearer).await?;
+        self.reply_node_join(offer, bearer, &approval).await?;
+        Ok(approval)
+    }
+
+    /// Validates and commits exact owner enrollment without publishing a pairing reply.
+    pub async fn enroll_node_join_offer(
+        &self,
+        offer: &PairingOffer,
+        bearer: &str,
+    ) -> io::Result<NodeJoinApproval> {
+        #[cfg(test)]
+        let started = std::time::Instant::now();
+        #[cfg(test)]
+        eprintln!(
+            "IdP join enrollment stage=authorization_begin elapsed={:?}",
+            started.elapsed()
+        );
         let owner = self.authorize_node_join_approver(bearer).await?;
+        #[cfg(test)]
+        eprintln!(
+            "IdP join enrollment stage=authorization_complete elapsed={:?}",
+            started.elapsed()
+        );
         let request: NodeJoinRequest = serde_json::from_slice(&offer.payload)?;
         request.validate()?;
         let issuer = self.oauth2_service.metadata().issuer;
@@ -63,20 +87,9 @@ impl RouterState {
             .as_secs()
             .try_into()
             .map_err(io::Error::other)?;
-        if !self
-            .replica_signers
-            .trusted_signers(&issuer, now)
-            .await
-            .map_err(io::Error::other)?
-            .iter()
-            .any(|(member, _)| member.endpoint_id == request.approving_peer)
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "approving endpoint is not a locally trusted Node",
-            ));
-        }
-        let approval = self.device_identity.node_join_approval(request, owner)?;
+        self.verify_node_join_approving_device(&request.approving_peer)
+            .await?;
+        let approval = NodeJoinApproval::signed_by(&self.device_identity, request, owner)?;
         let reply = serde_json::to_vec(&approval)?;
         if reply.len() > MAX_PAIRING_PAYLOAD_LENGTH {
             return Err(io::Error::new(
@@ -89,9 +102,118 @@ impl RouterState {
             reached.notify_one();
             resume.notified().await;
         }
-        self.enroll_node_join(&approval.request, owner, now).await?;
-        offer.reply(&reply).await?;
+        #[cfg(test)]
+        eprintln!(
+            "IdP join enrollment stage=transaction_begin elapsed={:?}",
+            started.elapsed()
+        );
+        let result = self.enroll_node_join(&approval.request, owner, now).await;
+        #[cfg(test)]
+        eprintln!(
+            "IdP join enrollment stage=transaction_returned successful={} elapsed={:?}",
+            result.is_ok(),
+            started.elapsed()
+        );
+        result?;
+        self.verify_node_join_enrollment(&approval).await?;
         Ok(approval)
+    }
+
+    pub async fn verify_node_join_enrollment(&self, approval: &NodeJoinApproval) -> io::Result<()> {
+        let request = &approval.request;
+        approval.verify(request)?;
+        if request.installation != self.oauth2_service.metadata().issuer
+            || request.approving_peer != self.device_identity.endpoint_id().to_string()
+        {
+            return Err(invalid(
+                "enrollment is not bound to this Installation and approving endpoint",
+            ));
+        }
+        let device = self
+            .devices
+            .find_approved_by_public_key(&request.endpoint_id)
+            .await
+            .map_err(io::Error::other)?
+            .ok_or_else(|| invalid("approved enrollment Device is unavailable"))?;
+        if device.id != request.member_id
+            || device.owner_subject != approval.owner_subject.to_string()
+            || device.name != request.name
+        {
+            return Err(invalid(
+                "approved enrollment Device ownership/binding changed",
+            ));
+        }
+        self.oauth2_service
+            .find_user_info(approval.owner_subject)
+            .await
+            .map_err(auth_error)?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(io::Error::other)?
+            .as_secs()
+            .try_into()
+            .map_err(io::Error::other)?;
+        let trusted = self
+            .replica_signers
+            .trusted_signers(&request.installation, now)
+            .await
+            .map_err(io::Error::other)?;
+        self.verify_node_join_approving_device(&request.approving_peer)
+            .await?;
+        if !trusted.into_iter().any(|(member, signer)| {
+            member.member_id == request.member_id
+                && member.endpoint_id == request.endpoint_id
+                && signer.public_jwk == request.public_signer
+        }) {
+            return Err(invalid(
+                "approved enrollment signer/membership is not currently trusted",
+            ));
+        }
+        Ok(())
+    }
+
+    async fn verify_node_join_approving_device(&self, endpoint: &str) -> io::Result<()> {
+        let device = self
+            .devices
+            .find_approved_by_public_key(endpoint)
+            .await
+            .map_err(io::Error::other)?
+            .ok_or_else(|| invalid("approving endpoint has no currently approved Device"))?;
+        let owner: Id = device.owner_subject.parse().map_err(io::Error::other)?;
+        if owner.is_nil() || owner.to_string() != device.owner_subject {
+            return Err(invalid(
+                "approving Device owner is not an exact active User",
+            ));
+        }
+        self.oauth2_service
+            .find_user_info(owner)
+            .await
+            .map_err(auth_error)?;
+        Ok(())
+    }
+
+    /// Rechecks authorization and exact current enrollment immediately before reply publication.
+    pub async fn reply_node_join(
+        &self,
+        offer: &PairingOffer,
+        bearer: &str,
+        approval: &NodeJoinApproval,
+    ) -> io::Result<()> {
+        if self.authorize_node_join_approver(bearer).await? != approval.owner_subject {
+            return Err(invalid("reply approver differs from enrolled owner"));
+        }
+        let request: NodeJoinRequest = serde_json::from_slice(&offer.payload)?;
+        if offer.remote_id.to_string() != request.endpoint_id || request != approval.request {
+            return Err(invalid(
+                "pairing reply does not bind the exact enrolled offer",
+            ));
+        }
+        self.verify_node_join_enrollment(approval).await?;
+        let reply = serde_json::to_vec(approval)?;
+        if reply.len() > MAX_PAIRING_PAYLOAD_LENGTH {
+            return Err(invalid("signed join reply exceeds pairing payload limit"));
+        }
+        offer.reply(&reply).await
     }
 
     async fn enroll_node_join(
@@ -132,7 +254,10 @@ impl RouterState {
             persist_join_intent(&mut transaction, request, owner).await?;
             DbReplicaSignerRepo::enroll_in_transaction(&mut transaction, &membership, &signer)
                 .await
-                .map_err(io::Error::other)?;
+                .map_err(|error| match error {
+                    idp_service::repo::RepoError::InvalidInput(message) => invalid(&message),
+                    error => io::Error::other(error),
+                })?;
             for (table, query) in [
                 (
                     "idp_replica_members",

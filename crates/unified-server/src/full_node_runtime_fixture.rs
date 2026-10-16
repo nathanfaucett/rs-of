@@ -7,7 +7,7 @@ use super::UnifiedRuntime;
 
 impl UnifiedRuntime {
     pub(crate) fn full_node_test_management(&self) -> Arc<Database> {
-        Arc::clone(&self.management_fixture)
+        Arc::clone(&self.management_engine)
     }
 
     pub(crate) fn full_node_test_server(&self) -> &Server {

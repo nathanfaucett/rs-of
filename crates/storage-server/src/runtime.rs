@@ -65,15 +65,19 @@ pub fn build_runtime(
         .transpose()
         .map_err(io::Error::other)?;
 
-    if let (Some(server), Some(management), Some(idp)) = (
+    if state.local_replication_authorizer.is_none() {
+        state.local_replication_authorizer = state
+            .management_client
+            .clone()
+            .map(crate::LocalReplicationAuthorizer::from_management_client);
+    }
+    if let (Some(server), Some(policy), Some(idp)) = (
         server.as_ref(),
-        state.management_client.as_ref(),
+        state.local_replication_authorizer.as_ref(),
         state.idp_client.clone(),
     ) {
-        state.idp_client = Some(match management.local_replication_authorizer() {
-            Some(policy) => idp.with_local_device_policy(server.endpoint().id(), policy.clone()),
-            None => idp,
-        });
+        state.idp_client =
+            Some(idp.with_local_device_policy(server.endpoint().id(), policy.clone()));
     }
     let copies = file_systems
         .as_ref()
@@ -84,13 +88,13 @@ pub fn build_runtime(
 
     let replication = match (
         server,
-        state.management_client.clone(),
+        state.local_replication_authorizer.clone(),
         file_systems.clone(),
     ) {
-        (Some(server), Some(management), Some(file_systems)) => {
+        (Some(server), Some(authorizer), Some(file_systems)) => {
             Some(StorageReplicationRuntime::start(
                 server,
-                management,
+                authorizer,
                 Arc::clone(&databases),
                 file_systems,
                 data_dir.join("sync-staging"),
@@ -135,6 +139,117 @@ mod tests {
 
     use super::build_runtime;
     use crate::RouterState;
+
+    #[tokio::test]
+    async fn remote_policy_enables_replication_without_replacing_local_policy() {
+        let endpoint = iroh::Endpoint::builder(iroh::endpoint::presets::Minimal)
+            .bind()
+            .await
+            .expect("bind isolated Storage endpoint");
+        let server = iroh_chain::Server::new(endpoint, iroh_chain::EndpointIdStore::default());
+        let data_dir = std::env::temp_dir().join(format!(
+            "storage-local-policy-{}",
+            idp_model::model::Id::now_v7()
+        ));
+        let cancellation = tokio_util::sync::CancellationToken::new();
+        let remote = crate::ManagementClient::new(
+            "https://management.example",
+            "https://idp.example",
+            "storage-client",
+            "storage-secret",
+            "https://idp.example",
+            "management-service",
+        )
+        .expect("configure authenticated remote policy source");
+        let remote_policy = build_runtime(
+            RouterState::new("https://storage.example").with_management_client(remote.clone()),
+            &data_dir,
+            "/storage",
+            "",
+            Some(server.clone()),
+            cancellation.clone(),
+        )
+        .expect("runtime without local policy");
+        assert!(remote_policy.data_handler().is_some());
+        remote_policy
+            .shutdown()
+            .await
+            .expect("stop remote-policy runtime");
+
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let local_calls = calls.clone();
+        let policy = crate::LocalReplicationAuthorizer::new(move |_| {
+            local_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            async { Err("local policy unavailable".to_owned()) }
+        });
+        let idp = crate::IdpClient::local(
+            |_| async {
+                Ok(idp_model::contract::IntrospectionResponse {
+                    claims: model::contract::StandardClaims {
+                        r#type: model::contract::TokenType::Bearer,
+                        r#use: model::contract::TokenUse::Access,
+                        exp: i64::MAX,
+                        iat: 0,
+                        nbf: 0,
+                        iss: "https://idp.example".into(),
+                        aud: "https://storage.example".into(),
+                        client_id: "application-client".into(),
+                        sub: idp_model::model::Id::now_v7().to_string(),
+                        principal_type: model::contract::PrincipalType::User,
+                        resource: None,
+                        authorization_details: None,
+                        scope: vec![],
+                    },
+                    application_id: idp_model::model::Id::now_v7().to_string(),
+                })
+            },
+            || async { Ok(vec![]) },
+        );
+        let runtime = build_runtime(
+            RouterState::new("https://storage.example")
+                .with_management_client(remote)
+                .with_idp_client(idp)
+                .with_local_replication_authorizer(policy.clone()),
+            &data_dir,
+            "/storage",
+            "",
+            Some(server.clone()),
+            cancellation.clone(),
+        )
+        .expect("runtime needs local policy, not remote credentials");
+        assert!(runtime.data_handler().is_some());
+        let response = runtime
+            .router()
+            .oneshot(
+                Request::builder()
+                    .uri("/storage/databases")
+                    .header(axum::http::header::AUTHORIZATION, "Bearer user-token")
+                    .body(Body::empty())
+                    .expect("request with current local policy"),
+            )
+            .await
+            .expect("local policy check");
+        assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        runtime.shutdown().await.expect("stop local-policy runtime");
+        let local_only = build_runtime(
+            RouterState::new("https://storage.example").with_local_replication_authorizer(policy),
+            &data_dir,
+            "/storage",
+            "",
+            Some(server.clone()),
+            cancellation.clone(),
+        )
+        .expect("local policy requires no remote credentials");
+        assert!(local_only.data_handler().is_some());
+        cancellation.cancel();
+        local_only
+            .shutdown()
+            .await
+            .expect("stop offline-first runtime");
+        server.endpoint().close().await;
+        fs::remove_dir_all(data_dir).expect("remove isolated Storage data");
+    }
 
     #[tokio::test]
     async fn unified_prefix_does_not_repeat_storage_path() {

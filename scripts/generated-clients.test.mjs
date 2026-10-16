@@ -67,6 +67,49 @@ test("IdP client transfers Devices without obsolete bootstrap contracts", () => 
     );
 });
 
+test("Management selected resources requires and round-trips the current device policy", async () => {
+    const filename = path.join(
+        source("management"),
+        "models/SelectedResourcesResponse.ts",
+    );
+    const model = readFileSync(filename, "utf8");
+    for (const [field, type] of [
+        ["deviceId", "string"],
+        ["endpointId", "string"],
+        ["ownerSubject", "string"],
+        ["adminAllowed", "boolean"],
+        ["resources", "Array<SelectedResource>"],
+    ]) {
+        assert.ok(model.includes(`${field}: ${type};`), `${field} is required`);
+        assert.ok(!model.includes(`${field}?:`), `${field} is not optional`);
+    }
+    const {
+        SelectedResourcesResponseFromJSON,
+        SelectedResourcesResponseToJSON,
+        instanceOfSelectedResourcesResponse,
+    } = await import(filename);
+    const policy = {
+        deviceId: "device-one",
+        endpointId: "endpoint-one",
+        ownerSubject: "owner-one",
+        adminAllowed: false,
+        resources: [{
+            ownerSubject: "owner-one",
+            applicationId: "application-one",
+            kind: "database",
+            resourceId: "resource-one",
+        }],
+    };
+    assert.deepEqual(SelectedResourcesResponseFromJSON(policy), policy);
+    assert.deepEqual(SelectedResourcesResponseToJSON(policy), policy);
+    assert.equal(instanceOfSelectedResourcesResponse(policy), true);
+    for (const field of Object.keys(policy)) {
+        const incomplete = { ...policy };
+        delete incomplete[field];
+        assert.equal(instanceOfSelectedResourcesResponse(incomplete), false, field);
+    }
+});
+
 for (const service of ["idp", "management", "storage"]) {
     test(`${service} generated transport prefix occurs only in its server base`, () => {
         const directory = source(service);

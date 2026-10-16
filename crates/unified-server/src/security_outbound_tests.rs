@@ -154,7 +154,7 @@ enum Revoke {
     Keep,
     Grant,
     User,
-    Membership,
+    Device,
     Cancel,
     PolicyFailure,
 }
@@ -201,8 +201,8 @@ impl SyncTransport for GatedPeer<'_> {
                     )
                     .await;
                 }
-                Revoke::Membership => {
-                    sql(&self.fixture.source.idp, &format!("UPDATE idp_replica_members SET revoked_at = 2 WHERE member_id = CAST('{}' AS UUID)", self.fixture.peer_member)).await;
+                Revoke::Device => {
+                    sql(&self.fixture.source.idp, &format!("UPDATE devices SET state = 2, revoked_at = 2 WHERE id = CAST('{}' AS UUID)", self.fixture.peer_member)).await;
                 }
                 Revoke::Cancel => self.fixture.source.cancellation.cancel(),
                 Revoke::PolicyFailure => {
@@ -441,11 +441,11 @@ async fn learned_denial_blocks_next_security_disclosure_on_existing_connection()
 }
 
 #[tokio::test]
-async fn learned_actor_membership_cancellation_and_policy_failure_deny_outbound() {
+async fn learned_actor_device_cancellation_and_policy_failure_deny_outbound() {
     tokio::time::timeout(Duration::from_secs(600), async {
         for revoke in [
             Revoke::User,
-            Revoke::Membership,
+            Revoke::Device,
             Revoke::Cancel,
             Revoke::PolicyFailure,
         ] {

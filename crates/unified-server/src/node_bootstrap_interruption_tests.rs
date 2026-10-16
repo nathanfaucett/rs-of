@@ -220,17 +220,9 @@ async fn interruption_boundary(
                 )
                 .expect("unused resource client"),
             )
-            .with_management_client(
-                storage_server::ManagementClient::new(
-                    "http://127.0.0.1:1/management",
-                    "http://127.0.0.1:1/idp",
-                    "storage",
-                    "local",
-                    &issuer,
-                    "management",
-                )
-                .expect("unused resource policy client"),
-            ),
+            .with_local_replication_authorizer(storage_server::LocalReplicationAuthorizer::new(
+                |_| async { Err("resource access is not authorized in this fixture".to_owned()) },
+            )),
         &source_root.join("storage"),
         "/storage",
         "",
@@ -261,7 +253,7 @@ async fn interruption_boundary(
         &source_config,
         source_idp.clone(),
         Arc::new(
-            idp_server::device_identity_from_server(&source, source_secret)
+            management_service::device_identity_from_server(&source, source_secret)
                 .expect("source identity"),
         ),
         source.clone(),

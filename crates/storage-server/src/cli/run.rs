@@ -1,8 +1,3 @@
-use api::serve;
-
-use clap::Parser;
-use cli::{CliArgs, CliServerCommand, shutdown_signal};
-use env_logger::Env;
 use std::{
     io,
     net::{IpAddr, SocketAddr},
@@ -10,11 +5,32 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+
+use api::serve;
+
+use clap::Parser;
+use cli::{CliArgs, shutdown_signal};
+use env_logger::Env;
+
 use tokio::{select, spawn, time::sleep};
 use tokio_util::sync::CancellationToken;
 use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
 
-use crate::{AppConfig, IdpClient, ManagementClient, RouterState, build_runtime};
+#[cfg(not(unix))]
+use crate::AppConfig;
+use crate::{IdpClient, ManagementClient, RouterState, build_runtime};
+
+#[derive(clap::Parser, Debug)]
+enum StorageCommand {
+    Serve {
+        #[arg(long, short = 'p')]
+        port: Option<u16>,
+        #[arg(long, short = 'H')]
+        host: Option<IpAddr>,
+    },
+    #[cfg(feature = "completions")]
+    Completions { shell: cli::Shell },
+}
 
 pub async fn run() -> io::Result<()> {
     match dotenvy::dotenv() {
@@ -24,10 +40,13 @@ pub async fn run() -> io::Result<()> {
         }
     }
 
-    let args = CliArgs::parse();
+    let args = CliArgs::<StorageCommand>::parse();
 
     let cancellation_token = CancellationToken::new();
 
+    #[cfg(unix)]
+    let app_config = Arc::new(crate::startup::load_config(Path::new(&args.config))?);
+    #[cfg(not(unix))]
     let app_config = Arc::new(match AppConfig::try_from(Path::new(&args.config)) {
         Ok(app_config) => app_config,
         Err(e) => {
@@ -37,6 +56,32 @@ pub async fn run() -> io::Result<()> {
     });
 
     env_logger::Builder::from_env(Env::default().default_filter_or(&app_config.log_level)).init();
+
+    #[cfg(unix)]
+    if matches!(args.command, None | Some(StorageCommand::Serve { .. })) {
+        let (host, port) = match args.command.as_ref() {
+            Some(StorageCommand::Serve { host, port }) => (*host, *port),
+            _ => (None, None),
+        };
+        let configured_host = app_config.server.host;
+        let setup_host = host.unwrap_or_else(|| {
+            if configured_host.is_unspecified() {
+                std::net::Ipv4Addr::LOCALHOST.into()
+            } else {
+                configured_host
+            }
+        });
+        let address = SocketAddr::new(setup_host, port.unwrap_or(app_config.server.port));
+        if let Some(setup) = crate::prepare_setup(&app_config, address)? {
+            let shutdown = shutdown_signal(cancellation_token.clone());
+            let serving = setup.serve(cancellation_token.clone());
+            tokio::pin!(shutdown, serving);
+            return tokio::select! {
+                result = &mut serving => result,
+                () = &mut shutdown => serving.await,
+            };
+        }
+    }
 
     let mut router_state = if app_config.idp_api_base_uri.trim().is_empty() {
         RouterState::new(&app_config.api_public_uri)
@@ -202,10 +247,10 @@ pub async fn run() -> io::Result<()> {
 
     let command_handle = match args.command {
         #[cfg(feature = "completions")]
-        Some(CliServerCommand::Completions { shell }) => {
+        Some(StorageCommand::Completions { shell }) => {
             spawn(async move { cli::run_completions(shell).await })
         }
-        Some(CliServerCommand::Serve { serve }) => run_serve(serve.host, serve.port),
+        Some(StorageCommand::Serve { host, port }) => run_serve(host, port),
         None => run_serve(None, None),
     };
 
@@ -239,4 +284,19 @@ pub async fn run() -> io::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+    use cli::CliArgs;
+
+    use super::StorageCommand;
+
+    #[test]
+    fn independent_startup_accepts_no_config_and_explicit_serve() {
+        CliArgs::<StorageCommand>::try_parse_from(["storage-server"]).expect("default launch");
+        CliArgs::<StorageCommand>::try_parse_from(["storage-server", "serve", "--port", "3002"])
+            .expect("explicit serving launch");
+    }
 }

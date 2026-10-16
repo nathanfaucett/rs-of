@@ -14,6 +14,7 @@ name = "management_service"
 
 [features]
 default = []
+utoipa = ["std", "dep:utoipa"]
 
 replica = ["std", "dep:db", "idp-model/replica"]
 
@@ -25,15 +26,20 @@ std = [
   "dep:base64",
 
   "dep:iroh",
+  "dep:iroh-chain",
   "dep:reqwest",
   "serde/std",
 ]
 
 [dependencies]
+# API Schema
+utoipa = { version = "5.5", default-features = false, features = ["macros"], optional = true }
+
 # Internal
 db = { package = "idp-db", path = "../db", default-features = false, features = [], optional = true }
 idp-model = { path = "../idp-model", default-features = false, features = [] }
 idp-service = { path = "../idp-service", default-features = false, features = [] }
+iroh-chain = { path = "../../../ofnet/crates/iroh-chain", default-features = false, features = [], optional = true }
 
 model = { path = "../model", default-features = false, features = [] }
 storage-model = { path = "../storage-model", default-features = false, features = [] }
@@ -51,7 +57,7 @@ serde_json = { version = "1.0", default-features = false, features = ["std"] }
 
 # Cryptography
 base64 = { version = "0.22", default-features = false, features = [], optional = true }
-iroh = { version = "1.1", default-features = false, features = [], optional = true }
+iroh = { version = "1.1", default-features = false, features = ["tls-ring"], optional = true }
 
 
 # Serialization

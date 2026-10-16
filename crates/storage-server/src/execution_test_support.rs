@@ -292,19 +292,7 @@ impl DomainNode {
                     .await
                     .map_err(|error| error.to_string())?
                     .ok_or("unknown or unapproved Device")?;
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_err(|_| "invalid clock")?
-                    .as_secs()
-                    .try_into()
-                    .map_err(|_| "clock overflow")?;
-                if !DbReplicaSignerRepo::new(idp.clone())
-                    .is_trusted_peer(INSTALLATION, device.id, &endpoint.to_string(), now)
-                    .await
-                    .map_err(|error| error.to_string())?
-                {
-                    return Err("missing current signer-backed Installation membership".into());
-                }
+
                 let owner_id = device.owner_subject.parse().map_err(|_| "invalid owner")?;
                 let owner_active = DbUserRepo::new(idp, PasswordConfig::default())
                     .find_user_by_id(owner_id)

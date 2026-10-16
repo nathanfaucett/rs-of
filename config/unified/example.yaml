@@ -18,16 +18,7 @@ storage:
   data_dir: ./data/unified/storage
   api_public_uri: https://storage.example
 
-service_clients:
-  management_idp:
-    client_id: REPLACE_WITH_MANAGEMENT_IDP_CLIENT_UUID
-    audience: https://identity.example/service
-  storage_idp:
-    client_id: REPLACE_WITH_STORAGE_IDP_CLIENT_UUID
-    audience: https://identity.example/service
-  storage_management:
-    client_id: REPLACE_WITH_STORAGE_MANAGEMENT_CLIENT_UUID
-    audience: https://storage.example
-  idp_management:
-    client_id: REPLACE_WITH_IDP_MANAGEMENT_CLIENT_UUID
-    audience: idp-management
+# Bundled owners call each other directly; no confidential service Clients,
+# service_clients section or relationship-secret environment variables are used.
+# Canonical issuer must match the trusted Installation when joining.
+# The listener uses retained localhost TLS; OS CA installation is mandatory.

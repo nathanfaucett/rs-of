@@ -11,6 +11,186 @@ use storage_model::{StorageRequest, StorageResponse};
 
 use super::{Fixture, Gate, registration};
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn bundled_storage_direct_idp_checks_current_bearer_registration_and_signer_offline() {
+    tokio::time::timeout(Duration::from_secs(240), async {
+        let mut fixture = Fixture::new(Gate::default()).await;
+        let token = fixture
+            .token(
+                "storage:filesystems",
+                vec![StorageAuthorizationAction::Read],
+            )
+            .await;
+        let database_token = fixture
+            .token("storage:databases", vec![StorageAuthorizationAction::Read])
+            .await;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("test clock")
+            .as_secs() as i64;
+        let signing_key = fixture
+            .keys
+            .load_node_signer(&fixture.binding, &fixture.issuer, now)
+            .await
+            .expect("real current Node signer");
+        let (_, claims) = idp_service::oauth2::decode_jwt::<serde_json::Value>(&token)
+            .expect("issued bearer claims");
+        fixture.idp_listener.stop().await;
+
+        let current = fixture
+            .client
+            .introspect(&token)
+            .await
+            .expect("no IdP HTTP listener required");
+        assert_eq!(current.claims.sub, fixture.owner.to_string());
+        assert_eq!(
+            current.application_id,
+            fixture.scope.application_id.to_string()
+        );
+        fixture
+            .client
+            .introspect(&database_token)
+            .await
+            .expect("database audience permitted");
+        assert!(
+            fixture
+                .client
+                .approved_storage_endpoints()
+                .await
+                .expect("current owner trust")
+                .contains(&fixture.identity.endpoint().id().to_string())
+        );
+        assert!(matches!(
+            fixture.client.introspect("invalid").await,
+            Err(storage_server::IdpIntrospectionError::InvalidToken)
+        ));
+        for (field, value) in [
+            ("sub", serde_json::json!(Id::now_v7().to_string())),
+            ("principal_type", serde_json::json!("client")),
+            ("aud", serde_json::json!("idp-services")),
+            ("aud", serde_json::json!("storage:unknown")),
+            ("exp", serde_json::json!(0)),
+        ] {
+            let mut invalid = claims.clone();
+            invalid[field] = value;
+            let signed = idp_service::oauth2::encode_jwt(&signing_key, &invalid)
+                .expect("genuinely signed invalid actor/claims");
+            assert!(
+                matches!(
+                    fixture.client.introspect(&signed).await,
+                    Err(storage_server::IdpIntrospectionError::InvalidToken)
+                ),
+                "accepted invalid {field}"
+            );
+        }
+        let mut human = fixture
+            .clients
+            .find_client_by_client_id("human")
+            .await
+            .expect("current registration")
+            .expect("human Client");
+        let scopes = human.allowed_scopes.clone();
+        human.allowed_scopes.clear();
+        fixture
+            .clients
+            .update_client(human.clone())
+            .await
+            .expect("learn scope withdrawal");
+        assert!(
+            fixture.client.introspect(&token).await.is_err(),
+            "registration is rechecked"
+        );
+        human.allowed_scopes = scopes;
+        fixture
+            .clients
+            .update_client(human)
+            .await
+            .expect("restore valid registration");
+        fixture
+            .client
+            .introspect(&token)
+            .await
+            .expect("current registration restored");
+        idp_service::replica::DbReplicaSignerRepo::new(fixture.idp.clone())
+            .revoke(fixture.binding.member_id, &fixture.issuer, now)
+            .await
+            .expect("learn signer revocation");
+        assert!(
+            fixture.client.introspect(&token).await.is_err(),
+            "signer trust is never cached"
+        );
+        assert!(
+            fixture
+                .client
+                .approved_storage_endpoints()
+                .await
+                .expect("revoked trust list")
+                .is_empty()
+        );
+        fixture.stop().await;
+    })
+    .await
+    .expect("bounded direct IdP owner qualification");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn bundled_storage_direct_idp_preserves_real_local_owner_gate() {
+    tokio::time::timeout(Duration::from_secs(240), async {
+        let fixture = Fixture::new(Gate::default()).await;
+        set_device_allowed(&fixture, true).await;
+        let copies = std::sync::Arc::new(std::sync::OnceLock::new());
+        assert!(
+            copies
+                .set(storage_server::StorageCopyRetirement::new(
+                    fixture.databases.clone(),
+                    fixture.files.clone()
+                ))
+                .is_ok()
+        );
+        let policy = crate::runtime::owner_replication_authorizer(
+            fixture.runtime.clone(),
+            fixture.management.clone(),
+            fixture.identity.endpoint().id(),
+            copies.clone(),
+        );
+        let client = fixture
+            .client
+            .clone()
+            .with_local_device_policy(fixture.identity.endpoint().id(), policy);
+        let token = fixture
+            .token(
+                "storage:filesystems",
+                vec![StorageAuthorizationAction::Read],
+            )
+            .await;
+        client
+            .introspect(&token)
+            .await
+            .expect("current local owner is allowed");
+        set_device_allowed(&fixture, false).await;
+        fixture
+            .client
+            .introspect(&token)
+            .await
+            .expect("bearer itself remains valid");
+        assert!(
+            matches!(
+                client.introspect(&token).await,
+                Err(storage_server::IdpIntrospectionError::InvalidToken)
+            ),
+            "local Device policy is still enforced"
+        );
+        fixture.revoke_user().await;
+        assert!(
+            fixture.client.introspect(&token).await.is_err(),
+            "current principal deletion denies"
+        );
+        fixture.stop().await;
+    })
+    .await
+    .expect("bounded direct owner gate qualification");
+}
+
 async fn reassign_application(fixture: &Fixture) -> Id {
     let other = fixture
         .clients
@@ -78,31 +258,52 @@ async fn native_catalog_response_denies_learned_application_reassignment_without
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn native_catalog_paused_local_introspection_timeout_returns_503_without_rollback() {
+async fn native_catalog_paused_local_owner_rechecks_before_response_without_rollback() {
     tokio::time::timeout(Duration::from_secs(120), async {
         let gate = Gate::default();
         let fixture = Fixture::with_catalog_gate(Gate::default(), Some(gate.clone())).await;
         let token = fixture.token("storage:filesystems", vec![StorageAuthorizationAction::Write]).await;
-        let started = std::time::Instant::now();
+
         let mut request = Box::pin(fixture.request(reqwest::Method::POST, "/storage/filesystems", &token));
         tokio::select! {
             response = &mut request => panic!("result returned before real response-time introspection: {}", response.status()),
             () = gate.reached() => {}
         }
         assert_eq!(catalog_count(&fixture, "filesystems", &fixture.scope).await, 2, "authorized mutation completed before the paused local evaluation");
+        fixture.revoke_user().await;
+        gate.release();
+        let response = request.await;
+        assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
+        assert!(response.bytes().await.expect("safe denial body").is_empty());
+        assert!(matches!(storage_server::authorize_storage_token(&fixture.client, &token).await, Err(storage_server::StorageAuthorizationError::InvalidToken)));
+        assert_eq!(catalog_count(&fixture, "filesystems", &fixture.scope).await, 2);
+        fixture.stop().await;
+    }).await.expect("native direct owner recheck completes");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn independent_catalog_paused_introspection_timeout_returns_503_without_rollback() {
+    tokio::time::timeout(Duration::from_secs(120), async {
+        let gate = Gate::default();
+        let fixture = Fixture::with_idp_backend(Gate::default(), Some(gate.clone()), true).await;
+        let token = fixture.token("storage:filesystems", vec![StorageAuthorizationAction::Write]).await;
+        let started = std::time::Instant::now();
+        let mut request = Box::pin(fixture.request(reqwest::Method::POST, "/storage/filesystems", &token));
+        tokio::select! {
+            response = &mut request => panic!("result returned before response-time introspection: {}", response.status()),
+            () = gate.reached() => {}
+        }
+        assert_eq!(catalog_count(&fixture, "filesystems", &fixture.scope).await, 2);
         let response = request.await;
         assert_eq!(response.status(), reqwest::StatusCode::SERVICE_UNAVAILABLE);
         assert!(response.bytes().await.expect("safe denial body").is_empty());
-        let elapsed = started.elapsed();
-        assert!(elapsed >= Duration::from_secs(10), "existing HTTP request deadline, not token/policy denial: {elapsed:?}");
-        eprintln!("paused native introspection returned safe503 after {elapsed:?}; owner evaluation was still gated");
+        assert!(started.elapsed() >= Duration::from_secs(10), "existing HTTP request deadline, not token/policy denial");
         gate.release();
-        let current = storage_server::authorize_storage_token(&fixture.client, &token).await.expect("same bearer remains genuinely valid after the gate releases");
-        assert_eq!(current.subject, fixture.scope.user_sub);
-        assert_eq!(current.application_id, fixture.scope.application_id.to_string());
+        storage_server::authorize_storage_token(&fixture.client, &token).await
+            .expect("same bearer remains valid after transport recovery");
         assert_eq!(catalog_count(&fixture, "filesystems", &fixture.scope).await, 2);
         fixture.stop().await;
-    }).await.expect("native timeout diagnostic completes");
+    }).await.expect("independent introspection deadline completes");
 }
 
 async fn catalog_count(fixture: &Fixture, kind: &str, scope: &super::StorageNamespace) -> usize {

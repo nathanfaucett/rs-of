@@ -66,13 +66,13 @@ boundary-check:
     python3 scripts/check_server_dependencies.py
 
 idp config:
-    cargo run -p idp-server --features cli --bin idp-server -- --config {{config}}
+    cargo run -p idp-server --features cli --bin idp-server -- --config {{ config }}
 
 management config:
-    cargo run -p management-server --features cli --bin management-server -- --config {{config}}
+    cargo run -p management-server --features cli --bin management-server -- --config {{ config }}
 
 storage config:
-    cargo run -p storage-server --features cli --bin storage-server -- --config {{config}}
+    cargo run -p storage-server --features cli --bin storage-server -- --config {{ config }}
 
-unified config:
-    cargo run -p unified-server --features cli --bin unified-server -- --config {{config}}
+unified *args:
+    cargo run -p unified-server --features cli --bin unified-server -- {{ args }}
