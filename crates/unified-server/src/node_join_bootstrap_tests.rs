@@ -182,7 +182,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
             .await
             .expect("explicit source grant");
     }
-    source_idp
+    source_policy
         .client()
         .translate_and_execute(
             &format!(
@@ -410,7 +410,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
     );
     for (database, table) in [
         (&joining_idp, "users"),
-        (&joining_idp, "devices"),
+        (&joining_policy, "devices"),
         (&joining_policy, "roles"),
         (&joining_policy, "permissions"),
     ] {
@@ -435,10 +435,27 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
             .expect("incomplete receipt")
     );
     protocol
+        .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Management)
+        .await
+        .expect_err("Management bootstrap requires the retained IdP import first");
+    protocol
         .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Idp)
         .await
         .expect("authorized initial IdP import");
     eprintln!("bootstrap IdP imported: {:?}", started.elapsed());
+    assert!(
+        crate::security_sync_tests::sql(&joining_policy, "SELECT * FROM devices").await[0]
+            .rows
+            .is_empty(),
+        "IdP import must not establish Management endpoint authority"
+    );
+    for context in [SecurityContext::Idp, SecurityContext::Management] {
+        protocol
+            .synchronize(&connection, context)
+            .await
+            .expect_err("purpose-pinned IdP bootstrap cannot grant ordinary admission");
+    }
+
     assert!(
         !protocol
             .node_join_public_ready(&provisioner)
@@ -599,7 +616,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
                 .is_err(),
             "existing connection cannot reuse receipt after source grant revocation"
         );
-        let devices = DbDeviceRepo::new(source_idp.clone());
+        let devices = DbDeviceRepo::new(source_policy.clone());
         devices
             .rename(
                 &received.owner_subject.to_string(),

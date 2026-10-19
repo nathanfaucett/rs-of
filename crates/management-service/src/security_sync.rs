@@ -1,6 +1,7 @@
 /// Policy records belong to Management, never the IdP store. Admission and each apply
 /// still require authenticated peer provenance and locally evaluated permission.
 pub const PUBLIC_POLICY_TABLES: &[&str] = &[
+    "devices",
     "roles",
     "permissions",
     "role_permissions",
@@ -12,6 +13,18 @@ pub const PUBLIC_POLICY_TABLES: &[&str] = &[
 #[must_use]
 pub fn public_policy_columns(table: &str) -> Option<&'static [&'static str]> {
     Some(match table {
+        "devices" => &[
+            "id",
+            "owner_subject",
+            "name",
+            "public_key",
+            "address",
+            "state",
+            "approved_at",
+            "revoked_at",
+            "created_at",
+            "updated_at",
+        ],
         "roles" | "permissions" => &[
             "id",
             "application_id",
@@ -98,12 +111,17 @@ mod tests {
             super::public_policy_columns("local_client_credentials"),
             None
         );
-        assert_eq!(super::public_policy_columns("devices"), None);
+        assert!(super::public_policy_columns("devices").is_some());
+        assert_eq!(
+            super::public_policy_columns("local_device_enrollments"),
+            None
+        );
         assert_eq!(super::public_policy_columns("unknown"), None);
     }
 
     #[test]
     fn policy_sync_is_context_local_and_explicitly_allowlisted() {
+        assert!(permits_policy_table("devices"));
         assert!(permits_policy_table("role_permissions"));
         assert!(permits_policy_table("device_selection_policies"));
         assert!(permits_policy_table("device_resource_selections"));
@@ -112,7 +130,6 @@ mod tests {
             "credentials",
             "clients",
             "keys",
-            "devices",
             "oauth2_refresh_tokens",
             "local_client_credentials",
             "local_credential_secrets",

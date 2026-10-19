@@ -65,19 +65,19 @@ impl Fixture {
             let idp = Arc::new(Database::open(root.join("source-idp.redb")).expect("native IdP"));
             idp_model::replica::up(&idp).await.expect("IdP schema");
             sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{actor}' AS UUID), 'owner', 'Owner', 1, 1)")).await;
-            for (member, key, endpoint) in [
-                (member, key, source.endpoint().id()),
-                (peer_member, Id::now_v7(), peer.endpoint().id()),
-            ] {
-                sql(&idp, &format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{member}' AS UUID), '{actor}', 'node', '{endpoint}', 'local', 1, 1, 1, 1)")).await;
-                enroll(idp.clone(), member, endpoint, key).await;
-            }
             let management = Arc::new(
                 Database::open(root.join("source-management.redb")).expect("native Management"),
             );
             management_service::replica::up(&management)
                 .await
                 .expect("Management schema");
+            for (member, key, endpoint) in [
+                (member, key, source.endpoint().id()),
+                (peer_member, Id::now_v7(), peer.endpoint().id()),
+            ] {
+                sql(&management, &format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{member}' AS UUID), '{actor}', 'node', '{endpoint}', 'local', 1, 1, 1, 1)")).await;
+                enroll(idp.clone(), member, endpoint, key).await;
+            }
             ManagementService::new(
                 DbPermissionRepo::new(management.clone()),
                 DbRoleRepo::new(management.clone()),
@@ -202,7 +202,7 @@ impl SyncTransport for GatedPeer<'_> {
                     .await;
                 }
                 Revoke::Device => {
-                    sql(&self.fixture.source.idp, &format!("UPDATE devices SET state = 2, revoked_at = 2 WHERE id = CAST('{}' AS UUID)", self.fixture.peer_member)).await;
+                    sql(&self.fixture.source.management, &format!("UPDATE devices SET state = 2, revoked_at = 2 WHERE id = CAST('{}' AS UUID)", self.fixture.peer_member)).await;
                 }
                 Revoke::Cancel => self.fixture.source.cancellation.cancel(),
                 Revoke::PolicyFailure => {
@@ -590,7 +590,7 @@ async fn admitted_security_write_finishes_then_next_write_denies() {
             let (send, recv) = source.open_bi().await.expect("outbound write stream");
             let admitted = Arc::new(tokio::sync::Notify::new());
             let release = Arc::new(tokio::sync::Notify::new());
-            let before = sql(&fixture.source.idp, "SELECT * FROM devices").await[0]
+            let before = sql(&fixture.source.management, "SELECT * FROM devices").await[0]
                 .rows
                 .clone();
             let writer = async {
@@ -645,7 +645,7 @@ async fn admitted_security_write_finishes_then_next_write_denies() {
             };
             tokio::join!(writer, reader);
             assert_eq!(
-                sql(&fixture.source.idp, "SELECT * FROM devices").await[0].rows,
+                sql(&fixture.source.management, "SELECT * FROM devices").await[0].rows,
                 before
             );
             fixture.close().await;

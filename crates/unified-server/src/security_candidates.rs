@@ -50,8 +50,7 @@ pub(super) fn validate(
                 }
             }
             match table.name.as_str() {
-                "devices" => validate_device(table, row, bindings)?,
-                "idp_replica_members" => validate_member(view, table, row, bindings)?,
+                "idp_replica_members" => validate_member(table, row, bindings)?,
                 "idp_replica_signers" => validate_signer(table, row)?,
                 _ => {}
             }
@@ -122,7 +121,6 @@ fn validate_device(
 }
 
 fn validate_member(
-    view: &SyncCandidateView,
     table: &SyncTableView,
     row: &SyncRowView,
     bindings: &[PeerBinding],
@@ -142,18 +140,6 @@ fn validate_member(
         .iter()
         .find(|binding| Some(binding.member) == member)
         && endpoint.is_some_and(|endpoint| endpoint != binding.endpoint)
-    {
-        return Err(invalid());
-    }
-    if let (Some(member), Some(endpoint), Some(devices)) = (
-        member,
-        endpoint,
-        view.tables.iter().find(|table| table.name == "devices"),
-    ) && let Some(device) = devices
-        .rows
-        .iter()
-        .find(|device| device.id == member && !device.deleted)
-        && text(devices, device, "public_key").is_some_and(|key| key != endpoint)
     {
         return Err(invalid());
     }
@@ -198,12 +184,6 @@ pub(super) fn validate_node_join(
             if row.deleted {
                 continue;
             }
-            if table.name == "devices"
-                && row.id == request.member_id
-                && text(table, row, "name").is_some_and(|name| name != request.name)
-            {
-                return Err(invalid());
-            }
             if table.name == "idp_replica_signers"
                 && (uuid(table, row, "key_id") == Some(key)
                     || uuid(table, row, "active_member_id") == Some(request.member_id))
@@ -219,6 +199,71 @@ pub(super) fn validate_node_join(
                         return Err(invalid());
                     }
                 }
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn permits_device_value(column: &str, value: &Value) -> bool {
+    match (column, value) {
+        (_, Value::Null) => true,
+        ("id", Value::Uuid(id)) => !id.is_nil() && id.get_version_num() == 7,
+        ("id", Value::Text(id)) => {
+            Id::parse_str(id).is_ok_and(|id| !id.is_nil() && id.get_version_num() == 7)
+        }
+        (
+            "state" | "approved_at" | "revoked_at" | "created_at" | "updated_at",
+            Value::Integer(_),
+        ) => true,
+        ("owner_subject" | "name" | "public_key" | "address", Value::Text(_)) => true,
+        _ => false,
+    }
+}
+
+pub(super) fn validate_management(
+    view: &SyncCandidateView,
+    bindings: &[PeerBinding],
+    approval: Option<&idp_server::NodeJoinApproval>,
+) -> Result<(), String> {
+    for table in &view.tables {
+        let columns = management_service::public_policy_columns(&table.name).ok_or_else(invalid)?;
+        if columns.len() != table.columns.len()
+            || table
+                .columns
+                .iter()
+                .any(|column| !columns.contains(&column.as_str()))
+        {
+            return Err(invalid());
+        }
+        if table.name != "devices" {
+            continue;
+        }
+        for row in &table.rows {
+            if row.deleted {
+                continue;
+            }
+            if row.row.values.len() != table.columns.len()
+                || table
+                    .columns
+                    .iter()
+                    .zip(&row.row.values)
+                    .any(|(column, value)| !permits_device_value(column, value))
+                || row.conflicts.iter().any(|(column, values)| {
+                    !columns.contains(&column.as_str())
+                        || values
+                            .iter()
+                            .any(|value| !permits_device_value(column, value))
+                })
+            {
+                return Err(invalid());
+            }
+            validate_device(table, row, bindings)?;
+            if let Some(approval) = approval
+                && row.id == approval.request.member_id
+                && text(table, row, "name").is_some_and(|name| name != approval.request.name)
+            {
+                return Err(invalid());
             }
         }
     }

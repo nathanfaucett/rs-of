@@ -117,18 +117,18 @@ async fn exchange_history() {
             .await
             .expect("fresh secret-free schemas");
         sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{actor}' AS UUID), 'administrator', 'Administrator', 1, 1)")).await;
-        for (member, key, endpoint) in [
-            (member_a, key_a, server_a.endpoint().id()),
-            (member_b, key_b, server_b.endpoint().id()),
-        ] {
-            sql(&idp, &format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{member}' AS UUID), '{actor}', 'node', '{endpoint}', 'local', 1, 1, 1, 1)")).await;
-            enroll(idp.clone(), member, endpoint, key).await;
-        }
         let management =
             Arc::new(Database::open(root.join("a-management.redb")).expect("seed Management"));
         management_service::replica::up(&management)
             .await
             .expect("Management schemas");
+        for (member, key, endpoint) in [
+            (member_a, key_a, server_a.endpoint().id()),
+            (member_b, key_b, server_b.endpoint().id()),
+        ] {
+            sql(&management, &format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{member}' AS UUID), '{actor}', 'node', '{endpoint}', 'local', 1, 1, 1, 1)")).await;
+            enroll(idp.clone(), member, endpoint, key).await;
+        }
         ManagementService::new(
             DbPermissionRepo::new(management.clone()),
             DbRoleRepo::new(management.clone()),
@@ -162,7 +162,7 @@ async fn exchange_history() {
         Arc::new(Database::open(root.join("b-management.redb")).expect("open B Management"));
     let learned_member = Id::now_v7();
     let learned_endpoint = iroh::SecretKey::generate().public();
-    sql(&idp_a, &format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{learned_member}' AS UUID), '{actor}', 'new-approved-peer', '{learned_endpoint}', 'local', 1, 1, 1, 1)")).await;
+    sql(&management_a, &format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{learned_member}' AS UUID), '{actor}', 'new-approved-peer', '{learned_endpoint}', 'local', 1, 1, 1, 1)")).await;
     enroll(
         idp_a.clone(),
         learned_member,
@@ -182,11 +182,12 @@ async fn exchange_history() {
         .expect("local B verifier");
     let local_client_a = Id::now_v7();
     let local_client_b = Id::now_v7();
-    for (database, client, device, label) in [
-        (&*idp_a, local_client_a, member_a, "a"),
-        (&*idp_b, local_client_b, member_b, "b"),
+    for (database, management, client, device, label) in [
+        (&*idp_a, &*management_a, local_client_a, member_a, "a"),
+        (&*idp_b, &*management_b, local_client_b, member_b, "b"),
     ] {
-        sql(database, &format!("INSERT INTO local_client_credentials (client_id, credential_id, secret_hash) VALUES (CAST('{client}' AS UUID), CAST('{}' AS UUID), 'private-client-{label}'); INSERT INTO local_device_enrollments (device_id, pairing_accepting_public_key) VALUES (CAST('{device}' AS UUID), 'private-enrollment-{label}')", Id::now_v7())).await;
+        sql(database, &format!("INSERT INTO local_client_credentials (client_id, credential_id, secret_hash) VALUES (CAST('{client}' AS UUID), CAST('{}' AS UUID), 'private-client-{label}')", Id::now_v7())).await;
+        sql(management, &format!("INSERT INTO local_device_enrollments (device_id, pairing_accepting_public_key) VALUES (CAST('{device}' AS UUID), 'private-enrollment-{label}')")).await;
     }
     let grant_client = Id::now_v7();
     let grant = |token: &str| idp_service::repo::OAuth2RefreshToken {
@@ -322,13 +323,6 @@ async fn exchange_history() {
             .expect("own verifier retained")
             .is_some()
     );
-    assert!(
-        DbDeviceRepo::new(idp_b.clone())
-            .find_approved_by_public_key(&learned_endpoint.to_string())
-            .await
-            .expect("learn approved public Device history")
-            .is_some_and(|device| device.id == learned_member)
-    );
     grants_b
         .issue_refresh_token(
             grant("private-bearer-replacement"),
@@ -350,9 +344,10 @@ async fn exchange_history() {
             .is_err(),
         "learned consumption denies replay without raw bearer transfer"
     );
-    for (database, own_client, other_client, own_device, other_device, label) in [
+    for (database, management, own_client, other_client, own_device, other_device, label) in [
         (
             &*idp_a,
+            &*management_a,
             local_client_a,
             local_client_b,
             member_a,
@@ -361,6 +356,7 @@ async fn exchange_history() {
         ),
         (
             &*idp_b,
+            &*management_b,
             local_client_b,
             local_client_a,
             member_b,
@@ -370,8 +366,8 @@ async fn exchange_history() {
     ] {
         assert_eq!(sql(database, &format!("SELECT secret_hash FROM local_client_credentials WHERE client_id = CAST('{own_client}' AS UUID)")).await[0].rows[0].values, vec![Value::Text(format!("private-client-{label}"))]);
         assert!(sql(database, &format!("SELECT secret_hash FROM local_client_credentials WHERE client_id = CAST('{other_client}' AS UUID)")).await[0].rows.is_empty());
-        assert_eq!(sql(database, &format!("SELECT pairing_accepting_public_key FROM local_device_enrollments WHERE device_id = CAST('{own_device}' AS UUID)")).await[0].rows[0].values, vec![Value::Text(format!("private-enrollment-{label}"))]);
-        assert!(sql(database, &format!("SELECT device_id FROM local_device_enrollments WHERE device_id = CAST('{other_device}' AS UUID)")).await[0].rows.is_empty());
+        assert_eq!(sql(management, &format!("SELECT pairing_accepting_public_key FROM local_device_enrollments WHERE device_id = CAST('{own_device}' AS UUID)")).await[0].rows[0].values, vec![Value::Text(format!("private-enrollment-{label}"))]);
+        assert!(sql(management, &format!("SELECT device_id FROM local_device_enrollments WHERE device_id = CAST('{other_device}' AS UUID)")).await[0].rows.is_empty());
     }
     let unsigned = SecurityProtocol::new(
         server_a.clone(),
@@ -423,7 +419,7 @@ async fn exchange_history() {
             "bad claims neither import nor mutate either context"
         );
     }
-    sql(&idp_b, &format!("UPDATE devices SET owner_subject = 'unverified-endpoint-subject' WHERE id = CAST('{member_a}' AS UUID)")).await;
+    sql(&management_b, &format!("UPDATE devices SET owner_subject = 'unverified-endpoint-subject' WHERE id = CAST('{member_a}' AS UUID)")).await;
     let before = security_manifests(&idp_a, &idp_b, &management_a, &management_b).await;
     protocol_a
         .synchronize(&connection, SecurityContext::Idp)
@@ -436,7 +432,7 @@ async fn exchange_history() {
         "unverified owner imports no history and preserves source data"
     );
     sql(
-        &idp_b,
+        &management_b,
         &format!(
             "UPDATE devices SET owner_subject = '{actor}' WHERE id = CAST('{member_a}' AS UUID)"
         ),
@@ -470,6 +466,20 @@ async fn exchange_history() {
         .synchronize(&connection, SecurityContext::Management)
         .await
         .expect("separate policy exchange");
+    assert!(
+        DbDeviceRepo::new(management_b.clone())
+            .find_approved_by_public_key(&learned_endpoint.to_string())
+            .await
+            .expect("learn approved public Device history")
+            .is_some_and(|device| device.id == learned_member)
+    );
+    for (database, own, other, label) in [
+        (&management_a, member_a, member_b, "a"),
+        (&management_b, member_b, member_a, "b"),
+    ] {
+        assert_eq!(sql(database, &format!("SELECT pairing_accepting_public_key FROM local_device_enrollments WHERE device_id = CAST('{own}' AS UUID)")).await[0].rows[0].values, vec![Value::Text(format!("private-enrollment-{label}"))]);
+        assert!(sql(database, &format!("SELECT device_id FROM local_device_enrollments WHERE device_id = CAST('{other}' AS UUID)")).await[0].rows.is_empty(), "Management public sync never copies local enrollments");
+    }
     eprintln!(
         "security fixture {:?}: Management namespace exchange complete",
         started.elapsed()
