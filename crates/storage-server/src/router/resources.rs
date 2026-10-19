@@ -515,7 +515,7 @@ mod tests {
             for (status, body) in [
                 (
                     "200 OK".to_owned(),
-                    r#"{"access_token":"service-token","token_type":"Bearer","expires_in":3600,"scope":"idp.device.lookup idp.device.list idp.token.validate","iss":"http://127.0.0.1"}"#.to_owned(),
+                    r#"{"access_token":"service-token","token_type":"Bearer","expires_in":3600,"scope":"idp.token.validate","iss":"http://127.0.0.1"}"#.to_owned(),
                 ),
                 (introspection_status, introspection_body),
             ] {

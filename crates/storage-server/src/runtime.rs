@@ -182,29 +182,26 @@ mod tests {
             local_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             async { Err("local policy unavailable".to_owned()) }
         });
-        let idp = crate::IdpClient::local(
-            |_| async {
-                Ok(idp_model::contract::IntrospectionResponse {
-                    claims: model::contract::StandardClaims {
-                        r#type: model::contract::TokenType::Bearer,
-                        r#use: model::contract::TokenUse::Access,
-                        exp: i64::MAX,
-                        iat: 0,
-                        nbf: 0,
-                        iss: "https://idp.example".into(),
-                        aud: "https://storage.example".into(),
-                        client_id: "application-client".into(),
-                        sub: idp_model::model::Id::now_v7().to_string(),
-                        principal_type: model::contract::PrincipalType::User,
-                        resource: None,
-                        authorization_details: None,
-                        scope: vec![],
-                    },
-                    application_id: idp_model::model::Id::now_v7().to_string(),
-                })
-            },
-            || async { Ok(vec![]) },
-        );
+        let idp = crate::IdpClient::local(|_| async {
+            Ok(idp_model::contract::IntrospectionResponse {
+                claims: model::contract::StandardClaims {
+                    r#type: model::contract::TokenType::Bearer,
+                    r#use: model::contract::TokenUse::Access,
+                    exp: i64::MAX,
+                    iat: 0,
+                    nbf: 0,
+                    iss: "https://idp.example".into(),
+                    aud: "https://storage.example".into(),
+                    client_id: "application-client".into(),
+                    sub: idp_model::model::Id::now_v7().to_string(),
+                    principal_type: model::contract::PrincipalType::User,
+                    resource: None,
+                    authorization_details: None,
+                    scope: vec![],
+                },
+                application_id: idp_model::model::Id::now_v7().to_string(),
+            })
+        });
         let runtime = build_runtime(
             RouterState::new("https://storage.example")
                 .with_management_client(remote)

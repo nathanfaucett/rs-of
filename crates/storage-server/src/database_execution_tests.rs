@@ -293,7 +293,7 @@ async fn delayed_http_policy_cannot_release_database_frame_after_local_denial() 
             let app = axum::Router::new()
                 .route("/oauth2/token", post(|| async { Json(serde_json::json!({
                     "access_token":"service-token", "token_type":"Bearer", "expires_in":300,
-                    "scope":"management.replication.read management.replication.admit", "iss":"https://idp.example"
+                    "scope":"management.device.list management.replication.read management.replication.admit", "iss":"https://idp.example"
                 })) }))
                 .route("/replication/devices/{endpoint}/selections", get(move |Path(endpoint): Path<String>, headers: HeaderMap| {
                     let gate = response_gate.clone();
