@@ -4,6 +4,9 @@ use std::{
     path::Path,
 };
 
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
+
 pub fn read(directory: &Path, name: &str, installation: &str) -> io::Result<bool> {
     let path = directory.join(name);
     let metadata = match fs::symlink_metadata(&path) {
@@ -39,10 +42,11 @@ pub fn write(directory: &Path, name: &str, installation: &str) -> io::Result<()>
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(error),
     }
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&temporary)?;
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options.open(&temporary)?;
     writeln!(file, "{installation}")?;
     file.sync_all()?;
     fs::rename(temporary, directory.join(name))?;

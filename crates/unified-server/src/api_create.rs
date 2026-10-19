@@ -256,7 +256,7 @@ struct Command {
     reply: Option<oneshot::Sender<Result<CreateResult, StatusCode>>>,
 }
 
-pub(crate) struct CreateHost {
+pub struct CreateHost {
     host: BootstrapConfig,
     tls: LocalTls,
     shared: Arc<Shared>,
@@ -334,8 +334,16 @@ impl CreateHost {
         }
     }
 
-    pub(crate) fn router(&self) -> io::Result<Router> {
-        let origin = setup_origin(&self.host.config().idp.ui_public_uri)?;
+    pub fn router(&self) -> io::Result<Router> {
+        self.router_for_origin(setup_origin(&self.host.config().idp.ui_public_uri)?)
+    }
+
+    /// Host-selected UI origin, including a bundled native WebView's exact origin.
+    /// This is not request-controlled and does not replace setup admission.
+    pub fn router_for_origin(&self, origin: axum::http::HeaderValue) -> io::Result<Router> {
+        if origin != "tauri://localhost" && origin != "http://tauri.localhost" {
+            setup_origin(origin.to_str().map_err(io::Error::other)?)?;
+        }
         let setup = Router::new()
             .route("/idp/setup/status", get(status))
             .route("/idp/setup/create", post(create))
@@ -347,6 +355,8 @@ impl CreateHost {
                 "/idp/setup/openapi.json",
                 get(|| async { Json(CreateDoc::openapi()) }),
             )
+            .fallback(normal)
+            .with_state(self.shared.clone())
             .layer(
                 CorsLayer::new()
                     .allow_origin(origin.clone())
@@ -361,7 +371,7 @@ impl CreateHost {
                 origin,
                 api::setup_origin_guard,
             ));
-        Ok(setup.fallback(normal).with_state(self.shared.clone()))
+        Ok(setup)
     }
 
     pub(crate) async fn initialize(&mut self) {
@@ -380,7 +390,7 @@ impl CreateHost {
         }
     }
 
-    pub(crate) async fn run(mut self) -> io::Result<()> {
+    pub async fn run(mut self) -> io::Result<()> {
         let shutdown = self.shared.shutdown.clone();
         self.initialize().await;
         loop {

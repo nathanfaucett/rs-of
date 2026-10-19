@@ -699,6 +699,17 @@ impl LocalProvisioner {
         }
     }
 
+    pub(crate) fn reset_references(&self) -> io::Result<serde_json::Value> {
+        let journal = self.read()?;
+        Ok(serde_json::json!({
+            "member_id": journal.member,
+            "signer_key_id": journal.key,
+            "owner_id": journal.user,
+            "clients": [journal.login_client],
+            "inventory_attempted": journal.inventory_attempted,
+        }))
+    }
+
     fn read(&self) -> io::Result<Journal> {
         let bytes = read_private(&self.directory.join("intent.json"))?;
         let journal: Journal = serde_json::from_slice(&bytes)?;

@@ -4,7 +4,7 @@ use idp_model::model::Id;
 use management_server::MANAGEMENT_APPLICATION_URI;
 use serde_json::Value;
 
-use super::{parse_setup_ids, reset};
+use crate::setup_reset as reset;
 
 pub(super) fn client_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder()
@@ -20,12 +20,6 @@ pub(super) async fn revoke(
     member_id: Id,
     client: &reqwest::Client,
 ) -> Result<(), String> {
-    if let Ok(references) = reset::recovery_references(data) {
-        let ids = parse_setup_ids(&references["ids"]).map_err(|error| error.to_string())?;
-        if ids.member_id == member_id {
-            reset::queue_revocation(data, &references).map_err(|error| error.to_string())?;
-        }
-    }
     let target = reset::revocations(data)
         .map_err(|error| error.to_string())?
         .into_iter()
@@ -114,5 +108,16 @@ pub(super) async fn revoke(
             ));
         }
     }
-    reset::acknowledge_revocation(data, &target).map_err(|error| error.to_string())
+    let mut acknowledged = target;
+    acknowledged["status"] = serde_json::json!("acknowledged");
+    reset::publish(
+        data,
+        &format!("reset-revocation-{member_id}.json"),
+        &acknowledged,
+    )
+    .map_err(|error| error.to_string())
 }
+
+#[cfg(all(test, unix))]
+#[path = "setup_peer_revocation_tests.rs"]
+mod tests;

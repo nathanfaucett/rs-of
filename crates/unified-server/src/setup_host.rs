@@ -182,6 +182,12 @@ impl SetupHost {
         )
     }
 
+    /// Transfer the lifecycle guard and owner worker to a native TLS host.
+    /// The caller owns one verified HTTPS listener and must cancel and join the worker on shutdown.
+    pub fn into_worker(self, cancellation: CancellationToken) -> crate::ApiSetupHost {
+        crate::api_create::CreateHost::new(self.host, self.tls, self.admission, cancellation)
+    }
+
     pub async fn serve(self, cancellation: CancellationToken) -> io::Result<()> {
         let tls = self.tls.clone();
         let address = self.local_addr();
