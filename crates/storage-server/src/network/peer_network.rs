@@ -63,12 +63,8 @@ impl StoragePeerNetwork {
             .as_ref()
             .ok_or_else(|| "peer admission is owned by the unified host".to_owned())?;
         let local_endpoint_id = self.endpoint_id();
-        // Storage consumes Management authorization, not IdP Device lookup
-        let endpoint_ids = match mgmt_client
-            .selected_resources(&local_endpoint_id.to_string())
-            .await
-        {
-            Ok(response) => vec![response.endpoint_id],
+        let endpoint_ids = match mgmt_client.approved_device_endpoints().await {
+            Ok(endpoint_ids) => endpoint_ids,
             Err(_) => {
                 allowed_peers.replace([local_endpoint_id]);
                 return Err("Management endpoint authorization unavailable".to_owned());
@@ -155,6 +151,125 @@ mod tests {
 
     use super::{StoragePeerNetwork, load_or_create_secret_key};
     use crate::ManagementClient;
+
+    #[tokio::test]
+    async fn refresh_admits_management_remote_peers_and_removes_learned_denials() {
+        use std::sync::{Arc, Mutex};
+
+        use axum::{
+            Json,
+            extract::State,
+            http::{HeaderMap, StatusCode},
+            routing::{get, post},
+        };
+
+        let endpoint = iroh::Endpoint::builder(presets::Minimal)
+            .bind()
+            .await
+            .expect("bind isolated endpoint");
+        let local = endpoint.id();
+        let remote = SecretKey::generate().public();
+        let unknown = SecretKey::generate().public();
+        let peers = EndpointIdStore::default();
+        peers.replace([local]);
+        let network = StoragePeerNetwork {
+            server: Server::new(endpoint, peers.clone()),
+            allowed_peers: Some(peers),
+            owns_endpoint: true,
+        };
+        let evidence = Arc::new(Mutex::new((
+            StatusCode::OK,
+            serde_json::json!({"endpointIds": [remote.to_string()]}),
+        )));
+        let app = axum::Router::new()
+            .route("/idp/oauth2/token", post(|| async {
+                Json(serde_json::json!({
+                    "access_token": "service-token", "token_type": "Bearer", "expires_in": 300,
+                    "scope": "management.device.list management.replication.read management.replication.admit",
+                    "iss": "https://idp.example"
+                }))
+            }))
+            .route("/management/devices/endpoints", get(
+                |State(evidence): State<Arc<Mutex<(StatusCode, serde_json::Value)>>>, headers: HeaderMap| async move {
+                    assert_eq!(headers["authorization"], "Bearer service-token");
+                    let (status, body) = evidence.lock().expect("current approved endpoints").clone();
+                    (status, Json(body))
+                }
+            ))
+            .with_state(evidence.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind Management API");
+        let base = format!(
+            "http://{}",
+            listener.local_addr().expect("Management address")
+        );
+        let http = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("serve Management API")
+        });
+        let client = ManagementClient::new(
+            &format!("{base}/management"),
+            &format!("{base}/idp"),
+            "storage-service",
+            "secret",
+            "https://idp.example",
+            "management",
+        )
+        .expect("authenticated Management client");
+        network
+            .refresh_approved_peers(&client)
+            .await
+            .expect("enumerate actual approved remote peer");
+        assert!(network.server().peers().contains(local));
+        assert!(network.server().peers().contains(remote));
+        assert!(!network.server().peers().contains(unknown));
+        *evidence.lock().expect("learn revocation") =
+            (StatusCode::OK, serde_json::json!({"endpointIds": []}));
+        network
+            .refresh_approved_peers(&client)
+            .await
+            .expect("learn empty approved membership");
+        assert!(!network.server().peers().contains(remote));
+        for (status, body) in [
+            (StatusCode::FORBIDDEN, serde_json::json!({})),
+            (StatusCode::SERVICE_UNAVAILABLE, serde_json::json!({})),
+            (
+                StatusCode::OK,
+                serde_json::json!({"endpointIds": [remote.to_string(), "invalid"]}),
+            ),
+        ] {
+            *evidence.lock().expect("restore approved peer") = (
+                StatusCode::OK,
+                serde_json::json!({"endpointIds": [remote.to_string()]}),
+            );
+            network
+                .refresh_approved_peers(&client)
+                .await
+                .expect("restore approved peer");
+            *evidence.lock().expect("learn denial") = (status, body);
+            assert!(network.refresh_approved_peers(&client).await.is_err());
+            assert!(!network.server().peers().contains(remote));
+            assert!(network.server().peers().contains(local));
+        }
+        *evidence
+            .lock()
+            .expect("restore peer before transport failure") = (
+            StatusCode::OK,
+            serde_json::json!({"endpointIds": [remote.to_string()]}),
+        );
+        network
+            .refresh_approved_peers(&client)
+            .await
+            .expect("restore peer before transport failure");
+        http.abort();
+        let _ = http.await;
+        assert!(network.refresh_approved_peers(&client).await.is_err());
+        assert!(!network.server().peers().contains(remote));
+        assert!(network.server().peers().contains(local));
+        network.close().await;
+    }
 
     #[tokio::test]
     async fn host_owned_server_admission_is_not_replaced_by_storage_refresh() {

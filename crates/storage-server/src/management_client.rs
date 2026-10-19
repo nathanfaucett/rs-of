@@ -1,10 +1,12 @@
 use std::{
+    collections::HashSet,
     sync::{Arc, Mutex},
     time::{Duration, SystemTime},
 };
 
-use iroh::endpoint::Connection;
+use iroh::{EndpointId, endpoint::Connection};
 use iroh_chain::Server;
+use management_service::ApprovedDeviceEndpoints;
 use model::contract::{
     ReplicationAdmissionRequest, SelectedResourcesResponse, TokenResponse, TokenType,
 };
@@ -13,7 +15,8 @@ use serde::Serialize;
 
 const MAX_RESPONSE_SIZE: usize = 64 * 1024;
 const RENEWAL_MARGIN: Duration = Duration::from_secs(15);
-const REPLICATION_SCOPES: &str = "management.replication.read management.replication.admit";
+const SERVICE_SCOPES: &str =
+    "management.device.list management.replication.read management.replication.admit";
 
 #[derive(Clone)]
 pub struct ManagementClient {
@@ -101,7 +104,7 @@ impl ManagementClient {
                 grant_type: "client_credentials",
                 client_id: &self.client_id,
                 client_secret: &self.client_secret,
-                scope: REPLICATION_SCOPES,
+                scope: SERVICE_SCOPES,
                 audience: &self.audience,
             })
             .send()
@@ -117,7 +120,7 @@ impl ManagementClient {
             || token.issuer.as_deref() != Some(self.issuer.as_str())
             || !token.scope.as_deref().is_some_and(|granted| {
                 let granted = granted.split_ascii_whitespace().collect::<Vec<_>>();
-                REPLICATION_SCOPES
+                SERVICE_SCOPES
                     .split_ascii_whitespace()
                     .all(|required| granted.contains(&required))
             })
@@ -140,6 +143,42 @@ impl ManagementClient {
                 valid_until,
             });
         Ok(value)
+    }
+
+    pub async fn approved_device_endpoints(&self) -> Result<Vec<String>, String> {
+        let url = self
+            .management_base_url
+            .join("devices/endpoints")
+            .map_err(|_| "invalid Management endpoint list URL".to_owned())?;
+        let token = self.service_access_token().await?;
+        let mut response = self
+            .client
+            .get(url)
+            .bearer_auth(token)
+            .send()
+            .await
+            .map_err(|_| "Management endpoint list is unavailable".to_owned())?;
+        if !response.status().is_success() {
+            return Err(match response.status().as_u16() {
+                401 | 403 => "Management rejected Storage device-list permission".to_owned(),
+                _ => "Management endpoint list failed".to_owned(),
+            });
+        }
+        let body = read_limited_body(&mut response, "Management endpoint list response").await?;
+        let response: ApprovedDeviceEndpoints = serde_json::from_slice(&body)
+            .map_err(|_| "invalid Management endpoint list response".to_owned())?;
+        let mut seen = HashSet::with_capacity(response.endpoint_ids.len());
+        for endpoint in &response.endpoint_ids {
+            let parsed = endpoint
+                .parse::<EndpointId>()
+                .map_err(|_| "Management returned an invalid endpoint ID".to_owned())?;
+            if parsed.to_string() != *endpoint || !seen.insert(parsed) {
+                return Err(
+                    "Management returned a noncanonical or duplicate endpoint ID".to_owned(),
+                );
+            }
+        }
+        Ok(response.endpoint_ids)
     }
 
     pub async fn selected_resources(
@@ -291,6 +330,141 @@ mod tests {
     const ISSUER: &str = "https://idp.example";
     const AUDIENCE: &str = "https://management-api.example";
 
+    #[tokio::test]
+    async fn approved_endpoints_require_device_list_in_service_token() {
+        use axum::{Json, routing::post};
+
+        let app = axum::Router::new().route("/idp/oauth2/token", post(|| async {
+            Json(serde_json::json!({
+                "access_token": "service-token", "token_type": "Bearer", "expires_in": 300,
+                "scope": "management.replication.read management.replication.admit", "iss": ISSUER
+            }))
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind token API");
+        let base = format!(
+            "http://{}",
+            listener.local_addr().expect("token API address")
+        );
+        let server =
+            tokio::spawn(async move { axum::serve(listener, app).await.expect("serve token API") });
+        let client = ManagementClient::new(
+            &format!("{base}/management"),
+            &format!("{base}/idp"),
+            CLIENT_ID,
+            CLIENT_SECRET,
+            ISSUER,
+            AUDIENCE,
+        )
+        .expect("authenticated Management client");
+        assert_eq!(
+            client
+                .approved_device_endpoints()
+                .await
+                .expect_err("missing list permission"),
+            "IdP returned an unauthorized Storage service token"
+        );
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn approved_endpoints_use_authenticated_management_and_validate_current_response() {
+        use std::sync::{Arc, Mutex};
+
+        use axum::{
+            Json,
+            extract::State,
+            http::{HeaderMap, StatusCode},
+            routing::{get, post},
+        };
+
+        let remote = iroh::SecretKey::from_bytes(&[7; 32]).public().to_string();
+        let evidence = Arc::new(Mutex::new((
+            StatusCode::OK,
+            serde_json::json!({
+                "endpointIds": [remote.clone()]
+            })
+            .to_string(),
+        )));
+        let app = axum::Router::new()
+            .route("/idp/oauth2/token", post(|body: String| async move {
+                assert!(body.contains("scope=management.device.list+management.replication.read+management.replication.admit"));
+                assert!(body.contains("client_id=storage-service"));
+                assert!(body.contains("client_secret=test-secret"));
+                assert!(body.contains("audience=https%3A%2F%2Fmanagement-api.example"));
+                assert!(!body.contains("idp.device"));
+                Json(serde_json::json!({
+                    "access_token": "service-token", "token_type": "Bearer", "expires_in": 300,
+                    "scope": "management.device.list management.replication.read management.replication.admit",
+                    "iss": ISSUER
+                }))
+            }))
+            .route("/management/devices/endpoints", get(
+                |State(evidence): State<Arc<Mutex<(StatusCode, String)>>>, headers: HeaderMap| async move {
+                    assert_eq!(headers["authorization"], "Bearer service-token");
+                    assert!(!headers.contains_key("client_secret"));
+                    evidence.lock().expect("current endpoint evidence").clone()
+                }
+            ))
+            .with_state(evidence.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind owner API");
+        let base = format!("http://{}", listener.local_addr().expect("owner address"));
+        let server =
+            tokio::spawn(async move { axum::serve(listener, app).await.expect("serve owner API") });
+        let client = ManagementClient::new(
+            &format!("{base}/management"),
+            &format!("{base}/idp"),
+            CLIENT_ID,
+            CLIENT_SECRET,
+            ISSUER,
+            AUDIENCE,
+        )
+        .expect("authenticated Management client");
+        assert_eq!(
+            client
+                .approved_device_endpoints()
+                .await
+                .expect("approved remote endpoint"),
+            [remote.clone()]
+        );
+        for body in [
+            serde_json::json!({"endpointIds": [remote.clone(), remote.clone()]}).to_string(),
+            serde_json::json!({"endpointIds": [remote.to_uppercase()]}).to_string(),
+            serde_json::json!({"endpointIds": ["invalid"]}).to_string(),
+            serde_json::json!({"endpointIds": [remote.clone(), "invalid"], "unexpected": true})
+                .to_string(),
+            "{}".to_owned(),
+            " ".repeat(65_537),
+        ] {
+            *evidence.lock().expect("replace endpoint evidence") = (StatusCode::OK, body);
+            assert!(client.approved_device_endpoints().await.is_err());
+        }
+        for status in [
+            StatusCode::UNAUTHORIZED,
+            StatusCode::FORBIDDEN,
+            StatusCode::SERVICE_UNAVAILABLE,
+            StatusCode::FOUND,
+        ] {
+            *evidence.lock().expect("replace endpoint denial") = (status, "{}".into());
+            assert!(client.approved_device_endpoints().await.is_err());
+        }
+        *evidence.lock().expect("learn endpoint revocation") =
+            (StatusCode::OK, r#"{"endpointIds":[]}"#.into());
+        assert!(
+            client
+                .approved_device_endpoints()
+                .await
+                .expect("current empty membership")
+                .is_empty()
+        );
+        server.abort();
+        let _ = server.await;
+    }
+
     #[cfg(feature = "network")]
     #[tokio::test]
     async fn remote_policy_is_fresh_bound_and_fail_closed() {
@@ -334,7 +508,7 @@ mod tests {
                 assert!(body.contains("audience=https%3A%2F%2Fmanagement-api.example"));
                 Json(serde_json::json!({
                     "access_token": "service-token", "token_type": "Bearer", "expires_in": 300,
-                    "scope": "management.replication.read management.replication.admit", "iss": ISSUER
+                    "scope": "management.device.list management.replication.read management.replication.admit", "iss": ISSUER
                 }))
             }))
             .route("/management/replication/devices/{endpoint}/selections", get(
@@ -495,7 +669,7 @@ mod tests {
                 let length = stream.read(&mut request).expect("read token request");
                 let request = String::from_utf8_lossy(&request[..length]).into_owned();
                 assert!(request.starts_with("POST /idp/oauth2/token HTTP/1.1"));
-                let body = r#"{"access_token":"service-token","token_type":"Bearer","expires_in":0,"scope":"management.replication.read management.replication.admit","iss":"https://idp.example"}"#;
+                let body = r#"{"access_token":"service-token","token_type":"Bearer","expires_in":0,"scope":"management.device.list management.replication.read management.replication.admit","iss":"https://idp.example"}"#;
                 write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).expect("write token response");
             }
         });
@@ -567,7 +741,7 @@ mod tests {
             let (mut stream, _) = listener.accept().expect("accept token request");
             let mut request = [0; 4096];
             stream.read(&mut request).expect("read token request");
-            let mut body = r#"{"access_token":"service-token","token_type":"Bearer","expires_in":3600,"scope":"management.replication.read management.replication.admit","iss":"https://idp.example"}"#.to_owned();
+            let mut body = r#"{"access_token":"service-token","token_type":"Bearer","expires_in":3600,"scope":"management.device.list management.replication.read management.replication.admit","iss":"https://idp.example"}"#.to_owned();
             body.push_str(&" ".repeat(65_537 - body.len()));
             write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
                 .expect("write oversized token response");
@@ -691,7 +865,7 @@ mod tests {
             respond(
                 &mut token_stream,
                 "200 OK",
-                r#"{"access_token":"service-token","token_type":"Bearer","expires_in":3600,"scope":"management.replication.read management.replication.admit","iss":"https://idp.example"}"#,
+                r#"{"access_token":"service-token","token_type":"Bearer","expires_in":3600,"scope":"management.device.list management.replication.read management.replication.admit","iss":"https://idp.example"}"#,
             );
 
             let mut admission_requests = Vec::new();

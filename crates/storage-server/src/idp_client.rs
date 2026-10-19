@@ -1,21 +1,19 @@
 use std::{
-    collections::HashSet,
     future::Future,
     pin::Pin,
     sync::{Arc, Mutex},
     time::{Duration, SystemTime},
 };
 
-use iroh::EndpointId;
-
 use idp_model::contract::{IntrospectionRequest, IntrospectionResponse};
-use management_service::ApprovedDeviceEndpoints;
+#[cfg(feature = "network")]
+use iroh::EndpointId;
 use model::contract::{TokenResponse, TokenType};
 use reqwest::{Client, Url, redirect::Policy};
 use serde::Serialize;
 
 const MAX_RESPONSE_SIZE: usize = 64 * 1024;
-const SERVICE_SCOPES: &str = "idp.device.lookup idp.device.list idp.token.validate";
+const SERVICE_SCOPES: &str = "idp.token.validate";
 const RENEWAL_MARGIN: Duration = Duration::from_secs(15);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -39,16 +37,9 @@ type InspectToken = Arc<
         > + Send
         + Sync,
 >;
-type ApprovedEndpoints = Arc<
-    dyn Fn() -> Pin<Box<dyn Future<Output = Result<Vec<String>, String>> + Send>> + Send + Sync,
->;
-
 #[derive(Clone)]
 enum IdpBackend {
-    Local {
-        inspect: InspectToken,
-        endpoints: ApprovedEndpoints,
-    },
+    Local { inspect: InspectToken },
     Http(HttpIdpClient),
 }
 
@@ -115,18 +106,15 @@ impl IdpClient {
         })
     }
 
-    /// Callbacks must query the current local IdP owner on every invocation.
-    pub fn local<F, U, E, V>(inspect: F, endpoints: E) -> Self
+    /// The callback must query the current local IdP owner on every invocation.
+    pub fn local<F, U>(inspect: F) -> Self
     where
         F: Fn(String) -> U + Send + Sync + 'static,
         U: Future<Output = Result<IntrospectionResponse, IdpIntrospectionError>> + Send + 'static,
-        E: Fn() -> V + Send + Sync + 'static,
-        V: Future<Output = Result<Vec<String>, String>> + Send + 'static,
     {
         Self {
             backend: IdpBackend::Local {
                 inspect: Arc::new(move |token| Box::pin(inspect(token))),
-                endpoints: Arc::new(move || Box::pin(endpoints())),
             },
             #[cfg(feature = "network")]
             local_device_policy: None,
@@ -148,7 +136,7 @@ impl IdpClient {
         token: &str,
     ) -> Result<IntrospectionResponse, IdpIntrospectionError> {
         let response = match &self.backend {
-            IdpBackend::Local { inspect, .. } => inspect(token.to_owned()).await?,
+            IdpBackend::Local { inspect } => inspect(token.to_owned()).await?,
             IdpBackend::Http(http) => http.introspect(token).await?,
         };
         #[cfg(feature = "network")]
@@ -162,23 +150,6 @@ impl IdpClient {
             }
         }
         Ok(response)
-    }
-
-    pub async fn approved_storage_endpoints(&self) -> Result<Vec<String>, String> {
-        let endpoints = match &self.backend {
-            IdpBackend::Local { endpoints, .. } => endpoints().await?,
-            IdpBackend::Http(http) => http.approved_storage_endpoints().await?,
-        };
-        let mut endpoint_ids = HashSet::with_capacity(endpoints.len());
-        for endpoint_id in &endpoints {
-            let parsed = endpoint_id
-                .parse::<EndpointId>()
-                .map_err(|_| "IdP returned an invalid endpoint ID".to_owned())?;
-            if parsed.to_string() != *endpoint_id || !endpoint_ids.insert(endpoint_id.as_str()) {
-                return Err("IdP returned an invalid or duplicate endpoint ID".to_owned());
-            }
-        }
-        Ok(endpoints)
     }
 }
 
@@ -295,31 +266,6 @@ impl HttpIdpClient {
             serde_json::from_slice(&body).map_err(|_| IdpIntrospectionError::ServiceUnavailable)?;
         Ok(response)
     }
-
-    async fn approved_storage_endpoints(&self) -> Result<Vec<String>, String> {
-        let url = self
-            .base_url
-            .join("devices/endpoints")
-            .map_err(|_| "invalid IdP endpoint list URL".to_owned())?;
-        let token = self.service_access_token().await?;
-        let mut response = self
-            .client
-            .get(url)
-            .bearer_auth(token)
-            .send()
-            .await
-            .map_err(|_| "IdP endpoint list is unavailable".to_owned())?;
-        if !response.status().is_success() {
-            return Err(match response.status().as_u16() {
-                401 | 403 => "IdP rejected Storage device lookup permission".to_owned(),
-                _ => "IdP endpoint list failed".to_owned(),
-            });
-        }
-        let body = read_limited_body(&mut response, "IdP endpoint list response").await?;
-        let response: ApprovedDeviceEndpoints = serde_json::from_slice(&body)
-            .map_err(|_| "invalid IdP endpoint list response".to_owned())?;
-        Ok(response.endpoint_ids)
-    }
 }
 
 async fn read_limited_body(
@@ -387,6 +333,137 @@ mod tests {
     const ISSUER: &str = "https://idp.example";
     const AUDIENCE: &str = "https://idp-api.example";
 
+    #[tokio::test]
+    async fn http_introspection_requests_only_token_validation_scope() {
+        use axum::{
+            Json,
+            http::{HeaderMap, StatusCode},
+            routing::post,
+        };
+
+        let app = axum::Router::new()
+            .route("/idp/oauth2/token", post(|body: String| async move {
+                assert!(body.contains("scope=idp.token.validate"));
+                assert!(!body.contains("idp.device"));
+                Json(serde_json::json!({
+                    "access_token": "service-token", "token_type": "Bearer", "expires_in": 300,
+                    "scope": "idp.token.validate", "iss": ISSUER
+                }))
+            }))
+            .route("/idp/oauth2/introspect", post(|headers: HeaderMap, Json(request): Json<idp_model::contract::IntrospectionRequest>| async move {
+                assert_eq!(headers["authorization"], "Bearer service-token");
+                assert_eq!(request.token, "invalid-user-token");
+                StatusCode::UNAUTHORIZED
+            }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind IdP API");
+        let base = format!("http://{}", listener.local_addr().expect("IdP API address"));
+        let server =
+            tokio::spawn(async move { axum::serve(listener, app).await.expect("serve IdP API") });
+        let client = IdpClient::new(
+            &format!("{base}/idp"),
+            CLIENT_ID,
+            CLIENT_SECRET,
+            ISSUER,
+            AUDIENCE,
+        )
+        .expect("inspect-only IdP client");
+        assert!(matches!(
+            client.introspect("invalid-user-token").await,
+            Err(super::IdpIntrospectionError::InvalidToken)
+        ));
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[cfg(feature = "network")]
+    #[tokio::test]
+    async fn local_introspection_checks_current_device_owner_without_endpoint_enumeration() {
+        use std::sync::{Arc, Mutex};
+
+        use idp_model::{contract::IntrospectionResponse, model::Id};
+        use management_service::DeviceState;
+        use model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
+
+        let endpoint = iroh::SecretKey::generate().public();
+        let owner = Id::now_v7().to_string();
+        let response = IntrospectionResponse {
+            claims: StandardClaims {
+                r#type: TokenType::Bearer,
+                r#use: TokenUse::Access,
+                exp: i64::MAX,
+                iat: 0,
+                nbf: 0,
+                iss: ISSUER.into(),
+                aud: "https://storage.example".into(),
+                client_id: "application-client".into(),
+                sub: owner.clone(),
+                principal_type: PrincipalType::User,
+                resource: None,
+                authorization_details: None,
+                scope: vec![],
+            },
+            application_id: Id::now_v7().to_string(),
+        };
+        let client = IdpClient::local(move |token| {
+            assert_eq!(token, "user-token");
+            let response = response.clone();
+            async move { Ok(response) }
+        });
+        assert_eq!(
+            client
+                .introspect("user-token")
+                .await
+                .expect("inspect-only owner call")
+                .claims
+                .sub,
+            owner
+        );
+        let evidence = Arc::new(Mutex::new(crate::DeviceReplicationPolicy {
+            device_id: Id::now_v7(),
+            endpoint_id: endpoint,
+            owner_subject: owner.clone(),
+            state: DeviceState::Approved,
+            owner_active: true,
+            admin_allowed: true,
+            resources: vec![],
+        }));
+        let current = evidence.clone();
+        let policy = crate::LocalReplicationAuthorizer::new(move |_| {
+            let policy = current.lock().expect("current owner evidence").clone();
+            async move { Ok(policy) }
+        });
+        let client = client.with_local_device_policy(endpoint, policy);
+        assert_eq!(
+            client
+                .introspect("user-token")
+                .await
+                .expect("approved owner with empty selection")
+                .claims
+                .sub,
+            owner
+        );
+        let baseline = evidence.lock().expect("approved policy").clone();
+        for denial in 0..5 {
+            let mut policy = baseline.clone();
+            match denial {
+                0 => policy.owner_subject = Id::now_v7().to_string(),
+                1 => policy.state = DeviceState::Revoked,
+                2 => policy.owner_active = false,
+                3 => policy.admin_allowed = false,
+                _ => policy.endpoint_id = iroh::SecretKey::generate().public(),
+            }
+            *evidence.lock().expect("learn current owner denial") = policy;
+            assert!(matches!(
+                client.introspect("user-token").await,
+                Err(super::IdpIntrospectionError::InvalidToken)
+            ));
+        }
+        *evidence.lock().expect("restore current owner") = baseline;
+        assert!(client.introspect("user-token").await.is_ok());
+    }
+
     #[test]
     fn validates_service_urls_and_client_configuration() {
         assert!(
@@ -445,7 +522,7 @@ mod tests {
                 let length = stream.read(&mut request).expect("read token request");
                 let request = String::from_utf8_lossy(&request[..length]).into_owned();
                 assert!(request.starts_with("POST /idp/oauth2/token HTTP/1.1"));
-                let body = r#"{"access_token":"service-token","token_type":"Bearer","expires_in":0,"scope":"idp.device.lookup idp.device.list idp.token.validate","iss":"https://idp.example"}"#;
+                let body = r#"{"access_token":"service-token","token_type":"Bearer","expires_in":0,"scope":"idp.token.validate","iss":"https://idp.example"}"#;
                 write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).expect("write token response");
             }
         });
@@ -521,7 +598,7 @@ mod tests {
             let (mut stream, _) = listener.accept().expect("accept token request");
             let mut request = [0; 4096];
             stream.read(&mut request).expect("read token request");
-            let mut body = r#"{"access_token":"service-token","token_type":"Bearer","expires_in":3600,"scope":"idp.device.lookup idp.device.list idp.token.validate","iss":"https://idp.example"}"#.to_owned();
+            let mut body = r#"{"access_token":"service-token","token_type":"Bearer","expires_in":3600,"scope":"idp.token.validate","iss":"https://idp.example"}"#.to_owned();
             body.push_str(&" ".repeat(65_537 - body.len()));
             write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
                 .expect("write oversized token response");
@@ -587,14 +664,6 @@ mod tests {
             AUDIENCE,
         )
         .expect("valid client configuration");
-        assert_eq!(
-            http(&client)
-                .base_url
-                .join("devices/endpoints/")
-                .expect("join device endpoint")
-                .path(),
-            "/idp/devices/endpoints/"
-        );
         assert_eq!(
             http(&client)
                 .base_url
