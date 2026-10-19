@@ -11,7 +11,7 @@ use idp_service::replica::DbReplicaSignerRepo;
 use iroh_chain::{MAX_PAIRING_PAYLOAD_LENGTH, PairingOffer};
 use management_service::DeviceRepo;
 
-use super::middleware::require_identity_permission;
+use super::middleware::require_identity_permission_for_audience;
 use crate::{NodeJoinApproval, NodeJoinRequest, RouterState, authorize_bearer, node_join::invalid};
 
 impl RouterState {
@@ -29,9 +29,10 @@ impl RouterState {
                 IdentityResource::ReplicaSigner { member_id: None },
             ),
         ] {
-            require_identity_permission(
+            require_identity_permission_for_audience(
                 self,
                 &actor,
+                management_service::MANAGEMENT_APPLICATION_URI,
                 action,
                 PermissionTarget::Installation { resource },
             )

@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use idp_model::model::Id;
-use management_service::MANAGEMENT_APPLICATION_URI;
+use management_server::MANAGEMENT_APPLICATION_URI;
 use serde_json::Value;
 
 use super::{parse_setup_ids, reset};

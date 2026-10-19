@@ -15,8 +15,19 @@ pub(crate) async fn require_identity_permission(
     action: IdentityAction,
     target: PermissionTarget,
 ) -> Result<(), ErrorResponse> {
+    require_identity_permission_for_audience(state, actor, &state.service_audience, action, target)
+        .await
+}
+
+pub(crate) async fn require_identity_permission_for_audience(
+    state: &RouterState,
+    actor: &StandardAuthorization,
+    audience: &str,
+    action: IdentityAction,
+    target: PermissionTarget,
+) -> Result<(), ErrorResponse> {
     if actor.claims.principal_type != PrincipalType::User
-        || actor.claims.aud != state.service_audience
+        || actor.claims.aud != audience
         || actor.principal.get_entity_id().to_string() != actor.claims.sub
     {
         return Err(ErrorResponse::new(ErrorCode::AccessDenied));

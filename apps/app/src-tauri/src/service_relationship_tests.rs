@@ -3,7 +3,7 @@ use std::{collections::HashMap, fs, sync::Arc, time::Duration};
 use idp_model::{
     contract::{
         ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, GrantType,
-        IDP_DEVICE_LOOKUP_SCOPE, IDP_TOKEN_VALIDATE_SCOPE, IdentityAction, IdentityResource,
+        IDP_TOKEN_VALIDATE_SCOPE, IDP_USER_LOOKUP_SCOPE, IdentityAction, IdentityResource,
         PermissionEvaluationRequest, PermissionSubject, PermissionTarget, TokenEndpointAuthMethod,
     },
     model::Id,
@@ -351,7 +351,7 @@ async fn check_relationships() {
             "idp-management",
             storage_audience.as_str(),
         ],
-        vec!["idp.token.validate", "idp.device.lookup"],
+        vec![IDP_TOKEN_VALIDATE_SCOPE, IDP_USER_LOOKUP_SCOPE],
     )] {
         assert_eq!(
             request.allowed_audiences, audiences,
@@ -383,7 +383,7 @@ fn service_client_registration(
         "management",
         "Management service to IdP",
         vec![idp_audience, MANAGEMENT_APPLICATION_URI, storage_audience],
-        &[IDP_TOKEN_VALIDATE_SCOPE, IDP_DEVICE_LOOKUP_SCOPE],
+        &[IDP_TOKEN_VALIDATE_SCOPE, IDP_USER_LOOKUP_SCOPE],
     );
     ClientRegistration {
         application: ApplicationRegistration {

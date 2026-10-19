@@ -380,6 +380,7 @@ impl UnifiedRuntime {
                 let node_joins = Arc::new(crate::node_join_source::NodeJoinSource::new(
                     endpoint.clone(),
                     idp_runtime.clone(),
+                    management_control_plane.clone(),
                     owner.clone(),
                     security_protocol.clone(),
                     management_engine.clone(),
@@ -1473,6 +1474,7 @@ mod tests {
             )
             .await
             .expect("restore local readiness grant");
+        drop(service);
 
         let cancellation_token = runtime.cancellation_token();
         let server_address = runtime.local_addr();
@@ -1564,7 +1566,7 @@ mod tests {
             &client,
             &format!("http://{server_address}"),
             "administrator",
-            "idp-services",
+            management_service::MANAGEMENT_APPLICATION_URI,
         )
         .await;
         assert!(
@@ -1895,6 +1897,7 @@ mod tests {
                 .expect("live restored grant readiness")
         );
 
+        drop(service);
         let shared_endpoint = runtime.endpoint.server().endpoint().clone();
         cancellation_token.cancel();
         assert!(
@@ -2008,7 +2011,7 @@ mod tests {
         );
         assert!(restored_endpoint.server().peers().contains(endpoint_id));
         restored_endpoint.close().await;
-        drop(restored_idp);
+        drop(restored_control);
         fs::remove_dir_all(root).expect("remove unified runtime data");
         if let Some(status) = client_qualification {
             assert!(

@@ -353,7 +353,11 @@ impl LocalJoin {
         provisioning_stage(|| {
             protocol.join_from_trusted_peer(&owner, &self.journal.name, &self.journal.peer)
         })
-        .await?;
+        .await
+        .inspect_err(|_error| {
+            #[cfg(test)]
+            eprintln!("Node Join stage=public_bootstrap error={_error}");
+        })?;
         #[cfg(test)]
         eprintln!(
             "Node Join stage=public_bootstrap elapsed_ms={}",

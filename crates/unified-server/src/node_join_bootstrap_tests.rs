@@ -291,7 +291,13 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
         .timeout(Duration::from_secs(15))
         .build()
         .expect("HTTP client");
-    let bearer = user_token(&client, &base, "administrator", "idp-services").await;
+    let bearer = user_token(
+        &client,
+        &base,
+        "administrator",
+        management_service::MANAGEMENT_APPLICATION_URI,
+    )
+    .await;
     let binding = NodeSignerBinding {
         member_id: Id::now_v7(),
         key_id: Id::now_v7(),
@@ -695,7 +701,6 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
         .expect("disconnect approving peer");
     eprintln!("bootstrap source disconnected: {:?}", started.elapsed());
     joining.endpoint().close().await;
-    drop(runtime);
     drop(storage);
     drop(policy);
     drop(source_idp);

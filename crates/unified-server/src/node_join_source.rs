@@ -10,7 +10,7 @@ use db::Database;
 use idp_model::model::Id;
 use idp_server::{IdpRuntime, NodeJoinApproval, NodeJoinRequest, OwnerProvisioner};
 use iroh_chain::PairingOffer;
-use management_service::{DeviceRepo, replica::DbDeviceRepo};
+use management_service::{DeviceRepo, HostedControlPlane, replica::DbDeviceRepo};
 use serde::{Deserialize, Serialize};
 use tokio::{
     sync::{Mutex, broadcast},
@@ -74,6 +74,7 @@ impl Pending {
 pub(crate) struct NodeJoinSource {
     endpoint: Arc<UnifiedEndpoint>,
     idp: Arc<IdpRuntime>,
+    control_plane: Arc<HostedControlPlane>,
     owner: Arc<OwnerProvisioner>,
     security: SecurityProtocol,
     management: Arc<Database>,
@@ -87,6 +88,7 @@ impl NodeJoinSource {
     pub(crate) fn new(
         endpoint: Arc<UnifiedEndpoint>,
         idp: Arc<IdpRuntime>,
+        control_plane: Arc<HostedControlPlane>,
         owner: Arc<OwnerProvisioner>,
         security: SecurityProtocol,
         management: Arc<Database>,
@@ -97,6 +99,7 @@ impl NodeJoinSource {
         Self {
             endpoint,
             idp,
+            control_plane,
             owner,
             security,
             management,
@@ -339,7 +342,9 @@ impl NodeJoinSource {
                 .await
                 .map_err(io::Error::other)?;
         }
-        self.endpoint.refresh_approved_peers(&self.idp).await?;
+        self.endpoint
+            .refresh_approved_peers(&self.control_plane)
+            .await?;
         self.require_current_offer(id, &queued).await?;
         self.idp.reply_node_join(offer, bearer, &approval).await?;
         self.finish_offer(id, &queued).await;

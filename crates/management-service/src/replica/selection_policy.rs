@@ -1112,7 +1112,7 @@ mod tests {
     #[tokio::test]
     async fn sync_requires_two_approved_matching_selected_devices() {
         let engine = Arc::new(db::Database::in_memory());
-        idp_model::replica::up(&engine)
+        crate::replica::up(&engine)
             .await
             .expect("initialize replica");
         let devices = DbDeviceRepo::new(Arc::clone(&engine));
@@ -1294,7 +1294,7 @@ mod tests {
     async fn replicated_revocation_blocks_previously_selected_peer() {
         let source = Arc::new(db::Database::in_memory());
         let destination = Arc::new(db::Database::in_memory());
-        idp_model::replica::up(&source)
+        crate::replica::up(&source)
             .await
             .expect("initialize source replica");
 
@@ -1402,7 +1402,7 @@ mod tests {
     async fn selection_cannot_lift_local_or_replicated_admin_restriction() {
         let first = Arc::new(db::Database::in_memory());
         let second = Arc::new(db::Database::in_memory());
-        idp_model::replica::up(&first)
+        crate::replica::up(&first)
             .await
             .expect("initialize replica");
         let first_repo = DbSelectionPolicyRepo::new(Arc::clone(&first));
@@ -1494,9 +1494,7 @@ mod tests {
         let application_id = db::Uuid::now_v7();
         {
             let engine = Arc::new(Database::open(&path).expect("open database"));
-            idp_model::replica::up(&engine)
-                .await
-                .expect("create schema");
+            crate::replica::up(&engine).await.expect("create schema");
             let repo = DbSelectionPolicyRepo::new(engine);
             assert!(
                 repo.set_admin_allowed_prevalidated(device_id, "owner", false)
@@ -1704,7 +1702,7 @@ mod tests {
     async fn concurrent_reselection_and_deselection_resolves_to_deselected() {
         let first = Arc::new(db::Database::in_memory());
         let second = Arc::new(db::Database::in_memory());
-        idp_model::replica::up(&first)
+        crate::replica::up(&first)
             .await
             .expect("initialize first replica");
         let first_devices = DbDeviceRepo::new(Arc::clone(&first));
@@ -1865,7 +1863,7 @@ mod tests {
     async fn owner_and_admin_conflicts_cannot_be_deselected() {
         let first = Arc::new(db::Database::in_memory());
         let second = Arc::new(db::Database::in_memory());
-        idp_model::replica::up(&first)
+        crate::replica::up(&first)
             .await
             .expect("initialize replica");
         let first_repo = DbSelectionPolicyRepo::new(Arc::clone(&first));
@@ -1984,9 +1982,7 @@ mod tests {
         };
         {
             let engine: Arc<Database> = Arc::new(Database::open(&path).expect("open database"));
-            idp_model::replica::up(&engine)
-                .await
-                .expect("migrate database");
+            crate::replica::up(&engine).await.expect("migrate database");
             DbSelectionPolicyRepo::new(engine)
                 .set_prevalidated(policy.clone())
                 .await
@@ -2009,7 +2005,7 @@ mod tests {
     #[tokio::test]
     async fn offline_deselection_keeps_admin_restriction_and_checks_owner() {
         let engine = Arc::new(db::Database::in_memory());
-        idp_model::replica::up(&engine)
+        crate::replica::up(&engine)
             .await
             .expect("initialize replica schema");
         let repo = DbSelectionPolicyRepo::new(engine);
@@ -2068,7 +2064,7 @@ mod tests {
     #[tokio::test]
     async fn admin_restriction_without_selection_and_switch_after_deselect() {
         let engine = Arc::new(db::Database::in_memory());
-        idp_model::replica::up(&engine)
+        crate::replica::up(&engine)
             .await
             .expect("initialize replica schema");
         let repo = DbSelectionPolicyRepo::new(engine);

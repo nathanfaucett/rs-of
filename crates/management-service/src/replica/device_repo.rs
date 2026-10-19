@@ -44,7 +44,9 @@ impl DbDeviceRepo {
         endpoint: &str,
         now: i64,
     ) -> ManagementResult<Device> {
-        let public_key: iroh::EndpointId = endpoint.parse().map_err(db_error)?;
+        let public_key: iroh::EndpointId = endpoint
+            .parse()
+            .map_err(|_| ManagementError::InvalidInput("invalid Device endpoint ID".into()))?;
         if device_id.get_version_num() != 7
             || owner.is_nil()
             || name.trim().is_empty()
@@ -138,6 +140,90 @@ impl DbDeviceRepo {
                 Err(error)
             }
         }
+    }
+
+    /// Missing imported rows may be pending; contradictions, conflicts and learned revocation deny.
+    pub async fn check_pending_approved_binding(
+        &self,
+        device_id: Id,
+        owner: Id,
+        name: &str,
+        endpoint: &str,
+    ) -> ManagementResult<()> {
+        let public_key: iroh::EndpointId = endpoint
+            .parse()
+            .map_err(|_| ManagementError::InvalidInput("invalid Device endpoint ID".into()))?;
+        if device_id.get_version_num() != 7
+            || owner.is_nil()
+            || name.trim().is_empty()
+            || name.len() > 256
+            || public_key.to_string() != endpoint
+        {
+            return Err(ManagementError::InvalidInput(
+                "invalid pending Device binding".into(),
+            ));
+        }
+        let mut transaction = self.engine.client().transaction().await.map_err(db_error)?;
+        let result = async {
+            let Query::Select(mut query) = select() else {
+                unreachable!("Device query is a Select")
+            };
+            query.predicate = Some(QueryExpr::Or(
+                Box::new(equals("id", Value::Uuid(device_id))),
+                Box::new(equals("public_key", Value::Text(endpoint.to_owned()))),
+            ));
+            let results = transaction
+                .execute(vec![Statement::Query(Query::Select(query))])
+                .await
+                .map_err(db_error)?;
+            let rows = &results[0].rows;
+            if rows.len() > 1 {
+                return Err(ManagementError::InvalidInput(
+                    "non-unique pending Device binding".into(),
+                ));
+            }
+            for row in rows {
+                if row.values[0] != Value::Uuid(device_id) {
+                    return Err(ManagementError::InvalidInput(
+                        "pending Device endpoint belongs to another Device".into(),
+                    ));
+                }
+                for table in [TABLE, "local_device_enrollments"] {
+                    if !transaction
+                        .row_conflicts(table, &Row::new(vec![Value::Uuid(device_id)]))
+                        .await
+                        .map_err(db_error)?
+                        .is_empty()
+                    {
+                        return Err(ManagementError::InvalidInput(
+                            "conflicted pending Device binding".into(),
+                        ));
+                    }
+                }
+                for (index, expected) in [
+                    (1, Value::Text(owner.to_string())),
+                    (2, Value::Text(name.to_owned())),
+                    (3, Value::Text(endpoint.to_owned())),
+                    (5, Value::Integer(DeviceState::Approved as i64)),
+                ] {
+                    let value = &row.values[index];
+                    if value != &Value::Null && value != &expected {
+                        return Err(ManagementError::InvalidInput(
+                            "pending Device binding changed".into(),
+                        ));
+                    }
+                }
+                if row.values[7] != Value::Null {
+                    return Err(ManagementError::InvalidInput(
+                        "pending Device binding was revoked".into(),
+                    ));
+                }
+            }
+            Ok(())
+        }
+        .await;
+        transaction.rollback().await.map_err(db_error)?;
+        result
     }
 
     /// Caller verifies exact mutation permission and an active new User in IdP.
@@ -882,10 +968,57 @@ mod tests {
 
     async fn repo() -> DbDeviceRepo {
         let engine = Arc::new(db::Database::in_memory());
-        idp_model::replica::up(&engine)
+        crate::replica::up(&engine)
             .await
             .expect("initialize replica schema");
         DbDeviceRepo::new(engine)
+    }
+
+    #[tokio::test]
+    async fn pending_join_binding_allows_absence_but_denies_changed_or_revoked_management_device() {
+        let repo = repo().await;
+        let device = idp_model::model::Id::now_v7();
+        let owner = idp_model::model::Id::now_v7();
+        let endpoint = iroh::SecretKey::generate().public().to_string();
+        repo.check_pending_approved_binding(device, owner, "Joining", &endpoint)
+            .await
+            .expect("public import may be pending");
+        assert!(matches!(
+            repo.enroll_approved_exact(device, owner, "Joining", "invalid-endpoint", 1)
+                .await,
+            Err(crate::ManagementError::InvalidInput(_))
+        ));
+        repo.enroll_approved_exact(device, owner, "Joining", &endpoint, 1)
+            .await
+            .expect("exact Management enrollment");
+        repo.check_pending_approved_binding(device, owner, "Joining", &endpoint)
+            .await
+            .expect("matching import");
+        assert!(
+            repo.check_pending_approved_binding(device, owner, "Changed", &endpoint)
+                .await
+                .is_err()
+        );
+        assert!(
+            repo.check_pending_approved_binding(
+                device,
+                idp_model::model::Id::now_v7(),
+                "Joining",
+                &endpoint
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            repo.revoke_self(&endpoint)
+                .await
+                .expect("learn Device revocation")
+        );
+        assert!(
+            repo.check_pending_approved_binding(device, owner, "Joining", &endpoint)
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
@@ -898,7 +1031,7 @@ mod tests {
         let paired;
         {
             let database = Arc::new(Database::open(&path).expect("open local identity"));
-            idp_model::replica::up(&database)
+            crate::replica::up(&database)
                 .await
                 .expect("initialize new schema");
             let repo = DbDeviceRepo::new(Arc::clone(&database));
@@ -1252,7 +1385,7 @@ mod tests {
             .await
             .expect("create unrelated local enrollment");
         let public = Arc::new(Database::in_memory());
-        idp_model::replica::up(&public)
+        crate::replica::up(&public)
             .await
             .expect("initialize public Device schema");
         public
@@ -1475,7 +1608,7 @@ mod tests {
         {
             let engine: Arc<Database> =
                 Arc::new(Database::open(&path).expect("open durable test database"));
-            idp_model::replica::up(&engine)
+            crate::replica::up(&engine)
                 .await
                 .expect("initialize replica schema");
             let repo = DbDeviceRepo::new(engine);

@@ -89,9 +89,6 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             .map_err(io::Error::other)?;
         let result = async {
             let bindings = [
-                ("devices", format!("id = CAST('{member}' AS UUID)"),
-                 vec!["owner_subject", "name", "public_key", "state", "revoked_at"],
-                 vec![Value::Text(anchor.owner_subject.to_string()), Value::Text(request.name.clone()), Value::Text(request.endpoint_id.clone()), Value::Integer(1), Value::Null]),
                 ("idp_replica_members", format!("member_id = CAST('{member}' AS UUID) OR endpoint_id = '{}'", request.endpoint_id),
                  vec!["installation_id", "member_id", "endpoint_id", "issuer", "revoked_at"],
                  vec![issuer.clone(), Value::Uuid(member), Value::Text(request.endpoint_id.clone()), issuer.clone(), Value::Null]),

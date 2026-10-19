@@ -266,6 +266,7 @@ async fn interruption_boundary(
     )
     .await
     .expect("production approving owner runtime");
+    let runtime = Arc::new(runtime);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("source HTTP listener");
@@ -282,7 +283,13 @@ async fn interruption_boundary(
         .build()
         .expect("HTTP client");
     diagnostic_stage(phase, "local HTTP token issuance");
-    let bearer = user_token(&client, &base, "administrator", "idp-services").await;
+    let bearer = user_token(
+        &client,
+        &base,
+        "administrator",
+        management_service::MANAGEMENT_APPLICATION_URI,
+    )
+    .await;
     diagnostic_stage(phase, "joining owner and private signer preparation");
     let binding = NodeSignerBinding {
         member_id: Id::now_v7(),
@@ -368,7 +375,7 @@ async fn interruption_boundary(
         diagnostic_stage(phase, "approved endpoint allowlist restoration");
         source_allowed.replace(
             crate::runtime::build_control_plane(
-                Arc::new(runtime),
+                runtime.clone(),
                 Arc::new(management_service::replica::DbDeviceRepo::new(
                     source_policy.clone(),
                 )),
@@ -973,10 +980,10 @@ async fn interruption_boundary(
     drop(protocol);
     drop(provisioner);
     drop(joining_policy);
-    drop(runtime);
     drop(storage);
     drop(policy);
     drop(source_security);
+    drop(runtime);
     drop(source_idp);
     drop(source_policy);
     let reopened = OwnerProvisioner::open(&config)

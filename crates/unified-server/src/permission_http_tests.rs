@@ -342,7 +342,7 @@ pub(crate) async fn seed_idp(
             "management-idp",
             "management-idp-secret",
             vec!["idp-services", "storage-service", "idp-management"],
-            vec!["idp.token.validate"],
+            vec!["idp.token.validate", "idp.user.lookup"],
         ),
         (
             "storage-idp",

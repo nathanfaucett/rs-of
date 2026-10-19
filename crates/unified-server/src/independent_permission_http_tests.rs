@@ -214,14 +214,10 @@ async fn independent_permission_management_https_child() {
             .expect("other Application")
             .id;
         let management_directory = owners.join("management");
-        fs::create_dir(&management_directory).expect("independent Management store directory");
         let management_engine = Arc::new(
             Database::open(management_directory.join("management.redb"))
                 .expect("Management owner store"),
         );
-        management_service::replica::up(&management_engine)
-            .await
-            .expect("initialize independent Management schema");
         let idp_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("independent IdP listener");

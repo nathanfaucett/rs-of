@@ -1,6 +1,8 @@
 mod authorization;
 mod identity_administration;
-pub(crate) use identity_administration::{infrastructure_client, require_identity_permission};
+pub(crate) use identity_administration::{
+    infrastructure_client, require_identity_permission, require_identity_permission_for_audience,
+};
 
 #[allow(unused_imports)]
 pub use authorization::{StandardAuthorization, authorize_bearer};

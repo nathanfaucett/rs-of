@@ -106,7 +106,7 @@ impl SecurityProtocol {
             owner.record_node_join_approval(&approval)?;
         }
         let approval = owner.node_join_anchor()?;
-        provisioning_stage(|| owner.check_node_join_local_binding()).await?;
+        provisioning_stage(|| self.check_join_local_binding(owner)).await?;
         if owner.node_join_stage_recorded(NodeJoinStage::Idp)? {
             self.check_join_identity(&approval).await?;
         }
@@ -120,7 +120,7 @@ impl SecurityProtocol {
         }
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
         loop {
-            provisioning_stage(|| owner.check_node_join_local_binding()).await?;
+            provisioning_stage(|| self.check_join_local_binding(owner)).await?;
             if owner.node_join_anchor()? != approval {
                 return Err(denied("join anchor changed during admission refresh"));
             }
@@ -183,6 +183,23 @@ impl SecurityProtocol {
                 }
             }
         }
+    }
+
+    async fn check_join_local_binding<P: PrivateKeyRepo + Send + Sync>(
+        &self,
+        owner: &OwnerProvisioner<P>,
+    ) -> io::Result<()> {
+        owner.check_node_join_local_binding().await?;
+        let approval = owner.node_join_anchor()?;
+        DbDeviceRepo::new(self.management.clone())
+            .check_pending_approved_binding(
+                approval.request.member_id,
+                approval.owner_subject,
+                &approval.request.name,
+                &approval.request.endpoint_id,
+            )
+            .await
+            .map_err(denied)
     }
 
     async fn refresh_learned_membership(&self) -> io::Result<()> {
@@ -537,7 +554,7 @@ impl SecurityProtocol {
                 "bootstrap receiver requires persisted exact local anchor and pinned connection",
             ));
         }
-        provisioning_stage(|| owner.check_node_join_local_binding())
+        provisioning_stage(|| self.check_join_local_binding(owner))
             .await
             .map_err(denied)?;
         if owner.node_join_stage_recorded(NodeJoinStage::Idp)? {
@@ -656,7 +673,7 @@ impl SecurityProtocol {
         {
             return Err(denied("both durable public context imports are required"));
         }
-        provisioning_stage(|| owner.check_node_join_local_binding())
+        provisioning_stage(|| self.check_join_local_binding(owner))
             .await
             .map_err(denied)?;
         self.check_exact_join_trust(&approval).await?;

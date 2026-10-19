@@ -397,7 +397,11 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
             allowed_grant_types: vec![GrantType::Password, GrantType::TokenExchange],
             response_types: vec![],
             allowed_scopes: vec!["openid".into()],
-            allowed_audiences: vec!["idp-services".into(), "wrong-audience".into()],
+            allowed_audiences: vec![
+                "idp-services".into(),
+                "wrong-audience".into(),
+                management_service::MANAGEMENT_APPLICATION_URI.into(),
+            ],
             token_endpoint_auth_method: TokenEndpointAuthMethod::ClientSecretBasic,
             software_statement: None,
             software_id: None,
@@ -565,11 +569,14 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
         .await
         .expect("offer timeout")
         .expect("authenticated offer");
-    let bearer = user_token(&fixture, "idp-services").await;
+    let bearer = user_token(&fixture, management_service::MANAGEMENT_APPLICATION_URI).await;
     let actor = crate::authorize_bearer(&fixture.state, &bearer)
         .await
         .expect("ordinary authentication succeeds");
-    assert_eq!(actor.claims.aud, "idp-services");
+    assert_eq!(
+        actor.claims.aud,
+        management_service::MANAGEMENT_APPLICATION_URI
+    );
     assert_eq!(actor.claims.sub, fixture.owner.to_string());
     assert!(
         fixture
@@ -623,6 +630,15 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
         .add_permission_to_role(INSTALLATION_POLICY_ID, role.id, permission.id)
         .await
         .expect("assign signer grant");
+    let idp_audience = user_token(&fixture, "idp-services").await;
+    assert!(
+        fixture
+            .state
+            .authorize_node_join_approver(&idp_audience)
+            .await
+            .is_err(),
+        "IdP audience cannot authorize a Management source Join, even with both grants"
+    );
     let mut missing_policy = fixture.state.clone();
     missing_policy.local_permissions = None;
     assert!(

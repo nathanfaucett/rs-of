@@ -133,7 +133,7 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
         .create_client(registration(
             "management-lookup",
             vec![GrantType::ClientCredentials],
-            vec!["idp.token.validate".into()],
+            vec!["idp.token.validate".into(), "idp.user.lookup".into()],
             vec![
                 "idp-services".into(),
                 management_service::MANAGEMENT_APPLICATION_URI.into(),

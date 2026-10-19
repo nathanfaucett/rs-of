@@ -250,7 +250,7 @@ async fn production_https_bootstrap_child() {
         &source.base,
         &login_id,
         &session.access_token.0,
-        a.config.idp_audience(),
+        management_service::MANAGEMENT_APPLICATION_URI,
     )
     .await;
     let storage = exchange(
@@ -262,14 +262,14 @@ async fn production_https_bootstrap_child() {
     )
     .await;
     assert_eq!(
-        http.get(format!("{}/idp/node-joins/pending", source.base))
+        http.get(format!("{}/management/node-joins/pending", source.base))
             .send()
             .await
             .expect("pending requires authentication")
             .status(),
         reqwest::StatusCode::UNAUTHORIZED
     );
-    let acceptance_url = format!("{}/idp/node-joins/acceptance", source.base);
+    let acceptance_url = format!("{}/management/node-joins/acceptance", source.base);
     assert_eq!(
         http.get(&acceptance_url)
             .send()
@@ -389,7 +389,7 @@ async fn production_https_bootstrap_child() {
         source.assert_offers_released().await;
         assert_eq!(
             http.post(format!(
-                "{}/idp/node-joins/{}/approve",
+                "{}/management/node-joins/{}/approve",
                 source.base,
                 pending["offer_id"].as_str().expect("offer ID")
             ))
@@ -448,7 +448,7 @@ async fn production_https_bootstrap_child() {
         false,
         "an offer alone is not completed bootstrap"
     );
-    let approve_url = format!("{}/idp/node-joins/{offer}/approve", source.base);
+    let approve_url = format!("{}/management/node-joins/{offer}/approve", source.base);
     assert_eq!(
         http.post(&approve_url)
             .bearer_auth("forged-bearer")
@@ -624,7 +624,7 @@ async fn production_https_bootstrap_child() {
 
 async fn pending_http(http: &reqwest::Client, base: &str, bearer: &str) -> serde_json::Value {
     let response = http
-        .get(format!("{base}/idp/node-joins/pending"))
+        .get(format!("{base}/management/node-joins/pending"))
         .bearer_auth(bearer)
         .send()
         .await
@@ -704,7 +704,10 @@ async fn rejected_enrollment_keeps_policy_absent(
     let pending = pending_for_member(http, &source.base, bearer, member).await;
     let offer = pending["offer_id"].as_str().expect("rejected offer ID");
     let response = http
-        .post(format!("{}/idp/node-joins/{offer}/approve", source.base))
+        .post(format!(
+            "{}/management/node-joins/{offer}/approve",
+            source.base
+        ))
         .bearer_auth(bearer)
         .send()
         .await
@@ -728,12 +731,15 @@ async fn rejected_enrollment_keeps_policy_absent(
         "rejected enrollment must not gain transport admission"
     );
     assert_eq!(
-        http.post(format!("{}/idp/node-joins/{offer}/reject", source.base))
-            .bearer_auth(bearer)
-            .send()
-            .await
-            .expect("authenticated rejection route")
-            .status(),
+        http.post(format!(
+            "{}/management/node-joins/{offer}/reject",
+            source.base
+        ))
+        .bearer_auth(bearer)
+        .send()
+        .await
+        .expect("authenticated rejection route")
+        .status(),
         reqwest::StatusCode::NO_CONTENT
     );
     assert!(
@@ -781,7 +787,7 @@ async fn rejected_enrollment_keeps_policy_absent(
         });
         let pending = pending_for_member(http, &source.base, bearer, member).await;
         let stale = pending["offer_id"].as_str().expect("stale offer ID");
-        let legacy = format!("{}/idp/devices/pairing-accepting", source.base);
+        let legacy = format!("{}/management/devices/pairing-accepting", source.base);
         if expire {
             let mut acceptance = source.server.subscribe_pairing_acceptance();
 
@@ -796,7 +802,7 @@ async fn rejected_enrollment_keeps_policy_absent(
                     .json(&serde_json::json!({"accepting": false}))
                     .send()
                     .await
-                    .expect("authenticated legacy acceptance disable")
+                    .expect("authenticated Management acceptance disable")
                     .status(),
                 reqwest::StatusCode::OK
             );
@@ -807,7 +813,7 @@ async fn rejected_enrollment_keeps_policy_absent(
                 .json(&serde_json::json!({"accepting": true}))
                 .send()
                 .await
-                .expect("authenticated legacy acceptance re-enable")
+                .expect("authenticated Management acceptance re-enable")
                 .status(),
             reqwest::StatusCode::OK
         );
@@ -820,12 +826,15 @@ async fn rejected_enrollment_keeps_policy_absent(
             "disable/re-enable and expiry cannot resurrect an earlier acceptance offer"
         );
         assert_eq!(
-            http.post(format!("{}/idp/node-joins/{stale}/approve", source.base))
-                .bearer_auth(bearer)
-                .send()
-                .await
-                .expect("stale approval route")
-                .status(),
+            http.post(format!(
+                "{}/management/node-joins/{stale}/approve",
+                source.base
+            ))
+            .bearer_auth(bearer)
+            .send()
+            .await
+            .expect("stale approval route")
+            .status(),
             reqwest::StatusCode::NOT_FOUND
         );
         assert!(

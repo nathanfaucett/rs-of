@@ -46,7 +46,7 @@ async fn authorize_join(fixture: &ApprovalFixture) -> String {
             .await
             .expect("assign join permission");
     }
-    user_token(fixture, "idp-services").await
+    user_token(fixture, management_service::MANAGEMENT_APPLICATION_URI).await
 }
 
 #[tokio::test]

@@ -833,7 +833,8 @@ mod tests {
                 .kid,
             refresh_key.id.to_string()
         );
-        let member_id = secondary_device.id;
+        let member_id = idp_model::model::Id::now_v7();
+        let secondary_endpoint_id = SecretKey::generate().public().to_string();
         let peer_binding = idp_service::oauth2::NodeSignerBinding {
             member_id,
             key_id: idp_model::model::Id::now_v7(),
