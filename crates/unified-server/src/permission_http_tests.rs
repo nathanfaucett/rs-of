@@ -101,6 +101,7 @@ async fn run_separate_permission_acceptance(lifecycle_only: bool) {
     let runtime = idp_server::build_runtime(
         &config,
         Arc::clone(&idp_engine),
+        None,
         Arc::new(
             management_service::device_identity_from_server(&server, secret.clone())
                 .expect("create local identity"),
@@ -121,7 +122,9 @@ async fn run_separate_permission_acceptance(lifecycle_only: bool) {
     .with_idp_service_client("management-idp", "management-idp-secret", "idp-services")
     .expect("configure introspection relationship")
     .with_permission_evaluator("idp-evaluator")
-    .expect("pin distinct assertion client");
+    .expect("pin distinct assertion client")
+    .with_local_devices(Arc::new(DbDeviceRepo::new(management_engine.clone())))
+    .with_pairing_acceptance(runtime.pairing_acceptance());
     let router = management_server::build_router(
         management_engine,
         &management_base,
@@ -152,6 +155,7 @@ async fn run_separate_permission_acceptance(lifecycle_only: bool) {
         let unconfigured = idp_server::build_runtime(
             &config,
             Arc::clone(&idp_engine),
+            None,
             Arc::new(
                 management_service::device_identity_from_server(&server, secret)
                     .expect("local identity"),
@@ -249,7 +253,7 @@ async fn run_separate_permission_acceptance(lifecycle_only: bool) {
                 ("client_id", "management-idp"),
                 ("client_secret", "management-idp-secret"),
                 ("audience", "idp-services"),
-                ("scope", "idp.token.validate idp.device.lookup"),
+                ("scope", "idp.token.validate"),
             ])
             .send()
             .await
@@ -338,13 +342,13 @@ pub(crate) async fn seed_idp(
             "management-idp",
             "management-idp-secret",
             vec!["idp-services", "storage-service", "idp-management"],
-            vec!["idp.token.validate", "idp.device.lookup"],
+            vec!["idp.token.validate"],
         ),
         (
             "storage-idp",
             "storage-idp-secret",
             vec!["idp-services"],
-            vec!["idp.token.validate", "idp.device.list"],
+            vec!["idp.token.validate"],
         ),
         (
             "idp-evaluator",
@@ -361,7 +365,11 @@ pub(crate) async fn seed_idp(
         (
             "human-client",
             "human-secret",
-            vec!["idp-services", "idp-management"],
+            vec![
+                "idp-services",
+                "idp-management",
+                management_service::MANAGEMENT_APPLICATION_URI,
+            ],
             vec!["openid"],
         ),
         (
@@ -369,6 +377,8 @@ pub(crate) async fn seed_idp(
             "storage-management-secret",
             vec!["storage-service"],
             vec![
+                "management.device.lookup",
+                "management.device.list",
                 "management.replication.read",
                 "management.replication.admit",
             ],
@@ -484,15 +494,22 @@ pub(crate) async fn seed_idp(
         )
         .await
         .expect("seed owner consent");
-    let devices = DbDeviceRepo::new(Arc::clone(&engine));
+    fs::create_dir_all(root.join("management")).expect("create Management fixture directory");
+    let management = Arc::new(
+        Database::open(root.join("management/management.redb")).expect("Management Device owner"),
+    );
+    management_service::replica::up(&management)
+        .await
+        .expect("Management fixture schema");
+    let devices = DbDeviceRepo::new(management);
     let local_device = devices
         .create(
-            "unified-test-owner".to_owned(),
+            administrator.to_string(),
             "unified-host".to_owned(),
             endpoint_id.to_owned(),
             "test-address".to_owned(),
             Vec::new(),
-            0,
+            i64::MAX,
         )
         .await
         .expect("approve unified endpoint identity");
@@ -527,7 +544,7 @@ pub(crate) async fn seed_idp(
         .expect("approve local Node signer");
     let pending_peer = devices
         .create(
-            "unified-test-owner".to_owned(),
+            administrator.to_string(),
             "approved-peer".to_owned(),
             approved_peer_id.to_owned(),
             "test-address".to_owned(),
@@ -623,6 +640,7 @@ pub(crate) async fn seed_permissions(root: &std::path::Path, fixture: &mut Permi
         IdentityAction::KeysRotate,
         IdentityAction::KeysRevoke,
         IdentityAction::UsersDelete,
+        IdentityAction::DevicesRead,
         IdentityAction::DevicePairingRead,
         IdentityAction::DevicePairingUpdate,
     ] {
@@ -1078,7 +1096,21 @@ pub(crate) async fn run_permission_http_checks(
     let admin = user_token(client, base, "administrator", "idp-services").await;
     let app_admin = user_token(client, base, "app-administrator", "idp-services").await;
     let unassigned = user_token(client, base, "unassigned", "idp-services").await;
-    let pairing_url = format!("{base}/idp/devices/pairing-accepting");
+    let pairing_admin = user_token(
+        client,
+        base,
+        "administrator",
+        management_service::MANAGEMENT_APPLICATION_URI,
+    )
+    .await;
+    let pairing_app_admin = user_token(
+        client,
+        base,
+        "app-administrator",
+        management_service::MANAGEMENT_APPLICATION_URI,
+    )
+    .await;
+    let pairing_url = format!("{management_base}/management/devices/pairing-accepting");
     expect_status(
         client
             .get(&pairing_url)
@@ -1091,7 +1123,7 @@ pub(crate) async fn run_permission_http_checks(
     expect_status(
         client
             .get(&pairing_url)
-            .bearer_auth(&app_admin)
+            .bearer_auth(&pairing_app_admin)
             .send()
             .await
             .expect("deny application administrator pairing read"),
@@ -1101,7 +1133,7 @@ pub(crate) async fn run_permission_http_checks(
     expect_status(
         client
             .get(&pairing_url)
-            .bearer_auth(&admin)
+            .bearer_auth(&pairing_admin)
             .send()
             .await
             .expect("allow installation administrator pairing read"),
@@ -1122,7 +1154,7 @@ pub(crate) async fn run_permission_http_checks(
     expect_status(
         client
             .put(&pairing_url)
-            .bearer_auth(&app_admin)
+            .bearer_auth(&pairing_app_admin)
             .json(&pairing_update)
             .send()
             .await
@@ -1133,7 +1165,7 @@ pub(crate) async fn run_permission_http_checks(
     expect_status(
         client
             .put(&pairing_url)
-            .bearer_auth(&admin)
+            .bearer_auth(&pairing_admin)
             .json(&pairing_update)
             .send()
             .await

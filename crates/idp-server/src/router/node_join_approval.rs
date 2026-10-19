@@ -135,7 +135,7 @@ impl RouterState {
             ));
         }
         let device = self
-            .devices
+            .management_devices()?
             .find_approved_by_public_key(&request.endpoint_id)
             .await
             .map_err(io::Error::other)?
@@ -179,7 +179,7 @@ impl RouterState {
 
     async fn verify_node_join_approving_device(&self, endpoint: &str) -> io::Result<()> {
         let device = self
-            .devices
+            .management_devices()?
             .find_approved_by_public_key(endpoint)
             .await
             .map_err(io::Error::other)?
@@ -227,7 +227,7 @@ impl RouterState {
         owner: Id,
         now: i64,
     ) -> io::Result<()> {
-        self.devices
+        self.management_devices()?
             .enroll_approved_exact(
                 request.member_id,
                 owner,

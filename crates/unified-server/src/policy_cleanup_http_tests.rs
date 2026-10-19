@@ -112,7 +112,7 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
             .is_ok()
     );
     let authorizer = crate::runtime::owner_replication_authorizer(
-        fixture.runtime.clone(),
+        fixture.control.clone(),
         fixture.management.clone(),
         fixture.identity.endpoint().id(),
         copies.clone(),
@@ -133,7 +133,7 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
         .create_client(registration(
             "management-lookup",
             vec![GrantType::ClientCredentials],
-            vec!["idp.token.validate".into(), "idp.device.lookup".into()],
+            vec!["idp.token.validate".into()],
             vec![
                 "idp-services".into(),
                 management_service::MANAGEMENT_APPLICATION_URI.into(),
@@ -203,7 +203,10 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
         "management-lookup-secret",
         "idp-services",
     )
-    .expect("scoped introspection");
+    .expect("scoped introspection")
+    .with_local_devices(Arc::new(management_service::replica::DbDeviceRepo::new(
+        fixture.management.clone(),
+    )));
     let control = Arc::new(control);
     let mut management = Listener::start(
         management_server::build_router(
@@ -399,13 +402,14 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
         .open_kv_selected(&fixture.scope, database_resource.id)
         .expect("foreign KV phase")
         .expect("foreign KV owner");
-    let transfer_actor = actor_token(&fixture, "idp-services").await;
+    let transfer_actor =
+        actor_token(&fixture, management_service::MANAGEMENT_APPLICATION_URI).await;
     require_success(
         fixture
             .http
             .put(format!(
                 "{}/devices/{}/owner",
-                fixture.idp_listener.base, fixture.device.device_id
+                management.base, fixture.device.device_id
             ))
             .bearer_auth(transfer_actor)
             .json(&serde_json::json!({"ownerSubject": new_owner.id}))
@@ -436,7 +440,7 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
     fixture.client = fixture.client.clone().with_local_device_policy(
         fixture.identity.endpoint().id(),
         crate::runtime::owner_replication_authorizer(
-            fixture.runtime.clone(),
+            fixture.control.clone(),
             fixture.management.clone(),
             fixture.identity.endpoint().id(),
             copies.clone(),

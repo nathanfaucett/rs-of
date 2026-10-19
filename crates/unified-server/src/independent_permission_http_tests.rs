@@ -251,6 +251,7 @@ async fn independent_permission_management_https_child() {
         let runtime = idp_server::build_runtime(
             &config,
             idp_engine.clone(),
+            None,
             Arc::new(
                 management_service::device_identity_from_server(&server, secret)
                     .expect("local IdP identity"),
@@ -265,7 +266,11 @@ async fn independent_permission_management_https_child() {
             .with_idp_service_client("management-idp", "management-idp-secret", "idp-services")
             .expect("distinct introspection relationship")
             .with_permission_evaluator("idp-evaluator")
-            .expect("exact evaluator binding");
+            .expect("exact evaluator binding")
+            .with_local_devices(Arc::new(management_service::replica::DbDeviceRepo::new(
+                management_engine.clone(),
+            )))
+            .with_pairing_acceptance(runtime.pairing_acceptance());
         let management_router = management_server::build_router(
             management_engine.clone(),
             &management_base,

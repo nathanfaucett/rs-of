@@ -45,7 +45,7 @@ pub fn cancel_installation_setup() {
 const SETUP_READY_FILE: &str = "setup-ready";
 const DEVICE_READY_FILE: &str = "device-setup-ready";
 
-const INITIAL_ADMIN_ACTIONS: [IdentityAction; 24] = [
+const INITIAL_ADMIN_ACTIONS: [IdentityAction; 25] = [
     IdentityAction::InfrastructureClientsRead,
     IdentityAction::InfrastructureClientsCreate,
     IdentityAction::InfrastructureClientsUpdate,
@@ -63,6 +63,7 @@ const INITIAL_ADMIN_ACTIONS: [IdentityAction; 24] = [
     IdentityAction::KeysRead,
     IdentityAction::KeysRotate,
     IdentityAction::KeysRevoke,
+    IdentityAction::DevicesRead,
     IdentityAction::DevicePairingRead,
     IdentityAction::DevicePairingUpdate,
     IdentityAction::ReplicaSignersEnroll,
@@ -2013,6 +2014,7 @@ mod tests {
     fn initial_administrator_has_exact_security_sync_and_signer_grants() {
         use idp_model::contract::IdentityAction;
         for action in [
+            IdentityAction::DevicesRead,
             IdentityAction::ReplicaSignersEnroll,
             IdentityAction::IdpSecuritySync,
             IdentityAction::ManagementSecuritySync,

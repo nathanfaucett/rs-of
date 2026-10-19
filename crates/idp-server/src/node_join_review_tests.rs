@@ -150,6 +150,8 @@ async fn node_join_oversized_signed_reply_rejects_before_any_enrollment_mutation
         fixture
             .state
             .devices
+            .as_ref()
+            .expect("injected Management Device owner")
             .find_approved_by_public_key(&request.endpoint_id)
             .await
             .expect("Device lookup")
@@ -193,6 +195,8 @@ async fn node_join_owner_interleaving_rejection_has_no_active_trust_after_reopen
     let device = fixture
         .state
         .devices
+        .as_ref()
+        .expect("injected Management Device owner")
         .create(
             fixture.owner.to_string(),
             "Joining Node".into(),
@@ -206,6 +210,8 @@ async fn node_join_owner_interleaving_rejection_has_no_active_trust_after_reopen
     fixture
         .state
         .devices
+        .as_ref()
+        .expect("injected Management Device owner")
         .approve(device.id, b"review-enrollment-hash")
         .await
         .expect("Device approval")
@@ -293,6 +299,8 @@ async fn node_join_owner_interleaving_rejection_has_no_active_trust_after_reopen
     let current = fixture
         .state
         .devices
+        .as_ref()
+        .expect("injected Management Device owner")
         .find_approved_by_public_key(&request.endpoint_id)
         .await
         .expect("current Device")
@@ -411,6 +419,8 @@ async fn node_join_rechecks_approving_device_revocation_separately_from_exact_si
     let approving_device = fixture
         .state
         .devices
+        .as_ref()
+        .expect("injected Management Device owner")
         .find_approved_by_public_key(&request.approving_peer)
         .await
         .expect("approving Device lookup")
@@ -481,6 +491,8 @@ async fn node_join_rechecks_approving_device_revocation_separately_from_exact_si
         fixture
             .state
             .devices
+            .as_ref()
+            .expect("injected Management Device owner")
             .revoke_self(&request.approving_peer)
             .await
             .expect("revoke approving Device")

@@ -4,7 +4,6 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-use idp_server::IdpRuntime;
 use iroh::{EndpointId, SecretKey, endpoint::presets};
 use iroh_chain::{EndpointIdStore, Server};
 use management_service::{DeviceIdentity, device_identity_from_server};
@@ -104,8 +103,17 @@ impl UnifiedEndpoint {
         self.allowed_peers.replace(peers);
     }
 
-    pub async fn refresh_approved_peers(&self, idp: &IdpRuntime) -> io::Result<()> {
-        let peers = idp.approved_peer_ids().await?;
+    pub async fn refresh_approved_peers(
+        &self,
+        management: &management_service::HostedControlPlane,
+    ) -> io::Result<()> {
+        let peers = management
+            .approved_device_endpoints()
+            .await
+            .map_err(io::Error::other)?
+            .into_iter()
+            .map(|endpoint| endpoint.parse::<EndpointId>().map_err(io::Error::other))
+            .collect::<io::Result<Vec<_>>>()?;
         self.refresh_admission(peers);
         Ok(())
     }

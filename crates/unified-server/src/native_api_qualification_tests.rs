@@ -54,8 +54,8 @@ async fn bundled_storage_direct_idp_checks_current_bearer_registration_and_signe
             .expect("database audience permitted");
         assert!(
             fixture
-                .client
-                .approved_storage_endpoints()
+                .control
+                .approved_device_endpoints()
                 .await
                 .expect("current owner trust")
                 .contains(&fixture.identity.endpoint().id().to_string())
@@ -121,11 +121,11 @@ async fn bundled_storage_direct_idp_checks_current_bearer_registration_and_signe
         );
         assert!(
             fixture
-                .client
-                .approved_storage_endpoints()
+                .control
+                .approved_device_endpoints()
                 .await
-                .expect("revoked trust list")
-                .is_empty()
+                .expect("Device trust does not depend on signer trust")
+                .contains(&fixture.identity.endpoint().id().to_string())
         );
         fixture.stop().await;
     })
@@ -148,7 +148,7 @@ async fn bundled_storage_direct_idp_preserves_real_local_owner_gate() {
                 .is_ok()
         );
         let policy = crate::runtime::owner_replication_authorizer(
-            fixture.runtime.clone(),
+            fixture.control.clone(),
             fixture.management.clone(),
             fixture.identity.endpoint().id(),
             copies.clone(),

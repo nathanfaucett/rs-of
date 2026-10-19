@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use crate::ManagementPermissionClient;
 use idp_service::{
     oauth2::OAuth2Service,
     replica::{
@@ -13,6 +12,8 @@ use management_service::{
     DeviceIdentity, HostedControlPlane, LocalPermissions, PairingAcceptanceControllerSlot,
     replica::DbDeviceRepo,
 };
+
+use crate::ManagementPermissionClient;
 
 pub(super) type NativeOAuth2Service = OAuth2Service<
     DbApplicationRepo,
@@ -35,7 +36,7 @@ pub struct RouterState {
     pub service_audience: String,
     pub engine: Arc<db::Database>,
     pub oauth2_service: Arc<NativeOAuth2Service>,
-    pub devices: Arc<NativeDeviceRepo>,
+    pub devices: Option<Arc<NativeDeviceRepo>>,
     pub replica_signers: Arc<NativeReplicaSignerRepo>,
     pub device_identity: Arc<DeviceIdentity>,
     pub pairing_acceptance: Arc<PairingAcceptanceControllerSlot>,
@@ -53,7 +54,7 @@ impl RouterState {
         api_base_uri: impl Into<String>,
         engine: Arc<db::Database>,
         oauth2_service: Arc<NativeOAuth2Service>,
-        devices: Arc<NativeDeviceRepo>,
+        devices: Option<Arc<NativeDeviceRepo>>,
         device_identity: Arc<DeviceIdentity>,
     ) -> Self {
         let api_base_uri = api_base_uri.into();
@@ -74,6 +75,15 @@ impl RouterState {
             #[cfg(test)]
             before_node_join_activation: None,
         }
+    }
+
+    pub(crate) fn management_devices(&self) -> std::io::Result<&Arc<NativeDeviceRepo>> {
+        self.devices.as_ref().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "Management Device owner is unavailable",
+            )
+        })
     }
 
     pub fn with_local_permissions(mut self, client: LocalPermissions) -> Self {

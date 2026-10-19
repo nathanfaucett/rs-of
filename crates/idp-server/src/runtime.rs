@@ -9,14 +9,12 @@ use idp_service::{
         DbApplicationRepo, DbClientRepo, DbKeyRepo, DbOAuth2AuthorizationCodeRepo,
         DbOAuth2RefreshTokenRepo, DbOAuth2UserConsentRepo, DbUserRepo,
     },
-    repo::{KeyService, PrivateKeyKeyringRepo, UserRepo},
+    repo::{KeyService, PrivateKeyKeyringRepo},
 };
-use iroh::EndpointId;
 use iroh::protocol::{ProtocolHandler, Router as IrohRouter};
 use iroh_chain::Server;
-use management_service::DeviceEndpointIdentity;
 use management_service::{
-    DeviceIdentity, DeviceRepo, HostedControlPlane, LocalPermissions, PairingAcceptanceController,
+    DeviceIdentity, HostedControlPlane, LocalPermissions, PairingAcceptanceController,
     TimedPairingAcceptanceController, replica::DbDeviceRepo,
 };
 
@@ -28,8 +26,6 @@ use crate::{
 pub struct IdpRuntime {
     router: Router,
     bootstrap_protocol: BootstrapProtocolHandler,
-
-    users: DbUserRepo,
     join_state: RouterState,
 }
 
@@ -41,11 +37,12 @@ impl IdpRuntime {
         crate::management_owner::authorize_management_bearer(&self.join_state, bearer).await
     }
 
-    pub async fn approved_management_device(
-        &self,
-        device_id: Id,
-    ) -> Result<DeviceEndpointIdentity, String> {
-        crate::management_owner::approved_management_device(&self.join_state, self, device_id).await
+    pub async fn active_user(&self, user_id: Id) -> Result<(), String> {
+        crate::management_owner::active_management_user(&self.join_state, user_id).await
+    }
+
+    pub fn pairing_acceptance(&self) -> Arc<management_service::PairingAcceptanceControllerSlot> {
+        Arc::clone(&self.join_state.pairing_acceptance)
     }
 
     pub async fn authorize_storage_bearer(
@@ -54,15 +51,6 @@ impl IdpRuntime {
     ) -> Result<idp_model::contract::IntrospectionResponse, idp_model::contract::ErrorResponse>
     {
         crate::storage_owner::authorize_storage_bearer(&self.join_state, bearer).await
-    }
-
-    pub async fn approved_storage_endpoints(&self) -> io::Result<Vec<String>> {
-        Ok(self
-            .approved_peer_ids()
-            .await?
-            .into_iter()
-            .map(|endpoint| endpoint.to_string())
-            .collect())
     }
 
     pub async fn authorize_node_join_approver(
@@ -138,81 +126,13 @@ impl IdpRuntime {
     {
         server.router_with_protocol(data_protocol, BOOTSTRAP_ALPN, self.bootstrap_protocol())
     }
-
-    pub async fn approved_device_owner(
-        &self,
-        endpoint: EndpointId,
-    ) -> io::Result<DeviceEndpointIdentity> {
-        let endpoint_id = endpoint.to_string();
-        let device = self
-            .join_state
-            .devices
-            .find_approved_by_public_key(&endpoint_id)
-            .await
-            .map_err(io::Error::other)?
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::PermissionDenied,
-                    "endpoint has no uniquely approved Device",
-                )
-            })?;
-        let owner: Id = device.owner_subject.parse().map_err(io::Error::other)?;
-        if owner.is_nil()
-            || owner.to_string() != device.owner_subject
-            || self
-                .users
-                .find_user_by_id(owner)
-                .await
-                .map_err(io::Error::other)?
-                .is_none()
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "Device owner is not locally active",
-            ));
-        }
-        Ok(DeviceEndpointIdentity {
-            device_id: device.id,
-            owner_subject: device.owner_subject,
-            endpoint_id,
-        })
-    }
-
-    pub async fn approved_peer_ids(&self) -> io::Result<Vec<EndpointId>> {
-        let mut endpoints = Vec::new();
-        for device in self
-            .join_state
-            .devices
-            .list()
-            .await
-            .map_err(io::Error::other)?
-        {
-            if device.state != management_service::DeviceState::Approved
-                || device.revoked_at.is_some()
-            {
-                continue;
-            }
-            let endpoint = device
-                .public_key
-                .parse::<EndpointId>()
-                .map_err(io::Error::other)?;
-            if endpoint.to_string() != device.public_key {
-                return Err(io::Error::new(
-                    io::ErrorKind::PermissionDenied,
-                    "noncanonical Device endpoint",
-                ));
-            }
-            self.approved_device_owner(endpoint).await?;
-            endpoints.push(endpoint);
-        }
-        Ok(endpoints)
-    }
 }
 
-/// Composes serving from an already initialized owner database.
+/// Composes serving from an already initialized IdP database and optional host-owned Management capability.
 pub async fn build_runtime(
     config: &AppConfig,
     engine: Arc<Database>,
+    devices: Option<Arc<DbDeviceRepo>>,
     device_identity: Arc<DeviceIdentity>,
     server: Server,
     local_permissions: Option<LocalPermissions>,
@@ -295,31 +215,6 @@ pub async fn build_runtime(
         ));
     }
 
-    let management_engine = match config.management_data_dir.as_deref() {
-        Some(directory) => {
-            if std::path::Path::new(directory) == std::path::Path::new(&config.data_dir) {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "IdP and Management data directories must be separate",
-                ));
-            }
-            let engine = Arc::new(
-                db::Database::open(std::path::Path::new(directory).join("management.redb"))
-                    .map_err(io::Error::other)?,
-            );
-            management_service::replica::up(&engine)
-                .await
-                .map_err(io::Error::other)?;
-            Some(engine)
-        }
-        None => None,
-    };
-
-    let devices = match &management_engine {
-        Some(engine) => Arc::new(DbDeviceRepo::new(Arc::clone(engine))),
-        None => Arc::new(DbDeviceRepo::new(Arc::clone(&engine))),
-    };
-
     let router_state = RouterState::new(
         &config.ui_public_uri,
         &config.api_public_uri,
@@ -332,14 +227,6 @@ pub async fn build_runtime(
     let router_state = match control_plane {
         Some(control_plane) => router_state.with_hosted_control_plane(control_plane),
         None => router_state,
-    };
-
-    let local_permissions = match local_permissions {
-        Some(local) => Some(local),
-        None => match &management_engine {
-            Some(engine) => Some(LocalPermissions::new(Arc::clone(engine))),
-            None => None,
-        },
     };
 
     let router_state = match local_permissions {
@@ -367,142 +254,69 @@ pub async fn build_runtime(
     Ok(IdpRuntime {
         router,
         bootstrap_protocol,
-
-        users: DbUserRepo::new(engine, config.password.clone()),
         join_state: router_state,
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use idp_model::model::Id;
-    use idp_service::replica::DbUserRepo;
-    use iroh::SecretKey;
-    use management_service::DeviceRepo;
-
-    use super::IdpRuntime;
-    use crate::{BootstrapProtocolHandler, node_join_tests::approval_fixture};
+    use crate::node_join_tests::approval_fixture;
 
     #[tokio::test]
-    async fn approved_runtime_endpoints_need_device_approval_not_signer_enrollment() {
+    async fn active_user_rechecks_current_identity_without_management_transport_state() {
+        use idp_service::repo::UserRepo;
         let fixture = approval_fixture().await;
-        let runtime = IdpRuntime {
-            router: axum::Router::new(),
-            bootstrap_protocol: BootstrapProtocolHandler,
-            users: DbUserRepo::new(Arc::clone(&fixture.state.engine), Default::default()),
-            join_state: fixture.state.clone(),
+        let unopened = fixture.root.join("must-not-open-management");
+        let config = crate::AppConfig {
+            management_data_dir: Some(unopened.to_string_lossy().into_owned()),
+            oauth2: idp_service::oauth2::OAuth2Config {
+                issuer: fixture.issuer.clone(),
+                ..Default::default()
+            },
+            ..Default::default()
         };
-        let endpoint = SecretKey::generate().public();
-        assert!(runtime.approved_device_owner(endpoint).await.is_err());
-        let device = fixture
-            .state
-            .devices
-            .create(
-                fixture.owner.to_string(),
-                "Device only".into(),
-                endpoint.to_string(),
-                String::new(),
-                b"runtime-enrollment".to_vec(),
-                i64::MAX,
-            )
+        let runtime = super::build_runtime(
+            &config,
+            fixture.state.engine.clone(),
+            None,
+            fixture.state.device_identity.clone(),
+            fixture.server.clone(),
+            None,
+        )
+        .await
+        .expect("independent IdP with no Management transport state");
+        assert!(
+            !unopened.exists(),
+            "IdP runtime must not open or migrate Management"
+        );
+        runtime
+            .active_user(fixture.owner)
             .await
-            .expect("pending Device");
-        assert!(runtime.approved_device_owner(endpoint).await.is_err());
-        fixture
-            .state
-            .devices
-            .approve(device.id, b"runtime-enrollment")
-            .await
-            .expect("approve Device")
-            .expect("approved Device");
-        let identity = runtime
-            .approved_device_owner(endpoint)
-            .await
-            .expect("no signer required");
-        assert_eq!(identity.device_id, device.id);
-        assert_eq!(identity.owner_subject, fixture.owner.to_string());
-        assert_eq!(identity.endpoint_id, endpoint.to_string());
+            .expect("current local User");
         assert!(
             runtime
-                .approved_peer_ids()
+                .active_user(idp_model::model::Id::nil())
                 .await
-                .expect("mesh admission")
-                .contains(&endpoint)
+                .is_err()
         );
         assert!(
             runtime
-                .approved_storage_endpoints()
+                .active_user(idp_model::model::Id::now_v7())
                 .await
-                .expect("Storage admission")
-                .contains(&endpoint.to_string())
+                .is_err()
         );
         assert!(
-            !fixture
-                .state
-                .replica_signers
-                .trusted_signers(&fixture.issuer, i64::MAX)
-                .await
-                .expect("independent signer trust")
-                .iter()
-                .any(|(member, _)| member.member_id == device.id)
+            runtime.join_state.management_devices().is_err(),
+            "missing Management capability cannot fall back to IdP"
         );
         fixture
             .state
-            .engine
-            .client()
-            .translate_and_execute(
-                &format!(
-                    "UPDATE devices SET owner_subject = '{}' WHERE id = CAST('{}' AS UUID)",
-                    Id::now_v7(),
-                    device.id
-                ),
-                &db::SqlTranslator,
-            )
+            .oauth2_service
+            .user_repo
+            .delete_user_by_id(fixture.owner)
             .await
-            .expect("learn inactive owner");
-        assert!(
-            runtime.approved_device_owner(endpoint).await.is_err(),
-            "unknown owner cannot admit Device"
-        );
-        fixture
-            .state
-            .engine
-            .client()
-            .translate_and_execute(
-                &format!(
-                    "UPDATE devices SET owner_subject = '{}' WHERE id = CAST('{}' AS UUID)",
-                    fixture.owner, device.id
-                ),
-                &db::SqlTranslator,
-            )
-            .await
-            .expect("restore active owner");
-        assert!(runtime.approved_device_owner(endpoint).await.is_ok());
-        assert!(
-            fixture
-                .state
-                .devices
-                .revoke_self(&endpoint.to_string())
-                .await
-                .expect("revoke Device")
-        );
-        assert!(runtime.approved_device_owner(endpoint).await.is_err());
-        assert!(
-            !runtime
-                .approved_peer_ids()
-                .await
-                .expect("current mesh admission")
-                .contains(&endpoint)
-        );
-        assert!(
-            !runtime
-                .approved_storage_endpoints()
-                .await
-                .expect("current Storage admission")
-                .contains(&endpoint.to_string())
-        );
+            .expect("learn User deletion");
+        assert!(runtime.active_user(fixture.owner).await.is_err());
         drop(runtime);
         fixture.server.endpoint().close().await;
         let root = fixture.root.clone();

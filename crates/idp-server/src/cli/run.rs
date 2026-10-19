@@ -133,24 +133,13 @@ pub async fn run() -> io::Result<()> {
         build_runtime(
             &app_config,
             engine,
+            None,
             Arc::new(device_identity),
             server.clone(),
             None,
         )
         .await?,
     );
-    allowed_peers.replace(runtime.approved_peer_ids().await?);
-    let refresh_runtime = Arc::clone(&runtime);
-    let refresh_store = allowed_peers;
-    let peer_refresh = spawn(async move {
-        loop {
-            sleep(Duration::from_secs(2)).await;
-            match refresh_runtime.approved_peer_ids().await {
-                Ok(peers) => refresh_store.replace(peers),
-                Err(error) => log::warn!("failed to refresh Iroh allowlist: {error}"),
-            }
-        }
-    });
     let _iroh_router = server.router_with_protocol(
         crate::unavailable_data_protocol::UnavailableDataProtocol,
         crate::bootstrap::BOOTSTRAP_ALPN,
@@ -191,7 +180,6 @@ pub async fn run() -> io::Result<()> {
     };
 
     shutdown_signal(cancellation_token).await;
-    peer_refresh.abort();
 
     let mut command_handle = command_handle;
     select! {
