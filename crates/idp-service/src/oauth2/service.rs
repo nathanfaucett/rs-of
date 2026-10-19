@@ -1249,7 +1249,7 @@ where
         }
         let Some(client) = self
             .client_repo
-            .find_client_registration(&claims.client_id)
+            .find_client_by_client_id(&claims.client_id)
             .await
             .map_err(ErrorResponse::from)?
         else {
