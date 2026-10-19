@@ -30,7 +30,7 @@ function digest(directory) {
 
 for (const [service, count] of [
   ["idp", 38],
-  ["management", 37],
+  ["management", 38],
   ["storage", 14],
 ]) {
   const url = `${base}/${service}/openapi.json`;

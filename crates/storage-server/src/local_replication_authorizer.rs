@@ -32,19 +32,120 @@ pub struct LocalReplicationAuthorizer {
 
 impl LocalReplicationAuthorizer {
     pub fn from_management_client(client: crate::ManagementClient) -> Self {
+        Self::management_policy(client, None)
+    }
+
+    pub fn with_management_cleanup(
+        client: crate::ManagementClient,
+        local_endpoint: EndpointId,
+        copies: crate::StorageCopyRetirement,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> Self {
+        Self::management_policy(client, Some((local_endpoint, copies, cancellation)))
+    }
+
+    fn management_policy(
+        client: crate::ManagementClient,
+        local: Option<(
+            EndpointId,
+            crate::StorageCopyRetirement,
+            tokio_util::sync::CancellationToken,
+        )>,
+    ) -> Self {
+        let cleanup = Arc::new(tokio::sync::Mutex::new(()));
         Self::new(move |endpoint| {
             let client = client.clone();
+            let local = local.clone();
+            let cleanup = cleanup.clone();
             async move {
-                let response = client.selected_resources(&endpoint.to_string()).await?;
+                let local = local.filter(|(local_endpoint, _, _)| *local_endpoint == endpoint);
+                let _guard = if local.is_some() {
+                    Some(cleanup.lock().await)
+                } else {
+                    None
+                };
+                if local
+                    .as_ref()
+                    .is_some_and(|(_, _, cancellation)| cancellation.is_cancelled())
+                {
+                    return Err("Storage runtime is stopping".into());
+                }
+                let mut response = client.selected_resources(&endpoint.to_string()).await?;
+                if let Some(pending) = response.pending_cleanup.clone() {
+                    let (_, copies, cancellation) = local
+                        .as_ref()
+                        .ok_or("remote Device requires owner cleanup")?;
+                    if pending.device_id != response.device_id
+                        || pending.endpoint_id != endpoint.to_string()
+                        || response.endpoint_id != endpoint.to_string()
+                        || pending.new_owner_subject != response.owner_subject
+                        || pending.old_owner_subject == pending.new_owner_subject
+                        || ![
+                            &pending.device_id,
+                            &pending.cleanup_id,
+                            &pending.old_owner_subject,
+                            &pending.new_owner_subject,
+                        ]
+                        .into_iter()
+                        .all(|id| id.parse::<Id>().is_ok_and(|id| !id.is_nil()))
+                    {
+                        return Err("invalid Management owner cleanup binding".into());
+                    }
+                    copies
+                        .remove_owner_copies(&pending.old_owner_subject)
+                        .await
+                        .map_err(|error| error.to_string())?;
+                    let current = client.selected_resources(&endpoint.to_string()).await?;
+                    if current.device_id != response.device_id
+                        || current.endpoint_id != response.endpoint_id
+                        || current.owner_subject != response.owner_subject
+                        || current.pending_cleanup.as_ref() != Some(&pending)
+                    {
+                        return Err("Device owner changed during Storage cleanup".into());
+                    }
+                    if cancellation.is_cancelled() {
+                        return Err("Storage runtime is stopping".into());
+                    }
+                    client.acknowledge_owner_cleanup(&pending).await?;
+                    response = client.selected_resources(&endpoint.to_string()).await?;
+                    if response.device_id != pending.device_id
+                        || response.endpoint_id != pending.endpoint_id
+                        || response.owner_subject != pending.new_owner_subject
+                    {
+                        return Err("Device owner changed after Storage cleanup".into());
+                    }
+                }
+                if response.pending_cleanup.is_some() {
+                    return Err("Device owner cleanup remains pending".into());
+                }
+                let device_id: Id = response
+                    .device_id
+                    .parse()
+                    .map_err(|_| "invalid Management Device ID")?;
+                let endpoint_id: EndpointId = response
+                    .endpoint_id
+                    .parse()
+                    .map_err(|_| "invalid Management endpoint ID")?;
+                if endpoint_id != endpoint
+                    || device_id.is_nil()
+                    || !response
+                        .owner_subject
+                        .parse::<Id>()
+                        .is_ok_and(|owner| !owner.is_nil())
+                {
+                    return Err("invalid Management owner binding".into());
+                }
+                if let Some((_, copies, cancellation)) = local {
+                    if cancellation.is_cancelled() {
+                        return Err("Storage runtime is stopping".into());
+                    }
+                    copies
+                        .activate_owner(&response.owner_subject)
+                        .map_err(|error| error.to_string())?;
+                }
                 Ok(DeviceReplicationPolicy {
-                    device_id: response
-                        .device_id
-                        .parse()
-                        .map_err(|_| "invalid Management Device ID")?,
-                    endpoint_id: response
-                        .endpoint_id
-                        .parse()
-                        .map_err(|_| "invalid Management endpoint ID")?,
+                    device_id,
+                    endpoint_id,
                     owner_subject: response.owner_subject,
                     state: DeviceState::Approved,
                     owner_active: true,

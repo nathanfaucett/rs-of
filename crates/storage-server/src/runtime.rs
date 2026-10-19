@@ -37,6 +37,7 @@ impl StorageRuntime {
     }
 
     pub async fn shutdown(self) -> io::Result<()> {
+        self.cancellation_token.cancel();
         if let Some(replication) = self.replication {
             replication.shutdown().await?;
         }
@@ -101,11 +102,28 @@ fn build_runtime_inner(
         .transpose()
         .map_err(io::Error::other)?;
 
+    let copies = file_systems
+        .as_ref()
+        .map(|file_systems| crate::StorageCopyRetirement {
+            databases: Arc::clone(&databases),
+            file_systems: Arc::clone(file_systems),
+        });
     if state.local_replication_authorizer.is_none() {
-        state.local_replication_authorizer = state
-            .management_client
-            .clone()
-            .map(crate::LocalReplicationAuthorizer::from_management_client);
+        state.local_replication_authorizer =
+            state
+                .management_client
+                .clone()
+                .map(|client| match (endpoint, copies.clone()) {
+                    (Some(endpoint), Some(copies)) => {
+                        crate::LocalReplicationAuthorizer::with_management_cleanup(
+                            client,
+                            endpoint,
+                            copies,
+                            cancellation_token.clone(),
+                        )
+                    }
+                    _ => crate::LocalReplicationAuthorizer::from_management_client(client),
+                });
     }
     if let (Some(endpoint), Some(policy), Some(idp)) = (
         endpoint,
@@ -114,12 +132,6 @@ fn build_runtime_inner(
     ) {
         state.idp_client = Some(idp.with_local_device_policy(endpoint, policy.clone()));
     }
-    let copies = file_systems
-        .as_ref()
-        .map(|file_systems| crate::StorageCopyRetirement {
-            databases: Arc::clone(&databases),
-            file_systems: Arc::clone(file_systems),
-        });
 
     let replication = match (
         server,

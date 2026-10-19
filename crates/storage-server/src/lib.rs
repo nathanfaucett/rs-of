@@ -24,8 +24,6 @@ mod idp_client;
 mod local_replication_authorizer;
 mod management_client;
 #[cfg(feature = "network")]
-mod network;
-#[cfg(feature = "network")]
 mod replication_runtime;
 mod router;
 #[cfg(feature = "network")]
@@ -46,8 +44,6 @@ pub use idp_client::{IdpClient, IdpIntrospectionError};
 #[cfg(feature = "network")]
 pub use local_replication_authorizer::{DeviceReplicationPolicy, LocalReplicationAuthorizer};
 pub use management_client::ManagementClient;
-#[cfg(feature = "network")]
-pub use network::StoragePeerNetwork;
 #[cfg(feature = "network")]
 pub use replication_runtime::StorageReplicationRuntime;
 pub use router::{
