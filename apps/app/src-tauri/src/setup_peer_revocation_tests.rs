@@ -148,12 +148,29 @@ impl Peer {
         owner
             .ensure_initial_node(&target, ids.administrator_id, "Reset Node")
             .await
-            .expect("exact target signer and Device");
+            .expect("exact target signer");
         drop(owner);
 
         let engine =
             Arc::new(db::Database::open(root.join("idp/idp.redb")).expect("native IdP reopen"));
-        let peer_devices = DbDeviceRepo::new(engine.clone());
+        fs::create_dir_all(root.join("management")).expect("policy owner directory");
+        let policy = Arc::new(
+            db::Database::open(root.join("management/management.redb"))
+                .expect("separate native policy owner"),
+        );
+        management_service::replica::up(&policy)
+            .await
+            .expect("initialize policy schema once");
+        management_server::provision_initial_device(
+            policy.clone(),
+            ids.member_id,
+            ids.administrator_id,
+            &target.endpoint_id,
+            "Reset Node",
+        )
+        .await
+        .expect("Management-owned target Device");
+        let peer_devices = DbDeviceRepo::new(policy.clone());
         let peer_device = peer_devices
             .create(
                 ids.administrator_id.to_string(),
@@ -249,7 +266,10 @@ impl Peer {
                 allowed_grant_types: vec![GrantType::Password, GrantType::TokenExchange],
                 response_types: vec![],
                 allowed_scopes: vec!["openid".into()],
-                allowed_audiences: vec![api.clone()],
+                allowed_audiences: vec![
+                    api.clone(),
+                    management_service::MANAGEMENT_APPLICATION_URI.into(),
+                ],
                 token_endpoint_auth_method: TokenEndpointAuthMethod::None,
                 software_statement: None,
                 software_id: None,
@@ -267,14 +287,6 @@ impl Peer {
             key_service,
             config.oauth2.clone(),
         );
-        fs::create_dir_all(root.join("management")).expect("policy owner directory");
-        let policy = Arc::new(
-            db::Database::open(root.join("management/management.redb"))
-                .expect("separate native policy owner"),
-        );
-        management_service::replica::up(&policy)
-            .await
-            .expect("initialize policy schema once");
         management_server::provision_initial_administrator(
             policy.clone(),
             ids.administrator_id,
@@ -295,7 +307,7 @@ impl Peer {
             &api,
             engine.clone(),
             Arc::new(oauth2),
-            Arc::new(DbDeviceRepo::new(engine)),
+            Arc::new(DbDeviceRepo::new(policy.clone())),
             Arc::new(
                 management_service::device_identity_from_server(&endpoint, secret.clone())
                     .expect("peer identity"),
@@ -306,6 +318,7 @@ impl Peer {
         let router = idp_server::openapi_router(state.clone(), "/idp")
             .split_for_parts()
             .0
+            .merge(management_router(&state, policy.clone()).await)
             .layer(axum::middleware::from_fn_with_state(
                 faults.clone(),
                 observe_response,
@@ -370,6 +383,36 @@ impl Peer {
     }
 }
 
+async fn management_router(state: &RouterState, policy: Arc<db::Database>) -> axum::Router {
+    let inspect = state.clone();
+    let active = state.clone();
+    let control = management_service::HostedControlPlane::new_with_services(
+        &state.api_base_uri,
+        &state.api_base_uri,
+        &state.oauth2_service.metadata().issuer,
+    )
+    .expect("fixture owner addresses")
+    .with_local_idp(
+        move |token| {
+            let state = inspect.clone();
+            async move { idp_server::authorize_management_bearer(&state, &token).await }
+        },
+        move |user| {
+            let state = active.clone();
+            async move { idp_server::active_management_user(&state, user).await }
+        },
+    );
+    management_server::build_router(
+        policy,
+        &state.api_base_uri.replace("/idp", "/management"),
+        "/management",
+        "storage:databases",
+        Arc::new(control),
+    )
+    .await
+    .expect("Management Device routes")
+}
+
 #[derive(Default)]
 struct Faults {
     hold_device_ack: Mutex<bool>,
@@ -378,6 +421,7 @@ struct Faults {
     committed: Notify,
     release: Notify,
     tokens: AtomicUsize,
+    audiences: Mutex<Vec<String>>,
     deletes: AtomicUsize,
 }
 
@@ -386,10 +430,27 @@ async fn observe_response(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
+    let mut request = request;
     let device = request.method() == axum::http::Method::DELETE
-        && request.uri().path().starts_with("/idp/devices/");
+        && request.uri().path().starts_with("/management/devices/");
     if request.uri().path() == "/idp/oauth2/token" {
         faults.tokens.fetch_add(1, Ordering::SeqCst);
+        let (parts, body) = request.into_parts();
+        let bytes = axum::body::to_bytes(body, 64 * 1024)
+            .await
+            .expect("bounded token request");
+        let mut form = reqwest::Url::parse("https://fixture.test").expect("form parser");
+        form.set_query(Some(
+            std::str::from_utf8(&bytes).expect("token request form"),
+        ));
+        if let Some((_, resource)) = form.query_pairs().find(|(key, _)| key == "resource") {
+            faults
+                .audiences
+                .lock()
+                .expect("observed audiences")
+                .push(resource.into_owned());
+        }
+        request = axum::extract::Request::from_parts(parts, axum::body::Body::from(bytes));
     }
     if request.method() == axum::http::Method::DELETE {
         faults.deletes.fetch_add(1, Ordering::SeqCst);
@@ -469,8 +530,7 @@ impl Peer {
                 .any(|(member, _)| member.member_id == self.target),
             signer_active
         );
-        let devices = state
-            .devices
+        let devices = DbDeviceRepo::new(self.policy.as_ref().expect("Management owner").clone())
             .list()
             .await
             .expect("public owner Device state");
@@ -577,7 +637,7 @@ impl Peer {
             &self.api,
             engine.clone(),
             Arc::new(oauth2),
-            Arc::new(DbDeviceRepo::new(engine)),
+            Arc::new(DbDeviceRepo::new(policy.clone())),
             Arc::new(
                 management_service::device_identity_from_server(
                     &self.endpoint,
@@ -590,6 +650,7 @@ impl Peer {
         let router = idp_server::openapi_router(state.clone(), "/idp")
             .split_for_parts()
             .0
+            .merge(management_router(&state, policy.clone()).await)
             .layer(axum::middleware::from_fn_with_state(
                 self.faults.clone(),
                 observe_response,
@@ -794,7 +855,7 @@ async fn queued_peer_revocation_device_redirect_after_signer_success_stays_pendi
         .redirect_delete
         .lock()
         .expect("arm Device redirect") = Some((
-        format!("/idp/devices/{}", peer.target),
+        format!("/management/devices/{}", peer.target),
         axum::http::StatusCode::FOUND,
     ));
     let result = peer.revoke().await;
@@ -871,6 +932,17 @@ async fn queued_peer_revocation_authorized_https_acknowledges_durably() {
     )
     .await
     .expect("actual authorized workflow");
+    assert_eq!(
+        *peer
+            .faults
+            .audiences
+            .lock()
+            .expect("exact owner audience exchanges"),
+        [
+            peer.api.clone(),
+            management_service::MANAGEMENT_APPLICATION_URI.into()
+        ],
+    );
     assert_eq!(
         reset::revocations(&peer.data).expect("durable queue read")[0]["status"],
         "acknowledged"

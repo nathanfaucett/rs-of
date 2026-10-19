@@ -4,8 +4,9 @@ import type {
   DeviceEnrollment,
   DeviceInfo,
   DeviceState,
-} from "@aicacia/idp-client";
-import { idpApi, idpOwnerAccessToken, getIdpApiUrl } from "./idpClient.svelte";
+} from "@aicacia/management-client";
+import { ownerAccessToken } from "./idpClient.svelte";
+import { managementApi, getManagementApiUrl } from "./managementClient.svelte";
 import { setupBase } from "./setupApi";
 
 export type { DeviceEnrollment, DeviceInfo, DeviceState };
@@ -24,7 +25,7 @@ export interface PendingNodeJoin {
 }
 
 async function nodeJoinBearer(): Promise<string> {
-  const token = await idpOwnerAccessToken();
+  const token = await ownerAccessToken("idp-management");
   if (!token) throw new Error("Sign in to manage Node joining");
   return token;
 }
@@ -34,9 +35,9 @@ async function webNodeJoinRequest(
   method: "GET" | "PUT" | "POST",
   body?: object,
 ): Promise<Response> {
-  const base = setupBase(getIdpApiUrl() ?? "");
+  const base = setupBase(getManagementApiUrl() ?? "");
   const bearer = await nodeJoinBearer();
-  if (getIdpApiUrl()?.replace(/\/$/, "") !== base)
+  if (getManagementApiUrl()?.replace(/\/$/, "") !== base)
     throw new Error(
       "Source owner target changed; sign in to the intended Node",
     );
@@ -150,13 +151,13 @@ export async function rejectPendingNodeJoin(offerId: string): Promise<void> {
 }
 
 export function listDevices(): Promise<DeviceInfo[]> {
-  return idpApi.listDevices();
+  return managementApi.listDevices();
 }
 
 export function renameDevice(id: string, name: string): Promise<DeviceInfo> {
-  return idpApi.updateDevice({ id, updateDeviceRequest: { name } });
+  return managementApi.updateDevice({ id, updateDeviceRequest: { name } });
 }
 
 export function revokeDevice(id: string): Promise<void> {
-  return idpApi.revokeDevice({ id });
+  return managementApi.revokeDevice({ id });
 }

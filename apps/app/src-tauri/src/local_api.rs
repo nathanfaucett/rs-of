@@ -8,7 +8,7 @@ const TRUST_PAGE: &str = "<!DOCTYPE html>\
 </head>\
 <body>\
 <h1>Localhost certificate</h1>\
-<p>If your browser shows a certificate warning, accept it to allow local apps to connect.</p>\
+<p>Install the localhost CA into the operating system trust store with explicit consent before connecting. Do not bypass browser certificate warnings.</p>\
 <p>You can close this tab after the page loads without warnings.</p>\
 </body>\
 </html>";

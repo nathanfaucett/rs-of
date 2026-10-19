@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { SelectionKind, type DeviceRestriction } from "@aicacia/management-client";
-  import type { DeviceInfo } from "@aicacia/idp-client";
+  import { SelectionKind, type DeviceInfo, type DeviceRestriction } from "@aicacia/management-client";
   import * as v from "valibot";
   import { managementApi } from "$lib/common/state/managementClient.svelte";
 

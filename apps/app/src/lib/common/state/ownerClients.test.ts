@@ -410,86 +410,212 @@ it("renders Device policy as owner-authorized mutations, not a ready resource di
     expect(fetchApi).not.toHaveBeenCalled();
 });
 
-it("uses ordinary current User owner authorization for web source acceptance and exact offer decisions without native IPC", async () => {
-  host.desktop = false;
-  const idp = await import("./idpClient.svelte");
-  idp.setIdpApiUrl("https://source.test/idp");
-  const offers = [
-    {
-      offer_id: "01900000-0000-7000-8000-000000000004",
-      authenticated_endpoint: "b".repeat(64),
-      request: {
-        installation: "https://installation.test",
-        member_id: "01900000-0000-7000-8000-000000000005",
-        endpoint_id: "b".repeat(64),
-        approving_peer: "a".repeat(64),
-        name: "Joining Node",
-        public_signer: { kty: "OKP" },
-      },
-    },
-  ];
-  fetchApi.mockImplementation(async (url: string) => {
-    if (url.endsWith("/oauth2/token"))
-      return Response.json({
-        access_token: "owner-token",
-        token_type: "Bearer",
-      });
-    if (url.endsWith("/acceptance")) return Response.json({ accepting: true });
-    if (url.endsWith("/pending")) return Response.json(offers);
-    if (url.endsWith("/approve"))
-      return Response.json({ request: offers[0].request });
-    return new Response(null, { status: 204 });
-  });
-  const devices = await import("./devices.svelte");
-  await expect(devices.nodeJoinAccepting(true)).resolves.toBe(true);
-  await expect(devices.pendingNodeJoins()).resolves.toEqual(offers);
-  await devices.approvePendingNodeJoin(offers[0].offer_id);
-  await devices.rejectPendingNodeJoin(offers[0].offer_id);
-  const calls = fetchApi.mock.calls.filter(([url]) =>
-    url.includes("/node-joins/"),
-  );
-  expect(calls.map(([url, init]) => [url, init.method, init.body])).toEqual([
-    [
-      "https://source.test/idp/node-joins/acceptance",
-      "PUT",
-      '{"accepting":true}',
-    ],
-    ["https://source.test/idp/node-joins/pending", "GET", undefined],
-    [
-      "https://source.test/idp/node-joins/01900000-0000-7000-8000-000000000004/approve",
-      "POST",
-      undefined,
-    ],
-    [
-      "https://source.test/idp/node-joins/01900000-0000-7000-8000-000000000004/reject",
-      "POST",
-      undefined,
-    ],
-  ]);
-  for (const [, init] of calls)
-    expect(init).toMatchObject({
-      headers: { Authorization: "Bearer owner-token" },
-      credentials: "omit",
-      redirect: "error",
-      cache: "no-store",
+it("uses the Management prefix once and audience for web source acceptance and exact offer decisions without native IPC", async () => {
+    host.desktop = false;
+    const idp = await import("./idpClient.svelte");
+    const management = await import("./managementClient.svelte");
+    idp.setIdpApiUrl("https://identity.test/idp");
+    management.setManagementApiUrl("https://source.test/management");
+    const offers = [
+        {
+            offer_id: "01900000-0000-7000-8000-000000000004",
+            authenticated_endpoint: "b".repeat(64),
+            request: {
+                installation: "https://installation.test",
+                member_id: "01900000-0000-7000-8000-000000000005",
+                endpoint_id: "b".repeat(64),
+                approving_peer: "a".repeat(64),
+                name: "Joining Node",
+                public_signer: { kty: "OKP" },
+            },
+        },
+    ];
+    fetchApi.mockImplementation(async (url: string) => {
+        if (url.endsWith("/oauth2/token"))
+            return Response.json({
+                access_token: "owner-token",
+                token_type: "Bearer",
+            });
+        if (url.endsWith("/acceptance"))
+            return Response.json({ accepting: true });
+        if (url.endsWith("/pending")) return Response.json(offers);
+        if (url.endsWith("/approve"))
+            return Response.json({ request: offers[0].request });
+        return new Response(null, { status: 204 });
     });
-  expect(host.invoke).not.toHaveBeenCalled();
+    const devices = await import("./devices.svelte");
+    await expect(devices.nodeJoinAccepting(true)).resolves.toBe(true);
+    await expect(devices.pendingNodeJoins()).resolves.toEqual(offers);
+    await devices.approvePendingNodeJoin(offers[0].offer_id);
+    await devices.rejectPendingNodeJoin(offers[0].offer_id);
+    const calls = fetchApi.mock.calls.filter(([url]) =>
+        url.includes("/node-joins/"),
+    );
+    expect(calls.map(([url, init]) => [url, init.method, init.body])).toEqual([
+        [
+            "https://source.test/management/node-joins/acceptance",
+            "PUT",
+            '{"accepting":true}',
+        ],
+        ["https://source.test/management/node-joins/pending", "GET", undefined],
+        [
+            "https://source.test/management/node-joins/01900000-0000-7000-8000-000000000004/approve",
+            "POST",
+            undefined,
+        ],
+        [
+            "https://source.test/management/node-joins/01900000-0000-7000-8000-000000000004/reject",
+            "POST",
+            undefined,
+        ],
+    ]);
+    for (const [, init] of calls)
+        expect(init).toMatchObject({
+            headers: { Authorization: "Bearer owner-token" },
+            credentials: "omit",
+            redirect: "error",
+            cache: "no-store",
+        });
+    expect(
+        fetchApi.mock.calls
+            .filter(([url]) => url.endsWith("/oauth2/token"))
+            .map(([url, init]) => [url, init.body.get("resource")]),
+    ).toEqual(
+        Array(4).fill([
+            "https://identity.test/idp/oauth2/token",
+            "idp-management",
+        ]),
+    );
+    expect(host.invoke).not.toHaveBeenCalled();
 });
 
 it("web source approval refuses missing User authorization, insecure targets and malformed offer identity", async () => {
-  host.desktop = false;
-  const idp = await import("./idpClient.svelte");
-  const devices = await import("./devices.svelte");
-  idp.setIdpApiUrl("http://source.test/idp");
-  await expect(devices.nodeJoinAccepting(true)).rejects.toThrow(/HTTPS/);
-  expect(fetchApi).not.toHaveBeenCalled();
-  idp.setIdpApiUrl("https://source.test/idp");
-  host.token = "";
-  await expect(devices.pendingNodeJoins()).rejects.toThrow(/Sign in/);
-  expect(fetchApi).not.toHaveBeenCalled();
-  await expect(
-    devices.approvePendingNodeJoin("../acceptance"),
-  ).rejects.toThrow();
-  expect(fetchApi).not.toHaveBeenCalled();
-  expect(host.invoke).not.toHaveBeenCalled();
+    host.desktop = false;
+    const idp = await import("./idpClient.svelte");
+    const devices = await import("./devices.svelte");
+    const management = await import("./managementClient.svelte");
+    idp.setIdpApiUrl("https://identity.test/idp");
+    management.setManagementApiUrl("http://source.test/management");
+    await expect(devices.nodeJoinAccepting(true)).rejects.toThrow(/HTTPS/);
+    expect(fetchApi).not.toHaveBeenCalled();
+    management.setManagementApiUrl("https://source.test/management");
+    host.token = "";
+    await expect(devices.pendingNodeJoins()).rejects.toThrow(/Sign in/);
+    expect(fetchApi).not.toHaveBeenCalled();
+    await expect(
+        devices.approvePendingNodeJoin("../acceptance"),
+    ).rejects.toThrow();
+    expect(fetchApi).not.toHaveBeenCalled();
+    expect(host.invoke).not.toHaveBeenCalled();
+});
+
+it.each(["https://management.test", "https://node.test/management"])(
+    "uses the configured source Management base %s without inventing a prefix",
+    async (base) => {
+        host.desktop = false;
+        const idp = await import("./idpClient.svelte");
+        const management = await import("./managementClient.svelte");
+        const devices = await import("./devices.svelte");
+        idp.setIdpApiUrl("https://identity.test/idp");
+        management.setManagementApiUrl(base);
+        fetchApi.mockImplementation(async (url: string) =>
+            url.endsWith("/oauth2/token")
+                ? Response.json({
+                      access_token: "management-token",
+                      token_type: "Bearer",
+                  })
+                : Response.json({ accepting: false }),
+        );
+        await expect(devices.nodeJoinAccepting()).resolves.toBe(false);
+        expect(fetchApi.mock.calls.map(([url]) => url)).toEqual([
+            "https://identity.test/idp/oauth2/token",
+            `${base}/node-joins/acceptance`,
+        ]);
+        expect(fetchApi.mock.calls[0][1].body.get("resource")).toBe(
+            "idp-management",
+        );
+        expect(fetchApi.mock.calls[1][1].headers.Authorization).toBe(
+            "Bearer management-token",
+        );
+    },
+);
+
+it("does not transfer source approval to a changed Management target during token exchange", async () => {
+    host.desktop = false;
+    const idp = await import("./idpClient.svelte");
+    const management = await import("./managementClient.svelte");
+    const devices = await import("./devices.svelte");
+    idp.setIdpApiUrl("https://identity.test/idp");
+    management.setManagementApiUrl("https://source.test/management");
+    fetchApi.mockImplementation(async () => {
+        management.setManagementApiUrl("https://other.test/management");
+        return Response.json({
+            access_token: "management-token",
+            token_type: "Bearer",
+        });
+    });
+    await expect(devices.nodeJoinAccepting(true)).rejects.toThrow(
+        /target changed/,
+    );
+    expect(fetchApi.mock.calls.map(([url]) => url)).toEqual([
+        "https://identity.test/idp/oauth2/token",
+    ]);
+});
+
+it("uses the Management audience for native source approval without changing the native command", async () => {
+    const devices = await import("./devices.svelte");
+    host.invoke.mockImplementation(async (command: string) =>
+        command === "get_localhost_server_base_url"
+            ? "https://localhost:4100"
+            : true,
+    );
+    await expect(devices.nodeJoinAccepting(true)).resolves.toBe(true);
+    expect(
+        fetchApi.mock.calls
+            .find(([url]) => url.endsWith("/oauth2/token"))?.[1]
+            .body.get("resource"),
+    ).toBe("idp-management");
+    expect(host.invoke).toHaveBeenCalledWith("node_join_accepting", {
+        bearer: "owner-token",
+        accepting: true,
+    });
+});
+
+it("uses Management Device client routes and audience for list, rename and revoke", async () => {
+    host.desktop = false;
+    const idp = await import("./idpClient.svelte");
+    const management = await import("./managementClient.svelte");
+    const devices = await import("./devices.svelte");
+    idp.setIdpApiUrl("https://identity.test/idp");
+    management.setManagementApiUrl("https://devices.test/management");
+    fetchApi.mockImplementation(async (url: string, init: RequestInit) => {
+        if (url.endsWith("/oauth2/token"))
+            return Response.json({
+                access_token: "management-token",
+                token_type: "Bearer",
+            });
+        if (init.method === "GET") return Response.json([]);
+        if (init.method === "PATCH")
+            return Response.json({ id: deviceId, name: "Renamed" });
+        return new Response(null, { status: 204 });
+    });
+    await expect(devices.listDevices()).resolves.toEqual([]);
+    await devices.renameDevice(deviceId, "Renamed");
+    await devices.revokeDevice(deviceId);
+    const calls = fetchApi.mock.calls.filter(
+        ([url]) => !url.endsWith("/oauth2/token"),
+    );
+    expect(calls.map(([url, init]) => [url, init.method])).toEqual([
+        ["https://devices.test/management/devices", "GET"],
+        [`https://devices.test/management/devices/${deviceId}`, "PATCH"],
+        [`https://devices.test/management/devices/${deviceId}`, "DELETE"],
+    ]);
+    expect(calls[1][1].body).toBe(JSON.stringify({ name: "Renamed" }));
+    for (const [, init] of calls)
+        expect(init.headers.Authorization).toBe("Bearer management-token");
+    expect(
+        fetchApi.mock.calls
+            .filter(([url]) => url.endsWith("/oauth2/token"))
+            .map(([, init]) => init.body.get("resource")),
+    ).toEqual(["idp-management", "idp-management", "idp-management"]);
 });
