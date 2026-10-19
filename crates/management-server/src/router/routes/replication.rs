@@ -252,10 +252,7 @@ mod tests {
     #[cfg(feature = "cli")]
     #[tokio::test]
     async fn selections_return_current_authenticated_device_policy() {
-        use std::sync::{
-            Mutex,
-            atomic::{AtomicBool, Ordering},
-        };
+        use std::sync::atomic::{AtomicBool, Ordering};
 
         use axum::{
             Json,
@@ -263,7 +260,6 @@ mod tests {
             http::{Request, StatusCode},
             routing::{get, post},
         };
-        use management_service::DeviceEndpointIdentity;
         use management_service::replica::{SelectionPolicy, up};
         use model::contract::SelectedResourcesResponse;
         use tower::ServiceExt;
@@ -274,21 +270,13 @@ mod tests {
         let resource = Id::now_v7();
         let endpoint =
             "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".to_owned();
-        let identity = DeviceEndpointIdentity {
-            device_id: device,
-            owner_subject: owner.clone(),
-            endpoint_id: endpoint.clone(),
-        };
-        let current = Arc::new(Mutex::new(Some(identity)));
-        let lookup = current.clone();
-        let trusted = current.clone();
         let owner_active = Arc::new(AtomicBool::new(true));
         let active = owner_active.clone();
         let idp = axum::Router::new()
             .route("/oauth2/token", post(|body: String| async move {
                 assert!(body.contains("client_secret=management-secret"));
                 Json(serde_json::json!({"access_token":"management-token", "token_type":"Bearer", "expires_in":300,
-                    "scope":"idp.token.validate idp.device.lookup", "iss":"https://issuer.example"}))
+                    "scope":"idp.token.validate idp.user.lookup", "iss":"https://issuer.example"}))
             }))
             .route("/oauth2/introspect", post(|headers: HeaderMap, body: String| async move {
                 assert_eq!(headers[AUTHORIZATION], "Bearer management-token");
@@ -305,20 +293,11 @@ mod tests {
                     application_id: Id::from_u128(1).to_string(),
                 })
             }))
-            .route("/devices/endpoints/{endpoint}", get(move |headers: HeaderMap| {
-                let current = lookup.clone();
-                async move {
-                    assert_eq!(headers[AUTHORIZATION], "Bearer management-token");
-                    current.lock().expect("current IdP identity").clone().map(Json).ok_or(StatusCode::NOT_FOUND)
-                }
-            }))
-            .route("/devices/identities/{device}", get(move |headers: HeaderMap| {
-                let current = trusted.clone();
+            .route("/users/{user}/active", get(move |headers: HeaderMap| {
                 let active = active.clone();
                 async move {
                     assert_eq!(headers[AUTHORIZATION], "Bearer management-token");
-                    if !active.load(Ordering::SeqCst) { return Err(StatusCode::FORBIDDEN); }
-                    current.lock().expect("current trusted owner").clone().map(Json).ok_or(StatusCode::FORBIDDEN)
+                    if active.load(Ordering::SeqCst) { StatusCode::NO_CONTENT } else { StatusCode::NOT_FOUND }
                 }
             }));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -331,6 +310,7 @@ mod tests {
             std::env::temp_dir().join(format!("management-current-policy-{}.redb", Id::now_v7()));
         let engine = Arc::new(db::Database::open(&root).expect("open policy"));
         up(&engine).await.expect("initialize policy");
+        engine.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{owner}', 'test', '{endpoint}', '', 1, 1, NULL, 1, 1)"), &db::SqlTranslator).await.expect("Management Device");
         let policies = Arc::new(DbSelectionPolicyRepo::new(engine.clone()));
 
         let state = RouterState::new(
@@ -344,7 +324,10 @@ mod tests {
                 HostedControlPlane::new_with_services(&base, &base, "https://issuer.example")
                     .expect("control plane")
                     .with_idp_service_client("management-client", "management-secret", "idp-api")
-                    .expect("authenticated IdP relationship"),
+                    .expect("authenticated IdP relationship")
+                    .with_local_devices(Arc::new(management_service::replica::DbDeviceRepo::new(
+                        engine.clone(),
+                    ))),
             ),
             "storage-api",
         );
@@ -412,22 +395,13 @@ mod tests {
                 }
                 4 => {
                     owner_active.store(true, Ordering::SeqCst);
-                    *current.lock().expect("change IdP owner") = Some(DeviceEndpointIdentity {
-                        device_id: device,
-                        owner_subject: Id::now_v7().to_string(),
-                        endpoint_id: endpoint.clone(),
-                    });
+                    engine.client().translate_and_execute(&format!("UPDATE devices SET owner_subject = '{}' WHERE id = CAST('{device}' AS UUID)", Id::now_v7()), &db::SqlTranslator).await.expect("learn Management transfer");
                 }
                 5 => {
-                    *current.lock().expect("revoke IdP Device") = None;
+                    engine.client().translate_and_execute(&format!("UPDATE devices SET revoked_at = 9 WHERE id = CAST('{device}' AS UUID)"), &db::SqlTranslator).await.expect("learn timestamp revocation");
                 }
                 6 => {
-                    *current.lock().expect("restore old IdP owner") =
-                        Some(DeviceEndpointIdentity {
-                            device_id: device,
-                            owner_subject: owner.clone(),
-                            endpoint_id: endpoint.clone(),
-                        });
+                    engine.client().translate_and_execute(&format!("UPDATE devices SET owner_subject = '{owner}', revoked_at = NULL WHERE id = CAST('{device}' AS UUID)"), &db::SqlTranslator).await.expect("retained cleanup still denies");
                 }
                 _ => {}
             }
@@ -597,7 +571,7 @@ mod tests {
                 .expect("read token request");
             let token_request =
                 String::from_utf8_lossy(&token_request[..token_length]).into_owned();
-            let token_response = r#"{"access_token":"management-token","token_type":"Bearer","expires_in":300,"scope":"idp.token.validate idp.device.lookup","iss":"https://issuer.example"}"#;
+            let token_response = r#"{"access_token":"management-token","token_type":"Bearer","expires_in":300,"scope":"idp.token.validate idp.user.lookup","iss":"https://issuer.example"}"#;
             write!(token_stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{token_response}", token_response.len()).expect("write token response");
 
             let (mut introspection_stream, _) =
@@ -741,7 +715,7 @@ mod tests {
             token_stream
                 .read(&mut token_request)
                 .expect("read token request");
-            let token_response = r#"{"access_token":"management-token","token_type":"Bearer","expires_in":300,"scope":"idp.token.validate idp.device.lookup","iss":"https://issuer.example"}"#;
+            let token_response = r#"{"access_token":"management-token","token_type":"Bearer","expires_in":300,"scope":"idp.token.validate idp.user.lookup","iss":"https://issuer.example"}"#;
             write!(token_stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{token_response}", token_response.len()).expect("write token response");
 
             let (mut introspection_stream, _) =

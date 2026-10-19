@@ -1,5 +1,5 @@
+pub(crate) mod active_user;
 pub(crate) mod administration;
-pub(crate) mod devices;
 pub(crate) mod health;
 pub(crate) mod replica_signers;
 

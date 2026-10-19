@@ -2,11 +2,8 @@ use idp_model::{
     contract::{ErrorCode, IntrospectionResponse},
     model::Id,
 };
-use iroh::EndpointId;
-use management_service::DeviceRepo;
-use management_service::{DeviceEndpointIdentity, DeviceState};
 
-use crate::{IdpRuntime, RouterState, authorize_bearer_any_principal};
+use crate::{RouterState, authorize_bearer_any_principal};
 
 pub async fn authorize_management_bearer(
     state: &RouterState,
@@ -29,43 +26,16 @@ pub async fn authorize_management_bearer(
     })
 }
 
-pub async fn approved_management_endpoint(
-    runtime: &IdpRuntime,
-    endpoint_id: &str,
-) -> Result<DeviceEndpointIdentity, String> {
-    let endpoint = endpoint_id
-        .parse::<EndpointId>()
-        .map_err(|_| "invalid endpoint ID".to_owned())?;
-    if endpoint.to_string() != endpoint_id {
-        return Err("invalid endpoint ID".into());
+pub async fn active_management_user(state: &RouterState, user_id: Id) -> Result<(), String> {
+    if user_id.is_nil() {
+        return Err("invalid User ID".into());
     }
-    runtime
-        .approved_device_owner(endpoint)
+    state
+        .oauth2_service
+        .find_user_info(user_id)
         .await
-        .map_err(|error| error.to_string())
-}
-
-pub async fn approved_management_device(
-    state: &RouterState,
-    runtime: &IdpRuntime,
-    device_id: Id,
-) -> Result<DeviceEndpointIdentity, String> {
-    if device_id.is_nil() {
-        return Err("invalid Device ID".into());
-    }
-    let device = state
-        .devices
-        .list()
-        .await
-        .map_err(|error| error.to_string())?
-        .into_iter()
-        .find(|device| device.id == device_id && device.state == DeviceState::Approved)
-        .ok_or_else(|| "IdP identity was not found".to_owned())?;
-    let identity = approved_management_endpoint(runtime, &device.public_key).await?;
-    if identity.device_id != device_id || identity.owner_subject != device.owner_subject {
-        return Err("IdP returned a mismatched Device identity".into());
-    }
-    Ok(identity)
+        .map(|_| ())
+        .map_err(|_| "IdP User is not currently active".into())
 }
 
 #[cfg(test)]
@@ -93,8 +63,7 @@ mod tests {
                 let state = state.clone();
                 async move { authorize_management_bearer(&state, &token).await }
             },
-            |_| async { Err("unused endpoint lookup".into()) },
-            |_| async { Err("unused Device lookup".into()) },
+            |_| async { Ok(()) },
         );
         let (claims, application_id) = control
             .validate_actor_token(&token)

@@ -6,6 +6,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::RouterState;
 
 use super::openapi::{__path_openapi_json, openapi_json};
+use super::routes::active_user::{__path_active_user, active_user};
 use super::routes::administration::{
     __path_create_application, __path_delete_application, __path_delete_user,
     __path_get_application, __path_get_user, __path_list_applications, __path_list_client_keys,
@@ -14,10 +15,6 @@ use super::routes::administration::{
     delete_application, delete_user, get_application, get_user, list_applications,
     list_client_keys, list_consents, reset_password, revoke_client_keys, revoke_consent,
     rotate_client_key, update_application, update_user,
-};
-use super::routes::devices::{
-    __path_list_approved_device_endpoints, __path_lookup_device_endpoint,
-    list_approved_device_endpoints, lookup_device_endpoint,
 };
 use super::routes::health::{__path_health, health};
 use super::routes::replica_signers::{
@@ -56,8 +53,7 @@ use super::routes::well_known::{
         super::routes::replica_signers::enroll_replica_signer,
         super::routes::replica_signers::rotate_replica_signer,
         super::routes::replica_signers::revoke_replica_signer,
-        super::routes::devices::lookup_device_endpoint,
-        super::routes::devices::list_approved_device_endpoints,
+        super::routes::active_user::active_user,
     ),
     info(title = "OAuth Server", version = env!("CARGO_PKG_VERSION")),
     modifiers(&SecurityAddon)
@@ -71,8 +67,7 @@ pub fn openapi_router(router_state: RouterState, prefix: &str) -> OpenApiRouter 
     let routes = || {
         OpenApiRouter::new()
             .routes(routes!(health))
-            .routes(routes!(lookup_device_endpoint))
-            .routes(routes!(list_approved_device_endpoints))
+            .routes(routes!(active_user))
             .routes(routes!(enroll_replica_signer))
             .routes(routes!(rotate_replica_signer))
             .routes(routes!(revoke_replica_signer))

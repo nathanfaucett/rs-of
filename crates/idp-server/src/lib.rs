@@ -36,9 +36,7 @@ pub use bootstrap::{BOOTSTRAP_ALPN, BootstrapProtocolHandler};
 #[cfg(feature = "cli")]
 pub use cli::run;
 pub use config::{AppConfig, ManagementPermissionConfig, PairingConfig};
-pub use management_owner::{
-    approved_management_device, approved_management_endpoint, authorize_management_bearer,
-};
+pub use management_owner::{active_management_user, authorize_management_bearer};
 pub use management_permission_client::ManagementPermissionClient;
 
 pub use node_join::{NodeJoinApproval, NodeJoinRequest, NodeJoinStage, bind_node_join_endpoint};

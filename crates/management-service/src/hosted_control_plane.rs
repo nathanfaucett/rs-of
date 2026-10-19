@@ -20,7 +20,9 @@ use reqwest::{Client, Url, redirect::Policy};
 use serde::Deserialize;
 use storage_model::ResourceKind;
 
-use crate::{DeviceEndpointIdentity, DeviceSelfRevocationRequest, TrustedDevice};
+use crate::{DeviceEndpointIdentity, DeviceIdentity, PairingAcceptanceController};
+#[cfg(feature = "replica")]
+use crate::{DeviceRepo, DeviceState, replica::DbDeviceRepo};
 
 #[derive(Clone)]
 pub struct HostedControlPlane {
@@ -31,6 +33,10 @@ pub struct HostedControlPlane {
     service_token_client: Option<Arc<ServiceTokenClient>>,
     client: Client,
     local_idp: Option<LocalIdp>,
+    #[cfg(feature = "replica")]
+    local_devices: Option<Arc<DbDeviceRepo>>,
+    device_identity: Option<Arc<DeviceIdentity>>,
+    pairing_acceptance: Option<Arc<dyn PairingAcceptanceController>>,
 }
 
 type LocalCall<I, O> =
@@ -39,8 +45,7 @@ type LocalCall<I, O> =
 #[derive(Clone)]
 struct LocalIdp {
     inspect: LocalCall<String, IntrospectionResponse>,
-    endpoint: LocalCall<String, DeviceEndpointIdentity>,
-    device: LocalCall<Id, DeviceEndpointIdentity>,
+    active_user: LocalCall<Id, ()>,
 }
 
 impl HostedControlPlane {
@@ -77,6 +82,10 @@ impl HostedControlPlane {
             permission_evaluator_client_id: None,
             service_token_client: None,
             local_idp: None,
+            #[cfg(feature = "replica")]
+            local_devices: None,
+            device_identity: None,
+            pairing_acceptance: None,
             client: Client::builder()
                 .connect_timeout(Duration::from_secs(3))
                 .timeout(Duration::from_secs(10))
@@ -87,21 +96,84 @@ impl HostedControlPlane {
     }
 
     /// Callbacks must validate against the current local IdP owner on every call.
-    pub fn with_local_idp<F, T, E, U, D, V>(mut self, inspect: F, endpoint: E, device: D) -> Self
+    pub fn with_local_idp<F, T, U, V>(mut self, inspect: F, active_user: U) -> Self
     where
         F: Fn(String) -> T + Send + Sync + 'static,
         T: Future<Output = Result<IntrospectionResponse, String>> + Send + 'static,
-        E: Fn(String) -> U + Send + Sync + 'static,
-        U: Future<Output = Result<DeviceEndpointIdentity, String>> + Send + 'static,
-        D: Fn(Id) -> V + Send + Sync + 'static,
-        V: Future<Output = Result<DeviceEndpointIdentity, String>> + Send + 'static,
+        U: Fn(Id) -> V + Send + Sync + 'static,
+        V: Future<Output = Result<(), String>> + Send + 'static,
     {
         self.local_idp = Some(LocalIdp {
             inspect: Arc::new(move |token| Box::pin(inspect(token))),
-            endpoint: Arc::new(move |id| Box::pin(endpoint(id))),
-            device: Arc::new(move |id| Box::pin(device(id))),
+            active_user: Arc::new(move |id| Box::pin(active_user(id))),
         });
         self
+    }
+
+    #[cfg(feature = "replica")]
+    pub fn with_local_devices(mut self, devices: Arc<DbDeviceRepo>) -> Self {
+        self.local_devices = Some(devices);
+        self
+    }
+
+    #[cfg(feature = "replica")]
+    pub fn device_repo(&self) -> Result<&Arc<DbDeviceRepo>, String> {
+        self.local_devices
+            .as_ref()
+            .ok_or_else(|| "Management Device owner is unavailable".into())
+    }
+
+    pub fn with_device_identity(mut self, identity: Arc<DeviceIdentity>) -> Self {
+        self.device_identity = Some(identity);
+        self
+    }
+
+    pub fn device_identity(&self) -> Result<&DeviceIdentity, String> {
+        self.device_identity
+            .as_deref()
+            .ok_or_else(|| "local endpoint identity is unavailable".into())
+    }
+
+    pub fn with_pairing_acceptance(
+        mut self,
+        controller: Arc<dyn PairingAcceptanceController>,
+    ) -> Self {
+        self.pairing_acceptance = Some(controller);
+        self
+    }
+
+    pub fn pairing_acceptance(&self) -> Result<&dyn PairingAcceptanceController, String> {
+        self.pairing_acceptance
+            .as_deref()
+            .ok_or_else(|| "pairing controller is unavailable".into())
+    }
+
+    pub async fn active_user(&self, user: Id) -> Result<(), String> {
+        if user.is_nil() {
+            return Err("invalid User ID".into());
+        }
+        if let Some(local) = &self.local_idp {
+            return (local.active_user)(user).await;
+        }
+        let token = self.idp_service_access_token().await?;
+        let mut response = self
+            .client
+            .get(service_url(
+                &self.idp_base_url,
+                &format!("users/{user}/active"),
+            )?)
+            .bearer_auth(token)
+            .send()
+            .await
+            .map_err(|_| "IdP User lookup is unavailable".to_owned())?;
+        if response.status() != reqwest::StatusCode::NO_CONTENT {
+            return Err("IdP User is not currently active or lookup is unavailable".into());
+        }
+        let body = read_limited_body(&mut response, "IdP User response").await?;
+        if !body.is_empty() {
+            return Err("invalid IdP User response".into());
+        }
+        Ok(())
     }
 
     pub fn with_permission_evaluator(mut self, client_id: &str) -> Result<Self, String> {
@@ -131,7 +203,7 @@ impl HostedControlPlane {
             client_id,
             client_secret,
             audience,
-            "idp.token.validate idp.device.lookup",
+            "idp.token.validate idp.user.lookup",
         )
     }
 
@@ -324,55 +396,58 @@ impl HostedControlPlane {
         &self,
         endpoint_id: &str,
     ) -> Result<DeviceEndpointIdentity, String> {
-        let identity = match &self.local_idp {
-            Some(local) => (local.endpoint)(endpoint_id.to_owned()).await?,
-            None => self.lookup_endpoint_identity(endpoint_id).await?,
-        };
-        if identity.endpoint_id != endpoint_id {
-            return Err("IdP returned a mismatched endpoint identity".to_owned());
+        let endpoint = endpoint_id
+            .parse::<EndpointId>()
+            .map_err(|_| "invalid endpoint ID")?;
+        if endpoint.to_string() != endpoint_id {
+            return Err("invalid endpoint ID".into());
         }
-        Ok(identity)
+        #[cfg(feature = "replica")]
+        {
+            let device = self
+                .device_repo()?
+                .find_approved_by_public_key(endpoint_id)
+                .await
+                .map_err(|error| error.to_string())?
+                .ok_or("endpoint has no uniquely approved Management Device")?;
+            let owner = device
+                .owner_subject
+                .parse::<Id>()
+                .map_err(|_| "invalid Device owner")?;
+            if device.id.is_nil() || owner.is_nil() || owner.to_string() != device.owner_subject {
+                return Err("invalid Device owner binding".into());
+            }
+            self.active_user(owner).await?;
+            Ok(DeviceEndpointIdentity {
+                device_id: device.id,
+                owner_subject: device.owner_subject,
+                endpoint_id: endpoint_id.to_owned(),
+            })
+        }
+        #[cfg(not(feature = "replica"))]
+        Err("Management Device owner is unavailable".into())
     }
 
-    async fn lookup_endpoint_identity(
-        &self,
-        endpoint_id: &str,
-    ) -> Result<DeviceEndpointIdentity, String> {
-        let mut url = service_url(&self.idp_base_url, "devices/endpoints/")?;
-        url.path_segments_mut()
-            .map_err(|_| "invalid IdP endpoint URL".to_owned())?
-            .pop_if_empty()
-            .push(endpoint_id);
-        let service_token = self.idp_service_access_token().await?;
-        let mut response = self
-            .client
-            .get(url)
-            .bearer_auth(service_token)
-            .send()
+    #[cfg(feature = "replica")]
+    pub async fn approved_device_endpoints(&self) -> Result<Vec<String>, String> {
+        let mut endpoints = Vec::new();
+        for device in self
+            .device_repo()?
+            .list()
             .await
-            .map_err(|_| "IdP endpoint lookup is unavailable".to_owned())?;
-        if response.status().as_u16() == 401 || response.status().as_u16() == 403 {
-            return Err("IdP rejected Management device lookup permission".to_owned());
-        }
-        if response.status().as_u16() == 404 {
-            return Err("IdP identity was not found".to_owned());
-        }
-        if !response.status().is_success() {
-            return Err("IdP endpoint lookup is unavailable".to_owned());
-        }
-        const MAX_RESPONSE_SIZE: usize = 64 * 1024;
-        let mut body = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|_| "invalid IdP endpoint response".to_owned())?
+            .map_err(|error| error.to_string())?
         {
-            if body.len() + chunk.len() > MAX_RESPONSE_SIZE {
-                return Err("IdP endpoint response is too large".to_owned());
+            if device.state == DeviceState::Approved && device.revoked_at.is_none() {
+                let identity = self
+                    .get_storage_endpoint_identity(&device.public_key)
+                    .await?;
+                if identity.device_id != device.id {
+                    return Err("ambiguous Management Device binding".into());
+                }
+                endpoints.push(identity.endpoint_id);
             }
-            body.extend_from_slice(&chunk);
         }
-        serde_json::from_slice(&body).map_err(|_| "invalid IdP endpoint response".to_owned())
+        Ok(endpoints)
     }
 
     pub async fn validate_storage_resource(
@@ -426,35 +501,26 @@ impl HostedControlPlane {
         if device_id.is_nil() {
             return Err("invalid Device ID".into());
         }
-        let identity = match &self.local_idp {
-            Some(local) => (local.device)(device_id).await?,
-            None => {
-                let token = self.idp_service_access_token().await?;
-                self.get_idp(&format!("devices/identities/{device_id}"), &token)
-                    .await?
-            }
-        };
-        if identity.device_id != device_id
-            || !identity
-                .endpoint_id
-                .parse::<EndpointId>()
-                .is_ok_and(|endpoint| endpoint.to_string() == identity.endpoint_id)
-            || !identity
-                .owner_subject
-                .parse::<Id>()
-                .is_ok_and(|owner| !owner.is_nil())
+        #[cfg(feature = "replica")]
         {
-            return Err("IdP returned an invalid Device identity".into());
+            let device = self
+                .device_repo()?
+                .list()
+                .await
+                .map_err(|error| error.to_string())?
+                .into_iter()
+                .find(|device| device.id == device_id)
+                .ok_or("Management Device was not found")?;
+            let identity = self
+                .get_storage_endpoint_identity(&device.public_key)
+                .await?;
+            if identity.device_id != device_id {
+                return Err("mismatched Management Device binding".into());
+            }
+            Ok(identity)
         }
-        Ok(identity)
-    }
-
-    pub async fn trusted_devices(&self, token: &str) -> Result<Vec<TrustedDevice>, String> {
-        self.get_idp("devices/trusted", token).await
-    }
-
-    pub async fn revoke_self(&self, request: DeviceSelfRevocationRequest) -> Result<(), String> {
-        self.post_empty_idp("devices/revoke-self", &request).await
+        #[cfg(not(feature = "replica"))]
+        Err("Management Device owner is unavailable".into())
     }
 
     pub async fn verify_access_token(&self, token: &str) -> Result<StandardClaims, String> {
@@ -534,21 +600,6 @@ impl HostedControlPlane {
             .json()
             .await
             .map_err(|error| error.to_string())
-    }
-
-    async fn post_empty_idp<B>(&self, path: &str, body: &B) -> Result<(), String>
-    where
-        B: serde::Serialize + ?Sized,
-    {
-        self.client
-            .post(service_url(&self.idp_base_url, path)?)
-            .json(body)
-            .send()
-            .await
-            .map_err(|error| error.to_string())?
-            .error_for_status()
-            .map_err(|error| error.to_string())?;
-        Ok(())
     }
 }
 
@@ -694,127 +745,60 @@ mod tests {
 
     #[tokio::test]
     async fn local_idp_rechecks_owner_callbacks_without_service_credentials() {
+        use idp_model::{contract::IntrospectionResponse, model::Id};
         use std::sync::{
             Arc,
             atomic::{AtomicBool, Ordering},
         };
-
-        use crate::DeviceEndpointIdentity;
-        use idp_model::contract::IntrospectionResponse;
-        use idp_model::model::Id;
-
-        let revoked = Arc::new(AtomicBool::new(false));
-        let token_revoked = Arc::clone(&revoked);
-        let endpoint_revoked = Arc::clone(&revoked);
-        let device_revoked = Arc::clone(&revoked);
-        let endpoint = iroh::SecretKey::from_bytes(&[7; 32]).public().to_string();
-        let identity = DeviceEndpointIdentity {
-            device_id: ID.parse().expect("Device ID"),
-            owner_subject: ID.into(),
-            endpoint_id: endpoint.clone(),
-        };
-        let endpoint_identity = identity.clone();
-        let device_identity = identity.clone();
-        let control = HostedControlPlane::new_with_services(
-            "http://127.0.0.1:1",
-            "http://127.0.0.1:1",
-            "https://lidp.example",
-        )
-        .expect("unused HTTP endpoints")
-        .with_local_idp(
-            move |token| {
-                let revoked = Arc::clone(&token_revoked);
-                async move {
-                    assert_eq!(token, "actor");
-                    if revoked.load(Ordering::SeqCst) {
-                        return Err("actor token was rejected by IdP".into());
-                    }
-                    let mut claims = claims();
-                    claims.sub = ID.into();
-                    Ok(IntrospectionResponse {
-                        claims,
-                        application_id: APP_ID.into(),
-                    })
-                }
-            },
-            move |endpoint| {
-                let revoked = Arc::clone(&endpoint_revoked);
-                let identity = endpoint_identity.clone();
-                async move {
-                    assert_eq!(endpoint, identity.endpoint_id);
-                    if revoked.load(Ordering::SeqCst) {
-                        return Err("revoked Device".into());
-                    }
-                    Ok(identity)
-                }
-            },
-            move |device| {
-                let revoked = Arc::clone(&device_revoked);
-                let identity = device_identity.clone();
-                async move {
-                    assert_eq!(device, identity.device_id);
-                    if revoked.load(Ordering::SeqCst) {
-                        return Err("revoked Device".into());
-                    }
-                    Ok(identity)
-                }
-            },
-        );
-        assert_eq!(
-            control
-                .validate_actor_token("actor")
-                .await
-                .expect("local actor")
-                .1,
-            APP_ID.parse::<Id>().expect("Application ID")
-        );
+        let active = Arc::new(AtomicBool::new(true));
+        let current = active.clone();
+        let control =
+            HostedControlPlane::new_with_issuer("http://127.0.0.1:1", "https://lidp.example")
+                .expect("unused remote")
+                .with_local_idp(
+                    |_| async {
+                        let mut claims = claims();
+                        claims.sub = ID.into();
+                        Ok(IntrospectionResponse {
+                            claims,
+                            application_id: APP_ID.into(),
+                        })
+                    },
+                    move |id| {
+                        let active = current.clone();
+                        async move {
+                            assert_eq!(id, ID.parse::<Id>().expect("User ID"));
+                            if active.load(Ordering::SeqCst) {
+                                Ok(())
+                            } else {
+                                Err("inactive User".into())
+                            }
+                        }
+                    },
+                );
+        assert!(control.validate_actor_token("actor").await.is_ok());
         assert!(control.verify_access_token("actor").await.is_ok());
-        assert_eq!(
-            control
-                .get_storage_endpoint_identity(&endpoint)
-                .await
-                .expect("endpoint")
-                .device_id,
-            identity.device_id
-        );
-        assert_eq!(
-            control
-                .get_storage_device_identity(identity.device_id)
-                .await
-                .expect("Device")
-                .owner_subject,
-            ID
-        );
-        revoked.store(true, Ordering::SeqCst);
-        assert_eq!(
-            control
-                .validate_actor_token("actor")
-                .await
-                .expect_err("revoked token"),
-            "actor token was rejected by IdP"
-        );
-        assert!(control.verify_access_token("actor").await.is_err());
         assert!(
             control
-                .get_storage_endpoint_identity(&endpoint)
+                .active_user(ID.parse().expect("User ID"))
+                .await
+                .is_ok()
+        );
+        active.store(false, Ordering::SeqCst);
+        assert!(
+            control
+                .active_user(ID.parse().expect("User ID"))
                 .await
                 .is_err()
         );
-        assert!(
-            control
-                .get_storage_device_identity(identity.device_id)
-                .await
-                .is_err()
-        );
+        assert!(control.active_user(Id::nil()).await.is_err());
     }
 
     #[tokio::test]
     async fn local_idp_preserves_claim_and_identity_response_checks() {
-        use crate::DeviceEndpointIdentity;
         use idp_model::{contract::IntrospectionResponse, model::Id};
 
         let endpoint = iroh::SecretKey::from_bytes(&[8; 32]).public().to_string();
-        let device_endpoint = endpoint.clone();
         let control = HostedControlPlane::new_with_services(
             "http://127.0.0.1:1",
             "http://127.0.0.1:1",
@@ -846,31 +830,7 @@ mod tests {
                     application_id,
                 })
             },
-            |_| async {
-                Ok(DeviceEndpointIdentity {
-                    device_id: ID.parse().expect("Device ID"),
-                    owner_subject: ID.into(),
-                    endpoint_id: "wrong-endpoint".into(),
-                })
-            },
-            move |device| {
-                let endpoint = device_endpoint.clone();
-                async move {
-                    Ok(DeviceEndpointIdentity {
-                        device_id: if device == APP_ID.parse::<Id>().expect("Application ID") {
-                            ID.parse().expect("Device ID")
-                        } else {
-                            device
-                        },
-                        owner_subject: if device == ID.parse::<Id>().expect("Device ID") {
-                            Id::nil().to_string()
-                        } else {
-                            ID.into()
-                        },
-                        endpoint_id: endpoint,
-                    })
-                }
-            },
+            |_| async { Err("inactive User".into()) },
         );
         for token in [
             "issuer",
@@ -961,7 +921,7 @@ mod tests {
             token_stream
                 .read(&mut token_request)
                 .expect("read token request");
-            let token_response = r#"{"access_token":"management-token","token_type":"Bearer","expires_in":300,"scope":"idp.token.validate idp.device.lookup","iss":"https://issuer.example"}"#;
+            let token_response = r#"{"access_token":"management-token","token_type":"Bearer","expires_in":300,"scope":"idp.token.validate idp.user.lookup","iss":"https://issuer.example"}"#;
             write!(token_stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{token_response}", token_response.len()).expect("write token response");
 
             let (mut introspection_stream, _) =
@@ -1020,65 +980,42 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn endpoint_identity_lookup_uses_management_oauth_client() {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test HTTP server");
-        let address = listener.local_addr().expect("read test HTTP address");
+    async fn active_user_lookup_uses_only_the_authenticated_idp_user_contract() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("HTTP seam");
+        let address = listener.local_addr().expect("address");
         let server = thread::spawn(move || {
-            let (mut token_stream, _) = listener.accept().expect("accept token request");
-            let mut token_request = [0; 4096];
-            let token_length = token_stream
-                .read(&mut token_request)
-                .expect("read token request");
-            let token_request =
-                String::from_utf8_lossy(&token_request[..token_length]).into_owned();
-            let token_body = serde_json::json!({
-                "access_token": "management-service-token",
-                "token_type": "Bearer",
-                "expires_in": 300,
-                "scope": "idp.token.validate idp.device.lookup",
-                "iss": "https://issuer.example"
-            })
-            .to_string();
-            write!(token_stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{token_body}", token_body.len()).expect("write token response");
-
-            let (mut lookup_stream, _) = listener.accept().expect("accept endpoint request");
-            let mut lookup_request = [0; 4096];
-            let lookup_length = lookup_stream
-                .read(&mut lookup_request)
-                .expect("read endpoint request");
-            let lookup_request =
-                String::from_utf8_lossy(&lookup_request[..lookup_length]).into_owned();
-            let body = format!(
-                r#"{{"deviceId":"{ID}","ownerSubject":"owner","endpointId":"endpoint-key"}}"#
-            );
-            write!(lookup_stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).expect("write lookup response");
+            let (mut stream, _) = listener.accept().expect("token");
+            let mut request = [0; 4096];
+            let n = stream.read(&mut request).expect("token request");
+            let token_request = String::from_utf8_lossy(&request[..n]).into_owned();
+            let body = r#"{"access_token":"service-token","token_type":"Bearer","expires_in":300,"scope":"idp.token.validate idp.user.lookup","iss":"https://issuer.example"}"#;
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).expect("token response");
+            let (mut stream, _) = listener.accept().expect("User lookup");
+            let n = stream.read(&mut request).expect("User request");
+            let lookup_request = String::from_utf8_lossy(&request[..n]).into_owned();
+            write!(
+                stream,
+                "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n"
+            )
+            .expect("active User response");
             (token_request, lookup_request)
         });
-        let endpoint = format!("http://{address}");
-        let control_plane =
-            HostedControlPlane::new_with_services(&endpoint, &endpoint, "https://issuer.example")
-                .expect("create test control plane")
-                .with_idp_service_client("management-client", "management-secret", "idp-audience")
-                .expect("configure service OAuth client");
-        let identity = control_plane
-            .get_storage_endpoint_identity("endpoint-key")
+        let base = format!("http://{address}");
+        let control = HostedControlPlane::new_with_issuer(&base, "https://issuer.example")
+            .expect("control")
+            .with_idp_service_client("management", "secret", "idp-services")
+            .expect("service Client");
+        control
+            .active_user(ID.parse().expect("User ID"))
             .await
-            .expect("resolve approved endpoint identity");
-        assert_eq!(identity.device_id.to_string(), ID);
-        assert_eq!(identity.owner_subject, "owner");
-        let (token_request, lookup_request) = server.join().expect("join test HTTP server");
-        assert!(token_request.starts_with("POST /oauth2/token HTTP/1.1"));
-        assert!(token_request.contains("scope=idp.token.validate+idp.device.lookup"));
-        assert!(lookup_request.starts_with("GET /devices/endpoints/endpoint-key HTTP/1.1"));
+            .expect("current active User");
+        let (token, lookup) = server.join().expect("HTTP seam");
+        assert!(token.contains("scope=idp.token.validate+idp.user.lookup"));
+        assert!(lookup.starts_with(&format!("GET /users/{ID}/active HTTP/1.1")));
         assert!(
-            lookup_request
+            lookup
                 .to_ascii_lowercase()
-                .contains("authorization: bearer management-service-token")
-        );
-        assert!(
-            !lookup_request
-                .to_ascii_lowercase()
-                .contains("x-internal-service")
+                .contains("authorization: bearer service-token")
         );
     }
 
@@ -1103,7 +1040,7 @@ mod tests {
                 "access_token": "service-token",
                 "token_type": "Bearer",
                 "expires_in": 300,
-                "scope": "idp.token.validate idp.device.lookup",
+                "scope": "idp.token.validate idp.user.lookup",
                 "iss": "https://issuer.example"
             })
             .to_string();
@@ -1136,7 +1073,7 @@ mod tests {
         assert_eq!(application_id.to_string(), APP_ID);
         assert!(token_request.starts_with("POST /oauth2/token HTTP/1.1"));
         assert!(token_request.contains("grant_type=client_credentials"));
-        assert!(token_request.contains("scope=idp.token.validate+idp.device.lookup"));
+        assert!(token_request.contains("scope=idp.token.validate+idp.user.lookup"));
         assert!(token_request.contains("audience=idp-audience"));
         assert!(introspection_request.starts_with("POST /oauth2/introspect HTTP/1.1"));
         assert!(
@@ -1222,64 +1159,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn selection_device_lookup_requires_approved_owner_scoped_device() {
+    async fn device_lookup_without_management_owner_cannot_fall_back_to_idp() {
+        let control = HostedControlPlane::new("http://127.0.0.1:1").expect("unused IdP");
+        assert!(
+            control
+                .get_storage_device_identity(ID.parse().expect("Device ID"))
+                .await
+                .is_err()
+        );
         let endpoint = iroh::SecretKey::generate().public().to_string();
-        for (body, allowed) in [
-            (
-                format!(
-                    r#"{{"deviceId":"{ID}","ownerSubject":"{APP_ID}","endpointId":"{endpoint}"}}"#
-                ),
-                true,
-            ),
-            (
-                format!(
-                    r#"{{"deviceId":"{APP_ID}","ownerSubject":"{APP_ID}","endpointId":"key"}}"#
-                ),
-                false,
-            ),
-            (
-                format!(r#"{{"deviceId":"{ID}","ownerSubject":"invalid","endpointId":"key"}}"#),
-                false,
-            ),
-            (r#"{}"#.to_owned(), false),
-        ] {
-            let listener = TcpListener::bind("127.0.0.1:0").expect("bind test HTTP server");
-            let address = listener.local_addr().expect("read test HTTP address");
-            let server = thread::spawn(move || {
-                let (mut token_stream, _) =
-                    listener.accept().expect("accept service token request");
-                let mut request = [0; 4096];
-                let token_length = token_stream
-                    .read(&mut request)
-                    .expect("read service token request");
-                assert!(token_length > 0);
-                let token_body = r#"{"access_token":"service-token","token_type":"Bearer","expires_in":300,"scope":"idp.token.validate idp.device.lookup","iss":"https://issuer.example"}"#;
-                write!(token_stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{token_body}", token_body.len()).expect("write service token");
-                let (mut stream, _) = listener.accept().expect("accept test request");
-                let length = stream.read(&mut request).expect("read test request");
-                let request = String::from_utf8_lossy(&request[..length]).into_owned();
-                write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).expect("write test response");
-                request
-            });
-            let control_plane = HostedControlPlane::new_with_issuer(
-                &format!("http://{address}"),
-                "https://issuer.example",
-            )
-            .expect("create test control plane")
-            .with_idp_service_client("management-client", "secret", "idp-services")
-            .expect("scoped service client");
-            let result = control_plane
-                .get_storage_device_identity(ID.parse().expect("valid device ID"))
-                .await;
-            assert_eq!(result.is_ok(), allowed);
-            let request = server.join().expect("join test HTTP server");
-            assert!(request.starts_with(&format!("GET /devices/identities/{ID} HTTP/1.1")));
-            assert!(
-                request
-                    .to_ascii_lowercase()
-                    .contains("authorization: bearer service-token")
-            );
-        }
+        assert!(
+            control
+                .get_storage_endpoint_identity(&endpoint)
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]

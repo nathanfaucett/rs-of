@@ -98,7 +98,8 @@ pub use response_mode::ResponseMode;
 pub use response_type::ResponseType;
 pub use revocation_request::RevocationRequest;
 pub use service_scopes::{
-    IDP_DEVICE_LIST_SCOPE, IDP_DEVICE_LOOKUP_SCOPE, IDP_TOKEN_VALIDATE_SCOPE,
+    IDP_TOKEN_VALIDATE_SCOPE, IDP_USER_LOOKUP_SCOPE, MANAGEMENT_DEVICE_LIST_SCOPE,
+    MANAGEMENT_DEVICE_LOOKUP_SCOPE,
 };
 pub use setup_stage::SetupStage;
 pub use setup_status::SetupStatus;
