@@ -76,7 +76,7 @@ impl RouterState {
         let issuer = self.oauth2_service.metadata().issuer;
         if request.installation != issuer
             || request.endpoint_id != offer.remote_id.to_string()
-            || request.approving_peer != self.device_identity.endpoint_id().to_string()
+            || request.approving_peer != self.transport_identity()?.endpoint_id().to_string()
         {
             return Err(invalid(
                 "join Installation or authenticated endpoint binding mismatch",
@@ -90,7 +90,7 @@ impl RouterState {
             .map_err(io::Error::other)?;
         self.verify_node_join_approving_device(&request.approving_peer)
             .await?;
-        let approval = NodeJoinApproval::signed_by(&self.device_identity, request, owner)?;
+        let approval = NodeJoinApproval::signed_by(self.transport_identity()?, request, owner)?;
         let reply = serde_json::to_vec(&approval)?;
         if reply.len() > MAX_PAIRING_PAYLOAD_LENGTH {
             return Err(io::Error::new(
@@ -129,7 +129,7 @@ impl RouterState {
         let request = &approval.request;
         approval.verify(request)?;
         if request.installation != self.oauth2_service.metadata().issuer
-            || request.approving_peer != self.device_identity.endpoint_id().to_string()
+            || request.approving_peer != self.transport_identity()?.endpoint_id().to_string()
         {
             return Err(invalid(
                 "enrollment is not bound to this Installation and approving endpoint",

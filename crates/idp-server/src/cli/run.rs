@@ -15,13 +15,12 @@ use cli::Shell;
 use cli::{CliArgs, shutdown_signal};
 use db::Database;
 use env_logger::Env;
-use iroh_chain::EndpointIdStore;
 
 use tokio::{select, spawn, time::sleep};
 use tokio_util::sync::CancellationToken;
 use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
 
-use crate::{AppConfig, build_runtime};
+use crate::{AppConfig, build_oauth_runtime};
 
 #[derive(clap::Parser, Debug)]
 enum IdpCommand {
@@ -126,26 +125,7 @@ pub async fn run() -> io::Result<()> {
     idp_model::replica::up(&engine)
         .await
         .map_err(io::Error::other)?;
-    let allowed_peers = EndpointIdStore::default();
-    let (device_identity, server) =
-        management_service::open_device_identity_with_allowlist(allowed_peers.clone()).await?;
-    let runtime = Arc::new(
-        build_runtime(
-            &app_config,
-            engine,
-            None,
-            Arc::new(device_identity),
-            server.clone(),
-            None,
-        )
-        .await?,
-    );
-    let _iroh_router = server.router_with_protocol(
-        crate::unavailable_data_protocol::UnavailableDataProtocol,
-        crate::bootstrap::BOOTSTRAP_ALPN,
-        runtime.bootstrap_protocol(),
-    );
-    log::info!("Iroh endpoint: {:?}", server.endpoint().addr());
+    let runtime = build_oauth_runtime(&app_config, engine).await?;
 
     let router = runtime
         .router()

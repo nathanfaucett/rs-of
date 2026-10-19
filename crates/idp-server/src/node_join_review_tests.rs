@@ -93,7 +93,10 @@ async fn node_join_oversized_signed_reply_rejects_before_any_enrollment_mutation
     let fixture = approval_fixture_for_issuer(request.installation.clone()).await;
     request.approving_peer = fixture.server.endpoint().id().to_string();
     let approval = crate::NodeJoinApproval::signed_by(
-        &fixture.state.device_identity,
+        fixture
+            .state
+            .transport_identity()
+            .expect("fixture transport"),
         request.clone(),
         fixture.owner,
     )
