@@ -152,7 +152,7 @@ pub(super) async fn wait(http: &Client, intent: &IndependentCreateIntent, ready:
         }
     }
 }
-async fn normal_use(http: &Client, intent: &IndependentCreateIntent) -> String {
+async fn normal_use(http: &Client, intent: &IndependentCreateIntent) -> (String, String, String) {
     let public: serde_json::Value = http
         .get(format!("{}/setup/independent/public", intent.idp))
         .send()
@@ -254,6 +254,7 @@ async fn normal_use(http: &Client, intent: &IndependentCreateIntent) -> String {
     assert_eq!(response.status(), StatusCode::OK);
     let token: model::contract::TokenResponse =
         response.json().await.expect("Management audience token");
+    let management_token = token.access_token.0.clone();
     let response = http
         .get(format!("{}/devices/trusted", intent.management))
         .bearer_auth(&token.access_token.0)
@@ -300,21 +301,27 @@ async fn normal_use(http: &Client, intent: &IndependentCreateIntent) -> String {
     assert_eq!(response.status(), StatusCode::OK);
     let catalog: serde_json::Value = response.json().await.expect("empty catalog");
     assert!(catalog.as_array().expect("catalog list").is_empty());
-    public["facts"]["endpoint"]
-        .as_str()
-        .expect("actual Management endpoint")
-        .into()
+    (
+        public["facts"]["endpoint"]
+            .as_str()
+            .expect("actual Management endpoint")
+            .into(),
+        management_token,
+        token.access_token.0,
+    )
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "parent supplies isolated native roots, mock trust command and mock secure provider"]
 async fn independent_create_child() {
     let root = PathBuf::from(std::env::var_os("OF_INDEPENDENT_CREATE_ROOT").expect("parent roots"));
+    crate::api_create_tests::capture_setup_timings();
+    let fail_node_readback = Arc::new(AtomicBool::new(false));
     idp_service::repo::PrivateKeyKeyringRepo::new_with_store(
         "independent-create",
         Arc::new(crate::local_provisioning_tests::SecretStore {
             store: keyring_core::mock::Store::new().expect("isolated provider"),
-            fail_node_readback: Arc::new(AtomicBool::new(false)),
+            fail_node_readback: fail_node_readback.clone(),
         }),
     );
     let addresses: Vec<SocketAddr> =
@@ -620,8 +627,81 @@ async fn independent_create_child() {
             .status(),
         StatusCode::UNAUTHORIZED
     );
-    let endpoint = normal_use(&http, &intent).await;
+    let (endpoint, management_token, storage_token) = normal_use(&http, &intent).await;
     assert_public_has_no_secrets(&root, &http, &intent).await;
+    fail_node_readback.store(true, std::sync::atomic::Ordering::SeqCst);
+    current_status(&http, &intent.idp, false).await;
+    assert!(
+        !fail_node_readback.load(std::sync::atomic::Ordering::SeqCst),
+        "status checks the current protected signer, not an in-memory signer cache"
+    );
+    current_status(&http, &intent.idp, true).await;
+    for (owner, slot) in [
+        ("idp", "client"),
+        ("management", "client"),
+        ("management", "endpoint"),
+        ("storage", "idp"),
+        ("storage", "management"),
+    ] {
+        let path = root.join(format!("{owner}.setup-host/worker.json"));
+        let before = fs::read(&path).expect("retained owner record");
+        let record: serde_json::Value = serde_json::from_slice(&before).expect("record");
+        let client = match slot {
+            "endpoint" => Some("endpoint"),
+            "idp" => record["clients"][0].as_str(),
+            "management" => record["clients"][1].as_str(),
+            _ => record["client"].as_str(),
+        }
+        .expect("exact protected owner slot");
+        let provider = idp_service::repo::RawKeyringRepo::new(format!(
+            "independent-setup:{}",
+            root.join(format!("{owner}.setup-host")).display()
+        ))
+        .expect("isolated provider");
+        let secret = provider
+            .load("", "", client)
+            .expect("consumer secret")
+            .expect("present protected material");
+        provider
+            .delete("", "", client)
+            .expect("inject current protected material loss");
+        current_status(&http, intent.base(owner).expect("owner"), false).await;
+        assert_eq!(
+            http.get(format!("{}/databases", intent.storage))
+                .send()
+                .await
+                .expect("normal route remains independently authenticated")
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            fs::read(&path).expect("unchanged owner evidence"),
+            before,
+            "observation must not repair or rewrite durable setup"
+        );
+        assert!(
+            provider
+                .load("", "", client)
+                .expect("no regeneration")
+                .is_none()
+        );
+        provider
+            .store("", "", client, &secret)
+            .expect("restore isolated fault injection only");
+        current_status(&http, intent.base(owner).expect("owner"), true).await;
+    }
+    for child in ["databases", "filesystems"] {
+        let catalog = root.join("storage").join(child);
+        let backup = root.join(format!("fault-{child}"));
+        fs::rename(&catalog, &backup).expect("inject lost local catalog root");
+        current_status(&http, &intent.storage, false).await;
+        assert!(
+            !catalog.exists(),
+            "status cannot reconstruct missing catalog roots"
+        );
+        fs::rename(backup, catalog).expect("restore isolated catalog fault only");
+    }
+    current_status(&http, &intent.storage, true).await;
     shutdown.cancel();
     for server in servers {
         server
@@ -676,7 +756,7 @@ async fn independent_create_child() {
     );
     wait(&http, &intent, true).await;
     assert_eq!(
-        normal_use(&http, &intent).await,
+        normal_use(&http, &intent).await.0,
         endpoint,
         "offline existing-only reopen retains endpoint"
     );
@@ -686,6 +766,60 @@ async fn independent_create_child() {
             .await
             .expect("join owner reopen")
             .expect("offline owner shutdown");
+    }
+    let endpoints = seed_endpoint_negatives(&root).await;
+    let shutdown = CancellationToken::new();
+    let servers = start(&root, &addresses, &shutdown).await;
+    wait(&http, &intent, true).await;
+    exercise_endpoint_negatives(
+        &root,
+        &http,
+        &intent,
+        &endpoints,
+        &management_token,
+        &storage_token,
+    )
+    .await;
+    shutdown.cancel();
+    for server in servers {
+        server
+            .await
+            .expect("endpoint regression listener")
+            .expect("endpoint regression stopped reopen");
+    }
+    let shutdown = CancellationToken::new();
+    let servers = start(&root, &addresses, &shutdown).await;
+    wait(&http, &intent, true).await;
+    let service = storage_policy_token(&root, &http, &intent).await;
+    assert_eq!(
+        http.get(format!(
+            "{}/replication/devices/{}/selections",
+            intent.management, endpoints[0].0
+        ))
+        .bearer_auth(&service)
+        .send()
+        .await
+        .expect("retained learned revocation on a new connection after offline reopen")
+        .status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    current_status(&http, &intent.management, true).await;
+    revoke_current_signer(&root, &http, &intent, &management_token).await;
+    current_status(&http, &intent.idp, false).await;
+    assert_eq!(
+        http.get(format!("{}/databases", intent.storage))
+            .send()
+            .await
+            .expect("normal authentication after signer readiness failure")
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    shutdown.cancel();
+    for server in servers {
+        server
+            .await
+            .expect("learned signer listener")
+            .expect("learned signer shutdown");
     }
     let before =
         fs::read(root.join("storage.setup-host/worker.json")).expect("retained Storage record");
@@ -724,6 +858,318 @@ async fn independent_create_child() {
             .expect("provider remains missing")
             .is_none()
     );
+}
+
+async fn seed_endpoint_negatives(root: &Path) -> Vec<(String, StatusCode)> {
+    use idp_model::contract::IdentityAction;
+    use management_service::{
+        DeviceRepo, ManagementService,
+        replica::{
+            DbDeviceRepo, DbPermissionRepo, DbRoleRepo, DbSelectionPolicyRepo, SelectionPolicy,
+        },
+    };
+    let record: serde_json::Value = serde_json::from_slice(
+        &fs::read(root.join("management.setup-host/worker.json"))
+            .expect("stopped Management evidence"),
+    )
+    .expect("record");
+    let owner: Id = serde_json::from_value(record["user"].clone()).expect("setup owner");
+    let role: Id = serde_json::from_value(record["create"]["role"].clone())
+        .expect("Create administrator role");
+    let engine = Arc::new(
+        db::Database::open(root.join("management/management.redb"))
+            .expect("existing-only stopped owner"),
+    );
+    let service = ManagementService::new(
+        DbPermissionRepo::new(engine.clone()),
+        DbRoleRepo::new(engine.clone()),
+    );
+    for action in [
+        IdentityAction::DevicesRevoke,
+        IdentityAction::DeviceRestrictionsUpdate,
+    ] {
+        let permission = service
+            .create_permission(Id::nil(), action.permission(), None)
+            .await
+            .expect("explicit fixture permission");
+        service
+            .add_permission_to_role(Id::nil(), role, permission.id)
+            .await
+            .expect("ordinary fixture administrator grant");
+    }
+    let devices = DbDeviceRepo::new(engine.clone());
+    let policies = DbSelectionPolicyRepo::new(engine.clone());
+    let mut cases = Vec::new();
+    for case in [
+        "approved-no-signer",
+        "pending",
+        "revoked",
+        "mismatched-policy-owner",
+        "unknown",
+    ] {
+        let endpoint = iroh::SecretKey::generate().public().to_string();
+        let device = Id::now_v7();
+        if case == "pending" {
+            devices
+                .create(
+                    owner.to_string(),
+                    case.into(),
+                    endpoint.clone(),
+                    String::new(),
+                    vec![1],
+                    4_102_444_800,
+                )
+                .await
+                .expect("pending Device is not approval");
+        } else if case != "unknown" {
+            devices
+                .enroll_approved_exact(device, owner, case, &endpoint, 1)
+                .await
+                .expect("Management-only approved endpoint; no IdP signer is enrolled");
+            policies
+                .set_prevalidated(SelectionPolicy {
+                    device_id: device,
+                    owner_subject: if case == "mismatched-policy-owner" {
+                        Id::now_v7().to_string()
+                    } else {
+                        owner.to_string()
+                    },
+                    application_id: None,
+                    selected_kind: None,
+                    selected_id: None,
+                    admin_allowed: true,
+                })
+                .await
+                .expect("exact current Device policy");
+            if case == "revoked" {
+                devices
+                    .revoke_self(&endpoint)
+                    .await
+                    .expect("persisted endpoint revocation");
+            }
+        }
+        cases.push((
+            endpoint,
+            if case == "approved-no-signer" {
+                StatusCode::OK
+            } else {
+                StatusCode::SERVICE_UNAVAILABLE
+            },
+        ));
+    }
+    cases
+}
+
+async fn storage_policy_token(
+    root: &Path,
+    http: &Client,
+    intent: &IndependentCreateIntent,
+) -> String {
+    let record: serde_json::Value = serde_json::from_slice(
+        &fs::read(root.join("storage.setup-host/worker.json")).expect("consumer record"),
+    )
+    .expect("record");
+    let client = record["clients"][1]
+        .as_str()
+        .expect("Storage to Management Client");
+    let secret = idp_service::setup_credentials::load_setup_secret(
+        &format!(
+            "independent-setup:{}",
+            root.join("storage.setup-host").display()
+        ),
+        client,
+    )
+    .expect("protected consumer secret");
+    let response = http
+        .post(format!("{}/oauth2/token", intent.idp))
+        .form(&[
+            ("grant_type", "client_credentials"),
+            ("client_id", client),
+            ("client_secret", secret.as_str()),
+            (
+                "scope",
+                "management.device.list management.replication.read management.replication.admit",
+            ),
+            ("audience", intent.storage.as_str()),
+        ])
+        .send()
+        .await
+        .expect("real scoped service OAuth token");
+    assert_eq!(response.status(), StatusCode::OK);
+    response
+        .json::<model::contract::TokenResponse>()
+        .await
+        .expect("service token")
+        .access_token
+        .0
+}
+
+async fn exercise_endpoint_negatives(
+    root: &Path,
+    http: &Client,
+    intent: &IndependentCreateIntent,
+    endpoints: &[(String, StatusCode)],
+    management: &str,
+    storage: &str,
+) {
+    let token = storage_policy_token(root, http, intent).await;
+    let mut approved = None;
+    for (endpoint, expected) in endpoints {
+        let response = http
+            .get(format!(
+                "{}/replication/devices/{endpoint}/selections",
+                intent.management
+            ))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .expect("same valid OAuth token is not endpoint approval");
+        assert_eq!(response.status(), *expected);
+        if *expected == StatusCode::OK {
+            let evidence: serde_json::Value = response
+                .json()
+                .await
+                .expect("current signer-free Management evidence");
+            assert_eq!(evidence["endpointId"], *endpoint);
+            assert_eq!(evidence["adminAllowed"], true);
+            approved = Some(
+                evidence["deviceId"]
+                    .as_str()
+                    .expect("approved Device")
+                    .to_owned(),
+            );
+        }
+    }
+    assert_eq!(
+        http.delete(format!(
+            "{}/devices/{}",
+            intent.management,
+            approved.expect("signer-free Device")
+        ))
+        .bearer_auth(management)
+        .send()
+        .await
+        .expect("ordinary User learns exact endpoint revocation")
+        .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        http.get(format!(
+            "{}/replication/devices/{}/selections",
+            intent.management, endpoints[0].0
+        ))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .expect("learned denial on the existing client/connection and still-valid service token")
+        .status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    let public = wait_public(http, &intent.management).await;
+    let device = public["facts"]["device"]
+        .as_str()
+        .expect("local Management Device");
+    for allowed in [false, true] {
+        assert_eq!(
+            http.put(format!(
+                "{}/devices/{device}/restriction",
+                intent.management
+            ))
+            .bearer_auth(management)
+            .json(&serde_json::json!({"adminAllowed":allowed}))
+            .send()
+            .await
+            .expect("ordinary exact policy update")
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        current_status(http, &intent.management, allowed).await;
+        current_status(http, &intent.storage, allowed).await;
+        let normal = http
+            .get(format!("{}/databases", intent.storage))
+            .bearer_auth(storage)
+            .send()
+            .await
+            .expect("normal protected operation independently rechecks current endpoint policy");
+        assert_eq!(
+            normal.status(),
+            if allowed {
+                StatusCode::OK
+            } else {
+                StatusCode::UNAUTHORIZED
+            }
+        );
+    }
+}
+
+async fn revoke_current_signer(
+    root: &Path,
+    http: &Client,
+    intent: &IndependentCreateIntent,
+    management: &str,
+) {
+    let public = wait_public(http, &intent.idp).await;
+    let response = http
+        .post(format!("{}/oauth2/token", intent.idp))
+        .form(&[
+            (
+                "grant_type",
+                "urn:ietf:params:oauth:grant-type:token-exchange",
+            ),
+            (
+                "client_id",
+                public["facts"]["login_client"]
+                    .as_str()
+                    .expect("public login"),
+            ),
+            ("subject_token", management),
+            (
+                "subject_token_type",
+                "urn:ietf:params:oauth:token-type:access_token",
+            ),
+            ("resource", intent.idp.as_str()),
+        ])
+        .send()
+        .await
+        .expect("ordinary IdP owner audience exchange");
+    assert_eq!(response.status(), StatusCode::OK);
+    let token: model::contract::TokenResponse = response.json().await.expect("IdP User token");
+    let record: serde_json::Value = serde_json::from_slice(
+        &fs::read(root.join("idp.setup-host/worker.json")).expect("retained exact signer identity"),
+    )
+    .expect("record");
+    assert_eq!(
+        http.delete(format!(
+            "{}/replica-signers/{}",
+            intent.idp,
+            record["member"].as_str().expect("local signer member")
+        ))
+        .bearer_auth(token.access_token.0)
+        .send()
+        .await
+        .expect("ordinary authorized signer revocation")
+        .status(),
+        StatusCode::OK
+    );
+}
+
+pub(super) async fn current_status(http: &Client, base: &str, ready: bool) {
+    let response = http
+        .get(format!("{base}/setup/status"))
+        .send()
+        .await
+        .expect("current owner setup observation");
+    assert_eq!(
+        response.status(),
+        if ready {
+            StatusCode::OK
+        } else {
+            StatusCode::SERVICE_UNAVAILABLE
+        }
+    );
+    let status: serde_json::Value = response.json().await.expect("nonsecret current status");
+    assert_eq!(status["ready"], ready);
+    assert_eq!(status["state"], if ready { "ready" } else { "unavailable" });
 }
 
 async fn delayed_forged_https_callback(

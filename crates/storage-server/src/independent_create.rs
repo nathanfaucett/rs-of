@@ -1,4 +1,4 @@
-use std::{io, path::Path, sync::Arc};
+use std::{io, path::Path, sync::Arc, time::Instant};
 
 use api::{
     IndependentCreateCommand, IndependentCreateControl, IndependentCreateIntent,
@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{AppConfig, IdpClient, ManagementClient, RouterState, StorageRuntime};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Record {
     version: u8,
@@ -85,6 +85,7 @@ async fn run(
             existing(&config)?;
             public(&control, &intent, &record).await?;
             runtime = Some(build(&config, &control, &intent, &record, &shutdown)?);
+            observe(&control, config.clone(), &intent, &record)?;
             control
                 .restore(runtime.as_ref().expect("Storage runtime").router())
                 .await?;
@@ -153,6 +154,87 @@ async fn public(
         )
         .await
 }
+fn observe(
+    control: &IndependentCreateControl,
+    config: Arc<AppConfig>,
+    intent: &IndependentCreateIntent,
+    record: &Record,
+) -> io::Result<()> {
+    let intent = intent.clone();
+    let record = record.clone();
+    let expected = serde_json::to_value(&record)?;
+    let secrets = record
+        .clients
+        .map(|id| load_setup_secret(&service(control), &id.to_string()))
+        .into_iter()
+        .collect::<io::Result<Vec<_>>>()?;
+    let endpoint = record
+        .endpoint
+        .as_deref()
+        .ok_or_else(|| io::Error::other("retained Management endpoint missing"))?
+        .parse()
+        .map_err(io::Error::other)?;
+    let management = ManagementClient::new(
+        &intent.management,
+        &intent.idp,
+        &record.clients[1].to_string(),
+        &secrets[1],
+        &intent.issuer,
+        &intent.storage,
+    )
+    .map_err(io::Error::other)?;
+    let policy = crate::LocalReplicationAuthorizer::from_management_client(management);
+    control.set_readiness(move |control| {
+        let (config, intent, record, expected, secrets, policy) = (
+            config.clone(),
+            intent.clone(),
+            record.clone(),
+            expected.clone(),
+            secrets.clone(),
+            policy.clone(),
+        );
+        async move {
+            let current: Record = control
+                .read_record()?
+                .ok_or_else(|| io::Error::other("Storage worker evidence missing"))?;
+            current.validate()?;
+            if serde_json::to_value(current)? != expected {
+                return Err(io::Error::other("retained Storage setup evidence changed"));
+            }
+            existing(&config)?;
+            for (index, client) in record.clients.iter().enumerate() {
+                if load_setup_secret(&service(&control), &client.to_string())? != secrets[index] {
+                    return Err(io::Error::other(
+                        "protected Storage service binding changed",
+                    ));
+                }
+                let relationship = [
+                    SetupRelationship::StorageIdp,
+                    SetupRelationship::StorageManagement,
+                ][index];
+                if !control.registration_confirmed(
+                    &intent,
+                    &serde_json::to_value(relationship.registration(
+                        *client,
+                        &intent.idp,
+                        &intent.management,
+                        &intent.storage,
+                    ))?,
+                )? {
+                    return Err(io::Error::other(
+                        "Storage service registration receipt missing",
+                    ));
+                }
+            }
+            policy
+                .local_owner(endpoint)
+                .await
+                .map_err(io::Error::other)?;
+            Ok(())
+        }
+    })
+}
+
 fn build(
     config: &AppConfig,
     control: &IndependentCreateControl,
@@ -221,6 +303,7 @@ async fn provision(
             )
             .await;
     }
+    let protected_at = Instant::now();
     for index in 0..2 {
         if !record.attempted[index] {
             record.attempted[index] = true;
@@ -229,12 +312,23 @@ async fn provision(
         }
         load_setup_secret(&service(control), &record.clients[index].to_string())?;
     }
+    log::debug!(
+        "Independent setup owner=storage purpose={} phase=consumer-keys elapsed_ms={}",
+        command.intent.purpose,
+        protected_at.elapsed().as_millis()
+    );
     public(control, &command.intent, &record).await?;
+    let relationships_at = Instant::now();
     for client in record.clients {
         control
             .wait_registered(&client.to_string(), &command.cancellation)
             .await?;
     }
+    log::debug!(
+        "Independent setup owner=storage purpose={} phase=relationship-wait elapsed_ms={}",
+        command.intent.purpose,
+        relationships_at.elapsed().as_millis()
+    );
     let management = control
         .wait_peer(&command.intent, "management", &command.cancellation)
         .await?;
@@ -252,6 +346,7 @@ async fn provision(
     }
     record.endpoint = Some(endpoint);
     control.write_record(&record)?;
+    let serving_at = Instant::now();
     if runtime.is_none() {
         if !record.domain_attempted {
             if Path::new(&config.data_dir).exists() {
@@ -264,8 +359,14 @@ async fn provision(
         }
         *runtime = Some(build(config, control, &command.intent, &record, shutdown)?);
     }
+    log::debug!(
+        "Independent setup owner=storage purpose={} phase=catalog-open-serving elapsed_ms={}",
+        command.intent.purpose,
+        serving_at.elapsed().as_millis()
+    );
     public(control, &command.intent, &record).await?;
     record.complete = true;
+    observe(control, Arc::new(config.clone()), &command.intent, &record)?;
     control
         .finish(
             command,

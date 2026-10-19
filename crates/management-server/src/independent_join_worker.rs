@@ -1,5 +1,5 @@
-use super::{Record, build, open_existing, public, verify};
-use std::{io, path::Path, sync::Arc};
+use super::{Record, build, observe, open_existing, public, verify};
+use std::{io, path::Path, sync::Arc, time::Instant};
 
 use api::{IndependentCreateCommand, IndependentCreateControl, IndependentPeer};
 use db::Database;
@@ -22,6 +22,7 @@ pub(super) async fn provision(
     identity: Arc<DeviceIdentity>,
     runtime: &mut Option<IndependentManagementRuntime>,
 ) -> io::Result<()> {
+    let discovery_at = Instant::now();
     if record.source.is_none() {
         let source = IndependentPeer::discover(
             command
@@ -37,7 +38,12 @@ pub(super) async fn provision(
         record.source = Some(source);
         control.write_record(record)?;
     }
+    log::debug!(
+        "Independent setup owner=management purpose=join phase=source-discovery elapsed_ms={}",
+        discovery_at.elapsed().as_millis()
+    );
     public(control, &command.intent, record).await?;
+    let approval_at = Instant::now();
     if record.approval.is_none() {
         let request = loop {
             if command.cancellation.is_cancelled() {
@@ -79,6 +85,10 @@ pub(super) async fn provision(
         record.approval = Some(approval);
         control.write_record(record)?;
     }
+    log::debug!(
+        "Independent setup owner=management purpose=join phase=approval-wait elapsed_ms={}",
+        approval_at.elapsed().as_millis()
+    );
     let approval = record
         .approval
         .as_ref()
@@ -86,6 +96,7 @@ pub(super) async fn provision(
         .clone();
     approval.verify()?;
     public(control, &command.intent, record).await?;
+    let opened_at = Instant::now();
     if engine.is_none() {
         if !record.domain_attempted {
             if Path::new(&config.data_dir).exists() {
@@ -98,7 +109,12 @@ pub(super) async fn provision(
             *engine = Some(open_existing(config).await?);
         }
     }
+    log::debug!(
+        "Independent setup owner=management purpose=join phase=schema-open elapsed_ms={}",
+        opened_at.elapsed().as_millis()
+    );
     let opened = engine.as_ref().expect("opened owner");
+    let import_at = Instant::now();
 
     if !record.imported {
         let challenge = control
@@ -124,6 +140,10 @@ pub(super) async fn provision(
         control.write_record(record)?;
     }
     verify(opened, record).await?;
+    log::debug!(
+        "Independent setup owner=management purpose=join phase=public-import elapsed_ms={}",
+        import_at.elapsed().as_millis()
+    );
     control
         .wait_registered(&record.client.to_string(), &command.cancellation)
         .await?;
@@ -136,6 +156,7 @@ pub(super) async fn provision(
     }
     record.evaluator = Some(evaluator);
     control.write_record(record)?;
+    let serving_at = Instant::now();
     if runtime.is_none() {
         *runtime = Some(
             build(
@@ -149,8 +170,13 @@ pub(super) async fn provision(
             .await?,
         );
     }
+    log::debug!(
+        "Independent setup owner=management purpose=join phase=serving elapsed_ms={}",
+        serving_at.elapsed().as_millis()
+    );
     record.complete = true;
     record.validate_operation(&command.intent)?;
+    observe(control, opened.clone(), &command.intent, record)?;
     control
         .finish(
             command,

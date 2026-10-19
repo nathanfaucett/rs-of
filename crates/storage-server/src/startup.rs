@@ -14,7 +14,10 @@ pub(crate) fn load_config(path: &Path) -> io::Result<AppConfig> {
     let mut config: AppConfig = raw
         .try_deserialize()
         .map_err(|_| io::Error::other("invalid Storage configuration"))?;
-    if !explicit_port && !Path::new(&config.data_dir).try_exists()? {
+    let domain = Path::new(&config.data_dir);
+    if !explicit_port
+        && (!domain.try_exists()? || domain.with_extension("setup-host").try_exists()?)
+    {
         config.server.port = 3002;
     }
     Ok(config)
@@ -56,6 +59,58 @@ mod tests {
         let config = super::load_config(&path).expect("optional configuration");
         assert_eq!(config.data_dir, "storage-data");
         assert_eq!(config.server.port, 3002);
+    }
+
+    #[test]
+    fn retained_setup_keeps_the_default_listener_after_domain_creation() {
+        let root = std::env::temp_dir().join(format!(
+            "storage-retained-port-{}",
+            idp_model::model::Id::now_v7()
+        ));
+        std::fs::create_dir(&root).expect("fixture root");
+        let domain = root.join("storage");
+        let path = root.join("config.yaml");
+        std::fs::write(&path, format!("data_dir: {}\n", domain.display()))
+            .expect("routing configuration without a port");
+        let config = super::load_config(&path).expect("fresh ordinary configuration");
+        assert_eq!(config.server.port, 3002);
+        let host = super::prepare_setup(
+            &config,
+            format!("127.0.0.1:{}", config.server.port)
+                .parse()
+                .expect("address"),
+        )
+        .expect("prepare actual setup host")
+        .expect("fresh host");
+        drop(host);
+        assert_eq!(
+            super::load_config(&path)
+                .expect("pre-domain interrupted retry")
+                .server
+                .port,
+            3002
+        );
+        std::fs::create_dir(&domain).expect("worker has attempted its owner store");
+        assert_eq!(
+            super::load_config(&path)
+                .expect("post-domain interrupted retry or completed reopen")
+                .server
+                .port,
+            3002
+        );
+        std::fs::write(
+            &path,
+            format!("data_dir: {}\nserver:\n  port: 4012\n", domain.display()),
+        )
+        .expect("explicit listener choice");
+        assert_eq!(
+            super::load_config(&path)
+                .expect("explicit port remains authoritative")
+                .server
+                .port,
+            4012
+        );
+        std::fs::remove_dir_all(root).expect("fixture cleanup");
     }
 
     #[test]

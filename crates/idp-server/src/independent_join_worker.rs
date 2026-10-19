@@ -1,4 +1,4 @@
-use std::{io, path::Path, sync::Arc};
+use std::{io, path::Path, sync::Arc, time::Instant};
 
 use api::{IndependentCreateCommand, IndependentCreateControl};
 use idp_model::{contract::ClientRegistration, model::Id};
@@ -8,7 +8,7 @@ use management_service::{
     join_history::{JoinHistoryContext, import_join_history},
 };
 
-use super::{Record, binding, login, open, public, runtime_config, service};
+use super::{Record, binding, login, observe, open, public, runtime_config, service};
 use crate::{AppConfig, IdpRuntime, OwnerProvisioner};
 
 pub(super) async fn provision(
@@ -79,6 +79,7 @@ pub(super) async fn provision(
     }
     record.registrations = registrations;
     control.write_record(record)?;
+    let opened_at = Instant::now();
     if owner.is_none() {
         if !record.domain_attempted {
             if Path::new(&config.data_dir).exists() {
@@ -93,7 +94,12 @@ pub(super) async fn provision(
             open(config, control, intent, record, owner).await?;
         }
     }
+    log::debug!(
+        "Independent setup owner=idp purpose=join phase=schema-open elapsed_ms={}",
+        opened_at.elapsed().as_millis()
+    );
     let opened = owner.as_ref().expect("opened own IdP");
+    let protected_at = Instant::now();
     let mut clients = vec![record.login, record.client];
     for registration in &record.registrations {
         clients.push(
@@ -144,7 +150,12 @@ pub(super) async fn provision(
     {
         return Err(io::Error::other("protected Join signer changed"));
     }
+    log::debug!(
+        "Independent setup owner=idp purpose=join phase=protected-signer elapsed_ms={}",
+        protected_at.elapsed().as_millis()
+    );
     public(control, intent, record).await?;
+    let approval_at = Instant::now();
     if record.approval.is_none() {
         let approval = loop {
             let peer = control
@@ -166,9 +177,14 @@ pub(super) async fn provision(
         record.approval = Some(approval);
         control.write_record(record)?;
     }
+    log::debug!(
+        "Independent setup owner=idp purpose=join phase=approval-wait elapsed_ms={}",
+        approval_at.elapsed().as_millis()
+    );
     let approval = record.approval.as_ref().expect("retained approval").clone();
     approval.verify()?;
 
+    let import_at = Instant::now();
     if !record.imported {
         let challenge = control
             .request_history(
@@ -195,6 +211,11 @@ pub(super) async fn provision(
         control.write_record(record)?;
     }
     opened.verify_node_signer(&binding(record)?).await?;
+    log::debug!(
+        "Independent setup owner=idp purpose=join phase=public-import elapsed_ms={}",
+        import_at.elapsed().as_millis()
+    );
+    let registered_at = Instant::now();
 
     opened
         .ensure_setup_public_login_client(login(intent, record.login))
@@ -225,6 +246,11 @@ pub(super) async fn provision(
         }))
         .await;
     public(control, intent, record).await?;
+    log::debug!(
+        "Independent setup owner=idp purpose=join phase=local-client-seed elapsed_ms={}",
+        registered_at.elapsed().as_millis()
+    );
+    let serving_at = Instant::now();
     if runtime.is_none() {
         *runtime = Some(
             crate::build_independent_idp(
@@ -238,6 +264,11 @@ pub(super) async fn provision(
     control
         .publish_serving(runtime.as_ref().expect("IdP runtime").router())
         .await?;
+    log::debug!(
+        "Independent setup owner=idp purpose=join phase=serving elapsed_ms={}",
+        serving_at.elapsed().as_millis()
+    );
+    let relationships_at = Instant::now();
     for peer in [&management, &storage] {
         for registration in &peer.clients {
             if command.cancellation.is_cancelled() {
@@ -259,8 +290,13 @@ pub(super) async fn provision(
             }
         }
     }
+    log::debug!(
+        "Independent setup owner=idp purpose=join phase=relationship-registration elapsed_ms={}",
+        relationships_at.elapsed().as_millis()
+    );
     record.complete = true;
     record.validate_operation(&command.intent)?;
+    observe(control, opened.clone(), intent, record)?;
     control
         .finish(
             command,

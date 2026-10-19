@@ -502,6 +502,14 @@ impl log::Log for SetupTimingLog {
         metadata.level() == log::Level::Info
             && (metadata.target() == "unified_server::local_provisioning"
                 || metadata.target() == "unified_server::api_create")
+            || metadata.level() == log::Level::Debug
+                && [
+                    "idp_server::independent",
+                    "management_server::independent",
+                    "storage_server::independent",
+                ]
+                .iter()
+                .any(|target| metadata.target().starts_with(*target))
     }
 
     fn log(&self, record: &log::Record<'_>) {
@@ -515,11 +523,15 @@ impl log::Log for SetupTimingLog {
 
 static SETUP_TIMING_LOG: SetupTimingLog = SetupTimingLog;
 
+pub(super) fn capture_setup_timings() {
+    log::set_logger(&SETUP_TIMING_LOG).expect("isolated timing logger");
+    log::set_max_level(log::LevelFilter::Debug);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "parent supplies isolated native roots and mock provider; no real trust/provider updates"]
 async fn api_create_child() {
-    log::set_logger(&SETUP_TIMING_LOG).expect("isolated timing logger");
-    log::set_max_level(log::LevelFilter::Info);
+    capture_setup_timings();
     crate::endpoint::use_isolated_address_lookup();
     let root = PathBuf::from(std::env::var_os("OF_API_CREATE_ROOT").expect("parent root"));
     PrivateKeyKeyringRepo::new_with_store(
