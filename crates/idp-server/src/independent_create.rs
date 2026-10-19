@@ -21,6 +21,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{AppConfig, IdpRuntime, ManagementPermissionConfig, OwnerProvisioner};
 
+#[path = "independent_join_worker.rs"]
+mod join;
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Record {
@@ -36,10 +39,54 @@ struct Record {
     inventory_attempted: bool,
     endpoint: Option<String>,
     registrations: Vec<ClientRegistration>,
+    request: Option<management_service::independent_join::IndependentJoinRequest>,
+    approval: Option<management_service::independent_join::IndependentJoinApproval>,
+    #[serde(default)]
+    imported: bool,
     complete: bool,
 }
 
 impl Record {
+    fn validate_operation(&self, intent: &IndependentCreateIntent) -> io::Result<()> {
+        self.validate()?;
+        if intent.purpose == "create" {
+            if self.request.is_some() || self.approval.is_some() || self.imported {
+                return Err(io::Error::other("Create contains Join evidence"));
+            }
+            return Ok(());
+        }
+        if let Some(request) = &self.request {
+            request.validate()?;
+            if request.operation != *intent
+                || request.member_id != self.member
+                || request.public_signer.kid != self.key.to_string()
+                || Some(request.endpoint_id.as_str()) != self.endpoint.as_deref()
+            {
+                return Err(io::Error::other("retained Join signer binding changed"));
+            }
+        }
+        if let Some(approval) = &self.approval {
+            approval.verify()?;
+            if self
+                .request
+                .as_ref()
+                .map(serde_json::to_value)
+                .transpose()?
+                != Some(serde_json::to_value(&approval.request)?)
+                || (self.imported && approval.owner_subject != self.user)
+            {
+                return Err(io::Error::other("retained Join approval changed"));
+            }
+        }
+        if ((self.complete || self.imported) && (self.request.is_none() || self.approval.is_none()))
+            || (self.complete && !self.imported)
+        {
+            return Err(io::Error::other(
+                "completed Join lacks exact public import evidence",
+            ));
+        }
+        Ok(())
+    }
     fn new() -> Self {
         Self {
             version: 1,
@@ -54,6 +101,9 @@ impl Record {
             inventory_attempted: false,
             endpoint: None,
             registrations: Vec::new(),
+            request: None,
+            approval: None,
+            imported: false,
             complete: false,
         }
     }
@@ -117,6 +167,7 @@ async fn run(
                 .intent()
                 .await
                 .ok_or_else(|| io::Error::other("completed IdP has no exact operation"))?;
+            record.validate_operation(&intent)?;
             open(&config, &control, &intent, &record, &mut owner).await?;
             let opened = owner.as_ref().expect("opened IdP");
             opened.verify_node_signer(&binding(&record)?).await?;
@@ -140,9 +191,10 @@ async fn run(
             }
             public(&control, &intent, &record).await?;
             runtime = Some(
-                crate::build_oauth_runtime(
+                crate::build_independent_idp(
                     &runtime_config(&config, &control, &intent, &record)?,
                     opened.node_join_database(),
+                    control.shutdown_token(),
                 )
                 .await?,
             );
@@ -229,7 +281,7 @@ async fn public(
     );
     let scope = service(control);
     let id = record.client.to_string();
-    control.set_public(IndependentOwnerPublic { operation: intent.clone(), owner: "idp".into(), clients: vec![serde_json::to_value(registration)?], facts: serde_json::json!({"user":record.user, "login_client":record.login, "endpoint":record.endpoint, "evaluator":record.client}), registered: Vec::new() }, Arc::new(move |requested| {
+    control.set_public(IndependentOwnerPublic { operation: intent.clone(), owner: "idp".into(), clients: vec![serde_json::to_value(registration)?], facts: serde_json::json!({"user":record.user, "login_client":record.login, "endpoint":record.endpoint, "evaluator":record.client, "join_request":record.request, "approval":record.approval}), registered: Vec::new() }, Arc::new(move |requested| {
         if requested != id { return Err(io::Error::other("unknown consumer Client")); }
         load_setup_secret(&scope, requested)
     })).await
@@ -250,7 +302,7 @@ async fn provision(
             record
         }
     };
-    record.validate()?;
+    record.validate_operation(&command.intent)?;
     let intent = &command.intent;
     if record.complete {
         let current = runtime
@@ -265,6 +317,9 @@ async fn provision(
     }
     load_setup_secret(&service(control), &record.client.to_string())?;
     public(control, intent, &record).await?;
+    if intent.purpose == "join" {
+        return join::provision(config, control, command, &mut record, owner, runtime).await;
+    }
     let management = control
         .wait_peer(intent, "management", &command.cancellation)
         .await?;
@@ -413,9 +468,10 @@ async fn provision(
         .await;
     if runtime.is_none() {
         *runtime = Some(
-            crate::build_oauth_runtime(
+            crate::build_independent_idp(
                 &runtime_config(config, control, intent, &record)?,
                 owner.node_join_database(),
+                control.shutdown_token(),
             )
             .await?,
         );

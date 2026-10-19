@@ -15,6 +15,11 @@ pub trait ClientRepo {
         client_id: &str,
     ) -> impl Future<Output = RepoResult<Option<Client>>>;
 
+    fn find_client_registration(
+        &self,
+        client_id: &str,
+    ) -> impl Future<Output = RepoResult<Option<Client>>>;
+
     fn list_clients(
         &self,
         offset: u32,

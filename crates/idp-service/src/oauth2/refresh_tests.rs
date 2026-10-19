@@ -100,7 +100,7 @@ async fn setup() -> (Arc<TestEngine>, TestService, Client, UserPrincipal) {
         .key_service
         .prepare_node_signer(&binding)
         .expect("prepare independent local signer");
-    engine.client().translate_and_execute(&format!("INSERT INTO devices (id, public_key, owner_subject, state, approved_at, revoked_at) VALUES (CAST('{}' AS UUID), 'node-endpoint', 'node-owner', 1, 1, NULL)", binding.member_id), &db::SqlTranslator).await.expect("approved local Device");
+
     let member = idp_model::contract::ReplicaMembership {
         installation_id: service.oauth_config.issuer.clone(),
         issuer: service.oauth_config.issuer.clone(),

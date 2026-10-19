@@ -20,6 +20,7 @@ where
 {
     pub principal: Box<dyn Principal>,
     pub claims: T,
+    pub application_id: idp_model::model::Id,
     pub token: String,
     _phantom_data: PhantomData<T>,
 }
@@ -39,6 +40,7 @@ where
             return Ok(Authorization {
                 principal: authorization.principal,
                 claims: authorization.claims,
+                application_id: authorization.application_id,
                 token: authorization.token,
                 _phantom_data: PhantomData,
             });
@@ -84,9 +86,9 @@ async fn authorize_bearer_with_principal(
     authorization_string: &str,
     expected_principal: Option<PrincipalType>,
 ) -> Result<Authorization<StandardClaims>, ErrorResponse> {
-    let (claims, principal) = router_state
+    let (claims, principal, application_id) = router_state
         .oauth2_service
-        .verify_token_principal(authorization_string)
+        .verify_access_token_principal(authorization_string)
         .await
         .map_err(|_| ErrorResponse::new(ErrorCode::NotAuthorized))?;
 
@@ -113,14 +115,10 @@ async fn authorize_bearer_with_principal(
             .with_description("invalid bearer token claims"));
     }
 
-    router_state
-        .oauth2_service
-        .validate_bearer_client(&claims)
-        .await?;
-
     Ok(Authorization {
         principal,
         claims,
+        application_id,
         token: authorization_string.to_owned(),
         _phantom_data: PhantomData,
     })

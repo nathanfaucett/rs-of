@@ -389,13 +389,39 @@ where
     }
 
     /// Checks live client registration for already verified access-token claims.
-    pub async fn validate_bearer_client(&self, claims: &StandardClaims) -> ErrorResponseResult<()> {
+    pub async fn validate_bearer_client(&self, claims: &StandardClaims) -> ErrorResponseResult<Id> {
         let client = self
             .client_repo
-            .find_client_by_client_id(&claims.client_id)
+            .find_client_registration(&claims.client_id)
             .await
             .map_err(ErrorResponse::from)?
             .ok_or_else(|| ErrorResponse::new(ErrorCode::NotAuthorized))?;
+        Self::validate_bearer_registration(claims, &client)
+    }
+
+    async fn validate_bearer_principal_client(
+        &self,
+        claims: &StandardClaims,
+        principal: &dyn Principal,
+    ) -> ErrorResponseResult<Id> {
+        if claims.principal_type == PrincipalType::Client {
+            let client = principal
+                .get_entity_as_any()
+                .downcast_ref::<Client>()
+                .ok_or_else(|| ErrorResponse::new(ErrorCode::NotAuthorized))?;
+            if client.client_id != claims.client_id {
+                return Err(ErrorResponse::new(ErrorCode::NotAuthorized));
+            }
+            Self::validate_bearer_registration(claims, client)
+        } else {
+            self.validate_bearer_client(claims).await
+        }
+    }
+
+    fn validate_bearer_registration(
+        claims: &StandardClaims,
+        client: &Client,
+    ) -> ErrorResponseResult<Id> {
         if claims
             .scope
             .iter()
@@ -409,12 +435,12 @@ where
         {
             return Err(ErrorResponse::new(ErrorCode::NotAuthorized));
         }
-        Ok(())
+        Ok(client.application_id)
     }
 
     pub async fn application_id_for_client(&self, client_id: &str) -> ErrorResponseResult<Id> {
         self.client_repo
-            .find_client_by_client_id(client_id)
+            .find_client_registration(client_id)
             .await
             .map_err(ErrorResponse::from)?
             .map(|client| client.application_id)
@@ -1223,7 +1249,7 @@ where
         }
         let Some(client) = self
             .client_repo
-            .find_client_by_client_id(&claims.client_id)
+            .find_client_registration(&claims.client_id)
             .await
             .map_err(ErrorResponse::from)?
         else {
@@ -1384,22 +1410,23 @@ where
             .find_active_entity_root_key(entity_type, id)
             .await?
             .ok_or_else(|| ErrorResponse::new(ErrorCode::InvalidGrant))?;
-        let principal = self
-            .principal_for_active_key(key)
-            .await?
-            .ok_or_else(|| ErrorResponse::new(ErrorCode::InvalidGrant))?;
-        if principal.get_entity_id() != id || principal.get_entity_type() != entity_type {
-            return Err(ErrorResponse::new(ErrorCode::InvalidGrant));
-        }
-        if entity_type == EntityType::Client {
+        let principal: Box<dyn Principal> = if entity_type == EntityType::Client {
             let client = self
                 .client_repo
-                .find_client_by_client_id(&claims.client_id)
+                .find_client_registration(&claims.client_id)
                 .await?
                 .ok_or_else(|| ErrorResponse::new(ErrorCode::InvalidClient))?;
             if client.id != id {
                 return Err(ErrorResponse::new(ErrorCode::InvalidClient));
             }
+            Box::new(ClientPrincipal { client, key })
+        } else {
+            self.principal_for_active_key(key)
+                .await?
+                .ok_or_else(|| ErrorResponse::new(ErrorCode::InvalidGrant))?
+        };
+        if principal.get_entity_id() != id || principal.get_entity_type() != entity_type {
+            return Err(ErrorResponse::new(ErrorCode::InvalidGrant));
         }
         Ok(principal)
     }
@@ -1430,12 +1457,33 @@ where
         Ok((claims, principal))
     }
 
+    pub async fn verify_access_token_principal(
+        &self,
+        token: &str,
+    ) -> ErrorResponseResult<(StandardClaims, Box<dyn Principal>, Id)> {
+        let (claims, principal) = self.verify_token_principal(token).await?;
+        let now = Utc::now().timestamp();
+        if claims.r#type != TokenType::Bearer
+            || claims.r#use != TokenUse::Access
+            || claims.exp <= now
+            || claims.nbf > now
+            || claims.iat > now
+            || claims.aud.is_empty()
+        {
+            return Err(ErrorResponse::new(ErrorCode::InvalidGrant));
+        }
+        let application_id = self
+            .validate_bearer_principal_client(&claims, principal.as_ref())
+            .await?;
+        Ok((claims, principal, application_id))
+    }
+
     pub async fn validate_access_token(
         &self,
         token: &str,
         audience: &str,
     ) -> ErrorResponseResult<StandardClaims> {
-        let (claims, _) = self.verify_token_principal(token).await?;
+        let (claims, _, _) = self.verify_access_token_principal(token).await?;
         let now = Utc::now().timestamp();
         if audience.is_empty()
             || claims.aud != audience
@@ -1449,7 +1497,6 @@ where
             return Err(ErrorResponse::new(ErrorCode::InvalidGrant)
                 .with_description("invalid access token claims"));
         }
-        self.validate_bearer_client(&claims).await?;
         Ok(claims)
     }
 

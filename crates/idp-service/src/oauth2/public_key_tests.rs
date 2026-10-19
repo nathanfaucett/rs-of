@@ -159,6 +159,14 @@ async fn public_node_signers_verify_without_private_material_or_principal_impers
         .await
         .expect("verify offline with public trust");
     assert_eq!(claims.sub, principal.user.id.to_string());
+    let (_, _, application_id) = verifier
+        .verify_access_token_principal(&token)
+        .await
+        .expect("verified bearer registration");
+    assert_eq!(
+        application_id, client.application_id,
+        "introspection reuses the currently validated Client's Application"
+    );
     assert!(
         verifier
             .key_service
@@ -290,33 +298,23 @@ async fn public_node_signers_verify_without_private_material_or_principal_impers
 }
 
 #[tokio::test]
-async fn token_verification_is_independent_of_device_state() {
+async fn token_verification_requires_no_management_device_tables() {
     let (source, service, client, principal) = setup().await;
     let token = issue(&service, &client, &principal).await.access_token.0;
-    let binding = service
-        .oauth_config
-        .local_signer
-        .as_ref()
-        .expect("signer binding");
-    for device_state in ["absent", "malformed", "revoked"] {
-        let (engine, verifier) = public_verifier(&source).await;
-        if device_state != "absent" {
-            let fields = if device_state == "malformed" {
-                "'  ', 9, 'invalid'"
-            } else {
-                "'owner', 2, 1"
-            };
-            engine.client().translate_and_execute(
-                &format!("INSERT INTO devices (id, public_key, owner_subject, state, revoked_at) VALUES (CAST('{}' AS UUID), '{}', {fields})", binding.member_id, binding.endpoint_id),
-                &SqlTranslator,
-            ).await.expect("independent Device state fixture");
-        }
-        verifier
-            .validate_access_token(&token, &client.client_id)
+    let (engine, verifier) = public_verifier(&source).await;
+    assert!(
+        engine
+            .client()
+            .translate_and_execute("SELECT * FROM devices", &SqlTranslator)
             .await
-            .expect(device_state);
-        assert_eq!(verifier.list_jwks().await.expect("IdP JWKS").keys.len(), 1);
-    }
+            .is_err(),
+        "Management Device state is not an IdP schema prerequisite"
+    );
+    verifier
+        .validate_access_token(&token, &client.client_id)
+        .await
+        .expect("public signer and Principal trust without Device tables");
+    assert_eq!(verifier.list_jwks().await.expect("IdP JWKS").keys.len(), 1);
 }
 
 #[tokio::test]

@@ -2,6 +2,15 @@ use std::{fs, path::Path};
 
 use crate::IndependentSetupHost;
 
+#[test]
+fn independent_join_binds_a_pinned_source_without_an_administrator_seed() {
+    let pin = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
+    let intent: crate::IndependentCreateIntent = serde_json::from_value(serde_json::json!({"purpose":"join", "operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"", "node":"Joining Node", "idp":"https://127.0.0.1:3000/idp", "management":"https://127.0.0.1:3001/management", "storage":"https://127.0.0.1:3002/storage", "issuer":"https://existing.installation/idp", "peer":format!("https://127.0.0.1:4001/management#{pin}")})).expect("Join intent");
+    intent
+        .canonical()
+        .expect("Join is not a fresh administrator Create");
+}
+
 fn prepare(
     root: &Path,
     owner: &str,
@@ -78,6 +87,185 @@ async fn independent_create_requires_owner_code_and_retains_exact_intent() {
         !String::from_utf8(bytes.to_vec())
             .expect("JSON")
             .contains(code)
+    );
+}
+
+#[tokio::test]
+async fn independent_normal_fallback_keeps_browser_cors_and_authentication() {
+    use axum::{
+        Router,
+        body::Body,
+        http::{Request, StatusCode},
+        routing::post,
+    };
+    use tower::ServiceExt;
+    let root = tempfile::tempdir().expect("isolated host");
+    let (host, _commands) = prepare(&root.path().join("idp"), "idp", false)
+        .expect("prepare")
+        .expect("fresh")
+        .into_create(tokio_util::sync::CancellationToken::new())
+        .expect("host");
+    host.control()
+        .publish_serving(
+            Router::new().route("/oauth2/token", post(|| async { StatusCode::UNAUTHORIZED })),
+        )
+        .await
+        .expect("normal router");
+    for method in ["POST", "OPTIONS"] {
+        let response = host
+            .router()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri("/oauth2/token")
+                    .header("Origin", "https://localhost:5173")
+                    .header("Access-Control-Request-Method", "POST")
+                    .header(
+                        "Access-Control-Request-Headers",
+                        "authorization,content-type",
+                    )
+                    .body(Body::empty())
+                    .expect("browser request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(
+            response.status(),
+            if method == "POST" {
+                StatusCode::UNAUTHORIZED
+            } else {
+                StatusCode::OK
+            }
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .expect("normal browser CORS"),
+            "https://localhost:5173"
+        );
+    }
+}
+
+#[tokio::test]
+async fn delayed_forged_challenge_does_not_block_cancel_or_commit_after_cancel() {
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use std::{
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
+    use tower::ServiceExt;
+    let root = tempfile::tempdir().expect("isolated host");
+    let setup = prepare(&root.path().join("management"), "management", false)
+        .expect("prepare")
+        .expect("fresh");
+    let admission = fs::read_to_string(setup.admission_path()).expect("protected admission");
+    let code = admission.lines().nth(1).expect("code");
+    let (host, mut commands) = setup
+        .into_create(tokio_util::sync::CancellationToken::new())
+        .expect("host");
+    let intent: crate::IndependentCreateIntent = serde_json::from_value(serde_json::json!({"purpose":"create", "operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"operator", "node":"Independent Node", "idp":"https://127.0.0.1:3001", "management":"https://127.0.0.1:3000", "storage":"https://127.0.0.1:3002", "issuer":"https://127.0.0.1:3001", "peer":null})).expect("operation");
+    let response = host
+        .router()
+        .oneshot(
+            Request::post("/setup/create")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Setup {code}"))
+                .body(Body::from(serde_json::to_vec(&intent).expect("operation")))
+                .expect("authorized Create"),
+        )
+        .await
+        .expect("acceptance");
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let command = commands.recv().await.expect("host command");
+    let registration = serde_json::json!({"client_id":"00000000-0000-4000-8000-000000000001"});
+    let started = Arc::new(tokio::sync::Notify::new());
+    let observed = started.clone();
+    let (release, blocked) = std::sync::mpsc::channel();
+    let blocked = Mutex::new(blocked);
+    host.control()
+        .set_public(
+            crate::IndependentOwnerPublic {
+                operation: intent.clone(),
+                owner: "management".into(),
+                clients: vec![registration.clone()],
+                facts: serde_json::json!({}),
+                registered: vec![],
+            },
+            Arc::new(move |_| {
+                observed.notify_one();
+                blocked
+                    .lock()
+                    .expect("loader gate")
+                    .recv_timeout(Duration::from_secs(5))
+                    .expect("bounded loader release");
+                Ok("b".repeat(64))
+            }),
+        )
+        .await
+        .expect("public evidence");
+    let forged = serde_json::json!({"operation":intent,"recipient":"management","registration":registration,"challenge":"a".repeat(64)});
+    let callback = tokio::spawn(
+        host.router().oneshot(
+            Request::post("/setup/independent/challenge")
+                .header("Content-Type", "application/json")
+                .body(Body::from(forged.to_string()))
+                .expect("forged callback"),
+        ),
+    );
+    started.notified().await;
+    let cancellation = tokio::time::timeout(
+        Duration::from_millis(250),
+        host.router().oneshot(
+            Request::post("/setup/cancel")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Setup {code}"))
+                .body(Body::from(serde_json::to_vec(&intent).expect("operation")))
+                .expect("authorized cancel"),
+        ),
+    )
+    .await;
+    release.send(()).expect("release delayed provider");
+    assert_eq!(
+        cancellation
+            .expect("forged callback must not hold lifecycle gate")
+            .expect("cancel response")
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert!(command.cancellation.is_cancelled());
+    let status = host
+        .router()
+        .oneshot(
+            Request::get("/setup/status")
+                .body(Body::empty())
+                .expect("status"),
+        )
+        .await
+        .expect("status response");
+    assert_eq!(status.status(), StatusCode::OK);
+    assert_eq!(
+        callback
+            .await
+            .expect("callback task")
+            .expect("callback response")
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert!(
+        !host
+            .control()
+            .registered("00000000-0000-4000-8000-000000000001")
+            .await
+    );
+    assert!(
+        !host
+            .control()
+            .registration_confirmed(&intent, &registration)
+            .expect("no receipt")
     );
 }
 

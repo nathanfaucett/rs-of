@@ -10,6 +10,19 @@ pub struct DbReplicaSignerRepo {
 }
 
 impl DbReplicaSignerRepo {
+    pub fn validate_public_key(public: &idp_model::contract::JwkPublic) -> RepoResult<()> {
+        if matches!(&public.params, idp_model::contract::JwkPublicParameters::Ec { crv, .. } if crv == "secp256k1")
+            && public.r#use == KeyUse::Signature
+            && public.alg == JwsAlgorithm::ES256K
+            && crate::oauth2::verifing_key_from_jwt(public).is_ok()
+        {
+            Ok(())
+        } else {
+            Err(RepoError::InvalidInput(
+                "invalid public token signer".into(),
+            ))
+        }
+    }
     #[must_use]
     pub const fn new(engine: Arc<Database>) -> Self {
         Self { engine }
@@ -395,12 +408,7 @@ fn validate_signer(
     let approved_at = signer
         .approved_at
         .ok_or_else(|| RepoError::InvalidInput("signer approval is required".into()))?;
-    let valid_public_key = matches!(
-        &signer.public_jwk.params,
-        idp_model::contract::JwkPublicParameters::Ec { crv, .. } if crv == "secp256k1"
-    ) && signer.public_jwk.r#use == KeyUse::Signature
-        && signer.public_jwk.alg == JwsAlgorithm::ES256K
-        && crate::oauth2::verifing_key_from_jwt(&signer.public_jwk).is_ok();
+    let valid_public_key = DbReplicaSignerRepo::validate_public_key(&signer.public_jwk).is_ok();
     if signer.member_id != member_id
         || signer.issuer != issuer
         || signer.revoked_at.is_some()

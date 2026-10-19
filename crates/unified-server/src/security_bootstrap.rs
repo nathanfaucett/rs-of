@@ -583,6 +583,14 @@ impl SecurityProtocol {
         Q: FnMut() -> U + Send,
         U: Future<Output = Result<(), String>> + Send,
     {
+        let candidate = candidates::JoinCandidate {
+            member_id: approval.request.member_id,
+            device_id: approval.request.member_id,
+            endpoint: &approval.request.endpoint_id,
+            owner: approval.owner_subject,
+            public_signer: &approval.request.public_signer,
+            name: &approval.request.name,
+        };
         let (database, directory, tables) = match context {
             SecurityContext::Idp => (
                 &self.idp,
@@ -636,7 +644,7 @@ impl SecurityProtocol {
                     }
                     match context {
                         SecurityContext::Idp => {
-                            candidates::validate_node_join(view, &self.installation, approval)
+                            candidates::validate_node_join(view, &self.installation, &candidate)
                         }
                         SecurityContext::Management => candidates::validate_management(
                             view,
@@ -645,7 +653,7 @@ impl SecurityProtocol {
                                 endpoint: approval.request.endpoint_id.clone(),
                                 owner: approval.owner_subject,
                             }],
-                            Some(approval),
+                            Some(&candidate),
                         ),
                     }
                 },

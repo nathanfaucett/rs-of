@@ -50,6 +50,7 @@ pub(crate) struct CreateLifecycle {
     pub(crate) registrar: Option<IndependentRegistrar>,
     pub(crate) loader: Option<IndependentSecretLoader>,
     pub(crate) challenges: Vec<crate::independent_exchange::OutstandingChallenge>,
+    pub(crate) history: Option<(String, serde_json::Value, mpsc::Sender<serde_json::Value>)>,
 }
 
 pub(crate) struct CreateShared {
@@ -98,9 +99,16 @@ impl IndependentSetupHost {
         }
         let directory = self.settings.domain.with_extension("setup-host");
         let record = directory.join("worker.json");
-        if present(&self.settings.domain)? && !present(&record)? {
+        if present(&record)? && intent.is_none() {
             return Err(io::Error::other(
-                "retained domain has no exact worker evidence",
+                "worker evidence has no exact admitted operation",
+            ));
+        }
+        if (present(&self.settings.domain)? || present(&directory.join("initialized.json"))?)
+            && !present(&record)?
+        {
+            return Err(io::Error::other(
+                "initialized owner has no exact worker evidence",
             ));
         }
         if self.admission.is_retired().map_err(io::Error::other)?
@@ -127,6 +135,7 @@ impl IndependentSetupHost {
                 registrar: None,
                 loader: None,
                 challenges: Vec::new(),
+                history: None,
             }),
             normal: RwLock::new(None),
             commands,
@@ -148,28 +157,40 @@ impl IndependentCreateHost {
     }
     pub fn router(&self) -> Router {
         let origin = setup_origin(&self.host.settings.origin).expect("validated host origin");
+        let normal_cors = CorsLayer::new()
+            .allow_origin(origin.clone())
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::PATCH,
+                Method::DELETE,
+            ])
+            .allow_headers([AUTHORIZATION, CONTENT_TYPE])
+            .allow_private_network(true);
         let setup = Router::new()
             .route("/setup/status", get(status))
             .route("/setup/admission", post(admission))
             .route("/setup/create", post(create))
+            .route("/setup/join", post(join))
+            .route(
+                "/setup/independent/history",
+                post(crate::independent_history::challenge),
+            )
             .route("/setup/intent", post(recover))
             .route("/setup/cancel", post(cancel))
             .merge(crate::independent_exchange::routes())
             .with_state(self.control.clone())
-            .layer(
-                CorsLayer::new()
-                    .allow_origin(origin.clone())
-                    .allow_methods([Method::GET, Method::POST])
-                    .allow_headers([AUTHORIZATION, CONTENT_TYPE])
-                    .allow_private_network(true),
-            )
             .layer(middleware::from_fn_with_state(origin, setup_origin_guard));
         let setup = if self.host.settings.prefix.is_empty() {
             setup
         } else {
             Router::new().nest(&self.host.settings.prefix, setup)
         };
-        setup.fallback(normal).with_state(self.control.clone())
+        setup
+            .fallback(normal)
+            .with_state(self.control.clone())
+            .layer(normal_cors)
     }
     pub async fn serve(self) -> io::Result<()> {
         let router = self.router();
@@ -183,6 +204,9 @@ impl IndependentCreateHost {
 }
 
 impl IndependentCreateControl {
+    pub fn shutdown_token(&self) -> CancellationToken {
+        self.0.shutdown.child_token()
+    }
     pub fn owner(&self) -> &str {
         &self.0.owner
     }
@@ -195,11 +219,22 @@ impl IndependentCreateControl {
     pub fn read_record<T: DeserializeOwned>(&self) -> io::Result<Option<T>> {
         let path = self.directory().join("worker.json");
         if !present(&path)? {
+            if present(&self.directory().join("initialized.json"))? {
+                return Err(io::Error::other("initialized owner lost worker evidence"));
+            }
             return Ok(None);
         }
         Ok(Some(serde_json::from_slice(&read_private(&path)?)?))
     }
     pub fn write_record<T: Serialize>(&self, value: &T) -> io::Result<()> {
+        let initialized = self.directory().join("initialized.json");
+        if present(&initialized)? {
+            if !present(&self.directory().join("worker.json"))? {
+                return Err(io::Error::other("initialized owner lost worker evidence"));
+            }
+        } else {
+            self.write_document("initialized.json", &true)?;
+        }
         self.write_document("worker.json", value)
     }
     pub(crate) fn write_document<T: Serialize>(&self, name: &str, value: &T) -> io::Result<()> {
@@ -297,6 +332,7 @@ impl IndependentCreateControl {
         state.view = "ready";
         state.active = None;
         state.challenges.clear();
+        state.history = None;
         state.loader = None;
         state.registrar = None;
         Ok(())
@@ -308,6 +344,7 @@ impl IndependentCreateControl {
         }
         state.view = "unfinished";
         state.challenges.clear();
+        state.history = None;
         state.loader = None;
         state.registrar = None;
     }
@@ -401,6 +438,48 @@ async fn create(
     headers: HeaderMap,
     Json(request): Json<IndependentCreateRequest>,
 ) -> Response {
+    if request.intent.purpose != "create" {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    accept(control, headers, request).await
+}
+
+async fn join(
+    State(control): State<IndependentCreateControl>,
+    headers: HeaderMap,
+    Json(mut request): Json<IndependentCreateRequest>,
+) -> Response {
+    if let Err(error) = control.0.admission.check(&headers) {
+        return error.into_response();
+    }
+    if request.intent.purpose != "join" || request.password.is_some() {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    if let Some(retained) = control.intent().await {
+        if request.intent.issuer.is_empty() {
+            request.intent.issuer = retained.issuer;
+        }
+    } else {
+        let Some(choice) = request.intent.peer.as_deref() else {
+            return StatusCode::BAD_REQUEST.into_response();
+        };
+        let peer = match crate::IndependentPeer::discover(choice).await {
+            Ok(peer) => peer,
+            Err(_) => return StatusCode::BAD_GATEWAY.into_response(),
+        };
+        if !request.intent.issuer.is_empty() && request.intent.issuer != peer.issuer {
+            return StatusCode::CONFLICT.into_response();
+        }
+        request.intent.issuer = peer.issuer;
+    }
+    accept(control, headers, request).await
+}
+
+async fn accept(
+    control: IndependentCreateControl,
+    headers: HeaderMap,
+    request: IndependentCreateRequest,
+) -> Response {
     if let Err(error) = control.0.admission.check(&headers) {
         return error.into_response();
     }
@@ -411,11 +490,12 @@ async fn create(
     };
     if intent.base(control.owner()).ok() != Some(control.0.base.as_str())
         || (control.owner() == "idp"
+            && intent.purpose == "create"
             && request
                 .password
                 .as_ref()
                 .is_none_or(|p| p.len() < 8 || p.len() > 4096))
-        || (control.owner() != "idp" && request.password.is_some())
+        || ((control.owner() != "idp" || intent.purpose == "join") && request.password.is_some())
     {
         return StatusCode::BAD_REQUEST.into_response();
     }
@@ -444,7 +524,11 @@ async fn create(
     state.intent = Some(intent.clone());
     let cancellation = control.0.shutdown.child_token();
     state.active = Some(cancellation.clone());
-    state.view = "creating";
+    state.view = if intent.purpose == "join" {
+        "joining"
+    } else {
+        "creating"
+    };
     if control
         .0
         .commands
@@ -489,6 +573,7 @@ async fn cancel(
     };
     active.cancel();
     state.challenges.clear();
+    state.history = None;
     state.view = "unfinished";
     StatusCode::NO_CONTENT.into_response()
 }
