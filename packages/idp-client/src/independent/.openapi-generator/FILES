@@ -1,0 +1,10 @@
+.openapi-generator-ignore
+apis/DefaultApi.ts
+apis/index.ts
+index.ts
+models/IndependentCreateIntent.ts
+models/IndependentCreateRequest.ts
+models/IndependentOwnerPublic.ts
+models/IndependentSetupStatus.ts
+models/index.ts
+runtime.ts

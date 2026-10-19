@@ -219,9 +219,20 @@ test("Unknown services cannot bypass the completeness contract through object pr
 for (const [service, contract] of Object.entries(contracts)) {
   test(`${service} fixture inventory matches current Rust OpenAPI registrations`, () => {
     if (service === "idp-independent") {
-      const router = readFileSync(path.resolve(import.meta.dirname, "../crates/api/src/independent_openapi.rs"), "utf8");
-      const operations = [...router.matchAll(/super::independent_(?:create|exchange)::(\w+),/g)].map(match => match[1] === "public" ? "ownerPublic" : match[1]);
-      assert.deepEqual(contract.DefaultApi.split(" ").sort(), operations.sort());
+      const router = readFileSync(
+        path.resolve(
+          import.meta.dirname,
+          "../crates/api/src/independent_openapi.rs",
+        ),
+        "utf8",
+      );
+      const operations = [
+        ...router.matchAll(/super::independent_(?:create|exchange)::(\w+),/g),
+      ].map((match) => (match[1] === "public" ? "ownerPublic" : match[1]));
+      assert.deepEqual(
+        contract.DefaultApi.split(" ").sort(),
+        operations.sort(),
+      );
       return;
     }
     if (service === "idp-setup") {
@@ -267,12 +278,9 @@ for (const [service, contract] of Object.entries(contracts)) {
       [...new Set(operations.map(camelCase))].sort(),
     );
   });
-  test(
-    `${service} rejects invalid staged TypeScript with the existing Biome binary`,
-    {
+  test(`${service} rejects invalid staged TypeScript with the existing Biome binary`, {
       skip: !process.env.GENERATOR_TEST_BIOME,
-    },
-    () => {
+  }, () => {
       fixture(service, ({ invoke, preserved }) => {
         const result = invoke({ FAKE_MODE: "invalid-typescript" });
         assert.notEqual(result.status, 0);
@@ -280,8 +288,7 @@ for (const [service, contract] of Object.entries(contracts)) {
         assert.match(result.stderr, /runtime\.ts:\d+:\d+ parse/);
         preserved();
       });
-    },
-  );
+  });
   for (const [name, env, message] of [
     ["missing URL", { OPENAPI_SPEC_URL: "" }, /Set OPENAPI_SPEC_URL/],
     [
@@ -500,17 +507,42 @@ test("Management rejects the stale contract missing transferDevice without repla
 });
 
 test("independent setup uses a separate owner subpath without advertising handoff APIs", () => {
-  const owner = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "../packages/idp-client/package.json"), "utf8"));
-  assert.equal(owner.scripts["openapi:independent"], "node ../../scripts/generate-openapi-client.mjs idp-independent");
-  assert.deepEqual(owner.exports["./independent"], { types: "./types/independent/index.d.ts", default: "./esm/independent/index.js" });
-  assert.deepEqual(contracts["idp-independent"].DefaultApi.split(" ").sort(), ["admission", "cancel", "create", "join", "ownerPublic", "recover", "status"]);
+  const owner = JSON.parse(
+    readFileSync(
+      path.resolve(import.meta.dirname, "../packages/idp-client/package.json"),
+      "utf8",
+    ),
+  );
+  assert.equal(
+    owner.scripts["openapi:independent"],
+    "node ../../scripts/generate-openapi-client.mjs idp-independent",
+  );
+  assert.deepEqual(owner.exports["./independent"], {
+    types: "./types/independent/index.d.ts",
+    default: "./esm/independent/index.js",
+  });
+  assert.deepEqual(contracts["idp-independent"].DefaultApi.split(" ").sort(), [
+    "admission",
+    "cancel",
+    "create",
+    "join",
+    "ownerPublic",
+    "recover",
+    "status",
+  ]);
 });
 
 test("normal IdP regeneration preserves an existing independent setup subtree", () => {
   fixture("idp", ({ directory, invoke }) => {
     mkdirSync(path.join(directory, "src/independent"));
-    writeFileSync(path.join(directory, "src/independent/index.ts"), "public independent contract\n");
+    writeFileSync(
+      path.join(directory, "src/independent/index.ts"),
+      "public independent contract\n",
+    );
     assert.equal(invoke().status, 0);
-    assert.equal(readFileSync(path.join(directory, "src/independent/index.ts"), "utf8"), "public independent contract\n");
+    assert.equal(
+      readFileSync(path.join(directory, "src/independent/index.ts"), "utf8"),
+      "public independent contract\n",
+    );
   });
 });

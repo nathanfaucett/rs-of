@@ -1,11 +1,12 @@
 import { FetchError, ResponseError, type UserInfo } from "@aicacia/idp-client";
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { isTauri } from "@tauri-apps/api/core";
 import { error, redirect } from "@sveltejs/kit";
 import { resolve } from "$app/paths";
 import { afterSigninRedirect } from "$lib/common/state/afterSigninRedirect.svelte";
 import {
     ensureTauriIdpApiUrl,
     idpApi,
+    getIdpApiUrl,
 } from "$lib/common/state/idpClient.svelte";
 import { ensureTauriManagementApiUrl } from "$lib/common/state/managementClient.svelte";
 import {
@@ -45,14 +46,29 @@ export const load = (async (event) => {
         await ensureTauriManagementApiUrl();
     }
 
-    const installation = isTauri()
-        ? await invoke<{ issuer: string } | null>("get_setup_intent")
-        : null;
     const oidcClient = getOidcClient();
     const token = oidcClient.getStoredTokenResponse();
+    let issuer: string | undefined;
+    if (isTauri() && token?.access_token && token.iss) {
+        const base = getIdpApiUrl();
+        const metadata = await idpApi
+            .openidConfiguration()
+            .catch(() =>
+                error(
+                    503,
+                    "Issuer discovery unavailable. Your session has been preserved. Retry when the selected IdP is reachable.",
+                ),
+            );
+        if (!metadata.issuer || base !== getIdpApiUrl())
+            error(
+                502,
+                "Selected IdP issuer evidence is unavailable or changed. Your session has been preserved.",
+            );
+        issuer = metadata.issuer;
+    }
     if (
         !token?.access_token ||
-        (isTauri() && token.iss && token.iss !== installation?.issuer)
+        (isTauri() && token.iss && token.iss !== issuer)
     ) {
         clearOidcSession();
         afterSigninRedirect.setURL(event.url);

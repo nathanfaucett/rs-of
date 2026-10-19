@@ -11,7 +11,7 @@ import { page } from "$app/state";
 import { env } from "$env/dynamic/public";
 import { afterSigninRedirect } from "./afterSigninRedirect.svelte";
 import { ensureLocalhostBaseUrl } from "./localhostBaseUrl.svelte";
-import { ownerAccessToken, usesApiSetup } from "./idpClient.svelte";
+import { ownerAccessToken, usesRemoteApis } from "./idpClient.svelte";
 
 const managementApiUrl = createStorage<string | null>(
   "management-api-url",
@@ -71,7 +71,7 @@ export function setManagementApiUrl(newManagementApiUrl: string) {
 }
 
 export async function ensureTauriManagementApiUrl(): Promise<void> {
-  if (isTauri() && !usesApiSetup())
+  if (isTauri() && !usesRemoteApis())
     managementApiUrl.item = `${await ensureLocalhostBaseUrl()}/management`;
 }
 

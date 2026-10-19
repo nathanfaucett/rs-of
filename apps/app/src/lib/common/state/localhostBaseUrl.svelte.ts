@@ -15,7 +15,7 @@ function wait(delayMs: number): Promise<void> {
 }
 
 async function isLocalhostListenerAvailable(baseUrl: string): Promise<boolean> {
-  for (const path of ["/idp/health", "/lidp/setup/status"]) {
+  for (const path of ["/idp/health", "/idp/setup/status"]) {
     try {
       const response = await fetch(`${baseUrl}${path}`);
       if (response.ok) {

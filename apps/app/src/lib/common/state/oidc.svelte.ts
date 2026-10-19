@@ -2,7 +2,7 @@ import { OidcClient } from "@aicacia/oidc-client";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { env } from "$env/dynamic/public";
 import icon256x256Png from "$lib/assets/icon256x256.png";
-import { getIdpApiUrl, usesApiSetup } from "./idpClient.svelte";
+import { getIdpApiUrl, usesRemoteApis } from "./idpClient.svelte";
 import { fetchSetupHosts } from "./setupApi";
 import { getManagementApiUrl } from "./managementClient.svelte";
 
@@ -10,7 +10,7 @@ let desktopClientId = $state<string | undefined>(undefined);
 let storedClient: OidcClient | undefined;
 let webLogin = $state.raw<{ base: string; clientId: string }>();
 const CLIENT_ID = $derived(
-    !usesApiSetup()
+    !usesRemoteApis()
         ? desktopClientId
         : webLogin?.base === getIdpApiUrl()?.replace(/\/$/, "")
           ? webLogin.clientId
@@ -18,10 +18,14 @@ const CLIENT_ID = $derived(
 );
 
 export async function ensureOidcClientId(): Promise<string> {
-    if (usesApiSetup()) {
+    if (usesRemoteApis()) {
         webLogin = undefined;
         const base = getIdpApiUrl()?.replace(/\/$/, "") ?? "";
-        const hosts = await fetchSetupHosts({ idp: base, management: getManagementApiUrl(), storage: env.PUBLIC_STORAGE_BASE_URL });
+        const hosts = await fetchSetupHosts({
+            idp: base,
+            management: getManagementApiUrl(),
+            storage: env.PUBLIC_STORAGE_BASE_URL,
+        });
         const status = hosts[0].status;
         if (
             base !== getIdpApiUrl()?.replace(/\/$/, "") ||

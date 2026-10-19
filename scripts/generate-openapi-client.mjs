@@ -44,7 +44,11 @@ const expectedApis = {
 const specUrl = process.env.OPENAPI_SPEC_URL;
 const pnpmPath = process.env.npm_execpath;
 
-if (!["idp", "idp-setup", "idp-independent", "management", "storage"].includes(service)) {
+if (
+  !["idp", "idp-setup", "idp-independent", "management", "storage"].includes(
+    service,
+  )
+) {
   throw new Error(
     "Choose the idp, management or storage client generator, or idp-setup/idp-independent",
   );

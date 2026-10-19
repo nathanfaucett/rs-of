@@ -31,7 +31,7 @@ it("keeps an empty Installation discoverable without claiming durable readiness"
     expect(getLocalhostBaseUrlCached()).toBe("https://localhost:4100");
     expect(fetchApi.mock.calls.map(([url]) => url)).toEqual([
         "https://localhost:4100/idp/health",
-        "https://localhost:4100/lidp/setup/status",
+        "https://localhost:4100/idp/setup/status",
     ]);
     expect(native.invoke.mock.calls).toEqual([
         ["get_localhost_server_base_url"],

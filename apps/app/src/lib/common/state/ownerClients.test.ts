@@ -66,9 +66,7 @@ it("joins owner transport prefixes once and exchanges the distinct Management au
         deviceId: "01900000-0000-7000-8000-000000000001",
     });
 
-    const calls = fetchApi.mock.calls.filter(
-        ([url]) => !url.endsWith("/health"),
-    );
+  const calls = fetchApi.mock.calls.filter(([url]) => !url.endsWith("/health"));
     expect(calls.map(([url]) => url)).toEqual([
         "https://localhost:4100/idp/oauth2/token",
         "https://localhost:4100/idp/userinfo",
@@ -109,11 +107,7 @@ it("joins owner transport prefixes once and exchanges the distinct Management au
         calls
             .filter(([url]) => !url.endsWith("/oauth2/token"))
             .map(([, init]) => init.headers.Authorization),
-    ).toEqual([
-        "Bearer owner-token",
-        "Bearer owner-token",
-        "Bearer owner-token",
-    ]);
+  ).toEqual(["Bearer owner-token", "Bearer owner-token", "Bearer owner-token"]);
 });
 
 it("exchanges the current actor independently on each Management operation", async () => {
@@ -157,13 +151,9 @@ it("keeps configured web owner prefixes without adding desktop service paths", a
     management.setManagementApiUrl("https://node.test/management");
     expect(await idp.ensureTauriIdpApiUrl()).toBe("https://node.test/idp");
     await management.ensureTauriManagementApiUrl();
-    expect(management.getManagementApiUrl()).toBe(
-        "https://node.test/management",
-    );
+  expect(management.getManagementApiUrl()).toBe("https://node.test/management");
     expect(
-        await management.validateManagementApiUrl(
-            "https://node.test/management",
-        ),
+    await management.validateManagementApiUrl("https://node.test/management"),
     ).toBe(true);
     expect(fetchApi.mock.calls.map(([url]) => url)).toEqual([
         "https://node.test/management/version",
@@ -179,9 +169,7 @@ async function localResidency(accessToken = "filesystem-user-token") {
     const { ResourcesResidencyApi, StorageOwnerConfiguration } = await import(
         "@aicacia/storage-client"
     );
-    const { ensureLocalhostBaseUrl } = await import(
-        "./localhostBaseUrl.svelte"
-    );
+  const { ensureLocalhostBaseUrl } = await import("./localhostBaseUrl.svelte");
     return new ResourcesResidencyApi(
         new StorageOwnerConfiguration({
             basePath: `${await ensureLocalhostBaseUrl()}/storage`,
@@ -247,9 +235,7 @@ it.each(["full", "passthrough"] as const)(
             ),
         ).rejects.toMatchObject({ response: { status: 409 } });
         expect(fetchApi).toHaveBeenCalledTimes(2);
-        expect(host.invoke.mock.calls).toEqual([
-            ["get_localhost_server_base_url"],
-        ]);
+    expect(host.invoke.mock.calls).toEqual([["get_localhost_server_base_url"]]);
     },
 );
 
@@ -264,11 +250,7 @@ it("does not turn deselection or Full acknowledgement into transferred-resource 
     fetchApi.mockImplementation((url: string, init: RequestInit) => {
         if (url.endsWith("/residency"))
             return Promise.resolve(new Response(null, { status: 204 }));
-        if (
-            url.endsWith(
-                `/selection/${applicationId}/filesystem/${filesystemId}`,
-            )
-        )
+    if (url.endsWith(`/selection/${applicationId}/filesystem/${filesystemId}`))
             return Promise.resolve(new Response(null, { status: 204 }));
         if (url.endsWith("/selection")) {
             selectionAttempts += 1;
@@ -346,15 +328,15 @@ it("does not turn deselection or Full acknowledgement into transferred-resource 
             storageAccessToken: "fresh-transferred-resource-token",
         },
     ]);
-    expect(selectionCalls[1][1].headers.Authorization).toBe(
-        "Bearer owner-token",
-    );
+  expect(selectionCalls[1][1].headers.Authorization).toBe("Bearer owner-token");
     const exchanges = fetchApi.mock.calls.filter(([url]) =>
         url.endsWith("/oauth2/token"),
     );
-    expect(exchanges.map(([, init]) => init.body.get("subject_token"))).toEqual(
-        ["current-user", "current-user", "current-transferred-owner"],
-    );
+  expect(exchanges.map(([, init]) => init.body.get("subject_token"))).toEqual([
+    "current-user",
+    "current-user",
+    "current-transferred-owner",
+  ]);
     expect(exchanges.map(([, init]) => init.body.get("resource"))).toEqual([
         "idp-management",
         "idp-management",
@@ -436,8 +418,7 @@ it("uses the Management prefix once and audience for web source acceptance and e
                 access_token: "owner-token",
                 token_type: "Bearer",
             });
-        if (url.endsWith("/acceptance"))
-            return Response.json({ accepting: true });
+    if (url.endsWith("/acceptance")) return Response.json({ accepting: true });
         if (url.endsWith("/pending")) return Response.json(offers);
         if (url.endsWith("/approve"))
             return Response.json({ request: offers[0].request });
@@ -481,10 +462,7 @@ it("uses the Management prefix once and audience for web source acceptance and e
             .filter(([url]) => url.endsWith("/oauth2/token"))
             .map(([url, init]) => [url, init.body.get("resource")]),
     ).toEqual(
-        Array(4).fill([
-            "https://identity.test/idp/oauth2/token",
-            "idp-management",
-        ]),
+    Array(4).fill(["https://identity.test/idp/oauth2/token", "idp-management"]),
     );
     expect(host.invoke).not.toHaveBeenCalled();
 });
@@ -562,23 +540,28 @@ it("does not transfer source approval to a changed Management target during toke
     ]);
 });
 
-it("uses the Management audience for native source approval without changing the native command", async () => {
+it("uses Management HTTPS approval and audience on bundled desktop without removed native commands", async () => {
+  const ownerFetch = fetchApi.getMockImplementation();
+  fetchApi.mockImplementation((url, init) =>
+    url.endsWith("/acceptance")
+      ? Response.json({ accepting: true })
+      : ownerFetch?.(url, init),
+  );
     const devices = await import("./devices.svelte");
-    host.invoke.mockImplementation(async (command: string) =>
-        command === "get_localhost_server_base_url"
-            ? "https://localhost:4100"
-            : true,
-    );
     await expect(devices.nodeJoinAccepting(true)).resolves.toBe(true);
     expect(
         fetchApi.mock.calls
             .find(([url]) => url.endsWith("/oauth2/token"))?.[1]
             .body.get("resource"),
     ).toBe("idp-management");
-    expect(host.invoke).toHaveBeenCalledWith("node_join_accepting", {
-        bearer: "owner-token",
-        accepting: true,
-    });
+  expect(
+    fetchApi.mock.calls.find(([url]) => url.endsWith("/acceptance"))?.[0],
+  ).toBe("https://localhost:4100/management/node-joins/acceptance");
+  expect(
+    host.invoke.mock.calls.every(
+      ([command]) => command === "get_localhost_server_base_url",
+    ),
+  ).toBe(true);
 });
 
 it("uses Management Device client routes and audience for list, rename and revoke", async () => {
@@ -626,22 +609,71 @@ it("handles independent source acceptance 204 with readback, exact offers and as
   const management = await import("./managementClient.svelte");
   idp.setIdpApiUrl("https://identity.test/idp");
   management.setManagementApiUrl("https://source.test/management");
-  const operation = { purpose: "join", operation_nonce: "1".repeat(32), administrator: "", node: "Joining", idp: "https://target.test/idp", management: "https://target.test/management", storage: "https://target.test/storage", issuer: "https://installation.test/idp", peer: "https://source.test/management#" + "a".repeat(64) };
-  const request = { operation, device_id: "01900000-0000-7000-8000-000000000003", member_id: "01900000-0000-7000-8000-000000000004", endpoint_id: "b".repeat(64), public_signer: { kid: "01900000-0000-7000-8000-000000000005" }, source: { endpoint: "a".repeat(64), management: "https://source.test/management", issuer: operation.issuer } };
+  const operation = {
+    purpose: "join",
+    operation_nonce: "1".repeat(32),
+    administrator: "",
+    node: "Joining",
+    idp: "https://target.test/idp",
+    management: "https://target.test/management",
+    storage: "https://target.test/storage",
+    issuer: "https://installation.test/idp",
+    peer: "https://source.test/management#" + "a".repeat(64),
+  };
+  const request = {
+    operation,
+    device_id: "01900000-0000-7000-8000-000000000003",
+    member_id: "01900000-0000-7000-8000-000000000004",
+    endpoint_id: "b".repeat(64),
+    public_signer: { kid: "01900000-0000-7000-8000-000000000005" },
+    source: {
+      endpoint: "a".repeat(64),
+      management: "https://source.test/management",
+      issuer: operation.issuer,
+    },
+  };
   const offerId = "01900000-0000-7000-8000-000000000006";
   fetchApi.mockImplementation(async (url: string, init: RequestInit) => {
-    if (url.endsWith("/oauth2/token")) return Response.json({ access_token: "owner-token", token_type: "Bearer" });
-    if (url.endsWith("/acceptance")) return init.method === "PUT" ? new Response(null, { status: 204 }) : Response.json({ accepting: true });
-    if (url.endsWith("/pending")) return Response.json([{ offer_id: offerId, authenticated_endpoint: request.endpoint_id, request }]);
-    return new Response(null, { status: url.endsWith("/approve") ? 202 : 204 });
+    if (url.endsWith("/oauth2/token"))
+      return Response.json({
+        access_token: "owner-token",
+        token_type: "Bearer",
+      });
+    if (url.endsWith("/acceptance"))
+      return init.method === "PUT"
+        ? new Response(null, { status: 204 })
+        : Response.json({ accepting: true });
+    if (url.endsWith("/pending"))
+      return Response.json([
+        {
+          offer_id: offerId,
+          authenticated_endpoint: request.endpoint_id,
+          request,
+        },
+      ]);
+    return new Response(null, {
+      status: url.endsWith("/approve") ? 202 : 204,
+    });
   });
   const devices = await import("./devices.svelte");
   await expect(devices.nodeJoinAccepting(true)).resolves.toBe(true);
   const offers = await devices.pendingNodeJoins();
-  expect(offers[0].request).toMatchObject({ operation, device_id: request.device_id, member_id: request.member_id, name: "Joining", installation: operation.issuer });
-  await expect(devices.approvePendingNodeJoin(offerId)).resolves.toBe("accepted");
+  expect(offers[0].request).toMatchObject({
+    operation,
+    device_id: request.device_id,
+    member_id: request.member_id,
+    name: "Joining",
+    installation: operation.issuer,
+  });
+  await expect(devices.approvePendingNodeJoin(offerId)).resolves.toBe(
+    "accepted",
+  );
   await devices.rejectPendingNodeJoin(offerId);
-  expect(fetchApi.mock.calls.filter(([url]) => url.endsWith("/acceptance")).map(([, init]) => init.method)).toEqual(["PUT", "GET"]);
+  expect(
+    fetchApi.mock.calls
+      .filter(([url]) => url.endsWith("/acceptance"))
+      .map(([, init]) => init.method),
+  ).toEqual(["PUT", "GET"]);
   expect(host.invoke).not.toHaveBeenCalled();
 });
 
@@ -652,10 +684,22 @@ it("keeps desktop remote owner targets and source approval on HTTPS without invo
   management.setManagementApiUrl("https://remote.test/management");
   expect(await idp.ensureTauriIdpApiUrl()).toBe("https://remote.test/idp");
   await management.ensureTauriManagementApiUrl();
-  expect(management.getManagementApiUrl()).toBe("https://remote.test/management");
-  fetchApi.mockImplementation(async (url: string) => url.endsWith("/oauth2/token") ? Response.json({ access_token: "owner-token", token_type: "Bearer" }) : Response.json({ accepting: true }));
+  expect(management.getManagementApiUrl()).toBe(
+    "https://remote.test/management",
+  );
+  fetchApi.mockImplementation(async (url: string) =>
+    url.endsWith("/oauth2/token")
+      ? Response.json({
+          access_token: "owner-token",
+          token_type: "Bearer",
+        })
+      : Response.json({ accepting: true }),
+  );
   const devices = await import("./devices.svelte");
   await expect(devices.nodeJoinAccepting()).resolves.toBe(true);
-  expect(fetchApi.mock.calls.map(([url]) => url)).toEqual(["https://remote.test/idp/oauth2/token", "https://remote.test/management/node-joins/acceptance"]);
+  expect(fetchApi.mock.calls.map(([url]) => url)).toEqual([
+    "https://remote.test/idp/oauth2/token",
+    "https://remote.test/management/node-joins/acceptance",
+  ]);
   expect(host.invoke).not.toHaveBeenCalled();
 });

@@ -1,10 +1,18 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { clearOidcSession } from "./oidc.svelte";
-import { getIdpApiUrl, usesApiSetup } from "./idpClient.svelte";
+import {
+  getIdpApiUrl,
+  usesRemoteApis,
+  ensureTauriIdpApiUrl,
+} from "./idpClient.svelte";
 import { env } from "$env/dynamic/public";
-import { getManagementApiUrl } from "./managementClient.svelte";
+import {
+  getManagementApiUrl,
+  ensureTauriManagementApiUrl,
+} from "./managementClient.svelte";
 import {
   cancelSetupCreate,
+  setupBase,
   fetchSetupIntent,
   exactJoinRequest,
   submitSetupJoin,
@@ -20,18 +28,21 @@ import {
   type SetupStage,
 } from "./setupApi";
 
-export { usesApiSetup } from "./idpClient.svelte";
+export { usesRemoteApis } from "./idpClient.svelte";
 
 export type { SetupStage } from "./setupApi";
 
 export async function resetDevice(): Promise<void> {
-  if (isTauri() && usesApiSetup()) throw new Error("Remote owner reset requires explicit protected host management, not local native reset");
+  if (isTauri() && usesRemoteApis())
+    throw new Error(
+      "Remote owner reset requires explicit protected host management, not local native reset",
+    );
   clearOidcSession();
   await invoke("reset_device");
 }
 
 export async function getSetupStage(): Promise<SetupStage> {
-  if (usesApiSetup()) {
+  if (usesRemoteApis()) {
     const hosts = await getWebSetupHosts();
     return hosts.every((host) => host.status.ready)
       ? "ready"
@@ -44,14 +55,52 @@ export async function getSetupStage(): Promise<SetupStage> {
 }
 
 export async function getWebSetupHosts(): Promise<SetupHost[]> {
-  requireSetupUiOrigin(
-    typeof window === "undefined" ? "" : window.location.origin,
-  );
+  requireSharedSetupOrigin();
+  if (isTauri() && !usesRemoteApis()) {
+    await ensureTauriIdpApiUrl();
+    await ensureTauriManagementApiUrl();
+  }
   return fetchSetupHosts({
     idp: getIdpApiUrl() ?? "",
     management: getManagementApiUrl(),
     storage: env.PUBLIC_STORAGE_BASE_URL,
   });
+}
+
+function requireSharedSetupOrigin(): void {
+  const location = typeof window === "undefined" ? undefined : window.location;
+  const origin =
+    location?.origin === "null" &&
+    location.protocol === "tauri:" &&
+    location.hostname === "localhost"
+      ? "tauri://localhost"
+      : (location?.origin ?? "");
+  if (
+    isTauri() &&
+    !usesRemoteApis() &&
+    ["tauri://localhost", "http://tauri.localhost"].includes(origin)
+  )
+    return;
+  requireSetupUiOrigin(origin);
+}
+
+export async function readNativeSetupCode(
+  base: string,
+): Promise<string | null> {
+  if (!isTauri() || usesRemoteApis())
+    throw new Error(
+      "Native capability retrieval is only for the selected bundled host",
+    );
+  const origin = await invoke<string>("get_localhost_server_base_url");
+  const expected = `${setupBase(origin)}/idp`;
+  if (base !== expected || getIdpApiUrl()?.replace(/\/$/, "") !== expected)
+    throw new Error("Native capability cannot authorize a remote target");
+  const code = await invoke<string | null>("get_native_setup_code");
+  if (usesRemoteApis() || getIdpApiUrl()?.replace(/\/$/, "") !== expected)
+    throw new Error("Selected host changed during capability retrieval");
+  if (code !== null && !/^[a-f0-9]{64}$/.test(code))
+    throw new Error("Native setup capability unavailable");
+  return code;
 }
 
 export function isUnifiedSetupHost(host: SetupHost): boolean {
@@ -96,7 +145,6 @@ export class WebSetupCreate {
   ): Promise<void> {
     if (!this.active || this.busy) return;
     if (
-      !usesApiSetup() ||
       !this.status ||
       !isUnifiedSetupHost({ base: this.base, status: this.status }) ||
       this.status.stage !== "installation" ||
@@ -136,9 +184,7 @@ export class WebSetupCreate {
     this.busy = true;
     this.message = "";
     try {
-      requireSetupUiOrigin(
-        typeof window === "undefined" ? "" : window.location.origin,
-      );
+      requireSharedSetupOrigin();
       if (!this.intent) {
         const bytes = crypto.getRandomValues(new Uint8Array(16));
         this.intent = Object.freeze({
@@ -174,7 +220,6 @@ export class WebSetupCreate {
   async join(code: string, node: string, peer: string): Promise<void> {
     if (!this.active || this.busy) return;
     if (
-      !usesApiSetup() ||
       !this.status ||
       !isUnifiedSetupHost({ base: this.base, status: this.status }) ||
       this.status.stage !== "installation" ||
@@ -187,9 +232,7 @@ export class WebSetupCreate {
       return;
     }
     try {
-      requireSetupUiOrigin(
-        typeof window === "undefined" ? "" : window.location.origin,
-      );
+      requireSharedSetupOrigin();
       if (!/^[a-f0-9]{64}$/.test(code)) throw new Error("Invalid code");
       exactJoinRequest({ operation_nonce: "0".repeat(32), node, peer });
     } catch {
@@ -241,7 +284,6 @@ export class WebSetupCreate {
   async recover(code: string): Promise<void> {
     if (!this.active || this.busy) return;
     if (
-      !usesApiSetup() ||
       !this.status ||
       !isUnifiedSetupHost({ base: this.base, status: this.status }) ||
       this.status.ready
@@ -257,9 +299,7 @@ export class WebSetupCreate {
     this.busy = true;
     this.message = "";
     try {
-      requireSetupUiOrigin(
-        typeof window === "undefined" ? "" : window.location.origin,
-      );
+      requireSharedSetupOrigin();
       const recovered = await fetchSetupIntent(this.base, code);
       if (!this.active) return;
       const status = await fetchSetupStatus(this.base);
@@ -310,9 +350,7 @@ export class WebSetupCreate {
     if (!this.active || this.busy) return;
     this.busy = true;
     try {
-      requireSetupUiOrigin(
-        typeof window === "undefined" ? "" : window.location.origin,
-      );
+      requireSharedSetupOrigin();
       const status = await fetchSetupStatus(this.base);
       if (!this.active) return;
       this.accept(status);
@@ -347,11 +385,8 @@ export class WebSetupCreate {
     }
     this.busy = true;
     try {
-      requireSetupUiOrigin(
-        typeof window === "undefined" ? "" : window.location.origin,
-      );
+      requireSharedSetupOrigin();
       if (
-        !usesApiSetup() ||
         !this.status ||
         !isUnifiedSetupHost({ base: this.base, status: this.status })
       )
