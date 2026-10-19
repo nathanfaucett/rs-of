@@ -6,7 +6,7 @@ use idp_model::model::Id;
 use management_service::DeviceEndpointIdentity;
 use management_service::{
     HostedControlPlane, ManagementService,
-    replica::{DbPermissionRepo, DbRoleRepo, DbSelectionPolicyRepo},
+    replica::{DbDeviceRepo, DbPermissionRepo, DbRoleRepo, DbSelectionPolicyRepo},
 };
 use model::contract::SelectedResource;
 
@@ -75,6 +75,12 @@ pub async fn build_router(
     storage_audience: &str,
     control_plane: Arc<HostedControlPlane>,
 ) -> Result<Router, db::QueryError> {
+    let control_plane = Arc::new(
+        control_plane
+            .as_ref()
+            .clone()
+            .with_local_devices(Arc::new(DbDeviceRepo::new(Arc::clone(&engine)))),
+    );
     let management_service = Arc::new(ManagementService::new(
         DbPermissionRepo::new(Arc::clone(&engine)),
         DbRoleRepo::new(Arc::clone(&engine)),

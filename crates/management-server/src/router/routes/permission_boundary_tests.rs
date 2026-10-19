@@ -323,14 +323,13 @@ async fn restriction_api_updates_exact_device_with_separate_read_and_update_gran
     let owner = Id::now_v7();
     let administrator = Id::now_v7();
     let device = Id::now_v7();
-    // The IdP response seam is controlled here; real native IdP lookup is separately qualified.
+    engine.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{owner}', 'test', 'd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a', '', 1, 1, NULL, 1, 1)"), &db::SqlTranslator).await.expect("Management-owned Device");
     let owner_api = axum::Router::new().route("/oauth2/token", axum::routing::post(|| async { Json(serde_json::json!({
         "access_token":"lookup-token", "token_type":"Bearer", "expires_in":300,
-        "scope":"idp.token.validate idp.device.lookup", "iss":"https://installation.example"
-    })) })).route("/devices/identities/{device}", axum::routing::get(move || async move { Json(serde_json::json!({
-        "deviceId": device, "ownerSubject": owner,
-        "endpointId":"d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
-    })) }));
+        "scope":"idp.token.validate idp.user.lookup", "iss":"https://installation.example"
+    })) })).route("/users/{user}/active", axum::routing::get(move |Path(user): Path<Id>| async move {
+        if user == owner { axum::http::StatusCode::NO_CONTENT } else { axum::http::StatusCode::NOT_FOUND }
+    }));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("owner seam listener");
@@ -345,7 +344,10 @@ async fn restriction_api_updates_exact_device_with_separate_read_and_update_gran
         HostedControlPlane::new_with_services(&url, &url, "https://installation.example")
             .expect("control plane")
             .with_idp_service_client("lookup", "secret", "idp-services")
-            .expect("scoped lookup"),
+            .expect("scoped lookup")
+            .with_local_devices(Arc::new(management_service::replica::DbDeviceRepo::new(
+                engine.clone(),
+            ))),
     );
     state
         .selection_policies

@@ -44,6 +44,7 @@ pub enum IdentityAction {
     KeysRead,
     KeysRotate,
     KeysRevoke,
+    DevicesRead,
     DevicesEnroll,
     DevicesRename,
     DevicesRevoke,
@@ -83,14 +84,15 @@ impl IdentityAction {
             Self::KeysRead => "idp.keys.read",
             Self::KeysRotate => "idp.keys.rotate",
             Self::KeysRevoke => "idp.keys.revoke",
-            Self::DevicesEnroll => "idp.devices.enroll",
-            Self::DevicesRename => "idp.devices.rename",
-            Self::DevicesRevoke => "idp.devices.revoke",
-            Self::DevicesTransfer => "idp.devices.transfer",
+            Self::DevicesRead => "management.devices.read",
+            Self::DevicesEnroll => "management.devices.enroll",
+            Self::DevicesRename => "management.devices.rename",
+            Self::DevicesRevoke => "management.devices.revoke",
+            Self::DevicesTransfer => "management.devices.transfer",
             Self::DeviceRestrictionsRead => "management.device_restrictions.read",
             Self::DeviceRestrictionsUpdate => "management.device_restrictions.update",
-            Self::DevicePairingRead => "idp.device_pairing.read",
-            Self::DevicePairingUpdate => "idp.device_pairing.update",
+            Self::DevicePairingRead => "management.device_pairing.read",
+            Self::DevicePairingUpdate => "management.device_pairing.update",
             Self::ReplicaSignersEnroll => "idp.replica_signers.enroll",
             Self::ReplicaSignersRotate => "idp.replica_signers.rotate",
             Self::ReplicaSignersRevoke => "idp.replica_signers.revoke",
@@ -220,9 +222,10 @@ impl PermissionEvaluationRequest {
                 A::KeysRead | A::KeysRotate | A::KeysRevoke,
                 IdentityResource::ClientKeys { client_id },
             ) => !client_id.is_empty(),
-            (A::DevicesEnroll, IdentityResource::Device { id: None }) => true,
+            (A::DevicesRead | A::DevicesEnroll, IdentityResource::Device { id: None }) => true,
             (
-                A::DevicesRename
+                A::DevicesRead
+                | A::DevicesRename
                 | A::DevicesRevoke
                 | A::DevicesTransfer
                 | A::DeviceRestrictionsRead

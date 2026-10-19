@@ -24,6 +24,21 @@ pub async fn up(engine: &Database) -> Result<(), db::QueryError> {
             .translate_and_execute(statement, &SqlTranslator)
             .await?;
     }
+    let devices = engine
+        .client()
+        .translate_and_execute("SELECT * FROM devices LIMIT 0", &SqlTranslator)
+        .await?;
+    if devices[0].columns.iter().any(|column| {
+        matches!(
+            column.name.as_str(),
+            "enrollment_code_hash" | "enrollment_expires_at" | "pairing_accepting_public_key"
+        )
+    }) {
+        return Err(db::QueryError::new(
+            db::QueryErrorKind::Rejected,
+            "mixed Device enrollment history is unsupported; initialize a fresh Management database",
+        ));
+    }
     Ok(())
 }
 
@@ -31,6 +46,24 @@ pub async fn up(engine: &Database) -> Result<(), db::QueryError> {
 mod tests {
 
     use super::up;
+
+    #[tokio::test]
+    async fn rejects_mixed_public_device_enrollment_history_without_repair() {
+        let engine = db::Database::in_memory();
+        engine.client().translate_and_execute("CREATE TABLE devices (id UUID PRIMARY KEY, owner_subject TEXT NOT NULL, name TEXT, public_key TEXT, address TEXT, state INTEGER, approved_at INTEGER, revoked_at INTEGER, created_at INTEGER, updated_at INTEGER, enrollment_code_hash BLOB)", &db::SqlTranslator).await.expect("unsupported retained public layout");
+        assert!(super::up(&engine).await.is_err());
+        let result = engine
+            .client()
+            .translate_and_execute(
+                "SELECT enrollment_code_hash FROM devices LIMIT 0",
+                &db::SqlTranslator,
+            )
+            .await;
+        assert!(
+            result.is_ok(),
+            "failed open must not mutate away retained history"
+        );
+    }
 
     #[tokio::test]
     async fn initializes_management_tables_without_identity_tables() {

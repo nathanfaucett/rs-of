@@ -7,6 +7,17 @@ use crate::RouterState;
 
 use super::openapi::{__path_openapi_json, openapi_json};
 
+use super::routes::device::{__path_device, device};
+use super::routes::device_self_revocation::{__path_revoke_self, revoke_self};
+use super::routes::devices::{
+    __path_enroll_device, __path_list_approved_device_endpoints, __path_list_devices,
+    __path_lookup_device_endpoint, __path_lookup_device_identity, __path_pairing_acceptance,
+    __path_revoke_device, __path_set_pairing_acceptance, __path_transfer_device,
+    __path_trusted_devices, __path_update_device, enroll_device, list_approved_device_endpoints,
+    list_devices, lookup_device_endpoint, lookup_device_identity, pairing_acceptance,
+    revoke_device, set_pairing_acceptance, transfer_device, trusted_devices, update_device,
+};
+
 use super::routes::device_restriction::{
     __path_get_device_restriction, __path_put_device_restriction, get_device_restriction,
     put_device_restriction,
@@ -57,6 +68,19 @@ pub fn openapi_router(router_state: RouterState, prefix: &str) -> OpenApiRouter 
     let routes = || {
         OpenApiRouter::new()
             .routes(routes!(health))
+            .routes(routes!(device))
+            .routes(routes!(revoke_self))
+            .routes(routes!(transfer_device))
+            .routes(routes!(lookup_device_endpoint))
+            .routes(routes!(lookup_device_identity))
+            .routes(routes!(list_approved_device_endpoints))
+            .routes(routes!(trusted_devices))
+            .routes(routes!(enroll_device))
+            .routes(routes!(pairing_acceptance))
+            .routes(routes!(set_pairing_acceptance))
+            .routes(routes!(list_devices))
+            .routes(routes!(update_device))
+            .routes(routes!(revoke_device))
             .routes(routes!(version))
             .routes(routes!(list_user_roles_across_applications))
             .routes(routes!(get_device_restriction))

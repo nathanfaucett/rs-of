@@ -80,8 +80,28 @@ fn assert_contract(document: &Value) {
         .flat_map(|item| item.as_object().expect("path item").values())
         .filter(|operation| operation.get("operationId").is_some())
         .count();
-    assert_eq!(operations, 24, "complete Management operation inventory");
+    assert_eq!(operations, 37, "complete Management operation inventory");
     assert!(paths.contains_key("/openapi.json"));
+    for (path, method) in [
+        ("/device", "get"),
+        ("/devices", "get"),
+        ("/devices/endpoints", "get"),
+        ("/devices/endpoints/{endpoint_id}", "get"),
+        ("/devices/identities/{device_id}", "get"),
+        ("/devices/trusted", "get"),
+        ("/devices/enrollments", "post"),
+        ("/devices/revoke-self", "post"),
+        ("/devices/pairing-accepting", "get"),
+        ("/devices/pairing-accepting", "put"),
+        ("/devices/{id}", "patch"),
+        ("/devices/{id}", "delete"),
+        ("/devices/{device_id}/owner", "put"),
+    ] {
+        assert!(
+            document["paths"][path][method].is_object(),
+            "Management owns {method} {path}"
+        );
+    }
     assert!(paths.keys().all(|path| !path.starts_with("/management/")));
     assert_eq!(
         document["servers"][0]["url"],

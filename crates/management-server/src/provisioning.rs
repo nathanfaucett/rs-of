@@ -1,6 +1,6 @@
 use std::{fs, io, path::Path, sync::Arc};
 
-use db::{Database, SqlTranslator, Value};
+use db::{Database, Row, SqlTranslator, Value};
 use idp_model::{
     contract::IdentityAction,
     model::{Id, Role},
@@ -46,15 +46,39 @@ pub async fn provision_initial_device(
     endpoint_id: &str,
     name: &str,
 ) -> io::Result<()> {
-    if device_id.is_nil() || owner.is_nil() || endpoint_id.trim().is_empty() {
+    let canonical_endpoint = endpoint_id
+        .parse::<iroh::EndpointId>()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid initial endpoint ID"))?;
+    if device_id.is_nil()
+        || owner.is_nil()
+        || canonical_endpoint.to_string() != endpoint_id
+        || name.trim().is_empty()
+        || name.len() > 512
+    {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "initial Device requires stable owner, Device ID and endpoint ID",
+            "initial Device requires stable owner, Device ID, canonical endpoint and name",
         ));
     }
-
-    let devices = Arc::clone(&engine)
+    let mut transaction = engine
         .client()
+        .transaction()
+        .await
+        .map_err(io::Error::other)?;
+    for table in ["devices", "local_device_enrollments"] {
+        if !transaction
+            .row_conflicts(table, &Row::new(vec![Value::Uuid(device_id)]))
+            .await
+            .map_err(io::Error::other)?
+            .is_empty()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "initial Device has unresolved owner conflicts",
+            ));
+        }
+    }
+    let devices = transaction
         .translate_and_execute(
             "SELECT id, owner_subject, name, public_key, state, revoked_at FROM devices",
             &SqlTranslator,
@@ -67,8 +91,7 @@ pub async fn provision_initial_device(
         let query = format!(
             "INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES (CAST('{device_id}' AS UUID), '{owner}', '{name_esc}', '{endpoint_esc}', '', 1, 1, NULL, 1, 1)",
         );
-        Arc::clone(&engine)
-            .client()
+        transaction
             .translate_and_execute(&query, &SqlTranslator)
             .await
             .map_err(io::Error::other)?;
@@ -88,6 +111,8 @@ pub async fn provision_initial_device(
             "initial Node Device conflicts with persisted setup",
         ));
     }
+
+    transaction.commit().await.map_err(io::Error::other)?;
 
     let policies = DbSelectionPolicyRepo::new(Arc::clone(&engine));
     let expected = SelectionPolicy {
@@ -132,6 +157,27 @@ mod tests {
     use crate::provision_initial_administrator;
 
     #[tokio::test]
+    async fn initial_device_rejects_noncanonical_endpoint_without_seeding() {
+        use management_service::{DeviceRepo, replica::DbDeviceRepo};
+        let engine = std::sync::Arc::new(db::Database::in_memory());
+        management_service::replica::up(&engine)
+            .await
+            .expect("owner schema");
+        assert!(
+            super::provision_initial_device(
+                engine.clone(),
+                Id::now_v7(),
+                Id::now_v7(),
+                "not-an-endpoint",
+                "node"
+            )
+            .await
+            .is_err()
+        );
+        assert!(!DbDeviceRepo::new(engine).has_any().await.expect("no seed"));
+    }
+
+    #[tokio::test]
     async fn initial_device_policy_retries_with_empty_selection_without_resurrecting_restrictions()
     {
         use db::Database;
@@ -145,12 +191,12 @@ mod tests {
             .expect("initialize owner schema");
         let device = Id::now_v7();
         let owner = Id::now_v7();
-        let endpoint = "test-endpoint";
+        let endpoint = iroh::SecretKey::generate().public().to_string();
         let name = "node";
-        super::provision_initial_device(engine.clone(), device, owner, endpoint, name)
+        super::provision_initial_device(engine.clone(), device, owner, &endpoint, name)
             .await
             .expect("persist local Device policy");
-        super::provision_initial_device(engine.clone(), device, owner, endpoint, name)
+        super::provision_initial_device(engine.clone(), device, owner, &endpoint, name)
             .await
             .expect("exact interrupted retry");
         {
@@ -174,13 +220,13 @@ mod tests {
                 .expect("learn local restriction");
         }
         assert!(
-            super::provision_initial_device(engine.clone(), device, owner, endpoint, name)
+            super::provision_initial_device(engine.clone(), device, owner, &endpoint, name)
                 .await
                 .is_err(),
             "setup retry cannot undo a learned restriction"
         );
         assert!(
-            super::provision_initial_device(engine.clone(), device, Id::now_v7(), endpoint, name)
+            super::provision_initial_device(engine.clone(), device, Id::now_v7(), &endpoint, name)
                 .await
                 .is_err(),
             "retry cannot reassign an existing Device policy"
