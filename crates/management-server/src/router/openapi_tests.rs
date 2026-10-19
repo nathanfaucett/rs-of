@@ -80,9 +80,10 @@ fn assert_contract(document: &Value) {
         .flat_map(|item| item.as_object().expect("path item").values())
         .filter(|operation| operation.get("operationId").is_some())
         .count();
-    assert_eq!(operations, 37, "complete Management operation inventory");
+    assert_eq!(operations, 38, "complete Management operation inventory");
     assert!(paths.contains_key("/openapi.json"));
     for (path, method) in [
+        ("/replication/owner-cleanup", "post"),
         ("/device", "get"),
         ("/devices", "get"),
         ("/devices/endpoints", "get"),
@@ -123,7 +124,14 @@ fn assert_contract(document: &Value) {
             .keys()
             .map(String::as_str)
             .collect::<Vec<_>>(),
-        fields,
+        [
+            "adminAllowed",
+            "deviceId",
+            "endpointId",
+            "ownerSubject",
+            "pendingCleanup",
+            "resources"
+        ],
     );
     let mut required = schema["required"]
         .as_array()

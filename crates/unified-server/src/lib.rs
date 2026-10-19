@@ -65,3 +65,6 @@ pub use setup_host::SetupHost;
 mod independent_create_tests;
 #[cfg(all(test, target_os = "linux"))]
 mod independent_join_tests;
+
+#[cfg(all(test, target_os = "linux"))]
+mod independent_transfer_tests;

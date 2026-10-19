@@ -19,6 +19,7 @@ pub struct AppConfig {
     pub management_oauth_client_id: Option<String>,
     pub management_oauth_client_secret: Option<String>,
     pub management_service_audience: Option<String>,
+    pub management_endpoint_id: Option<String>,
     pub env: Environment,
 }
 
@@ -37,6 +38,7 @@ impl Default for AppConfig {
             management_oauth_client_id: None,
             management_oauth_client_secret: None,
             management_service_audience: None,
+            management_endpoint_id: None,
             log_level: "DEBUG".to_string(),
             env: Environment::default(),
         }

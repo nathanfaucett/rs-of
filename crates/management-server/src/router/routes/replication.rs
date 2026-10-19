@@ -9,8 +9,8 @@ use idp_model::{
 };
 use management_service::replica::SelectedResource as StoredSelectedResource;
 use model::contract::{
-    MANAGEMENT_REPLICATION_ADMIT_SCOPE, MANAGEMENT_REPLICATION_READ_SCOPE, PrincipalType,
-    ReplicationAdmissionRequest, SelectedResourcesResponse, StandardClaims,
+    MANAGEMENT_REPLICATION_ADMIT_SCOPE, MANAGEMENT_REPLICATION_READ_SCOPE, OwnerCopyCleanup,
+    PrincipalType, ReplicationAdmissionRequest, SelectedResourcesResponse, StandardClaims,
 };
 
 use crate::router::RouterState;
@@ -48,17 +48,54 @@ pub(crate) async fn selected_resources(
     authorized?;
     let identity = identity?;
 
-    let (admin_allowed, resources) =
+    let ready = state
+        .selection_policies
+        .reconcile_owner_prevalidated(identity.device_id, &identity.owner_subject)
+        .await
+        .map_err(|_| unavailable())?;
+    let pending_cleanup = if ready {
+        None
+    } else {
+        Some(OwnerCopyCleanup {
+            cleanup_id: state
+                .selection_policies
+                .pending_cleanup_id(identity.device_id)
+                .await
+                .map_err(|_| unavailable())?
+                .ok_or_else(unavailable)?
+                .to_string(),
+            device_id: identity.device_id.to_string(),
+            endpoint_id: identity.endpoint_id.clone(),
+            old_owner_subject: state
+                .selection_policies
+                .pending_cleanup_owner(identity.device_id)
+                .await
+                .map_err(|_| unavailable())?
+                .ok_or_else(unavailable)?,
+            new_owner_subject: identity.owner_subject.clone(),
+        })
+    };
+    let (admin_allowed, resources) = if ready {
         crate::runtime::replication_policy_from_repo(&state.selection_policies, &identity)
             .await
-            .map_err(|error| {
-                log::warn!("failed to evaluate replication policy: {error}");
-                unavailable()
-            })?;
+            .map_err(|_| unavailable())?
+    } else {
+        (false, vec![])
+    };
+    if state
+        .control_plane
+        .get_storage_endpoint_identity(&endpoint_id)
+        .await
+        .map_err(|_| unavailable())?
+        != identity
+    {
+        return Err(denied());
+    }
     Ok(Json(SelectedResourcesResponse {
         device_id: identity.device_id.to_string(),
         endpoint_id: identity.endpoint_id,
         owner_subject: identity.owner_subject,
+        pending_cleanup,
         admin_allowed,
         resources,
     }))
@@ -141,6 +178,61 @@ pub(crate) async fn replication_admission(
         ) {
             return Err(denied());
         }
+    }
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
+    path = "/replication/owner-cleanup",
+    request_body = OwnerCopyCleanup,
+    responses(
+        (status = 204, description = "Exact owner cleanup acknowledged"),
+        (status = 401, description = "Invalid bearer token"),
+        (status = 403, description = "Stale binding or insufficient service permission"),
+        (status = 503, description = "Authorization authority unavailable")
+    ),
+    security(("authorization" = []))
+)]
+pub(crate) async fn owner_cleanup(
+    State(state): State<RouterState>,
+    headers: HeaderMap,
+    Json(request): Json<OwnerCopyCleanup>,
+) -> Result<axum::http::StatusCode, ErrorResponse> {
+    authorize_storage(&state, &headers, MANAGEMENT_REPLICATION_ADMIT_SCOPE).await?;
+    let identity = state
+        .control_plane
+        .get_storage_endpoint_identity(&request.endpoint_id)
+        .await
+        .map_err(|_| unavailable())?;
+    if identity.device_id.to_string() != request.device_id
+        || identity.owner_subject != request.new_owner_subject
+        || !request
+            .old_owner_subject
+            .parse::<Id>()
+            .is_ok_and(|owner| !owner.is_nil())
+        || !state
+            .selection_policies
+            .complete_owner_cleanup_bound(
+                identity.device_id,
+                &request.old_owner_subject,
+                &request.new_owner_subject,
+                &request.endpoint_id,
+                request.cleanup_id.parse::<Id>().map_err(|_| denied())?,
+            )
+            .await
+            .map_err(|_| unavailable())?
+    {
+        return Err(denied());
+    }
+    if state
+        .control_plane
+        .get_storage_endpoint_identity(&request.endpoint_id)
+        .await
+        .map_err(|_| unavailable())?
+        != identity
+    {
+        return Err(denied());
     }
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
@@ -413,7 +505,7 @@ mod tests {
                 )
                 .await
                 .expect("read current policy");
-            if step >= 3 {
+            if matches!(step, 3 | 5) {
                 assert!(
                     !response.status().is_success(),
                     "owner change/revocation/pending cleanup must deny"
@@ -428,6 +520,19 @@ mod tests {
                 serde_json::from_slice(&body).expect("Device policy contract");
             assert_eq!(policy.device_id, device.to_string());
             assert_eq!(policy.endpoint_id, endpoint);
+            if matches!(step, 4 | 6) {
+                let cleanup = policy
+                    .pending_cleanup
+                    .expect("authorized service sees durable fence");
+                assert_eq!(cleanup.device_id, device.to_string());
+                assert_eq!(cleanup.endpoint_id, endpoint);
+                assert_eq!(cleanup.old_owner_subject, owner);
+                assert_eq!(cleanup.new_owner_subject, policy.owner_subject);
+                assert!(!policy.admin_allowed);
+                assert!(policy.resources.is_empty());
+                continue;
+            }
+            assert!(policy.pending_cleanup.is_none());
             assert_eq!(policy.owner_subject, owner);
             assert_eq!(policy.admin_allowed, step != 1);
             assert_eq!(policy.resources.len(), usize::from(step != 2));

@@ -32,7 +32,7 @@ const expectedApis = {
   management: {
     DefaultApi:
       "assignPermissionToRole assignRoleToUser createPermission createRole deleteDeviceResourceSelection deleteDeviceSelection deletePermission deleteRole device enrollDevice evaluatePermission getDeviceRestriction health listApprovedDeviceEndpoints listDevices listPermissions listRolePermissions listRoles listUserRoles listUserRolesAcrossApplications lookupDeviceEndpoint lookupDeviceIdentity openapiJson pairingAcceptance putDeviceRestriction putDeviceSelection revokeDevice revokePermissionFromRole revokeRoleFromUser revokeSelf setPairingAcceptance transferDevice trustedDevices updateDevice version",
-    SuperRoutesReplicationApi: "replicationAdmission selectedResources",
+    SuperRoutesReplicationApi: "ownerCleanup replicationAdmission selectedResources",
   },
   storage: {
     DefaultApi: "health openapiJson upgradeSocket version",

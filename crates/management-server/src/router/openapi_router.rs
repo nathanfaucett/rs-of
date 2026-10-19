@@ -37,8 +37,8 @@ use super::routes::permissions::{
     list_role_permissions, revoke_permission_from_role,
 };
 use super::routes::replication::{
-    __path_replication_admission, __path_selected_resources, replication_admission,
-    selected_resources,
+    __path_owner_cleanup, __path_replication_admission, __path_selected_resources, owner_cleanup,
+    replication_admission, selected_resources,
 };
 use super::routes::roles::{
     __path_assign_role_to_user, __path_create_role, __path_delete_role, __path_list_roles,
@@ -55,7 +55,8 @@ use super::routes::version::{__path_version, version};
     info(title = "LIDP Management API", version = env!("CARGO_PKG_VERSION")),
     paths(
         super::routes::replication::selected_resources,
-        super::routes::replication::replication_admission
+        super::routes::replication::replication_admission,
+        super::routes::replication::owner_cleanup
     ),
     modifiers(&SecurityAddon)
 )]
@@ -90,6 +91,7 @@ pub fn openapi_router(router_state: RouterState, prefix: &str) -> OpenApiRouter 
             .routes(routes!(delete_device_resource_selection))
             .routes(routes!(selected_resources))
             .routes(routes!(replication_admission))
+            .routes(routes!(owner_cleanup))
             .routes(routes!(evaluate_permission))
             .routes(routes!(list_roles))
             .routes(routes!(create_role))

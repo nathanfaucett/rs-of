@@ -24,7 +24,7 @@ pub use id_token::IdToken;
 pub use principal_type::PrincipalType;
 pub use refresh_token::RefreshToken;
 pub use replication::{
-    MANAGEMENT_REPLICATION_ADMIT_SCOPE, MANAGEMENT_REPLICATION_READ_SCOPE,
+    MANAGEMENT_REPLICATION_ADMIT_SCOPE, MANAGEMENT_REPLICATION_READ_SCOPE, OwnerCopyCleanup,
     ReplicationAdmissionRequest, SelectedResource, SelectedResourcesResponse,
 };
 pub use standard_claims::StandardClaims;

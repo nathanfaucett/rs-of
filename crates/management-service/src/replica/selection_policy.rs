@@ -471,64 +471,125 @@ impl DbSelectionPolicyRepo {
         if device_id.is_nil() || owner_subject.trim().is_empty() {
             return Err(invalid("invalid Device owner binding"));
         }
-        let pending = self.local_cleanup_pending(device_id).await?;
-        let Some(policy) = self.record(device_id).await? else {
+        self.resolve_convergent_conflicts(device_id).await?;
+        let mut transaction = self.engine.client().transaction().await.map_err(db_error)?;
+        if !transaction
+            .row_conflicts(TABLE, &key(device_id))
+            .await
+            .map_err(db_error)?
+            .is_empty()
+        {
+            return Err(invalid("conflicted selection policy"));
+        }
+        let results = transaction
+            .execute(vec![Statement::Query(policy_query(device_id))])
+            .await
+            .map_err(db_error)?;
+        let policies = results
+            .first()
+            .ok_or_else(|| invalid("missing policy query result"))?
+            .rows_as::<SelectionPolicy>()
+            .map_err(|error| invalid(error.to_string()))?;
+        let pending = transaction
+            .execute(vec![Statement::Query(cleanup_query(device_id))])
+            .await
+            .map_err(db_error)?
+            .iter()
+            .any(|result| !result.rows.is_empty());
+        let Some(policy) = policies.first() else {
             return Ok(!pending);
         };
         if policy.owner_subject == owner_subject && !pending {
             return Ok(true);
         }
         if !pending {
-            self.engine
-                .client()
+            transaction
                 .execute(vec![Statement::Query(Query::Insert(QueryInsert {
                     table: "local_device_copy_cleanup".into(),
-                    row: key(device_id),
+                    row: Row::new(vec![Value::Uuid(device_id), Value::Uuid(Uuid::now_v7())]),
                     returning: None,
                 }))])
                 .await
                 .map_err(db_error)?;
         }
-        self.set_admin_allowed_prevalidated(device_id, &policy.owner_subject, false)
-            .await?;
-        self.deselect_owned(device_id, &policy.owner_subject)
-            .await?;
+        transaction
+            .execute(vec![
+                Statement::Query(Query::Update(QueryUpdate {
+                    from: from(),
+                    assignments: vec![
+                        assignment("admin_allowed", Value::Bool(false)),
+                        assignment("application_id", Value::Null),
+                        assignment("selected_kind", Value::Null),
+                        assignment("selected_id", Value::Null),
+                    ],
+                    predicate: Some(equals("device_id", Value::Uuid(device_id))),
+                    returning: None,
+                })),
+                Statement::Query(Query::Update(QueryUpdate {
+                    from: resource_from(),
+                    assignments: vec![assignment_for(
+                        RESOURCE_TABLE,
+                        "selected",
+                        Value::Bool(false),
+                    )],
+                    predicate: Some(resource_equals("device_id", Value::Uuid(device_id))),
+                    returning: None,
+                })),
+            ])
+            .await
+            .map_err(db_error)?;
+        transaction.commit().await.map_err(db_error)?;
         Ok(false)
     }
 
     pub async fn local_cleanup_pending(&self, device_id: Uuid) -> ManagementResult<bool> {
-        let table = "local_device_copy_cleanup";
-        let column = QueryColumn::new(table.into(), "device_id".into());
+        Ok(self
+            .engine
+            .client()
+            .execute(vec![Statement::Query(cleanup_query(device_id))])
+            .await
+            .map_err(db_error)?
+            .iter()
+            .any(|result| !result.rows.is_empty()))
+    }
+
+    pub async fn pending_cleanup_id(&self, device_id: Uuid) -> ManagementResult<Option<Uuid>> {
+        if !self
+            .engine
+            .client()
+            .row_conflicts("local_device_copy_cleanup", &key(device_id))
+            .await
+            .map_err(db_error)?
+            .is_empty()
+        {
+            return Err(invalid("conflicted owner cleanup"));
+        }
         let results = self
             .engine
             .client()
-            .execute(vec![Statement::Query(Query::Select(QuerySelect {
-                from: QueryFrom {
-                    table: table.into(),
-                    joins: vec![],
-                },
-                projection: vec![column.clone()],
-                distinct: false,
-                predicate: Some(QueryExpr::Equals(
-                    Box::new(QueryExpr::Value(QueryExprValue::Column(column))),
-                    Box::new(QueryExpr::Value(QueryExprValue::Value(Value::Uuid(
-                        device_id,
-                    )))),
-                )),
-                aggregates: vec![],
-                text_concats: vec![],
-                group_by: vec![],
-                order_by: vec![],
-                limit: None,
-                offset: None,
-                having: None,
-            }))])
+            .execute(vec![Statement::Query(cleanup_query(device_id))])
             .await
             .map_err(db_error)?;
-        Ok(results.iter().any(|result| !result.rows.is_empty()))
+        results
+            .iter()
+            .flat_map(|result| &result.rows)
+            .next()
+            .map(|row| {
+                let value = row
+                    .values
+                    .get(1)
+                    .ok_or_else(|| invalid("missing owner cleanup ID"))?;
+                let id: Uuid =
+                    db::decode(value, "cleanup_id").map_err(|error| invalid(error.to_string()))?;
+                if id.is_nil() {
+                    return Err(invalid("invalid owner cleanup ID"));
+                }
+                Ok(id)
+            })
+            .transpose()
     }
 
-    /// Only the local host may use this intent to orchestrate Storage retirement.
+    /// Trusted local host or authenticated Storage service uses this retirement intent.
     pub async fn pending_cleanup_owner(&self, device_id: Uuid) -> ManagementResult<Option<String>> {
         if !self.local_cleanup_pending(device_id).await? {
             return Ok(None);
@@ -548,40 +609,143 @@ impl DbSelectionPolicyRepo {
         old_owner: &str,
         new_owner: &str,
     ) -> ManagementResult<bool> {
-        if new_owner.parse::<Uuid>().is_err() || new_owner == old_owner {
+        self.complete_owner_cleanup(device_id, old_owner, new_owner, None)
+            .await
+    }
+
+    /// Storage acknowledges retirement only for this current Management endpoint/owner binding.
+    pub async fn complete_owner_cleanup_bound(
+        &self,
+        device_id: Uuid,
+        old_owner: &str,
+        new_owner: &str,
+        endpoint: &str,
+        cleanup_id: Uuid,
+    ) -> ManagementResult<bool> {
+        if cleanup_id.is_nil() {
             return Ok(false);
         }
-        let Some(policy) = self.record(device_id).await? else {
+        self.complete_owner_cleanup(
+            device_id,
+            old_owner,
+            new_owner,
+            Some((endpoint, cleanup_id)),
+        )
+        .await
+    }
+
+    async fn complete_owner_cleanup(
+        &self,
+        device_id: Uuid,
+        old_owner: &str,
+        new_owner: &str,
+        endpoint: Option<(&str, Uuid)>,
+    ) -> ManagementResult<bool> {
+        if !new_owner.parse::<Uuid>().is_ok_and(|owner| !owner.is_nil()) || new_owner == old_owner {
+            return Ok(false);
+        }
+        let mut transaction = self.engine.client().transaction().await.map_err(db_error)?;
+        if let Some((endpoint, _)) = endpoint {
+            for table in ["devices", "local_device_enrollments"] {
+                if !transaction
+                    .row_conflicts(table, &key(device_id))
+                    .await
+                    .map_err(db_error)?
+                    .is_empty()
+                {
+                    return Ok(false);
+                }
+            }
+            let results = transaction
+                .execute(vec![Statement::Query(Query::Select(QuerySelect {
+                    from: QueryFrom {
+                        table: "devices".into(),
+                        joins: vec![],
+                    },
+                    projection: ["owner_subject", "public_key", "state", "revoked_at"]
+                        .into_iter()
+                        .map(|name| QueryColumn::new("devices".into(), name.into()))
+                        .collect(),
+                    distinct: false,
+                    predicate: Some(QueryExpr::Equals(
+                        Box::new(QueryExpr::Value(QueryExprValue::Column(QueryColumn::new(
+                            "devices".into(),
+                            "id".into(),
+                        )))),
+                        Box::new(QueryExpr::Value(QueryExprValue::Value(Value::Uuid(
+                            device_id,
+                        )))),
+                    )),
+                    aggregates: vec![],
+                    text_concats: vec![],
+                    group_by: vec![],
+                    order_by: vec![],
+                    limit: None,
+                    offset: None,
+                    having: None,
+                }))])
+                .await
+                .map_err(db_error)?;
+            if !results.iter().any(|result| {
+                result.rows.iter().any(|row| {
+                    row.values
+                        == vec![
+                            Value::Text(new_owner.to_owned()),
+                            Value::Text(endpoint.to_owned()),
+                            Value::Integer(1),
+                            Value::Null,
+                        ]
+                })
+            }) {
+                return Ok(false);
+            }
+        }
+        if !transaction
+            .row_conflicts(TABLE, &key(device_id))
+            .await
+            .map_err(db_error)?
+            .is_empty()
+        {
+            return Ok(false);
+        }
+        let results = transaction
+            .execute(vec![Statement::Query(policy_query(device_id))])
+            .await
+            .map_err(db_error)?;
+        let Some(result) = results.first() else {
             return Ok(false);
         };
-        if !self.local_cleanup_pending(device_id).await? {
+        let policy = result
+            .rows_as::<SelectionPolicy>()
+            .map_err(|error| invalid(error.to_string()))?;
+        let Some(policy) = policy.first() else {
+            return Ok(false);
+        };
+        let pending = transaction
+            .execute(vec![Statement::Query(cleanup_query(device_id))])
+            .await
+            .map_err(db_error)?;
+        if pending.iter().all(|result| result.rows.is_empty()) {
             return Ok(policy.owner_subject == new_owner);
         }
         if policy.owner_subject != old_owner {
             return Ok(false);
         }
-        let mut transaction = self.engine.client().transaction().await.map_err(db_error)?;
-        let results = transaction
-            .execute(vec![Statement::Query(Query::Select(QuerySelect {
-                from: from(),
-                projection: COLUMNS.into_iter().map(column).collect(),
-                distinct: false,
-                predicate: Some(QueryExpr::And(
-                    Box::new(equals("device_id", Value::Uuid(device_id))),
-                    Box::new(equals("owner_subject", Value::Text(old_owner.to_owned()))),
-                )),
-                aggregates: vec![],
-                text_concats: vec![],
-                group_by: vec![],
-                order_by: vec![],
-                limit: None,
-                offset: None,
-                having: None,
-            }))])
-            .await
-            .map_err(db_error)?;
-        if results.iter().all(|result| result.rows.is_empty()) {
-            return Ok(false);
+        if let Some((_, cleanup_id)) = endpoint {
+            if !transaction
+                .row_conflicts("local_device_copy_cleanup", &key(device_id))
+                .await
+                .map_err(db_error)?
+                .is_empty()
+                || !pending.iter().any(|result| {
+                    result
+                        .rows
+                        .iter()
+                        .any(|row| row.values.get(1) == Some(&Value::Uuid(cleanup_id)))
+                })
+            {
+                return Ok(false);
+            }
         }
         transaction
             .execute(vec![
@@ -2231,4 +2395,49 @@ mod tests {
                 .expect("app B remains selected")
         );
     }
+}
+
+fn policy_query(device_id: Uuid) -> Query {
+    Query::Select(QuerySelect {
+        from: from(),
+        projection: COLUMNS.into_iter().map(column).collect(),
+        distinct: false,
+        predicate: Some(equals("device_id", Value::Uuid(device_id))),
+        aggregates: vec![],
+        text_concats: vec![],
+        group_by: vec![],
+        order_by: vec![],
+        limit: None,
+        offset: None,
+        having: None,
+    })
+}
+
+fn cleanup_query(device_id: Uuid) -> Query {
+    let table = "local_device_copy_cleanup";
+    let column = QueryColumn::new(table.into(), "device_id".into());
+    Query::Select(QuerySelect {
+        from: QueryFrom {
+            table: table.into(),
+            joins: vec![],
+        },
+        projection: vec![
+            column.clone(),
+            QueryColumn::new(table.into(), "cleanup_id".into()),
+        ],
+        distinct: false,
+        predicate: Some(QueryExpr::Equals(
+            Box::new(QueryExpr::Value(QueryExprValue::Column(column))),
+            Box::new(QueryExpr::Value(QueryExprValue::Value(Value::Uuid(
+                device_id,
+            )))),
+        )),
+        aggregates: vec![],
+        text_concats: vec![],
+        group_by: vec![],
+        order_by: vec![],
+        limit: None,
+        offset: None,
+        having: None,
+    })
 }

@@ -8,7 +8,8 @@ use iroh::{EndpointId, endpoint::Connection};
 use iroh_chain::Server;
 use management_service::ApprovedDeviceEndpoints;
 use model::contract::{
-    ReplicationAdmissionRequest, SelectedResourcesResponse, TokenResponse, TokenType,
+    OwnerCopyCleanup, ReplicationAdmissionRequest, SelectedResourcesResponse, TokenResponse,
+    TokenType,
 };
 use reqwest::{Client, Url, redirect::Policy};
 use serde::Serialize;
@@ -212,6 +213,29 @@ impl ManagementClient {
         let body = read_limited_body(&mut response, "Management selections response").await?;
         serde_json::from_slice(&body)
             .map_err(|_| "invalid Management selections response".to_owned())
+    }
+
+    pub async fn acknowledge_owner_cleanup(
+        &self,
+        cleanup: &OwnerCopyCleanup,
+    ) -> Result<(), String> {
+        let url = self
+            .management_base_url
+            .join("replication/owner-cleanup")
+            .map_err(|_| "invalid Management owner cleanup URL")?;
+        let token = self.service_access_token().await?;
+        let response = self
+            .client
+            .post(url)
+            .bearer_auth(token)
+            .json(cleanup)
+            .send()
+            .await
+            .map_err(|_| "Management owner cleanup API is unavailable")?;
+        if response.status().as_u16() != 204 {
+            return Err("Management rejected owner cleanup acknowledgement".into());
+        }
+        Ok(())
     }
 
     pub async fn admit_peer_replication(

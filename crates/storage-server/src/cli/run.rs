@@ -18,7 +18,7 @@ use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLay
 
 #[cfg(not(unix))]
 use crate::AppConfig;
-use crate::{IdpClient, ManagementClient, RouterState, build_runtime};
+use crate::{IdpClient, ManagementClient, RouterState, build_http_runtime, build_runtime};
 
 #[derive(clap::Parser, Debug)]
 enum StorageCommand {
@@ -189,48 +189,29 @@ pub async fn run() -> io::Result<()> {
         router_state = router_state.with_management_client(management_client);
     }
 
-    let storage_network = if let Some(mgmt_client) = router_state.management_client.clone() {
-        let network =
-            Arc::new(crate::StoragePeerNetwork::open(Path::new(&app_config.data_dir)).await?);
-        log::info!("Storage Iroh endpoint: {}", network.endpoint_id());
-        if let Err(error) = network.refresh_approved_peers(&mgmt_client).await {
-            log::warn!("failed to refresh Storage Iroh peer allowlist: {error}");
-        }
-        let refresh_network = Arc::clone(&network);
-        let refresh_token = cancellation_token.clone();
-        let peer_refresh = spawn(async move {
-            refresh_network
-                .run_peer_refresh(mgmt_client, refresh_token)
-                .await;
-        });
-        Some((network, peer_refresh))
-    } else {
-        None
-    };
-
     let prefix = app_config.server.prefix();
-    let storage_server = storage_network
-        .as_ref()
-        .map(|(network, _)| network.server().clone());
-    let protocol_server = storage_server.clone();
-    let mut storage_runtime = build_runtime(
-        router_state,
-        Path::new(&app_config.data_dir),
-        prefix,
-        prefix,
-        storage_server,
-        cancellation_token.clone(),
-    )?;
-    let protocol_router = match (protocol_server, storage_runtime.data_handler()) {
-        (Some(server), Some(handler)) => Some(server.router(handler)),
-        _ => {
-            if storage_network.is_some() {
-                log::warn!(
-                    "Storage replication is disabled without Management and filesystem runtime configuration"
-                );
-            }
-            None
-        }
+    let mut storage_runtime = if router_state.management_client.is_some() {
+        let endpoint = app_config.management_endpoint_id.as_deref()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput,
+                "STORAGE_MANAGEMENT_ENDPOINT_ID must identify the current Management-approved endpoint; Storage does not create transport identity"))?
+            .parse().map_err(|_| io::Error::new(io::ErrorKind::InvalidInput,
+                "invalid STORAGE_MANAGEMENT_ENDPOINT_ID"))?;
+        build_http_runtime(
+            router_state,
+            Path::new(&app_config.data_dir),
+            prefix,
+            endpoint,
+            cancellation_token.clone(),
+        )?
+    } else {
+        build_runtime(
+            router_state,
+            Path::new(&app_config.data_dir),
+            prefix,
+            prefix,
+            None,
+            cancellation_token.clone(),
+        )?
     };
     let router = storage_runtime
         .router()
@@ -261,13 +242,6 @@ pub async fn run() -> io::Result<()> {
     shutdown_signal(cancellation_token).await;
     if let Err(error) = storage_runtime.shutdown().await {
         log::warn!("Storage replication runtime shutdown failed: {error}");
-    }
-    drop(protocol_router);
-    if let Some((network, peer_refresh)) = storage_network {
-        if let Err(error) = peer_refresh.await {
-            log::warn!("Storage Iroh peer refresh task failed: {error}");
-        }
-        network.close().await;
     }
 
     let shutdown_timeout = Duration::from_secs(10);
