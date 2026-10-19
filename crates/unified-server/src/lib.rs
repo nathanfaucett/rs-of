@@ -12,6 +12,7 @@ mod cli;
 mod config;
 mod credential_bootstrap;
 mod endpoint;
+mod host_reset;
 #[cfg(all(test, unix))]
 mod independent_permission_http_tests;
 mod issuer_discovery;
@@ -41,6 +42,8 @@ mod setup_host;
 #[cfg(all(test, unix))]
 mod setup_host_tests;
 
+#[cfg(unix)]
+pub use api_create::CreateHost as ApiSetupHost;
 pub use bootstrap_config::{BootstrapConfig, BootstrapPurpose};
 #[cfg(feature = "cli")]
 pub use cli::run;

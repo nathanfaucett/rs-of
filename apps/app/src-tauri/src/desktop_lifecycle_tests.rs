@@ -1,383 +1,188 @@
-use std::{
-    collections::HashMap,
-    fs,
-    io::{self, Write},
-    os::unix::fs::OpenOptionsExt,
-    path::PathBuf,
-    sync::Arc,
-};
+use std::{fs, io, path::PathBuf};
 
-use idp_model::model::Id;
-use idp_service::repo::PrivateKeyKeyringRepo;
-use tokio::net::TcpListener;
-use unified_server::{LocalProvisioner, RuntimeOwners, UnifiedConfig, UnifiedEndpoint};
+use unified_server::{LocalTls, SetupHost};
 
-use crate::localhost_server::{
-    prepare_test_tls, start_unified_localhost_server, verify_localhost_server,
-};
+use super::NativeHost;
 
-use super::{build_desktop_runtime, finish_managed_startup, finish_runtime_startup};
+fn directory() -> PathBuf {
+    std::env::temp_dir().join(format!("native-shared-host-{}", uuid::Uuid::new_v4()))
+}
 
-struct TestStore(Arc<keyring_core::mock::Store>);
+fn fixture(root: &std::path::Path) -> (SetupHost, reqwest::Client) {
+    let setup = super::prepare(root).expect("fresh neutral native host");
+    let ca = fs::read(setup.tls().ca_path()).expect("isolated CA");
+    let client = reqwest::Client::builder()
+        .use_rustls_tls()
+        .tls_built_in_root_certs(false)
+        .add_root_certificate(reqwest::Certificate::from_pem(&ca).expect("fixture CA"))
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("fixture-only HTTPS verification");
+    (setup, client)
+}
 
-impl keyring_core::api::CredentialStoreApi for TestStore {
-    fn vendor(&self) -> String {
-        self.0.vendor()
+#[tokio::test]
+async fn native_host_keeps_one_listener_and_shared_routes_until_coordinated_close() {
+    let root = directory();
+    let (setup, client) = fixture(&root);
+    let address = setup.local_addr();
+    let mut host = NativeHost::start_with(setup, |_| Ok(()), || Ok(client.clone()))
+        .await
+        .expect("injected trust installer, actual TLS listener");
+    assert!(tokio::net::TcpListener::bind(address).await.is_err());
+    let status = client
+        .get(format!("{}/idp/setup/status", host.base_url()))
+        .send()
+        .await
+        .expect("shared status")
+        .json::<serde_json::Value>()
+        .await
+        .expect("status JSON");
+    assert_eq!(status["state"], "awaiting_choice");
+    assert_eq!(status["ready"], false);
+    assert_eq!(
+        status["owners"],
+        serde_json::json!(["idp", "management", "storage"])
+    );
+    for path in ["idp", "management", "storage", "endpoint"] {
+        assert!(
+            !root.join(path).exists(),
+            "startup must not provision {path}"
+        );
     }
-    fn id(&self) -> String {
-        self.0.id()
-    }
-    fn build(
-        &self,
-        service: &str,
-        user: &str,
-        _: Option<&HashMap<&str, &str>>,
-    ) -> keyring_core::Result<keyring_core::Entry> {
-        keyring_core::api::CredentialStoreApi::build(&*self.0, service, user, None)
-    }
-    fn search(&self, spec: &HashMap<&str, &str>) -> keyring_core::Result<Vec<keyring_core::Entry>> {
-        self.0.search(spec)
-    }
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
+    let denied = client.post(format!("{}/idp/setup/create", host.base_url()))
+        .json(&serde_json::json!({"operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"admin", "node":"Desktop", "password":"not-authorized"}))
+        .send().await.expect("real shared Create route");
+    assert_eq!(denied.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let denied = client.post(format!("{}/idp/setup/join", host.base_url()))
+        .json(&serde_json::json!({"operation_nonce":"0123456789abcdef0123456789abcdef", "node":"Desktop", "peer":iroh::SecretKey::generate().public().to_string()}))
+        .send().await.expect("real shared Join route");
+    assert_eq!(denied.status(), reqwest::StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        host.base_url(),
+        LocalTls::api_base(address).expect("stable base")
+    );
+    host.close()
+        .await
+        .expect("join listener and worker cleanup");
+    let listener = tokio::net::TcpListener::bind(address)
+        .await
+        .expect("listener released");
+    drop(listener);
+    let reopened = super::prepare(&root).expect("existing-only neutral reopen");
+    assert_eq!(reopened.local_addr(), address);
+    drop(reopened);
+    fs::remove_dir_all(root).expect("isolated cleanup");
+}
+
+#[tokio::test]
+async fn native_trust_failure_preserves_prerequisites_without_starting_domain_owners() {
+    let root = directory();
+    let (setup, client) = fixture(&root);
+    let address = setup.local_addr();
+    let ca = fs::read(setup.tls().ca_path()).expect("CA before refusal");
+    assert!(
+        NativeHost::start_with(
+            setup,
+            |_| Err(io::Error::other("consent denied")),
+            || Ok(client)
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(
+        fs::read(root.join("endpoint.tls/ca.pem")).expect("retained CA"),
+        ca
+    );
+    assert!(!root.join("idp").exists());
+    assert!(tokio::net::TcpListener::bind(address).await.is_ok());
+    drop(super::prepare(&root).expect("exact retry after trust refusal"));
+    fs::remove_dir_all(root).expect("isolated cleanup");
+}
+
+#[test]
+fn native_reopen_refuses_lost_host_and_tls_evidence_without_replacement() {
+    for lost in [
+        "host.json",
+        "setup-admission/state",
+        "endpoint.tls/server.key",
+    ] {
+        let root = directory();
+        let setup = super::prepare(&root).expect("fresh prerequisites");
+        let host = fs::read(root.join("host.json")).expect("original host identity");
+        drop(setup);
+        fs::remove_file(root.join(lost)).expect("inject lost evidence");
+        assert!(super::prepare(&root).is_err(), "must refuse missing {lost}");
+        assert!(!root.join(lost).exists(), "must never regenerate {lost}");
+        if lost != "host.json" {
+            assert_eq!(
+                fs::read(root.join("host.json")).expect("host preserved"),
+                host
+            );
+        }
+        fs::remove_dir_all(root).expect("isolated cleanup");
     }
 }
 
-struct Fixture {
-    root: PathBuf,
-    config: UnifiedConfig,
-}
-
-impl Fixture {
-    async fn provision() -> Self {
-        let root = std::env::temp_dir().join(format!("desktop-lifecycle-{}", Id::now_v7()));
-        fs::create_dir(&root).expect("isolated desktop host");
-        let password = root.join("password");
-        fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&password)
-            .expect("protected fixture password")
-            .write_all(b"desktop-lifecycle-fixture-password\n")
-            .expect("write fixture password");
-        let mut idp = idp_server::AppConfig::default();
-        idp.data_dir = root.join("idp").to_string_lossy().into_owned();
-        idp.oauth2.issuer = format!("https://desktop-{}.test/idp", Id::now_v7());
-        idp.api_public_uri = "https://identity.test".into();
-        idp.service_audience = Some("https://identity.test/service".into());
-        idp.password.memory_mib = 1;
-        idp.password.iterations = 1;
-        let config = UnifiedConfig {
-            listen_addr: "127.0.0.1:0".parse().expect("isolated listener"),
-            endpoint_data_dir: root.join("endpoint"),
-            idp,
-            management: management_server::AppConfig {
-                data_dir: root.join("management").to_string_lossy().into_owned(),
-                api_public_uri: "https://management.test".into(),
-                storage_audience: "https://storage.test".into(),
-                ..Default::default()
-            },
-            storage: storage_server::AppConfig {
-                data_dir: root.join("storage").to_string_lossy().into_owned(),
-                api_public_uri: "https://storage.test".into(),
-                ..Default::default()
-            },
-        };
-        let store: Arc<keyring_core::CredentialStore> = Arc::new(TestStore(
-            keyring_core::mock::Store::new().expect("isolated credential provider"),
-        ));
-        let _ = PrivateKeyKeyringRepo::new_with_store(&config.idp.oauth2.issuer, store);
-        let mut provisioner =
-            LocalProvisioner::create(config.clone(), "operator", "Desktop fixture", &password)
-                .expect("explicit fresh fixture intent");
-        provisioner
-            .provision(&password)
+#[tokio::test]
+async fn desktop_origin_is_explicit_and_does_not_admit_unrelated_browser_origins() {
+    let root = directory();
+    let (setup, client) = fixture(&root);
+    let mut host = NativeHost::start_with(setup, |_| Ok(()), || Ok(client.clone()))
+        .await
+        .expect("isolated host");
+    let url = format!("{}/idp/setup/status", host.base_url());
+    assert_eq!(
+        client
+            .get(&url)
+            .header("Origin", super::native_origin())
+            .send()
             .await
-            .expect("provision real owner state");
-        drop(provisioner);
-        Self { root, config }
-    }
-}
-
-#[tokio::test]
-async fn desktop_composition_reuses_initialized_owners_and_closes_endpoint_on_invalid_config() {
-    let fixture = Fixture::provision().await;
-    let owner = idp_server::OwnerProvisioner::open(&fixture.config.idp)
-        .await
-        .expect("open retained IdP once");
-    let management = management_server::open_database(&fixture.config.management)
-        .await
-        .expect("open retained Management once");
-    let endpoint = Arc::new(
-        UnifiedEndpoint::open(&fixture.config.endpoint_data_dir, &fixture.config.idp)
+            .expect("exact native origin")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    assert_eq!(
+        client
+            .get(&url)
+            .header("Origin", "https://unrelated.example")
+            .send()
             .await
-            .expect("open retained endpoint once"),
+            .expect("unrelated origin")
+            .status(),
+        reqwest::StatusCode::FORBIDDEN
     );
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("desktop listener");
-    let address = listener.local_addr().expect("desktop address");
-    let runtime = build_desktop_runtime(
-        fixture.config.clone(),
-        listener,
-        format!("http://{address}"),
-        Some(RuntimeOwners {
-            endpoint: Arc::clone(&endpoint),
-            idp: owner.node_join_database(),
-            management: Arc::clone(&management),
-        }),
-    )
-    .await
-    .expect("compose while original owner database handles remain open");
-    assert_eq!(runtime.endpoint_id(), endpoint.endpoint_id());
-    assert!(!endpoint.server().endpoint().is_closed());
+    host.close().await.expect("close host and worker");
+    fs::remove_dir_all(root).expect("isolated cleanup");
+}
 
-    runtime
-        .shutdown()
-        .await
-        .expect("shutdown handed-off owners");
-    assert!(endpoint.server().endpoint().is_closed());
-
-    let endpoint = Arc::new(
-        UnifiedEndpoint::open(&fixture.config.endpoint_data_dir, &fixture.config.idp)
+#[tokio::test]
+async fn native_verification_failure_closes_the_listener_without_replacing_tls_or_owner_state() {
+    let root = directory();
+    let setup = super::prepare(&root).expect("fresh neutral prerequisites");
+    let address = setup.local_addr();
+    let ca = fs::read(setup.tls().ca_path()).expect("original CA");
+    let untrusted = reqwest::Client::builder()
+        .use_rustls_tls()
+        .tls_built_in_root_certs(false)
+        .no_proxy()
+        .build()
+        .expect("empty root verifier");
+    assert!(
+        NativeHost::start_with(setup, |_| Ok(()), || Ok(untrusted))
             .await
-            .expect("reopen stopped endpoint"),
-    );
-    let listener = TcpListener::bind(address)
-        .await
-        .expect("released desktop listener");
-    let result = build_desktop_runtime(
-        fixture.config.clone(),
-        listener,
-        "http://not-the-loopback-listener.invalid".into(),
-        Some(RuntimeOwners {
-            endpoint: Arc::clone(&endpoint),
-            idp: owner.node_join_database(),
-            management: Arc::clone(&management),
-        }),
-    )
-    .await;
-    assert!(result.is_err(), "invalid API base must retain validation");
-    assert!(
-        endpoint.server().endpoint().is_closed(),
-        "validation before handoff must close the endpoint"
-    );
-    drop(
-        TcpListener::bind(address)
-            .await
-            .expect("failed build releases listener"),
-    );
-    drop(owner);
-    drop(management);
-    fs::remove_dir_all(fixture.root).expect("remove only isolated desktop fixture");
-}
-
-#[tokio::test]
-async fn desktop_startup_failure_closes_runtime_after_listener_cleanup_error() {
-    let fixture = Fixture::provision().await;
-    let (mut runtime, guard) = LocalProvisioner::open_runtime(fixture.config.clone())
-        .await
-        .expect("real completed runtime");
-    let endpoint = runtime.endpoint_id();
-    let cancellation = runtime.cancellation_token();
-    let tls = fixture.root.join("tls");
-    let _ca = prepare_test_tls(&tls).await;
-    let listener = runtime.take_listener().expect("desktop listener transfer");
-    let address = listener.local_addr().expect("desktop port");
-    let server = start_unified_localhost_server(runtime.router(), listener, &tls)
-        .expect("real desktop TLS server");
-    runtime
-        .start_background_tasks()
-        .await
-        .expect("start owned background work");
-    let result = finish_runtime_startup(
-        runtime,
-        Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "injected startup failure",
-        )),
-        async move {
-            server.close().await?;
-            Err(io::Error::other("injected listener cleanup failure"))
-        },
-    )
-    .await;
-    let error = match result {
-        Ok(_) => panic!("startup failure must not publish a runtime"),
-        Err(error) => error,
-    };
-    assert!(
-        cancellation.is_cancelled(),
-        "listener cleanup error must not bypass runtime shutdown"
-    );
-    assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
-    assert_eq!(error.to_string(), "injected startup failure");
-    let listener = TcpListener::bind(address)
-        .await
-        .expect("same desktop port released");
-    drop(listener);
-    drop(guard);
-    let (runtime, guard) = LocalProvisioner::open_runtime(fixture.config.clone())
-        .await
-        .expect("owner state can reopen after failed desktop startup");
-    assert_eq!(
-        runtime.endpoint_id(),
-        endpoint,
-        "startup failure must retain endpoint identity"
-    );
-    let cancellation = runtime.cancellation_token();
-    let runtime = finish_runtime_startup(runtime, Ok(()), async {
-        panic!("successful ownership handoff must not poll cleanup");
-    })
-    .await
-    .expect("successful startup returns its runtime owner");
-    assert!(!cancellation.is_cancelled());
-    runtime.shutdown().await.expect("reopened runtime shutdown");
-    drop(guard);
-    fs::remove_dir_all(fixture.root).expect("remove only isolated desktop fixture");
-}
-
-#[tokio::test]
-async fn desktop_tls_startup_failure_releases_runtime_and_reserved_port() {
-    let fixture = Fixture::provision().await;
-    let (mut runtime, guard) = LocalProvisioner::open_runtime(fixture.config.clone())
-        .await
-        .expect("real completed runtime");
-    let cancellation = runtime.cancellation_token();
-    let listener = runtime.take_listener().expect("desktop listener transfer");
-    let address = listener.local_addr().expect("reserved desktop port");
-    let missing_tls = fixture.root.join("missing-tls");
-    let tls_error = start_unified_localhost_server(runtime.router(), listener, &missing_tls)
-        .expect_err("missing TLS configuration must refuse startup");
-    let result =
-        finish_runtime_startup(runtime, Err(io::Error::other(tls_error)), async { Ok(()) }).await;
-    assert!(result.is_err(), "TLS failure must not publish a runtime");
-    assert!(
-        cancellation.is_cancelled(),
-        "pre-server failure must shut down the runtime"
+            .is_err()
     );
     assert!(
-        !missing_tls.exists(),
-        "cleanup must not create replacement TLS state"
+        tokio::net::TcpListener::bind(address).await.is_ok(),
+        "failed verification must join the listener"
     );
-    let listener = TcpListener::bind(address)
-        .await
-        .expect("reserved port released after TLS failure");
-    drop(listener);
-    drop(guard);
-    fs::remove_dir_all(fixture.root).expect("remove only isolated desktop fixture");
-}
-
-#[tokio::test]
-async fn desktop_initial_setup_failure_closes_retained_owners_and_preserves_cause() {
-    let fixture = Fixture::provision().await;
-    let (mut runtime, guard) = LocalProvisioner::open_runtime(fixture.config.clone())
-        .await
-        .expect("real completed runtime");
-    let cancellation = runtime.cancellation_token();
-    let tls = fixture.root.join("tls");
-    let _ca = prepare_test_tls(&tls).await;
-    let listener = runtime.take_listener().expect("retained desktop listener");
-    let address = listener.local_addr().expect("retained port");
-    let server = start_unified_localhost_server(runtime.router(), listener, &tls)
-        .expect("retained TLS server");
-    runtime
-        .start_background_tasks()
-        .await
-        .expect("retained background work");
-    let startup: Result<(), Box<dyn std::error::Error>> = Err(Box::new(io::Error::new(
-        io::ErrorKind::PermissionDenied,
-        "injected window creation failure",
-    )));
-    let result = finish_managed_startup(startup, async move {
-        let listener_result = server.close().await;
-        let runtime_result = runtime.shutdown().await;
-        listener_result.and(runtime_result)?;
-        Err(io::Error::other("injected managed cleanup failure"))
-    })
-    .await;
+    assert!(!root.join("idp").exists());
     assert_eq!(
-        result.expect_err("initial setup must fail").to_string(),
-        "injected window creation failure"
+        fs::read(root.join("endpoint.tls/ca.pem")).expect("same CA"),
+        ca
     );
-    assert!(
-        cancellation.is_cancelled(),
-        "initial setup error must close retained runtime"
-    );
-    let listener = TcpListener::bind(address)
-        .await
-        .expect("initial setup failure releases port");
-    drop(listener);
-    drop(guard);
-    fs::remove_dir_all(fixture.root).expect("remove only isolated desktop fixture");
-}
-
-#[tokio::test]
-async fn desktop_restored_listener_verification_failure_releases_port() {
-    let root = std::env::temp_dir().join(format!("desktop-restore-{}", Id::now_v7()));
-    let _ca = prepare_test_tls(&root).await;
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("restored listener");
-    let address = listener.local_addr().expect("restored port");
-    let server = start_unified_localhost_server(axum::Router::new(), listener, &root)
-        .expect("retained restored TLS server");
-    finish_managed_startup(Ok::<(), io::Error>(()), async {
-        panic!("successful managed startup must not poll cleanup");
-    })
-    .await
-    .expect("successful setup keeps its owners");
-    let verification =
-        verify_localhost_server(&format!("https://localhost:{}", address.port())).await;
-    let result = finish_managed_startup(verification, server.close()).await;
-    assert_eq!(
-        result
-            .expect_err("untrusted/invalid setup server must fail verification")
-            .to_string(),
-        "localhost server failed trust verification"
-    );
-    let listener = TcpListener::bind(address)
-        .await
-        .expect("failed restored listener releases port");
-    drop(listener);
-    fs::remove_dir_all(root).expect("remove only isolated TLS fixture");
-}
-
-#[tokio::test]
-async fn desktop_window_close_error_still_requests_exit_after_teardown() {
-    let root = std::env::temp_dir().join(format!("desktop-close-{}", Id::now_v7()));
-    let _ca = prepare_test_tls(&root).await;
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("window-close listener");
-    let address = listener.local_addr().expect("window-close port");
-    let server = start_unified_localhost_server(axum::Router::new(), listener, &root)
-        .expect("window-close TLS server");
-    server
-        .close()
-        .await
-        .expect("real listener teardown before injected cleanup error");
-    let mut exits = Vec::new();
-    crate::runtime::exit_after_close(
-        Err(io::Error::other("injected window-close cleanup failure")),
-        |code| exits.push(code),
-    );
-    assert_eq!(
-        exits,
-        vec![1],
-        "cleanup error must still request one nonzero exit"
-    );
-    let listener = TcpListener::bind(address)
-        .await
-        .expect("teardown completed before exit request");
-    drop(listener);
-    exits.clear();
-    crate::runtime::exit_after_close(Ok(()), |code| exits.push(code));
-    assert_eq!(
-        exits,
-        vec![0],
-        "successful teardown requests one successful exit"
-    );
-    fs::remove_dir_all(root).expect("remove only isolated TLS fixture");
+    drop(super::prepare(&root).expect("exact retained retry, not CA regeneration"));
+    fs::remove_dir_all(root).expect("isolated cleanup");
 }
