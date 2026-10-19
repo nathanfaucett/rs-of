@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use idp_model::model::Id;
+use management_service::MANAGEMENT_APPLICATION_URI;
 use serde_json::Value;
 
 use super::{parse_setup_ids, reset};
@@ -63,38 +64,45 @@ pub(super) async fn revoke(
     if metadata["issuer"] != target["issuer"] {
         return Err("peer belongs to a different Installation; no bearer was sent".into());
     }
-    let token: Value = client
-        .post(format!("{peer_api}/oauth2/token"))
-        .form(&[
-            (
-                "grant_type",
-                "urn:ietf:params:oauth:grant-type:token-exchange",
-            ),
-            (
-                "subject_token_type",
-                "urn:ietf:params:oauth:token-type:access_token",
-            ),
-            ("subject_token", bearer),
-            ("resource", peer_api),
-        ])
-        .send()
-        .await
-        .map_err(|error| error.to_string())?
-        .error_for_status()
-        .map_err(|error| format!("peer User audience exchange denied; target retained: {error}"))?
-        .json()
-        .await
-        .map_err(|error| error.to_string())?;
-    let access_token = token["access_token"]
-        .as_str()
-        .filter(|token| !token.is_empty())
-        .ok_or("peer did not return an authorized User access token; target retained")?;
-    for path in [
-        format!("replica-signers/{member_id}"),
-        format!("devices/{member_id}"),
+    let management_api = format!("{}/management", url.origin().ascii_serialization());
+    for (base, resource, path) in [
+        (peer_api, peer_api, format!("replica-signers/{member_id}")),
+        (
+            management_api.as_str(),
+            MANAGEMENT_APPLICATION_URI,
+            format!("devices/{member_id}"),
+        ),
     ] {
+        let token: Value = client
+            .post(format!("{peer_api}/oauth2/token"))
+            .form(&[
+                (
+                    "grant_type",
+                    "urn:ietf:params:oauth:grant-type:token-exchange",
+                ),
+                (
+                    "subject_token_type",
+                    "urn:ietf:params:oauth:token-type:access_token",
+                ),
+                ("subject_token", bearer),
+                ("resource", resource),
+            ])
+            .send()
+            .await
+            .map_err(|error| error.to_string())?
+            .error_for_status()
+            .map_err(|error| {
+                format!("peer User audience exchange denied; target retained: {error}")
+            })?
+            .json()
+            .await
+            .map_err(|error| error.to_string())?;
+        let access_token = token["access_token"]
+            .as_str()
+            .filter(|token| !token.is_empty())
+            .ok_or("peer did not return an authorized User access token; target retained")?;
         let response = client
-            .delete(format!("{peer_api}/{path}"))
+            .delete(format!("{base}/{path}"))
             .bearer_auth(access_token)
             .send()
             .await

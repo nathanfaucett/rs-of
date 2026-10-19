@@ -26,6 +26,14 @@ This implementation is partial: unified web Create controls are wired, but the c
 
 Focused evidence lives in the [initial receipt](../.scratch/ui-driven-node-bootstrap/evidence/01-setup-admission.md), [independent-owner startup and cancellation receipt](../.scratch/ui-driven-node-bootstrap/evidence/02-independent-startup.md), and [37 passing client/loader/page tests plus 13 helper tests](../.scratch/ui-driven-node-bootstrap/evidence/03-web-owner-admission.md). Injected trust tests are not actual OS installation; no real CA store/provider was modified for this slice.
 
+### App Device and source-approval owner routing
+
+Device types and list/rename/revoke operations belong to the Management client. Source acceptance, pending offers, approval and rejection use the configured Management base plus `/node-joins/...`, with its configured prefix applied once. Exchange the current User token at IdP for the `idp-management` audience, not the Management transport URL or an IdP-owner audience. Source approval remains ordinary User authorization, never target setup-code authorization. Native source commands consume the same Management-audience bearer.
+
+The native reset peer-revocation consumer currently selects a composed peer by its exact HTTPS `/idp` base and verifies the retained Installation issuer before sending the User token. It revokes the signer at `/idp/replica-signers/{id}` using the IdP-owner audience, then separately exchanges for `idp-management` and revokes the Device at the same peer origin under `/management/devices/{id}`. Both successful responses are required before acknowledging the retained reset target. Partial success, redirects, unknown targets and lost acknowledgements retain the target for an authorized retry; signer revocation is not Device revocation. This composed-peer shortcut does not discover independent remote owner addresses.
+
+The parent must regenerate the Management client from its real owner schema and rebuild its package exports before the moved Device client methods/types are usable. No compatibility calls to removed IdP Device routes are retained. This consumer reconciliation does not implement independent-owner Create/Join, relationship-secret delivery or native runtime construction. OS CA trust installation and verified HTTPS remain required; certificate-warning bypass is not a setup step.
+
 ## Automatic unified CLI bootstrap
 
 With a built `unified-server` binary (Cargo package `unified-server`, feature `cli`):
