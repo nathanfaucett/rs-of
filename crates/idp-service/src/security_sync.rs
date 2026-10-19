@@ -7,7 +7,6 @@ pub enum PublicSecurityTable {
     Applications,
     Clients,
     Keys,
-    Devices,
     Members,
     Signers,
     Consents,
@@ -24,7 +23,6 @@ impl PublicSecurityTable {
             Self::Applications => "applications",
             Self::Clients => "clients",
             Self::Keys => "keys",
-            Self::Devices => "devices",
             Self::Members => "idp_replica_members",
             Self::Signers => "idp_replica_signers",
             Self::Consents => "oauth2_user_consents",
@@ -115,18 +113,6 @@ impl PublicSecurityTable {
                 "updated_at",
                 "public_jwk",
             ],
-            Self::Devices => &[
-                "id",
-                "owner_subject",
-                "name",
-                "public_key",
-                "address",
-                "state",
-                "approved_at",
-                "revoked_at",
-                "created_at",
-                "updated_at",
-            ],
             Self::Members => &[
                 "id",
                 "installation_id",
@@ -199,7 +185,6 @@ impl PublicSecurityTable {
         }
         match self {
             Self::Keys => column != "derivation_index",
-            Self::Devices => column != "owner_subject",
             Self::Members => column == "revoked_at",
             Self::Signers => matches!(column, "active_member_id" | "revoked_at" | "expires_at"),
             _ => true,
@@ -243,7 +228,6 @@ impl PublicSecurityTable {
                 | "entity_type"
                 | "derivation_index"
                 | "hardened"
-                | "state"
                 | "client_type"
                 | "token_endpoint_auth_method"
                 | "code_challenge_method"
@@ -319,7 +303,6 @@ pub fn public_security_tables() -> Vec<PublicSecurityTable> {
         T::Applications,
         T::Clients,
         T::Keys,
-        T::Devices,
         T::Members,
         T::Signers,
         T::Consents,
@@ -333,6 +316,14 @@ mod tests {
     use super::PublicSecurityTable;
     #[cfg(feature = "replica")]
     use super::public_security_tables;
+
+    #[test]
+    fn public_identity_history_excludes_management_devices_and_local_enrollments() {
+        for table in super::public_security_tables() {
+            assert_ne!(table.name(), "devices");
+            assert_ne!(table.name(), "local_device_enrollments");
+        }
+    }
 
     #[cfg(feature = "replica")]
     #[test]
@@ -469,14 +460,7 @@ mod tests {
                 .remove(0);
             let mut record = serde_json::Map::new();
             for column in &schema.columns {
-                if [
-                    "client_secret_hash",
-                    "enrollment_code_hash",
-                    "enrollment_expires_at",
-                    "pairing_accepting_public_key",
-                ]
-                .contains(&column.name.as_str())
-                {
+                if column.name == "client_secret_hash" {
                     continue;
                 }
                 assert!(
@@ -498,7 +482,6 @@ mod tests {
                         "entity_type",
                         "derivation_index",
                         "hardened",
-                        "state",
                         "client_type",
                         "token_endpoint_auth_method",
                         "code_challenge_method",

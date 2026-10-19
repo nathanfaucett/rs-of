@@ -171,7 +171,7 @@ async fn interruption_boundary(
             .await
             .expect("explicit source grant");
     }
-    source_idp
+    source_policy
         .client()
         .translate_and_execute(
             &format!(

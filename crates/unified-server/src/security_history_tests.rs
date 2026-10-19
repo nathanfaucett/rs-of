@@ -144,6 +144,8 @@ struct Pair {
     row: Id,
     idp_a: Arc<Database>,
     idp_b: Arc<Database>,
+    management_a: Arc<Database>,
+    management_b: Arc<Database>,
     protocol_a: SecurityProtocol,
     protocol_b: SecurityProtocol,
     storage: StorageRuntime,
@@ -205,20 +207,20 @@ impl Pair {
                 .await
                 .expect("declare secret-free schema");
             sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{actor}' AS UUID), 'owner', 'Owner', 1, 1)")).await;
-            for (member, key, endpoint) in [
-                (member_a, key_a, a.endpoint().id()),
-                (member_b, key_b, b.endpoint().id()),
-            ] {
-                sql(&idp, &format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{member}' AS UUID), '{actor}', 'node', '{endpoint}', 'local', 1, 1, 1, 1)")).await;
-                enroll(idp.clone(), member, endpoint, key).await;
-            }
-            sql(&idp, &format!("INSERT INTO keys (id, derivation_index, public_jwk) VALUES (CAST('{row}' AS UUID), 0, '{}')", public_jwk("baseline"))).await;
             let management = Arc::new(
                 Database::open(root.join("baseline-management.redb")).expect("open local policy"),
             );
             management_service::replica::up(&management)
                 .await
                 .expect("declare Management schema");
+            for (member, key, endpoint) in [
+                (member_a, key_a, a.endpoint().id()),
+                (member_b, key_b, b.endpoint().id()),
+            ] {
+                sql(&management, &format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{member}' AS UUID), '{actor}', 'node', '{endpoint}', 'local', 1, 1, 1, 1)")).await;
+                enroll(idp.clone(), member, endpoint, key).await;
+            }
+            sql(&idp, &format!("INSERT INTO keys (id, derivation_index, public_jwk) VALUES (CAST('{row}' AS UUID), 0, '{}')", public_jwk("baseline"))).await;
             ManagementService::new(
                 DbPermissionRepo::new(management.clone()),
                 DbRoleRepo::new(management.clone()),
@@ -230,6 +232,7 @@ impl Pair {
                     (Id::now_v7(), IdentityAction::DevicePairingRead),
                     (Id::now_v7(), IdentityAction::DevicePairingUpdate),
                     (Id::now_v7(), IdentityAction::IdpSecuritySync),
+                    (Id::now_v7(), IdentityAction::ManagementSecuritySync),
                 ],
             )
             .await
@@ -257,7 +260,7 @@ impl Pair {
         let protocol_a = SecurityProtocol::new(
             a.clone(),
             idp_a.clone(),
-            management_a,
+            management_a.clone(),
             INSTALLATION.into(),
             Some(NodeSignerBinding {
                 member_id: member_a,
@@ -270,7 +273,7 @@ impl Pair {
         let protocol_b = SecurityProtocol::new(
             b.clone(),
             idp_b.clone(),
-            management_b,
+            management_b.clone(),
             INSTALLATION.into(),
             Some(NodeSignerBinding {
                 member_id: member_b,
@@ -311,6 +314,8 @@ impl Pair {
             row,
             idp_a,
             idp_b,
+            management_a,
+            management_b,
             protocol_a,
             protocol_b,
             storage,
@@ -326,14 +331,16 @@ impl Pair {
         let handler = if validated {
             self.protocol_b.attach(handler)
         } else {
-            let database = self.idp_b.clone();
+            let idp = self.idp_b.clone();
+            let management = self.management_b.clone();
             let member = self.member_b;
             let received = self.received.clone();
             let recovery = self.recovery.clone();
             let expected_endpoint = self.a.endpoint().id();
             let expected_member = self.member_a;
             handler.with_additional_stream(move |kind, connection, send, recv| {
-                let database = database.clone();
+                let idp = idp.clone();
+                let management = management.clone();
                 let received = received.clone();
                 let recovery = recovery.clone();
                 async move {
@@ -342,9 +349,13 @@ impl Pair {
                     let mut inner = DatabaseTransport::new(send, recv);
                     let handshake: serde_json::Value = serde_json::from_slice(&inner.receive().await?).map_err(io::Error::other)?;
                     assert_eq!(handshake["member"], serde_json::json!(expected_member));
-                    inner.send(serde_json::to_vec(&serde_json::json!({"Accepted": {"version": 1, "installation": INSTALLATION, "member": member, "context": "idp"}})).map_err(io::Error::other)?).await?;
+                    inner.send(serde_json::to_vec(&serde_json::json!({"Accepted": {"version": 1, "installation": INSTALLATION, "member": member, "context": handshake["context"]}})).map_err(io::Error::other)?).await?;
                     let mut transport = RecordedTransport { inner, received, recovery };
-                    let tables = public_security_tables().into_iter().map(|table| table.name()).collect::<Vec<_>>();
+                    let (database, tables) = if handshake["context"] == "management" {
+                        (management, management_service::PUBLIC_POLICY_TABLES.to_vec())
+                    } else {
+                        (idp, public_security_tables().into_iter().map(|table| table.name()).collect::<Vec<_>>())
+                    };
                     // A deliberately unvalidated peer proves that the production sender prevents disclosure itself.
                     database.synchronize_tables_checked(&mut transport, &SessionConfig::default(), SyncRole::Responder, &tables, || async { Ok(()) }).await.map(|_| ()).map_err(|error| io::Error::other(error.to_string()))
                 }
@@ -460,6 +471,10 @@ async fn poison_history(database: &Database, root: &std::path::Path, row: Id, va
 }
 
 async fn sync_fixture(a: &Database, b: &Database) {
+    sync_fixture_context(a, b, SecurityContext::Idp).await;
+}
+
+async fn sync_fixture_context(a: &Database, b: &Database, context: SecurityContext) {
     struct Channel {
         sender: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
         receiver: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
@@ -483,10 +498,13 @@ async fn sync_fixture(a: &Database, b: &Database) {
         sender: b_tx,
         receiver: a_rx,
     };
-    let tables = public_security_tables()
-        .into_iter()
-        .map(|table| table.name())
-        .collect::<Vec<_>>();
+    let tables = match context {
+        SecurityContext::Idp => public_security_tables()
+            .into_iter()
+            .map(|table| table.name())
+            .collect::<Vec<_>>(),
+        SecurityContext::Management => management_service::PUBLIC_POLICY_TABLES.to_vec(),
+    };
     let config = SessionConfig::default();
     let (a, b) = tokio::join!(
         a.synchronize_tables_checked(&mut left, &config, SyncRole::Initiator, &tables, || async {
@@ -508,10 +526,18 @@ async fn unvalidated_initiate(
     pair: &Pair,
     connection: &Connection,
 ) -> io::Result<ofdb_sql::SyncResult> {
+    unvalidated_initiate_context(pair, connection, SecurityContext::Idp).await
+}
+
+async fn unvalidated_initiate_context(
+    pair: &Pair,
+    connection: &Connection,
+    context: SecurityContext,
+) -> io::Result<ofdb_sql::SyncResult> {
     let (mut send, recv) = connection.open_bi().await.map_err(io::Error::other)?;
     send.write_all(&[3]).await.map_err(io::Error::other)?;
     let mut inner = DatabaseTransport::new(send, recv);
-    inner.send(serde_json::to_vec(&serde_json::json!({"version": 1, "installation": INSTALLATION, "member": pair.member_a, "context": "idp"})).map_err(io::Error::other)?).await?;
+    inner.send(serde_json::to_vec(&serde_json::json!({"version": 1, "installation": INSTALLATION, "member": pair.member_a, "context": context})).map_err(io::Error::other)?).await?;
     let response: serde_json::Value =
         serde_json::from_slice(&inner.receive().await?).map_err(io::Error::other)?;
     assert_eq!(
@@ -524,11 +550,20 @@ async fn unvalidated_initiate(
         received: pair.received.clone(),
         recovery: pair.recovery.clone(),
     };
-    let tables = public_security_tables()
-        .into_iter()
-        .map(|table| table.name())
-        .collect::<Vec<_>>();
-    pair.idp_a
+    let (database, tables) = match context {
+        SecurityContext::Idp => (
+            &pair.idp_a,
+            public_security_tables()
+                .into_iter()
+                .map(|table| table.name())
+                .collect::<Vec<_>>(),
+        ),
+        SecurityContext::Management => (
+            &pair.management_a,
+            management_service::PUBLIC_POLICY_TABLES.to_vec(),
+        ),
+    };
+    database
         .synchronize_tables_checked(
             &mut transport,
             &SessionConfig::default(),

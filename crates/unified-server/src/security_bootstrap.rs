@@ -108,11 +108,12 @@ impl SecurityProtocol {
         let approval = owner.node_join_anchor()?;
         provisioning_stage(|| owner.check_node_join_local_binding()).await?;
         if owner.node_join_stage_recorded(NodeJoinStage::Idp)? {
-            self.refresh_learned_membership().await?;
-            self.check_exact_join_trust(&approval).await?;
+            self.check_join_identity(&approval).await?;
         }
         if owner.node_join_stage_recorded(NodeJoinStage::Management)? {
+            self.check_exact_join_trust(&approval).await?;
             self.check_join_context_grants(&approval).await?;
+            self.refresh_learned_membership().await?;
         }
         if self.node_join_public_ready(owner).await? {
             return Ok(approval);
@@ -171,11 +172,12 @@ impl SecurityProtocol {
                         return Err(error);
                     }
                     if owner.node_join_stage_recorded(NodeJoinStage::Idp)? {
-                        self.check_exact_join_trust(&approval).await?;
-                        self.refresh_learned_membership().await?;
+                        self.check_join_identity(&approval).await?;
                     }
                     if owner.node_join_stage_recorded(NodeJoinStage::Management)? {
+                        self.check_exact_join_trust(&approval).await?;
                         self.check_join_context_grants(&approval).await?;
+                        self.refresh_learned_membership().await?;
                     }
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 }
@@ -184,7 +186,7 @@ impl SecurityProtocol {
     }
 
     async fn refresh_learned_membership(&self) -> io::Result<()> {
-        let devices = DbDeviceRepo::new(self.idp.clone());
+        let devices = DbDeviceRepo::new(self.management.clone());
         let users = DbUserRepo::new(self.idp.clone(), PasswordConfig::default());
         let mut peers = Vec::new();
         for device in devices.list().await.map_err(denied)? {
@@ -233,6 +235,11 @@ impl SecurityProtocol {
         let started = std::time::Instant::now();
         let approval = owner.node_join_anchor()?;
         provisioning_stage(|| self.check_bootstrap_receiver(connection, owner, &approval)).await?;
+        if context == SecurityContext::Management
+            && !owner.node_join_stage_recorded(NodeJoinStage::Idp)?
+        {
+            return Err(denied("Management bootstrap requires the IdP import first"));
+        }
         self.validate_local_schema(context).await?;
         #[cfg(test)]
         eprintln!(
@@ -307,8 +314,10 @@ impl SecurityProtocol {
             started.elapsed().as_millis()
         );
         owner.record_node_join_stage(stage(context))?;
-        if context == SecurityContext::Idp {
+        self.check_join_identity(&approval).await?;
+        if context == SecurityContext::Management {
             self.check_exact_join_trust(&approval).await?;
+            self.check_join_context_grants(&approval).await?;
             self.refresh_learned_membership().await?;
         }
         Ok(result)
@@ -407,7 +416,7 @@ impl SecurityProtocol {
         }) {
             return Err(denied("local node signer/member is not currently trusted"));
         }
-        let device = DbDeviceRepo::new(self.idp.clone())
+        let device = DbDeviceRepo::new(self.management.clone())
             .find_approved_by_public_key(&endpoint)
             .await
             .map_err(denied)?
@@ -450,7 +459,7 @@ impl SecurityProtocol {
         Ok(())
     }
 
-    async fn check_exact_join_trust(
+    async fn check_join_identity(
         &self,
         approval: &NodeJoinApproval,
     ) -> io::Result<Vec<(ReplicaMembership, IdpSignerRecord)>> {
@@ -474,7 +483,26 @@ impl SecurityProtocol {
                 "bootstrap requires exact current enrolled member and independent signer",
             ));
         }
-        let device = DbDeviceRepo::new(self.idp.clone())
+        if DbUserRepo::new(self.idp.clone(), PasswordConfig::default())
+            .find_user_by_id(approval.owner_subject)
+            .await
+            .map_err(denied)?
+            .is_none()
+        {
+            return Err(denied(
+                "bootstrap owner is not a current conflict-clear User",
+            ));
+        }
+        Ok(trusted)
+    }
+
+    async fn check_exact_join_trust(
+        &self,
+        approval: &NodeJoinApproval,
+    ) -> io::Result<Vec<(ReplicaMembership, IdpSignerRecord)>> {
+        let trusted = self.check_join_identity(approval).await?;
+        let request = &approval.request;
+        let device = DbDeviceRepo::new(self.management.clone())
             .find_approved_by_public_key(&request.endpoint_id)
             .await
             .map_err(denied)?
@@ -486,16 +514,6 @@ impl SecurityProtocol {
         {
             return Err(denied(
                 "bootstrap Device owner/name/endpoint binding changed",
-            ));
-        }
-        if DbUserRepo::new(self.idp.clone(), PasswordConfig::default())
-            .find_user_by_id(approval.owner_subject)
-            .await
-            .map_err(denied)?
-            .is_none()
-        {
-            return Err(denied(
-                "bootstrap owner is not a current conflict-clear User",
             ));
         }
         Ok(trusted)
@@ -523,9 +541,10 @@ impl SecurityProtocol {
             .await
             .map_err(denied)?;
         if owner.node_join_stage_recorded(NodeJoinStage::Idp)? {
-            self.check_exact_join_trust(approval).await?;
+            self.check_join_identity(approval).await?;
         }
         if owner.node_join_stage_recorded(NodeJoinStage::Management)? {
+            self.check_exact_join_trust(approval).await?;
             self.check_join_context_grants(approval).await?;
         }
         if self.cancellation.is_cancelled() {
@@ -602,22 +621,15 @@ impl SecurityProtocol {
                         SecurityContext::Idp => {
                             candidates::validate_node_join(view, &self.installation, approval)
                         }
-                        SecurityContext::Management => {
-                            for table in &view.tables {
-                                let columns =
-                                    management_service::public_policy_columns(&table.name)
-                                        .ok_or("invalid public policy candidate")?;
-                                if columns.len() != table.columns.len()
-                                    || table
-                                        .columns
-                                        .iter()
-                                        .any(|column| !columns.contains(&column.as_str()))
-                                {
-                                    return Err("invalid public policy candidate".into());
-                                }
-                            }
-                            Ok(())
-                        }
+                        SecurityContext::Management => candidates::validate_management(
+                            view,
+                            &[candidates::PeerBinding {
+                                member: approval.request.member_id,
+                                endpoint: approval.request.endpoint_id.clone(),
+                                owner: approval.owner_subject,
+                            }],
+                            Some(approval),
+                        ),
                     }
                 },
                 check,
@@ -725,7 +737,7 @@ impl SecurityProtocol {
                     return Err(denied("local member binding changed"));
                 }
             }
-            let device = DbDeviceRepo::new(self.idp.clone())
+            let device = DbDeviceRepo::new(self.management.clone())
                 .find_approved_by_public_key(&self.server.endpoint().id().to_string())
                 .await
                 .map_err(denied)?

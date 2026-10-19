@@ -27,13 +27,6 @@ async fn seed(database: &Arc<Database>) -> ExtraMember {
     let member = Id::now_v7();
     let key = Id::now_v7();
     let endpoint = iroh::SecretKey::generate().public().to_string();
-    let owner = sql(database, "SELECT owner_subject FROM devices LIMIT 1").await[0].rows[0].values
-        [0]
-    .clone();
-    let Value::Text(owner) = owner else {
-        panic!("fixture owner")
-    };
-    sql(database, &format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{member}' AS UUID), '{owner}', 'extra', '{endpoint}', 'local', 1, 1, 1, 1)")).await;
     enroll(
         database.clone(),
         member,
@@ -66,6 +59,18 @@ async fn seed(database: &Arc<Database>) -> ExtraMember {
         membership,
         signer,
     }
+}
+
+async fn seed_device(database: &Database) -> Id {
+    let member = Id::now_v7();
+    let endpoint = iroh::SecretKey::generate().public();
+    let Value::Text(owner) =
+        &sql(database, "SELECT owner_subject FROM devices LIMIT 1").await[0].rows[0].values[0]
+    else {
+        panic!("fixture owner")
+    };
+    sql(database, &format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{member}' AS UUID), '{owner}', 'extra', '{endpoint}', 'local', 1, 1, 1, 1)")).await;
+    member
 }
 
 #[tokio::test]
@@ -113,7 +118,7 @@ async fn marker3_revalidates_semantic_recovery_and_preserves_local_contender() {
                     }
                     assert_eq!(sql(&target, &query).await[0].rows, before, "invalid recovery batch rolls back");
                     if contender {
-                        let device = sql(&target, &format!("SELECT public_key FROM devices WHERE id = CAST('{}' AS UUID)", extra.member)).await;
+                        let device = sql(&target, &format!("SELECT endpoint_id FROM idp_replica_members WHERE id = CAST('{}' AS UUID)", extra.membership)).await;
                         let member = sql(&source, &format!("SELECT endpoint_id FROM idp_replica_members WHERE id = CAST('{}' AS UUID)", extra.membership)).await;
                         assert_ne!(device[0].rows[0].values[0], member[0].rows[0].values[0], "independent local contender survives rollback");
                     }
@@ -153,7 +158,7 @@ async fn approved_endpoints_without_idp_signers_exchange_and_device_revocation_d
             .await
             .expect("approved endpoints with exact policy need no IdP signer or membership");
         sql(
-            &pair.idp_b,
+            &pair.management_b,
             &format!(
                 "UPDATE devices SET revoked_at = 2 WHERE id = CAST('{}' AS UUID)",
                 pair.member_a
@@ -203,20 +208,20 @@ async fn approved_devices_reject_conflicted_public_device_bindings() {
         let pair = Pair::new().await;
         let mut bindings = Vec::new();
         for column in ["owner_subject", "name", "address"] {
-            bindings.push((column, seed(&pair.idp_a).await.member));
+            bindings.push((column, seed_device(&pair.management_a).await));
         }
         let fork = Database::open(pair.root.join("device-binding-fork.redb"))
             .expect("independent Device contender");
-        idp_model::replica::up(&fork).await.expect("public schema");
-        sync_fixture(&pair.idp_a, &fork).await;
+        management_service::replica::up(&fork).await.expect("public schema");
+        super::sync_fixture_context(&pair.management_a, &fork, SecurityContext::Management).await;
         for (column, member) in &bindings {
-            for database in [pair.idp_a.as_ref(), &fork] {
+            for database in [pair.management_a.as_ref(), &fork] {
                 let value = Id::now_v7();
                 sql(database, &format!("UPDATE devices SET {column} = '{value}' WHERE id = CAST('{member}' AS UUID)")).await;
             }
         }
-        sync_fixture(&pair.idp_a, &fork).await;
-        for database in [pair.idp_a.as_ref(), &fork] {
+        super::sync_fixture_context(&pair.management_a, &fork, SecurityContext::Management).await;
+        for database in [pair.management_a.as_ref(), &fork] {
             for (column, member) in &bindings {
                 assert!(database.client().row_conflicts("devices", &Row::new(vec![Value::Uuid(*member)])).await.expect("actual public Device conflict").contains(&column.to_string()));
             }
@@ -238,34 +243,34 @@ async fn approved_devices_reject_conflicted_public_device_bindings() {
 async fn marker3_persists_pending_conflicts_and_tombstones_without_trust() {
     tokio::time::timeout(Duration::from_secs(180), async {
         let mut pair = Pair::new().await;
-        let pending = seed(&pair.idp_a).await;
-        let conflicted = seed(&pair.idp_a).await;
+        let revoked_signer = seed(&pair.idp_a).await;
+        sql(&pair.idp_a, &format!("DELETE FROM idp_replica_members WHERE id = CAST('{}' AS UUID); UPDATE idp_replica_signers SET active_member_id = NULL, revoked_at = 2 WHERE id = CAST('{}' AS UUID)", revoked_signer.membership, revoked_signer.signer)).await;
+        let pending = seed_device(&pair.management_a).await;
+        let conflicted = seed_device(&pair.management_a).await;
         let fork = Database::open(pair.root.join("candidate-fork.redb")).expect("independent native contender");
-        idp_model::replica::up(&fork).await.expect("public schema");
-        sync_fixture(&pair.idp_a, &fork).await;
-        for database in [pair.idp_a.as_ref(), &fork] {
+        management_service::replica::up(&fork).await.expect("Management schema");
+        super::sync_fixture_context(&pair.management_a, &fork, SecurityContext::Management).await;
+        for database in [pair.management_a.as_ref(), &fork] {
             let endpoint = iroh::SecretKey::generate().public();
-            sql(database, &format!("UPDATE devices SET public_key = '{endpoint}' WHERE id = CAST('{}' AS UUID); UPDATE idp_replica_members SET endpoint_id = '{endpoint}' WHERE id = CAST('{}' AS UUID)", conflicted.member, conflicted.membership)).await;
+            sql(database, &format!("UPDATE devices SET public_key = '{endpoint}' WHERE id = CAST('{conflicted}' AS UUID)")).await;
         }
-        sync_fixture(&pair.idp_a, &fork).await;
-        sql(&pair.idp_a, &format!("DELETE FROM devices WHERE id = CAST('{}' AS UUID); DELETE FROM idp_replica_members WHERE id = CAST('{}' AS UUID); UPDATE idp_replica_signers SET active_member_id = NULL, revoked_at = 2 WHERE id = CAST('{}' AS UUID)", pending.member, pending.membership, pending.signer)).await;
+        super::sync_fixture_context(&pair.management_a, &fork, SecurityContext::Management).await;
+        sql(&pair.management_a, &format!("DELETE FROM devices WHERE id = CAST('{pending}' AS UUID)")).await;
         pair.serve(true);
         let connection = pair.connect().await;
-        pair.protocol_a.synchronize(&connection, SecurityContext::Idp).await.expect("pending/conflicted/revoked history may persist");
-        assert!(pair.idp_b.client().row_conflicts("devices", &Row::new(vec![Value::Uuid(conflicted.member)])).await.expect("public conflict inspection").contains(&"public_key".to_string()));
-        for member in [pending.member, conflicted.member] {
-            assert!(!idp_service::replica::DbReplicaSignerRepo::new(pair.idp_b.clone()).trusted_signers(super::INSTALLATION, 10).await.expect("durable local signer trust evaluation").iter().any(|(entry, _)| entry.member_id == member), "persistence does not grant signing trust/readiness");
-        }
-        let Value::Text(endpoint) = &sql(&pair.idp_b, &format!("SELECT public_key FROM devices WHERE id = CAST('{}' AS UUID)", conflicted.member)).await[0].rows[0].values[0] else {
+        pair.protocol_a.synchronize(&connection, SecurityContext::Management).await.expect("pending/conflicted/revoked history may persist");
+        assert!(pair.management_b.client().row_conflicts("devices", &Row::new(vec![Value::Uuid(conflicted)])).await.expect("public conflict inspection").contains(&"public_key".to_string()));
+        let Value::Text(endpoint) = &sql(&pair.management_b, &format!("SELECT public_key FROM devices WHERE id = CAST('{conflicted}' AS UUID)")).await[0].rows[0].values[0] else {
             panic!("fixture endpoint")
         };
-        assert!(DbDeviceRepo::new(pair.idp_b.clone()).find_approved_by_public_key(endpoint).await.is_err(), "persisted Device conflict cannot grant transport trust");
-        assert!(sql(&pair.idp_b, &format!("SELECT * FROM devices WHERE id = CAST('{}' AS UUID)", pending.member)).await[0].rows.is_empty(), "tombstone retained");
-        let signer = sql(&pair.idp_b, &format!("SELECT revoked_at FROM idp_replica_signers WHERE id = CAST('{}' AS UUID)", pending.signer)).await;
-        assert_eq!(signer[0].rows[0].values[0], Value::Integer(2), "revocation retained");
+        assert!(DbDeviceRepo::new(pair.management_b.clone()).find_approved_by_public_key(endpoint).await.is_err(), "persisted Device conflict cannot grant transport trust");
+        assert!(sql(&pair.management_b, &format!("SELECT * FROM devices WHERE id = CAST('{pending}' AS UUID)")).await[0].rows.is_empty(), "tombstone retained");
+        pair.protocol_a.synchronize(&connection, SecurityContext::Idp).await.expect("revoked IdP history persists independently");
+        assert_eq!(sql(&pair.idp_b, &format!("SELECT revoked_at FROM idp_replica_signers WHERE id = CAST('{}' AS UUID)", revoked_signer.signer)).await[0].rows[0].values[0], Value::Integer(2));
+        assert!(!idp_service::replica::DbReplicaSignerRepo::new(pair.idp_b.clone()).trusted_signers(super::INSTALLATION, 10).await.expect("current signer trust").iter().any(|(member, _)| member.member_id == revoked_signer.member));
         drop(fork);
         pair.close().await;
-    }).await.expect("bounded genuine pending/conflict/revocation exchange");
+    }).await.expect("bounded genuine Management conflict/tombstone exchange");
 }
 
 #[tokio::test]
@@ -275,24 +280,24 @@ async fn marker3_rejects_correlated_rebinding_of_authenticated_session_peer() {
             for role in [SyncRole::Initiator, SyncRole::Responder] {
                 let mut pair = Pair::new().await;
                 let (source, target, member) = match role {
-                    SyncRole::Initiator => (pair.idp_b.clone(), pair.idp_a.clone(), pair.member_b),
-                    SyncRole::Responder => (pair.idp_a.clone(), pair.idp_b.clone(), pair.member_a),
+                    SyncRole::Initiator => (pair.management_b.clone(), pair.management_a.clone(), pair.member_b),
+                    SyncRole::Responder => (pair.management_a.clone(), pair.management_b.clone(), pair.member_a),
                 };
                 let query = format!("SELECT id, owner_subject, public_key FROM devices WHERE id = CAST('{member}' AS UUID)");
                 let before = sql(&target, &query).await[0].rows.clone();
                 if endpoint {
                     let replacement = iroh::SecretKey::generate().public();
-                    sql(&source, &format!("UPDATE devices SET public_key = '{replacement}' WHERE id = CAST('{member}' AS UUID); UPDATE idp_replica_members SET endpoint_id = '{replacement}' WHERE member_id = CAST('{member}' AS UUID)")).await;
+                    sql(&source, &format!("UPDATE devices SET public_key = '{replacement}' WHERE id = CAST('{member}' AS UUID)")).await;
                 } else {
                     let owner = Id::now_v7();
-                    sql(&source, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{owner}' AS UUID), 'replacement', 'Replacement', 1, 1); UPDATE devices SET owner_subject = '{owner}' WHERE id = CAST('{member}' AS UUID)")).await;
+                    sql(&source, &format!("UPDATE devices SET owner_subject = '{owner}' WHERE id = CAST('{member}' AS UUID)")).await;
                 }
                 let source_before = source.sync_manifest().await.expect("source manifest");
                 pair.serve(matches!(role, SyncRole::Responder));
                 let connection = pair.connect().await;
                 match role {
-                    SyncRole::Initiator => pair.protocol_a.synchronize(&connection, SecurityContext::Idp).await,
-                    SyncRole::Responder => unvalidated_initiate(&pair, &connection).await,
+                    SyncRole::Initiator => pair.protocol_a.synchronize(&connection, SecurityContext::Management).await,
+                    SyncRole::Responder => super::unvalidated_initiate_context(&pair, &connection, SecurityContext::Management).await,
                 }.expect_err("correlated rows cannot rebind authenticated session evidence");
                 assert_eq!(sql(&target, &query).await[0].rows, before, "pinned Device batch rolls back");
                 assert_eq!(source.sync_manifest().await.expect("unchanged source"), source_before);
@@ -301,6 +306,36 @@ async fn marker3_rejects_correlated_rebinding_of_authenticated_session_peer() {
             }
         }
     }).await.expect("bounded genuine pinned session binding matrix");
+}
+
+#[tokio::test]
+async fn management_rejects_overwritten_invalid_device_history_before_export_or_apply() {
+    tokio::time::timeout(Duration::from_secs(240), async {
+        for deleted in [false, true] {
+            for role in [SyncRole::Initiator, SyncRole::Responder] {
+                let mut pair = Pair::new().await;
+                let (source, target) = match role {
+                    SyncRole::Initiator => (pair.management_b.clone(), pair.management_a.clone()),
+                    SyncRole::Responder => (pair.management_a.clone(), pair.management_b.clone()),
+                };
+                let member = seed_device(&source).await;
+                sql(&source, &format!("UPDATE devices SET state = 'invalid-historical-state' WHERE id = CAST('{member}' AS UUID); UPDATE devices SET state = 1 WHERE id = CAST('{member}' AS UUID)")).await;
+                if deleted {
+                    sql(&source, &format!("DELETE FROM devices WHERE id = CAST('{member}' AS UUID)")).await;
+                }
+                let before = target.sync_manifest().await.expect("pre-import Management manifest");
+                pair.serve(matches!(role, SyncRole::Responder));
+                let connection = pair.connect().await;
+                match role {
+                    SyncRole::Initiator => pair.protocol_a.synchronize(&connection, SecurityContext::Management).await,
+                    SyncRole::Responder => super::unvalidated_initiate_context(&pair, &connection, SecurityContext::Management).await,
+                }.expect_err("overwriting or deleting a row cannot hide invalid public Device history");
+                assert_eq!(target.sync_manifest().await.expect("unchanged target"), before);
+                drop((source, target));
+                pair.close().await;
+            }
+        }
+    }).await.expect("bounded Management historical Device validation");
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -324,9 +359,8 @@ fn corruption(extra: &ExtraMember, attack: Attack) -> String {
             extra.signer
         ),
         Attack::Endpoint => format!(
-            "UPDATE devices SET public_key = '{}' WHERE id = CAST('{}' AS UUID)",
-            iroh::SecretKey::generate().public(),
-            extra.member
+            "UPDATE idp_replica_members SET endpoint_id = 'not-an-endpoint' WHERE id = CAST('{}' AS UUID)",
+            extra.membership
         ),
         Attack::HistoricalIssuer => format!(
             "UPDATE idp_replica_members SET issuer = 'https://foreign.example' WHERE id = CAST('{}' AS UUID); UPDATE idp_replica_members SET issuer = '{}' WHERE id = CAST('{}' AS UUID)",
@@ -374,7 +408,6 @@ async fn reject_candidates(known: bool) {
                     }
                     let offending_table = match attack {
                         Attack::Kid | Attack::ActiveMember => "idp_replica_signers",
-                        Attack::Endpoint if known => "devices",
                         Attack::Endpoint => "idp_replica_members",
                         Attack::HistoricalIssuer => "idp_replica_members",
                     };

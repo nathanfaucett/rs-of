@@ -53,8 +53,12 @@ impl SecurityContext {
                 .into_iter()
                 .find(|public| public.name() == table)
                 .is_some_and(|public| public.permits_historical_value(column, value)),
-            Self::Management => management_service::public_policy_columns(table)
-                .is_some_and(|columns| columns.contains(&column)),
+            Self::Management => {
+                management_service::public_policy_columns(table).is_some_and(|columns| {
+                    columns.contains(&column)
+                        && (table != "devices" || candidates::permits_device_value(column, value))
+                })
+            }
         };
         if permitted {
             Ok(())
@@ -149,7 +153,7 @@ impl SecurityProtocol {
         self.validate_local_schema(context).await?;
         let handshake = self.local_handshake(context).await?;
 
-        let remote_member = DbDeviceRepo::new(self.idp.clone())
+        let remote_member = DbDeviceRepo::new(self.management.clone())
             .find_approved_by_public_key(&connection.remote_id().to_string())
             .await
             .map_err(denied)?
@@ -294,7 +298,7 @@ impl SecurityProtocol {
         if self.cancellation.is_cancelled() {
             return Err(denied("security synchronization is shutting down"));
         }
-        let device = DbDeviceRepo::new(self.idp.clone())
+        let device = DbDeviceRepo::new(self.management.clone())
             .find_approved_by_public_key(&self.server.endpoint().id().to_string())
             .await
             .map_err(denied)?
@@ -328,7 +332,7 @@ impl SecurityProtocol {
     ) -> io::Result<()> {
         self.local_handshake(context).await?;
         let endpoint = connection.remote_id().to_string();
-        let device = DbDeviceRepo::new(self.idp.clone())
+        let device = DbDeviceRepo::new(self.management.clone())
             .find_approved_by_public_key(&endpoint)
             .await
             .map_err(denied)?
@@ -395,13 +399,13 @@ impl SecurityProtocol {
             ),
         };
         let mut bindings = Vec::new();
-        if context == SecurityContext::Idp {
+        {
             let local = self.local_handshake(context).await?;
             for (member, endpoint) in [
                 (local.member, self.server.endpoint().id().to_string()),
                 (member, connection.remote_id().to_string()),
             ] {
-                let device = DbDeviceRepo::new(self.idp.clone())
+                let device = DbDeviceRepo::new(self.management.clone())
                     .find_approved_by_public_key(&endpoint)
                     .await
                     .map_err(denied)?
@@ -462,19 +466,7 @@ impl SecurityProtocol {
                         candidates::validate(view, &self.installation, &bindings)
                     }
                     SecurityContext::Management => {
-                        for table in &view.tables {
-                            let columns = management_service::public_policy_columns(&table.name)
-                                .ok_or_else(|| "invalid public policy candidate".to_string())?;
-                            if table.columns.len() != columns.len()
-                                || table
-                                    .columns
-                                    .iter()
-                                    .any(|column| !columns.contains(&column.as_str()))
-                            {
-                                return Err("invalid public policy candidate".into());
-                            }
-                        }
-                        Ok(())
+                        candidates::validate_management(view, &bindings, None)
                     }
                 },
                 || async {
