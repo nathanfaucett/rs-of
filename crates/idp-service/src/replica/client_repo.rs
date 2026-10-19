@@ -163,7 +163,10 @@ where
         Ok(client)
     }
 
-    async fn clients(&self, predicate: Option<QueryExpr>) -> RepoResult<Vec<Client>> {
+    async fn registrations(
+        &self,
+        predicate: Option<QueryExpr>,
+    ) -> RepoResult<Vec<(Client, Option<Id>)>> {
         let revoked_at = QueryExpr::Value(QueryExprValue::Column(column("revoked_at")));
         let active = QueryExpr::Or(
             Box::new(QueryExpr::IsNull(Box::new(revoked_at.clone()))),
@@ -184,7 +187,7 @@ where
             .execute(vec![Statement::Query(select(predicate))])
             .await
             .map_err(db_error)?;
-        let mut clients = results
+        let clients = results
             .pop()
             .ok_or_else(|| RepoError::InvalidInput("missing client query result".into()))?
             .rows_as::<ClientRow>()
@@ -195,6 +198,11 @@ where
                 Client::try_from(row).map(|client| (client, revision))
             })
             .collect::<RepoResult<Vec<_>>>()?;
+        Ok(clients)
+    }
+
+    async fn clients(&self, predicate: Option<QueryExpr>) -> RepoResult<Vec<Client>> {
+        let mut clients = self.registrations(predicate).await?;
         for (client, revision) in &mut clients {
             let key = Row::new(vec![Value::Uuid(client.id)]);
             if !self
@@ -327,6 +335,19 @@ where
             .await?
             .into_iter()
             .next();
+        if let Some(client) = client.as_ref() {
+            self.ensure_clear(client.id).await?;
+        }
+        Ok(client)
+    }
+
+    async fn find_client_registration(&self, client_id: &str) -> RepoResult<Option<Client>> {
+        let client = self
+            .registrations(Some(equals("client_id", Value::Text(client_id.into()))))
+            .await?
+            .into_iter()
+            .next()
+            .map(|(client, _)| client);
         if let Some(client) = client.as_ref() {
             self.ensure_clear(client.id).await?;
         }
@@ -1097,6 +1118,17 @@ mod tests {
             .expect("register confidential client");
         let client_id = created.client_id.as_deref().expect("created client has ID");
         assert_eq!(created.client_secret.as_deref(), Some("initial-secret"));
+        let public = service
+            .client_repo
+            .find_client_registration(client_id)
+            .await
+            .expect("live registration metadata")
+            .expect("registered Client");
+        assert_eq!(public.client_id, client_id);
+        assert!(
+            public.client_secret_hash.is_empty(),
+            "bearer validation reads no local secret verifier"
+        );
         assert_eq!(
             service
                 .get_client(client_id)

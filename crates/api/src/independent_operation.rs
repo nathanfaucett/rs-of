@@ -27,17 +27,32 @@ impl IndependentCreateIntent {
     }
 
     pub fn canonical(&self) -> io::Result<String> {
-        if self.purpose != "create"
-            || self.peer.is_some()
-            || self.issuer != self.idp
+        let purpose_valid = match self.purpose.as_str() {
+            "create" => {
+                self.peer.is_none()
+                    && self.issuer == self.idp
+                    && !self.administrator.trim().is_empty()
+            }
+            "join" => {
+                self.administrator.is_empty()
+                    && self
+                        .peer
+                        .as_deref()
+                        .is_some_and(|peer| crate::IndependentPeer::choice(peer).is_ok())
+                    && crate::exact_https(&self.issuer).is_ok()
+            }
+            _ => false,
+        };
+        if !purpose_valid
             || self.operation_nonce.len() != 32
             || !self
                 .operation_nonce
                 .bytes()
                 .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            || self.node.trim().is_empty()
             || [&self.administrator, &self.node]
                 .iter()
-                .any(|s| s.trim().is_empty() || s.len() > 256 || s.chars().any(char::is_control))
+                .any(|s| s.len() > 256 || s.chars().any(char::is_control))
         {
             return Err(io::Error::other("invalid exact independent Create intent"));
         }

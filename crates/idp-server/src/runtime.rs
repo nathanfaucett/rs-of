@@ -24,7 +24,7 @@ use crate::{
 };
 
 pub struct IdpRuntime {
-    router: Router,
+    pub(crate) router: Router,
     bootstrap_protocol: BootstrapProtocolHandler,
     join_state: RouterState,
 }
@@ -170,7 +170,7 @@ pub async fn build_oauth_runtime(
     Ok(runtime_from_state(config, state))
 }
 
-async fn build_state(
+pub(crate) async fn build_state(
     config: &AppConfig,
     engine: Arc<Database>,
     devices: Option<Arc<DbDeviceRepo>>,
@@ -262,7 +262,7 @@ async fn build_state(
     Ok(router_state)
 }
 
-fn runtime_from_state(config: &AppConfig, router_state: RouterState) -> IdpRuntime {
+pub(crate) fn runtime_from_state(config: &AppConfig, router_state: RouterState) -> IdpRuntime {
     let bootstrap_protocol = BootstrapProtocolHandler;
     let router = openapi_router(router_state.clone(), config.server.prefix())
         .split_for_parts()

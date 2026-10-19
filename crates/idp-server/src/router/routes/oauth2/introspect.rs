@@ -46,23 +46,20 @@ pub(crate) async fn introspect(
     {
         return Err(ErrorResponse::new(ErrorCode::AccessDenied));
     }
-    let client = state
-        .oauth2_service
-        .get_client(&caller.claims.client_id)
-        .await?;
+    let client = caller
+        .principal
+        .get_entity_as_any()
+        .downcast_ref::<idp_model::model::Client>()
+        .ok_or_else(not_authorized)?;
 
     let inspected = authorize_bearer_any_principal(&state, &request.token).await?;
     if !allows_audience(&client.allowed_audiences, &inspected.claims.aud) {
         return Err(not_authorized());
     }
-    let application_id = state
-        .oauth2_service
-        .application_id_for_client(&inspected.claims.client_id)
-        .await?;
 
     Ok(Json(IntrospectionResponse {
         claims: inspected.claims,
-        application_id: application_id.to_string(),
+        application_id: inspected.application_id.to_string(),
     }))
 }
 

@@ -15,14 +15,10 @@ pub async fn authorize_management_bearer(
             ErrorCode::NotAuthorized => "actor token was rejected by IdP".to_owned(),
             _ => "IdP token validation is unavailable".to_owned(),
         })?;
-    let application_id = state
-        .oauth2_service
-        .application_id_for_client(&inspected.claims.client_id)
-        .await
-        .map_err(|_| "IdP token validation is unavailable".to_owned())?;
+
     Ok(IntrospectionResponse {
         claims: inspected.claims,
-        application_id: application_id.to_string(),
+        application_id: inspected.application_id.to_string(),
     })
 }
 

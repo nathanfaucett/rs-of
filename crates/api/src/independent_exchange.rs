@@ -167,7 +167,7 @@ async fn challenge(
     State(control): State<IndependentCreateControl>,
     Json(bound): Json<Challenge>,
 ) -> StatusCode {
-    let mut state = control.0.lifecycle.lock().await;
+    let state = control.0.lifecycle.lock().await;
     if control.owner() == "idp"
         || control.0.admission.is_retired().unwrap_or(true)
         || state
@@ -196,10 +196,20 @@ async fn challenge(
     let Some(loader) = state.loader.clone() else {
         return StatusCode::CONFLICT;
     };
+    let active = state
+        .active
+        .as_ref()
+        .expect("validated active operation")
+        .clone();
+    drop(state);
     let load_id = id.clone();
-    let secret = match tokio::task::spawn_blocking(move || loader(&load_id)).await {
-        Ok(Ok(secret)) => secret,
-        _ => return StatusCode::SERVICE_UNAVAILABLE,
+    let secret = tokio::select! {
+        biased;
+        () = active.cancelled() => return StatusCode::FORBIDDEN,
+        result = tokio::task::spawn_blocking(move || loader(&load_id)) => match result {
+            Ok(Ok(secret)) => secret,
+            _ => return StatusCode::SERVICE_UNAVAILABLE,
+        },
     };
     let public_registration = bound.registration.clone();
     let mut registration = bound.registration;
@@ -214,14 +224,30 @@ async fn challenge(
         Ok(client) => client,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE,
     };
-    let response = client
-        .post(format!(
-            "{}/setup/independent/register",
-            bound.operation.idp
-        ))
-        .json(&reply)
-        .send()
-        .await;
+    let response = tokio::select! {
+        biased;
+        () = active.cancelled() => return StatusCode::FORBIDDEN,
+        response = client
+            .post(format!("{}/setup/independent/register", bound.operation.idp))
+            .json(&reply)
+            .send() => response,
+    };
+    let mut state = control.0.lifecycle.lock().await;
+    if active.is_cancelled()
+        || control.0.shutdown.is_cancelled()
+        || control.0.admission.is_retired().unwrap_or(true)
+        || state.intent.as_ref() != Some(&bound.operation)
+        || state
+            .active
+            .as_ref()
+            .is_none_or(|active| active.is_cancelled())
+        || state
+            .public
+            .as_ref()
+            .is_none_or(|public| !public.clients.contains(&public_registration))
+    {
+        return StatusCode::FORBIDDEN;
+    }
     match response {
         Ok(response) if response.status() == StatusCode::NO_CONTENT => {
             if control

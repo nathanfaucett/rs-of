@@ -22,4 +22,8 @@ pub use runtime::{build_router, replication_policy};
 #[cfg(unix)]
 mod independent_create;
 #[cfg(unix)]
+mod independent_join;
+#[cfg(unix)]
 pub use independent_create::serve_independent_create;
+#[cfg(unix)]
+pub use independent_join::{IndependentManagementRuntime, build_independent_management};

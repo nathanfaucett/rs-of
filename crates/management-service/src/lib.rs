@@ -60,5 +60,11 @@ mod local_permissions;
 #[cfg(feature = "replica")]
 pub use local_permissions::LocalPermissions;
 
+#[cfg(all(feature = "replica", unix))]
+pub mod independent_join;
+#[cfg(all(feature = "replica", unix))]
+pub mod join_history;
+#[cfg(feature = "replica")]
+pub mod security_candidates;
 mod security_sync;
 pub use security_sync::{PUBLIC_POLICY_TABLES, permits_policy_table, public_policy_columns};

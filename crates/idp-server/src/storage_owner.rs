@@ -13,12 +13,9 @@ pub(crate) async fn authorize_storage_bearer(
     ) {
         return Err(ErrorResponse::new(ErrorCode::NotAuthorized));
     }
-    let application_id = state
-        .oauth2_service
-        .application_id_for_client(&inspected.claims.client_id)
-        .await?;
+
     Ok(IntrospectionResponse {
         claims: inspected.claims,
-        application_id: application_id.to_string(),
+        application_id: inspected.application_id.to_string(),
     })
 }

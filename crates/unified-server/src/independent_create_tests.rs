@@ -13,7 +13,7 @@ use idp_model::model::Id;
 use reqwest::{Client, StatusCode};
 use tokio_util::sync::CancellationToken;
 
-fn setup(root: &Path, owner: &str, address: SocketAddr) -> IndependentSetupHost {
+pub(super) fn setup(root: &Path, owner: &str, address: SocketAddr) -> IndependentSetupHost {
     IndependentSetupHost::prepare(
         owner,
         &root.join(owner),
@@ -87,7 +87,7 @@ fn production_independent_create_and_offline_reopen() {
     assert!(status.success(), "actual independent HTTPS Create child");
 }
 
-async fn start(
+pub(super) async fn start(
     root: &Path,
     addresses: &[SocketAddr],
     shutdown: &CancellationToken,
@@ -125,7 +125,7 @@ async fn start(
         )),
     ]
 }
-async fn wait(http: &Client, intent: &IndependentCreateIntent, ready: bool) {
+pub(super) async fn wait(http: &Client, intent: &IndependentCreateIntent, ready: bool) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     for owner in ["idp", "management", "storage"] {
         loop {
@@ -164,8 +164,43 @@ async fn normal_use(http: &Client, intent: &IndependentCreateIntent) -> String {
     let client = public["facts"]["login_client"]
         .as_str()
         .expect("public login client");
+    for origin in ["https://localhost:5173", "https://untrusted.example"] {
+        let response = http
+            .request(
+                reqwest::Method::OPTIONS,
+                format!("{}/oauth2/token", intent.idp),
+            )
+            .header("Origin", origin)
+            .header("Access-Control-Request-Method", "POST")
+            .header(
+                "Access-Control-Request-Headers",
+                "authorization,content-type",
+            )
+            .send()
+            .await
+            .expect("HTTPS Authorization preflight");
+        assert_eq!(response.status(), StatusCode::OK);
+        let allowed = response
+            .headers()
+            .get("access-control-allow-origin")
+            .and_then(|value| value.to_str().ok());
+        assert_eq!(
+            allowed == Some(origin),
+            origin == "https://localhost:5173",
+            "only configured browser origin may read normal routes"
+        );
+        if origin == "https://localhost:5173" {
+            assert!(
+                response.headers()["access-control-allow-headers"]
+                    .to_str()
+                    .expect("allowed headers")
+                    .contains("authorization")
+            );
+        }
+    }
     let response = http
         .post(format!("{}/oauth2/token", intent.idp))
+        .header("Origin", "https://localhost:5173")
         .form(&[
             ("grant_type", "password"),
             ("client_id", client),
@@ -178,6 +213,25 @@ async fn normal_use(http: &Client, intent: &IndependentCreateIntent) -> String {
         .await
         .expect("normal login");
     assert_eq!(response.status(), StatusCode::OK, "normal User login");
+    assert_eq!(
+        response.headers()["access-control-allow-origin"],
+        "https://localhost:5173",
+        "HTTPS token response is browser-readable"
+    );
+    let hostile = http
+        .post(format!("{}/oauth2/token", intent.idp))
+        .header("Origin", "https://untrusted.example")
+        .form(&[("grant_type", "password"), ("client_id", client)])
+        .send()
+        .await
+        .expect("hostile browser token request");
+    assert_ne!(
+        hostile
+            .headers()
+            .get("access-control-allow-origin")
+            .and_then(|value| value.to_str().ok()),
+        Some("https://untrusted.example")
+    );
     let token: model::contract::TokenResponse = response.json().await.expect("normal token");
     let response = http
         .post(format!("{}/oauth2/token", intent.idp))
@@ -278,6 +332,7 @@ async fn independent_create_child() {
         peer: None,
     };
     let http = LocalTls::verification_client().expect("native verified HTTPS");
+    delayed_forged_https_callback(&root, &addresses, &intent, &http).await;
     let shutdown = CancellationToken::new();
     let servers = start(&root, &addresses, &shutdown).await;
     wait(&http, &intent, false).await;
@@ -397,6 +452,48 @@ async fn independent_create_child() {
             .expect("join interrupted owner")
             .expect("interrupted owner shutdown");
     }
+    let worker_path = root.join("management.setup-host/worker.json");
+    let worker = fs::read(&worker_path).expect("pre-domain worker evidence");
+    let provider = idp_service::repo::RawKeyringRepo::new(format!(
+        "independent-setup:{}",
+        root.join("management.setup-host").display()
+    ))
+    .expect("isolated provider");
+    let client = retained["clients"][0]["client_id"]
+        .as_str()
+        .expect("retained Client");
+    let secret = provider
+        .load("", "", client)
+        .expect("provider read")
+        .expect("consumer secret");
+    let endpoint_key = provider
+        .load("", "", "endpoint")
+        .expect("endpoint read")
+        .expect("endpoint key");
+    assert!(
+        !root.join("management").exists(),
+        "fault precedes domain creation"
+    );
+    fs::remove_file(&worker_path).expect("inject lost initialized worker record");
+    let prepared = setup(&root, "management", addresses[1]);
+    assert!(
+        prepared.into_create(CancellationToken::new()).is_err(),
+        "lost pre-domain initialized record must refuse before exact retry"
+    );
+    assert!(!worker_path.exists(), "missing record is not regenerated");
+    assert_eq!(
+        provider.load("", "", client).expect("unchanged secret"),
+        Some(secret)
+    );
+    assert_eq!(
+        provider
+            .load("", "", "endpoint")
+            .expect("unchanged endpoint"),
+        Some(endpoint_key)
+    );
+    fs::write(&worker_path, worker).expect("restore fault fixture evidence");
+    fs::set_permissions(&worker_path, fs::Permissions::from_mode(0o600))
+        .expect("restore private evidence permissions");
     let shutdown = CancellationToken::new();
     let servers = start(&root, &addresses, &shutdown).await;
     wait(&http, &intent, false).await;
@@ -457,6 +554,21 @@ async fn independent_create_child() {
         );
     }
     wait(&http, &intent, true).await;
+    let finalized = fs::read(&worker_path).expect("finalized recipient evidence");
+    assert_eq!(
+        http.post(format!("{}/setup/independent/challenge", intent.management))
+            .json(&forged)
+            .send()
+            .await
+            .expect("post-finalization callback")
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        fs::read(&worker_path).expect("unchanged finalized evidence"),
+        finalized,
+        "callback cannot progress after finalization"
+    );
     let completed = wait_public(&http, &intent.management).await;
     assert_eq!(
         completed["clients"], retained["clients"],
@@ -614,7 +726,156 @@ async fn independent_create_child() {
     );
 }
 
-fn setup_code(root: &Path, owner: &str) -> String {
+async fn delayed_forged_https_callback(
+    root: &Path,
+    addresses: &[SocketAddr],
+    intent: &IndependentCreateIntent,
+    http: &Client,
+) {
+    let idp = setup(root, "idp", addresses[0]);
+    let tls = idp.tls().clone();
+    drop(idp);
+    let listener = tokio::net::TcpListener::bind(addresses[0])
+        .await
+        .expect("delayed IdP listener");
+    let reached = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let observed = reached.clone();
+    let blocked = release.clone();
+    let router = axum::Router::new().route(
+        "/idp/setup/independent/register",
+        axum::routing::post(move || {
+            let observed = observed.clone();
+            let blocked = blocked.clone();
+            async move {
+                observed.notify_one();
+                blocked.notified().await;
+                StatusCode::NO_CONTENT
+            }
+        }),
+    );
+    let stop = CancellationToken::new();
+    let stopped = stop.clone();
+    let remote = tokio::spawn(async move {
+        axum::serve(tls.listener(listener), router)
+            .with_graceful_shutdown(stopped.cancelled_owned())
+            .await
+    });
+    let (host, mut commands) = setup(root, "management", addresses[1])
+        .into_create(stop.child_token())
+        .expect("recipient host");
+    let control = host.control();
+    let recipient = tokio::spawn(host.serve());
+    let code = setup_code(root, "management");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if http
+            .get(format!("{}/setup/status", intent.management))
+            .send()
+            .await
+            .is_ok()
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline, "bounded recipient listener");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        http.post(format!("{}/setup/create", intent.management))
+            .header("Authorization", format!("Setup {code}"))
+            .json(intent)
+            .send()
+            .await
+            .expect("admitted recipient")
+            .status(),
+        StatusCode::ACCEPTED
+    );
+    let command = commands.recv().await.expect("host-owned operation");
+    let registration = serde_json::json!({"client_id":"00000000-0000-4000-8000-000000000001"});
+    control
+        .set_public(
+            api::IndependentOwnerPublic {
+                operation: intent.clone(),
+                owner: "management".into(),
+                clients: vec![registration.clone()],
+                facts: serde_json::json!({}),
+                registered: vec![],
+            },
+            Arc::new(|_| Ok("b".repeat(64))),
+        )
+        .await
+        .expect("arranged public recipient");
+    let forged = serde_json::json!({"operation":intent,"recipient":"management","registration":registration,"challenge":"a".repeat(64)});
+    let request = http
+        .post(format!("{}/setup/independent/challenge", intent.management))
+        .json(&forged);
+    let callback = tokio::spawn(async move { request.send().await });
+    tokio::time::timeout(Duration::from_secs(5), reached.notified())
+        .await
+        .expect("forged callback reached delayed verified HTTPS IdP");
+    let cancellation = tokio::time::timeout(
+        Duration::from_millis(250),
+        http.post(format!("{}/setup/cancel", intent.management))
+            .header("Authorization", format!("Setup {code}"))
+            .json(intent)
+            .send(),
+    )
+    .await;
+    release.notify_one();
+    assert_eq!(
+        cancellation
+            .expect("outbound callback does not hold lifecycle gate")
+            .expect("HTTPS cancellation")
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        callback
+            .await
+            .expect("callback task")
+            .expect("callback response")
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert!(
+        !control
+            .registration_confirmed(intent, &registration)
+            .expect("no post-cancel receipt")
+    );
+    assert!(
+        !control
+            .registered(registration["client_id"].as_str().expect("Client"))
+            .await
+    );
+    assert!(
+        control
+            .finish(&command, axum::Router::new(), &serde_json::json!({}))
+            .await
+            .is_err(),
+        "cancelled operation cannot finalize"
+    );
+    assert_eq!(
+        http.get(format!("{}/setup/status", intent.management))
+            .send()
+            .await
+            .expect("responsive status")
+            .json::<serde_json::Value>()
+            .await
+            .expect("status")["ready"],
+        false
+    );
+    stop.cancel();
+    recipient
+        .await
+        .expect("recipient task")
+        .expect("recipient shutdown");
+    remote
+        .await
+        .expect("delayed IdP task")
+        .expect("delayed IdP shutdown");
+}
+
+pub(super) fn setup_code(root: &Path, owner: &str) -> String {
     fs::read_to_string(root.join(format!("{owner}.setup-host/setup-admission/state")))
         .expect("protected host code retrieval")
         .lines()
@@ -623,7 +884,7 @@ fn setup_code(root: &Path, owner: &str) -> String {
         .to_owned()
 }
 
-async fn wait_public(http: &Client, base: &str) -> serde_json::Value {
+pub(super) async fn wait_public(http: &Client, base: &str) -> serde_json::Value {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
         if let Ok(response) = http

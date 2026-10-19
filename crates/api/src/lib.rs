@@ -4,7 +4,11 @@ mod independent_create;
 #[cfg(unix)]
 mod independent_exchange;
 #[cfg(unix)]
+mod independent_history;
+#[cfg(unix)]
 mod independent_operation;
+#[cfg(unix)]
+mod independent_peer;
 #[cfg(unix)]
 pub use independent_create::{
     IndependentCreateCommand, IndependentCreateControl, IndependentCreateHost,
@@ -14,6 +18,8 @@ pub use independent_create::{
 pub use independent_operation::{
     IndependentCreateIntent, IndependentCreateRequest, IndependentOwnerPublic,
 };
+#[cfg(unix)]
+pub use independent_peer::{IndependentPeer, exact_https};
 #[cfg(unix)]
 mod independent_setup;
 #[cfg(all(test, unix))]
