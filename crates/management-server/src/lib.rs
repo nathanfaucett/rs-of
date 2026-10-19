@@ -3,6 +3,10 @@
 #[cfg(feature = "cli")]
 mod cli;
 mod config;
+#[cfg(unix)]
+mod independent_reset;
+#[cfg(unix)]
+pub use independent_reset::reset_independent;
 #[cfg(all(unix, feature = "cli"))]
 mod startup;
 #[cfg(all(unix, feature = "cli"))]

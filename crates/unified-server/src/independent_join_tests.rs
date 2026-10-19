@@ -4,7 +4,7 @@ use std::{
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::{Arc, atomic::AtomicBool},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -68,6 +68,7 @@ fn production_independent_join_and_source_offline_reopen() {
         fs::Permissions::from_mode(0o700),
     )
     .expect("executable mock");
+    crate::independent_reset_tests::prepare_trust_removal(&root);
     let mut child = Command::new(std::env::current_exe().expect("test binary"))
         .args([
             "--exact",
@@ -511,13 +512,7 @@ async fn use_joined(
 #[ignore = "parent isolates native roots and secure provider"]
 async fn independent_join_child() {
     let root = PathBuf::from(std::env::var_os("OF_INDEPENDENT_JOIN_ROOT").expect("fixture roots"));
-    idp_service::repo::PrivateKeyKeyringRepo::new_with_store(
-        "independent-join",
-        Arc::new(crate::local_provisioning_tests::SecretStore {
-            store: keyring_core::mock::Store::new().expect("isolated provider"),
-            fail_node_readback: Arc::new(AtomicBool::new(false)),
-        }),
-    );
+    let reset_provider = crate::independent_reset_tests::Provider::install();
     let addresses: Vec<SocketAddr> =
         serde_json::from_slice(&fs::read(root.join("addresses.json")).expect("addresses"))
             .expect("fixture metadata");
@@ -847,6 +842,12 @@ async fn independent_join_child() {
             .expect("reopen listener")
             .expect("source-offline target shutdown");
     }
+    crate::independent_reset_tests::qualify_completed(&target, &reset_provider, &intent.issuer)
+        .await;
+    assert!(
+        root.join("source/idp/idp.redb").exists(),
+        "target reset preserves the source"
+    );
 }
 async fn forbidden_secrets(
     root: &Path,
