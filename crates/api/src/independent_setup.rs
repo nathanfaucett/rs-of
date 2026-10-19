@@ -21,13 +21,13 @@ use crate::{
 
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-struct HostSettings {
+pub(crate) struct HostSettings {
     version: u8,
-    owner: String,
-    domain: PathBuf,
+    pub(crate) owner: String,
+    pub(crate) domain: PathBuf,
     address: SocketAddr,
-    origin: String,
-    prefix: String,
+    pub(crate) origin: String,
+    pub(crate) prefix: String,
 }
 
 impl LocalTlsConfig for HostSettings {
@@ -41,9 +41,9 @@ impl LocalTlsConfig for HostSettings {
 
 /// An owner-local awaiting-choice host, not a provisioned context or completed Node.
 pub struct IndependentSetupHost {
-    settings: HostSettings,
-    admission: Arc<SetupAdmission>,
-    tls: LocalTls,
+    pub(crate) settings: HostSettings,
+    pub(crate) admission: Arc<SetupAdmission>,
+    pub(crate) tls: LocalTls,
     _operation: File,
 }
 
@@ -68,12 +68,7 @@ impl IndependentSetupHost {
         }
         let retained = present(&directory)?;
         let domain_exists = present(&domain)?;
-        if domain_exists {
-            if retained {
-                return Err(io::Error::other(
-                    "retained setup with domain state requires explicit provisioning continuation",
-                ));
-            }
+        if domain_exists && !retained {
             return Ok(None);
         }
         if configured_identity {
@@ -129,6 +124,11 @@ impl IndependentSetupHost {
         let admission = Arc::new(
             SetupAdmission::open(&directory.join("setup-admission")).map_err(io::Error::other)?,
         );
+        if domain_exists && admission.host_intent().map_err(io::Error::other)?.is_none() {
+            return Err(io::Error::other(
+                "domain state has no admitted exact setup operation",
+            ));
+        }
         let tls = if retained {
             LocalTls::open(&settings)?
         } else {
@@ -140,6 +140,15 @@ impl IndependentSetupHost {
             tls,
             _operation: operation,
         }))
+    }
+
+    pub fn require_owner(&self, owner: &str, domain: &Path) -> io::Result<()> {
+        if self.settings.owner != owner || self.settings.domain != absolute(domain)? {
+            return Err(io::Error::other(
+                "setup worker does not own the retained domain root",
+            ));
+        }
+        Ok(())
     }
 
     pub fn admission_path(&self) -> PathBuf {

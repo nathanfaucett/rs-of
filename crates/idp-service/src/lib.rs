@@ -11,6 +11,8 @@ mod password_config;
 pub mod replica;
 pub mod repo;
 pub mod security_sync;
+#[cfg(feature = "std")]
+pub mod setup_credentials;
 
 mod util;
 

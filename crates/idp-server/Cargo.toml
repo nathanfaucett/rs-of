@@ -19,7 +19,7 @@ required-features = ["cli"]
 
 [features]
 default = ["cli", "completions", "swagger-ui"]
-cli = ["dep:tokio-util", "dep:dotenvy", "dep:clap", "dep:cli"]
+cli = ["dep:dotenvy", "dep:clap", "dep:cli"]
 completions = ["cli?/completions", "dep:clap_complete"]
 swagger-ui = ["utoipa-swagger-ui"]
 
@@ -113,7 +113,7 @@ tokio = { version = "1.52", default-features = false, features = [
   "time",
 ] }
 tokio-util = { version = "0.7", default-features = false, features = [
-], optional = true }
+] }
 
 # Logging
 log = { version = "0.4", default-features = false, features = ["std"] }

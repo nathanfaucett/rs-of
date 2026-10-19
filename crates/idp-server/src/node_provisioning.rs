@@ -596,6 +596,49 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
         Ok(registration)
     }
 
+    /// Existing-only public relationship evidence; never imports a verifier or repairs a Client.
+    pub async fn verify_setup_infrastructure_registration(
+        &self,
+        expected: &ClientRegistration,
+    ) -> io::Result<()> {
+        if expected.client_type != ClientType::Confidential
+            || expected.client_secret.is_some()
+            || expected.allowed_grant_types != [GrantType::ClientCredentials]
+        {
+            return Err(invalid(
+                "public confidential relationship evidence required",
+            ));
+        }
+        let external = expected
+            .client_id
+            .as_deref()
+            .ok_or_else(|| invalid("stable Client ID required"))?;
+        let client = self
+            .oauth2
+            .client_repo
+            .find_client_by_client_id(external)
+            .await
+            .map_err(io::Error::other)?
+            .ok_or_else(|| invalid("registered service Client is missing or inactive"))?;
+        let application = self
+            .oauth2
+            .application_repo
+            .find_by_id(client.application_id)
+            .await
+            .map_err(io::Error::other)?
+            .ok_or_else(|| invalid("service Application is missing"))?;
+        let mut current = ClientRegistration::from(client);
+        current.application = ApplicationRegistration {
+            name: Some(application.name),
+            uri: application.uri,
+            description: application.description,
+        };
+        if current != *expected {
+            return Err(invalid("registered service Client metadata changed"));
+        }
+        self.ensure_client_root_locked(external).await
+    }
+
     fn client_reference_path(&self, external: &str) -> io::Result<std::path::PathBuf> {
         let identity = external.strip_prefix("user:").unwrap_or(external);
         let id: Id = identity.parse().map_err(io::Error::other)?;

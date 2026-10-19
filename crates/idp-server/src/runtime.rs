@@ -137,6 +137,46 @@ pub async fn build_runtime(
     server: Server,
     local_permissions: Option<LocalPermissions>,
 ) -> io::Result<IdpRuntime> {
+    if device_identity.endpoint_id() != server.endpoint().id() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "device identity does not match the injected Iroh server",
+        ));
+    }
+    let state = build_state(
+        config,
+        engine,
+        devices,
+        Some(device_identity),
+        local_permissions,
+    )
+    .await?;
+    state
+        .pairing_acceptance
+        .bind(Arc::new(TimedPairingAcceptanceController::new(
+            server,
+            Duration::from_secs(config.pairing.accepting_timeout_seconds),
+        )))
+        .map_err(io::Error::other)?;
+    Ok(runtime_from_state(config, state))
+}
+
+/// Builds an IdP HTTPS owner without acquiring transport identity or Management state.
+pub async fn build_oauth_runtime(
+    config: &AppConfig,
+    engine: Arc<Database>,
+) -> io::Result<IdpRuntime> {
+    let state = build_state(config, engine, None, None, None).await?;
+    Ok(runtime_from_state(config, state))
+}
+
+async fn build_state(
+    config: &AppConfig,
+    engine: Arc<Database>,
+    devices: Option<Arc<DbDeviceRepo>>,
+    device_identity: Option<Arc<DeviceIdentity>>,
+    local_permissions: Option<LocalPermissions>,
+) -> io::Result<RouterState> {
     let remote_permissions = if local_permissions.is_some() {
         None
     } else if let Some(remote) = config.management_permissions.as_ref() {
@@ -150,25 +190,6 @@ pub async fn build_runtime(
     } else {
         None
     };
-    if device_identity.endpoint_id() != server.endpoint().id() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "device identity does not match the injected Iroh server",
-        ));
-    }
-
-    if config
-        .oauth2
-        .local_signer
-        .as_ref()
-        .is_some_and(|binding| binding.endpoint_id != device_identity.endpoint_id().to_string())
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "local signer endpoint does not match the injected Node endpoint",
-        ));
-    }
-
     let key_service = Arc::new(KeyService::new(
         DbKeyRepo::new(Arc::clone(&engine)),
         PrivateKeyKeyringRepo::new(&config.oauth2.issuer).map_err(io::Error::other)?,
@@ -215,15 +236,15 @@ pub async fn build_runtime(
         ));
     }
 
-    let router_state = RouterState::new(
+    let mut router_state = RouterState::new_oauth(
         &config.ui_public_uri,
         &config.api_public_uri,
         Arc::clone(&engine),
         Arc::clone(&oauth2_service),
-        devices,
-        device_identity,
     )
     .with_service_audience(service_audience);
+    router_state.devices = devices;
+    router_state.device_identity = device_identity;
     let router_state = match control_plane {
         Some(control_plane) => router_state.with_hosted_control_plane(control_plane),
         None => router_state,
@@ -238,29 +259,164 @@ pub async fn build_runtime(
         None => router_state,
     };
 
-    router_state
-        .pairing_acceptance
-        .bind(Arc::new(TimedPairingAcceptanceController::new(
-            server,
-            Duration::from_secs(config.pairing.accepting_timeout_seconds),
-        )))
-        .map_err(io::Error::other)?;
+    Ok(router_state)
+}
 
+fn runtime_from_state(config: &AppConfig, router_state: RouterState) -> IdpRuntime {
     let bootstrap_protocol = BootstrapProtocolHandler;
     let router = openapi_router(router_state.clone(), config.server.prefix())
         .split_for_parts()
         .0;
 
-    Ok(IdpRuntime {
+    IdpRuntime {
         router,
         bootstrap_protocol,
         join_state: router_state,
-    })
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use management_service::PairingAcceptanceController;
+
     use crate::node_join_tests::approval_fixture;
+
+    async fn assert_normal_oauth(runtime: &super::IdpRuntime) {
+        use axum::{
+            body::{Body, to_bytes},
+            http::{Request, StatusCode},
+        };
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        use tower::ServiceExt;
+
+        let response = runtime.router().oneshot(Request::builder()
+            .method("POST").uri("/oauth2/token")
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .header("Authorization", format!("Basic {}", STANDARD.encode("human-client:human-secret")))
+            .body(Body::from("grant_type=password&client_id=human-client&username=admin&password=valid-password"))
+            .expect("normal token request")).await.expect("normal token response");
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "retained signer must issue normal tokens"
+        );
+        let token: serde_json::Value = serde_json::from_slice(
+            &to_bytes(response.into_body(), 65536)
+                .await
+                .expect("bounded token response"),
+        )
+        .expect("token JSON");
+        assert!(
+            token["access_token"]
+                .as_str()
+                .is_some_and(|token| !token.is_empty())
+        );
+        let response = runtime
+            .router()
+            .oneshot(
+                Request::builder()
+                    .uri("/userinfo")
+                    .header("Authorization", "Bearer forged-bearer")
+                    .body(Body::empty())
+                    .expect("forged request"),
+            )
+            .await
+            .expect("normal protected response");
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert!(
+            runtime.join_state.management_devices().is_err(),
+            "OAuth serving does not acquire Management authority"
+        );
+    }
+
+    #[tokio::test]
+    async fn independent_oauth_signer_does_not_claim_the_transport_endpoint() {
+        use std::sync::Arc;
+
+        let fixture = approval_fixture().await;
+        let secret = iroh::SecretKey::generate();
+        let transport = iroh_chain::Server::bind_with_secret_key(
+            iroh::endpoint::presets::Minimal,
+            secret.clone(),
+            iroh_chain::EndpointIdStore::default(),
+        )
+        .await
+        .expect("independent transport");
+        let identity = Arc::new(
+            management_service::DeviceIdentity::new(transport.endpoint().clone(), secret)
+                .expect("transport possession"),
+        );
+        let config = crate::AppConfig {
+            oauth2: fixture.state.oauth2_service.oauth_config.clone(),
+            ..Default::default()
+        };
+        assert_ne!(
+            config
+                .oauth2
+                .local_signer
+                .as_ref()
+                .expect("signer")
+                .endpoint_id,
+            transport.endpoint().id().to_string()
+        );
+        let mismatch = super::build_runtime(
+            &config,
+            fixture.state.engine.clone(),
+            None,
+            fixture
+                .state
+                .transport_identity()
+                .expect("fixture transport")
+                .clone(),
+            transport.clone(),
+            None,
+        )
+        .await
+        .err()
+        .expect("transport identity still requires possession of the injected endpoint key");
+        assert_eq!(mismatch.kind(), std::io::ErrorKind::InvalidInput);
+        let runtime = super::build_runtime(
+            &config,
+            fixture.state.engine.clone(),
+            None,
+            identity,
+            transport.clone(),
+            None,
+        )
+        .await
+        .expect("OAuth signer is independent of transport");
+        let oauth_only = super::build_oauth_runtime(&config, fixture.state.engine.clone())
+            .await
+            .expect("OAuth runtime needs no transport or Management store");
+        assert!(oauth_only.join_state.transport_identity().is_err());
+        for runtime in [&runtime, &oauth_only] {
+            assert_normal_oauth(runtime).await;
+        }
+        drop(oauth_only);
+        drop(runtime);
+        transport.endpoint().close().await;
+        fixture.server.endpoint().close().await;
+        let root = fixture.root.clone();
+        drop(fixture);
+        let engine =
+            Arc::new(db::Database::open(root.join("idp.redb")).expect("stopped owner reopen"));
+        let reopened = super::build_oauth_runtime(&config, engine)
+            .await
+            .expect("offline OAuth-only reopen");
+        assert_normal_oauth(&reopened).await;
+        assert!(reopened.join_state.transport_identity().is_err());
+        assert!(reopened.pairing_acceptance().pairing_accepting().is_err());
+        drop(reopened);
+        let mut invalid = config;
+        invalid.oauth2.local_signer.as_mut().expect("signer").key_id =
+            idp_model::model::Id::now_v7();
+        let engine = Arc::new(db::Database::open(root.join("idp.redb")).expect("existing owner"));
+        assert!(
+            super::build_oauth_runtime(&invalid, engine).await.is_err(),
+            "independence must not bypass approved signer/private-key validation"
+        );
+        std::fs::remove_dir_all(root).expect("isolated cleanup");
+    }
 
     #[tokio::test]
     async fn active_user_rechecks_current_identity_without_management_transport_state() {
@@ -279,7 +435,11 @@ mod tests {
             &config,
             fixture.state.engine.clone(),
             None,
-            fixture.state.device_identity.clone(),
+            fixture
+                .state
+                .transport_identity()
+                .expect("fixture transport")
+                .clone(),
             fixture.server.clone(),
             None,
         )

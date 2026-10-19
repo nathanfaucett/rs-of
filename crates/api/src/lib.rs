@@ -1,5 +1,20 @@
 mod config;
 #[cfg(unix)]
+mod independent_create;
+#[cfg(unix)]
+mod independent_exchange;
+#[cfg(unix)]
+mod independent_operation;
+#[cfg(unix)]
+pub use independent_create::{
+    IndependentCreateCommand, IndependentCreateControl, IndependentCreateHost,
+    IndependentRegistrar, IndependentSecretLoader,
+};
+#[cfg(unix)]
+pub use independent_operation::{
+    IndependentCreateIntent, IndependentCreateRequest, IndependentOwnerPublic,
+};
+#[cfg(unix)]
 mod independent_setup;
 #[cfg(all(test, unix))]
 mod independent_setup_tests;

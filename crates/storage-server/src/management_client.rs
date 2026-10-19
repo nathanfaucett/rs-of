@@ -60,6 +60,7 @@ impl ManagementClient {
         let management_base_url = normalize_base_url(management_api_base, "Management API URL")?;
         let idp_base_url = normalize_base_url(idp_api_base, "IdP API URL")?;
         let client = Client::builder()
+            .tls_built_in_native_certs(true)
             .connect_timeout(Duration::from_secs(3))
             .timeout(Duration::from_secs(10))
             .redirect(Policy::none())

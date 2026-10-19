@@ -32,27 +32,24 @@ pub(crate) async fn selected_resources(
     Path(endpoint_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<SelectedResourcesResponse>, ErrorResponse> {
-    authorize_storage(&state, &headers, MANAGEMENT_REPLICATION_READ_SCOPE).await?;
-    let identity = state
-        .control_plane
-        .get_storage_endpoint_identity(&endpoint_id)
-        .await
-        .map_err(|error| {
-            log::warn!("Management endpoint identity lookup failed: {error}");
-            unavailable()
-        })?;
-    let trusted = state
-        .control_plane
-        .get_storage_device_identity(identity.device_id)
-        .await
-        .map_err(|_| unavailable())?;
-    if trusted.endpoint_id != identity.endpoint_id
-        || trusted.owner_subject != identity.owner_subject
-    {
-        return Err(denied());
-    }
+    let (authorized, identity) = tokio::join!(
+        authorize_storage(&state, &headers, MANAGEMENT_REPLICATION_READ_SCOPE),
+        async {
+            state
+                .control_plane
+                .get_storage_endpoint_identity(&endpoint_id)
+                .await
+                .map_err(|error| {
+                    log::warn!("Management endpoint identity lookup failed: {error}");
+                    unavailable()
+                })
+        }
+    );
+    authorized?;
+    let identity = identity?;
+
     let (admin_allowed, resources) =
-        crate::runtime::replication_policy_from_repo(&state.selection_policies, &trusted)
+        crate::runtime::replication_policy_from_repo(&state.selection_policies, &identity)
             .await
             .map_err(|error| {
                 log::warn!("failed to evaluate replication policy: {error}");

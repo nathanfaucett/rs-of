@@ -29,8 +29,6 @@ mod router;
 mod runtime;
 
 mod storage_owner;
-#[cfg(feature = "cli")]
-mod unavailable_data_protocol;
 
 pub use bootstrap::{BOOTSTRAP_ALPN, BootstrapProtocolHandler};
 #[cfg(feature = "cli")]
@@ -43,4 +41,9 @@ pub use node_join::{NodeJoinApproval, NodeJoinRequest, NodeJoinStage, bind_node_
 pub use provisioning::OwnerProvisioner;
 pub use router::{RouterState, authorize_bearer, openapi_router};
 pub(crate) use router::{authorize_bearer_any_principal, authorize_bearer_client};
-pub use runtime::{IdpRuntime, build_runtime};
+pub use runtime::{IdpRuntime, build_oauth_runtime, build_runtime};
+
+#[cfg(unix)]
+mod independent_create;
+#[cfg(unix)]
+pub use independent_create::serve_independent_create;

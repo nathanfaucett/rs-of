@@ -38,7 +38,7 @@ pub struct RouterState {
     pub oauth2_service: Arc<NativeOAuth2Service>,
     pub devices: Option<Arc<NativeDeviceRepo>>,
     pub replica_signers: Arc<NativeReplicaSignerRepo>,
-    pub device_identity: Arc<DeviceIdentity>,
+    pub(crate) device_identity: Option<Arc<DeviceIdentity>>,
     pub pairing_acceptance: Arc<PairingAcceptanceControllerSlot>,
     pub hosted_control_plane: Option<Arc<HostedControlPlane>>,
     pub local_permissions: Option<Arc<LocalPermissions>>,
@@ -57,6 +57,18 @@ impl RouterState {
         devices: Option<Arc<NativeDeviceRepo>>,
         device_identity: Arc<DeviceIdentity>,
     ) -> Self {
+        let mut state = Self::new_oauth(ui_base_uri, api_base_uri, engine, oauth2_service);
+        state.devices = devices;
+        state.device_identity = Some(device_identity);
+        state
+    }
+
+    pub fn new_oauth(
+        ui_base_uri: impl Into<String>,
+        api_base_uri: impl Into<String>,
+        engine: Arc<db::Database>,
+        oauth2_service: Arc<NativeOAuth2Service>,
+    ) -> Self {
         let api_base_uri = api_base_uri.into();
         let replica_signers = Arc::new(DbReplicaSignerRepo::new(Arc::clone(&engine)));
         Self {
@@ -66,8 +78,8 @@ impl RouterState {
             engine,
             oauth2_service,
             replica_signers,
-            devices,
-            device_identity,
+            devices: None,
+            device_identity: None,
             pairing_acceptance: Arc::new(PairingAcceptanceControllerSlot::new()),
             hosted_control_plane: None,
             local_permissions: None,
@@ -75,6 +87,15 @@ impl RouterState {
             #[cfg(test)]
             before_node_join_activation: None,
         }
+    }
+
+    pub(crate) fn transport_identity(&self) -> std::io::Result<&Arc<DeviceIdentity>> {
+        self.device_identity.as_ref().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "Management transport identity is unavailable",
+            )
+        })
     }
 
     pub(crate) fn management_devices(&self) -> std::io::Result<&Arc<NativeDeviceRepo>> {
