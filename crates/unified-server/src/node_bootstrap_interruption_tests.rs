@@ -252,6 +252,9 @@ async fn interruption_boundary(
     let runtime = idp_server::build_runtime(
         &source_config,
         source_idp.clone(),
+        Some(Arc::new(management_service::replica::DbDeviceRepo::new(
+            source_policy.clone(),
+        ))),
         Arc::new(
             management_service::device_identity_from_server(&source, source_secret)
                 .expect("source identity"),
@@ -364,10 +367,25 @@ async fn interruption_boundary(
             .expect("purpose-specific authorized enrollment");
         diagnostic_stage(phase, "approved endpoint allowlist restoration");
         source_allowed.replace(
-            runtime
-                .approved_peer_ids()
-                .await
-                .expect("source admission restored from durable trust"),
+            crate::runtime::build_control_plane(
+                Arc::new(runtime),
+                Arc::new(management_service::replica::DbDeviceRepo::new(
+                    source_policy.clone(),
+                )),
+                "http://127.0.0.1:1",
+                "http://127.0.0.1:1",
+                &issuer,
+            )
+            .expect("Management authority")
+            .approved_device_endpoints()
+            .await
+            .expect("source admission restored from durable trust")
+            .into_iter()
+            .map(|endpoint| {
+                endpoint
+                    .parse::<iroh::EndpointId>()
+                    .expect("canonical endpoint")
+            }),
         );
         // Retain the actual transport until the reply has reached the joining driver.
         (approved, offer)

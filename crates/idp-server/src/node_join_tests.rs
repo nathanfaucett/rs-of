@@ -438,9 +438,9 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
         "idp-services",
         engine.clone(),
         Arc::new(provisioner.oauth2),
-        Arc::new(management_service::replica::DbDeviceRepo::new(
+        Some(Arc::new(management_service::replica::DbDeviceRepo::new(
             management.clone(),
-        )),
+        ))),
         Arc::new(
             management_service::device_identity_from_server(&server, secret)
                 .expect("peer identity"),
@@ -712,6 +712,8 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
     let management_device = fixture
         .state
         .devices
+        .as_ref()
+        .expect("injected Management Device owner")
         .enroll_approved_exact(
             binding.member_id,
             fixture.owner,
@@ -820,6 +822,8 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
         fixture
             .state
             .devices
+            .as_ref()
+            .expect("injected Management Device owner")
             .find_approved_by_public_key(&binding.endpoint_id)
             .await
             .expect("Management exact retry")
@@ -832,6 +836,8 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
         fixture
             .state
             .devices
+            .as_ref()
+            .expect("injected Management Device owner")
             .list()
             .await
             .expect("public Device owner list")
@@ -951,6 +957,8 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
     fixture
         .state
         .devices
+        .as_ref()
+        .expect("injected Management Device owner")
         .revoke(
             &fixture.owner.to_string(),
             binding.member_id,
@@ -970,6 +978,8 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
         fixture
             .state
             .devices
+            .as_ref()
+            .expect("injected Management Device owner")
             .find_approved_by_public_key(&binding.endpoint_id)
             .await
             .expect("revoked endpoint admission")
@@ -1076,265 +1086,4 @@ async fn node_join_preparation_is_durable_exact_and_not_readiness() {
     );
     drop(owner);
     std::fs::remove_dir_all(root).expect("remove isolated join store");
-}
-
-#[tokio::test]
-async fn node_join_runtime_and_http_identity_deny_timestamp_only_device_revocation() {
-    use management_service::DeviceRepo;
-
-    let fixture = approval_fixture().await;
-    fixture
-        .state
-        .oauth2_service
-        .client_repo
-        .create_client(ClientRegistration {
-            application: ApplicationRegistration {
-                name: Some("Management lookup".into()),
-                uri: "https://management-lookup.test".into(),
-                description: None,
-            },
-            client_id: Some("management-lookup".into()),
-            client_secret: Some("lookup-secret".into()),
-            client_id_issued_at: None,
-            client_secret_expires_at: None,
-            client_name: "Management lookup".into(),
-            client_uri: None,
-            logo_uri: None,
-            contacts: vec![],
-            terms_of_service_uri: None,
-            policy_uri: None,
-            client_type: ClientType::Confidential,
-            profile: ClientProfile::Web,
-            redirect_uris: vec![],
-            allowed_grant_types: vec![GrantType::ClientCredentials],
-            response_types: vec![],
-            allowed_scopes: vec!["idp.token.validate".into(), "idp.device.lookup".into()],
-            allowed_audiences: vec!["idp-services".into()],
-            token_endpoint_auth_method: TokenEndpointAuthMethod::ClientSecretPost,
-            software_statement: None,
-            software_id: None,
-            software_version: None,
-        })
-        .await
-        .expect("least-privilege local service client");
-
-    let endpoint = fixture.server.endpoint().id();
-    let device = fixture
-        .state
-        .devices
-        .find_approved_by_public_key(&endpoint.to_string())
-        .await
-        .expect("initial Device lookup")
-        .expect("approved Device with signer");
-    let valid_endpoint = SecretKey::generate().public();
-    let valid_device = fixture
-        .state
-        .devices
-        .create(
-            fixture.owner.to_string(),
-            "Unrevoked Device without signer".into(),
-            valid_endpoint.to_string(),
-            String::new(),
-            b"enumeration-enrollment".to_vec(),
-            i64::MAX,
-        )
-        .await
-        .expect("pending signer-free Device");
-    fixture
-        .state
-        .devices
-        .approve(valid_device.id, b"enumeration-enrollment")
-        .await
-        .expect("approve signer-free Device")
-        .expect("approved signer-free Device");
-    let config = AppConfig {
-        oauth2: idp_service::oauth2::OAuth2Config {
-            issuer: fixture.issuer.clone(),
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    let runtime = crate::build_runtime(
-        &config,
-        fixture.state.engine.clone(),
-        fixture.state.device_identity.clone(),
-        fixture.server.clone(),
-        Some(management_service::LocalPermissions::new(
-            fixture.management.clone(),
-        )),
-    )
-    .await
-    .expect("runtime over existing owner handles");
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("local owner listener");
-    let address = listener.local_addr().expect("listener address");
-    let router: axum::Router = crate::openapi_router(fixture.state.clone(), "").into();
-    let serving = tokio::spawn(async move {
-        axum::serve(listener, router).await.expect("local IdP HTTP");
-    });
-    let local = format!("http://{address}");
-    let control =
-        management_service::HostedControlPlane::new_with_services(&local, &local, &fixture.issuer)
-            .expect("local control plane")
-            .with_idp_service_client("management-lookup", "lookup-secret", "idp-services")
-            .expect("scoped identity client");
-    assert_eq!(
-        runtime
-            .approved_device_owner(endpoint)
-            .await
-            .expect("runtime identity before revocation")
-            .device_id,
-        device.id
-    );
-    assert_eq!(
-        runtime
-            .approved_management_device(device.id)
-            .await
-            .expect("Management identity before revocation")
-            .device_id,
-        device.id
-    );
-    assert!(
-        runtime
-            .approved_peer_ids()
-            .await
-            .expect("mesh admission before revocation")
-            .contains(&endpoint)
-    );
-    assert!(
-        runtime
-            .approved_storage_endpoints()
-            .await
-            .expect("Storage admission before revocation")
-            .contains(&endpoint.to_string())
-    );
-    assert_eq!(
-        control
-            .get_storage_device_identity(device.id)
-            .await
-            .expect("HTTP identity before revocation")
-            .device_id,
-        device.id
-    );
-    let trusted_before_revocation = fixture
-        .state
-        .replica_signers
-        .trusted_signers(&fixture.issuer, i64::MAX)
-        .await
-        .expect("valid initial signer");
-    assert!(
-        trusted_before_revocation
-            .iter()
-            .any(|(member, signer)| member.member_id == device.id
-                && member.endpoint_id == endpoint.to_string()
-                && signer.member_id == device.id)
-    );
-    assert!(
-        !trusted_before_revocation
-            .iter()
-            .any(|(member, signer)| member.member_id == valid_device.id
-                || signer.member_id == valid_device.id),
-        "unrevoked endpoint has no signer enrollment"
-    );
-    fixture
-        .management
-        .client()
-        .translate_and_execute(
-            &format!(
-                "UPDATE devices SET revoked_at = 1 WHERE id = CAST('{}' AS UUID)",
-                device.id
-            ),
-            &db::SqlTranslator,
-        )
-        .await
-        .expect("learn timestamp-only Device revocation");
-    let rows = fixture.management.client().translate_and_execute(&format!(
-        "SELECT state, revoked_at, owner_subject FROM devices WHERE id = CAST('{}' AS UUID)", device.id),
-        &db::SqlTranslator).await.expect("timestamp-only Device state");
-    assert_eq!(
-        rows[0].rows,
-        vec![db::Row::new(vec![
-            db::Value::Integer(1),
-            db::Value::Integer(1),
-            db::Value::Text(fixture.owner.to_string())
-        ])]
-    );
-    fixture
-        .state
-        .oauth2_service
-        .find_user_info(fixture.owner)
-        .await
-        .expect("owner remains active");
-    assert_eq!(
-        fixture
-            .state
-            .replica_signers
-            .trusted_signers(&fixture.issuer, i64::MAX)
-            .await
-            .expect("signer trust after Device timestamp revocation"),
-        trusted_before_revocation
-    );
-    assert!(
-        runtime.approved_device_owner(endpoint).await.is_err(),
-        "timestamp-only revocation denies runtime endpoint identity"
-    );
-    assert!(
-        runtime.approved_management_device(device.id).await.is_err(),
-        "timestamp-only revocation denies Management identity"
-    );
-    let peers = runtime
-        .approved_peer_ids()
-        .await
-        .expect("mesh admission refresh excludes revoked Devices");
-    assert!(
-        !peers.contains(&endpoint),
-        "revoked endpoint must not be enumerated"
-    );
-    assert!(
-        peers.contains(&valid_endpoint),
-        "revocation must not disable other approved peers"
-    );
-    let storage_endpoints = runtime
-        .approved_storage_endpoints()
-        .await
-        .expect("Storage admission refresh excludes revoked Devices");
-    assert!(
-        !storage_endpoints.contains(&endpoint.to_string()),
-        "revoked endpoint must not be enumerated"
-    );
-    assert!(
-        storage_endpoints.contains(&valid_endpoint.to_string()),
-        "revocation must not disable other approved Storage endpoints"
-    );
-    assert_eq!(
-        runtime
-            .approved_device_owner(valid_endpoint)
-            .await
-            .expect("signer-free Device retains active-owner identity")
-            .device_id,
-        valid_device.id
-    );
-    assert_eq!(
-        control
-            .get_storage_device_identity(valid_device.id)
-            .await
-            .expect("unrevoked HTTP identity remains available")
-            .device_id,
-        valid_device.id
-    );
-    assert!(
-        control
-            .get_storage_device_identity(device.id)
-            .await
-            .is_err(),
-        "timestamp-only revocation denies HTTP identity with an existing service token"
-    );
-    serving.abort();
-    let _ = serving.await;
-    drop(runtime);
-    fixture.server.endpoint().close().await;
-    let root = fixture.root.clone();
-    drop(fixture);
-    std::fs::remove_dir_all(root).expect("remove isolated timestamp-revocation fixture");
 }

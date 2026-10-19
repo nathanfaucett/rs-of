@@ -561,8 +561,6 @@ mod tests {
     }
 
     async fn run_live_idp_listener_test() {
-        use management_service::{DeviceRepo, replica::DbDeviceRepo};
-
         let root = std::env::temp_dir().join(format!(
             "idp-live-service-client-{}-{}",
             std::process::id(),
@@ -600,10 +598,7 @@ mod tests {
                 "https://idp.example.test".to_owned(),
                 "https://management.example.test".to_owned(),
             ],
-            vec![
-                "idp.token.validate".to_owned(),
-                "idp.device.lookup".to_owned(),
-            ],
+            vec!["idp.token.validate".to_owned()],
             &credentials_path,
         )
         .await
@@ -624,36 +619,6 @@ mod tests {
             .expect("service client exists")
             .application_id
             .to_string();
-        let storage_idp_credentials_path = root.join("storage-idp-credentials.json");
-        provision(
-            &applications,
-            &clients,
-            &key_service,
-            "https://example.test/app",
-            "storage-to-idp",
-            vec![
-                "https://example.test/app".to_owned(),
-                "https://idp.example.test".to_owned(),
-            ],
-            vec![
-                "idp.token.validate".to_owned(),
-                "idp.device.lookup".to_owned(),
-                "idp.device.list".to_owned(),
-            ],
-            &storage_idp_credentials_path,
-        )
-        .await
-        .expect("provision test Storage IdP client");
-        let storage_idp_credentials: serde_json::Value = serde_json::from_slice(
-            &fs::read(&storage_idp_credentials_path).expect("read Storage IdP credentials"),
-        )
-        .expect("parse Storage IdP credentials");
-        let storage_idp_client_id = storage_idp_credentials["client_id"]
-            .as_str()
-            .expect("Storage IdP client ID is a string");
-        let storage_idp_client_secret = storage_idp_credentials["client_secret"]
-            .as_str()
-            .expect("Storage IdP client secret is a string");
         let issuer = "https://idp.example.test";
         let secret_key = SecretKey::generate();
         let endpoint = Endpoint::builder(presets::N0)
@@ -667,36 +632,9 @@ mod tests {
         management_service::replica::up(&policy_engine)
             .await
             .expect("initialize local policy");
-        let devices = Arc::new(DbDeviceRepo::new(Arc::clone(&policy_engine)));
         let endpoint_id = endpoint.id().to_string();
-        let approved_device = devices
-            .create(
-                "test-owner".to_owned(),
-                "approved-storage".to_owned(),
-                endpoint_id.clone(),
-                "test-address".to_owned(),
-                Vec::new(),
-                0,
-            )
-            .await
-            .expect("create approved endpoint identity");
-        let secondary_endpoint_id = SecretKey::generate().public().to_string();
-        let secondary_device = devices
-            .create_pairing(
-                "secondary-storage".to_owned(),
-                secondary_endpoint_id.clone(),
-                "test-address".to_owned(),
-                endpoint_id.clone(),
-            )
-            .await
-            .expect("create secondary device enrollment");
-        devices
-            .approve_pairing(secondary_device.id)
-            .await
-            .expect("approve secondary device")
-            .expect("secondary device exists");
         let local_signer = idp_service::oauth2::NodeSignerBinding {
-            member_id: approved_device.id,
+            member_id: idp_model::model::Id::now_v7(),
             key_id: idp_model::model::Id::now_v7(),
             endpoint_id: endpoint_id.clone(),
         };
@@ -808,7 +746,7 @@ mod tests {
             "https://example.test/app",
             Arc::clone(&engine),
             oauth2_service,
-            Arc::clone(&devices),
+            None,
             Arc::new(
                 management_service::DeviceIdentity::new(endpoint.clone(), secret_key)
                     .expect("matching endpoint identity key"),
@@ -1244,13 +1182,13 @@ mod tests {
         );
 
         let form = format!(
-            "grant_type=client_credentials&client_id={}&client_secret={}&scope=idp.token.validate%20idp.device.lookup&audience={}",
+            "grant_type=client_credentials&client_id={}&client_secret={}&scope=idp.token.validate&audience={}",
             form_encode(client_id),
             form_encode(client_secret),
             form_encode("https://example.test/app"),
         );
         let wrong_secret_form = format!(
-            "grant_type=client_credentials&client_id={}&client_secret=wrong-secret&scope=idp.token.validate%20idp.device.lookup&audience={}",
+            "grant_type=client_credentials&client_id={}&client_secret=wrong-secret&scope=idp.token.validate&audience={}",
             form_encode(client_id),
             form_encode("https://example.test/app"),
         );
@@ -1327,93 +1265,8 @@ mod tests {
         assert_eq!(introspected.claims.principal_type, PrincipalType::Client);
         assert_eq!(introspected.claims.client_id, client_id);
         assert_eq!(introspected.claims.aud, "https://example.test/app");
-        assert_eq!(
-            introspected.claims.scope,
-            vec!["idp.token.validate", "idp.device.lookup"]
-        );
+        assert_eq!(introspected.claims.scope, vec!["idp.token.validate"]);
         assert_eq!(introspected.application_id, application_id);
-
-        let device_list_form = format!(
-            "grant_type=client_credentials&client_id={}&client_secret={}&scope=idp.device.list&audience={}",
-            form_encode(storage_idp_client_id),
-            form_encode(storage_idp_client_secret),
-            form_encode("https://example.test/app"),
-        );
-        let device_list_token_response = loopback_http_request(
-            address,
-            "POST",
-            "/oauth2/token",
-            "application/x-www-form-urlencoded",
-            &device_list_form,
-            None,
-        );
-        assert!(
-            device_list_token_response.starts_with("HTTP/1.1 200"),
-            "{device_list_token_response}"
-        );
-        let device_list_token: serde_json::Value =
-            serde_json::from_str(http_response_body(&device_list_token_response))
-                .expect("parse Storage endpoint-list token");
-        let device_list_access_token = device_list_token["access_token"]
-            .as_str()
-            .expect("Storage endpoint-list token is a string");
-        let (_, device_list_claims) = decode_jwt::<StandardClaims>(device_list_access_token)
-            .expect("decode Storage endpoint-list token");
-        assert_eq!(device_list_claims.aud, "https://example.test/app");
-        assert!(
-            device_list_claims
-                .scope
-                .iter()
-                .any(|scope| scope == "idp.device.list")
-        );
-        let endpoint_list_response = loopback_http_request(
-            address,
-            "GET",
-            "/devices/endpoints",
-            "application/json",
-            "",
-            Some(device_list_access_token),
-        );
-        assert!(
-            endpoint_list_response.starts_with("HTTP/1.1 200"),
-            "{endpoint_list_response}"
-        );
-        let endpoint_list: management_service::ApprovedDeviceEndpoints =
-            serde_json::from_str(http_response_body(&endpoint_list_response))
-                .expect("parse approved endpoint list");
-        assert_eq!(endpoint_list.endpoint_ids.len(), 2);
-        assert!(endpoint_list.endpoint_ids.contains(&endpoint_id));
-        assert!(endpoint_list.endpoint_ids.contains(&secondary_endpoint_id));
-        let lookup_client_list_response = loopback_http_request(
-            address,
-            "GET",
-            "/devices/endpoints",
-            "application/json",
-            "",
-            Some(access_token),
-        );
-        assert!(
-            lookup_client_list_response.starts_with("HTTP/1.1 403"),
-            "{lookup_client_list_response}"
-        );
-        let endpoint_identity_response = loopback_http_request(
-            address,
-            "GET",
-            &format!("/devices/endpoints/{endpoint_id}"),
-            "application/json",
-            "",
-            Some(access_token),
-        );
-        assert!(
-            endpoint_identity_response.starts_with("HTTP/1.1 200"),
-            "{endpoint_identity_response}"
-        );
-        let endpoint_identity: management_service::DeviceEndpointIdentity =
-            serde_json::from_str(http_response_body(&endpoint_identity_response))
-                .expect("parse approved endpoint identity");
-        assert_eq!(endpoint_identity.device_id, approved_device.id);
-        assert_eq!(endpoint_identity.owner_subject, "test-owner");
-        assert_eq!(endpoint_identity.endpoint_id, endpoint_id);
 
         signer_server.abort();
         let _ = signer_server.await;
@@ -1552,8 +1405,7 @@ mod tests {
                             ],
                             vec![
                                 "idp.token.validate".to_owned(),
-                                "idp.device.lookup".to_owned(),
-                            ],
+                                            ],
                             &credentials_path,
                         )
                         .await
@@ -1583,7 +1435,7 @@ mod tests {
                         );
                         assert_eq!(
                             client.allowed_scopes,
-                            vec!["idp.token.validate", "idp.device.lookup"]
+                            vec!["idp.token.validate"]
                         );
                         assert_eq!(
                             client.allowed_grant_types,
@@ -1628,9 +1480,7 @@ mod tests {
                                 ],
                                 vec![
                                     "idp.token.validate".to_owned(),
-                                    "idp.device.lookup".to_owned(),
-                                    "idp.device.list".to_owned(),
-                                ],
+                                                                        ],
                                 "storage-idp.json",
                             ),
                             (
@@ -1697,12 +1547,12 @@ mod tests {
                             (
                                 "credentials.json",
                                 "https://idp.example.test",
-                                "idp.token.validate idp.device.lookup",
+                                "idp.token.validate",
                             ),
                             (
                                 "storage-idp.json",
                                 "https://idp.example.test",
-                                "idp.token.validate idp.device.list",
+                                "idp.token.validate",
                             ),
                             (
                                 "storage-management.json",

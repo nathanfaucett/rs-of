@@ -82,6 +82,7 @@ async fn issue_local_token(
     let runtime = idp_server::build_runtime(
         &issuing,
         owner.node_join_database(),
+        Some(Arc::new(DbDeviceRepo::new(policy.clone()))),
         Arc::new(
             management_service::device_identity_from_server(server, secret.clone())
                 .expect("retained local endpoint identity"),
@@ -263,6 +264,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
     let runtime = idp_server::build_runtime(
         &source_config,
         source_idp.clone(),
+        Some(Arc::new(DbDeviceRepo::new(source_policy.clone()))),
         Arc::new(
             management_service::device_identity_from_server(&source, source_secret)
                 .expect("source identity"),
@@ -343,10 +345,25 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
         .expect("pinned peer signed reply");
     assert_eq!(approved, received);
     source_allowed.replace(
-        runtime
-            .approved_peer_ids()
-            .await
-            .expect("source admission restored only from real durable trust"),
+        crate::runtime::build_control_plane(
+            Arc::new(runtime),
+            Arc::new(management_service::replica::DbDeviceRepo::new(
+                source_policy.clone(),
+            )),
+            "http://127.0.0.1:1",
+            "http://127.0.0.1:1",
+            &issuer,
+        )
+        .expect("Management authority")
+        .approved_device_endpoints()
+        .await
+        .expect("source admission restored only from real durable trust")
+        .into_iter()
+        .map(|endpoint| {
+            endpoint
+                .parse::<iroh::EndpointId>()
+                .expect("canonical endpoint")
+        }),
     );
     provisioner
         .record_node_join_approval(&received)

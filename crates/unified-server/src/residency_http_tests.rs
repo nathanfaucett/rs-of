@@ -21,7 +21,7 @@ async fn start_storage(fixture: &mut Fixture) -> Arc<OnceLock<StorageCopyRetirem
             .is_ok()
     );
     let policy = crate::runtime::owner_replication_authorizer(
-        fixture.runtime.clone(),
+        fixture.control.clone(),
         fixture.management.clone(),
         fixture.identity.endpoint().id(),
         copies.clone(),

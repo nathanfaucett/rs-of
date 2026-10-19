@@ -17,7 +17,7 @@ use idp_service::{
     repo::{ClientRepo, KeyService, PrivateKeyKeyringRepo},
 };
 use management_server::MANAGEMENT_APPLICATION_URI;
-use management_service::{HostedControlPlane, LocalPermissions, replica::DbDeviceRepo};
+use management_service::{HostedControlPlane, LocalPermissions};
 use serde_json::{Value, json};
 
 use super::{IdpAppConfig, OwnerProvisioner};
@@ -254,7 +254,7 @@ async fn check_relationships() {
         &idp_audience,
         engine.clone(),
         Arc::new(oauth2),
-        Arc::new(DbDeviceRepo::new(engine.clone())),
+        None,
         Arc::new(
             management_service::device_identity_from_server(&endpoint, secret)
                 .expect("local identity"),

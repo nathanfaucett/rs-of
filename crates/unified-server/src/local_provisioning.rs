@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{UnifiedConfig, UnifiedEndpoint, UnifiedRuntime};
 
-const INITIAL_ACTIONS: [IdentityAction; 24] = [
+const INITIAL_ACTIONS: [IdentityAction; 25] = [
     IdentityAction::InfrastructureClientsRead,
     IdentityAction::InfrastructureClientsCreate,
     IdentityAction::InfrastructureClientsUpdate,
@@ -38,6 +38,7 @@ const INITIAL_ACTIONS: [IdentityAction; 24] = [
     IdentityAction::KeysRead,
     IdentityAction::KeysRotate,
     IdentityAction::KeysRevoke,
+    IdentityAction::DevicesRead,
     IdentityAction::DevicePairingRead,
     IdentityAction::DevicePairingUpdate,
     IdentityAction::ReplicaSignersEnroll,

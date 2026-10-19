@@ -187,7 +187,7 @@ impl Listener {
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 struct Fixture {
-    runtime: Arc<idp_server::IdpRuntime>,
+    control: Arc<management_service::HostedControlPlane>,
     issuer: String,
     binding: NodeSignerBinding,
     keys: Arc<KeyService<DbKeyRepo, PrivateKeyKeyringRepo>>,
@@ -273,11 +273,7 @@ impl Fixture {
         let mut service_registration = registration(
             "storage-service",
             vec![GrantType::ClientCredentials],
-            vec![
-                "idp.device.lookup".into(),
-                "idp.device.list".into(),
-                "idp.token.validate".into(),
-            ],
+            vec!["idp.token.validate".into()],
             vec![
                 "idp-services".into(),
                 "storage:filesystems".into(),
@@ -346,9 +342,23 @@ impl Fixture {
         management_service::replica::up(&management)
             .await
             .expect("native policy schema");
+        let devices = Arc::new(management_service::replica::DbDeviceRepo::new(
+            management.clone(),
+        ));
+        devices
+            .enroll_approved_exact(
+                binding.member_id,
+                owner,
+                "API Node",
+                &binding.endpoint_id,
+                1,
+            )
+            .await
+            .expect("Management-owned initial Device");
         let runtime = idp_server::build_runtime(
             &config,
             idp.clone(),
+            Some(devices.clone()),
             Arc::new(
                 management_service::device_identity_from_server(&identity, secret)
                     .expect("injected endpoint identity"),
@@ -358,11 +368,21 @@ impl Fixture {
         )
         .await
         .expect("integrated owner-local IdP runtime");
-        let device = runtime
-            .approved_device_owner(identity.endpoint().id())
-            .await
-            .expect("current locally trusted Device owner");
         let runtime = Arc::new(runtime);
+        let control = Arc::new(
+            crate::runtime::build_control_plane(
+                runtime.clone(),
+                devices,
+                "http://127.0.0.1:1",
+                "http://127.0.0.1:1",
+                &config.oauth2.issuer,
+            )
+            .expect("bound Management owner"),
+        );
+        let device = control
+            .get_storage_endpoint_identity(&identity.endpoint().id().to_string())
+            .await
+            .expect("current Management Device owner");
         let mut idp_router = runtime.router();
         if let Some(gate) = catalog_gate.clone().filter(|_| remote) {
             let calls = Arc::new(AtomicUsize::new(0));
@@ -393,33 +413,21 @@ impl Fixture {
             .expect("independent HTTPS-capable IdP client")
         } else if let Some(gate) = catalog_gate {
             let inspect = Arc::clone(&runtime);
-            let endpoints = Arc::clone(&runtime);
             let calls = Arc::new(AtomicUsize::new(0));
-            IdpClient::local(
-                move |token| {
-                    let runtime = Arc::clone(&inspect);
-                    let gate = gate.clone();
-                    let calls = Arc::clone(&calls);
-                    async move {
-                        if calls.fetch_add(1, Ordering::SeqCst) == 1 {
-                            gate.pause().await;
-                        }
-                        runtime
-                            .authorize_storage_bearer(&token)
-                            .await
-                            .map_err(crate::runtime::storage_introspection_error)
+            IdpClient::local(move |token| {
+                let runtime = Arc::clone(&inspect);
+                let gate = gate.clone();
+                let calls = Arc::clone(&calls);
+                async move {
+                    if calls.fetch_add(1, Ordering::SeqCst) == 1 {
+                        gate.pause().await;
                     }
-                },
-                move || {
-                    let runtime = Arc::clone(&endpoints);
-                    async move {
-                        runtime
-                            .approved_storage_endpoints()
-                            .await
-                            .map_err(|error| error.to_string())
-                    }
-                },
-            )
+                    runtime
+                        .authorize_storage_bearer(&token)
+                        .await
+                        .map_err(crate::runtime::storage_introspection_error)
+                }
+            })
         } else {
             crate::runtime::local_storage_idp_client(Arc::clone(&runtime))
         };
@@ -449,7 +457,7 @@ impl Fixture {
         .nest("/gated", gated);
         let storage_listener = Listener::start(router).await;
         Self {
-            runtime,
+            control,
             issuer: config.oauth2.issuer,
             binding,
             keys,

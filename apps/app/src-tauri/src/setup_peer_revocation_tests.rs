@@ -153,7 +153,25 @@ impl Peer {
 
         let engine =
             Arc::new(db::Database::open(root.join("idp/idp.redb")).expect("native IdP reopen"));
-        let peer_devices = DbDeviceRepo::new(engine.clone());
+        fs::create_dir_all(root.join("management")).expect("policy owner directory");
+        let policy = Arc::new(
+            db::Database::open(root.join("management/management.redb"))
+                .expect("separate native policy owner"),
+        );
+        management_service::replica::up(&policy)
+            .await
+            .expect("initialize policy schema once");
+        let peer_devices = DbDeviceRepo::new(policy.clone());
+        peer_devices
+            .enroll_approved_exact(
+                target.member_id,
+                ids.administrator_id,
+                "Reset Node",
+                &target.endpoint_id,
+                1,
+            )
+            .await
+            .expect("Management-owned target Device");
         let peer_device = peer_devices
             .create(
                 ids.administrator_id.to_string(),
@@ -267,14 +285,6 @@ impl Peer {
             key_service,
             config.oauth2.clone(),
         );
-        fs::create_dir_all(root.join("management")).expect("policy owner directory");
-        let policy = Arc::new(
-            db::Database::open(root.join("management/management.redb"))
-                .expect("separate native policy owner"),
-        );
-        management_service::replica::up(&policy)
-            .await
-            .expect("initialize policy schema once");
         management_server::provision_initial_administrator(
             policy.clone(),
             ids.administrator_id,
@@ -295,7 +305,7 @@ impl Peer {
             &api,
             engine.clone(),
             Arc::new(oauth2),
-            Arc::new(DbDeviceRepo::new(engine)),
+            Some(Arc::new(DbDeviceRepo::new(policy.clone()))),
             Arc::new(
                 management_service::device_identity_from_server(&endpoint, secret.clone())
                     .expect("peer identity"),
@@ -471,6 +481,8 @@ impl Peer {
         );
         let devices = state
             .devices
+            .as_ref()
+            .expect("injected Management Device owner")
             .list()
             .await
             .expect("public owner Device state");
@@ -577,7 +589,7 @@ impl Peer {
             &self.api,
             engine.clone(),
             Arc::new(oauth2),
-            Arc::new(DbDeviceRepo::new(engine)),
+            Some(Arc::new(DbDeviceRepo::new(policy.clone()))),
             Arc::new(
                 management_service::device_identity_from_server(
                     &self.endpoint,

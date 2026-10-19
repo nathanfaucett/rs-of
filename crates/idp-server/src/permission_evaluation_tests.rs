@@ -447,7 +447,7 @@ async fn permission_runtime_rejects_remote_database_configuration_before_opening
     };
     let error = crate::build_runtime(
         &configuration,
-        fixture.state.engine.clone(),
+        fixture.state.engine.clone(), None,
         fixture.state.device_identity.clone(),
         fixture.server.clone(),
         None,
@@ -464,7 +464,7 @@ async fn permission_runtime_rejects_remote_database_configuration_before_opening
     configuration.management_permissions = Some(config("http://management.test"));
     let error = crate::build_runtime(
         &configuration,
-        fixture.state.engine.clone(),
+        fixture.state.engine.clone(), None,
         fixture.state.device_identity.clone(),
         fixture.server.clone(),
         None,
@@ -477,7 +477,7 @@ async fn permission_runtime_rejects_remote_database_configuration_before_opening
     configuration.oauth2.local_signer = Some(NodeSignerBinding {
         member_id: Id::now_v7(), key_id: Id::now_v7(), endpoint_id: "deliberately-mismatched-local-endpoint".into(),
     });
-    let error = crate::build_runtime(&configuration, fixture.state.engine.clone(), fixture.state.device_identity.clone(), fixture.server.clone(), Some(management_service::LocalPermissions::new(fixture.management.clone())))
+    let error = crate::build_runtime(&configuration, fixture.state.engine.clone(), None, fixture.state.device_identity.clone(), fixture.server.clone(), Some(management_service::LocalPermissions::new(fixture.management.clone())))
         .await.err().expect("local runtime reaches the existing signer invariant without validating remote configuration");
     assert_eq!(error.to_string(), "local signer endpoint does not match the injected Node endpoint");
     assert!(!directory.exists());
