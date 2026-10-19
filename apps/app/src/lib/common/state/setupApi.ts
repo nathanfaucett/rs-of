@@ -124,7 +124,7 @@ async function readSetupStatus(response: Response): Promise<SetupStatus> {
     throw new Error("Setup evidence is invalid");
   }
   let login: SetupStatus["login_client"];
-  if (value.ready && value.owners.includes("idp")) {
+  if (value.ready && value.owners.length === 3 && value.owners.includes("idp")) {
     const client = value.login_client as Record<string, unknown> | undefined;
     if (
       response.status !== 200 ||
@@ -193,6 +193,11 @@ export async function fetchSetupHosts(bases: SetupBases): Promise<SetupHost[]> {
         `Setup scope does not match the configured ${owner} service`,
       );
     hosts.push({ base: target, status: targetStatus });
+  }
+  if (hosts.every(host => host.status.ready)) {
+    const { verifyIndependentReadiness, independentLoginClient } = await import("./independentSetupApi.ts");
+    const evidence = await verifyIndependentReadiness(hosts);
+    hosts[0].status.login_client = independentLoginClient(evidence[0]);
   }
   return hosts;
 }

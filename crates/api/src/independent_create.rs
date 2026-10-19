@@ -424,7 +424,8 @@ impl IndependentCreateControl {
     }
 }
 
-async fn admission(
+#[utoipa::path(post, tag = "default", path = "/setup/admission", responses((status = 204, description = "This owner code is currently admitted"), (status = 401, description = "Code invalid or retired"), (status = 503, description = "Admission unavailable")), security(("setup_code" = [])))]
+pub(crate) async fn admission(
     State(control): State<IndependentCreateControl>,
     headers: HeaderMap,
 ) -> Response {
@@ -433,7 +434,8 @@ async fn admission(
         Err(error) => error.into_response(),
     }
 }
-async fn create(
+#[utoipa::path(post, tag = "default", path = "/setup/create", request_body = IndependentCreateRequest, responses((status = 202, description = "Exact Create accepted; empty body, not completion"), (status = 400, description = "Invalid tuple or password"), (status = 401, description = "Code invalid or retired"), (status = 409, description = "Conflicting retained operation"), (status = 503, description = "Owner unavailable")), security(("setup_code" = [])))]
+pub(crate) async fn create(
     State(control): State<IndependentCreateControl>,
     headers: HeaderMap,
     Json(request): Json<IndependentCreateRequest>,
@@ -444,7 +446,8 @@ async fn create(
     accept(control, headers, request).await
 }
 
-async fn join(
+#[utoipa::path(post, tag = "default", path = "/setup/join", request_body = IndependentCreateRequest, responses((status = 202, description = "Exact Join accepted after authenticated discovery; empty body"), (status = 400, description = "Invalid tuple; Join forbids password and administrator"), (status = 401, description = "Code invalid or retired"), (status = 409, description = "Conflicting retained operation"), (status = 502, description = "Pinned peer discovery failed"), (status = 503, description = "Owner unavailable")), security(("setup_code" = [])))]
+pub(crate) async fn join(
     State(control): State<IndependentCreateControl>,
     headers: HeaderMap,
     Json(mut request): Json<IndependentCreateRequest>,
@@ -546,7 +549,11 @@ async fn accept(
     }
     StatusCode::ACCEPTED.into_response()
 }
-async fn recover(State(control): State<IndependentCreateControl>, headers: HeaderMap) -> Response {
+#[utoipa::path(post, tag = "default", path = "/setup/intent", responses((status = 200, body = IndependentCreateIntent, description = "Exact retained nonsecret operation with authenticated issuer"), (status = 204, description = "No bound operation; empty body"), (status = 401, description = "Code invalid or retired"), (status = 503, description = "Admission unavailable")), security(("setup_code" = [])))]
+pub(crate) async fn recover(
+    State(control): State<IndependentCreateControl>,
+    headers: HeaderMap,
+) -> Response {
     match control.0.admission.bound_intent(&headers) {
         Ok(Some(intent)) => match serde_json::from_str::<IndependentCreateIntent>(&intent) {
             Ok(intent) => Json(intent).into_response(),
@@ -556,7 +563,8 @@ async fn recover(State(control): State<IndependentCreateControl>, headers: Heade
         Err(error) => error.into_response(),
     }
 }
-async fn cancel(
+#[utoipa::path(post, tag = "default", path = "/setup/cancel", request_body = IndependentCreateIntent, responses((status = 204, description = "Cancellation signaled; not cleanup completion"), (status = 401, description = "Code invalid or retired"), (status = 409, description = "No matching active operation"), (status = 503, description = "Admission unavailable")), security(("setup_code" = [])))]
+pub(crate) async fn cancel(
     State(control): State<IndependentCreateControl>,
     headers: HeaderMap,
     Json(intent): Json<IndependentCreateIntent>,
@@ -577,7 +585,8 @@ async fn cancel(
     state.view = "unfinished";
     StatusCode::NO_CONTENT.into_response()
 }
-async fn status(State(control): State<IndependentCreateControl>) -> Response {
+#[utoipa::path(get, tag = "default", path = "/setup/status", responses((status = 200, body = crate::independent_openapi::IndependentSetupStatus, description = "Owner-local state; no login Client or secret"), (status = 503, description = "Admission unavailable; empty body")))]
+pub(crate) async fn status(State(control): State<IndependentCreateControl>) -> Response {
     if control.0.admission.health().is_err() {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     }

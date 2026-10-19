@@ -14,12 +14,13 @@
         renameDevice,
         revokeDevice,
     } from "$lib/common/state/devices.svelte";
-    import { idpApi } from "$lib/common/state/idpClient.svelte";
+    import { managementApi } from "$lib/common/state/managementClient.svelte";
     import { notifications } from "$lib/common/state/notifications.svelte";
 
     let nodeOffers = $state.raw<PendingNodeJoin[]>([]);
     let nodeAccepting = $state(false);
     let nodeError = $state<string | null>(null);
+    let nodeStatus = $state("");
     let nodeBusy = $state(false);
     let nodeLoading = false;
 
@@ -63,8 +64,15 @@
             return;
         nodeBusy = true;
         try {
-            if (approve) await approvePendingNodeJoin(offer.offer_id);
-            else await rejectPendingNodeJoin(offer.offer_id);
+            if (approve) {
+                const result = await approvePendingNodeJoin(offer.offer_id);
+                nodeStatus = result === "accepted"
+                    ? "Approval accepted as host-owned work, not completed membership or target readiness. Refresh offers and observe all target owners."
+                    : "Source approval acknowledged. Target public bootstrap and verified readiness must still complete.";
+            } else {
+                await rejectPendingNodeJoin(offer.offer_id);
+                nodeStatus = "Source rejection acknowledged; target readiness is not established.";
+            }
             await loadNodeOffers();
         } catch (cause) {
             nodeError = String(cause);
@@ -159,7 +167,7 @@
     }
 
     onMount(() => {
-        void idpApi
+        void managementApi
             .device()
             .then(async (device) => {
                 deviceEndpointId = device.publicKey;
@@ -215,6 +223,7 @@
             onclick={() => void loadNodeOffers()}>Refresh Node offers</button
         >
         {#if nodeError}<p role="alert">{nodeError}</p>{/if}
+        {#if nodeStatus}<p role="status">{nodeStatus}</p>{/if}
         {#each nodeOffers as offer (offer.offer_id)}
             <article class="flex flex-col gap-2">
                 <h3>{offer.request.name}</h3>
@@ -223,7 +232,15 @@
                     <dd class="break-all">{offer.request.installation}</dd>
                     <dt>Authenticated endpoint</dt>
                     <dd class="break-all">{offer.authenticated_endpoint}</dd>
-                    <dt>Member</dt>
+                    {#if offer.request.device_id}
+                        <dt>Management Device</dt><dd class="break-all">{offer.request.device_id}</dd>
+                    {/if}
+                    {#if offer.request.operation}
+                        {#each ["idp", "management", "storage"] as owner (owner)}
+                            <dt>Target {owner}</dt><dd class="break-all">{offer.request.operation[owner as "idp" | "management" | "storage"]}</dd>
+                        {/each}
+                    {/if}
+                    <dt>Signer member</dt>
                     <dd class="break-all">{offer.request.member_id}</dd>
                     <dt>Approving endpoint</dt>
                     <dd class="break-all">{offer.request.approving_peer}</dd>

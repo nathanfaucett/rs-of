@@ -13,12 +13,15 @@ import { resolve } from "$app/paths";
 import { page } from "$app/state";
 import { env } from "$env/dynamic/public";
 import { afterSigninRedirect } from "./afterSigninRedirect.svelte";
-import { ensureLocalhostBaseUrl } from "./localhostBaseUrl.svelte";
+import {
+  ensureLocalhostBaseUrl,
+  getLocalhostBaseUrlCached,
+} from "./localhostBaseUrl.svelte";
 import { getOidcClient } from "./oidc.svelte";
 
 const idpApiUrl = createStorage<string | null>(
   "idp-api-url",
-  (isTauri() ? null : env.PUBLIC_LIDP_BASE_URL) ?? null,
+  env.PUBLIC_LIDP_BASE_URL ?? null,
 );
 
 function readAccessToken(): string {
@@ -126,12 +129,21 @@ export async function idpOwnerAccessToken(): Promise<string> {
 export function setIdpApiUrl(newIdpApiUrl: string) {
   idpApiUrl.item = newIdpApiUrl;
 }
+export function usesRemoteApis(): boolean {
+  if (!isTauri()) return true;
+  const base = idpApiUrl.item?.replace(/\/$/, "");
+  const local = getLocalhostBaseUrlCached();
+  return Boolean(
+    env.PUBLIC_LIDP_BASE_URL || (base && (!local || base !== `${local}/idp`)),
+  );
+}
+
 export function getIdpApiUrl(): string | null {
   return idpApiUrl.item;
 }
 
 export async function ensureTauriIdpApiUrl(): Promise<string | null> {
-  if (!isTauri()) {
+  if (usesRemoteApis()) {
     return idpApiUrl.item;
   }
 

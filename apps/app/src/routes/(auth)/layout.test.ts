@@ -24,8 +24,8 @@ vi.mock("@tauri-apps/api/core", () => ({
             if (host.stageError) throw host.stageError;
             return host.stage;
         }
-        if (command === "get_setup_intent") return host.installation;
-        if (command === "get_localhost_server_base_url") return "https://node.test";
+        if (command === "get_localhost_server_base_url")
+            return "https://node.test";
         throw new Error(`Unexpected IPC command: ${command}`);
     },
 }));
@@ -42,7 +42,7 @@ vi.mock("$app/state", () => ({
     },
 }));
 vi.mock("$env/dynamic/public", () => ({
-    env: { PUBLIC_LIDP_BASE_URL: "https://node.test/idp" },
+    env: {},
 }));
 vi.mock("$lib/common/state/afterSigninRedirect.svelte", () => ({
     afterSigninRedirect: { setURL: host.returnTo },
@@ -89,6 +89,7 @@ function respond(failure: () => Promise<Response>, endpoint = "userinfo") {
             return Response.json({ sub: "local-user", name: "Local User" });
         return Response.json({
             token_endpoint: "https://node.test/idp/oauth2/token",
+            issuer: host.installation.issuer,
         });
     });
 }
@@ -154,7 +155,9 @@ it("rechecks local readiness on retry and admits a completed offline Node only a
         location: "/setup/installation",
     });
     host.stage = "ready";
-    respond(async () => Response.json({ sub: "local-user", name: "Local User" }));
+    respond(async () =>
+        Response.json({ sub: "local-user", name: "Local User" }),
+    );
     await expect(load(event)).resolves.toMatchObject({
         userInfo: { sub: "local-user" },
     });
@@ -180,12 +183,13 @@ it("rechecks local readiness on retry and admits a completed offline Node only a
 });
 
 it("presents the existing unavailable setup UI with explicit local-service retry", async () => {
-    const { default: InstallationSetup } =
-        await import("../setup/installation/+page.svelte");
+    const { default: InstallationSetup } = await import(
+        "../setup/installation/+page.svelte"
+    );
     const { body } = render(InstallationSetup, {
-        props: { data: { stage: "unavailable" } },
+        props: { data: { stage: "unavailable", bundled: true } },
     });
-    expect(body).toContain("local services are");
+    expect(body).toContain("Shared HTTPS setup is unavailable");
     expect(body).toContain("Retry local services");
     expect(body).not.toContain("Create local Node");
     expect(body).not.toContain("Sign in");
@@ -338,7 +342,7 @@ it("rechecks authorization after an outage instead of trusting the preserved ses
 });
 
 it("retains the missing-bearer and other-Installation denial guards", async () => {
-    fetchApi.mockResolvedValue(new Response(null, { status: 200 }));
+    respond(async () => Response.json({ sub: "local-user" }));
     for (const token of [
         undefined,
         { access_token: "session", iss: "https://other.test" },
@@ -350,7 +354,11 @@ it("retains the missing-bearer and other-Installation denial guards", async () =
         expect(host.token).toBeUndefined();
     }
     expect(
-        fetchApi.mock.calls.every(([url]) => String(url).endsWith("/idp/health")),
+        fetchApi.mock.calls.every(
+            ([url]) =>
+                String(url).endsWith("/idp/health") ||
+                String(url).endsWith("/.well-known/openid-configuration"),
+        ),
     ).toBe(true);
 });
 
@@ -373,4 +381,80 @@ it("presents actionable retry outside the failed auth layout without authenticat
     expect(body).toMatch(/<button[^>]*>\s*Retry\s*<\/button>/);
     expect(body).not.toContain("Management");
     expect(body).not.toContain("Sign in");
+});
+
+it("uses selected HTTPS issuer discovery without the removed native intent command", async () => {
+    respond(async () => Response.json({ sub: "local-user" }));
+    await expect(load(event)).resolves.toMatchObject({
+        userInfo: { sub: "local-user" },
+    });
+    expect(fetchApi).toHaveBeenCalledWith(
+        "https://node.test/idp/.well-known/openid-configuration",
+        expect.anything(),
+    );
+    expect(
+        host.invoke.mock.calls.every(([command]) =>
+            ["get_setup_stage", "get_localhost_server_base_url"].includes(
+                command,
+            ),
+        ),
+    ).toBe(true);
+});
+
+it("preserves the session and denies access when HTTPS issuer discovery fails or is malformed", async () => {
+    for (const [response, status] of [
+        [new Response(null, { status: 503 }), 503],
+        [Response.json({}), 502],
+    ] as const) {
+        respond(async () => response, ".well-known/openid-configuration");
+        expect(
+            isHttpError(
+                await load(event).catch((cause: unknown) => cause),
+                status,
+            ),
+        ).toBe(true);
+        expect(host.token?.access_token).toBe("session");
+        expect(host.clear).not.toHaveBeenCalled();
+        expect(
+            fetchApi.mock.calls.some(([url]) =>
+                String(url).endsWith("/userinfo"),
+            ),
+        ).toBe(false);
+    }
+});
+
+it("authenticates a desktop remote target without unrelated local setup observation", async () => {
+    const { setIdpApiUrl } = await import("$lib/common/state/idpClient.svelte");
+    setIdpApiUrl("https://remote.test/idp");
+    vi.stubGlobal("window", { location: new URL("https://app.test") });
+    respond(async () => Response.json({ sub: "remote-user" }));
+    const ordinary = fetchApi.getMockImplementation()!;
+    fetchApi.mockImplementation(async (url: string, init?: RequestInit) =>
+        url.endsWith("/setup/status")
+            ? Response.json({
+                  stage: "installation",
+                  state: "ready",
+                  ready: true,
+                  owners: ["idp", "management", "storage"],
+                  login_client: {
+                      client_id: "01900000-0000-7000-8000-000000000001",
+                      scopes: ["openid"],
+                  },
+              })
+            : ordinary(url, init),
+    );
+    try {
+        await expect(load(event)).resolves.toMatchObject({
+            userInfo: { sub: "remote-user" },
+        });
+        expect(host.invoke).not.toHaveBeenCalled();
+        expect(
+            fetchApi.mock.calls.every(([url]) =>
+                String(url).startsWith("https://remote.test/idp/"),
+            ),
+        ).toBe(true);
+    } finally {
+        setIdpApiUrl("https://node.test/idp");
+        vi.stubGlobal("window", undefined);
+    }
 });

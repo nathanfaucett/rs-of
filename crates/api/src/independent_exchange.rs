@@ -156,7 +156,8 @@ impl IndependentCreateControl {
     }
 }
 
-async fn public(
+#[utoipa::path(get, tag = "default", path = "/setup/independent/public", operation_id = "owner_public", responses((status = 200, body = IndependentOwnerPublic, description = "Operation-bound public owner metadata, not setup authorization"), (status = 409, description = "Public owner metadata not yet available")))]
+pub(crate) async fn public(
     State(control): State<IndependentCreateControl>,
 ) -> Result<Json<IndependentOwnerPublic>, StatusCode> {
     let state = control.0.lifecycle.lock().await;

@@ -2,7 +2,7 @@ use std::io;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct IndependentCreateIntent {
     pub purpose: String,
@@ -86,14 +86,14 @@ impl IndependentCreateIntent {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct IndependentCreateRequest {
     #[serde(flatten)]
     pub intent: IndependentCreateIntent,
     pub password: Option<String>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct IndependentOwnerPublic {
     pub operation: IndependentCreateIntent,

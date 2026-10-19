@@ -37,9 +37,12 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 vi.mock("./idpClient.svelte", () => ({
   getIdpApiUrl: () => host.authority,
+  ensureTauriIdpApiUrl: async () => host.authority,
+  usesRemoteApis: () => !host.native,
 }));
 vi.mock("./managementClient.svelte", () => ({
   getManagementApiUrl: () => host.management,
+  ensureTauriManagementApiUrl: async () => {},
 }));
 vi.mock("$env/dynamic/public", () => ({
   env: {
@@ -453,8 +456,9 @@ it("discovers three configured web owners and verifies only the selected host's 
       owners: [["idp"], ["management"], ["storage"]][index],
     });
   });
-  const { getWebSetupHosts, verifyWebSetupCode } =
-    await import("./setupClient.svelte");
+  const { getWebSetupHosts, verifyWebSetupCode } = await import(
+    "./setupClient.svelte"
+  );
   expect((await getWebSetupHosts()).map((host) => host.base)).toEqual(bases);
   await verifyWebSetupCode("https://policy.test/api", "b".repeat(64));
   await verifyWebSetupCode("https://data.test/api", "c".repeat(64));
@@ -499,8 +503,9 @@ it("denies a missing independent base, stale target or unhealthy host without ad
       owners: ["idp"],
     }),
   );
-  const { getWebSetupHosts, verifyWebSetupCode } =
-    await import("./setupClient.svelte");
+  const { getWebSetupHosts, verifyWebSetupCode } = await import(
+    "./setupClient.svelte"
+  );
   await expect(getWebSetupHosts()).rejects.toThrow(
     "configured Management and Storage",
   );
@@ -1158,10 +1163,10 @@ it.each(["lookup", "status"] as const)(
   },
 );
 
-it.each(["native", "independent", "invalid code", "insecure origin"])(
+it.each(["independent", "invalid code", "insecure origin"])(
   "never sends recovery lookup outside authorized unified web setup: %s",
   async (failure) => {
-    host.native = failure === "native";
+    host.native = false;
     const { WebSetupCreate } = await import("./setupClient.svelte");
     const session = new WebSetupCreate(
       failure === "independent"
@@ -1200,4 +1205,149 @@ it("uses the actual current HTTPS UI origin rather than PUBLIC_URL", async () =>
   await expect(getWebSetupHosts()).rejects.toThrow("current HTTPS UI origin");
   expect(fetchApi).not.toHaveBeenCalled();
   expect(host.invoke).not.toHaveBeenCalled();
+});
+
+it("discovers independent public login Client from IdP facts only after matching current owner readiness", async () => {
+  host.native = false;
+  host.authority = "https://node.test/idp";
+  host.management = "https://policy.test/api";
+  const operation = {
+    purpose: "create",
+    operation_nonce: "1".repeat(32),
+    administrator: "Alice",
+    node: "Node",
+    idp: host.authority,
+    management: host.management,
+    storage: "https://data.test/api",
+    issuer: host.authority,
+    peer: null,
+  };
+  let conflict = false;
+  fetchApi.mockImplementation(async (url: string) => {
+    const owner = url.startsWith(operation.idp)
+      ? "idp"
+      : url.startsWith(operation.management)
+        ? "management"
+        : "storage";
+    if (url.endsWith("/status"))
+      return Response.json({
+        stage: "installation",
+        state: "ready",
+        ready: true,
+        owners: [owner],
+      });
+    return Response.json({
+      owner,
+      operation: {
+        ...operation,
+        operation_nonce:
+          conflict && owner === "storage"
+            ? "2".repeat(32)
+            : operation.operation_nonce,
+      },
+      facts:
+        owner === "idp"
+          ? { login_client: "01900000-0000-7000-8000-000000000123" }
+          : {},
+    });
+  });
+  const { ensureOidcClientId } = await import("./oidc.svelte");
+  await expect(ensureOidcClientId()).resolves.toBe(
+    "01900000-0000-7000-8000-000000000123",
+  );
+  conflict = true;
+  await expect(ensureOidcClientId()).rejects.toThrow(/disagree/);
+  expect(host.invoke).not.toHaveBeenCalled();
+});
+
+it("submits bundled desktop Create through HTTPS rather than removed native mutation commands", async () => {
+  host.native = true;
+  host.authority = "https://localhost:4100/idp";
+  const { WebSetupCreate } = await import("./setupClient.svelte");
+  const session = new WebSetupCreate({
+    ...recoveryHost,
+    status: { ...recoveryHost.status, state: "awaiting_choice" },
+  });
+  host.submitCreate.mockResolvedValue({
+    ...recoveryHost.status,
+    state: "creating",
+  });
+  await session.submit(
+    "a".repeat(64),
+    "Alice",
+    "Desktop Node",
+    "protected-password",
+  );
+  expect(host.submitCreate).toHaveBeenCalledWith(
+    recoveryHost.base,
+    "a".repeat(64),
+    expect.objectContaining({
+      administrator: "Alice",
+      node: "Desktop Node",
+      password: "protected-password",
+    }),
+  );
+  expect(host.invoke).not.toHaveBeenCalled();
+});
+
+it("retrieves a bundled setup capability only by explicit protected host management for that exact local base", async () => {
+  host.native = true;
+  host.authority = "https://localhost:4100/idp";
+  host.invoke.mockImplementation(async (command) =>
+    command === "get_localhost_server_base_url"
+      ? "https://localhost:4100"
+      : "a".repeat(64),
+  );
+  const { readNativeSetupCode } = await import("./setupClient.svelte");
+  await expect(readNativeSetupCode(host.authority)).resolves.toBe(
+    "a".repeat(64),
+  );
+  expect(host.invoke.mock.calls).toEqual([
+    ["get_localhost_server_base_url"],
+    ["get_native_setup_code"],
+  ]);
+  expect(entries.size).toBe(0);
+  host.invoke.mockClear();
+  await expect(readNativeSetupCode("https://remote.test/idp")).rejects.toThrow(
+    /remote target/,
+  );
+  expect(host.invoke.mock.calls).toEqual([["get_localhost_server_base_url"]]);
+});
+
+it("permits only the exact bundled native WebView origin for shared HTTPS setup, never as a remote-origin bypass", async () => {
+  host.native = true;
+  host.authority = "https://localhost:4100/idp";
+  vi.stubGlobal("window", {
+    location: new URL("tauri://localhost"),
+    localStorage: storage,
+  });
+  const { WebSetupCreate } = await import("./setupClient.svelte");
+  const session = new WebSetupCreate({
+    ...recoveryHost,
+    status: { ...recoveryHost.status, state: "awaiting_choice" },
+  });
+  host.submitCreate.mockResolvedValue({
+    ...recoveryHost.status,
+    state: "creating",
+  });
+  await session.submit(
+    "a".repeat(64),
+    "Alice",
+    "Desktop Node",
+    "protected-password",
+  );
+  expect(host.submitCreate).toHaveBeenCalledTimes(1);
+  host.native = false;
+  const remote = new WebSetupCreate({
+    ...recoveryHost,
+    status: { ...recoveryHost.status, state: "awaiting_choice" },
+  });
+  await remote.submit(
+    "a".repeat(64),
+    "Alice",
+    "Remote Node",
+    "protected-password",
+  );
+  expect(host.submitCreate).toHaveBeenCalledTimes(1);
+  expect(remote.observationRequired).toBe(true);
 });
