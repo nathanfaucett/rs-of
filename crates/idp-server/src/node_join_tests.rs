@@ -413,6 +413,25 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
     management_service::replica::up(&management)
         .await
         .expect("policy schema");
+    management_service::replica::DbDeviceRepo::new(management.clone())
+        .enroll_approved_exact(
+            peer_binding.member_id,
+            owner,
+            "Approving Node",
+            &peer_binding.endpoint_id,
+            1,
+        )
+        .await
+        .expect("Management-owned approving Device");
+    assert!(
+        provisioner
+            .engine
+            .client()
+            .translate_and_execute("SELECT id FROM devices", &db::SqlTranslator)
+            .await
+            .is_err(),
+        "IdP must not contain Device authority"
+    );
     let engine = provisioner.engine.clone();
     let state = crate::RouterState::new(
         "https://ui.test",
@@ -690,6 +709,28 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
             .expect("pairing must not admit general DATA connection");
         assert!(connection.close_reason().is_some());
     }
+    let management_device = fixture
+        .state
+        .devices
+        .enroll_approved_exact(
+            binding.member_id,
+            fixture.owner,
+            &request.name,
+            &binding.endpoint_id,
+            1,
+        )
+        .await
+        .expect("Management commit survives interruption before IdP enrollment");
+    assert!(
+        fixture
+            .state
+            .replica_signers
+            .trusted_signers(&fixture.issuer, i64::MAX)
+            .await
+            .expect("IdP has not enrolled joining signer")
+            .iter()
+            .all(|(member, _)| member.member_id != binding.member_id)
+    );
     joining.endpoint().close().await;
     sending.abort();
     let _ = sending.await;
@@ -775,6 +816,16 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
         changed_receipt.verify(&request).is_err(),
         "receipt cannot substitute independent signer"
     );
+    assert_eq!(
+        fixture
+            .state
+            .devices
+            .find_approved_by_public_key(&binding.endpoint_id)
+            .await
+            .expect("Management exact retry")
+            .expect("approved Device"),
+        management_device
+    );
     assert_eq!(approved, received);
     assert_eq!(received.owner_subject, fixture.owner);
     assert_eq!(
@@ -852,8 +903,7 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
         .await
         .expect("valid signer enrollment");
     fixture
-        .state
-        .engine
+        .management
         .client()
         .translate_and_execute(
             &format!(
@@ -864,7 +914,7 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
         )
         .await
         .expect("learn timestamp-only joining Device revocation");
-    let rows = fixture.state.engine.client().translate_and_execute(&format!(
+    let rows = fixture.management.client().translate_and_execute(&format!(
         "SELECT state, revoked_at, owner_subject FROM devices WHERE id = CAST('{}' AS UUID)", binding.member_id),
         &db::SqlTranslator).await.expect("timestamp-only joining Device state");
     assert_eq!(
@@ -1188,8 +1238,7 @@ async fn node_join_runtime_and_http_identity_deny_timestamp_only_device_revocati
         "unrevoked endpoint has no signer enrollment"
     );
     fixture
-        .state
-        .engine
+        .management
         .client()
         .translate_and_execute(
             &format!(
@@ -1200,7 +1249,7 @@ async fn node_join_runtime_and_http_identity_deny_timestamp_only_device_revocati
         )
         .await
         .expect("learn timestamp-only Device revocation");
-    let rows = fixture.state.engine.client().translate_and_execute(&format!(
+    let rows = fixture.management.client().translate_and_execute(&format!(
         "SELECT state, revoked_at, owner_subject FROM devices WHERE id = CAST('{}' AS UUID)", device.id),
         &db::SqlTranslator).await.expect("timestamp-only Device state");
     assert_eq!(

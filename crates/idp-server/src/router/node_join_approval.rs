@@ -107,6 +107,11 @@ impl RouterState {
             "IdP join enrollment stage=transaction_begin elapsed={:?}",
             started.elapsed()
         );
+        if self.authorize_node_join_approver(bearer).await? != owner {
+            return Err(invalid("enrollment approver differs from approved owner"));
+        }
+        self.verify_node_join_approving_device(&approval.request.approving_peer)
+            .await?;
         let result = self.enroll_node_join(&approval.request, owner, now).await;
         #[cfg(test)]
         eprintln!(
@@ -222,6 +227,16 @@ impl RouterState {
         owner: Id,
         now: i64,
     ) -> io::Result<()> {
+        self.devices
+            .enroll_approved_exact(
+                request.member_id,
+                owner,
+                &request.name,
+                &request.endpoint_id,
+                now,
+            )
+            .await
+            .map_err(io::Error::other)?;
         let membership = ReplicaMembership {
             installation_id: request.installation.clone(),
             member_id: request.member_id,
@@ -250,7 +265,6 @@ impl RouterState {
             .await
             .map_err(io::Error::other)?;
         let result = async {
-            ensure_join_device(&mut transaction, request, owner, now).await?;
             persist_join_intent(&mut transaction, request, owner).await?;
             DbReplicaSignerRepo::enroll_in_transaction(&mut transaction, &membership, &signer)
                 .await
@@ -333,42 +347,6 @@ async fn persist_join_intent(
     require_clear(
         transaction,
         "local_node_join_intents",
-        &Row::new(vec![Value::Uuid(request.member_id)]),
-    )
-    .await
-}
-
-async fn ensure_join_device(
-    transaction: &mut Transaction,
-    request: &NodeJoinRequest,
-    owner: Id,
-    now: i64,
-) -> io::Result<()> {
-    let rows = transaction.translate_and_execute(&format!(
-        "SELECT id, owner_subject, name, public_key, state, revoked_at FROM devices WHERE id = CAST('{}' AS UUID) OR public_key = {}",
-        request.member_id, text(&request.endpoint_id)), &SqlTranslator).await.map_err(io::Error::other)?;
-    if rows[0].rows.is_empty() {
-        transaction.translate_and_execute(&format!(
-            "INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES (CAST('{}' AS UUID), {}, {}, {}, '', 1, {now}, NULL, {now}, {now})",
-            request.member_id, text(&owner.to_string()), text(&request.name), text(&request.endpoint_id)), &SqlTranslator).await.map_err(io::Error::other)?;
-    } else if rows[0].rows.len() != 1
-        || rows[0].rows[0].values
-            != [
-                Value::Uuid(request.member_id),
-                Value::Text(owner.to_string()),
-                Value::Text(request.name.clone()),
-                Value::Text(request.endpoint_id.clone()),
-                Value::Integer(1),
-                Value::Null,
-            ]
-    {
-        return Err(invalid(
-            "join Device conflicts with current approved owner state",
-        ));
-    }
-    require_clear(
-        transaction,
-        "devices",
         &Row::new(vec![Value::Uuid(request.member_id)]),
     )
     .await
