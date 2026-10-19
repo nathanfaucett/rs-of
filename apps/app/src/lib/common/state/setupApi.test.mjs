@@ -141,8 +141,8 @@ test("web observes host-owned Create and verified readiness, not just awaiting c
   });
 });
 
-test("independent readiness requires login evidence only from IdP", async () => {
-  for (const owner of ["management", "storage"]) {
+test("independent status omits login metadata while unified readiness requires it inline", async () => {
+  for (const owner of ["idp", "management", "storage"]) {
     const status = { ...ready, owners: [owner] };
     delete status.login_client;
     globalThis.fetch = async () => Response.json(status);
@@ -153,7 +153,7 @@ test("independent readiness requires login evidence only from IdP", async () => 
     globalThis.fetch = async () => Response.json({ ...status, login_client: ready.login_client });
     await assert.rejects(setup.fetchSetupStatus(`https://${owner}.test`), /invalid/i);
   }
-  for (const owners of [["idp"], scope]) {
+  for (const owners of [scope]) {
     const status = { ...ready, owners };
     delete status.login_client;
     globalThis.fetch = async () => Response.json(status);

@@ -30,6 +30,9 @@ const contracts = {
   "idp-setup": {
     DefaultApi: "admission cancel create intent join status",
   },
+  "idp-independent": {
+    DefaultApi: "admission cancel create join ownerPublic recover status",
+  },
   management: {
     DefaultApi:
       "assignPermissionToRole assignRoleToUser createPermission createRole deleteDeviceResourceSelection deleteDeviceSelection deletePermission deleteRole device enrollDevice evaluatePermission getDeviceRestriction health listApprovedDeviceEndpoints listDevices listPermissions listRolePermissions listRoles listUserRoles listUserRolesAcrossApplications lookupDeviceEndpoint lookupDeviceIdentity openapiJson pairingAcceptance putDeviceRestriction putDeviceSelection revokeDevice revokePermissionFromRole revokeRoleFromUser revokeSelf setPairingAcceptance transferDevice trustedDevices updateDevice version",
@@ -45,14 +48,16 @@ const contracts = {
 
 function fixture(service, run) {
   const workspace = mkdtempSync(path.join(tmpdir(), `${service}-generator-`));
-  const owner = service === "idp-setup" ? "idp" : service;
+  const owner = service.startsWith("idp-") ? "idp" : service;
   const directory = path.join(workspace, `${owner}-client`);
   const source =
     service === "storage"
       ? "src/generated"
       : service === "idp-setup"
         ? "src/setup"
-        : "src";
+        : service === "idp-independent"
+          ? "src/independent"
+          : "src";
   try {
     mkdirSync(path.join(directory, source, "apis"), { recursive: true });
     writeFileSync(
@@ -213,6 +218,12 @@ test("Unknown services cannot bypass the completeness contract through object pr
 
 for (const [service, contract] of Object.entries(contracts)) {
   test(`${service} fixture inventory matches current Rust OpenAPI registrations`, () => {
+    if (service === "idp-independent") {
+      const router = readFileSync(path.resolve(import.meta.dirname, "../crates/api/src/independent_openapi.rs"), "utf8");
+      const operations = [...router.matchAll(/super::independent_(?:create|exchange)::(\w+),/g)].map(match => match[1] === "public" ? "ownerPublic" : match[1]);
+      assert.deepEqual(contract.DefaultApi.split(" ").sort(), operations.sort());
+      return;
+    }
     if (service === "idp-setup") {
       const router = readFileSync(
         path.resolve(
@@ -485,5 +496,21 @@ test("Management rejects the stale contract missing transferDevice without repla
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /missing required operation transferDevice/);
     preserved();
+  });
+});
+
+test("independent setup uses a separate owner subpath without advertising handoff APIs", () => {
+  const owner = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "../packages/idp-client/package.json"), "utf8"));
+  assert.equal(owner.scripts["openapi:independent"], "node ../../scripts/generate-openapi-client.mjs idp-independent");
+  assert.deepEqual(owner.exports["./independent"], { types: "./types/independent/index.d.ts", default: "./esm/independent/index.js" });
+  assert.deepEqual(contracts["idp-independent"].DefaultApi.split(" ").sort(), ["admission", "cancel", "create", "join", "ownerPublic", "recover", "status"]);
+});
+
+test("normal IdP regeneration preserves an existing independent setup subtree", () => {
+  fixture("idp", ({ directory, invoke }) => {
+    mkdirSync(path.join(directory, "src/independent"));
+    writeFileSync(path.join(directory, "src/independent/index.ts"), "public independent contract\n");
+    assert.equal(invoke().status, 0);
+    assert.equal(readFileSync(path.join(directory, "src/independent/index.ts"), "utf8"), "public independent contract\n");
   });
 });

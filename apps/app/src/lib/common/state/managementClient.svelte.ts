@@ -11,11 +11,11 @@ import { page } from "$app/state";
 import { env } from "$env/dynamic/public";
 import { afterSigninRedirect } from "./afterSigninRedirect.svelte";
 import { ensureLocalhostBaseUrl } from "./localhostBaseUrl.svelte";
-import { ownerAccessToken } from "./idpClient.svelte";
+import { ownerAccessToken, usesApiSetup } from "./idpClient.svelte";
 
 const managementApiUrl = createStorage<string | null>(
   "management-api-url",
-  (isTauri() ? null : env.PUBLIC_LIDP_MANAGEMENT_BASE_URL) ?? null,
+  env.PUBLIC_LIDP_MANAGEMENT_BASE_URL ?? null,
 );
 
 function readAccessToken(): Promise<string> {
@@ -71,7 +71,7 @@ export function setManagementApiUrl(newManagementApiUrl: string) {
 }
 
 export async function ensureTauriManagementApiUrl(): Promise<void> {
-  if (isTauri())
+  if (isTauri() && !usesApiSetup())
     managementApiUrl.item = `${await ensureLocalhostBaseUrl()}/management`;
 }
 

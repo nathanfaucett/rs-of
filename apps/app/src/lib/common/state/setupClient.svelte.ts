@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { clearOidcSession } from "./oidc.svelte";
-import { getIdpApiUrl } from "./idpClient.svelte";
+import { getIdpApiUrl, usesApiSetup } from "./idpClient.svelte";
 import { env } from "$env/dynamic/public";
 import { getManagementApiUrl } from "./managementClient.svelte";
 import {
@@ -20,15 +20,18 @@ import {
   type SetupStage,
 } from "./setupApi";
 
+export { usesApiSetup } from "./idpClient.svelte";
+
 export type { SetupStage } from "./setupApi";
 
 export async function resetDevice(): Promise<void> {
+  if (isTauri() && usesApiSetup()) throw new Error("Remote owner reset requires explicit protected host management, not local native reset");
   clearOidcSession();
   await invoke("reset_device");
 }
 
 export async function getSetupStage(): Promise<SetupStage> {
-  if (!isTauri()) {
+  if (usesApiSetup()) {
     const hosts = await getWebSetupHosts();
     return hosts.every((host) => host.status.ready)
       ? "ready"
@@ -93,7 +96,7 @@ export class WebSetupCreate {
   ): Promise<void> {
     if (!this.active || this.busy) return;
     if (
-      isTauri() ||
+      !usesApiSetup() ||
       !this.status ||
       !isUnifiedSetupHost({ base: this.base, status: this.status }) ||
       this.status.stage !== "installation" ||
@@ -171,7 +174,7 @@ export class WebSetupCreate {
   async join(code: string, node: string, peer: string): Promise<void> {
     if (!this.active || this.busy) return;
     if (
-      isTauri() ||
+      !usesApiSetup() ||
       !this.status ||
       !isUnifiedSetupHost({ base: this.base, status: this.status }) ||
       this.status.stage !== "installation" ||
@@ -238,7 +241,7 @@ export class WebSetupCreate {
   async recover(code: string): Promise<void> {
     if (!this.active || this.busy) return;
     if (
-      isTauri() ||
+      !usesApiSetup() ||
       !this.status ||
       !isUnifiedSetupHost({ base: this.base, status: this.status }) ||
       this.status.ready
@@ -348,7 +351,7 @@ export class WebSetupCreate {
         typeof window === "undefined" ? "" : window.location.origin,
       );
       if (
-        isTauri() ||
+        !usesApiSetup() ||
         !this.status ||
         !isUnifiedSetupHost({ base: this.base, status: this.status })
       )

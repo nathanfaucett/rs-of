@@ -9,6 +9,7 @@ export default defineConfig({
       "@aicacia/oidc-client": fileURLToPath(
         new URL("../../packages/oidc-client/src/index.ts", import.meta.url),
       ),
+      "@aicacia/idp-client/independent": fileURLToPath(new URL("../../packages/idp-client/src/independent/index.ts", import.meta.url)),
       "@aicacia/idp-client/setup": fileURLToPath(
         new URL(
           "../../packages/idp-client/src/setup/index.ts",
@@ -38,6 +39,7 @@ export default defineConfig({
   test: {
     include: [
       "src/lib/common/state/setupClient.test.ts",
+      "src/lib/common/state/independentSetup.test.ts",
       "src/lib/common/state/localhostBaseUrl.test.ts",
       "src/lib/common/state/ownerClients.test.ts",
       "src/routes/(auth)/layout.test.ts",

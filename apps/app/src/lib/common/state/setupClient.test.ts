@@ -37,6 +37,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 vi.mock("./idpClient.svelte", () => ({
   getIdpApiUrl: () => host.authority,
+  usesApiSetup: () => !host.native,
 }));
 vi.mock("./managementClient.svelte", () => ({
   getManagementApiUrl: () => host.management,
@@ -1199,5 +1200,23 @@ it("uses the actual current HTTPS UI origin rather than PUBLIC_URL", async () =>
   const { getWebSetupHosts } = await import("./setupClient.svelte");
   await expect(getWebSetupHosts()).rejects.toThrow("current HTTPS UI origin");
   expect(fetchApi).not.toHaveBeenCalled();
+  expect(host.invoke).not.toHaveBeenCalled();
+});
+
+it("discovers independent public login Client from IdP facts only after matching current owner readiness", async () => {
+  host.native = false;
+  host.authority = "https://node.test/idp";
+  host.management = "https://policy.test/api";
+  const operation = { purpose: "create", operation_nonce: "1".repeat(32), administrator: "Alice", node: "Node", idp: host.authority, management: host.management, storage: "https://data.test/api", issuer: host.authority, peer: null };
+  let conflict = false;
+  fetchApi.mockImplementation(async (url: string) => {
+    const owner = url.startsWith(operation.idp) ? "idp" : url.startsWith(operation.management) ? "management" : "storage";
+    if (url.endsWith("/status")) return Response.json({ stage: "installation", state: "ready", ready: true, owners: [owner] });
+    return Response.json({ owner, operation: { ...operation, operation_nonce: conflict && owner === "storage" ? "2".repeat(32) : operation.operation_nonce }, facts: owner === "idp" ? { login_client: "01900000-0000-7000-8000-000000000123" } : {} });
+  });
+  const { ensureOidcClientId } = await import("./oidc.svelte");
+  await expect(ensureOidcClientId()).resolves.toBe("01900000-0000-7000-8000-000000000123");
+  conflict = true;
+  await expect(ensureOidcClientId()).rejects.toThrow(/disagree/);
   expect(host.invoke).not.toHaveBeenCalled();
 });

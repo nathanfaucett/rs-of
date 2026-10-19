@@ -11,6 +11,8 @@
         WebSetupCreate,
     } from "$lib/common/state/setupClient.svelte";
 
+    import IndependentSetup from "$lib/common/components/IndependentSetup.svelte";
+
     import type { SetupHost } from "$lib/common/state/setupApi";
 
     let { data }: { data: { stage: string; hosts?: SetupHost[] } } = $props();
@@ -265,7 +267,7 @@
     }
 
     onMount(() => {
-        if (!isTauri()) {
+        if (!isTauri() || data.hosts) {
             loading = false;
             return;
         }
@@ -402,7 +404,9 @@
 <div class="flex grow flex-col items-center justify-center">
     <div class="card w-sm">
         <h1>Installation setup</h1>
-        {#if !isTauri()}
+        {#if data.hosts?.length === 3}
+            {#key data.hosts}<IndependentSetup hosts={data.hosts} />{/key}
+        {:else if !isTauri() || data.hosts}
             <p>
                 Retrieve each host-generated setup code through your protected
                 deployment-management channel. Do not put it in a URL or logs.
@@ -427,11 +431,8 @@
                 </select>
             </label>
             <p role="status">
-                Unified web Create and Join controls are available.
-                Independent-owner and native API Join remain unfinished;
-                independent-owner Create is unavailable. Production Join
-                acceptance is not yet qualified. Code verification alone cannot
-                complete setup.
+                Unified API Create and Join controls are available.
+                Code verification alone cannot complete setup; observe verified readiness.
             </p>
             <p>
                 Credentials are transient. After a browser reload, recover the

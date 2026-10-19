@@ -619,3 +619,43 @@ it("uses Management Device client routes and audience for list, rename and revok
             .map(([, init]) => init.body.get("resource")),
     ).toEqual(["idp-management", "idp-management", "idp-management"]);
 });
+
+it("handles independent source acceptance 204 with readback, exact offers and asynchronous approval 202", async () => {
+  host.desktop = false;
+  const idp = await import("./idpClient.svelte");
+  const management = await import("./managementClient.svelte");
+  idp.setIdpApiUrl("https://identity.test/idp");
+  management.setManagementApiUrl("https://source.test/management");
+  const operation = { purpose: "join", operation_nonce: "1".repeat(32), administrator: "", node: "Joining", idp: "https://target.test/idp", management: "https://target.test/management", storage: "https://target.test/storage", issuer: "https://installation.test/idp", peer: "https://source.test/management#" + "a".repeat(64) };
+  const request = { operation, device_id: "01900000-0000-7000-8000-000000000003", member_id: "01900000-0000-7000-8000-000000000004", endpoint_id: "b".repeat(64), public_signer: { kid: "01900000-0000-7000-8000-000000000005" }, source: { endpoint: "a".repeat(64), management: "https://source.test/management", issuer: operation.issuer } };
+  const offerId = "01900000-0000-7000-8000-000000000006";
+  fetchApi.mockImplementation(async (url: string, init: RequestInit) => {
+    if (url.endsWith("/oauth2/token")) return Response.json({ access_token: "owner-token", token_type: "Bearer" });
+    if (url.endsWith("/acceptance")) return init.method === "PUT" ? new Response(null, { status: 204 }) : Response.json({ accepting: true });
+    if (url.endsWith("/pending")) return Response.json([{ offer_id: offerId, authenticated_endpoint: request.endpoint_id, request }]);
+    return new Response(null, { status: url.endsWith("/approve") ? 202 : 204 });
+  });
+  const devices = await import("./devices.svelte");
+  await expect(devices.nodeJoinAccepting(true)).resolves.toBe(true);
+  const offers = await devices.pendingNodeJoins();
+  expect(offers[0].request).toMatchObject({ operation, device_id: request.device_id, member_id: request.member_id, name: "Joining", installation: operation.issuer });
+  await expect(devices.approvePendingNodeJoin(offerId)).resolves.toBe("accepted");
+  await devices.rejectPendingNodeJoin(offerId);
+  expect(fetchApi.mock.calls.filter(([url]) => url.endsWith("/acceptance")).map(([, init]) => init.method)).toEqual(["PUT", "GET"]);
+  expect(host.invoke).not.toHaveBeenCalled();
+});
+
+it("keeps desktop remote owner targets and source approval on HTTPS without invoking unrelated native setup", async () => {
+  const idp = await import("./idpClient.svelte");
+  const management = await import("./managementClient.svelte");
+  idp.setIdpApiUrl("https://remote.test/idp");
+  management.setManagementApiUrl("https://remote.test/management");
+  expect(await idp.ensureTauriIdpApiUrl()).toBe("https://remote.test/idp");
+  await management.ensureTauriManagementApiUrl();
+  expect(management.getManagementApiUrl()).toBe("https://remote.test/management");
+  fetchApi.mockImplementation(async (url: string) => url.endsWith("/oauth2/token") ? Response.json({ access_token: "owner-token", token_type: "Bearer" }) : Response.json({ accepting: true }));
+  const devices = await import("./devices.svelte");
+  await expect(devices.nodeJoinAccepting()).resolves.toBe(true);
+  expect(fetchApi.mock.calls.map(([url]) => url)).toEqual(["https://remote.test/idp/oauth2/token", "https://remote.test/management/node-joins/acceptance"]);
+  expect(host.invoke).not.toHaveBeenCalled();
+});

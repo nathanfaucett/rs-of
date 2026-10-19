@@ -4,11 +4,12 @@ import { isTauri } from "@tauri-apps/api/core";
 
 import {
   getSetupStage,
+  usesApiSetup,
   getWebSetupHosts,
 } from "$lib/common/state/setupClient.svelte";
 
 export async function load() {
-  if (!isTauri()) {
+  if (usesApiSetup()) {
     try {
       const hosts = await getWebSetupHosts();
       return {

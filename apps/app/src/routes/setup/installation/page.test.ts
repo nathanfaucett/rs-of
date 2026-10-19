@@ -20,6 +20,7 @@ vi.mock("$app/paths", () => ({ resolve: (path: string) => path }));
 vi.mock("$lib/common/state/oidc.svelte", () => ({ getOidcClient: host.oidc }));
 vi.mock("$lib/common/state/idpClient.svelte", () => ({
   getIdpApiUrl: () => "https://node.test/idp",
+  usesApiSetup: () => !host.native,
 }));
 
 vi.mock("$lib/common/state/managementClient.svelte", () => ({
@@ -93,10 +94,8 @@ it("offers unified web Create with protected credentials and explicit observatio
   });
   expect(body).toContain("Create an Installation");
   expect(body).toContain("Join through a trusted peer");
-  expect(body).toContain("Unified web Create and Join controls are available");
-  expect(body).toContain(
-    "Independent-owner and native API Join remain unfinished",
-  );
+  expect(body).toContain("Unified API Create and Join controls are available");
+  expect(body).not.toContain("independent-owner Create is unavailable");
   expect(body).toContain("source Node");
   expect(body).toContain("Administrator name");
   expect(body).toContain("Node name");
@@ -233,13 +232,13 @@ it("shows three independent host scopes and API bases with no native controls", 
   const { body } = render(Installation, {
     props: { data: { stage: "installation", hosts } },
   });
-  for (const host of hosts) expect(body).toContain(`value="${host.base}"`);
-  expect(body).toMatch(/Independent\s+hosts require their own codes/);
+  for (const host of hosts) expect(body).toContain(host.base);
+  expect(body).toContain("Each owner requires its own code");
   expect(body).not.toContain("Type RESET to confirm");
-  expect(body).toContain("Independent Create unavailable");
-  expect(body).not.toContain("Administrator name");
-  expect(body).not.toContain("Node name");
-  expect(body).not.toContain("Recover retained Create");
+  expect(body).not.toContain("Independent Create unavailable");
+  expect(body).toContain("Administrator name");
+  expect(body).toContain("Node name");
+  expect(body).toContain("Recover exact operation across owners");
   expect(host.invoke).not.toHaveBeenCalled();
 });
 

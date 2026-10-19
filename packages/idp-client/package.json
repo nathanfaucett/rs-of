@@ -25,6 +25,10 @@
             "types": "./types/setup/index.d.ts",
             "default": "./esm/setup/index.js"
         },
+        "./independent": {
+            "types": "./types/independent/index.d.ts",
+            "default": "./esm/independent/index.js"
+        },
         "./package.json": "./package.json"
     },
     "scripts": {
@@ -45,6 +49,7 @@
         "postopenapi": "pnpm format:fix",
         "openapi": "node ../../scripts/generate-openapi-client.mjs idp",
         "openapi:setup": "node ../../scripts/generate-openapi-client.mjs idp-setup",
+        "openapi:independent": "node ../../scripts/generate-openapi-client.mjs idp-independent",
         "prepare": "husky"
     },
     "husky": {

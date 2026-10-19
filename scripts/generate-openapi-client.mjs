@@ -26,6 +26,9 @@ const expectedApis = {
   "idp-setup": {
     DefaultApi: "admission cancel create intent join status",
   },
+  "idp-independent": {
+    DefaultApi: "admission cancel create join ownerPublic recover status",
+  },
   management: {
     DefaultApi:
       "assignPermissionToRole assignRoleToUser createPermission createRole deleteDeviceResourceSelection deleteDeviceSelection deletePermission deleteRole device enrollDevice evaluatePermission getDeviceRestriction health listApprovedDeviceEndpoints listDevices listPermissions listRolePermissions listRoles listUserRoles listUserRolesAcrossApplications lookupDeviceEndpoint lookupDeviceIdentity openapiJson pairingAcceptance putDeviceRestriction putDeviceSelection revokeDevice revokePermissionFromRole revokeRoleFromUser revokeSelf setPairingAcceptance transferDevice trustedDevices updateDevice version",
@@ -41,9 +44,9 @@ const expectedApis = {
 const specUrl = process.env.OPENAPI_SPEC_URL;
 const pnpmPath = process.env.npm_execpath;
 
-if (!["idp", "idp-setup", "management", "storage"].includes(service)) {
+if (!["idp", "idp-setup", "idp-independent", "management", "storage"].includes(service)) {
   throw new Error(
-    "Choose the idp, management or storage client generator, or idp-setup",
+    "Choose the idp, management or storage client generator, or idp-setup/idp-independent",
   );
 }
 if (!specUrl) {
@@ -65,6 +68,8 @@ const sourceDir = path.join(
     ? ["generated"]
     : service === "idp-setup"
       ? ["setup"]
+      : service === "idp-independent"
+        ? ["independent"]
       : []),
 );
 const temporaryDir = await mkdtemp(
@@ -179,7 +184,8 @@ try {
   }
 
   if (service === "idp") {
-    const setupDir = path.join(sourceDir, "setup");
+    for (const subtree of ["setup", "independent"]) {
+    const setupDir = path.join(sourceDir, subtree);
     const hasSetup = await access(setupDir).then(
       () => true,
       (error) => {
@@ -190,9 +196,10 @@ try {
       },
     );
     if (hasSetup) {
-      await cp(setupDir, path.join(generatedDir, "setup"), {
+      await cp(setupDir, path.join(generatedDir, subtree), {
         recursive: true,
       });
+    }
     }
   }
 

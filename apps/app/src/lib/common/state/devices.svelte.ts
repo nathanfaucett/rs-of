@@ -1,13 +1,14 @@
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import * as v from "valibot";
 import type {
   DeviceEnrollment,
   DeviceInfo,
   DeviceState,
 } from "@aicacia/management-client";
-import { ownerAccessToken } from "./idpClient.svelte";
+import { ownerAccessToken, usesApiSetup } from "./idpClient.svelte";
 import { managementApi, getManagementApiUrl } from "./managementClient.svelte";
 import { setupBase } from "./setupApi";
+import { exactIndependentIntent, type IndependentIntent } from "./independentSetupApi";
 
 export type { DeviceEnrollment, DeviceInfo, DeviceState };
 
@@ -21,6 +22,8 @@ export interface PendingNodeJoin {
     approving_peer: string;
     name: string;
     public_signer: Record<string, unknown>;
+    operation?: IndependentIntent;
+    device_id?: string;
   };
 }
 
@@ -66,17 +69,20 @@ async function webNodeJoinRequest(
   return response;
 }
 
+const unifiedJoinRequest = v.object({
+  installation: v.string(), member_id: v.pipe(v.string(), v.uuid()),
+  endpoint_id: v.string(), approving_peer: v.string(), name: v.string(),
+  public_signer: v.record(v.string(), v.unknown()),
+});
+const independentJoinRequest = v.object({
+  operation: v.custom<IndependentIntent>(value => { try { exactIndependentIntent(value, true); return true; } catch { return false; } }),
+  device_id: v.pipe(v.string(), v.uuid()), member_id: v.pipe(v.string(), v.uuid()),
+  endpoint_id: v.string(), public_signer: v.record(v.string(), v.unknown()),
+  source: v.object({ endpoint: v.string(), management: v.string(), issuer: v.string() }),
+});
 const pendingJoinSchema = v.object({
-  offer_id: v.pipe(v.string(), v.uuid()),
-  authenticated_endpoint: v.string(),
-  request: v.object({
-    installation: v.string(),
-    member_id: v.pipe(v.string(), v.uuid()),
-    endpoint_id: v.string(),
-    approving_peer: v.string(),
-    name: v.string(),
-    public_signer: v.record(v.string(), v.unknown()),
-  }),
+  offer_id: v.pipe(v.string(), v.uuid()), authenticated_endpoint: v.string(),
+  request: v.union([unifiedJoinRequest, independentJoinRequest]),
 });
 
 function exactOfferId(offerId: string): string {
@@ -84,12 +90,13 @@ function exactOfferId(offerId: string): string {
 }
 
 export async function nodeJoinAccepting(accepting?: boolean): Promise<boolean> {
-  if (!isTauri()) {
+  if (usesApiSetup()) {
     const response = await webNodeJoinRequest(
       "acceptance",
       accepting === undefined ? "GET" : "PUT",
       accepting === undefined ? undefined : { accepting },
     );
+    if (response.status === 204 && accepting !== undefined) return nodeJoinAccepting();
     if (response.status !== 200)
       throw new Error("Invalid source acceptance evidence");
     return v.parse(v.object({ accepting: v.boolean() }), await response.json())
@@ -102,7 +109,7 @@ export async function nodeJoinAccepting(accepting?: boolean): Promise<boolean> {
 }
 
 export async function pendingNodeJoins(): Promise<PendingNodeJoin[]> {
-  if (!isTauri()) {
+  if (usesApiSetup()) {
     const response = await webNodeJoinRequest("pending", "GET");
     if (response.status !== 200)
       throw new Error("Invalid source offer evidence");
@@ -113,29 +120,33 @@ export async function pendingNodeJoins(): Promise<PendingNodeJoin[]> {
       )
     )
       throw new Error("Source offer endpoint binding mismatch");
-    return offers;
+    return offers.map(offer => {
+      const request = offer.request;
+      if (!("operation" in request)) return { ...offer, request };
+      if (request.operation.purpose !== "join" || request.device_id === request.member_id || request.source.issuer !== request.operation.issuer || `${request.source.management}#${request.source.endpoint}` !== request.operation.peer)
+        throw new Error("Independent offer source/operation binding mismatch");
+      return { ...offer, request: { ...request, name: request.operation.node, installation: request.operation.issuer, approving_peer: request.source.endpoint } };
+    });
   }
   return invoke("pending_node_joins", { bearer: await nodeJoinBearer() });
 }
 
-export async function approvePendingNodeJoin(offerId: string): Promise<void> {
-  if (!isTauri()) {
+export async function approvePendingNodeJoin(offerId: string): Promise<"accepted" | "approved"> {
+  if (usesApiSetup()) {
     const response = await webNodeJoinRequest(
       `${exactOfferId(offerId)}/approve`,
       "POST",
     );
-    if (response.status !== 200)
+    if (response.status !== 200 && response.status !== 202)
       throw new Error("Invalid source approval response; refresh offers");
-    return;
+    return response.status === 202 ? "accepted" : "approved";
   }
-  return invoke("approve_pending_node_join", {
-    bearer: await nodeJoinBearer(),
-    offerId,
-  });
+  await invoke("approve_pending_node_join", { bearer: await nodeJoinBearer(), offerId });
+  return "approved";
 }
 
 export async function rejectPendingNodeJoin(offerId: string): Promise<void> {
-  if (!isTauri()) {
+  if (usesApiSetup()) {
     const response = await webNodeJoinRequest(
       `${exactOfferId(offerId)}/reject`,
       "POST",

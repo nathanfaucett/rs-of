@@ -6,7 +6,11 @@ mod independent_exchange;
 #[cfg(unix)]
 mod independent_history;
 #[cfg(unix)]
+mod independent_openapi;
+#[cfg(unix)]
 mod independent_operation;
+#[cfg(unix)]
+pub use independent_openapi::independent_setup_openapi;
 #[cfg(unix)]
 mod independent_peer;
 #[cfg(unix)]
