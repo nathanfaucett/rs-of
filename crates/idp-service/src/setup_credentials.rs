@@ -138,6 +138,57 @@ pub fn create_setup_secret(service: &str, slot: &str) -> io::Result<()> {
     Ok(())
 }
 
+/// Idempotent deletion of the captured owner-local slots, including interrupted writes.
+/// Provider errors are not absence; callers retain their journals until this succeeds.
+pub fn delete_setup_secrets(service: &str, slots: &[(String, bool)]) -> io::Result<()> {
+    if !service.starts_with("independent-setup:") {
+        return Err(io::Error::other(
+            "reset requires an independent setup provider namespace",
+        ));
+    }
+    let provider = RawKeyringRepo::new(service).map_err(io::Error::other)?;
+    for (index, (slot, attempted)) in slots.iter().enumerate() {
+        if (slot != "endpoint"
+            && slot
+                .parse::<Id>()
+                .map_or(true, |id| id.is_nil() || id.to_string() != *slot))
+            || slots[..index].iter().any(|(other, _)| other == slot)
+        {
+            return Err(io::Error::other("invalid or duplicate exact reset slot"));
+        }
+        if !attempted
+            && provider
+                .load("", "", slot)
+                .map_err(io::Error::other)?
+                .is_some()
+        {
+            return Err(io::Error::other(
+                "unattempted slot contains protected material; evidence retained",
+            ));
+        }
+    }
+    for (slot, attempted) in slots {
+        if *attempted
+            && provider
+                .load("", "", slot)
+                .map_err(io::Error::other)?
+                .is_some()
+        {
+            provider.delete("", "", slot).map_err(io::Error::other)?;
+        }
+        if provider
+            .load("", "", slot)
+            .map_err(io::Error::other)?
+            .is_some()
+        {
+            return Err(io::Error::other(
+                "protected reset deletion did not remove exact slot",
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub fn load_setup_secret(service: &str, slot: &str) -> io::Result<String> {
     let bytes = RawKeyringRepo::new(service)
         .map_err(io::Error::other)?

@@ -24,6 +24,18 @@ use crate::{AppConfig, build_oauth_runtime};
 
 #[derive(clap::Parser, Debug)]
 enum IdpCommand {
+    #[cfg(unix)]
+    #[command(
+        about = "LOCAL destructive reset of the selected independent IdP config. Stop its host first. Deletes local data and exact protected secrets; requires explicit OS CA trust removal with native consent. Does not revoke remote membership or reset the app."
+    )]
+    ResetIndependent {
+        #[arg(
+            long,
+            required = true,
+            help = "Explicitly remove this host's OS CA trust; retain evidence on denial/failure"
+        )]
+        remove_os_trust: bool,
+    },
     Serve {
         #[arg(long, short = 'p')]
         port: Option<u16>,
@@ -51,6 +63,12 @@ enum IdpCommand {
 
 pub async fn run() -> io::Result<()> {
     let args = CliArgs::<IdpCommand>::parse();
+    #[cfg(unix)]
+    if let Some(IdpCommand::ResetIndependent { remove_os_trust }) = args.command.as_ref() {
+        let _ = dotenvy::dotenv();
+        let config = crate::startup::load_config(Path::new(&args.config))?;
+        return crate::reset_independent(&config, *remove_os_trust).await;
+    }
     if let Some(IdpCommand::ProvisionServiceClient {
         application_uri,
         client_name,
@@ -144,6 +162,10 @@ pub async fn run() -> io::Result<()> {
         spawn(serve(router, addr, cancellation_token.clone()))
     };
     let command_handle = match args.command {
+        #[cfg(unix)]
+        Some(IdpCommand::ResetIndependent { .. }) => {
+            return Err(io::Error::other("reset must run before serving"));
+        }
         #[cfg(feature = "completions")]
         Some(IdpCommand::Completions { shell }) => spawn(async move {
             clap_complete::generate(
@@ -185,6 +207,21 @@ pub async fn run() -> io::Result<()> {
 mod tests {
     use clap::Parser;
     use cli::CliArgs;
+
+    #[cfg(unix)]
+    #[test]
+    fn local_reset_requires_explicit_os_trust_removal() {
+        assert!(
+            CliArgs::<super::IdpCommand>::try_parse_from(["idp-server", "reset-independent"])
+                .is_err()
+        );
+        CliArgs::<super::IdpCommand>::try_parse_from([
+            "idp-server",
+            "reset-independent",
+            "--remove-os-trust",
+        ])
+        .expect("explicit local trust removal");
+    }
 
     #[test]
     fn independent_startup_accepts_no_config_and_explicit_serve() {

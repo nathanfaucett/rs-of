@@ -1,5 +1,9 @@
 mod config;
 #[cfg(unix)]
+mod independent_reset;
+#[cfg(unix)]
+pub use independent_reset::{IndependentReset, uninstall_local_ca};
+#[cfg(unix)]
 mod independent_create;
 #[cfg(unix)]
 mod independent_exchange;

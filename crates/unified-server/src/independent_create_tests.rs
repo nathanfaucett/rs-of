@@ -4,7 +4,7 @@ use std::{
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::{Arc, atomic::AtomicBool},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -42,6 +42,10 @@ fn production_independent_create_and_offline_reopen() {
         drop(host);
         drop(port);
     }
+    bundle.extend(crate::independent_reset_tests::prepare_interrupted(
+        &root,
+        addresses[2],
+    ));
     fs::write(
         root.join("addresses.json"),
         serde_json::to_vec(&addresses).expect("addresses JSON"),
@@ -56,6 +60,7 @@ fn production_independent_create_and_offline_reopen() {
         fs::Permissions::from_mode(0o700),
     )
     .expect("executable mock");
+    crate::independent_reset_tests::prepare_trust_removal(&root);
     let mut child = Command::new(std::env::current_exe().expect("test executable"))
         .args([
             "--exact",
@@ -316,14 +321,8 @@ async fn normal_use(http: &Client, intent: &IndependentCreateIntent) -> (String,
 async fn independent_create_child() {
     let root = PathBuf::from(std::env::var_os("OF_INDEPENDENT_CREATE_ROOT").expect("parent roots"));
     crate::api_create_tests::capture_setup_timings();
-    let fail_node_readback = Arc::new(AtomicBool::new(false));
-    idp_service::repo::PrivateKeyKeyringRepo::new_with_store(
-        "independent-create",
-        Arc::new(crate::local_provisioning_tests::SecretStore {
-            store: keyring_core::mock::Store::new().expect("isolated provider"),
-            fail_node_readback: fail_node_readback.clone(),
-        }),
-    );
+    let reset_provider = crate::independent_reset_tests::Provider::install();
+    let fail_node_readback = reset_provider.fail_node_readback.clone();
     let addresses: Vec<SocketAddr> =
         serde_json::from_slice(&fs::read(root.join("addresses.json")).expect("addresses"))
             .expect("address JSON");
@@ -858,6 +857,8 @@ async fn independent_create_child() {
             .expect("provider remains missing")
             .is_none()
     );
+    crate::independent_reset_tests::qualify_completed(&root, &reset_provider, &intent.issuer).await;
+    crate::independent_reset_tests::qualify_interrupted(&root, addresses[2], &reset_provider).await;
 }
 
 async fn seed_endpoint_negatives(root: &Path) -> Vec<(String, StatusCode)> {
