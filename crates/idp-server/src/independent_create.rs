@@ -1,4 +1,4 @@
-use std::{io, path::Path, sync::Arc};
+use std::{io, path::Path, sync::Arc, time::Instant};
 
 use api::{
     IndependentCreateCommand, IndependentCreateControl, IndependentCreateIntent,
@@ -24,12 +24,13 @@ use crate::{AppConfig, IdpRuntime, ManagementPermissionConfig, OwnerProvisioner}
 #[path = "independent_join_worker.rs"]
 mod join;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Record {
     version: u8,
     user: Id,
-    credential: Id,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    credential: Option<Id>,
     login: Id,
     member: Id,
     key: Id,
@@ -50,10 +51,19 @@ impl Record {
     fn validate_operation(&self, intent: &IndependentCreateIntent) -> io::Result<()> {
         self.validate()?;
         if intent.purpose == "create" {
-            if self.request.is_some() || self.approval.is_some() || self.imported {
+            if self.credential.is_none()
+                || self.request.is_some()
+                || self.approval.is_some()
+                || self.imported
+            {
                 return Err(io::Error::other("Create contains Join evidence"));
             }
             return Ok(());
+        }
+        if self.credential.is_some() {
+            return Err(io::Error::other(
+                "Join contains a fresh credential identity",
+            ));
         }
         if let Some(request) = &self.request {
             request.validate()?;
@@ -87,11 +97,11 @@ impl Record {
         }
         Ok(())
     }
-    fn new() -> Self {
+    fn new(purpose: &str) -> Self {
         Self {
-            version: 1,
+            version: 2,
             user: Id::now_v7(),
-            credential: Id::now_v7(),
+            credential: (purpose == "create").then(Id::now_v7),
             login: Id::now_v7(),
             member: Id::now_v7(),
             key: Id::now_v7(),
@@ -108,15 +118,9 @@ impl Record {
         }
     }
     fn validate(&self) -> io::Result<()> {
-        let ids = [
-            self.user,
-            self.credential,
-            self.login,
-            self.member,
-            self.key,
-            self.client,
-        ];
-        if self.version != 1
+        let mut ids = vec![self.user, self.login, self.member, self.key, self.client];
+        ids.extend(self.credential);
+        if self.version != 2
             || ids.iter().any(Id::is_nil)
             || ids.iter().enumerate().any(|(i, id)| ids[..i].contains(id))
             || self.registrations.iter().any(|r| r.client_secret.is_some())
@@ -198,6 +202,7 @@ async fn run(
                 )
                 .await?,
             );
+            observe(&control, opened.clone(), &intent, &record)?;
             control
                 .restore(runtime.as_ref().expect("restored runtime").router())
                 .await?;
@@ -268,6 +273,63 @@ async fn open(
     }
     Ok(())
 }
+fn observe(
+    control: &IndependentCreateControl,
+    owner: Arc<OwnerProvisioner>,
+    intent: &IndependentCreateIntent,
+    record: &Record,
+) -> io::Result<()> {
+    let intent = intent.clone();
+    let record = record.clone();
+    let expected = serde_json::to_value(&record)?;
+    let secret = load_setup_secret(&service(control), &record.client.to_string())?;
+    control.set_readiness(move |control| {
+        let (owner, intent, record, expected, secret) = (
+            owner.clone(),
+            intent.clone(),
+            record.clone(),
+            expected.clone(),
+            secret.clone(),
+        );
+        async move {
+            let current: Record = control
+                .read_record()?
+                .ok_or_else(|| io::Error::other("IdP worker evidence missing"))?;
+            current.validate_operation(&intent)?;
+            if serde_json::to_value(current)? != expected
+                || load_setup_secret(&service(&control), &record.client.to_string())? != secret
+            {
+                return Err(io::Error::other("retained IdP setup evidence changed"));
+            }
+            owner.verify_node_signer(&binding(&record)?).await?;
+            owner
+                .verify_public_login_client(login(&intent, record.login))
+                .await?;
+            owner
+                .oauth2
+                .find_user_info(record.user)
+                .await
+                .map_err(|_| io::Error::other("current setup owner is inactive"))?;
+            owner
+                .verify_setup_infrastructure_registration(
+                    &SetupRelationship::IdpManagement.registration(
+                        record.client,
+                        &intent.idp,
+                        &intent.management,
+                        &intent.storage,
+                    ),
+                )
+                .await?;
+            for registration in &record.registrations {
+                owner
+                    .verify_setup_infrastructure_registration(registration)
+                    .await?;
+            }
+            Ok(())
+        }
+    })
+}
+
 async fn public(
     control: &IndependentCreateControl,
     intent: &IndependentCreateIntent,
@@ -297,7 +359,7 @@ async fn provision(
     let mut record = match control.read_record::<Record>()? {
         Some(record) => record,
         None => {
-            let record = Record::new();
+            let record = Record::new(&command.intent.purpose);
             control.write_record(&record)?;
             record
         }
@@ -310,12 +372,18 @@ async fn provision(
             .ok_or_else(|| io::Error::other("completed IdP runtime not reopened"))?;
         return control.finish(command, current.router(), &record).await;
     }
+    let protected = Instant::now();
     if !record.secret_attempted {
         record.secret_attempted = true;
         control.write_record(&record)?;
         create_setup_secret(&service(control), &record.client.to_string())?;
     }
     load_setup_secret(&service(control), &record.client.to_string())?;
+    log::debug!(
+        "Independent setup owner=idp purpose={} phase=consumer-key elapsed_ms={}",
+        intent.purpose,
+        protected.elapsed().as_millis()
+    );
     public(control, intent, &record).await?;
     if intent.purpose == "join" {
         return join::provision(config, control, command, &mut record, owner, runtime).await;
@@ -393,6 +461,7 @@ async fn provision(
                 .map_err(io::Error::other)?,
         );
     }
+    let opened_at = Instant::now();
     if owner.is_none() {
         if !record.domain_attempted {
             if Path::new(&config.data_dir).exists() {
@@ -407,7 +476,12 @@ async fn provision(
             open(config, control, intent, &record, owner).await?;
         }
     }
+    log::debug!(
+        "Independent setup owner=idp purpose=create phase=schema-open elapsed_ms={}",
+        opened_at.elapsed().as_millis()
+    );
     let owner = owner.as_ref().expect("opened IdP owner");
+    let inventory_at = Instant::now();
     if !record.inventory_attempted {
         record.inventory_attempted = true;
         control.write_record(&record)?;
@@ -416,16 +490,21 @@ async fn provision(
             .await?;
     }
     owner.prepare_setup_client_slots(&ids).await?;
+    log::debug!(
+        "Independent setup owner=idp purpose=create phase=protected-inventory elapsed_ms={}",
+        inventory_at.elapsed().as_millis()
+    );
     if command.cancellation.is_cancelled() {
         return Err(io::Error::new(
             io::ErrorKind::Interrupted,
             "Create cancelled",
         ));
     }
+    let password_at = Instant::now();
     owner
         .ensure_initial_user(
             record.user,
-            record.credential,
+            record.credential.expect("validated Create credential"),
             &intent.administrator,
             command
                 .password
@@ -433,10 +512,20 @@ async fn provision(
                 .ok_or_else(|| io::Error::other("protected administrator input missing"))?,
         )
         .await?;
+    log::debug!(
+        "Independent setup owner=idp purpose=create phase=password-credential elapsed_ms={}",
+        password_at.elapsed().as_millis()
+    );
+    let signing_at = Instant::now();
     owner.ensure_initial_user_root(record.user).await?;
     owner
         .ensure_initial_node(&binding(&record)?, record.user, &intent.node)
         .await?;
+    log::debug!(
+        "Independent setup owner=idp purpose=create phase=signing-key-root-seed elapsed_ms={}",
+        signing_at.elapsed().as_millis()
+    );
+    let clients_at = Instant::now();
     owner
         .ensure_setup_public_login_client(login(intent, record.login))
         .await?;
@@ -453,6 +542,10 @@ async fn provision(
     owner
         .ensure_setup_infrastructure_client(own_registration)
         .await?;
+    log::debug!(
+        "Independent setup owner=idp purpose=create phase=client-registration-seed elapsed_ms={}",
+        clients_at.elapsed().as_millis()
+    );
     public(control, intent, &record).await?;
     let registrar = Arc::clone(owner);
     control
@@ -466,6 +559,7 @@ async fn provision(
             })
         }))
         .await;
+    let serving_at = Instant::now();
     if runtime.is_none() {
         *runtime = Some(
             crate::build_independent_idp(
@@ -479,6 +573,11 @@ async fn provision(
     control
         .publish_serving(runtime.as_ref().expect("IdP runtime").router())
         .await?;
+    log::debug!(
+        "Independent setup owner=idp purpose=create phase=serving elapsed_ms={}",
+        serving_at.elapsed().as_millis()
+    );
+    let relationships_at = Instant::now();
     for peer in [&management, &storage] {
         for registration in &peer.clients {
             if command.cancellation.is_cancelled() {
@@ -503,7 +602,12 @@ async fn provision(
             }
         }
     }
+    log::debug!(
+        "Independent setup owner=idp purpose=create phase=relationship-registration elapsed_ms={}",
+        relationships_at.elapsed().as_millis()
+    );
     record.complete = true;
+    observe(control, owner.clone(), intent, &record)?;
     control
         .finish(
             command,

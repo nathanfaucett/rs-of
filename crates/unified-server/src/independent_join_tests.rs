@@ -511,6 +511,7 @@ async fn use_joined(
 #[ignore = "parent isolates native roots and secure provider"]
 async fn independent_join_child() {
     let root = PathBuf::from(std::env::var_os("OF_INDEPENDENT_JOIN_ROOT").expect("fixture roots"));
+    crate::api_create_tests::capture_setup_timings();
     idp_service::repo::PrivateKeyKeyringRepo::new_with_store(
         "independent-join",
         Arc::new(crate::local_provisioning_tests::SecretStore {
@@ -597,6 +598,20 @@ async fn independent_join_child() {
     }
     intent.issuer = source.issuer.clone();
     let first = pending_offer(&http, &source, &management_token).await;
+    for (owner, absent) in [("idp", "credential"), ("management", "create")] {
+        let record: serde_json::Value = serde_json::from_slice(
+            &fs::read(target.join(format!("{owner}.setup-host/worker.json")))
+                .expect("durable admitted Join record"),
+        )
+        .expect("worker JSON");
+        assert_eq!(record["version"], 2);
+        assert!(
+            record.get(absent).is_none(),
+            "Join must not retain fresh Create-only IDs"
+        );
+        assert!(record.get("role").is_none());
+        assert!(record.get("permissions").is_none());
+    }
     let first_id = first["offer_id"].as_str().expect("exact offer");
     assert_ne!(
         first["request"]["device_id"], first["request"]["member_id"],

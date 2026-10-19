@@ -1,4 +1,4 @@
-use std::{io, path::Path, sync::Arc};
+use std::{io, path::Path, sync::Arc, time::Instant};
 
 use api::{
     IndependentCreateCommand, IndependentCreateControl, IndependentCreateIntent,
@@ -48,14 +48,21 @@ const ACTIONS: [IdentityAction; 25] = [
     IdentityAction::ManagementSecuritySync,
 ];
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CreateSeed {
+    role: Id,
+    permissions: Vec<Id>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Record {
     version: u8,
     client: Id,
     device: Id,
-    role: Id,
-    permissions: Vec<Id>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    create: Option<CreateSeed>,
     user: Option<Id>,
     evaluator: Option<Id>,
     secret_attempted: bool,
@@ -72,10 +79,19 @@ impl Record {
     fn validate_operation(&self, intent: &IndependentCreateIntent) -> io::Result<()> {
         self.validate()?;
         if intent.purpose == "create" {
-            if self.source.is_some() || self.approval.is_some() || self.imported {
+            if self.create.is_none()
+                || self.source.is_some()
+                || self.approval.is_some()
+                || self.imported
+            {
                 return Err(io::Error::other("Create contains Join evidence"));
             }
             return Ok(());
+        }
+        if self.create.is_some() {
+            return Err(io::Error::other(
+                "Join contains fresh administrator grant identities",
+            ));
         }
         if let Some(source) = &self.source {
             source.verify(
@@ -112,13 +128,15 @@ impl Record {
         }
         Ok(())
     }
-    fn new() -> Self {
+    fn new(purpose: &str) -> Self {
         Self {
-            version: 1,
+            version: 2,
             client: Id::now_v7(),
             device: Id::now_v7(),
-            role: Id::now_v7(),
-            permissions: ACTIONS.iter().map(|_| Id::now_v7()).collect(),
+            create: (purpose == "create").then(|| CreateSeed {
+                role: Id::now_v7(),
+                permissions: ACTIONS.iter().map(|_| Id::now_v7()).collect(),
+            }),
             user: None,
             evaluator: None,
             secret_attempted: false,
@@ -132,10 +150,15 @@ impl Record {
         }
     }
     fn validate(&self) -> io::Result<()> {
-        let mut ids = vec![self.client, self.device, self.role];
-        ids.extend(&self.permissions);
-        if self.version != 1
-            || self.permissions.len() != ACTIONS.len()
+        let mut ids = vec![self.client, self.device];
+        if let Some(seed) = &self.create {
+            if seed.permissions.len() != ACTIONS.len() {
+                return Err(io::Error::other("invalid retained administrator seed"));
+            }
+            ids.push(seed.role);
+            ids.extend(&seed.permissions);
+        }
+        if self.version != 2
             || ids.iter().any(Id::is_nil)
             || ids.iter().enumerate().any(|(i, id)| ids[..i].contains(id))
             || self.user.is_some_and(|id| id.is_nil())
@@ -204,6 +227,12 @@ async fn run(
                 )
                 .await?,
             );
+            observe(
+                &control,
+                engine.as_ref().expect("owner").clone(),
+                &intent,
+                &record,
+            )?;
             control
                 .restore(router.as_ref().expect("router").router())
                 .await?;
@@ -277,19 +306,73 @@ async fn verify(engine: &Arc<Database>, record: &Record) -> io::Result<()> {
         .await
         .map_err(io::Error::other)?
         .ok_or_else(|| io::Error::other("current approved Management endpoint missing"))?;
-    if device.id != record.device || device.owner_subject != user.to_string() {
+    if device.id != record.device || (!record.complete && device.owner_subject != user.to_string())
+    {
         return Err(io::Error::other("Management endpoint binding changed"));
     }
-    if DbSelectionPolicyRepo::new(engine.clone())
-        .get(record.device, &user.to_string(), Id::nil())
+    if !device
+        .owner_subject
+        .parse::<Id>()
+        .is_ok_and(|owner| !owner.is_nil())
+    {
+        return Err(io::Error::other(
+            "current Management Device owner is invalid",
+        ));
+    }
+    let policies = DbSelectionPolicyRepo::new(engine.clone());
+    if policies
+        .local_cleanup_pending(record.device)
         .await
         .map_err(io::Error::other)?
-        .is_none()
+        || !policies
+            .get(record.device, &device.owner_subject, Id::nil())
+            .await
+            .map_err(io::Error::other)?
+            .is_some_and(|policy| policy.admin_allowed)
     {
         return Err(io::Error::other("current local endpoint policy missing"));
     }
     Ok(())
 }
+fn observe(
+    control: &IndependentCreateControl,
+    engine: Arc<Database>,
+    intent: &IndependentCreateIntent,
+    record: &Record,
+) -> io::Result<()> {
+    let intent = intent.clone();
+    let record = record.clone();
+    let expected = serde_json::to_value(&record)?;
+    let secret = load_setup_secret(&service(control), &record.client.to_string())?;
+    control.set_readiness(move |control| {
+        let (engine, intent, record, expected, secret) = (
+            engine.clone(),
+            intent.clone(),
+            record.clone(),
+            expected.clone(),
+            secret.clone(),
+        );
+        async move {
+            let current: Record = control
+                .read_record()?
+                .ok_or_else(|| io::Error::other("Management worker evidence missing"))?;
+            current.validate_operation(&intent)?;
+            let endpoint: iroh::SecretKey = load_setup_secret(&service(&control), "endpoint")?
+                .parse()
+                .map_err(io::Error::other)?;
+            if serde_json::to_value(current)? != expected
+                || record.endpoint.as_deref() != Some(endpoint.public().to_string().as_str())
+                || load_setup_secret(&service(&control), &record.client.to_string())? != secret
+            {
+                return Err(io::Error::other(
+                    "retained Management setup evidence changed",
+                ));
+            }
+            verify(&engine, &record).await
+        }
+    })
+}
+
 async fn public(
     control: &IndependentCreateControl,
     intent: &IndependentCreateIntent,
@@ -372,7 +455,7 @@ async fn provision(
     let mut record = match control.read_record::<Record>()? {
         Some(record) => record,
         None => {
-            let record = Record::new();
+            let record = Record::new(&command.intent.purpose);
             control.write_record(&record)?;
             record
         }
@@ -390,6 +473,7 @@ async fn provision(
             )
             .await;
     }
+    let protected_at = Instant::now();
     if !record.secret_attempted {
         record.secret_attempted = true;
         control.write_record(&record)?;
@@ -417,6 +501,11 @@ async fn provision(
     if identity.is_none() {
         *identity = Some(open_identity(control, &record).await?);
     }
+    log::debug!(
+        "Independent setup owner=management purpose={} phase=consumer-endpoint-keys elapsed_ms={}",
+        command.intent.purpose,
+        protected_at.elapsed().as_millis()
+    );
     if command.intent.purpose == "join" {
         return join::provision(
             config,
@@ -449,6 +538,7 @@ async fn provision(
     record.user = Some(user);
     record.evaluator = Some(evaluator);
     control.write_record(&record)?;
+    let opened_at = Instant::now();
     if engine.is_none() {
         if !record.domain_attempted {
             if Path::new(&config.data_dir).exists() {
@@ -461,6 +551,10 @@ async fn provision(
             *engine = Some(open_existing(config).await?);
         }
     }
+    log::debug!(
+        "Independent setup owner=management purpose=create phase=schema-open elapsed_ms={}",
+        opened_at.elapsed().as_millis()
+    );
     if command.cancellation.is_cancelled() {
         return Err(io::Error::new(
             io::ErrorKind::Interrupted,
@@ -468,13 +562,15 @@ async fn provision(
         ));
     }
     let opened = engine.as_ref().expect("opened Management");
-    let permissions = record
+    let seeded_at = Instant::now();
+    let seed = record.create.as_ref().expect("validated Create seed");
+    let permissions = seed
         .permissions
         .iter()
         .copied()
         .zip(ACTIONS)
         .collect::<Vec<_>>();
-    crate::provision_initial_administrator(opened.clone(), user, record.role, &permissions).await?;
+    crate::provision_initial_administrator(opened.clone(), user, seed.role, &permissions).await?;
     crate::provision_initial_device(
         opened.clone(),
         record.device,
@@ -484,6 +580,11 @@ async fn provision(
     )
     .await?;
     verify(opened, &record).await?;
+    log::debug!(
+        "Independent setup owner=management purpose=create phase=semantic-seed elapsed_ms={}",
+        seeded_at.elapsed().as_millis()
+    );
+    let serving_at = Instant::now();
     if router.is_none() {
         *router = Some(
             build(
@@ -497,7 +598,12 @@ async fn provision(
             .await?,
         );
     }
+    log::debug!(
+        "Independent setup owner=management purpose=create phase=serving elapsed_ms={}",
+        serving_at.elapsed().as_millis()
+    );
     record.complete = true;
+    observe(control, opened.clone(), &command.intent, &record)?;
     control
         .finish(
             command,

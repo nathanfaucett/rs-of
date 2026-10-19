@@ -34,6 +34,11 @@ pub type IndependentRegistrar = Arc<
     dyn Fn(serde_json::Value) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>> + Send + Sync,
 >;
 pub type IndependentSecretLoader = Arc<dyn Fn(&str) -> io::Result<String> + Send + Sync>;
+type IndependentReadiness = Arc<
+    dyn Fn(IndependentCreateControl) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send>>
+        + Send
+        + Sync,
+>;
 
 pub struct IndependentCreateCommand {
     pub intent: IndependentCreateIntent,
@@ -60,6 +65,7 @@ pub(crate) struct CreateShared {
     pub(crate) admission: Arc<SetupAdmission>,
     pub(crate) lifecycle: Mutex<CreateLifecycle>,
     normal: RwLock<Option<Router>>,
+    readiness: RwLock<Option<IndependentReadiness>>,
     commands: mpsc::Sender<IndependentCreateCommand>,
     pub(crate) shutdown: CancellationToken,
 }
@@ -138,6 +144,7 @@ impl IndependentSetupHost {
                 history: None,
             }),
             normal: RwLock::new(None),
+            readiness: RwLock::new(None),
             commands,
             shutdown,
         });
@@ -288,6 +295,33 @@ impl IndependentCreateControl {
             .public
             .as_ref()
             .is_some_and(|p| p.registered.iter().any(|id| id == client_id))
+    }
+    /// The supplied control avoids retaining the host in its own observation callback.
+    pub fn set_readiness<F, Check>(&self, check: F) -> io::Result<()>
+    where
+        F: Fn(IndependentCreateControl) -> Check + Send + Sync + 'static,
+        Check: Future<Output = io::Result<()>> + Send + 'static,
+    {
+        *self
+            .0
+            .readiness
+            .write()
+            .map_err(|_| io::Error::other("owner readiness lock unavailable"))? =
+            Some(Arc::new(move |control| Box::pin(check(control))));
+        Ok(())
+    }
+    async fn check_readiness(&self) -> io::Result<()> {
+        let check = self
+            .0
+            .readiness
+            .read()
+            .map_err(|_| io::Error::other("owner readiness lock unavailable"))?
+            .clone()
+            .ok_or_else(|| io::Error::other("current owner readiness missing"))?;
+        if self.0.shutdown.is_cancelled() {
+            return Err(io::Error::other("owner is shutting down"));
+        }
+        check(self.clone()).await
     }
     pub async fn publish_serving(&self, router: Router) -> io::Result<()> {
         *self
@@ -585,13 +619,16 @@ pub(crate) async fn cancel(
     state.view = "unfinished";
     StatusCode::NO_CONTENT.into_response()
 }
-#[utoipa::path(get, tag = "default", path = "/setup/status", responses((status = 200, body = crate::independent_openapi::IndependentSetupStatus, description = "Owner-local state; no login Client or secret"), (status = 503, description = "Admission unavailable; empty body")))]
+#[utoipa::path(get, tag = "default", path = "/setup/status", responses((status = 200, body = crate::independent_openapi::IndependentSetupStatus, description = "Owner-local state; no login Client or secret"), (status = 503, description = "Admission unavailable (empty body), or current owner readiness failed (nonsecret status with ready:false)")))]
 pub(crate) async fn status(State(control): State<IndependentCreateControl>) -> Response {
     if control.0.admission.health().is_err() {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     }
-    let state = control.0.lifecycle.lock().await;
-    Json(serde_json::json!({"stage":"installation", "state":state.view, "ready":state.view == "ready", "owners":[control.owner()]})).into_response()
+    let view = control.0.lifecycle.lock().await.view;
+    if view == "ready" && control.check_readiness().await.is_err() {
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"stage":"installation", "state":"unavailable", "ready":false, "owners":[control.owner()]}))).into_response();
+    }
+    Json(serde_json::json!({"stage":"installation", "state":view, "ready":view == "ready", "owners":[control.owner()]})).into_response()
 }
 async fn normal(State(control): State<IndependentCreateControl>, request: Request) -> Response {
     let router = control
