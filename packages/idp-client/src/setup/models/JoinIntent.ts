@@ -19,76 +19,76 @@ import { mapValues } from "../runtime.js";
  * @interface JoinIntent
  */
 export interface JoinIntent {
-	/**
-	 *
-	 */
-	issuer: string;
-	/**
-	 *
-	 */
-	node: string;
-	/**
-	 *
-	 */
-	operationNonce: string;
-	/**
-	 *
-	 */
-	peer: string;
+    /**
+     *
+     */
+    issuer: string;
+    /**
+     *
+     */
+    node: string;
+    /**
+     *
+     */
+    operationNonce: string;
+    /**
+     *
+     */
+    peer: string;
 }
 
 /**
  * Check if a given object implements the JoinIntent interface.
  */
 export function instanceOfJoinIntent(value: object): value is JoinIntent {
-	if (!("issuer" in value) || value["issuer"] === undefined) return false;
-	if (!("node" in value) || value["node"] === undefined) return false;
-	if (
-		(!("operationNonce" in (value as Record<string, any>)) &&
-			!("operation_nonce" in (value as Record<string, any>))) ||
-		((value as Record<string, any>)["operationNonce"] === undefined &&
-			(value as Record<string, any>)["operation_nonce"] === undefined)
-	)
-		return false;
-	if (!("peer" in value) || value["peer"] === undefined) return false;
-	return true;
+    if (!("issuer" in value) || value["issuer"] === undefined) return false;
+    if (!("node" in value) || value["node"] === undefined) return false;
+    if (
+        (!("operationNonce" in (value as Record<string, any>)) &&
+            !("operation_nonce" in (value as Record<string, any>))) ||
+        ((value as Record<string, any>)["operationNonce"] === undefined &&
+            (value as Record<string, any>)["operation_nonce"] === undefined)
+    )
+        return false;
+    if (!("peer" in value) || value["peer"] === undefined) return false;
+    return true;
 }
 
 export function JoinIntentFromJSON(json: any): JoinIntent {
-	return JoinIntentFromJSONTyped(json, false);
+    return JoinIntentFromJSONTyped(json, false);
 }
 
 export function JoinIntentFromJSONTyped(
-	json: any,
-	ignoreDiscriminator: boolean,
+    json: any,
+    ignoreDiscriminator: boolean,
 ): JoinIntent {
-	if (json == null) {
-		return json;
-	}
-	return {
-		issuer: json["issuer"],
-		node: json["node"],
-		operationNonce: json["operation_nonce"],
-		peer: json["peer"],
-	};
+    if (json == null) {
+        return json;
+    }
+    return {
+        issuer: json["issuer"],
+        node: json["node"],
+        operationNonce: json["operation_nonce"],
+        peer: json["peer"],
+    };
 }
 
 export function JoinIntentToJSON(json: any): JoinIntent {
-	return JoinIntentToJSONTyped(json, false);
+    return JoinIntentToJSONTyped(json, false);
 }
 
 export function JoinIntentToJSONTyped(
-	value?: JoinIntent | null,
-	ignoreDiscriminator: boolean = false,
+    value?: JoinIntent | null,
+    ignoreDiscriminator: boolean = false,
 ): any {
-	if (value == null) {
-		return value;
-	}
+    if (value == null) {
+        return value;
+    }
 
-	return {
-		issuer: value["issuer"],
-		node: value["node"],
-		operation_nonce: value["operationNonce"],
-		peer: value["peer"],
-	};
+    return {
+        issuer: value["issuer"],
+        node: value["node"],
+        operation_nonce: value["operationNonce"],
+        peer: value["peer"],
+    };
 }

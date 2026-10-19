@@ -19,69 +19,69 @@ import { mapValues } from "../runtime.js";
  * @interface JoinRequest
  */
 export interface JoinRequest {
-	/**
-	 *
-	 */
-	node: string;
-	/**
-	 *
-	 */
-	operationNonce: string;
-	/**
-	 *
-	 */
-	peer: string;
+    /**
+     *
+     */
+    node: string;
+    /**
+     *
+     */
+    operationNonce: string;
+    /**
+     *
+     */
+    peer: string;
 }
 
 /**
  * Check if a given object implements the JoinRequest interface.
  */
 export function instanceOfJoinRequest(value: object): value is JoinRequest {
-	if (!("node" in value) || value["node"] === undefined) return false;
-	if (
-		(!("operationNonce" in (value as Record<string, any>)) &&
-			!("operation_nonce" in (value as Record<string, any>))) ||
-		((value as Record<string, any>)["operationNonce"] === undefined &&
-			(value as Record<string, any>)["operation_nonce"] === undefined)
-	)
-		return false;
-	if (!("peer" in value) || value["peer"] === undefined) return false;
-	return true;
+    if (!("node" in value) || value["node"] === undefined) return false;
+    if (
+        (!("operationNonce" in (value as Record<string, any>)) &&
+            !("operation_nonce" in (value as Record<string, any>))) ||
+        ((value as Record<string, any>)["operationNonce"] === undefined &&
+            (value as Record<string, any>)["operation_nonce"] === undefined)
+    )
+        return false;
+    if (!("peer" in value) || value["peer"] === undefined) return false;
+    return true;
 }
 
 export function JoinRequestFromJSON(json: any): JoinRequest {
-	return JoinRequestFromJSONTyped(json, false);
+    return JoinRequestFromJSONTyped(json, false);
 }
 
 export function JoinRequestFromJSONTyped(
-	json: any,
-	ignoreDiscriminator: boolean,
+    json: any,
+    ignoreDiscriminator: boolean,
 ): JoinRequest {
-	if (json == null) {
-		return json;
-	}
-	return {
-		node: json["node"],
-		operationNonce: json["operation_nonce"],
-		peer: json["peer"],
-	};
+    if (json == null) {
+        return json;
+    }
+    return {
+        node: json["node"],
+        operationNonce: json["operation_nonce"],
+        peer: json["peer"],
+    };
 }
 
 export function JoinRequestToJSON(json: any): JoinRequest {
-	return JoinRequestToJSONTyped(json, false);
+    return JoinRequestToJSONTyped(json, false);
 }
 
 export function JoinRequestToJSONTyped(
-	value?: JoinRequest | null,
-	ignoreDiscriminator: boolean = false,
+    value?: JoinRequest | null,
+    ignoreDiscriminator: boolean = false,
 ): any {
-	if (value == null) {
-		return value;
-	}
+    if (value == null) {
+        return value;
+    }
 
-	return {
-		node: value["node"],
-		operation_nonce: value["operationNonce"],
-		peer: value["peer"],
-	};
+    return {
+        node: value["node"],
+        operation_nonce: value["operationNonce"],
+        peer: value["peer"],
+    };
 }

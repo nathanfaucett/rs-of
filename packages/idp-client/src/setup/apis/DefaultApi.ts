@@ -14,45 +14,45 @@
 
 import * as runtime from "../runtime.js";
 import {
-	type CreateRequest,
-	CreateRequestFromJSON,
-	CreateRequestToJSON,
+    type CreateRequest,
+    CreateRequestFromJSON,
+    CreateRequestToJSON,
 } from "../models/CreateRequest.js";
 import {
-	type CreateResult,
-	CreateResultFromJSON,
-	CreateResultToJSON,
+    type CreateResult,
+    CreateResultFromJSON,
+    CreateResultToJSON,
 } from "../models/CreateResult.js";
 import {
-	type JoinRequest,
-	JoinRequestFromJSON,
-	JoinRequestToJSON,
+    type JoinRequest,
+    JoinRequestFromJSON,
+    JoinRequestToJSON,
 } from "../models/JoinRequest.js";
 import {
-	type SetupIntent,
-	SetupIntentFromJSON,
-	SetupIntentToJSON,
+    type SetupIntent,
+    SetupIntentFromJSON,
+    SetupIntentToJSON,
 } from "../models/SetupIntent.js";
 
 export interface CancelRequest {
-	/**
-	 *
-	 */
-	setupIntent: SetupIntent;
+    /**
+     *
+     */
+    setupIntent: SetupIntent;
 }
 
 export interface CreateOperationRequest {
-	/**
-	 *
-	 */
-	createRequest: CreateRequest;
+    /**
+     *
+     */
+    createRequest: CreateRequest;
 }
 
 export interface JoinOperationRequest {
-	/**
-	 *
-	 */
-	joinRequest: JoinRequest;
+    /**
+     *
+     */
+    joinRequest: JoinRequest;
 }
 
 /**
@@ -62,490 +62,490 @@ export interface JoinOperationRequest {
  * @interface DefaultApiInterface
  */
 export interface DefaultApiInterface {
-	/**
-	 * Creates request options for admission without sending the request
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	admissionRequestOpts(): Promise<runtime.RequestOpts>;
+    /**
+     * Creates request options for admission without sending the request
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    admissionRequestOpts(): Promise<runtime.RequestOpts>;
 
-	/**
-	 * Check the host-local setup capability only. A successful check neither binds intent nor authorizes a later request; send Authorization on every setup mutation.
-	 * @param {*} [options] Override http request option.
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	admissionRaw(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<void>>;
+    /**
+     * Check the host-local setup capability only. A successful check neither binds intent nor authorizes a later request; send Authorization on every setup mutation.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    admissionRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>>;
 
-	/**
-	 * Check the host-local setup capability only. A successful check neither binds intent nor authorizes a later request; send Authorization on every setup mutation.
-	 */
-	admission(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<void>;
+    /**
+     * Check the host-local setup capability only. A successful check neither binds intent nor authorizes a later request; send Authorization on every setup mutation.
+     */
+    admission(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void>;
 
-	/**
-	 * Creates request options for cancel without sending the request
-	 * @param {SetupIntent} setupIntent
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	cancelRequestOpts(
-		requestParameters: CancelRequest,
-	): Promise<runtime.RequestOpts>;
+    /**
+     * Creates request options for cancel without sending the request
+     * @param {SetupIntent} setupIntent
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    cancelRequestOpts(
+        requestParameters: CancelRequest,
+    ): Promise<runtime.RequestOpts>;
 
-	/**
-	 * Requires the setup capability and exact active nonsecret Create or Join intent (including discovered Join issuer, recoverable through /idp/setup/intent). Signals host-owned cancellation without binding new intent. A 204 is not proof cleanup has finished; observe status. Disconnect alone never cancels accepted work.
-	 * @param {SetupIntent} setupIntent
-	 * @param {*} [options] Override http request option.
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	cancelRaw(
-		requestParameters: CancelRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<void>>;
+    /**
+     * Requires the setup capability and exact active nonsecret Create or Join intent (including discovered Join issuer, recoverable through /idp/setup/intent). Signals host-owned cancellation without binding new intent. A 204 is not proof cleanup has finished; observe status. Disconnect alone never cancels accepted work.
+     * @param {SetupIntent} setupIntent
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    cancelRaw(
+        requestParameters: CancelRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>>;
 
-	/**
-	 * Requires the setup capability and exact active nonsecret Create or Join intent (including discovered Join issuer, recoverable through /idp/setup/intent). Signals host-owned cancellation without binding new intent. A 204 is not proof cleanup has finished; observe status. Disconnect alone never cancels accepted work.
-	 */
-	cancel(
-		requestParameters: CancelRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<void>;
+    /**
+     * Requires the setup capability and exact active nonsecret Create or Join intent (including discovered Join issuer, recoverable through /idp/setup/intent). Signals host-owned cancellation without binding new intent. A 204 is not proof cleanup has finished; observe status. Disconnect alone never cancels accepted work.
+     */
+    cancel(
+        requestParameters: CancelRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void>;
 
-	/**
-	 * Creates request options for create without sending the request
-	 * @param {CreateRequest} createRequest
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	createRequestOpts(
-		requestParameters: CreateOperationRequest,
-	): Promise<runtime.RequestOpts>;
+    /**
+     * Creates request options for create without sending the request
+     * @param {CreateRequest} createRequest
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    createRequestOpts(
+        requestParameters: CreateOperationRequest,
+    ): Promise<runtime.RequestOpts>;
 
-	/**
-	 * Before completion, Authorization: Setup <code> is required for every request, including exact retries. Durable exact intent binding precedes 202 and owner mutation. Acceptance is not completion: poll /idp/setup/status. Request disconnect does not cancel host-owned work; use explicit cancel. After completion, only an exact retained retry authenticated through the normal password grant using the supplied administrator/password can return 200; no setup header or Bearer token is required for that retry.
-	 * @param {CreateRequest} createRequest
-	 * @param {*} [options] Override http request option.
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	createRaw(
-		requestParameters: CreateOperationRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<CreateResult>>;
+    /**
+     * Before completion, Authorization: Setup <code> is required for every request, including exact retries. Durable exact intent binding precedes 202 and owner mutation. Acceptance is not completion: poll /idp/setup/status. Request disconnect does not cancel host-owned work; use explicit cancel. After completion, only an exact retained retry authenticated through the normal password grant using the supplied administrator/password can return 200; no setup header or Bearer token is required for that retry.
+     * @param {CreateRequest} createRequest
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    createRaw(
+        requestParameters: CreateOperationRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<CreateResult>>;
 
-	/**
-	 * Before completion, Authorization: Setup <code> is required for every request, including exact retries. Durable exact intent binding precedes 202 and owner mutation. Acceptance is not completion: poll /idp/setup/status. Request disconnect does not cancel host-owned work; use explicit cancel. After completion, only an exact retained retry authenticated through the normal password grant using the supplied administrator/password can return 200; no setup header or Bearer token is required for that retry.
-	 */
-	create(
-		requestParameters: CreateOperationRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<CreateResult>;
+    /**
+     * Before completion, Authorization: Setup <code> is required for every request, including exact retries. Durable exact intent binding precedes 202 and owner mutation. Acceptance is not completion: poll /idp/setup/status. Request disconnect does not cancel host-owned work; use explicit cancel. After completion, only an exact retained retry authenticated through the normal password grant using the supplied administrator/password can return 200; no setup header or Bearer token is required for that retry.
+     */
+    create(
+        requestParameters: CreateOperationRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<CreateResult>;
 
-	/**
-	 * Creates request options for intent without sending the request
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	intentRequestOpts(): Promise<runtime.RequestOpts>;
+    /**
+     * Creates request options for intent without sending the request
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    intentRequestOpts(): Promise<runtime.RequestOpts>;
 
-	/**
-	 * Read the exact retained nonsecret unified Create or Join intent using the current setup capability. Join includes the authenticated peer and discovered issuer. No request body; does not resume mutation or authorize another request. Retired capabilities deny.
-	 * @param {*} [options] Override http request option.
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	intentRaw(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<SetupIntent>>;
+    /**
+     * Read the exact retained nonsecret unified Create or Join intent using the current setup capability. Join includes the authenticated peer and discovered issuer. No request body; does not resume mutation or authorize another request. Retired capabilities deny.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    intentRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<SetupIntent>>;
 
-	/**
-	 * Read the exact retained nonsecret unified Create or Join intent using the current setup capability. Join includes the authenticated peer and discovered issuer. No request body; does not resume mutation or authorize another request. Retired capabilities deny.
-	 */
-	intent(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<SetupIntent | null | undefined>;
+    /**
+     * Read the exact retained nonsecret unified Create or Join intent using the current setup capability. Join includes the authenticated peer and discovered issuer. No request body; does not resume mutation or authorize another request. Retired capabilities deny.
+     */
+    intent(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<SetupIntent | null | undefined>;
 
-	/**
-	 * Creates request options for join without sending the request
-	 * @param {JoinRequest} joinRequest
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	joinRequestOpts(
-		requestParameters: JoinOperationRequest,
-	): Promise<runtime.RequestOpts>;
+    /**
+     * Creates request options for join without sending the request
+     * @param {JoinRequest} joinRequest
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    joinRequestOpts(
+        requestParameters: JoinOperationRequest,
+    ): Promise<runtime.RequestOpts>;
 
-	/**
-	 * Requires Authorization: Setup <code> on every request. Authenticates issuer discovery against the pinned peer before durable canonical Join admission and 202. No issuer or credentials are accepted from the caller. Accepted work belongs to the host, not the HTTP request; poll status and use authorized exact cancellation. Exact retries retain peer/issuer and identity, including complete-owner/unretired-admission finalization. Retired admission denies; normal User authorization remains separate on source approval routes.
-	 * @param {JoinRequest} joinRequest
-	 * @param {*} [options] Override http request option.
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	joinRaw(
-		requestParameters: JoinOperationRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<CreateResult>>;
+    /**
+     * Requires Authorization: Setup <code> on every request. Authenticates issuer discovery against the pinned peer before durable canonical Join admission and 202. No issuer or credentials are accepted from the caller. Accepted work belongs to the host, not the HTTP request; poll status and use authorized exact cancellation. Exact retries retain peer/issuer and identity, including complete-owner/unretired-admission finalization. Retired admission denies; normal User authorization remains separate on source approval routes.
+     * @param {JoinRequest} joinRequest
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    joinRaw(
+        requestParameters: JoinOperationRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<CreateResult>>;
 
-	/**
-	 * Requires Authorization: Setup <code> on every request. Authenticates issuer discovery against the pinned peer before durable canonical Join admission and 202. No issuer or credentials are accepted from the caller. Accepted work belongs to the host, not the HTTP request; poll status and use authorized exact cancellation. Exact retries retain peer/issuer and identity, including complete-owner/unretired-admission finalization. Retired admission denies; normal User authorization remains separate on source approval routes.
-	 */
-	join(
-		requestParameters: JoinOperationRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<CreateResult>;
+    /**
+     * Requires Authorization: Setup <code> on every request. Authenticates issuer discovery against the pinned peer before durable canonical Join admission and 202. No issuer or credentials are accepted from the caller. Accepted work belongs to the host, not the HTTP request; poll status and use authorized exact cancellation. Exact retries retain peer/issuer and identity, including complete-owner/unretired-admission finalization. Retired admission denies; normal User authorization remains separate on source approval routes.
+     */
+    join(
+        requestParameters: JoinOperationRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<CreateResult>;
 
-	/**
-	 * Creates request options for status without sending the request
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	statusRequestOpts(): Promise<runtime.RequestOpts>;
+    /**
+     * Creates request options for status without sending the request
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    statusRequestOpts(): Promise<runtime.RequestOpts>;
 
-	/**
-	 * Public nonsecret setup observation, not mutation authority. Poll after 202; only ready:true reports current readiness and the public login Client. No password, token or setup code is returned.
-	 * @param {*} [options] Override http request option.
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	statusRaw(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<CreateResult>>;
+    /**
+     * Public nonsecret setup observation, not mutation authority. Poll after 202; only ready:true reports current readiness and the public login Client. No password, token or setup code is returned.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    statusRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<CreateResult>>;
 
-	/**
-	 * Public nonsecret setup observation, not mutation authority. Poll after 202; only ready:true reports current readiness and the public login Client. No password, token or setup code is returned.
-	 */
-	status(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<CreateResult>;
+    /**
+     * Public nonsecret setup observation, not mutation authority. Poll after 202; only ready:true reports current readiness and the public login Client. No password, token or setup code is returned.
+     */
+    status(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<CreateResult>;
 }
 
 /**
  *
  */
 export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
-	/**
-	 * Creates request options for admission without sending the request
-	 */
-	async admissionRequestOpts(): Promise<runtime.RequestOpts> {
-		const queryParameters: any = {};
+    /**
+     * Creates request options for admission without sending the request
+     */
+    async admissionRequestOpts(): Promise<runtime.RequestOpts> {
+        const queryParameters: any = {};
 
-		const headerParameters: runtime.HTTPHeaders = {};
+        const headerParameters: runtime.HTTPHeaders = {};
 
-		if (this.configuration && this.configuration.apiKey) {
-			headerParameters["Authorization"] =
-				await this.configuration.apiKey("Authorization"); // setup_authorization authentication
-		}
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["Authorization"] =
+                await this.configuration.apiKey("Authorization"); // setup_authorization authentication
+        }
 
-		let urlPath = `/idp/setup/admission`;
+        let urlPath = `/idp/setup/admission`;
 
-		return {
-			path: urlPath,
-			method: "POST",
-			headers: headerParameters,
-			query: queryParameters,
-		};
-	}
+        return {
+            path: urlPath,
+            method: "POST",
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
 
-	/**
-	 * Check the host-local setup capability only. A successful check neither binds intent nor authorizes a later request; send Authorization on every setup mutation.
-	 */
-	async admissionRaw(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<void>> {
-		const requestOptions = await this.admissionRequestOpts();
-		const response = await this.request(requestOptions, initOverrides);
+    /**
+     * Check the host-local setup capability only. A successful check neither binds intent nor authorizes a later request; send Authorization on every setup mutation.
+     */
+    async admissionRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>> {
+        const requestOptions = await this.admissionRequestOpts();
+        const response = await this.request(requestOptions, initOverrides);
 
-		return new runtime.VoidApiResponse(response);
-	}
+        return new runtime.VoidApiResponse(response);
+    }
 
-	/**
-	 * Check the host-local setup capability only. A successful check neither binds intent nor authorizes a later request; send Authorization on every setup mutation.
-	 */
-	async admission(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<void> {
-		await this.admissionRaw(initOverrides);
-	}
+    /**
+     * Check the host-local setup capability only. A successful check neither binds intent nor authorizes a later request; send Authorization on every setup mutation.
+     */
+    async admission(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void> {
+        await this.admissionRaw(initOverrides);
+    }
 
-	/**
-	 * Creates request options for cancel without sending the request
-	 */
-	async cancelRequestOpts(
-		requestParameters: CancelRequest,
-	): Promise<runtime.RequestOpts> {
-		if (requestParameters["setupIntent"] == null) {
-			throw new runtime.RequiredError(
-				"setupIntent",
-				'Required parameter "setupIntent" was null or undefined when calling cancel().',
-			);
-		}
+    /**
+     * Creates request options for cancel without sending the request
+     */
+    async cancelRequestOpts(
+        requestParameters: CancelRequest,
+    ): Promise<runtime.RequestOpts> {
+        if (requestParameters["setupIntent"] == null) {
+            throw new runtime.RequiredError(
+                "setupIntent",
+                'Required parameter "setupIntent" was null or undefined when calling cancel().',
+            );
+        }
 
-		const queryParameters: any = {};
+        const queryParameters: any = {};
 
-		const headerParameters: runtime.HTTPHeaders = {};
+        const headerParameters: runtime.HTTPHeaders = {};
 
-		headerParameters["Content-Type"] = "application/json";
+        headerParameters["Content-Type"] = "application/json";
 
-		if (this.configuration && this.configuration.apiKey) {
-			headerParameters["Authorization"] =
-				await this.configuration.apiKey("Authorization"); // setup_authorization authentication
-		}
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["Authorization"] =
+                await this.configuration.apiKey("Authorization"); // setup_authorization authentication
+        }
 
-		let urlPath = `/idp/setup/cancel`;
+        let urlPath = `/idp/setup/cancel`;
 
-		return {
-			path: urlPath,
-			method: "POST",
-			headers: headerParameters,
-			query: queryParameters,
-			body: SetupIntentToJSON(requestParameters["setupIntent"]),
-		};
-	}
+        return {
+            path: urlPath,
+            method: "POST",
+            headers: headerParameters,
+            query: queryParameters,
+            body: SetupIntentToJSON(requestParameters["setupIntent"]),
+        };
+    }
 
-	/**
-	 * Requires the setup capability and exact active nonsecret Create or Join intent (including discovered Join issuer, recoverable through /idp/setup/intent). Signals host-owned cancellation without binding new intent. A 204 is not proof cleanup has finished; observe status. Disconnect alone never cancels accepted work.
-	 */
-	async cancelRaw(
-		requestParameters: CancelRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<void>> {
-		const requestOptions = await this.cancelRequestOpts(requestParameters);
-		const response = await this.request(requestOptions, initOverrides);
+    /**
+     * Requires the setup capability and exact active nonsecret Create or Join intent (including discovered Join issuer, recoverable through /idp/setup/intent). Signals host-owned cancellation without binding new intent. A 204 is not proof cleanup has finished; observe status. Disconnect alone never cancels accepted work.
+     */
+    async cancelRaw(
+        requestParameters: CancelRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>> {
+        const requestOptions = await this.cancelRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
 
-		return new runtime.VoidApiResponse(response);
-	}
+        return new runtime.VoidApiResponse(response);
+    }
 
-	/**
-	 * Requires the setup capability and exact active nonsecret Create or Join intent (including discovered Join issuer, recoverable through /idp/setup/intent). Signals host-owned cancellation without binding new intent. A 204 is not proof cleanup has finished; observe status. Disconnect alone never cancels accepted work.
-	 */
-	async cancel(
-		requestParameters: CancelRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<void> {
-		await this.cancelRaw(requestParameters, initOverrides);
-	}
+    /**
+     * Requires the setup capability and exact active nonsecret Create or Join intent (including discovered Join issuer, recoverable through /idp/setup/intent). Signals host-owned cancellation without binding new intent. A 204 is not proof cleanup has finished; observe status. Disconnect alone never cancels accepted work.
+     */
+    async cancel(
+        requestParameters: CancelRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void> {
+        await this.cancelRaw(requestParameters, initOverrides);
+    }
 
-	/**
-	 * Creates request options for create without sending the request
-	 */
-	async createRequestOpts(
-		requestParameters: CreateOperationRequest,
-	): Promise<runtime.RequestOpts> {
-		if (requestParameters["createRequest"] == null) {
-			throw new runtime.RequiredError(
-				"createRequest",
-				'Required parameter "createRequest" was null or undefined when calling create().',
-			);
-		}
+    /**
+     * Creates request options for create without sending the request
+     */
+    async createRequestOpts(
+        requestParameters: CreateOperationRequest,
+    ): Promise<runtime.RequestOpts> {
+        if (requestParameters["createRequest"] == null) {
+            throw new runtime.RequiredError(
+                "createRequest",
+                'Required parameter "createRequest" was null or undefined when calling create().',
+            );
+        }
 
-		const queryParameters: any = {};
+        const queryParameters: any = {};
 
-		const headerParameters: runtime.HTTPHeaders = {};
+        const headerParameters: runtime.HTTPHeaders = {};
 
-		headerParameters["Content-Type"] = "application/json";
+        headerParameters["Content-Type"] = "application/json";
 
-		if (this.configuration && this.configuration.apiKey) {
-			headerParameters["Authorization"] =
-				await this.configuration.apiKey("Authorization"); // setup_authorization authentication
-		}
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["Authorization"] =
+                await this.configuration.apiKey("Authorization"); // setup_authorization authentication
+        }
 
-		let urlPath = `/idp/setup/create`;
+        let urlPath = `/idp/setup/create`;
 
-		return {
-			path: urlPath,
-			method: "POST",
-			headers: headerParameters,
-			query: queryParameters,
-			body: CreateRequestToJSON(requestParameters["createRequest"]),
-		};
-	}
+        return {
+            path: urlPath,
+            method: "POST",
+            headers: headerParameters,
+            query: queryParameters,
+            body: CreateRequestToJSON(requestParameters["createRequest"]),
+        };
+    }
 
-	/**
-	 * Before completion, Authorization: Setup <code> is required for every request, including exact retries. Durable exact intent binding precedes 202 and owner mutation. Acceptance is not completion: poll /idp/setup/status. Request disconnect does not cancel host-owned work; use explicit cancel. After completion, only an exact retained retry authenticated through the normal password grant using the supplied administrator/password can return 200; no setup header or Bearer token is required for that retry.
-	 */
-	async createRaw(
-		requestParameters: CreateOperationRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<CreateResult>> {
-		const requestOptions = await this.createRequestOpts(requestParameters);
-		const response = await this.request(requestOptions, initOverrides);
+    /**
+     * Before completion, Authorization: Setup <code> is required for every request, including exact retries. Durable exact intent binding precedes 202 and owner mutation. Acceptance is not completion: poll /idp/setup/status. Request disconnect does not cancel host-owned work; use explicit cancel. After completion, only an exact retained retry authenticated through the normal password grant using the supplied administrator/password can return 200; no setup header or Bearer token is required for that retry.
+     */
+    async createRaw(
+        requestParameters: CreateOperationRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<CreateResult>> {
+        const requestOptions = await this.createRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
 
-		return new runtime.JSONApiResponse(response, (jsonValue) =>
-			CreateResultFromJSON(jsonValue),
-		);
-	}
+        return new runtime.JSONApiResponse(response, (jsonValue) =>
+            CreateResultFromJSON(jsonValue),
+        );
+    }
 
-	/**
-	 * Before completion, Authorization: Setup <code> is required for every request, including exact retries. Durable exact intent binding precedes 202 and owner mutation. Acceptance is not completion: poll /idp/setup/status. Request disconnect does not cancel host-owned work; use explicit cancel. After completion, only an exact retained retry authenticated through the normal password grant using the supplied administrator/password can return 200; no setup header or Bearer token is required for that retry.
-	 */
-	async create(
-		requestParameters: CreateOperationRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<CreateResult> {
-		const response = await this.createRaw(requestParameters, initOverrides);
-		return await response.value();
-	}
+    /**
+     * Before completion, Authorization: Setup <code> is required for every request, including exact retries. Durable exact intent binding precedes 202 and owner mutation. Acceptance is not completion: poll /idp/setup/status. Request disconnect does not cancel host-owned work; use explicit cancel. After completion, only an exact retained retry authenticated through the normal password grant using the supplied administrator/password can return 200; no setup header or Bearer token is required for that retry.
+     */
+    async create(
+        requestParameters: CreateOperationRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<CreateResult> {
+        const response = await this.createRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
 
-	/**
-	 * Creates request options for intent without sending the request
-	 */
-	async intentRequestOpts(): Promise<runtime.RequestOpts> {
-		const queryParameters: any = {};
+    /**
+     * Creates request options for intent without sending the request
+     */
+    async intentRequestOpts(): Promise<runtime.RequestOpts> {
+        const queryParameters: any = {};
 
-		const headerParameters: runtime.HTTPHeaders = {};
+        const headerParameters: runtime.HTTPHeaders = {};
 
-		if (this.configuration && this.configuration.apiKey) {
-			headerParameters["Authorization"] =
-				await this.configuration.apiKey("Authorization"); // setup_authorization authentication
-		}
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["Authorization"] =
+                await this.configuration.apiKey("Authorization"); // setup_authorization authentication
+        }
 
-		let urlPath = `/idp/setup/intent`;
+        let urlPath = `/idp/setup/intent`;
 
-		return {
-			path: urlPath,
-			method: "POST",
-			headers: headerParameters,
-			query: queryParameters,
-		};
-	}
+        return {
+            path: urlPath,
+            method: "POST",
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
 
-	/**
-	 * Read the exact retained nonsecret unified Create or Join intent using the current setup capability. Join includes the authenticated peer and discovered issuer. No request body; does not resume mutation or authorize another request. Retired capabilities deny.
-	 */
-	async intentRaw(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<SetupIntent>> {
-		const requestOptions = await this.intentRequestOpts();
-		const response = await this.request(requestOptions, initOverrides);
+    /**
+     * Read the exact retained nonsecret unified Create or Join intent using the current setup capability. Join includes the authenticated peer and discovered issuer. No request body; does not resume mutation or authorize another request. Retired capabilities deny.
+     */
+    async intentRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<SetupIntent>> {
+        const requestOptions = await this.intentRequestOpts();
+        const response = await this.request(requestOptions, initOverrides);
 
-		return new runtime.JSONApiResponse(response, (jsonValue) =>
-			SetupIntentFromJSON(jsonValue),
-		);
-	}
+        return new runtime.JSONApiResponse(response, (jsonValue) =>
+            SetupIntentFromJSON(jsonValue),
+        );
+    }
 
-	/**
-	 * Read the exact retained nonsecret unified Create or Join intent using the current setup capability. Join includes the authenticated peer and discovered issuer. No request body; does not resume mutation or authorize another request. Retired capabilities deny.
-	 */
-	async intent(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<SetupIntent | null | undefined> {
-		const response = await this.intentRaw(initOverrides);
-		switch (response.raw.status) {
-			case 200:
-				return await response.value();
-			case 204:
-				return null;
-			default:
-				return await response.value();
-		}
-	}
+    /**
+     * Read the exact retained nonsecret unified Create or Join intent using the current setup capability. Join includes the authenticated peer and discovered issuer. No request body; does not resume mutation or authorize another request. Retired capabilities deny.
+     */
+    async intent(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<SetupIntent | null | undefined> {
+        const response = await this.intentRaw(initOverrides);
+        switch (response.raw.status) {
+            case 200:
+                return await response.value();
+            case 204:
+                return null;
+            default:
+                return await response.value();
+        }
+    }
 
-	/**
-	 * Creates request options for join without sending the request
-	 */
-	async joinRequestOpts(
-		requestParameters: JoinOperationRequest,
-	): Promise<runtime.RequestOpts> {
-		if (requestParameters["joinRequest"] == null) {
-			throw new runtime.RequiredError(
-				"joinRequest",
-				'Required parameter "joinRequest" was null or undefined when calling join().',
-			);
-		}
+    /**
+     * Creates request options for join without sending the request
+     */
+    async joinRequestOpts(
+        requestParameters: JoinOperationRequest,
+    ): Promise<runtime.RequestOpts> {
+        if (requestParameters["joinRequest"] == null) {
+            throw new runtime.RequiredError(
+                "joinRequest",
+                'Required parameter "joinRequest" was null or undefined when calling join().',
+            );
+        }
 
-		const queryParameters: any = {};
+        const queryParameters: any = {};
 
-		const headerParameters: runtime.HTTPHeaders = {};
+        const headerParameters: runtime.HTTPHeaders = {};
 
-		headerParameters["Content-Type"] = "application/json";
+        headerParameters["Content-Type"] = "application/json";
 
-		if (this.configuration && this.configuration.apiKey) {
-			headerParameters["Authorization"] =
-				await this.configuration.apiKey("Authorization"); // setup_authorization authentication
-		}
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["Authorization"] =
+                await this.configuration.apiKey("Authorization"); // setup_authorization authentication
+        }
 
-		let urlPath = `/idp/setup/join`;
+        let urlPath = `/idp/setup/join`;
 
-		return {
-			path: urlPath,
-			method: "POST",
-			headers: headerParameters,
-			query: queryParameters,
-			body: JoinRequestToJSON(requestParameters["joinRequest"]),
-		};
-	}
+        return {
+            path: urlPath,
+            method: "POST",
+            headers: headerParameters,
+            query: queryParameters,
+            body: JoinRequestToJSON(requestParameters["joinRequest"]),
+        };
+    }
 
-	/**
-	 * Requires Authorization: Setup <code> on every request. Authenticates issuer discovery against the pinned peer before durable canonical Join admission and 202. No issuer or credentials are accepted from the caller. Accepted work belongs to the host, not the HTTP request; poll status and use authorized exact cancellation. Exact retries retain peer/issuer and identity, including complete-owner/unretired-admission finalization. Retired admission denies; normal User authorization remains separate on source approval routes.
-	 */
-	async joinRaw(
-		requestParameters: JoinOperationRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<CreateResult>> {
-		const requestOptions = await this.joinRequestOpts(requestParameters);
-		const response = await this.request(requestOptions, initOverrides);
+    /**
+     * Requires Authorization: Setup <code> on every request. Authenticates issuer discovery against the pinned peer before durable canonical Join admission and 202. No issuer or credentials are accepted from the caller. Accepted work belongs to the host, not the HTTP request; poll status and use authorized exact cancellation. Exact retries retain peer/issuer and identity, including complete-owner/unretired-admission finalization. Retired admission denies; normal User authorization remains separate on source approval routes.
+     */
+    async joinRaw(
+        requestParameters: JoinOperationRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<CreateResult>> {
+        const requestOptions = await this.joinRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
 
-		return new runtime.JSONApiResponse(response, (jsonValue) =>
-			CreateResultFromJSON(jsonValue),
-		);
-	}
+        return new runtime.JSONApiResponse(response, (jsonValue) =>
+            CreateResultFromJSON(jsonValue),
+        );
+    }
 
-	/**
-	 * Requires Authorization: Setup <code> on every request. Authenticates issuer discovery against the pinned peer before durable canonical Join admission and 202. No issuer or credentials are accepted from the caller. Accepted work belongs to the host, not the HTTP request; poll status and use authorized exact cancellation. Exact retries retain peer/issuer and identity, including complete-owner/unretired-admission finalization. Retired admission denies; normal User authorization remains separate on source approval routes.
-	 */
-	async join(
-		requestParameters: JoinOperationRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<CreateResult> {
-		const response = await this.joinRaw(requestParameters, initOverrides);
-		return await response.value();
-	}
+    /**
+     * Requires Authorization: Setup <code> on every request. Authenticates issuer discovery against the pinned peer before durable canonical Join admission and 202. No issuer or credentials are accepted from the caller. Accepted work belongs to the host, not the HTTP request; poll status and use authorized exact cancellation. Exact retries retain peer/issuer and identity, including complete-owner/unretired-admission finalization. Retired admission denies; normal User authorization remains separate on source approval routes.
+     */
+    async join(
+        requestParameters: JoinOperationRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<CreateResult> {
+        const response = await this.joinRaw(requestParameters, initOverrides);
+        return await response.value();
+    }
 
-	/**
-	 * Creates request options for status without sending the request
-	 */
-	async statusRequestOpts(): Promise<runtime.RequestOpts> {
-		const queryParameters: any = {};
+    /**
+     * Creates request options for status without sending the request
+     */
+    async statusRequestOpts(): Promise<runtime.RequestOpts> {
+        const queryParameters: any = {};
 
-		const headerParameters: runtime.HTTPHeaders = {};
+        const headerParameters: runtime.HTTPHeaders = {};
 
-		let urlPath = `/idp/setup/status`;
+        let urlPath = `/idp/setup/status`;
 
-		return {
-			path: urlPath,
-			method: "GET",
-			headers: headerParameters,
-			query: queryParameters,
-		};
-	}
+        return {
+            path: urlPath,
+            method: "GET",
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
 
-	/**
-	 * Public nonsecret setup observation, not mutation authority. Poll after 202; only ready:true reports current readiness and the public login Client. No password, token or setup code is returned.
-	 */
-	async statusRaw(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<CreateResult>> {
-		const requestOptions = await this.statusRequestOpts();
-		const response = await this.request(requestOptions, initOverrides);
+    /**
+     * Public nonsecret setup observation, not mutation authority. Poll after 202; only ready:true reports current readiness and the public login Client. No password, token or setup code is returned.
+     */
+    async statusRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<CreateResult>> {
+        const requestOptions = await this.statusRequestOpts();
+        const response = await this.request(requestOptions, initOverrides);
 
-		return new runtime.JSONApiResponse(response, (jsonValue) =>
-			CreateResultFromJSON(jsonValue),
-		);
-	}
+        return new runtime.JSONApiResponse(response, (jsonValue) =>
+            CreateResultFromJSON(jsonValue),
+        );
+    }
 
-	/**
-	 * Public nonsecret setup observation, not mutation authority. Poll after 202; only ready:true reports current readiness and the public login Client. No password, token or setup code is returned.
-	 */
-	async status(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<CreateResult> {
-		const response = await this.statusRaw(initOverrides);
-		return await response.value();
-	}
+    /**
+     * Public nonsecret setup observation, not mutation authority. Poll after 202; only ready:true reports current readiness and the public login Client. No password, token or setup code is returned.
+     */
+    async status(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<CreateResult> {
+        const response = await this.statusRaw(initOverrides);
+        return await response.value();
+    }
 }

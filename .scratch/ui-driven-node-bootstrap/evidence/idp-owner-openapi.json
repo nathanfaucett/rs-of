@@ -1,0 +1,2847 @@
+{
+  "components": {
+    "schemas": {
+      "AccessToken": {
+        "type": "string"
+      },
+      "ApplicationRegistration": {
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "uri": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "uri"
+        ],
+        "type": "object"
+      },
+      "ApproveForUserRequest": {
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "redirect_uri": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_id",
+          "redirect_uri",
+          "scope"
+        ],
+        "type": "object"
+      },
+      "AuthorizationCodeGrantRequest": {
+        "properties": {
+          "client_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "code": {
+            "description": "The authorization code received from the authorization server.",
+            "type": "string"
+          },
+          "code_verifier": {
+            "description": "PKCE parameters (if the client used PKCE during the authorization request)",
+            "type": "string"
+          },
+          "redirect_uri": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "code_verifier"
+        ],
+        "type": "object"
+      },
+      "AuthorizationCodeResponse": {
+        "oneOf": [
+          {
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "iss": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ErrorResponse"
+              },
+              {
+                "properties": {
+                  "state": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "state"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        ]
+      },
+      "AuthorizationDetail": {
+        "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StorageAuthorizationDetail"
+              },
+              {
+                "properties": {
+                  "type": {
+                    "enum": [
+                      "storage"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        ]
+      },
+      "AuthorizationRequest": {
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "code_challenge": {
+            "description": "PKCE parameters (RFC 7636) for public clients and enhanced security",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "code_challenge_method": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CodeChallengeMethod",
+                "description": "The method used to derive the code challenge (e.g., \"S256\" or \"plain\").\nonly required if `code_challenge` is present. \"S256\" is strongly recommended in OAuth 2.1 for better security."
+              }
+            ]
+          },
+          "id_token_hint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "login_hint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nonce": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "redirect_uri": {
+            "description": "redirect URI is optional if the client has only one registered redirect URI",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resource": {
+            "description": "Audience parameter (RFC 8707) to specify the intended recipients of the token.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "response_mode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ResponseMode"
+              }
+            ]
+          },
+          "response_type": {
+            "$ref": "#/components/schemas/ResponseType"
+          },
+          "scope": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ui_locales": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "response_type",
+          "client_id"
+        ],
+        "type": "object"
+      },
+      "AuthorizationServerMetadata": {
+        "properties": {
+          "authorization_endpoint": {
+            "description": "URL of the authorization endpoint.\nREQUIRED unless no grant types use it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "code_challenge_methods_supported": {
+            "description": "PKCE code challenge methods supported (S256 is strongly recommended in 2.1).",
+            "items": {
+              "$ref": "#/components/schemas/CodeChallengeMethod"
+            },
+            "type": "array"
+          },
+          "dpop_signing_alg_values_supported": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "grant_types_supported": {
+            "description": "List of supported grant types.\nIn OAuth 2.1: authorization_code, client_credentials, refresh_token (no implicit/password).",
+            "items": {
+              "$ref": "#/components/schemas/GrantType"
+            },
+            "type": "array"
+          },
+          "introspection_endpoint": {
+            "description": "URL of the token introspection endpoint (RFC 7662).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "introspection_endpoint_auth_methods_supported": {
+            "description": "Client authentication methods supported by the introspection endpoint.",
+            "items": {
+              "$ref": "#/components/schemas/TokenEndpointAuthMethod"
+            },
+            "type": "array"
+          },
+          "introspection_endpoint_auth_signing_alg_values_supported": {
+            "description": "JWS signing algorithms supported for JWT auth at the introspection endpoint.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "issuer": {
+            "description": "REQUIRED. The authorization server's issuer identifier.\nURL using https scheme with no query or fragment.",
+            "type": "string"
+          },
+          "jwks_uri": {
+            "description": "URL of the JWK Set document containing the server's public keys.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "op_policy_uri": {
+            "description": "URL for the authorization server's policy on client use of data.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "op_tos_uri": {
+            "description": "URL for the authorization server's terms of service.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pushed_authorization_request_endpoint": {
+            "description": "List of supported revocation endpoint authentication signing algorithms (additional).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "registration_endpoint": {
+            "description": "URL of the Dynamic Client Registration endpoint.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "require_pkce": {
+            "description": "Whether the server requires PKCE for all clients (OAuth 2.1 best practice).",
+            "type": "boolean"
+          },
+          "response_modes_supported": {
+            "description": "List of supported response_mode values.\nDefaults to [\"query\", \"fragment\"] if omitted.",
+            "items": {
+              "$ref": "#/components/schemas/ResponseMode"
+            },
+            "type": "array"
+          },
+          "response_types_supported": {
+            "description": "REQUIRED. List of supported response_type values.\nIn OAuth 2.1 this should primarily be [\"code\"].",
+            "items": {
+              "$ref": "#/components/schemas/ResponseType"
+            },
+            "type": "array"
+          },
+          "revocation_endpoint": {
+            "description": "URL of the token revocation endpoint (RFC 7009).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revocation_endpoint_auth_methods_supported": {
+            "description": "Client authentication methods supported by the revocation endpoint.",
+            "items": {
+              "$ref": "#/components/schemas/TokenEndpointAuthMethod"
+            },
+            "type": "array"
+          },
+          "revocation_endpoint_auth_signing_alg_values_supported": {
+            "description": "JWS signing algorithms supported for JWT auth at the revocation endpoint.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "scopes_supported": {
+            "description": "RECOMMENDED. List of supported OAuth 2.0 scope values.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "service_documentation": {
+            "description": "Human-readable service documentation URL.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "signed_metadata": {
+            "description": "Signed metadata as a JWT (optional).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "token_endpoint": {
+            "description": "URL of the token endpoint.\nREQUIRED in most cases (especially for OAuth 2.1).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "token_endpoint_auth_methods_supported": {
+            "description": "List of client authentication methods supported by the token endpoint.",
+            "items": {
+              "$ref": "#/components/schemas/TokenEndpointAuthMethod"
+            },
+            "type": "array"
+          },
+          "token_endpoint_auth_signing_alg_values_supported": {
+            "description": "JWS signing algorithms supported for JWT client authentication\nat the token endpoint (private_key_jwt, client_secret_jwt).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ui_locales_supported": {
+            "description": "Languages and scripts supported for the user interface (BCP 47).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "userinfo_endpoint": {
+            "description": "URL of the UserInfo endpoint.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "issuer"
+        ],
+        "type": "object"
+      },
+      "ClientCredentialsGrantRequest": {
+        "properties": {
+          "audience": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "client_id": {
+            "type": "string"
+          },
+          "client_secret": {
+            "type": "string"
+          },
+          "resource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "client_id",
+          "client_secret"
+        ],
+        "type": "object"
+      },
+      "ClientProfile": {
+        "enum": [
+          "web_application",
+          "user_agent_based_application",
+          "native_application"
+        ],
+        "type": "string"
+      },
+      "ClientRegistration": {
+        "properties": {
+          "allowed_audiences": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "allowed_grant_types": {
+            "items": {
+              "$ref": "#/components/schemas/GrantType"
+            },
+            "type": "array"
+          },
+          "allowed_scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "application": {
+            "$ref": "#/components/schemas/ApplicationRegistration",
+            "description": "Unique identifier for the application (assigned by the authorization server)."
+          },
+          "client_id": {
+            "description": "Unique identifier for the client application (assigned by the authorization server).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "client_id_issued_at": {
+            "description": "Time at which the client identifier was issued (Unix timestamp).",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "client_name": {
+            "description": "Human-readable name of the client application.",
+            "type": "string"
+          },
+          "client_secret": {
+            "description": "Optional or required depending on registration type (Public vs Confidential).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "client_secret_expires_at": {
+            "description": "Time at which the client secret will expire (0 or None for no expiration).",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "client_type": {
+            "$ref": "#/components/schemas/ClientType"
+          },
+          "client_uri": {
+            "description": "URL of the home page of the client.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contacts": {
+            "description": "Array of email addresses for people responsible for this client.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "logo_uri": {
+            "description": "URL that references a logo for the client application.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "policy_uri": {
+            "description": "URL for the application's privacy policy.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "profile": {
+            "$ref": "#/components/schemas/ClientProfile"
+          },
+          "redirect_uris": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "response_types": {
+            "description": "Standard OAuth 2.0 response types (e.g., `[\"code\"]`, `[\"token\"]`).",
+            "items": {
+              "$ref": "#/components/schemas/ResponseType"
+            },
+            "type": "array"
+          },
+          "software_id": {
+            "description": "A unique identifier string assigned by the software issuer.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "software_statement": {
+            "description": "A digitally signed JWT assertion containing verifiable client metadata.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "software_version": {
+            "description": "A version identifier string string assigned by the software issuer.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "token_endpoint_auth_method": {
+            "$ref": "#/components/schemas/TokenEndpointAuthMethod",
+            "description": "Requested authentication method for the token endpoint\n(e.g., `client_secret_basic`, `client_secret_post`, `private_key_jwt`)."
+          },
+          "tos_uri": {
+            "description": "URL for the application's terms of service.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "application",
+          "client_name",
+          "profile",
+          "token_endpoint_auth_method"
+        ],
+        "type": "object"
+      },
+      "ClientType": {
+        "enum": [
+          "confidential",
+          "public"
+        ],
+        "type": "string"
+      },
+      "CodeChallengeMethod": {
+        "description": "PKCE code challenge methods (RFC 7636).\nthe `plain` method is not included as it is not recommended in OAuth 2.1 due to security weaknesses. Only `S256` is supported for better security.",
+        "enum": [
+          "S256"
+        ],
+        "type": "string"
+      },
+      "DeviceAuthorization": {
+        "properties": {
+          "device_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expires_in": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "interval": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "user_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "verification_uri": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "verification_uri_complete": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "DeviceAuthorizationRequest": {
+        "properties": {
+          "client_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "EnrollReplicaSigner": {
+        "additionalProperties": false,
+        "properties": {
+          "endpointId": {
+            "type": "string"
+          },
+          "memberId": {
+            "type": "string"
+          },
+          "publicJwk": {
+            "$ref": "#/components/schemas/JwkPublic"
+          }
+        },
+        "required": [
+          "memberId",
+          "endpointId",
+          "publicJwk"
+        ],
+        "type": "object"
+      },
+      "ErrorCode": {
+        "description": "Standard OAuth 2.0 error codes (RFC 6749 Section 5.2).",
+        "enum": [
+          "not_found",
+          "unauthorized_client",
+          "access_denied",
+          "not_authorized",
+          "server_error",
+          "temporarily_unavailable",
+          "invalid_grant",
+          "invalid_client",
+          "invalid_request",
+          "invalid_scope",
+          "invalid_response_type",
+          "unsupported_response_type",
+          "unsupported_grant_type",
+          "not_implemented"
+        ],
+        "type": "string"
+      },
+      "ErrorResponse": {
+        "description": "Standard OAuth 2.0 error response structure (RFC 6749 Section 5.2).\nshould match fields from crates/model/src/contract/error_response.rs",
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "error_description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error_uri": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "GrantType": {
+        "enum": [
+          "password",
+          "authorization_code",
+          "client_credentials",
+          "refresh_token",
+          "urn:ietf:params:oauth:grant-type:token-exchange"
+        ],
+        "type": "string"
+      },
+      "HealthResponse": {
+        "properties": {
+          "database": {
+            "$ref": "#/components/schemas/HealthStatus"
+          }
+        },
+        "required": [
+          "database"
+        ],
+        "type": "object"
+      },
+      "HealthStatus": {
+        "oneOf": [
+          {
+            "enum": [
+              "healthy"
+            ],
+            "type": "string"
+          },
+          {
+            "properties": {
+              "unhealthy": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "unhealthy"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "IdToken": {
+        "type": "string"
+      },
+      "IntrospectionRequest": {
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "token_type_hint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "type": "object"
+      },
+      "IntrospectionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "applicationId": {
+            "type": "string"
+          },
+          "claims": {
+            "$ref": "#/components/schemas/StandardClaims"
+          }
+        },
+        "required": [
+          "claims",
+          "applicationId"
+        ],
+        "type": "object"
+      },
+      "IsAllowedForUserRequest": {
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "redirect_uri": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_id",
+          "redirect_uri",
+          "scope"
+        ],
+        "type": "object"
+      },
+      "IsAllowedForUserResponse": {
+        "properties": {
+          "allowed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "allowed"
+        ],
+        "type": "object"
+      },
+      "JwkPublic": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/JwkPublicParameters"
+          },
+          {
+            "properties": {
+              "alg": {
+                "$ref": "#/components/schemas/JwsAlgorithm",
+                "description": "Algorithm intended for use"
+              },
+              "kid": {
+                "description": "Key ID",
+                "type": "string"
+              },
+              "use": {
+                "$ref": "#/components/schemas/KeyUse",
+                "description": "Key use (sig, enc)"
+              }
+            },
+            "required": [
+              "use",
+              "kid",
+              "alg"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "JwkPublicParameters": {
+        "oneOf": [
+          {
+            "properties": {
+              "e": {
+                "type": "string"
+              },
+              "kty": {
+                "enum": [
+                  "Rsa"
+                ],
+                "type": "string"
+              },
+              "n": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "n",
+              "e",
+              "kty"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "crv": {
+                "type": "string"
+              },
+              "kty": {
+                "enum": [
+                  "Ec"
+                ],
+                "type": "string"
+              },
+              "x": {
+                "type": "string"
+              },
+              "y": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "crv",
+              "x",
+              "y",
+              "kty"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "crv": {
+                "type": "string"
+              },
+              "kty": {
+                "enum": [
+                  "Opk"
+                ],
+                "type": "string"
+              },
+              "x": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "crv",
+              "x",
+              "kty"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Jwks": {
+        "properties": {
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/JwkPublic"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "keys"
+        ],
+        "type": "object"
+      },
+      "JwsAlgorithm": {
+        "enum": [
+          "RS256",
+          "RS384",
+          "RS512",
+          "ES256",
+          "ES256K",
+          "ES384",
+          "ES512",
+          "PS256",
+          "PS384",
+          "PS512",
+          "EdDSA"
+        ],
+        "type": "string"
+      },
+      "KeyUse": {
+        "enum": [
+          "sig",
+          "enc"
+        ],
+        "type": "string"
+      },
+      "PasswordGrantRequest": {
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "resource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_id",
+          "username",
+          "password"
+        ],
+        "type": "object"
+      },
+      "PrincipalType": {
+        "enum": [
+          "user",
+          "client"
+        ],
+        "type": "string"
+      },
+      "RefreshToken": {
+        "type": "string"
+      },
+      "RefreshTokenGrantRequest": {
+        "properties": {
+          "refresh_token": {
+            "$ref": "#/components/schemas/RefreshToken"
+          },
+          "scope": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "refresh_token"
+        ],
+        "type": "object"
+      },
+      "ResetPassword": {
+        "additionalProperties": false,
+        "properties": {
+          "password": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "password"
+        ],
+        "type": "object"
+      },
+      "ResponseMode": {
+        "enum": [
+          "query",
+          "form_post"
+        ],
+        "type": "string"
+      },
+      "ResponseType": {
+        "description": "Valid OAuth 2.0 response types for the authorization endpoint.\nwe do not support the `token` or `id_token` response type (implicit flow) as it is not recommended in OAuth 2.1 and has security weaknesses.",
+        "enum": [
+          "code"
+        ],
+        "type": "string"
+      },
+      "RevocationRequest": {
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "token_type_hint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "type": "object"
+      },
+      "RotateReplicaSigner": {
+        "additionalProperties": false,
+        "properties": {
+          "publicJwk": {
+            "$ref": "#/components/schemas/JwkPublic"
+          }
+        },
+        "required": [
+          "publicJwk"
+        ],
+        "type": "object"
+      },
+      "StandardClaims": {
+        "properties": {
+          "aud": {
+            "type": "string"
+          },
+          "authorization_details": {
+            "items": {
+              "$ref": "#/components/schemas/AuthorizationDetail"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "client_id": {
+            "type": "string"
+          },
+          "exp": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "iat": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "iss": {
+            "type": "string"
+          },
+          "nbf": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "principal_type": {
+            "$ref": "#/components/schemas/PrincipalType"
+          },
+          "resource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "sub": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/TokenType"
+          },
+          "use": {
+            "$ref": "#/components/schemas/TokenUse"
+          }
+        },
+        "required": [
+          "type",
+          "use",
+          "exp",
+          "iat",
+          "nbf",
+          "iss",
+          "aud",
+          "client_id",
+          "sub",
+          "principal_type",
+          "scope"
+        ],
+        "type": "object"
+      },
+      "StorageAuthorizationAction": {
+        "enum": [
+          "read",
+          "write"
+        ],
+        "type": "string"
+      },
+      "StorageAuthorizationDetail": {
+        "properties": {
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/StorageAuthorizationAction"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "actions"
+        ],
+        "type": "object"
+      },
+      "SubjectTokenType": {
+        "enum": [
+          "urn:ietf:params:oauth:token-type:jwt",
+          "urn:ietf:params:oauth:token-type:access_token",
+          "urn:ietf:params:oauth:token-type:refresh_token",
+          "urn:ietf:params:oauth:token-type:id_token",
+          "urn:ietf:params:oauth:token-type:saml1",
+          "urn:ietf:params:oauth:token-type:saml2"
+        ],
+        "type": "string"
+      },
+      "TokenEndpointAuthMethod": {
+        "description": "Client token endpoint authentication methods (RFC 7591 / OIDC).",
+        "enum": [
+          "client_secret_basic",
+          "client_secret_post",
+          "private_key_jwt",
+          "client_secret_jwt",
+          "none"
+        ],
+        "type": "string"
+      },
+      "TokenExchangeGrantRequest": {
+        "properties": {
+          "actor_token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "actor_token_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "audience": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "authorization_details": {
+            "items": {
+              "$ref": "#/components/schemas/AuthorizationDetail"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "requested_token_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subject_token": {
+            "type": "string"
+          },
+          "subject_token_type": {
+            "$ref": "#/components/schemas/SubjectTokenType"
+          }
+        },
+        "required": [
+          "subject_token",
+          "subject_token_type"
+        ],
+        "type": "object"
+      },
+      "TokenRequest": {
+        "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PasswordGrantRequest"
+              },
+              {
+                "properties": {
+                  "grant_type": {
+                    "enum": [
+                      "password"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "grant_type"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AuthorizationCodeGrantRequest"
+              },
+              {
+                "properties": {
+                  "grant_type": {
+                    "enum": [
+                      "authorization_code"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "grant_type"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ClientCredentialsGrantRequest"
+              },
+              {
+                "properties": {
+                  "grant_type": {
+                    "enum": [
+                      "client_credentials"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "grant_type"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RefreshTokenGrantRequest"
+              },
+              {
+                "properties": {
+                  "grant_type": {
+                    "enum": [
+                      "refresh_token"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "grant_type"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TokenExchangeGrantRequest"
+              },
+              {
+                "properties": {
+                  "grant_type": {
+                    "enum": [
+                      "urn:ietf:params:oauth:grant-type:token-exchange"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "grant_type"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        ]
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "$ref": "#/components/schemas/AccessToken",
+            "description": "The access token issued by the authorization server."
+          },
+          "expires_in": {
+            "description": "The lifetime in seconds of the id/access token.",
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "id_token": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/IdToken"
+              }
+            ]
+          },
+          "iss": {
+            "description": "The identifier of the authorization server that issued the token.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "refresh_token": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RefreshToken",
+                "description": "The refresh token, which can be used to obtain new access tokens using the same authorization grant."
+              }
+            ]
+          },
+          "refresh_token_expires_in": {
+            "description": "The lifetime in seconds of the refresh token.",
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "scope": {
+            "description": "The scope of the access token as described by the authorization server.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "token_type": {
+            "$ref": "#/components/schemas/TokenType",
+            "description": "The type of the token issued."
+          }
+        },
+        "required": [
+          "access_token",
+          "token_type"
+        ],
+        "type": "object"
+      },
+      "TokenType": {
+        "enum": [
+          "Bearer",
+          "DPoP"
+        ],
+        "type": "string"
+      },
+      "TokenUse": {
+        "enum": [
+          "Id",
+          "Access",
+          "Refresh"
+        ],
+        "type": "string"
+      },
+      "UserInfo": {
+        "properties": {
+          "birthdate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email_verified": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "family_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "gender": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "given_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locale": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "middle_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nickname": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "permissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "phone_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phone_number_verified": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "picture": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "preferred_username": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "profile": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sub": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "website": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "zoneinfo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "sub",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "VersionResponse": {
+        "properties": {
+          "build": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "build"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "authorization": {
+        "bearerFormat": "JWT",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "contact": {
+      "name": "nathanfaucett@gmail.com"
+    },
+    "description": "OIDC / OAuth 2.x server implementation",
+    "license": {
+      "identifier": "MIT OR Apache-2.0",
+      "name": "MIT OR Apache-2.0"
+    },
+    "title": "OAuth Server",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/.well-known/jwks.json": {
+      "get": {
+        "operationId": "jwks",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Jwks"
+                }
+              }
+            },
+            "description": "JWKS"
+          }
+        }
+      }
+    },
+    "/.well-known/openid-configuration": {
+      "get": {
+        "operationId": "openid_configuration",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthorizationServerMetadata"
+                }
+              }
+            },
+            "description": "OIDC configuration"
+          }
+        }
+      }
+    },
+    "/applications": {
+      "get": {
+        "operationId": "list_applications",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "offset",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "limit",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Applications"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "create_application",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplicationRegistration"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Created application"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
+    "/applications/{application_id}": {
+      "delete": {
+        "operationId": "delete_application",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "application_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted application"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "get_application",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "application_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Application"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "update_application",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "application_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplicationRegistration"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated application"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
+    "/clients/{client_id}/keys": {
+      "delete": {
+        "operationId": "revoke_client_keys",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revoked all client signing keys and local private material"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "list_client_keys",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Client key metadata"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
+    "/clients/{client_id}/keys/rotate": {
+      "post": {
+        "operationId": "rotate_client_key",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Rotated client signing key metadata"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Server is healthy"
+          }
+        }
+      }
+    },
+    "/oauth2/auth": {
+      "get": {
+        "operationId": "authorize_query",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "response_type",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ResponseType"
+            }
+          },
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "redirect URI is optional if the client has only one registered redirect URI",
+            "in": "path",
+            "name": "redirect_uri",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "path",
+            "name": "scope",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "path",
+            "name": "state",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Audience parameter (RFC 8707) to specify the intended recipients of the token.",
+            "in": "path",
+            "name": "resource",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "PKCE parameters (RFC 7636) for public clients and enhanced security",
+            "in": "path",
+            "name": "code_challenge",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "The method used to derive the code challenge (e.g., \"S256\" or \"plain\").\nonly required if `code_challenge` is present. \"S256\" is strongly recommended in OAuth 2.1 for better security.",
+            "in": "path",
+            "name": "code_challenge_method",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/CodeChallengeMethod"
+                }
+              ]
+            }
+          },
+          {
+            "in": "path",
+            "name": "nonce",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "path",
+            "name": "prompt",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "path",
+            "name": "response_mode",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/ResponseMode"
+                }
+              ]
+            }
+          },
+          {
+            "in": "path",
+            "name": "login_hint",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "path",
+            "name": "id_token_hint",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "path",
+            "name": "ui_locales",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Authorization response"
+          }
+        }
+      },
+      "post": {
+        "operationId": "authorize_json",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthorizationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthorizationCodeResponse"
+                }
+              }
+            },
+            "description": "Authorization response"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
+    "/oauth2/auth/allowed-for-user": {
+      "post": {
+        "operationId": "is_allowed_for_user",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IsAllowedForUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IsAllowedForUserResponse"
+                }
+              }
+            },
+            "description": "User approval status"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
+    "/oauth2/auth/approve-for-user": {
+      "post": {
+        "operationId": "approve_for_user",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveForUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IsAllowedForUserResponse"
+                }
+              }
+            },
+            "description": "Client approved"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
+    "/oauth2/device/auth": {
+      "post": {
+        "operationId": "device_auth",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceAuthorizationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceAuthorization"
+                }
+              }
+            },
+            "description": "Device authorization"
+          }
+        }
+      }
+    },
+    "/oauth2/device/verify": {
+      "get": {
+        "operationId": "device_verify",
+        "responses": {
+          "302": {
+            "description": "Device verify redirect"
+          }
+        }
+      }
+    },
+    "/oauth2/introspect": {
+      "post": {
+        "operationId": "introspect",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntrospectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntrospectionResponse"
+                }
+              }
+            },
+            "description": "Validated access token"
+          },
+          "401": {
+            "description": "Invalid caller or inspected token"
+          },
+          "403": {
+            "description": "Caller is not permitted to validate tokens"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "super::routes::oauth2::introspect"
+        ]
+      }
+    },
+    "/oauth2/register": {
+      "post": {
+        "operationId": "register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientRegistration"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientRegistration"
+                }
+              }
+            },
+            "description": "Register client"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
+    "/oauth2/register/{client_id}": {
+      "delete": {
+        "operationId": "delete_register",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Delete client"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "get_register",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientRegistration"
+                }
+              }
+            },
+            "description": "Get client"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "put_register",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientRegistration"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientRegistration"
+                }
+              }
+            },
+            "description": "Update client"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
+    "/oauth2/revoke": {
+      "post": {
+        "operationId": "revoke",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/RevocationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Revoke token"
+          }
+        }
+      }
+    },
+    "/oauth2/sessions/logout": {
+      "get": {
+        "operationId": "sessions_logout",
+        "responses": {
+          "302": {
+            "description": "Logout redirect"
+          }
+        }
+      }
+    },
+    "/oauth2/token": {
+      "post": {
+        "operationId": "token",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            },
+            "description": "Token response"
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "operationId": "openapi_json",
+        "responses": {
+          "200": {
+            "description": "OpenAPI specification"
+          }
+        }
+      }
+    },
+    "/replica-signers": {
+      "post": {
+        "operationId": "enroll_replica_signer",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnrollReplicaSigner"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Replica signer approved"
+          },
+          "403": {
+            "description": "Caller is not authorized"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "super::routes::replica_signers"
+        ]
+      }
+    },
+    "/replica-signers/{member_id}": {
+      "delete": {
+        "operationId": "revoke_replica_signer",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "member_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Replica signer revoked"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "super::routes::replica_signers"
+        ]
+      },
+      "put": {
+        "operationId": "rotate_replica_signer",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "member_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RotateReplicaSigner"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Replica signer rotated"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "super::routes::replica_signers"
+        ]
+      }
+    },
+    "/userinfo": {
+      "get": {
+        "operationId": "userinfo",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserInfo"
+                }
+              }
+            },
+            "description": "Userinfo"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
+    "/users/{user_id}": {
+      "delete": {
+        "operationId": "delete_user",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted user"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "get_user",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserInfo"
+                }
+              }
+            },
+            "description": "User"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "update_user",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserInfo"
+                }
+              }
+            },
+            "description": "Updated user"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
+    "/users/{user_id}/active": {
+      "get": {
+        "operationId": "active_user",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Current conflict-clear active User"
+          },
+          "401": {
+            "description": "Invalid Client token"
+          },
+          "403": {
+            "description": "Missing exact service permission"
+          },
+          "404": {
+            "description": "User is not active"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "super::routes::active_user"
+        ]
+      }
+    },
+    "/users/{user_id}/consents": {
+      "get": {
+        "operationId": "list_consents",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "offset",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "limit",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consents"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
+    "/users/{user_id}/consents/{consent_id}": {
+      "delete": {
+        "operationId": "revoke_consent",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "consent_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revoked consent"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
+    "/users/{user_id}/password": {
+      "put": {
+        "operationId": "reset_password",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetPassword"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Reset password"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
+    "/version": {
+      "get": {
+        "operationId": "version",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionResponse"
+                }
+              }
+            },
+            "description": "Version"
+          }
+        }
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "https://idp.example/idp"
+    }
+  ]
+}

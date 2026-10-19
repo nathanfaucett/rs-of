@@ -38,6 +38,7 @@ export const IdentityAction = {
     KeysRead: "keys_read",
     KeysRotate: "keys_rotate",
     KeysRevoke: "keys_revoke",
+    DevicesRead: "devices_read",
     DevicesEnroll: "devices_enroll",
     DevicesRename: "devices_rename",
     DevicesRevoke: "devices_revoke",

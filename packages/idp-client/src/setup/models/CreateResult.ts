@@ -15,10 +15,10 @@
 import { mapValues } from "../runtime.js";
 import type { LoginClient } from "./LoginClient.js";
 import {
-	LoginClientFromJSON,
-	LoginClientFromJSONTyped,
-	LoginClientToJSON,
-	LoginClientToJSONTyped,
+    LoginClientFromJSON,
+    LoginClientFromJSONTyped,
+    LoginClientToJSON,
+    LoginClientToJSONTyped,
 } from "./LoginClient.js";
 
 /**
@@ -27,81 +27,81 @@ import {
  * @interface CreateResult
  */
 export interface CreateResult {
-	/**
-	 *
-	 */
-	loginClient?: LoginClient | null;
-	/**
-	 *
-	 */
-	owners: Array<string>;
-	/**
-	 *
-	 */
-	ready: boolean;
-	/**
-	 *
-	 */
-	stage: string;
-	/**
-	 *
-	 */
-	state: string;
+    /**
+     *
+     */
+    loginClient?: LoginClient | null;
+    /**
+     *
+     */
+    owners: Array<string>;
+    /**
+     *
+     */
+    ready: boolean;
+    /**
+     *
+     */
+    stage: string;
+    /**
+     *
+     */
+    state: string;
 }
 
 /**
  * Check if a given object implements the CreateResult interface.
  */
 export function instanceOfCreateResult(value: object): value is CreateResult {
-	if (!("owners" in value) || value["owners"] === undefined) return false;
-	if (!("ready" in value) || value["ready"] === undefined) return false;
-	if (!("stage" in value) || value["stage"] === undefined) return false;
-	if (!("state" in value) || value["state"] === undefined) return false;
-	return true;
+    if (!("owners" in value) || value["owners"] === undefined) return false;
+    if (!("ready" in value) || value["ready"] === undefined) return false;
+    if (!("stage" in value) || value["stage"] === undefined) return false;
+    if (!("state" in value) || value["state"] === undefined) return false;
+    return true;
 }
 
 export function CreateResultFromJSON(json: any): CreateResult {
-	return CreateResultFromJSONTyped(json, false);
+    return CreateResultFromJSONTyped(json, false);
 }
 
 export function CreateResultFromJSONTyped(
-	json: any,
-	ignoreDiscriminator: boolean,
+    json: any,
+    ignoreDiscriminator: boolean,
 ): CreateResult {
-	if (json == null) {
-		return json;
-	}
-	return {
-		loginClient:
-			json["login_client"] === undefined
-				? undefined
-				: json["login_client"] === null
-					? null
-					: LoginClientFromJSON(json["login_client"]),
-		owners: json["owners"],
-		ready: json["ready"],
-		stage: json["stage"],
-		state: json["state"],
-	};
+    if (json == null) {
+        return json;
+    }
+    return {
+        loginClient:
+            json["login_client"] === undefined
+                ? undefined
+                : json["login_client"] === null
+                  ? null
+                  : LoginClientFromJSON(json["login_client"]),
+        owners: json["owners"],
+        ready: json["ready"],
+        stage: json["stage"],
+        state: json["state"],
+    };
 }
 
 export function CreateResultToJSON(json: any): CreateResult {
-	return CreateResultToJSONTyped(json, false);
+    return CreateResultToJSONTyped(json, false);
 }
 
 export function CreateResultToJSONTyped(
-	value?: CreateResult | null,
-	ignoreDiscriminator: boolean = false,
+    value?: CreateResult | null,
+    ignoreDiscriminator: boolean = false,
 ): any {
-	if (value == null) {
-		return value;
-	}
+    if (value == null) {
+        return value;
+    }
 
-	return {
-		login_client: LoginClientToJSON(value["loginClient"]),
-		owners: value["owners"],
-		ready: value["ready"],
-		stage: value["stage"],
-		state: value["state"],
-	};
+    return {
+        login_client: LoginClientToJSON(value["loginClient"]),
+        owners: value["owners"],
+        ready: value["ready"],
+        stage: value["stage"],
+        state: value["state"],
+    };
 }

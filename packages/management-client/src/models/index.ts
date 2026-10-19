@@ -1,8 +1,17 @@
 /* tslint:disable */
 /* eslint-disable */
+export * from "./ApprovedDeviceEndpoints.js";
 export * from "./CreatePermissionRequest.js";
 export * from "./CreateRoleRequest.js";
+export * from "./Device.js";
+export * from "./DeviceEndpointIdentity.js";
+export * from "./DeviceEnrollment.js";
+export * from "./DeviceEnrollmentRequest.js";
+export * from "./DeviceInfo.js";
 export * from "./DeviceRestriction.js";
+export * from "./DeviceSelfRevocationRequest.js";
+export * from "./DeviceState.js";
+export * from "./DeviceTransferRequest.js";
 export * from "./HealthResponse.js";
 export * from "./HealthStatus.js";
 export * from "./HealthStatusOneOf.js";
@@ -18,6 +27,7 @@ export * from "./IdentityResourceOneOf6.js";
 export * from "./IdentityResourceOneOf7.js";
 export * from "./IdentityResourceOneOf8.js";
 export * from "./IdentityResourceOneOf9.js";
+export * from "./PairingAcceptance.js";
 export * from "./PermissionAuditIdentity.js";
 export * from "./PermissionEvaluationRequest.js";
 export * from "./PermissionEvaluationResponse.js";
@@ -32,5 +42,7 @@ export * from "./SelectedResource.js";
 export * from "./SelectedResourcesResponse.js";
 export * from "./SelectionKind.js";
 export * from "./SelectionRequest.js";
+export * from "./TrustedDevice.js";
+export * from "./UpdateDeviceRequest.js";
 export * from "./UserApplicationRoleResponse.js";
 export * from "./VersionResponse.js";

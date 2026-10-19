@@ -1,8 +1,8 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
- * OAuth Server
- * OIDC / OAuth 2.x server implementation
+ * LIDP Management API
+ * Management API server for LIDP
  *
  * The version of the OpenAPI document: 0.1.0
  *
@@ -19,54 +19,54 @@ import { mapValues } from "../runtime.js";
  * @interface DeviceTransferRequest
  */
 export interface DeviceTransferRequest {
-	/**
-	 *
-	 */
-	ownerSubject: string;
+    /**
+     *
+     */
+    ownerSubject: string;
 }
 
 /**
  * Check if a given object implements the DeviceTransferRequest interface.
  */
 export function instanceOfDeviceTransferRequest(
-	value: object,
+    value: object,
 ): value is DeviceTransferRequest {
-	if (!("ownerSubject" in value) || value["ownerSubject"] === undefined)
-		return false;
-	return true;
+    if (!("ownerSubject" in value) || value["ownerSubject"] === undefined)
+        return false;
+    return true;
 }
 
 export function DeviceTransferRequestFromJSON(
-	json: any,
+    json: any,
 ): DeviceTransferRequest {
-	return DeviceTransferRequestFromJSONTyped(json, false);
+    return DeviceTransferRequestFromJSONTyped(json, false);
 }
 
 export function DeviceTransferRequestFromJSONTyped(
-	json: any,
-	ignoreDiscriminator: boolean,
+    json: any,
+    ignoreDiscriminator: boolean,
 ): DeviceTransferRequest {
-	if (json == null) {
-		return json;
-	}
-	return {
-		ownerSubject: json["ownerSubject"],
-	};
+    if (json == null) {
+        return json;
+    }
+    return {
+        ownerSubject: json["ownerSubject"],
+    };
 }
 
 export function DeviceTransferRequestToJSON(json: any): DeviceTransferRequest {
-	return DeviceTransferRequestToJSONTyped(json, false);
+    return DeviceTransferRequestToJSONTyped(json, false);
 }
 
 export function DeviceTransferRequestToJSONTyped(
-	value?: DeviceTransferRequest | null,
-	ignoreDiscriminator: boolean = false,
+    value?: DeviceTransferRequest | null,
+    ignoreDiscriminator: boolean = false,
 ): any {
-	if (value == null) {
-		return value;
-	}
+    if (value == null) {
+        return value;
+    }
 
-	return {
-		ownerSubject: value["ownerSubject"],
-	};
+    return {
+        ownerSubject: value["ownerSubject"],
+    };
 }

@@ -21,8 +21,8 @@ const generator = path.resolve(
 const contracts = {
   idp: {
     DefaultApi:
-      "approveForUser authorizeJson authorizeQuery createApplication deleteApplication deleteRegister deleteUser device deviceAuth deviceVerify enrollDevice getApplication getRegister getUser health isAllowedForUser jwks listApplications listClientKeys listConsents listDevices lookupDeviceIdentity openapiJson openidConfiguration pairingAcceptance putRegister register resetPassword revoke revokeClientKeys revokeConsent revokeDevice revokeSelf rotateClientKey sessionsLogout setPairingAcceptance token transferDevice trustedDevices updateApplication updateDevice updateUser userinfo version",
-    SuperRoutesDevicesApi: "listApprovedDeviceEndpoints lookupDeviceEndpoint",
+      "approveForUser authorizeJson authorizeQuery createApplication deleteApplication deleteRegister deleteUser deviceAuth deviceVerify getApplication getRegister getUser health isAllowedForUser jwks listApplications listClientKeys listConsents openapiJson openidConfiguration putRegister register resetPassword revoke revokeClientKeys revokeConsent rotateClientKey sessionsLogout token updateApplication updateUser userinfo version",
+    SuperRoutesActiveUserApi: "activeUser",
     SuperRoutesOauth2IntrospectApi: "introspect",
     SuperRoutesReplicaSignersApi:
       "enrollReplicaSigner revokeReplicaSigner rotateReplicaSigner",
@@ -32,7 +32,7 @@ const contracts = {
   },
   management: {
     DefaultApi:
-      "assignPermissionToRole assignRoleToUser createPermission createRole deleteDeviceResourceSelection deleteDeviceSelection deletePermission deleteRole evaluatePermission getDeviceRestriction health listPermissions listRolePermissions listRoles listUserRoles listUserRolesAcrossApplications openapiJson putDeviceRestriction putDeviceSelection revokePermissionFromRole revokeRoleFromUser version",
+      "assignPermissionToRole assignRoleToUser createPermission createRole deleteDeviceResourceSelection deleteDeviceSelection deletePermission deleteRole device enrollDevice evaluatePermission getDeviceRestriction health listApprovedDeviceEndpoints listDevices listPermissions listRolePermissions listRoles listUserRoles listUserRolesAcrossApplications lookupDeviceEndpoint lookupDeviceIdentity openapiJson pairingAcceptance putDeviceRestriction putDeviceSelection revokeDevice revokePermissionFromRole revokeRoleFromUser revokeSelf setPairingAcceptance transferDevice trustedDevices updateDevice version",
     SuperRoutesReplicationApi: "replicationAdmission selectedResources",
   },
   storage: {
@@ -469,7 +469,8 @@ test("Management rejects a replication-only document without replacing sources",
   fixture("management", ({ invoke, preserved }) => {
     const result = invoke({
       FAKE_CONTRACT: JSON.stringify({
-        SuperRoutesReplicationApi: contracts.management.SuperRoutesReplicationApi,
+        SuperRoutesReplicationApi:
+          contracts.management.SuperRoutesReplicationApi,
       }),
     });
     assert.notEqual(result.status, 0);
@@ -478,8 +479,8 @@ test("Management rejects a replication-only document without replacing sources",
   });
 });
 
-test("IdP rejects the stale contract missing transferDevice without replacing sources", () => {
-  fixture("idp", ({ invoke, preserved }) => {
+test("Management rejects the stale contract missing transferDevice without replacing sources", () => {
+  fixture("management", ({ invoke, preserved }) => {
     const result = invoke({ FAKE_MISSING_OPERATION: "transferDevice" });
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /missing required operation transferDevice/);

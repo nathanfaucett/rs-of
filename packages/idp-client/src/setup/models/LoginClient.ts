@@ -19,62 +19,62 @@ import { mapValues } from "../runtime.js";
  * @interface LoginClient
  */
 export interface LoginClient {
-	/**
-	 *
-	 */
-	clientId: string;
-	/**
-	 *
-	 */
-	scopes: Array<string>;
+    /**
+     *
+     */
+    clientId: string;
+    /**
+     *
+     */
+    scopes: Array<string>;
 }
 
 /**
  * Check if a given object implements the LoginClient interface.
  */
 export function instanceOfLoginClient(value: object): value is LoginClient {
-	if (
-		(!("clientId" in (value as Record<string, any>)) &&
-			!("client_id" in (value as Record<string, any>))) ||
-		((value as Record<string, any>)["clientId"] === undefined &&
-			(value as Record<string, any>)["client_id"] === undefined)
-	)
-		return false;
-	if (!("scopes" in value) || value["scopes"] === undefined) return false;
-	return true;
+    if (
+        (!("clientId" in (value as Record<string, any>)) &&
+            !("client_id" in (value as Record<string, any>))) ||
+        ((value as Record<string, any>)["clientId"] === undefined &&
+            (value as Record<string, any>)["client_id"] === undefined)
+    )
+        return false;
+    if (!("scopes" in value) || value["scopes"] === undefined) return false;
+    return true;
 }
 
 export function LoginClientFromJSON(json: any): LoginClient {
-	return LoginClientFromJSONTyped(json, false);
+    return LoginClientFromJSONTyped(json, false);
 }
 
 export function LoginClientFromJSONTyped(
-	json: any,
-	ignoreDiscriminator: boolean,
+    json: any,
+    ignoreDiscriminator: boolean,
 ): LoginClient {
-	if (json == null) {
-		return json;
-	}
-	return {
-		clientId: json["client_id"],
-		scopes: json["scopes"],
-	};
+    if (json == null) {
+        return json;
+    }
+    return {
+        clientId: json["client_id"],
+        scopes: json["scopes"],
+    };
 }
 
 export function LoginClientToJSON(json: any): LoginClient {
-	return LoginClientToJSONTyped(json, false);
+    return LoginClientToJSONTyped(json, false);
 }
 
 export function LoginClientToJSONTyped(
-	value?: LoginClient | null,
-	ignoreDiscriminator: boolean = false,
+    value?: LoginClient | null,
+    ignoreDiscriminator: boolean = false,
 ): any {
-	if (value == null) {
-		return value;
-	}
+    if (value == null) {
+        return value;
+    }
 
-	return {
-		client_id: value["clientId"],
-		scopes: value["scopes"],
-	};
+    return {
+        client_id: value["clientId"],
+        scopes: value["scopes"],
+    };
 }

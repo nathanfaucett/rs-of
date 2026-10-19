@@ -19,70 +19,70 @@ import { mapValues } from "../runtime.js";
  * @interface CreateIntent
  */
 export interface CreateIntent {
-	/**
-	 *
-	 */
-	administrator: string;
-	/**
-	 *
-	 */
-	node: string;
-	/**
-	 *
-	 */
-	operationNonce: string;
+    /**
+     *
+     */
+    administrator: string;
+    /**
+     *
+     */
+    node: string;
+    /**
+     *
+     */
+    operationNonce: string;
 }
 
 /**
  * Check if a given object implements the CreateIntent interface.
  */
 export function instanceOfCreateIntent(value: object): value is CreateIntent {
-	if (!("administrator" in value) || value["administrator"] === undefined)
-		return false;
-	if (!("node" in value) || value["node"] === undefined) return false;
-	if (
-		(!("operationNonce" in (value as Record<string, any>)) &&
-			!("operation_nonce" in (value as Record<string, any>))) ||
-		((value as Record<string, any>)["operationNonce"] === undefined &&
-			(value as Record<string, any>)["operation_nonce"] === undefined)
-	)
-		return false;
-	return true;
+    if (!("administrator" in value) || value["administrator"] === undefined)
+        return false;
+    if (!("node" in value) || value["node"] === undefined) return false;
+    if (
+        (!("operationNonce" in (value as Record<string, any>)) &&
+            !("operation_nonce" in (value as Record<string, any>))) ||
+        ((value as Record<string, any>)["operationNonce"] === undefined &&
+            (value as Record<string, any>)["operation_nonce"] === undefined)
+    )
+        return false;
+    return true;
 }
 
 export function CreateIntentFromJSON(json: any): CreateIntent {
-	return CreateIntentFromJSONTyped(json, false);
+    return CreateIntentFromJSONTyped(json, false);
 }
 
 export function CreateIntentFromJSONTyped(
-	json: any,
-	ignoreDiscriminator: boolean,
+    json: any,
+    ignoreDiscriminator: boolean,
 ): CreateIntent {
-	if (json == null) {
-		return json;
-	}
-	return {
-		administrator: json["administrator"],
-		node: json["node"],
-		operationNonce: json["operation_nonce"],
-	};
+    if (json == null) {
+        return json;
+    }
+    return {
+        administrator: json["administrator"],
+        node: json["node"],
+        operationNonce: json["operation_nonce"],
+    };
 }
 
 export function CreateIntentToJSON(json: any): CreateIntent {
-	return CreateIntentToJSONTyped(json, false);
+    return CreateIntentToJSONTyped(json, false);
 }
 
 export function CreateIntentToJSONTyped(
-	value?: CreateIntent | null,
-	ignoreDiscriminator: boolean = false,
+    value?: CreateIntent | null,
+    ignoreDiscriminator: boolean = false,
 ): any {
-	if (value == null) {
-		return value;
-	}
+    if (value == null) {
+        return value;
+    }
 
-	return {
-		administrator: value["administrator"],
-		node: value["node"],
-		operation_nonce: value["operationNonce"],
-	};
+    return {
+        administrator: value["administrator"],
+        node: value["node"],
+        operation_nonce: value["operationNonce"],
+    };
 }

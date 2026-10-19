@@ -13,24 +13,24 @@
  */
 
 import {
-	parseDate,
-	parseDateTime,
-	serializeDate,
-	serializeDateTime,
+    parseDate,
+    parseDateTime,
+    serializeDate,
+    serializeDateTime,
 } from "../runtime.js";
 import type { CreateIntent } from "./CreateIntent.js";
 import {
-	instanceOfCreateIntent,
-	CreateIntentFromJSON,
-	CreateIntentFromJSONTyped,
-	CreateIntentToJSON,
+    instanceOfCreateIntent,
+    CreateIntentFromJSON,
+    CreateIntentFromJSONTyped,
+    CreateIntentToJSON,
 } from "./CreateIntent.js";
 import type { JoinIntent } from "./JoinIntent.js";
 import {
-	instanceOfJoinIntent,
-	JoinIntentFromJSON,
-	JoinIntentFromJSONTyped,
-	JoinIntentToJSON,
+    instanceOfJoinIntent,
+    JoinIntentFromJSON,
+    JoinIntentFromJSONTyped,
+    JoinIntentToJSON,
 } from "./JoinIntent.js";
 
 /**
@@ -41,47 +41,47 @@ import {
 export type SetupIntent = CreateIntent | JoinIntent;
 
 export function SetupIntentFromJSON(json: any): SetupIntent {
-	return SetupIntentFromJSONTyped(json, false);
+    return SetupIntentFromJSONTyped(json, false);
 }
 
 export function SetupIntentFromJSONTyped(
-	json: any,
-	ignoreDiscriminator: boolean,
+    json: any,
+    ignoreDiscriminator: boolean,
 ): SetupIntent {
-	if (json == null) {
-		return json;
-	}
-	if (typeof json !== "object") {
-		return json;
-	}
-	if (instanceOfCreateIntent(json)) {
-		return CreateIntentFromJSONTyped(json, true);
-	}
-	if (instanceOfJoinIntent(json)) {
-		return JoinIntentFromJSONTyped(json, true);
-	}
-	return {} as any;
+    if (json == null) {
+        return json;
+    }
+    if (typeof json !== "object") {
+        return json;
+    }
+    if (instanceOfCreateIntent(json)) {
+        return CreateIntentFromJSONTyped(json, true);
+    }
+    if (instanceOfJoinIntent(json)) {
+        return JoinIntentFromJSONTyped(json, true);
+    }
+    return {} as any;
 }
 
 export function SetupIntentToJSON(json: any): any {
-	return SetupIntentToJSONTyped(json, false);
+    return SetupIntentToJSONTyped(json, false);
 }
 
 export function SetupIntentToJSONTyped(
-	value?: SetupIntent | null,
-	ignoreDiscriminator: boolean = false,
+    value?: SetupIntent | null,
+    ignoreDiscriminator: boolean = false,
 ): any {
-	if (value == null) {
-		return value;
-	}
-	if (typeof value !== "object") {
-		return value;
-	}
-	if (instanceOfCreateIntent(value)) {
-		return CreateIntentToJSON(value as CreateIntent);
-	}
-	if (instanceOfJoinIntent(value)) {
-		return JoinIntentToJSON(value as JoinIntent);
-	}
-	return {};
+    if (value == null) {
+        return value;
+    }
+    if (typeof value !== "object") {
+        return value;
+    }
+    if (instanceOfCreateIntent(value)) {
+        return CreateIntentToJSON(value as CreateIntent);
+    }
+    if (instanceOfJoinIntent(value)) {
+        return JoinIntentToJSON(value as JoinIntent);
+    }
+    return {};
 }

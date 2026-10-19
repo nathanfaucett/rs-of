@@ -19,77 +19,77 @@ import { mapValues } from "../runtime.js";
  * @interface CreateRequest
  */
 export interface CreateRequest {
-	/**
-	 *
-	 */
-	administrator: string;
-	/**
-	 *
-	 */
-	node: string;
-	/**
-	 *
-	 */
-	operationNonce: string;
-	/**
-	 *
-	 */
-	password: string;
+    /**
+     *
+     */
+    administrator: string;
+    /**
+     *
+     */
+    node: string;
+    /**
+     *
+     */
+    operationNonce: string;
+    /**
+     *
+     */
+    password: string;
 }
 
 /**
  * Check if a given object implements the CreateRequest interface.
  */
 export function instanceOfCreateRequest(value: object): value is CreateRequest {
-	if (!("administrator" in value) || value["administrator"] === undefined)
-		return false;
-	if (!("node" in value) || value["node"] === undefined) return false;
-	if (
-		(!("operationNonce" in (value as Record<string, any>)) &&
-			!("operation_nonce" in (value as Record<string, any>))) ||
-		((value as Record<string, any>)["operationNonce"] === undefined &&
-			(value as Record<string, any>)["operation_nonce"] === undefined)
-	)
-		return false;
-	if (!("password" in value) || value["password"] === undefined) return false;
-	return true;
+    if (!("administrator" in value) || value["administrator"] === undefined)
+        return false;
+    if (!("node" in value) || value["node"] === undefined) return false;
+    if (
+        (!("operationNonce" in (value as Record<string, any>)) &&
+            !("operation_nonce" in (value as Record<string, any>))) ||
+        ((value as Record<string, any>)["operationNonce"] === undefined &&
+            (value as Record<string, any>)["operation_nonce"] === undefined)
+    )
+        return false;
+    if (!("password" in value) || value["password"] === undefined) return false;
+    return true;
 }
 
 export function CreateRequestFromJSON(json: any): CreateRequest {
-	return CreateRequestFromJSONTyped(json, false);
+    return CreateRequestFromJSONTyped(json, false);
 }
 
 export function CreateRequestFromJSONTyped(
-	json: any,
-	ignoreDiscriminator: boolean,
+    json: any,
+    ignoreDiscriminator: boolean,
 ): CreateRequest {
-	if (json == null) {
-		return json;
-	}
-	return {
-		administrator: json["administrator"],
-		node: json["node"],
-		operationNonce: json["operation_nonce"],
-		password: json["password"],
-	};
+    if (json == null) {
+        return json;
+    }
+    return {
+        administrator: json["administrator"],
+        node: json["node"],
+        operationNonce: json["operation_nonce"],
+        password: json["password"],
+    };
 }
 
 export function CreateRequestToJSON(json: any): CreateRequest {
-	return CreateRequestToJSONTyped(json, false);
+    return CreateRequestToJSONTyped(json, false);
 }
 
 export function CreateRequestToJSONTyped(
-	value?: CreateRequest | null,
-	ignoreDiscriminator: boolean = false,
+    value?: CreateRequest | null,
+    ignoreDiscriminator: boolean = false,
 ): any {
-	if (value == null) {
-		return value;
-	}
+    if (value == null) {
+        return value;
+    }
 
-	return {
-		administrator: value["administrator"],
-		node: value["node"],
-		operation_nonce: value["operationNonce"],
-		password: value["password"],
-	};
+    return {
+        administrator: value["administrator"],
+        node: value["node"],
+        operation_nonce: value["operationNonce"],
+        password: value["password"],
+    };
 }
