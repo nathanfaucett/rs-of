@@ -1385,7 +1385,7 @@ where
             .await?
             .ok_or_else(|| ErrorResponse::new(ErrorCode::InvalidGrant))?;
         let principal = self
-            .find_principal(key.id)
+            .principal_for_active_key(key)
             .await?
             .ok_or_else(|| ErrorResponse::new(ErrorCode::InvalidGrant))?;
         if principal.get_entity_id() != id || principal.get_entity_type() != entity_type {
@@ -1936,6 +1936,13 @@ where
             return Ok(None);
         }
 
+        self.principal_for_active_key(key).await
+    }
+
+    async fn principal_for_active_key(
+        &self,
+        key: Key,
+    ) -> ErrorResponseResult<Option<Box<dyn Principal>>> {
         let principal = match key.entity_type {
             EntityType::User => {
                 let user = if let Some(user) = self.user_repo.find_user_by_id(key.entity_id).await?

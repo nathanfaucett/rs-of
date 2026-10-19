@@ -17,6 +17,70 @@ fn prepare(
     )
 }
 
+#[tokio::test]
+async fn independent_create_requires_owner_code_and_retains_exact_intent() {
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode},
+    };
+    use tower::ServiceExt;
+    let root = tempfile::tempdir().expect("isolated host");
+    let setup = prepare(&root.path().join("idp"), "idp", false)
+        .expect("prepare")
+        .expect("fresh");
+    let code = fs::read_to_string(setup.admission_path()).expect("protected code");
+    let code = code.lines().nth(1).expect("capability");
+    let (host, mut commands) = setup
+        .into_create(tokio_util::sync::CancellationToken::new())
+        .expect("host");
+    let payload = serde_json::json!({"purpose":"create", "operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"operator", "node":"Independent Node", "idp":"https://127.0.0.1:3000", "management":"https://127.0.0.1:3001", "storage":"https://127.0.0.1:3002", "issuer":"https://127.0.0.1:3000", "peer":null, "password":"protected-password"});
+    for (authorization, expected) in [
+        ("Setup wrong".to_owned(), StatusCode::UNAUTHORIZED),
+        (format!("Setup {code}"), StatusCode::ACCEPTED),
+    ] {
+        let response = host
+            .router()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/setup/create")
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", authorization)
+                    .body(Body::from(payload.to_string()))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), expected);
+    }
+    let accepted = commands.recv().await.expect("host-owned command");
+    drop(accepted);
+    let response = host
+        .router()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/setup/intent")
+                .header("Authorization", format!("Setup {code}"))
+                .body(Body::empty())
+                .expect("recovery"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = to_bytes(response.into_body(), 4096)
+        .await
+        .expect("bounded recovery");
+    let recovered: serde_json::Value = serde_json::from_slice(&bytes).expect("recovered intent");
+    assert_eq!(recovered["operation_nonce"], payload["operation_nonce"]);
+    assert!(recovered.get("password").is_none());
+    assert!(
+        !String::from_utf8(bytes.to_vec())
+            .expect("JSON")
+            .contains(code)
+    );
+}
+
 #[test]
 fn setup_scope_accepts_only_single_owner_or_complete_unified_host() {
     use crate::SetupScope;

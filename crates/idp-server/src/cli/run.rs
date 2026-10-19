@@ -108,7 +108,11 @@ pub async fn run() -> io::Result<()> {
         let address = SocketAddr::new(setup_host, port.unwrap_or(app_config.server.port));
         if let Some(setup) = crate::prepare_setup(&app_config, address)? {
             let shutdown = shutdown_signal(cancellation_token.clone());
-            let serving = setup.serve(cancellation_token.clone());
+            let serving = crate::serve_independent_create(
+                app_config.clone(),
+                setup,
+                cancellation_token.clone(),
+            );
             tokio::pin!(shutdown, serving);
             return tokio::select! {
                 result = &mut serving => result,

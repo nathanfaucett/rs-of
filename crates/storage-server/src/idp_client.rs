@@ -86,6 +86,7 @@ impl IdpClient {
             base_url.set_path(&path);
         }
         let client = Client::builder()
+            .tls_built_in_native_certs(true)
             .connect_timeout(Duration::from_secs(3))
             .timeout(Duration::from_secs(10))
             .redirect(Policy::none())
@@ -135,21 +136,29 @@ impl IdpClient {
         &self,
         token: &str,
     ) -> Result<IntrospectionResponse, IdpIntrospectionError> {
-        let response = match &self.backend {
-            IdpBackend::Local { inspect } => inspect(token.to_owned()).await?,
-            IdpBackend::Http(http) => http.introspect(token).await?,
-        };
         #[cfg(feature = "network")]
         if let Some((endpoint, policy)) = &self.local_device_policy {
-            let owner = policy
-                .local_owner(*endpoint)
-                .await
-                .map_err(|_| IdpIntrospectionError::InvalidToken)?;
+            let (response, owner) =
+                tokio::join!(self.inspect_identity(token), policy.local_owner(*endpoint));
+            let response = response?;
+            let owner = owner.map_err(|_| IdpIntrospectionError::InvalidToken)?;
+
             if response.claims.sub != owner {
                 return Err(IdpIntrospectionError::InvalidToken);
             }
+            return Ok(response);
         }
-        Ok(response)
+        self.inspect_identity(token).await
+    }
+
+    async fn inspect_identity(
+        &self,
+        token: &str,
+    ) -> Result<IntrospectionResponse, IdpIntrospectionError> {
+        match &self.backend {
+            IdpBackend::Local { inspect } => inspect(token.to_owned()).await,
+            IdpBackend::Http(http) => http.introspect(token).await,
+        }
     }
 }
 

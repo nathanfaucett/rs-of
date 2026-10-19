@@ -87,6 +87,7 @@ impl HostedControlPlane {
             device_identity: None,
             pairing_acceptance: None,
             client: Client::builder()
+                .tls_built_in_native_certs(true)
                 .connect_timeout(Duration::from_secs(3))
                 .timeout(Duration::from_secs(10))
                 .redirect(Policy::none())

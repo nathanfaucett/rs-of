@@ -71,7 +71,11 @@ pub async fn run() -> io::Result<()> {
             env_logger::Builder::from_env(Env::default().default_filter_or(&app_config.log_level))
                 .init();
             let shutdown = shutdown_signal(cancellation_token.clone());
-            let serving = setup.serve(cancellation_token.clone());
+            let serving = crate::serve_independent_create(
+                app_config.clone(),
+                setup,
+                cancellation_token.clone(),
+            );
             tokio::pin!(shutdown, serving);
             return tokio::select! {
                 result = &mut serving => result,

@@ -185,6 +185,21 @@ impl SetupAdmission {
         })
     }
 
+    /// Host lifecycle observation only, not mutation authority or an HTTP recovery contract.
+    pub(crate) fn host_intent(&self) -> Result<Option<String>> {
+        let mut local = self.inner.lock().map_err(unavailable)?;
+        if local.failed {
+            return Err(SetupAdmissionError::Unavailable);
+        }
+        match local.read() {
+            Ok(retained) => Ok((!retained.intent.is_empty()).then_some(retained.intent)),
+            Err(error) => {
+                local.failed = true;
+                Err(error)
+            }
+        }
+    }
+
     /// Inspect durable finalization without granting setup authority or exposing its code.
     pub fn is_retired(&self) -> Result<bool> {
         let mut local = self.inner.lock().map_err(unavailable)?;

@@ -45,22 +45,58 @@ impl StorageRuntime {
 }
 
 pub fn build_runtime(
-    mut state: RouterState,
+    state: RouterState,
     data_dir: &Path,
     api_prefix: &str,
     resource_prefix: &str,
     server: Option<Server>,
     cancellation_token: CancellationToken,
 ) -> io::Result<StorageRuntime> {
+    let endpoint = server.as_ref().map(|server| server.endpoint().id());
+    build_runtime_inner(
+        state,
+        data_dir,
+        api_prefix,
+        resource_prefix,
+        server,
+        endpoint,
+        cancellation_token,
+    )
+}
+
+/// HTTPS Storage consumes the Management endpoint's current policy without owning its key.
+pub fn build_http_runtime(
+    state: RouterState,
+    data_dir: &Path,
+    api_prefix: &str,
+    management_endpoint: EndpointId,
+    cancellation_token: CancellationToken,
+) -> io::Result<StorageRuntime> {
+    build_runtime_inner(
+        state,
+        data_dir,
+        api_prefix,
+        "",
+        None,
+        Some(management_endpoint),
+        cancellation_token,
+    )
+}
+
+fn build_runtime_inner(
+    mut state: RouterState,
+    data_dir: &Path,
+    api_prefix: &str,
+    resource_prefix: &str,
+    server: Option<Server>,
+    endpoint: Option<EndpointId>,
+    cancellation_token: CancellationToken,
+) -> io::Result<StorageRuntime> {
     let databases = Arc::new(DatabaseRuntime::new(data_dir.join("databases"))?);
-    let file_systems = server
-        .as_ref()
-        .map(|server| {
-            ScopedFileSystemRuntime::<EndpointId>::new(
-                data_dir.join("filesystems"),
-                server.endpoint().id(),
-            )
-            .map(Arc::new)
+    let file_systems = endpoint
+        .map(|endpoint| {
+            ScopedFileSystemRuntime::<EndpointId>::new(data_dir.join("filesystems"), endpoint)
+                .map(Arc::new)
         })
         .transpose()
         .map_err(io::Error::other)?;
@@ -71,13 +107,12 @@ pub fn build_runtime(
             .clone()
             .map(crate::LocalReplicationAuthorizer::from_management_client);
     }
-    if let (Some(server), Some(policy), Some(idp)) = (
-        server.as_ref(),
+    if let (Some(endpoint), Some(policy), Some(idp)) = (
+        endpoint,
         state.local_replication_authorizer.as_ref(),
         state.idp_client.clone(),
     ) {
-        state.idp_client =
-            Some(idp.with_local_device_policy(server.endpoint().id(), policy.clone()));
+        state.idp_client = Some(idp.with_local_device_policy(endpoint, policy.clone()));
     }
     let copies = file_systems
         .as_ref()
