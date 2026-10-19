@@ -205,7 +205,7 @@ impl DomainNode {
             .expect("Management schema");
         sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{owner}' AS UUID), 'owner', 'Owner', 1, 1)")).await;
         for ((device, endpoint), signer) in devices.into_iter().zip(endpoints).zip(signers) {
-            sql(&idp, &format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{owner}', 'node', '{endpoint}', 'local', 1, 1, 1, 1)")).await;
+            sql(&management, &format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{owner}', 'node', '{endpoint}', 'local', 1, 1, 1, 1)")).await;
             DbReplicaSignerRepo::new(idp.clone())
                 .enroll(
                     &ReplicaMembership {
@@ -258,7 +258,7 @@ impl DomainNode {
     }
     pub async fn revoke(&self, device: usize) {
         assert!(
-            DbDeviceRepo::new(self.idp.clone())
+            DbDeviceRepo::new(self.management.clone())
                 .revoke(&self.owner.to_string(), self.devices[device], "")
                 .await
                 .expect("learn Device revocation")
@@ -287,7 +287,7 @@ impl DomainNode {
             let retained = retained.clone();
             async move {
                 let _retained = retained;
-                let device = DbDeviceRepo::new(idp.clone())
+                let device = DbDeviceRepo::new(management.clone())
                     .find_approved_by_public_key(&endpoint.to_string())
                     .await
                     .map_err(|error| error.to_string())?

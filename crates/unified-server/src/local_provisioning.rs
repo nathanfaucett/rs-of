@@ -509,11 +509,15 @@ impl LocalProvisioner {
                     )
                 })
                 .await?;
+                let endpoint_id = binding.endpoint_id.clone();
+                let node_name = journal.node.clone();
                 provisioning_stage(|| {
                     management_server::provision_initial_device(
                         Arc::clone(&management_engine),
                         journal.member,
                         journal.user,
+                        &endpoint_id,
+                        &node_name,
                     )
                 })
                 .await?;

@@ -661,7 +661,13 @@ mod tests {
             .bind()
             .await
             .expect("bind temporary IdP Iroh endpoint");
-        let devices = Arc::new(DbDeviceRepo::new(Arc::clone(&engine)));
+        let policy_engine = Arc::new(
+            Database::open(root.join("management.redb")).expect("open local policy store"),
+        );
+        management_service::replica::up(&policy_engine)
+            .await
+            .expect("initialize local policy");
+        let devices = Arc::new(DbDeviceRepo::new(Arc::clone(&policy_engine)));
         let endpoint_id = endpoint.id().to_string();
         let approved_device = devices
             .create(
@@ -789,12 +795,6 @@ mod tests {
             )
             .await
             .expect("persist live authorization code");
-        let policy_engine = Arc::new(
-            Database::open(root.join("management.redb")).expect("open local policy store"),
-        );
-        management_service::replica::up(&policy_engine)
-            .await
-            .expect("initialize local policy");
         let policy = management_service::ManagementService::new(
             management_service::replica::DbPermissionRepo::new(Arc::clone(&policy_engine)),
             management_service::replica::DbRoleRepo::new(Arc::clone(&policy_engine)),

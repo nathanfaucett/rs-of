@@ -1289,10 +1289,13 @@ mod tests {
         {
             let policy = super::open_service_engine(&config.management.data_dir, "management.redb")
                 .expect("policy fixture");
+            let endpoint_id = fixture.local_signer.endpoint_id.clone();
             management_server::provision_initial_device(
                 std::sync::Arc::clone(&policy),
                 fixture.local_signer.member_id,
                 fixture.administrator,
+                &endpoint_id,
+                "Local Node",
             )
             .await
             .expect("provision empty local Device policy for its active User owner");

@@ -10,7 +10,7 @@ use iroh_chain::{EndpointIdStore, Server};
 use tokio::{select, time::sleep};
 use tokio_util::sync::CancellationToken;
 
-use crate::IdpClient;
+use crate::ManagementClient;
 
 const ENDPOINT_KEY_FILE: &str = "endpoint.key";
 const PEER_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
@@ -54,17 +54,24 @@ impl StoragePeerNetwork {
         self.server.endpoint().id()
     }
 
-    pub async fn refresh_approved_peers(&self, idp_client: &IdpClient) -> Result<(), String> {
+    pub async fn refresh_approved_peers(
+        &self,
+        mgmt_client: &ManagementClient,
+    ) -> Result<(), String> {
         let allowed_peers = self
             .allowed_peers
             .as_ref()
             .ok_or_else(|| "peer admission is owned by the unified host".to_owned())?;
         let local_endpoint_id = self.endpoint_id();
-        let endpoint_ids = match idp_client.approved_storage_endpoints().await {
-            Ok(endpoint_ids) => endpoint_ids,
-            Err(error) => {
+        // Storage consumes Management authorization, not IdP Device lookup
+        let endpoint_ids = match mgmt_client
+            .selected_resources(&local_endpoint_id.to_string())
+            .await
+        {
+            Ok(response) => vec![response.endpoint_id],
+            Err(_) => {
                 allowed_peers.replace([local_endpoint_id]);
-                return Err(error);
+                return Err("Management endpoint authorization unavailable".to_owned());
             }
         };
         let mut peers = match endpoint_ids
@@ -72,7 +79,7 @@ impl StoragePeerNetwork {
             .map(|endpoint_id| {
                 endpoint_id
                     .parse::<EndpointId>()
-                    .map_err(|_| "IdP returned an invalid endpoint ID".to_owned())
+                    .map_err(|_| "Management returned an invalid endpoint ID".to_owned())
             })
             .collect::<Result<Vec<_>, _>>()
         {
@@ -89,11 +96,11 @@ impl StoragePeerNetwork {
 
     pub async fn run_peer_refresh(
         &self,
-        idp_client: IdpClient,
+        mgmt_client: ManagementClient,
         cancellation_token: CancellationToken,
     ) {
         loop {
-            if let Err(error) = self.refresh_approved_peers(&idp_client).await {
+            if let Err(error) = self.refresh_approved_peers(&mgmt_client).await {
                 log::warn!("failed to refresh Storage Iroh peer allowlist: {error}");
             }
             select! {
@@ -147,7 +154,7 @@ mod tests {
     use iroh_chain::{EndpointIdStore, Server};
 
     use super::{StoragePeerNetwork, load_or_create_secret_key};
-    use crate::IdpClient;
+    use crate::ManagementClient;
 
     #[tokio::test]
     async fn host_owned_server_admission_is_not_replaced_by_storage_refresh() {
@@ -164,18 +171,19 @@ mod tests {
             storage_network.server().endpoint().id(),
             server.endpoint().id()
         );
-        let idp_client = IdpClient::new(
+        let mgmt_client = ManagementClient::new(
+            "http://127.0.0.1:3001/management",
             "http://127.0.0.1:3000/idp",
             "storage-service",
             "secret",
             "https://idp.example",
-            "storage",
+            "management",
         )
-        .expect("valid IdP client configuration");
+        .expect("valid Management client configuration");
 
         assert!(
             storage_network
-                .refresh_approved_peers(&idp_client)
+                .refresh_approved_peers(&mgmt_client)
                 .await
                 .is_err()
         );

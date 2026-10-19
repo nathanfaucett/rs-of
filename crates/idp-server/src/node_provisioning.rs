@@ -1065,32 +1065,6 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             }
             approved
         };
-        let devices = self
-            .engine
-            .client()
-            .translate_and_execute(
-                "SELECT id, owner_subject, name, public_key, state, revoked_at FROM devices",
-                &SqlTranslator,
-            )
-            .await
-            .map_err(io::Error::other)?;
-        if devices[0].rows.is_empty() {
-            self.engine.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES (CAST('{}' AS UUID), {}, {}, {}, '', 1, 1, NULL, 1, 1)", binding.member_id, text(&owner.to_string()), text(name), text(&binding.endpoint_id)), &SqlTranslator).await.map_err(io::Error::other)?;
-        } else if devices[0].rows.len() != 1
-            || devices[0].rows[0].values
-                != [
-                    Value::Uuid(binding.member_id),
-                    Value::Text(owner.to_string()),
-                    Value::Text(name.into()),
-                    Value::Text(binding.endpoint_id.clone()),
-                    Value::Integer(1),
-                    Value::Null,
-                ]
-        {
-            return Err(invalid(
-                "initial Node Device conflicts with persisted setup",
-            ));
-        }
         let issuer = self.oauth2.oauth_config.issuer.clone();
         DbReplicaSignerRepo::new(self.engine.clone())
             .enroll(

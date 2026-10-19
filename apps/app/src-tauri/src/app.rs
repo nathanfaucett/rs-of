@@ -203,10 +203,13 @@ pub async fn provision_initial_administrator(
         .await
         .map_err(|error| error.to_string())?;
 
+        let endpoint_id = endpoint.endpoint_id().to_string();
         management_server::provision_initial_device(
             management.clone(),
             ids.member_id,
             administrator_id,
+            &endpoint_id,
+            "Local Node",
         )
         .await
         .map_err(|error| error.to_string())?;
@@ -1611,14 +1614,16 @@ mod tests {
         )
         .await
         .expect("native Management administrator");
+        let binding = super::node_binding(&data, &ids).expect("retained endpoint binding");
         management_server::provision_initial_device(
             management.clone(),
             ids.member_id,
             ids.administrator_id,
+            &binding.endpoint_id,
+            "Cutover Node",
         )
         .await
         .expect("native Device");
-        let binding = super::node_binding(&data, &ids).expect("retained endpoint binding");
         owner
             .ensure_initial_node(&binding, ids.administrator_id, "Cutover Node")
             .await

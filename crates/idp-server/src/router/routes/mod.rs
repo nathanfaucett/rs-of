@@ -1,6 +1,4 @@
 pub(crate) mod administration;
-pub(crate) mod device;
-pub(crate) mod device_self_revocation;
 pub(crate) mod devices;
 pub(crate) mod health;
 pub(crate) mod replica_signers;

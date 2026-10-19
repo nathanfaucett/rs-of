@@ -475,9 +475,9 @@ async fn real_production_database_admission_checks_identity_both_selections_and_
             eprintln!("admission receiver {receiver}: namespace/selections/restrictions denied {:?}", started.elapsed());
             let device = fixture.nodes[receiver].devices[source];
             let forged_endpoint = iroh::SecretKey::generate().public();
-            sql(&fixture.nodes[receiver].idp, &format!("UPDATE devices SET public_key = '{forged_endpoint}' WHERE id = CAST('{device}' AS UUID)")).await;
+            sql(&fixture.nodes[receiver].management, &format!("UPDATE devices SET public_key = '{forged_endpoint}' WHERE id = CAST('{device}' AS UUID)")).await;
             assert!(production_session_claim(&fixture, source, &fixture.resource).await.is_err(), "actual Connection remote_id cannot impersonate another approved endpoint");
-            sql(&fixture.nodes[receiver].idp, &format!("UPDATE devices SET public_key = '{}' WHERE id = CAST('{device}' AS UUID)", fixture.peers.ids()[source])).await;
+            sql(&fixture.nodes[receiver].management, &format!("UPDATE devices SET public_key = '{}' WHERE id = CAST('{device}' AS UUID)", fixture.peers.ids()[source])).await;
             production_session_claim(&fixture, source, &fixture.resource).await.expect("restored exact local binding permits existing-connection retry");
             eprintln!("admission receiver {receiver}: identity restoration {:?}", started.elapsed());
             sql(&fixture.nodes[receiver].management, "DROP TABLE device_resource_selections").await;

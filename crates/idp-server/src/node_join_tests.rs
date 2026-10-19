@@ -419,7 +419,9 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
         "idp-services",
         engine.clone(),
         Arc::new(provisioner.oauth2),
-        Arc::new(management_service::replica::DbDeviceRepo::new(engine)),
+        Arc::new(management_service::replica::DbDeviceRepo::new(
+            management.clone(),
+        )),
         Arc::new(
             management_service::device_identity_from_server(&server, secret)
                 .expect("peer identity"),

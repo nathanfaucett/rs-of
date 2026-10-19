@@ -37,7 +37,7 @@ async fn native_selection_fixture(select: bool) {
     let devices = [Id::now_v7(), Id::now_v7()];
     idp.client().translate_and_execute(&format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{owner}' AS UUID), 'owner', 'Owner', 1, 1)"), &SqlTranslator).await.expect("persist owner");
     for (device, endpoint) in devices.into_iter().zip([local, remote]) {
-        idp.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{owner}', 'node', '{endpoint}', 'local', 1, 1, 1, 1)"), &SqlTranslator).await.expect("persist approved Device");
+        management.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{owner}', 'node', '{endpoint}', 'local', 1, 1, 1, 1)"), &SqlTranslator).await.expect("persist approved Device");
         DbSelectionPolicyRepo::new(management.clone())
             .set_prevalidated(SelectionPolicy {
                 device_id: device,
@@ -57,7 +57,7 @@ async fn native_selection_fixture(select: bool) {
             let idp = idp.clone();
             let management = management.clone();
             async move {
-                let device = DbDeviceRepo::new(idp.clone())
+                let device = DbDeviceRepo::new(management.clone())
                     .find_approved_by_public_key(&endpoint.to_string())
                     .await
                     .map_err(|error| error.to_string())?

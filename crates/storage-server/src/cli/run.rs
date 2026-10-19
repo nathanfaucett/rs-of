@@ -185,18 +185,18 @@ pub async fn run() -> io::Result<()> {
         router_state = router_state.with_management_client(management_client);
     }
 
-    let storage_network = if let Some(idp_client) = router_state.idp_client.clone() {
+    let storage_network = if let Some(mgmt_client) = router_state.management_client.clone() {
         let network =
             Arc::new(crate::StoragePeerNetwork::open(Path::new(&app_config.data_dir)).await?);
         log::info!("Storage Iroh endpoint: {}", network.endpoint_id());
-        if let Err(error) = network.refresh_approved_peers(&idp_client).await {
+        if let Err(error) = network.refresh_approved_peers(&mgmt_client).await {
             log::warn!("failed to refresh Storage Iroh peer allowlist: {error}");
         }
         let refresh_network = Arc::clone(&network);
         let refresh_token = cancellation_token.clone();
         let peer_refresh = spawn(async move {
             refresh_network
-                .run_peer_refresh(idp_client, refresh_token)
+                .run_peer_refresh(mgmt_client, refresh_token)
                 .await;
         });
         Some((network, peer_refresh))

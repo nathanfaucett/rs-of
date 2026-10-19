@@ -15,15 +15,9 @@ use super::routes::administration::{
     list_client_keys, list_consents, reset_password, revoke_client_keys, revoke_consent,
     rotate_client_key, update_application, update_user,
 };
-use super::routes::device::{__path_device, device};
-use super::routes::device_self_revocation::{__path_revoke_self, revoke_self};
 use super::routes::devices::{
-    __path_enroll_device, __path_list_approved_device_endpoints, __path_list_devices,
-    __path_lookup_device_endpoint, __path_lookup_device_identity, __path_pairing_acceptance,
-    __path_revoke_device, __path_set_pairing_acceptance, __path_transfer_device,
-    __path_trusted_devices, __path_update_device, enroll_device, list_approved_device_endpoints,
-    list_devices, lookup_device_endpoint, lookup_device_identity, pairing_acceptance,
-    revoke_device, set_pairing_acceptance, transfer_device, trusted_devices, update_device,
+    __path_list_approved_device_endpoints, __path_lookup_device_endpoint,
+    list_approved_device_endpoints, lookup_device_endpoint,
 };
 use super::routes::health::{__path_health, health};
 use super::routes::replica_signers::{
@@ -62,10 +56,8 @@ use super::routes::well_known::{
         super::routes::replica_signers::enroll_replica_signer,
         super::routes::replica_signers::rotate_replica_signer,
         super::routes::replica_signers::revoke_replica_signer,
-
         super::routes::devices::lookup_device_endpoint,
         super::routes::devices::list_approved_device_endpoints,
-
     ),
     info(title = "OAuth Server", version = env!("CARGO_PKG_VERSION")),
     modifiers(&SecurityAddon)
@@ -79,6 +71,8 @@ pub fn openapi_router(router_state: RouterState, prefix: &str) -> OpenApiRouter 
     let routes = || {
         OpenApiRouter::new()
             .routes(routes!(health))
+            .routes(routes!(lookup_device_endpoint))
+            .routes(routes!(list_approved_device_endpoints))
             .routes(routes!(enroll_replica_signer))
             .routes(routes!(rotate_replica_signer))
             .routes(routes!(revoke_replica_signer))
@@ -96,19 +90,6 @@ pub fn openapi_router(router_state: RouterState, prefix: &str) -> OpenApiRouter 
             .routes(routes!(list_client_keys))
             .routes(routes!(rotate_client_key))
             .routes(routes!(revoke_client_keys))
-            .routes(routes!(device))
-            .routes(routes!(revoke_self))
-            .routes(routes!(trusted_devices))
-            .routes(routes!(enroll_device))
-            .routes(routes!(pairing_acceptance))
-            .routes(routes!(set_pairing_acceptance))
-            .routes(routes!(list_devices))
-            .routes(routes!(lookup_device_endpoint))
-            .routes(routes!(lookup_device_identity))
-            .routes(routes!(list_approved_device_endpoints))
-            .routes(routes!(update_device))
-            .routes(routes!(revoke_device))
-            .routes(routes!(transfer_device))
             .routes(routes!(authorize_json))
             .routes(routes!(authorize_query))
             .routes(routes!(is_allowed_for_user))

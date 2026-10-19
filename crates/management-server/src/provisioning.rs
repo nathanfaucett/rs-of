@@ -1,6 +1,6 @@
 use std::{fs, io, path::Path, sync::Arc};
 
-use db::Database;
+use db::{Database, SqlTranslator, Value};
 use idp_model::{
     contract::IdentityAction,
     model::{Id, Role},
@@ -43,15 +43,53 @@ pub async fn provision_initial_device(
     engine: Arc<Database>,
     device_id: Id,
     owner: Id,
+    endpoint_id: &str,
+    name: &str,
 ) -> io::Result<()> {
-    if device_id.is_nil() || owner.is_nil() {
+    if device_id.is_nil() || owner.is_nil() || endpoint_id.trim().is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "initial Device requires stable owner and Device IDs",
+            "initial Device requires stable owner, Device ID and endpoint ID",
         ));
     }
 
-    let policies = DbSelectionPolicyRepo::new(engine);
+    let devices = Arc::clone(&engine)
+        .client()
+        .translate_and_execute(
+            "SELECT id, owner_subject, name, public_key, state, revoked_at FROM devices",
+            &SqlTranslator,
+        )
+        .await
+        .map_err(io::Error::other)?;
+    if devices[0].rows.is_empty() {
+        let name_esc = name.replace("'", "''");
+        let endpoint_esc = endpoint_id.replace("'", "''");
+        let query = format!(
+            "INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES (CAST('{device_id}' AS UUID), '{owner}', '{name_esc}', '{endpoint_esc}', '', 1, 1, NULL, 1, 1)",
+        );
+        Arc::clone(&engine)
+            .client()
+            .translate_and_execute(&query, &SqlTranslator)
+            .await
+            .map_err(io::Error::other)?;
+    } else if devices[0].rows.len() != 1
+        || devices[0].rows[0].values
+            != [
+                Value::Uuid(device_id),
+                Value::Text(owner.to_string()),
+                Value::Text(name.into()),
+                Value::Text(endpoint_id.into()),
+                Value::Integer(1),
+                Value::Null,
+            ]
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "initial Node Device conflicts with persisted setup",
+        ));
+    }
+
+    let policies = DbSelectionPolicyRepo::new(Arc::clone(&engine));
     let expected = SelectionPolicy {
         device_id,
         owner_subject: owner.to_string(),
@@ -107,10 +145,12 @@ mod tests {
             .expect("initialize owner schema");
         let device = Id::now_v7();
         let owner = Id::now_v7();
-        super::provision_initial_device(engine.clone(), device, owner)
+        let endpoint = "test-endpoint";
+        let name = "node";
+        super::provision_initial_device(engine.clone(), device, owner, endpoint, name)
             .await
             .expect("persist local Device policy");
-        super::provision_initial_device(engine.clone(), device, owner)
+        super::provision_initial_device(engine.clone(), device, owner, endpoint, name)
             .await
             .expect("exact interrupted retry");
         {
@@ -134,13 +174,13 @@ mod tests {
                 .expect("learn local restriction");
         }
         assert!(
-            super::provision_initial_device(engine.clone(), device, owner)
+            super::provision_initial_device(engine.clone(), device, owner, endpoint, name)
                 .await
                 .is_err(),
             "setup retry cannot undo a learned restriction"
         );
         assert!(
-            super::provision_initial_device(engine.clone(), device, Id::now_v7())
+            super::provision_initial_device(engine.clone(), device, Id::now_v7(), endpoint, name)
                 .await
                 .is_err(),
             "retry cannot reassign an existing Device policy"

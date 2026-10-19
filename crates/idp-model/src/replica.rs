@@ -19,7 +19,7 @@ pub async fn up(engine: &Database) -> Result<(), db::QueryError> {
                 .await?;
         }
     }
-    for table in ["clients", "credentials", "devices"] {
+    for table in ["clients", "credentials"] {
         let results = engine
             .client()
             .translate_and_execute(&format!("SELECT * FROM {table}"), &SqlTranslator)

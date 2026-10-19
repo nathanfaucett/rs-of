@@ -266,7 +266,6 @@ pub async fn build_runtime(
             .await
             .map_err(io::Error::other)?;
     }
-    let devices = Arc::new(DbDeviceRepo::new(Arc::clone(&engine)));
     let oauth2_service = Arc::new(OAuth2Service::new(
         DbApplicationRepo::new(Arc::clone(&engine)),
         DbClientRepo::new(Arc::clone(&engine), Arc::clone(&key_service)),
@@ -296,6 +295,31 @@ pub async fn build_runtime(
         ));
     }
 
+    let management_engine = match config.management_data_dir.as_deref() {
+        Some(directory) => {
+            if std::path::Path::new(directory) == std::path::Path::new(&config.data_dir) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "IdP and Management data directories must be separate",
+                ));
+            }
+            let engine = Arc::new(
+                db::Database::open(std::path::Path::new(directory).join("management.redb"))
+                    .map_err(io::Error::other)?,
+            );
+            management_service::replica::up(&engine)
+                .await
+                .map_err(io::Error::other)?;
+            Some(engine)
+        }
+        None => None,
+    };
+
+    let devices = match &management_engine {
+        Some(engine) => Arc::new(DbDeviceRepo::new(Arc::clone(engine))),
+        None => Arc::new(DbDeviceRepo::new(Arc::clone(&engine))),
+    };
+
     let router_state = RouterState::new(
         &config.ui_public_uri,
         &config.api_public_uri,
@@ -312,26 +336,12 @@ pub async fn build_runtime(
 
     let local_permissions = match local_permissions {
         Some(local) => Some(local),
-        None => match config.management_data_dir.as_deref() {
-            Some(directory) => {
-                if std::path::Path::new(directory) == std::path::Path::new(&config.data_dir) {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        "IdP and Management data directories must be separate",
-                    ));
-                }
-                let engine = Arc::new(
-                    db::Database::open(std::path::Path::new(directory).join("management.redb"))
-                        .map_err(io::Error::other)?,
-                );
-                management_service::replica::up(&engine)
-                    .await
-                    .map_err(io::Error::other)?;
-                Some(LocalPermissions::new(engine))
-            }
+        None => match &management_engine {
+            Some(engine) => Some(LocalPermissions::new(Arc::clone(engine))),
             None => None,
         },
     };
+
     let router_state = match local_permissions {
         Some(local) => router_state.with_local_permissions(local),
         None => router_state,

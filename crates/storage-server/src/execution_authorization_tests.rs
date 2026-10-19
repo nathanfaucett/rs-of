@@ -66,7 +66,8 @@ async fn queued_write_fixture(in_flight: bool) {
         let actor = Id::now_v7();
         let member = Id::now_v7();
         let role = Id::now_v7();
-        sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{actor}' AS UUID), 'owner', 'Owner', 1, 1); INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{member}' AS UUID), '{actor}', 'peer', '{}', 'local', 1, 1, 1, 1)", incoming.remote_id())).await;
+        sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{actor}' AS UUID), 'owner', 'Owner', 1, 1)")).await;
+        sql(&management, &format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{member}' AS UUID), '{actor}', 'peer', '{}', 'local', 1, 1, 1, 1)", incoming.remote_id())).await;
         let service = ManagementService::new(DbPermissionRepo::new(management.clone()), DbRoleRepo::new(management.clone()));
         service.provision_initial_administrator(actor, role, &[(Id::now_v7(), IdentityAction::DevicePairingRead), (Id::now_v7(), IdentityAction::DevicePairingUpdate), (Id::now_v7(), IdentityAction::IdpSecuritySync)]).await.expect("explicit actor grant");
         let request = PermissionEvaluationRequest { request_id: Id::now_v7(), subject: PermissionSubject::User { id: actor }, action: IdentityAction::IdpSecuritySync, target: PermissionTarget::Installation { resource: IdentityResource::IdpSecurity } };
@@ -92,7 +93,7 @@ async fn queued_write_fixture(in_flight: bool) {
                 let idp = idp.clone(); let management = management.clone(); let request = request.clone();
                 let admitted = admitted.clone(); let resume = resume.clone(); let checks = checks.clone();
                 Box::pin(async move {
-                    let Ok(Some(device)) = DbDeviceRepo::new(idp.clone()).find_approved_by_public_key(&remote.to_string()).await else { return false; };
+                    let Ok(Some(device)) = DbDeviceRepo::new(management.clone()).find_approved_by_public_key(&remote.to_string()).await else { return false; };
                     let owner_active = DbUserRepo::new(idp, PasswordConfig::default()).find_user_by_id(actor).await.is_ok_and(|owner| owner.is_some());
                     let allowed = owner_active && device.owner_subject == actor.to_string()
                         && LocalPermissions::new(management).evaluate(&request).await.unwrap_or(false);
