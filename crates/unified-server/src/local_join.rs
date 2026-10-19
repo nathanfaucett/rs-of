@@ -151,6 +151,17 @@ impl LocalJoin {
         })
     }
 
+    pub(crate) fn reset_references(&self) -> io::Result<serde_json::Value> {
+        self.check_retained()?;
+        Ok(serde_json::json!({
+            "member_id": self.journal.member,
+            "signer_key_id": self.journal.key,
+            "owner_id": self.journal.inventory_user,
+            "clients": [self.journal.login_client],
+            "inventory_attempted": self.journal.inventory_attempted,
+        }))
+    }
+
     pub(crate) fn trusted_peer(&self) -> &str {
         &self.journal.peer
     }

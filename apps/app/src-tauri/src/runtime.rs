@@ -25,15 +25,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             app::get_localhost_server_base_url,
             app::get_setup_stage,
-            app::get_setup_intent,
             app::get_desktop_client_id,
-            app::node_join_accepting,
-            app::pending_node_joins,
-            app::approve_pending_node_join,
-            app::reject_pending_node_join,
-            app::provision_initial_administrator,
-            app::join_installation,
-            app::cancel_installation_setup,
+            app::get_native_setup_code,
+            app::get_native_host_error,
             app::retry_local_runtime,
             app::reset_device,
             app::recover_reset_references,
@@ -43,13 +37,6 @@ pub fn run() {
         ])
         .setup(|app| {
             let startup = (|| -> Result<(), Box<dyn std::error::Error>> {
-                let app_data_dir = app.handle().path().app_data_dir()?;
-                let app_config_dir = app.handle().path().app_config_dir()?;
-                app::reject_legacy_state(&app_data_dir, &app_config_dir)?;
-                tauri::async_runtime::block_on(
-                    crate::localhost_server::ensure_localhost_certificate(&app_data_dir),
-                )?;
-
                 if cfg!(debug_assertions) {
                     app.handle().plugin(
                         tauri_plugin_log::Builder::default()
@@ -63,48 +50,13 @@ pub fn run() {
                 }
 
                 let app_handle = app.handle().clone();
-                tauri::async_runtime::block_on(async {
-                    let (listener, base_url) =
-                        app::reserve_unified_localhost_server(&app_handle).await?;
-                    app::set_localhost_server_state(&app_handle, base_url.clone(), false).await;
-                    if app::setup_ready(&app_data_dir).map_err(tauri::Error::Io)? {
-                        if let Err(error) =
-                            app::start_persisted_unified_runtime(&app_handle, listener, base_url)
-                                .await
-                        {
-                            log::error!(
-                                "local services unavailable; persisted setup retained: {error}"
-                            );
-                            app::restore_setup_listener(&app_handle)
-                                .await
-                                .map_err(tauri::Error::Io)?;
-                        }
-                    } else {
-                        app::init_unified_localhost_server(
-                            &app_handle,
-                            app::init_setup_router(),
-                            listener,
-                            base_url.clone(),
-                        )
-                        .await?;
-                        if crate::localhost_server::verify_localhost_server(&base_url)
-                            .await
-                            .is_err()
-                        {
-                            crate::localhost_server::invalidate_localhost_certificate_trust(
-                                &app_data_dir,
-                            )
-                            .map_err(tauri::Error::Io)?;
-                            crate::localhost_server::ensure_localhost_certificate(&app_data_dir)
-                                .await
-                                .map_err(tauri::Error::Io)?;
-                            crate::localhost_server::verify_localhost_server(&base_url)
-                                .await
-                                .map_err(tauri::Error::Io)?;
-                        }
-                    }
-                    Ok::<(), tauri::Error>(())
-                })?;
+                if let Err(error) =
+                    tauri::async_runtime::block_on(app::start_native_host(&app_handle))
+                {
+                    log::error!(
+                        "native HTTPS host unavailable; retained state was not replaced: {error}"
+                    );
+                }
 
                 let window =
                     WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))

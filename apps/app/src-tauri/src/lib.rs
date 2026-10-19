@@ -1,12 +1,13 @@
 mod app;
-
-mod local_api;
-mod localhost_server;
 mod localhost_trust;
+mod native_host;
 mod runtime;
-mod service_secrets;
-
-mod setup;
 mod setup_completion;
+mod setup_peer_revocation;
+#[cfg(unix)]
+mod setup_reset;
+#[cfg(not(unix))]
+#[path = "unsupported_reset.rs"]
+mod setup_reset;
 
 pub use runtime::run;
