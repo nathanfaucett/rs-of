@@ -136,14 +136,11 @@ async fn node_join_oversized_signed_reply_rejects_before_any_enrollment_mutation
         .expect_err("oversized prospective reply must reject");
     assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
     let results = fixture.state.engine.client().translate_and_execute(&format!(
-        "SELECT id FROM local_node_join_intents; SELECT id FROM devices WHERE id = CAST('{}' AS UUID); SELECT id FROM idp_replica_members WHERE member_id = CAST('{}' AS UUID); SELECT id FROM idp_replica_signers WHERE key_id = CAST('{}' AS UUID)",
-        request.member_id, request.member_id, request.public_signer.kid,
+        "SELECT id FROM local_node_join_intents; SELECT id FROM idp_replica_members WHERE member_id = CAST('{}' AS UUID); SELECT id FROM idp_replica_signers WHERE key_id = CAST('{}' AS UUID)",
+        request.member_id, request.public_signer.kid,
     ), &SqlTranslator).await.expect("public owner persistence evidence");
-    assert_eq!(results.len(), 4);
-    for (context, result) in ["intent", "Device", "member", "signer"]
-        .into_iter()
-        .zip(results)
-    {
+    assert_eq!(results.len(), 3);
+    for (context, result) in ["intent", "member", "signer"].into_iter().zip(results) {
         assert!(
             result.rows.is_empty(),
             "oversized reply must not create {context}"
@@ -273,7 +270,7 @@ async fn node_join_owner_interleaving_rejection_has_no_active_trust_after_reopen
         .create_user_with_password("replacement-owner", "valid-password")
         .await
         .expect("real replacement User");
-    fixture.state.engine.client().translate_and_execute(&format!("UPDATE devices SET owner_subject = '{}', name = 'Changed Node' WHERE id = CAST('{}' AS UUID)", replacement.id, device.id), &SqlTranslator).await.expect("independent owner-state writer wins before activation");
+    fixture.management.client().translate_and_execute(&format!("UPDATE devices SET owner_subject = '{}', name = 'Changed Node' WHERE id = CAST('{}' AS UUID)", replacement.id, device.id), &SqlTranslator).await.expect("independent owner-state writer wins before activation");
     resume.notify_one();
     tokio::time::timeout(Duration::from_secs(15), approving)
         .await
@@ -323,7 +320,11 @@ async fn node_join_owner_interleaving_rejection_has_no_active_trust_after_reopen
                 || signer.public_jwk == request.public_signer),
         "restart must not restore trust from rejected approval"
     );
-    let reopened = management_service::replica::DbDeviceRepo::new(engine.clone())
+    let management = Arc::new(
+        Database::open(root.join("management/management.redb"))
+            .expect("offline Management owner reopen"),
+    );
+    let reopened = management_service::replica::DbDeviceRepo::new(management.clone())
         .find_approved_by_public_key(&request.endpoint_id)
         .await
         .expect("reopened Device admission")
@@ -331,6 +332,7 @@ async fn node_join_owner_interleaving_rejection_has_no_active_trust_after_reopen
     assert_eq!(reopened.id, device.id);
     assert_eq!(reopened.owner_subject, replacement.id.to_string());
     assert_eq!(reopened.name, "Changed Node");
+    drop(management);
     drop(engine);
     std::fs::remove_dir_all(root).expect("remove isolated native stores");
 }
@@ -414,8 +416,7 @@ async fn node_join_rechecks_approving_device_revocation_separately_from_exact_si
         .expect("approving Device lookup")
         .expect("approved endpoint");
     fixture
-        .state
-        .engine
+        .management
         .client()
         .translate_and_execute(
             &format!(
@@ -426,7 +427,7 @@ async fn node_join_rechecks_approving_device_revocation_separately_from_exact_si
         )
         .await
         .expect("learn timestamp-only approving Device revocation");
-    let rows = fixture.state.engine.client().translate_and_execute(&format!(
+    let rows = fixture.management.client().translate_and_execute(&format!(
         "SELECT state, revoked_at, owner_subject FROM devices WHERE id = CAST('{}' AS UUID)", approving_device.id),
         &SqlTranslator).await.expect("timestamp-only approving Device state");
     assert_eq!(

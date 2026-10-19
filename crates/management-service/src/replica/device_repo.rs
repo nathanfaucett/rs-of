@@ -34,6 +34,112 @@ impl DbDeviceRepo {
         Self { engine }
     }
 
+    /// Caller verifies enrollment permission and the currently active User through IdP.
+    /// Commits only Management state; an exact retry never replaces or revives a Device.
+    pub async fn enroll_approved_exact(
+        &self,
+        device_id: Id,
+        owner: Id,
+        name: &str,
+        endpoint: &str,
+        now: i64,
+    ) -> ManagementResult<Device> {
+        let public_key: iroh::EndpointId = endpoint.parse().map_err(db_error)?;
+        if device_id.get_version_num() != 7
+            || owner.is_nil()
+            || name.trim().is_empty()
+            || name.len() > 256
+            || public_key.to_string() != endpoint
+            || DateTime::from_timestamp(now, 0).is_none()
+        {
+            return Err(ManagementError::InvalidInput(
+                "invalid approved Device binding".into(),
+            ));
+        }
+        let mut transaction = self.engine.client().transaction().await.map_err(db_error)?;
+        let result = async {
+            let Query::Select(mut query) = select() else {
+                unreachable!("Device query is a Select")
+            };
+            query.predicate = Some(QueryExpr::Or(
+                Box::new(equals("id", Value::Uuid(device_id))),
+                Box::new(equals("public_key", Value::Text(endpoint.to_owned()))),
+            ));
+            let results = transaction
+                .execute(vec![Statement::Query(Query::Select(query))])
+                .await
+                .map_err(db_error)?;
+            let rows = results[0].rows_as::<DeviceRow>().map_err(row_error)?;
+            for table in [TABLE, "local_device_enrollments"] {
+                if !transaction
+                    .row_conflicts(table, &Row::new(vec![Value::Uuid(device_id)]))
+                    .await
+                    .map_err(db_error)?
+                    .is_empty()
+                {
+                    return Err(ManagementError::InvalidInput(
+                        "conflicted Device enrollment".into(),
+                    ));
+                }
+            }
+            let row = match rows.as_slice() {
+                [] => {
+                    let row = DeviceRow {
+                        id: device_id,
+                        owner_subject: owner.to_string(),
+                        name: name.to_owned(),
+                        public_key: endpoint.to_owned(),
+                        address: String::new(),
+                        enrollment_code_hash: None,
+                        enrollment_expires_at: None,
+                        pairing_accepting_public_key: None,
+                        state: DeviceState::Approved,
+                        approved_at: Some(now),
+                        revoked_at: None,
+                        created_at: now,
+                        updated_at: now,
+                    };
+                    transaction
+                        .execute(vec![Statement::Query(Query::Insert(QueryInsert {
+                            table: TABLE.into(),
+                            row: row.clone().into(),
+                            returning: None,
+                        }))])
+                        .await
+                        .map_err(db_error)?;
+                    row
+                }
+                [row]
+                    if row.id == device_id
+                        && row.owner_subject == owner.to_string()
+                        && row.name == name
+                        && row.public_key == endpoint
+                        && row.state == DeviceState::Approved
+                        && row.revoked_at.is_none() =>
+                {
+                    row.clone()
+                }
+                _ => {
+                    return Err(ManagementError::InvalidInput(
+                        "Device conflicts with current approved owner state".into(),
+                    ));
+                }
+            };
+            row.try_into()
+        }
+        .await;
+        match result {
+            Ok(device) => {
+                transaction.commit().await.map_err(db_error)?;
+                Ok(device)
+            }
+            Err(error) => {
+                transaction.rollback().await.map_err(db_error)?;
+                Err(error)
+            }
+        }
+    }
+
     /// Caller verifies exact mutation permission and an active new User in IdP.
     pub async fn transfer_owned(
         &self,

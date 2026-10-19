@@ -10,6 +10,7 @@ use db::Database;
 use idp_model::model::Id;
 use idp_server::{IdpRuntime, NodeJoinApproval, NodeJoinRequest, OwnerProvisioner};
 use iroh_chain::PairingOffer;
+use management_service::{DeviceRepo, replica::DbDeviceRepo};
 use serde::{Deserialize, Serialize};
 use tokio::{
     sync::{Mutex, broadcast},
@@ -112,12 +113,12 @@ impl NodeJoinSource {
     pub(crate) fn router(self: &Arc<Self>) -> Router {
         Router::new()
             .route(
-                "/idp/node-joins/acceptance",
+                "/management/node-joins/acceptance",
                 get(acceptance).put(set_acceptance),
             )
-            .route("/idp/node-joins/pending", get(pending))
-            .route("/idp/node-joins/{id}/approve", post(approve))
-            .route("/idp/node-joins/{id}/reject", post(reject))
+            .route("/management/node-joins/pending", get(pending))
+            .route("/management/node-joins/{id}/approve", post(approve))
+            .route("/management/node-joins/{id}/reject", post(reject))
             .with_state(self.clone())
     }
 
@@ -305,8 +306,13 @@ impl NodeJoinSource {
             started.elapsed()
         );
         self.require_current_offer(id, &queued).await?;
-        let identity = self.idp.approved_device_owner(offer.remote_id).await?;
-        if identity.device_id != approval.request.member_id
+        self.idp.verify_node_join_enrollment(&approval).await?;
+        let identity = DbDeviceRepo::new(self.management.clone())
+            .find_approved_by_public_key(&offer.remote_id.to_string())
+            .await
+            .map_err(io::Error::other)?
+            .ok_or_else(|| denied("enrolled endpoint has no approved Management Device"))?;
+        if identity.id != approval.request.member_id
             || identity.owner_subject != approval.owner_subject.to_string()
         {
             return Err(denied(
@@ -316,14 +322,14 @@ impl NodeJoinSource {
         let policies =
             management_service::replica::DbSelectionPolicyRepo::new(self.management.clone());
         if policies
-            .get(identity.device_id, &identity.owner_subject, Id::nil())
+            .get(identity.id, &identity.owner_subject, Id::nil())
             .await
             .map_err(io::Error::other)?
             .is_none()
         {
             policies
                 .set_prevalidated(management_service::replica::SelectionPolicy {
-                    device_id: identity.device_id,
+                    device_id: identity.id,
                     owner_subject: identity.owner_subject,
                     application_id: None,
                     selected_kind: None,
