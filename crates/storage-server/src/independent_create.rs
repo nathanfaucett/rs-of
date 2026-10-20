@@ -226,10 +226,10 @@ fn observe(
                     ));
                 }
             }
-            policy
-                .local_owner(endpoint)
-                .await
-                .map_err(io::Error::other)?;
+            policy.local_owner(endpoint).await.map_err(|error| {
+                log::debug!("Independent setup owner=storage phase=current-policy refused={error}");
+                io::Error::other(error)
+            })?;
             Ok(())
         }
     })

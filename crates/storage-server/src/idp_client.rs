@@ -240,10 +240,15 @@ impl HttpIdpClient {
             .base_url
             .join("oauth2/introspect")
             .map_err(|_| IdpIntrospectionError::ServiceUnavailable)?;
+        let started = std::time::Instant::now();
         let caller_token = self
             .service_access_token()
             .await
             .map_err(|_| IdpIntrospectionError::ServiceUnavailable)?;
+        log::debug!(
+            "Storage authentication phase=service-token elapsed_ms={}",
+            started.elapsed().as_millis()
+        );
         let mut response = self
             .client
             .post(url)
@@ -273,6 +278,10 @@ impl HttpIdpClient {
             .map_err(|_| IdpIntrospectionError::ServiceUnavailable)?;
         let response: IntrospectionResponse =
             serde_json::from_slice(&body).map_err(|_| IdpIntrospectionError::ServiceUnavailable)?;
+        log::debug!(
+            "Storage authentication phase=introspection elapsed_ms={}",
+            started.elapsed().as_millis()
+        );
         Ok(response)
     }
 }

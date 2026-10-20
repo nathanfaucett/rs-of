@@ -12,6 +12,7 @@ use std::{
 };
 
 use api::{IndependentCreateIntent, LocalTls};
+use idp_model::model::Id;
 use idp_service::repo::{PrivateKeyKeyringRepo, RawKeyringRepo};
 use keyring_core::{
     Entry,
@@ -300,6 +301,9 @@ pub(super) async fn qualify_completed(root: &Path, provider: &Provider, issuer: 
         fs::read(Path::new(&commands).join("trust")).expect("mock trust command"),
         b"#!/bin/sh\nexit 0\n"
     );
+    if std::env::var("OF_INDEPENDENT_LEGACY_RESET").as_deref() == Ok("1") {
+        retain_legacy_cleanup_references(root).await;
+    }
     let management = root.join("management");
     let worker_path = root.join("management.setup-host/worker.json");
     let bytes = fs::read(&worker_path).expect("actual completed worker");
@@ -474,5 +478,70 @@ pub(super) async fn qualify_completed(root: &Path, provider: &Provider, issuer: 
         assert!(!root.join(owner).exists());
         assert!(!root.join(format!("{owner}.setup-host")).exists());
         assert!(!root.join(format!("{owner}.setup-reset.json")).exists());
+    }
+}
+
+async fn retain_legacy_cleanup_references(root: &Path) {
+    for owner in ["idp", "management"] {
+        let path = root.join(format!("{owner}.setup-host/worker.json"));
+        let mut record: Value =
+            serde_json::from_slice(&fs::read(&path).expect("completed current record"))
+                .expect("record");
+        record["version"] = serde_json::json!(1);
+        if owner == "idp" {
+            if record.get("credential").is_none() {
+                record["credential"] = serde_json::json!(Id::now_v7());
+            }
+        } else {
+            let seed = record
+                .as_object_mut()
+                .expect("worker object")
+                .remove("create");
+            record["role"] = seed
+                .as_ref()
+                .map(|seed| seed["role"].clone())
+                .unwrap_or_else(|| serde_json::json!(Id::now_v7()));
+            record["permissions"] =
+                seed.map(|seed| seed["permissions"].clone())
+                    .unwrap_or_else(|| {
+                        serde_json::json!((0..25).map(|_| Id::now_v7()).collect::<Vec<_>>())
+                    });
+        }
+        let bytes = serde_json::to_vec(&record).expect("historical exact references");
+        fs::write(&path, &bytes).expect("historical cleanup fixture, not an ordinary migration");
+        let host: Value = serde_json::from_slice(
+            &fs::read(root.join(format!("{owner}.setup-host/host.json"))).expect("host"),
+        )
+        .expect("host JSON");
+        let address = host["address"]
+            .as_str()
+            .expect("retained listener")
+            .parse()
+            .expect("address");
+        let setup = crate::independent_create_tests::setup(root, owner, address);
+        let shutdown = tokio_util::sync::CancellationToken::new();
+        let result = if owner == "idp" {
+            let mut config = idp_server::AppConfig {
+                data_dir: root.join(owner).to_string_lossy().into_owned(),
+                ..Default::default()
+            };
+            config.server.prefix = Some("/idp".into());
+            idp_server::serve_independent_create(Arc::new(config), setup, shutdown).await
+        } else {
+            let mut config = management_server::AppConfig {
+                data_dir: root.join(owner).to_string_lossy().into_owned(),
+                ..Default::default()
+            };
+            config.server.prefix = Some("/management".into());
+            management_server::serve_independent_create(Arc::new(config), setup, shutdown).await
+        };
+        assert!(
+            result.is_err(),
+            "ordinary startup must refuse historical {owner} records without migration"
+        );
+        assert_eq!(
+            fs::read(&path).expect("historical references intact"),
+            bytes
+        );
     }
 }

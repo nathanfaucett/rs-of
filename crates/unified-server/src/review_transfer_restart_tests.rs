@@ -2,10 +2,7 @@ use std::{fs, net::SocketAddr, path::Path, sync::Arc, time::Duration};
 
 use api::IndependentCreateIntent;
 use idp_model::model::Id;
-use management_service::{
-    DeviceRepo,
-    replica::{DbDeviceRepo, DbSelectionPolicyRepo},
-};
+use management_service::replica::{DbDeviceRepo, DbSelectionPolicyRepo};
 use reqwest::{Client, StatusCode};
 use tokio_util::sync::CancellationToken;
 
@@ -88,18 +85,23 @@ pub(super) async fn qualify(
         ];
         let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
         loop {
+            let idp_ready = match http
+                .get(format!("{}/setup/status", intent.idp))
+                .send()
+                .await
+            {
+                Ok(response) if response.status() == StatusCode::OK => response
+                    .json::<serde_json::Value>()
+                    .await
+                    .is_ok_and(|status| status["ready"] == true),
+                _ => false,
+            };
             if let Ok(response) = http
                 .get(format!("{}/devices/trusted", intent.management))
                 .send()
                 .await
             {
-                if response.status() == StatusCode::UNAUTHORIZED
-                    && http
-                        .get(format!("{}/setup/status", intent.idp))
-                        .send()
-                        .await
-                        .is_ok_and(|response| response.status() == StatusCode::OK)
-                {
+                if response.status() == StatusCode::UNAUTHORIZED && idp_ready {
                     break;
                 }
             }

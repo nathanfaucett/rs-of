@@ -31,6 +31,15 @@ pub(super) fn setup(root: &Path, owner: &str, address: SocketAddr) -> Independen
 
 #[test]
 fn production_independent_create_and_offline_reopen() {
+    run_production_create(false);
+}
+
+#[test]
+fn production_independent_create_legacy_record_reset() {
+    run_production_create(true);
+}
+
+fn run_production_create(legacy_reset: bool) {
     let root = std::env::temp_dir().join(format!("independent-create-{}", Id::now_v7()));
     fs::create_dir(&root).expect("isolated roots");
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).expect("private roots");
@@ -72,6 +81,10 @@ fn production_independent_create_and_offline_reopen() {
             "--nocapture",
         ])
         .env("OF_INDEPENDENT_CREATE_ROOT", &root)
+        .env(
+            "OF_INDEPENDENT_LEGACY_RESET",
+            if legacy_reset { "1" } else { "0" },
+        )
         .env("SSL_CERT_FILE", root.join("roots.pem"))
         .env("SSL_CERT_DIR", root.join("empty-roots"))
         .env("PATH", root.join("commands"))
@@ -116,21 +129,42 @@ pub(super) async fn start(
     };
     storage.server.prefix = Some("/storage".into());
     vec![
-        tokio::spawn(idp_server::serve_independent_create(
-            Arc::new(idp),
-            setup(root, "idp", addresses[0]),
-            shutdown.child_token(),
-        )),
-        tokio::spawn(management_server::serve_independent_create(
-            Arc::new(management),
-            setup(root, "management", addresses[1]),
-            shutdown.child_token(),
-        )),
-        tokio::spawn(storage_server::serve_independent_create(
-            Arc::new(storage),
-            setup(root, "storage", addresses[2]),
-            shutdown.child_token(),
-        )),
+        tokio::spawn({
+            let task = idp_server::serve_independent_create(
+                Arc::new(idp),
+                setup(root, "idp", addresses[0]),
+                shutdown.child_token(),
+            );
+            async move {
+                task.await.inspect_err(|error| {
+                    eprintln!("Independent fixture owner=idp stopped: {error}")
+                })
+            }
+        }),
+        tokio::spawn({
+            let task = management_server::serve_independent_create(
+                Arc::new(management),
+                setup(root, "management", addresses[1]),
+                shutdown.child_token(),
+            );
+            async move {
+                task.await.inspect_err(|error| {
+                    eprintln!("Independent fixture owner=management stopped: {error}")
+                })
+            }
+        }),
+        tokio::spawn({
+            let task = storage_server::serve_independent_create(
+                Arc::new(storage),
+                setup(root, "storage", addresses[2]),
+                shutdown.child_token(),
+            );
+            async move {
+                task.await.inspect_err(|error| {
+                    eprintln!("Independent fixture owner=storage stopped: {error}")
+                })
+            }
+        }),
     ]
 }
 pub(super) async fn wait(http: &Client, intent: &IndependentCreateIntent, ready: bool) {
@@ -160,7 +194,10 @@ pub(super) async fn wait(http: &Client, intent: &IndependentCreateIntent, ready:
         }
     }
 }
-async fn normal_use(http: &Client, intent: &IndependentCreateIntent) -> (String, String, String) {
+pub(super) async fn normal_use(
+    http: &Client,
+    intent: &IndependentCreateIntent,
+) -> (String, String, String) {
     let public: serde_json::Value = http
         .get(format!("{}/setup/independent/public", intent.idp))
         .send()
@@ -701,6 +738,13 @@ async fn independent_create_child() {
             !catalog.exists(),
             "status cannot reconstruct missing catalog roots"
         );
+        fs::write(&catalog, b"corrupt catalog root").expect("inject malformed catalog root");
+        current_status(&http, &intent.storage, false).await;
+        assert_eq!(
+            fs::read(&catalog).expect("malformed catalog preserved"),
+            b"corrupt catalog root"
+        );
+        fs::remove_file(&catalog).expect("remove only isolated injected file");
         fs::rename(backup, catalog).expect("restore isolated catalog fault only");
     }
     current_status(&http, &intent.storage, true).await;
@@ -710,6 +754,39 @@ async fn independent_create_child() {
             .await
             .expect("join owner")
             .expect("coordinated owner shutdown");
+    }
+    for child in ["databases", "filesystems"] {
+        let catalog = root.join("storage").join(child);
+        let backup = root.join(format!("stopped-fault-{child}"));
+        fs::rename(&catalog, &backup).expect("stopped original catalog");
+        fs::write(&catalog, b"corrupt stopped catalog root").expect("isolated malformed catalog");
+        let record =
+            fs::read(root.join("storage.setup-host/worker.json")).expect("exact stopped worker");
+        let mut config = storage_server::AppConfig {
+            data_dir: root.join("storage").to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        config.server.prefix = Some("/storage".into());
+        assert!(
+            storage_server::serve_independent_create(
+                Arc::new(config),
+                setup(&root, "storage", addresses[2]),
+                CancellationToken::new()
+            )
+            .await
+            .is_err(),
+            "completed reopen must refuse malformed catalog roots"
+        );
+        assert_eq!(
+            fs::read(&catalog).expect("malformed catalog was not replaced"),
+            b"corrupt stopped catalog root"
+        );
+        assert_eq!(
+            fs::read(root.join("storage.setup-host/worker.json")).expect("worker intact"),
+            record
+        );
+        fs::remove_file(&catalog).expect("remove only isolated injected file");
+        fs::rename(backup, catalog).expect("restore isolated stopped fault");
     }
     fs::write(
         root.join("idp.setup-host/setup-admission/state"),
@@ -866,7 +943,7 @@ async fn independent_create_child() {
     crate::independent_reset_tests::qualify_interrupted(&root, addresses[2], &reset_provider).await;
 }
 
-async fn seed_endpoint_negatives(root: &Path) -> Vec<(String, StatusCode)> {
+pub(super) async fn seed_endpoint_negatives(root: &Path) -> Vec<(String, StatusCode, bool)> {
     use idp_model::contract::IdentityAction;
     use management_service::{
         DeviceRepo, ManagementService,
@@ -956,11 +1033,12 @@ async fn seed_endpoint_negatives(root: &Path) -> Vec<(String, StatusCode)> {
         }
         cases.push((
             endpoint,
-            if case == "approved-no-signer" {
+            if matches!(case, "approved-no-signer" | "mismatched-policy-owner") {
                 StatusCode::OK
             } else {
                 StatusCode::SERVICE_UNAVAILABLE
             },
+            case == "mismatched-policy-owner",
         ));
     }
     cases
@@ -1001,7 +1079,13 @@ async fn storage_policy_token(
         .send()
         .await
         .expect("real scoped service OAuth token");
-    assert_eq!(response.status(), StatusCode::OK);
+    if response.status() != StatusCode::OK {
+        panic!(
+            "scoped service OAuth refused: {} {}",
+            response.status(),
+            response.text().await.expect("OAuth error response")
+        );
+    }
     response
         .json::<model::contract::TokenResponse>()
         .await
@@ -1014,13 +1098,13 @@ async fn exercise_endpoint_negatives(
     root: &Path,
     http: &Client,
     intent: &IndependentCreateIntent,
-    endpoints: &[(String, StatusCode)],
+    endpoints: &[(String, StatusCode, bool)],
     management: &str,
     storage: &str,
 ) {
     let token = storage_policy_token(root, http, intent).await;
     let mut approved = None;
-    for (endpoint, expected) in endpoints {
+    for (endpoint, expected, cleanup) in endpoints {
         let response = http
             .get(format!(
                 "{}/replication/devices/{endpoint}/selections",
@@ -1037,6 +1121,23 @@ async fn exercise_endpoint_negatives(
                 .await
                 .expect("current signer-free Management evidence");
             assert_eq!(evidence["endpointId"], *endpoint);
+            if *cleanup {
+                assert_eq!(evidence["adminAllowed"], false);
+                assert_eq!(evidence["resources"], serde_json::json!([]));
+                let pending = &evidence["pendingCleanup"];
+                assert_eq!(pending["endpointId"], *endpoint);
+                assert_eq!(pending["deviceId"], evidence["deviceId"]);
+                assert_ne!(pending["oldOwnerSubject"], pending["newOwnerSubject"]);
+                assert!(
+                    pending["cleanupId"]
+                        .as_str()
+                        .expect("exact cleanup obligation")
+                        .parse::<Id>()
+                        .is_ok_and(|id| !id.is_nil())
+                );
+                continue;
+            }
+            assert!(evidence["pendingCleanup"].is_null());
             assert_eq!(evidence["adminAllowed"], true);
             approved = Some(
                 evidence["deviceId"]

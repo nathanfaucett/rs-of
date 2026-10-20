@@ -34,7 +34,7 @@ TDD skill loaded; regression tests were written before their corresponding produ
 
 Executed successfully: targeted `rustfmt --edition 2024 --config skip_children=true` on the six changed Rust files, and `git diff --check`.
 
-No Cargo build, check, test, clippy, diagnostics refresh, coverage, or `just crap` was run. The user reports an unrelated parent blocker at `ofdb/crates/btree/src/btree.rs:63`: E0599 due to missing `StreamExt`. This report was not reverified with a build, and that external user work was not edited. The other agent's no-build hold remains in effect. Compilation and runtime behavior of the new tests are therefore unverified.
+No Cargo build, check, test, clippy, diagnostics refresh, coverage, or `just crap` was run. The parent validation receipt records an unrelated dependency blocker at `ofdb/crates/btree/src/btree.rs:63`: E0599 due to missing `StreamExt`. This report was not reverified with a build, and that external user work was not edited. The other agent's no-build hold remains in effect. Compilation and runtime behavior of the new tests are therefore unverified.
 
 Pre-existing dirty changes, including other hunks in selection policy and the Create fixture, remain outside this review commit. Full regression verification must use the integration working tree with those preserved fixes (or their eventual owning commits).
 
@@ -43,14 +43,8 @@ Pre-existing dirty changes, including other hunks in selection policy and the Cr
 Run from `of` only after the external blocker is cleared and the build hold is released:
 
 ```sh
-cargo test -p unified-server --lib independent_transfer_tests::original_owner_return_keeps_retirement_pending_after_stopped_reopen -- --exact --nocapture
-cargo test -p unified-server --lib independent_transfer_tests::independent_transfer_production_https -- --exact --nocapture
-cargo test -p unified-server --lib independent_create_tests::production_independent_create_and_offline_reopen -- --exact --nocapture
-cargo test -p management-service --features replica,std replica::selection_policy::tests -- --nocapture
-cargo test -p storage-server --lib local_replication_authorizer -- --nocapture
-cargo clippy -p management-server -p management-service -p storage-server -p unified-server --all-targets --all-features -- -D warnings
-cargo hack test --feature-powerset --workspace --all-targets
-just crap
+RUST_MIN_STACK=16777216 CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 cargo test --offline --locked -p unified-server --lib independent_transfer_tests:: --config 'profile.dev.package.unified-server.debug=0' --config 'profile.dev.package.unified-server.opt-level=0' --config 'profile.dev.package.storage-server.debug=0' --config 'profile.dev.package.idp-server.debug=0' --config 'profile.dev.package.management-server.debug=0' -- --nocapture --test-threads=1
+RUST_MIN_STACK=16777216 CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 cargo test --offline --locked -p unified-server --lib production_independent --config 'profile.dev.package.unified-server.debug=0' --config 'profile.dev.package.unified-server.opt-level=0' --config 'profile.dev.package.storage-server.debug=0' --config 'profile.dev.package.idp-server.debug=0' --config 'profile.dev.package.management-server.debug=0' -- --nocapture --test-threads=1
 ```
 
-The production HTTPS wrapper tests launch their ignored child fixtures with isolated native TLS roots and protected credential providers; do not invoke the ignored children directly without their wrapper environment.
+Use a 200000ms tool bound per command and run one Rust build at a time. Broad Cargo Hack powersets, CRAP, full-workspace/platform sweeps and privileged native installation remain prohibited without renewed authorization, as specified in the spec. The production HTTPS wrapper tests launch their ignored child fixtures with isolated native TLS roots and protected credential providers; do not invoke the ignored children directly without their wrapper environment.

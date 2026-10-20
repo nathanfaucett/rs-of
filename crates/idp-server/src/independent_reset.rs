@@ -47,7 +47,12 @@ pub async fn reset_independent(config: &AppConfig, remove_os_trust: bool) -> io:
                 references.client,
             ];
             ids.extend(references.credential);
-            if references.version != 2
+            let supported = match (references.version, intent.purpose.as_str()) {
+                (1, "create" | "join") | (2, "create") => references.credential.is_some(),
+                (2, "join") => worker.get("credential").is_none(),
+                _ => false,
+            };
+            if !supported
                 || ids.iter().any(Id::is_nil)
                 || ids.iter().enumerate().any(|(i, id)| ids[..i].contains(id))
                 || references
@@ -63,7 +68,9 @@ pub async fn reset_independent(config: &AppConfig, remove_os_trust: bool) -> io:
                         || references.request.is_some()
                         || references.approval.is_some()
                         || references.imported))
-                || (intent.purpose == "join" && references.credential.is_some())
+                || (references.version == 2
+                    && intent.purpose == "join"
+                    && references.credential.is_some())
                 || (references.complete
                     && (!references.domain_attempted
                         || !references.inventory_attempted

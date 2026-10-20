@@ -507,6 +507,8 @@ impl log::Log for SetupTimingLog {
                     "idp_server::independent",
                     "management_server::independent",
                     "storage_server::independent",
+                    "storage_server::idp_client",
+                    "management_server::router::routes::replication",
                 ]
                 .iter()
                 .any(|target| metadata.target().starts_with(*target))

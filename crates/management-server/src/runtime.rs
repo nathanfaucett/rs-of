@@ -6,7 +6,9 @@ use idp_model::model::Id;
 use management_service::DeviceEndpointIdentity;
 use management_service::{
     HostedControlPlane, ManagementService,
-    replica::{DbDeviceRepo, DbPermissionRepo, DbRoleRepo, DbSelectionPolicyRepo},
+    replica::{
+        DbDeviceRepo, DbPermissionRepo, DbRoleRepo, DbSelectionPolicyRepo, OwnerPolicyObservation,
+    },
 };
 use model::contract::SelectedResource;
 
@@ -31,28 +33,25 @@ pub(crate) async fn replication_policy_from_repo(
     {
         return Err("invalid local Device owner binding".into());
     }
-    if !policies
-        .reconcile_owner_prevalidated(device.device_id, &device.owner_subject)
-        .await
-        .map_err(|error| error.to_string())?
-    {
-        return Err("learned Device transfer requires local cleanup".into());
-    }
-    let policy = policies
-        .get(device.device_id, &device.owner_subject, Id::nil())
-        .await
-        .map_err(|error| error.to_string())?
-        .ok_or("missing locally trusted Device policy")?;
-    let selected = policies
-        .selected_resources_for_device(device.device_id)
+    let observation = policies
+        .observe_owner_prevalidated(device.device_id, &device.owner_subject)
         .await
         .map_err(|error| error.to_string())?;
-    if selected
-        .iter()
-        .any(|resource| resource.owner_subject != device.owner_subject)
-    {
-        return Err("selected resource owner mismatch".into());
-    }
+    replication_policy_from_observation(observation)
+}
+
+pub(crate) fn replication_policy_from_observation(
+    observation: OwnerPolicyObservation,
+) -> Result<(bool, Vec<SelectedResource>), String> {
+    let (policy, selected) = match observation {
+        OwnerPolicyObservation::Ready { policy, resources } => (policy, resources),
+        OwnerPolicyObservation::PendingCleanup { .. } => {
+            return Err("learned Device transfer requires local cleanup".into());
+        }
+        OwnerPolicyObservation::MissingPolicy => {
+            return Err("missing locally trusted Device policy".into());
+        }
+    };
     Ok((
         policy.admin_allowed,
         selected
@@ -141,6 +140,13 @@ mod tests {
                 .expect("approved local policy");
             assert!(allowed);
             assert!(resources.is_empty());
+            let observation = policies
+                .observe_owner_prevalidated(device.device_id, &device.owner_subject)
+                .await
+                .expect("coherent ready observation");
+            assert!(
+                matches!(observation, management_service::replica::OwnerPolicyObservation::Ready { policy, resources } if policy.admin_allowed && resources.is_empty())
+            );
             let forged = DeviceEndpointIdentity {
                 owner_subject: Id::now_v7().to_string(),
                 ..device.clone()
@@ -149,6 +155,22 @@ mod tests {
                 replication_policy(Arc::clone(&engine), &forged)
                     .await
                     .is_err()
+            );
+            assert!(
+                policies
+                    .local_cleanup_pending(device.device_id)
+                    .await
+                    .expect("owner mismatch retains retirement fence")
+            );
+            assert!(
+                policies
+                    .complete_owner_cleanup_prevalidated(
+                        device.device_id,
+                        &device.owner_subject,
+                        &device.owner_subject
+                    )
+                    .await
+                    .expect("finish original-owner return cleanup")
             );
             policies
                 .set_admin_allowed_prevalidated(device.device_id, &device.owner_subject, false)

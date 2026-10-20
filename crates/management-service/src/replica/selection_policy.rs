@@ -41,6 +41,19 @@ pub struct SelectedResource {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OwnerPolicyObservation {
+    MissingPolicy,
+    Ready {
+        policy: SelectionPolicy,
+        resources: Vec<SelectedResource>,
+    },
+    PendingCleanup {
+        cleanup_id: Uuid,
+        old_owner_subject: String,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct ResourceSelection {
     id: Uuid,
     device_id: Uuid,
@@ -360,30 +373,7 @@ impl DbSelectionPolicyRepo {
         let mut results = self
             .engine
             .client()
-            .execute(vec![Statement::Query(Query::Select(QuerySelect {
-                from: resource_from(),
-                projection: [
-                    "id",
-                    "device_id",
-                    "owner_subject",
-                    "application_id",
-                    "selected_kind",
-                    "selected_id",
-                    "selected",
-                ]
-                .into_iter()
-                .map(resource_column)
-                .collect(),
-                distinct: false,
-                predicate: Some(resource_equals("device_id", Value::Uuid(device_id))),
-                aggregates: vec![],
-                text_concats: vec![],
-                group_by: vec![],
-                order_by: vec![],
-                limit: None,
-                offset: None,
-                having: None,
-            }))])
+            .execute(vec![Statement::Query(resource_query(device_id))])
             .await
             .map_err(db_error)?;
         let rows = results
@@ -468,6 +458,20 @@ impl DbSelectionPolicyRepo {
         device_id: Uuid,
         owner_subject: &str,
     ) -> ManagementResult<bool> {
+        Ok(!matches!(
+            self.observe_owner_prevalidated(device_id, owner_subject)
+                .await?,
+            OwnerPolicyObservation::PendingCleanup { .. }
+        ))
+    }
+
+    /// Observes current policy, selections and the local retirement fence in one snapshot.
+    /// The caller supplies trusted current ownership and revalidates it before publication.
+    pub async fn observe_owner_prevalidated(
+        &self,
+        device_id: Uuid,
+        owner_subject: &str,
+    ) -> ManagementResult<OwnerPolicyObservation> {
         if device_id.is_nil() || owner_subject.trim().is_empty() {
             return Err(invalid("invalid Device owner binding"));
         }
@@ -490,25 +494,126 @@ impl DbSelectionPolicyRepo {
             .ok_or_else(|| invalid("missing policy query result"))?
             .rows_as::<SelectionPolicy>()
             .map_err(|error| invalid(error.to_string()))?;
-        let pending = transaction
-            .execute(vec![Statement::Query(cleanup_query(device_id))])
+        if !transaction
+            .row_conflicts("local_device_copy_cleanup", &key(device_id))
             .await
             .map_err(db_error)?
-            .iter()
-            .any(|result| !result.rows.is_empty());
-        let Some(policy) = policies.first() else {
-            return Ok(!pending);
-        };
-        if policy.owner_subject == owner_subject && !pending {
-            return Ok(true);
+            .is_empty()
+        {
+            return Err(invalid("conflicted owner cleanup"));
         }
+        let history = transaction
+            .execute(vec![Statement::Query(cleanup_query(device_id, false))])
+            .await
+            .map_err(db_error)?;
+        let retained = history.iter().flat_map(|result| &result.rows).next();
+        let pending = retained.is_some_and(|row| row.values.get(2) == Some(&Value::Bool(false)));
+        let Some(policy) = policies.into_iter().next() else {
+            if pending {
+                return Err(invalid("cleanup policy missing"));
+            }
+            return Ok(OwnerPolicyObservation::MissingPolicy);
+        };
+        if policy.device_id != device_id
+            || policy.owner_subject.trim().is_empty()
+            || policy.application_id.is_some() != policy.selected_kind.is_some()
+            || policy.selected_kind.is_some() != policy.selected_id.is_some()
+        {
+            return Err(invalid("invalid selection policy"));
+        }
+        if policy.owner_subject == owner_subject && !pending {
+            let results = transaction
+                .execute(vec![Statement::Query(resource_query(device_id))])
+                .await
+                .map_err(db_error)?;
+            let selections = results
+                .first()
+                .ok_or_else(|| invalid("missing resource selection query result"))?
+                .rows_as::<ResourceSelection>()
+                .map_err(|error| invalid(error.to_string()))?;
+            let mut resources = Vec::new();
+            for selection in selections {
+                if selection.device_id != device_id
+                    || selection.id
+                        != resource_selection_id(
+                            device_id,
+                            &selection.owner_subject,
+                            selection.application_id,
+                            &selection.selected_kind,
+                            selection.selected_id,
+                        )
+                    || selection.application_id.is_nil()
+                    || selection.selected_id.is_nil()
+                    || !matches!(selection.selected_kind.as_str(), "database" | "filesystem")
+                {
+                    return Err(invalid("invalid resource selection binding"));
+                }
+                let conflicts = transaction
+                    .row_conflict_values(RESOURCE_TABLE, &key(selection.id))
+                    .await
+                    .map_err(db_error)?;
+                for (column, values) in &conflicts {
+                    if column != "selected" || !values.contains(&Value::Bool(false)) {
+                        return Err(invalid("conflicted resource selection"));
+                    }
+                }
+                // A concurrent deselection is denial evidence, never permission.
+                if selection.selected && conflicts.is_empty() {
+                    if selection.owner_subject != owner_subject {
+                        return Err(invalid("selected resource owner mismatch"));
+                    }
+                    resources.push(SelectedResource {
+                        device_id,
+                        owner_subject: selection.owner_subject,
+                        application_id: selection.application_id,
+                        kind: selection.selected_kind,
+                        resource_id: selection.selected_id,
+                    });
+                }
+            }
+            return Ok(OwnerPolicyObservation::Ready { policy, resources });
+        }
+        let cleanup_id = if pending {
+            let value = retained
+                .and_then(|row| row.values.get(1))
+                .ok_or_else(|| invalid("missing owner cleanup ID"))?;
+            let id: Uuid =
+                db::decode(value, "cleanup_id").map_err(|error| invalid(error.to_string()))?;
+            if id.is_nil() {
+                return Err(invalid("invalid owner cleanup ID"));
+            }
+            id
+        } else {
+            Uuid::now_v7()
+        };
         if !pending {
-            transaction
-                .execute(vec![Statement::Query(Query::Insert(QueryInsert {
-                    table: "local_device_copy_cleanup".into(),
-                    row: Row::new(vec![Value::Uuid(device_id), Value::Uuid(Uuid::now_v7())]),
+            let cleanup_id = Value::Uuid(cleanup_id);
+            let query = if retained.is_some() {
+                Query::Update(QueryUpdate {
+                    from: QueryFrom {
+                        table: "local_device_copy_cleanup".into(),
+                        joins: vec![],
+                    },
+                    assignments: vec![
+                        assignment_for("local_device_copy_cleanup", "cleanup_id", cleanup_id),
+                        assignment_for(
+                            "local_device_copy_cleanup",
+                            "completed",
+                            Value::Bool(false),
+                        ),
+                    ],
+                    predicate: Some(cleanup_device(device_id)),
                     returning: None,
-                }))])
+                })
+            } else {
+                Query::Insert(QueryInsert {
+                    table: "local_device_copy_cleanup".into(),
+                    row: Row::new(vec![Value::Uuid(device_id), cleanup_id, Value::Bool(false)]),
+                    returning: None,
+                })
+            };
+            transaction
+                .execute(vec![Statement::Query(query)])
                 .await
                 .map_err(db_error)?;
         }
@@ -539,14 +644,17 @@ impl DbSelectionPolicyRepo {
             .await
             .map_err(db_error)?;
         transaction.commit().await.map_err(db_error)?;
-        Ok(false)
+        Ok(OwnerPolicyObservation::PendingCleanup {
+            cleanup_id,
+            old_owner_subject: policy.owner_subject,
+        })
     }
 
     pub async fn local_cleanup_pending(&self, device_id: Uuid) -> ManagementResult<bool> {
         Ok(self
             .engine
             .client()
-            .execute(vec![Statement::Query(cleanup_query(device_id))])
+            .execute(vec![Statement::Query(cleanup_query(device_id, true))])
             .await
             .map_err(db_error)?
             .iter()
@@ -567,7 +675,7 @@ impl DbSelectionPolicyRepo {
         let results = self
             .engine
             .client()
-            .execute(vec![Statement::Query(cleanup_query(device_id))])
+            .execute(vec![Statement::Query(cleanup_query(device_id, true))])
             .await
             .map_err(db_error)?;
         results
@@ -725,7 +833,7 @@ impl DbSelectionPolicyRepo {
             return Ok(false);
         };
         let pending = transaction
-            .execute(vec![Statement::Query(cleanup_query(device_id))])
+            .execute(vec![Statement::Query(cleanup_query(device_id, true))])
             .await
             .map_err(db_error)?;
         if pending.iter().all(|result| result.rows.is_empty()) {
@@ -734,8 +842,8 @@ impl DbSelectionPolicyRepo {
         if policy.owner_subject != old_owner {
             return Ok(false);
         }
-        if let Some((_, cleanup_id)) = endpoint {
-            if !transaction
+        if let Some((_, cleanup_id)) = endpoint
+            && (!transaction
                 .row_conflicts("local_device_copy_cleanup", &key(device_id))
                 .await
                 .map_err(db_error)?
@@ -745,10 +853,9 @@ impl DbSelectionPolicyRepo {
                         .rows
                         .iter()
                         .any(|row| row.values.get(1) == Some(&Value::Uuid(cleanup_id)))
-                })
-            {
-                return Ok(false);
-            }
+                }))
+        {
+            return Ok(false);
         }
         transaction
             .execute(vec![
@@ -767,20 +874,17 @@ impl DbSelectionPolicyRepo {
                     )),
                     returning: None,
                 })),
-                Statement::Query(Query::Delete(db::QueryDelete {
+                Statement::Query(Query::Update(QueryUpdate {
                     from: QueryFrom {
                         table: "local_device_copy_cleanup".into(),
                         joins: vec![],
                     },
-                    predicate: Some(QueryExpr::Equals(
-                        Box::new(QueryExpr::Value(QueryExprValue::Column(QueryColumn::new(
-                            "local_device_copy_cleanup".into(),
-                            "device_id".into(),
-                        )))),
-                        Box::new(QueryExpr::Value(QueryExprValue::Value(Value::Uuid(
-                            device_id,
-                        )))),
-                    )),
+                    assignments: vec![assignment_for(
+                        "local_device_copy_cleanup",
+                        "completed",
+                        Value::Bool(true),
+                    )],
+                    predicate: Some(cleanup_device(device_id)),
                     returning: None,
                 })),
             ])
@@ -1162,7 +1266,194 @@ mod tests {
 
     use crate::{DeviceRepo, replica::DbDeviceRepo};
 
-    use super::{DbSelectionPolicyRepo, SelectionPolicy, TABLE, assignment, from, key};
+    use super::{
+        DbSelectionPolicyRepo, OwnerPolicyObservation, SelectedResource, SelectionPolicy, TABLE,
+        assignment, from, key,
+    };
+
+    #[tokio::test]
+    async fn owner_observation_keeps_exact_selections_and_cleanup_history_after_reopen() {
+        let path = std::env::temp_dir().join(format!("owner-observation-{}.redb", Uuid::now_v7()));
+        let device = Uuid::now_v7();
+        let owner = Uuid::now_v7().to_string();
+        let next = Uuid::now_v7().to_string();
+        let application = Uuid::now_v7();
+        let database = Uuid::now_v7();
+        let filesystem = Uuid::now_v7();
+        let cleanup_id;
+        {
+            let engine = Arc::new(Database::open(&path).expect("open Management owner"));
+            crate::replica::up(&engine)
+                .await
+                .expect("Management schema");
+            let repo = DbSelectionPolicyRepo::new(engine);
+            for (kind, resource) in [("database", database), ("filesystem", filesystem)] {
+                repo.set_prevalidated(SelectionPolicy {
+                    device_id: device,
+                    owner_subject: owner.clone(),
+                    application_id: Some(application),
+                    selected_kind: Some(kind.into()),
+                    selected_id: Some(resource),
+                    admin_allowed: true,
+                })
+                .await
+                .expect("select exact owner resource");
+            }
+            repo.set_admin_allowed_prevalidated(device, &owner, false)
+                .await
+                .expect("restrict without erasing selections");
+            let OwnerPolicyObservation::Ready {
+                policy,
+                mut resources,
+            } = repo
+                .observe_owner_prevalidated(device, &owner)
+                .await
+                .expect("ready observation")
+            else {
+                panic!("current owner must have a ready observation");
+            };
+            assert_eq!(policy.device_id, device);
+            assert_eq!(policy.owner_subject, owner);
+            assert!(!policy.admin_allowed);
+            resources.sort_by(|a, b| a.kind.cmp(&b.kind));
+            assert_eq!(
+                resources,
+                vec![
+                    SelectedResource {
+                        device_id: device,
+                        owner_subject: owner.clone(),
+                        application_id: application,
+                        kind: "database".into(),
+                        resource_id: database
+                    },
+                    SelectedResource {
+                        device_id: device,
+                        owner_subject: owner.clone(),
+                        application_id: application,
+                        kind: "filesystem".into(),
+                        resource_id: filesystem
+                    },
+                ]
+            );
+            let OwnerPolicyObservation::PendingCleanup {
+                cleanup_id: id,
+                old_owner_subject,
+            } = repo
+                .observe_owner_prevalidated(device, &next)
+                .await
+                .expect("learn owner transfer")
+            else {
+                panic!("transfer must expose only a pending cleanup binding");
+            };
+            cleanup_id = id;
+            assert!(!id.is_nil());
+            assert_eq!(old_owner_subject, owner);
+            assert_eq!(
+                repo.pending_cleanup_id(device)
+                    .await
+                    .expect("public cleanup ID"),
+                Some(id)
+            );
+        }
+        {
+            let engine = Arc::new(Database::open(&path).expect("offline owner reopen"));
+            let repo = DbSelectionPolicyRepo::new(engine);
+            assert_eq!(
+                repo.observe_owner_prevalidated(device, &owner)
+                    .await
+                    .expect("A to B to A remains pending"),
+                OwnerPolicyObservation::PendingCleanup {
+                    cleanup_id,
+                    old_owner_subject: owner.clone()
+                }
+            );
+            assert!(
+                repo.complete_owner_cleanup_prevalidated(device, &owner, &owner)
+                    .await
+                    .expect("retire original owner copies")
+            );
+            assert!(
+                matches!(repo.observe_owner_prevalidated(device, &owner).await.expect("completed history is not pending"), OwnerPolicyObservation::Ready { policy, resources } if !policy.admin_allowed && resources.is_empty())
+            );
+            let OwnerPolicyObservation::PendingCleanup {
+                cleanup_id: fresh,
+                old_owner_subject,
+            } = repo
+                .observe_owner_prevalidated(device, &next)
+                .await
+                .expect("later transfer reopens completed history")
+            else {
+                panic!("later transfer must create a fresh obligation");
+            };
+            assert_ne!(fresh, cleanup_id);
+            assert_eq!(old_owner_subject, owner);
+        }
+        std::fs::remove_file(path).expect("remove Management fixture");
+    }
+
+    #[tokio::test]
+    async fn owner_observation_denies_concurrent_deselection_and_ambiguous_resource_bindings() {
+        let first = Arc::new(Database::in_memory());
+        let second = Database::in_memory();
+        crate::replica::up(&first).await.expect("Management schema");
+        let repo = DbSelectionPolicyRepo::new(first.clone());
+        let device = Uuid::now_v7();
+        repo.set_prevalidated(SelectionPolicy {
+            device_id: device,
+            owner_subject: "owner".into(),
+            application_id: Some(Uuid::now_v7()),
+            selected_kind: Some("database".into()),
+            selected_id: Some(Uuid::now_v7()),
+            admin_allowed: true,
+        })
+        .await
+        .expect("select resource");
+        sync_replica(&first, &second).await;
+        first
+            .client()
+            .translate_and_execute(
+                "UPDATE device_resource_selections SET selected = false",
+                &db::SqlTranslator,
+            )
+            .await
+            .expect("offline deselection");
+        for value in ["false", "true"] {
+            second
+                .client()
+                .translate_and_execute(
+                    &format!("UPDATE device_resource_selections SET selected = {value}"),
+                    &db::SqlTranslator,
+                )
+                .await
+                .expect("concurrent reselection");
+        }
+        sync_replica(&first, &second).await;
+        assert!(
+            matches!(repo.observe_owner_prevalidated(device, "owner").await.expect("conservative resource observation"), OwnerPolicyObservation::Ready { policy, resources } if policy.admin_allowed && resources.is_empty())
+        );
+        first
+            .client()
+            .translate_and_execute(
+                "UPDATE device_resource_selections SET owner_subject = 'alice'",
+                &db::SqlTranslator,
+            )
+            .await
+            .expect("diverge first resource binding");
+        second
+            .client()
+            .translate_and_execute(
+                "UPDATE device_resource_selections SET owner_subject = 'bob'",
+                &db::SqlTranslator,
+            )
+            .await
+            .expect("diverge second resource binding");
+        sync_replica(&first, &second).await;
+        assert!(
+            repo.observe_owner_prevalidated(device, "owner")
+                .await
+                .is_err()
+        );
+    }
 
     struct Channel {
         sender: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
@@ -1251,6 +1542,14 @@ mod tests {
                 }
             }
             sync_replica(&first, &second).await;
+            assert!(
+                repo.observe_owner_prevalidated(ambiguous, "alice")
+                    .await
+                    .is_err()
+            );
+            assert!(
+                matches!(repo.observe_owner_prevalidated(restricted, "owner").await.expect("restrictive coherent observation"), OwnerPolicyObservation::Ready { policy, resources } if !policy.admin_allowed && resources.is_empty())
+            );
             assert!(repo.get(ambiguous, "alice", namespace).await.is_err());
             let policy = repo
                 .get(restricted, "owner", namespace)
@@ -2416,7 +2715,19 @@ fn policy_query(device_id: Uuid) -> Query {
     })
 }
 
-fn cleanup_query(device_id: Uuid) -> Query {
+fn cleanup_device(device_id: Uuid) -> QueryExpr {
+    QueryExpr::Equals(
+        Box::new(QueryExpr::Value(QueryExprValue::Column(QueryColumn::new(
+            "local_device_copy_cleanup".into(),
+            "device_id".into(),
+        )))),
+        Box::new(QueryExpr::Value(QueryExprValue::Value(Value::Uuid(
+            device_id,
+        )))),
+    )
+}
+
+fn cleanup_query(device_id: Uuid, pending_only: bool) -> Query {
     let table = "local_device_copy_cleanup";
     let column = QueryColumn::new(table.into(), "device_id".into());
     Query::Select(QuerySelect {
@@ -2427,14 +2738,50 @@ fn cleanup_query(device_id: Uuid) -> Query {
         projection: vec![
             column.clone(),
             QueryColumn::new(table.into(), "cleanup_id".into()),
+            QueryColumn::new(table.into(), "completed".into()),
         ],
         distinct: false,
-        predicate: Some(QueryExpr::Equals(
-            Box::new(QueryExpr::Value(QueryExprValue::Column(column))),
-            Box::new(QueryExpr::Value(QueryExprValue::Value(Value::Uuid(
-                device_id,
-            )))),
-        )),
+        predicate: Some(if pending_only {
+            QueryExpr::And(
+                Box::new(cleanup_device(device_id)),
+                Box::new(QueryExpr::Equals(
+                    Box::new(QueryExpr::Value(QueryExprValue::Column(QueryColumn::new(
+                        table.into(),
+                        "completed".into(),
+                    )))),
+                    Box::new(QueryExpr::Value(QueryExprValue::Value(Value::Bool(false)))),
+                )),
+            )
+        } else {
+            cleanup_device(device_id)
+        }),
+        aggregates: vec![],
+        text_concats: vec![],
+        group_by: vec![],
+        order_by: vec![],
+        limit: None,
+        offset: None,
+        having: None,
+    })
+}
+
+fn resource_query(device_id: Uuid) -> Query {
+    Query::Select(QuerySelect {
+        from: resource_from(),
+        projection: [
+            "id",
+            "device_id",
+            "owner_subject",
+            "application_id",
+            "selected_kind",
+            "selected_id",
+            "selected",
+        ]
+        .into_iter()
+        .map(resource_column)
+        .collect(),
+        distinct: false,
+        predicate: Some(resource_equals("device_id", Value::Uuid(device_id))),
         aggregates: vec![],
         text_concats: vec![],
         group_by: vec![],

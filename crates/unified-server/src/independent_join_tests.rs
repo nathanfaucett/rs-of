@@ -25,6 +25,15 @@ use crate::independent_create_tests::{setup, setup_code, start, wait, wait_publi
 
 #[test]
 fn production_independent_join_and_source_offline_reopen() {
+    run_production_join(false);
+}
+
+#[test]
+fn production_independent_join_legacy_record_reset() {
+    run_production_join(true);
+}
+
+fn run_production_join(legacy_reset: bool) {
     let root = std::env::temp_dir().join(format!("independent-join-{}", Id::now_v7()));
     fs::create_dir(&root).expect("isolated fixture");
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).expect("private fixture");
@@ -77,6 +86,10 @@ fn production_independent_join_and_source_offline_reopen() {
             "--nocapture",
         ])
         .env("OF_INDEPENDENT_JOIN_ROOT", &root)
+        .env(
+            "OF_INDEPENDENT_LEGACY_RESET",
+            if legacy_reset { "1" } else { "0" },
+        )
         .env("SSL_CERT_FILE", root.join("roots.pem"))
         .env("SSL_CERT_DIR", root.join("empty-roots"))
         .env("PATH", root.join("commands"))

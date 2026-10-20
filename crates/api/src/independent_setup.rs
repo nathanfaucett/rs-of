@@ -61,6 +61,13 @@ impl IndependentSetupHost {
         SetupScope::from_owners(&[owner])?;
         let domain = absolute(domain)?;
         let directory = domain.with_extension("setup-host");
+        if present(&domain.with_extension("setup-reset"))?
+            || present(&domain.with_extension("setup-reset.json"))?
+        {
+            return Err(io::Error::other(
+                "interrupted reset requires explicit exact reset continuation",
+            ));
+        }
         if directory == domain || directory.starts_with(&domain) || domain.starts_with(&directory) {
             return Err(io::Error::other(
                 "owner setup and domain roots must be separate",

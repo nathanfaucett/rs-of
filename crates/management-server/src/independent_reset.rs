@@ -22,6 +22,8 @@ struct References {
     client: Id,
     device: Id,
     create: Option<CreateSeed>,
+    role: Option<Id>,
+    permissions: Option<Vec<Id>>,
     user: Option<Id>,
     evaluator: Option<Id>,
     secret_attempted: bool,
@@ -45,15 +47,32 @@ pub async fn reset_independent(config: &AppConfig, remove_os_trust: bool) -> io:
                 .intent()
                 .ok_or_else(|| io::Error::other("worker intent missing"))?;
             let mut ids = vec![references.client, references.device];
-            if let Some(seed) = &references.create {
-                if seed.permissions.len() != 25 {
+            let seed = match references.version {
+                1 if worker.get("create").is_none() => Some((
+                    references
+                        .role
+                        .ok_or_else(|| io::Error::other("missing historical reset role"))?,
+                    references
+                        .permissions
+                        .as_deref()
+                        .ok_or_else(|| io::Error::other("missing historical reset permissions"))?,
+                )),
+                2 if worker.get("role").is_none() && worker.get("permissions").is_none() => {
+                    references
+                        .create
+                        .as_ref()
+                        .map(|seed| (seed.role, seed.permissions.as_slice()))
+                }
+                _ => return Err(io::Error::other("unsupported Management reset record")),
+            };
+            if let Some((role, permissions)) = seed {
+                if permissions.len() != 25 {
                     return Err(io::Error::other("invalid retained administrator seed"));
                 }
-                ids.push(seed.role);
-                ids.extend(&seed.permissions);
+                ids.push(role);
+                ids.extend(permissions);
             }
-            if references.version != 2
-                || ids.iter().any(Id::is_nil)
+            if ids.iter().any(Id::is_nil)
                 || ids.iter().enumerate().any(|(i, id)| ids[..i].contains(id))
                 || references.user.is_some_and(|id| id.is_nil())
                 || references.evaluator.is_some_and(|id| id.is_nil())
@@ -62,11 +81,13 @@ pub async fn reset_independent(config: &AppConfig, remove_os_trust: bool) -> io:
                     .as_ref()
                     .is_some_and(|endpoint| endpoint.parse::<iroh::EndpointId>().is_err())
                 || (intent.purpose == "create"
-                    && (references.create.is_none()
+                    && (seed.is_none()
                         || references.source.is_some()
                         || references.approval.is_some()
                         || references.imported))
-                || (intent.purpose == "join" && references.create.is_some())
+                || (references.version == 2
+                    && intent.purpose == "join"
+                    && worker.get("create").is_some())
                 || (references.complete
                     && (!references.domain_attempted
                         || !references.secret_attempted

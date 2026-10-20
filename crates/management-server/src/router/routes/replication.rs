@@ -7,7 +7,9 @@ use idp_model::{
     contract::{ErrorCode, ErrorResponse},
     model::Id,
 };
-use management_service::replica::SelectedResource as StoredSelectedResource;
+use management_service::replica::{
+    OwnerPolicyObservation, SelectedResource as StoredSelectedResource,
+};
 use model::contract::{
     MANAGEMENT_REPLICATION_ADMIT_SCOPE, MANAGEMENT_REPLICATION_READ_SCOPE, OwnerCopyCleanup,
     PrincipalType, ReplicationAdmissionRequest, SelectedResourcesResponse, StandardClaims,
@@ -32,6 +34,7 @@ pub(crate) async fn selected_resources(
     Path(endpoint_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<SelectedResourcesResponse>, ErrorResponse> {
+    let started = std::time::Instant::now();
     let (authorized, identity) = tokio::join!(
         authorize_storage(&state, &headers, MANAGEMENT_REPLICATION_READ_SCOPE),
         async {
@@ -47,41 +50,41 @@ pub(crate) async fn selected_resources(
     );
     authorized?;
     let identity = identity?;
+    log::debug!(
+        "Management policy phase=authentication-identity elapsed_ms={}",
+        started.elapsed().as_millis()
+    );
 
-    let ready = state
+    let observation = state
         .selection_policies
-        .reconcile_owner_prevalidated(identity.device_id, &identity.owner_subject)
+        .observe_owner_prevalidated(identity.device_id, &identity.owner_subject)
         .await
         .map_err(|_| unavailable())?;
-    let pending_cleanup = if ready {
-        None
-    } else {
-        Some(OwnerCopyCleanup {
-            cleanup_id: state
-                .selection_policies
-                .pending_cleanup_id(identity.device_id)
-                .await
-                .map_err(|_| unavailable())?
-                .ok_or_else(unavailable)?
-                .to_string(),
-            device_id: identity.device_id.to_string(),
-            endpoint_id: identity.endpoint_id.clone(),
-            old_owner_subject: state
-                .selection_policies
-                .pending_cleanup_owner(identity.device_id)
-                .await
-                .map_err(|_| unavailable())?
-                .ok_or_else(unavailable)?,
-            new_owner_subject: identity.owner_subject.clone(),
-        })
+    let (pending_cleanup, admin_allowed, resources) = match observation {
+        OwnerPolicyObservation::PendingCleanup {
+            cleanup_id,
+            old_owner_subject,
+        } => (
+            Some(OwnerCopyCleanup {
+                cleanup_id: cleanup_id.to_string(),
+                device_id: identity.device_id.to_string(),
+                endpoint_id: identity.endpoint_id.clone(),
+                old_owner_subject,
+                new_owner_subject: identity.owner_subject.clone(),
+            }),
+            false,
+            vec![],
+        ),
+        ready => {
+            let (allowed, resources) = crate::runtime::replication_policy_from_observation(ready)
+                .map_err(|_| unavailable())?;
+            (None, allowed, resources)
+        }
     };
-    let (admin_allowed, resources) = if ready {
-        crate::runtime::replication_policy_from_repo(&state.selection_policies, &identity)
-            .await
-            .map_err(|_| unavailable())?
-    } else {
-        (false, vec![])
-    };
+    log::debug!(
+        "Management policy phase=selection elapsed_ms={}",
+        started.elapsed().as_millis()
+    );
     if state
         .control_plane
         .get_storage_endpoint_identity(&endpoint_id)
@@ -91,6 +94,10 @@ pub(crate) async fn selected_resources(
     {
         return Err(denied());
     }
+    log::debug!(
+        "Management policy phase=recheck elapsed_ms={}",
+        started.elapsed().as_millis()
+    );
     Ok(Json(SelectedResourcesResponse {
         device_id: identity.device_id.to_string(),
         endpoint_id: identity.endpoint_id,
@@ -341,7 +348,7 @@ mod tests {
     #[cfg(feature = "cli")]
     #[tokio::test]
     async fn selections_return_current_authenticated_device_policy() {
-        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
         use axum::{
             Json,
@@ -359,8 +366,20 @@ mod tests {
         let resource = Id::now_v7();
         let endpoint =
             "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".to_owned();
+        let root =
+            std::env::temp_dir().join(format!("management-current-policy-{}.redb", Id::now_v7()));
+        let engine = Arc::new(db::Database::open(&root).expect("open policy"));
+        up(&engine).await.expect("initialize policy");
+        engine.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{owner}', 'test', '{endpoint}', '', 1, 1, NULL, 1, 1)"), &db::SqlTranslator).await.expect("Management Device");
+        let policies = Arc::new(DbSelectionPolicyRepo::new(engine.clone()));
+
         let owner_active = Arc::new(AtomicBool::new(true));
         let active = owner_active.clone();
+        let publication_race = Arc::new(AtomicUsize::new(0));
+        let active_reads = Arc::new(AtomicUsize::new(0));
+        let race = publication_race.clone();
+        let reads = active_reads.clone();
+        let race_engine = engine.clone();
         let idp = axum::Router::new()
             .route("/oauth2/token", post(|body: String| async move {
                 assert!(body.contains("client_secret=management-secret"));
@@ -384,8 +403,22 @@ mod tests {
             }))
             .route("/users/{user}/active", get(move |headers: HeaderMap| {
                 let active = active.clone();
+                let race = race.clone();
+                let reads = reads.clone();
+                let engine = race_engine.clone();
                 async move {
                     assert_eq!(headers[AUTHORIZATION], "Bearer management-token");
+                    let read = reads.fetch_add(1, Ordering::SeqCst);
+                    match (race.load(Ordering::SeqCst), read) {
+                        (1, 1) => return StatusCode::NOT_FOUND,
+                        (2, 0) => {
+                            engine.client().translate_and_execute(&format!("UPDATE devices SET revoked_at = 9 WHERE id = CAST('{device}' AS UUID)"), &db::SqlTranslator).await.expect("revoked during initial owner check");
+                        }
+                        (3, 0) => {
+                            engine.client().translate_and_execute(&format!("UPDATE devices SET owner_subject = '{}' WHERE id = CAST('{device}' AS UUID)", Id::now_v7()), &db::SqlTranslator).await.expect("transferred during initial owner check");
+                        }
+                        _ => {}
+                    }
                     if active.load(Ordering::SeqCst) { StatusCode::NO_CONTENT } else { StatusCode::NOT_FOUND }
                 }
             }));
@@ -395,13 +428,6 @@ mod tests {
         let base = format!("http://{}", listener.local_addr().expect("IdP address"));
         let server =
             tokio::spawn(async move { axum::serve(listener, idp).await.expect("serve IdP") });
-        let root =
-            std::env::temp_dir().join(format!("management-current-policy-{}.redb", Id::now_v7()));
-        let engine = Arc::new(db::Database::open(&root).expect("open policy"));
-        up(&engine).await.expect("initialize policy");
-        engine.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{owner}', 'test', '{endpoint}', '', 1, 1, NULL, 1, 1)"), &db::SqlTranslator).await.expect("Management Device");
-        let policies = Arc::new(DbSelectionPolicyRepo::new(engine.clone()));
-
         let state = RouterState::new(
             "http://management.example",
             Arc::new(ManagementService::new(
@@ -542,6 +568,27 @@ mod tests {
                 assert_eq!(selected.kind, "database");
                 assert_eq!(selected.resource_id, resource.to_string());
             }
+        }
+        for mode in 1..=3 {
+            owner_active.store(true, Ordering::SeqCst);
+            engine.client().translate_and_execute(&format!("UPDATE devices SET owner_subject = '{owner}', revoked_at = NULL WHERE id = CAST('{device}' AS UUID)"), &db::SqlTranslator).await.expect("restore approved owner for publication race");
+            active_reads.store(0, Ordering::SeqCst);
+            publication_race.store(mode, Ordering::SeqCst);
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(format!("/replication/devices/{endpoint}/selections"))
+                        .header(AUTHORIZATION, "Bearer storage-token")
+                        .body(Body::empty())
+                        .expect("publication race request"),
+                )
+                .await
+                .expect("publication race response");
+            assert!(
+                !response.status().is_success(),
+                "final owner recheck must reject race {mode}"
+            );
         }
         server.abort();
         let _ = server.await;

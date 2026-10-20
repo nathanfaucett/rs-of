@@ -72,12 +72,12 @@ impl IndependentReset {
         } else {
             None
         };
-        if let Some(journal) = &retained {
-            if journal.version != 1 || journal.owner != owner || journal.domain != domain {
-                return Err(io::Error::other(
-                    "reset inventory conflicts with selected owner configuration",
-                ));
-            }
+        if let Some(journal) = &retained
+            && (journal.version != 1 || journal.owner != owner || journal.domain != domain)
+        {
+            return Err(io::Error::other(
+                "reset inventory conflicts with selected owner configuration",
+            ));
         }
         let cleanup = retained.as_ref().is_some_and(|j| j.phase == Phase::Cleanup);
         let retired_exists = present(&retired)?;
@@ -320,64 +320,34 @@ pub fn uninstall_local_ca(directory: &Path) -> io::Result<()> {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
-            .is_ok_and(|status| status.success())
+            .map(|status| status.success())
     })
 }
 
 fn uninstall_local_ca_with(
     directory: &Path,
-    mut run: impl FnMut(&mut Command) -> bool,
+    mut run: impl FnMut(&mut Command) -> io::Result<bool>,
 ) -> io::Result<()> {
+    #[cfg(target_os = "macos")]
     let pem = directory.join("ca.pem");
     let fingerprint = ca_fingerprint(directory)?;
     #[cfg(target_os = "linux")]
     {
-        // Remove both supported installation mechanisms; a successful p11-kit command
-        // alone does not prove that the distro anchor installed via pkexec is gone.
-        if !run(Command::new("trust").args(["anchor", "--remove"]).arg(&pem))
-            && !run(Command::new("pkexec")
-                .args(["trust", "anchor", "--remove"])
-                .arg(&pem))
-        {
-            return Err(io::Error::other(
-                "OS trust removal failed; approve native consent and retry reset",
-            ));
-        }
-        for (root, refresh) in [
-            (
-                "/usr/local/share/ca-certificates",
-                &["update-ca-certificates"][..],
-            ),
-            (
-                "/etc/pki/ca-trust/source/anchors",
-                &["update-ca-trust", "extract"][..],
-            ),
-        ] {
-            let anchor = Path::new(root).join(format!("unified-node-{fingerprint}.crt"));
-            if present(&anchor)? {
-                let installed = CertificateDer::from_pem_slice(&fs::read(&anchor)?)
-                    .map_err(io::Error::other)?;
-                if installed.as_ref() != read_private(&directory.join("ca.der"))? {
-                    return Err(io::Error::other(
-                        "distro anchor contents disagree; unrelated certificate preserved",
-                    ));
-                }
-                if !run(Command::new("pkexec").arg("rm").arg("--").arg(&anchor))
-                    || present(&anchor)?
-                {
-                    return Err(io::Error::other(
-                        "distro CA removal failed; retain TLS evidence and retry reset",
-                    ));
-                }
-            }
-            // Refresh on retry even when a previous deletion succeeded but extraction failed.
-            if Path::new(root).is_dir() && !run(Command::new("pkexec").args(refresh)) {
-                return Err(io::Error::other(
-                    "distro trust refresh failed; retain TLS evidence and retry reset",
-                ));
-            }
-        }
-        return Ok(());
+        return uninstall_linux_ca(
+            directory,
+            &fingerprint,
+            &[
+                (
+                    Path::new("/usr/local/share/ca-certificates"),
+                    &["update-ca-certificates"],
+                ),
+                (
+                    Path::new("/etc/pki/ca-trust/source/anchors"),
+                    &["update-ca-trust", "extract"],
+                ),
+            ],
+            &mut run,
+        );
     }
     #[cfg(target_os = "macos")]
     {
@@ -385,10 +355,10 @@ fn uninstall_local_ca_with(
         let keychain = PathBuf::from(home).join("Library/Keychains/login.keychain-db");
         if run(Command::new("security")
             .arg("remove-trusted-cert")
-            .arg(&pem))
+            .arg(&pem))?
             && run(Command::new("security")
                 .args(["delete-certificate", "-Z", &fingerprint])
-                .arg(keychain))
+                .arg(keychain))?
         {
             return Ok(());
         }
@@ -397,6 +367,61 @@ fn uninstall_local_ca_with(
     Err(io::Error::other(
         "OS CA removal unavailable or denied; local TLS evidence retained",
     ))
+}
+
+#[cfg(target_os = "linux")]
+fn uninstall_linux_ca(
+    directory: &Path,
+    fingerprint: &str,
+    stores: &[(&Path, &[&str])],
+    run: &mut impl FnMut(&mut Command) -> io::Result<bool>,
+) -> io::Result<()> {
+    let pem = directory.join("ca.pem");
+    match run(Command::new("trust").args(["anchor", "--remove"]).arg(&pem)) {
+        Ok(true) => (),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            if !stores.iter().any(|(root, _)| root.is_dir()) {
+                return Err(io::Error::other(
+                    "no supported OS trust removal mechanism; retain TLS evidence",
+                ));
+            }
+        }
+        Ok(false) => {
+            if !run(Command::new("pkexec")
+                .args(["trust", "anchor", "--remove"])
+                .arg(&pem))?
+            {
+                return Err(io::Error::other(
+                    "OS trust removal failed; approve native consent and retry reset",
+                ));
+            }
+        }
+        Err(error) => return Err(error),
+    }
+    for (root, refresh) in stores {
+        let anchor = root.join(format!("unified-node-{fingerprint}.crt"));
+        if present(&anchor)? {
+            let installed =
+                CertificateDer::from_pem_slice(&fs::read(&anchor)?).map_err(io::Error::other)?;
+            if installed.as_ref() != read_private(&directory.join("ca.der"))? {
+                return Err(io::Error::other(
+                    "distro anchor contents disagree; unrelated certificate preserved",
+                ));
+            }
+            if !run(Command::new("pkexec").arg("rm").arg("--").arg(&anchor))? || present(&anchor)? {
+                return Err(io::Error::other(
+                    "distro CA removal failed; retain TLS evidence and retry reset",
+                ));
+            }
+        }
+        // A prior deletion may have succeeded before refresh failed.
+        if root.is_dir() && !run(Command::new("pkexec").args(*refresh))? {
+            return Err(io::Error::other(
+                "distro trust refresh failed; retain TLS evidence and retry reset",
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -435,7 +460,7 @@ mod tests {
                         .map(ToOwned::to_owned)
                         .collect::<Vec<_>>(),
                 ));
-                false
+                Ok(false)
             })
             .is_err()
         );
@@ -444,6 +469,149 @@ mod tests {
         assert_eq!(calls[1].0, "pkexec");
         assert_eq!(calls[0].1.last(), Some(&ca.into_os_string()));
         assert_eq!(fs::read(host.tls().ca_path()).expect("retained CA"), bytes);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn distro_only_trust_removal_is_exact_and_retains_failure_evidence() {
+        use std::ffi::OsStr;
+        let root = TempDir::new().expect("isolated root");
+        let domain = root.path().join("storage");
+        let host = IndependentSetupHost::prepare(
+            "storage",
+            &domain,
+            "127.0.0.1:31993".parse().expect("address"),
+            "https://localhost:5173",
+            "/storage",
+            false,
+        )
+        .expect("prepare")
+        .expect("host");
+        let tls = host
+            .tls()
+            .ca_path()
+            .parent()
+            .expect("TLS directory")
+            .to_owned();
+        let fingerprint = super::ca_fingerprint(&tls).expect("fingerprint");
+        let store = root.path().join("anchors");
+        fs::create_dir(&store).expect("isolated store");
+        let anchor = store.join(format!("unified-node-{fingerprint}.crt"));
+        let unrelated = store.join("unrelated.crt");
+        fs::write(&unrelated, b"unrelated").expect("unrelated certificate");
+        let roots = [(store.as_path(), &["isolated-refresh"][..])];
+        for failure in ["remove", "refresh", "none"] {
+            fs::copy(tls.join("ca.pem"), &anchor).expect("owned anchor");
+            let result = super::uninstall_linux_ca(&tls, &fingerprint, &roots, &mut |command| {
+                if command.get_program() == "trust" {
+                    return Err(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        "no trust executable",
+                    ));
+                }
+                assert_eq!(command.get_program(), "pkexec");
+                let args: Vec<_> = command.get_args().collect();
+                if args[0] == "rm" {
+                    assert_eq!(
+                        args,
+                        [OsStr::new("rm"), OsStr::new("--"), anchor.as_os_str()]
+                    );
+                    if failure == "remove" {
+                        return Ok(false);
+                    }
+                    fs::remove_file(&anchor).expect("injected exact removal");
+                } else {
+                    assert_eq!(args, [OsStr::new("isolated-refresh")]);
+                    if failure == "refresh" {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            });
+            assert_eq!(result.is_ok(), failure == "none");
+            assert_eq!(anchor.exists(), failure == "remove");
+            assert!(tls.join("ca.pem").exists(), "reset evidence preserved");
+            assert_eq!(
+                fs::read(&unrelated).expect("unrelated preserved"),
+                b"unrelated"
+            );
+            if failure == "refresh" {
+                let mut refreshed = false;
+                super::uninstall_linux_ca(&tls, &fingerprint, &roots, &mut |command| {
+                    if command.get_program() == "trust" {
+                        return Err(io::Error::new(io::ErrorKind::NotFound, "absent"));
+                    }
+                    assert_eq!(
+                        command.get_args().collect::<Vec<_>>(),
+                        [OsStr::new("isolated-refresh")]
+                    );
+                    refreshed = true;
+                    Ok(true)
+                })
+                .expect("retry refresh after successful deletion");
+                assert!(refreshed);
+            }
+        }
+        fs::write(&anchor, fs::read(&unrelated).expect("unrelated")).expect("wrong contents");
+        assert!(
+            super::uninstall_linux_ca(&tls, &fingerprint, &roots, &mut |command| {
+                assert_eq!(command.get_program(), "trust");
+                Err(io::Error::new(io::ErrorKind::NotFound, "absent"))
+            })
+            .is_err()
+        );
+        assert!(anchor.exists(), "mismatched anchor is never removed");
+        assert!(
+            super::uninstall_linux_ca(&tls, &fingerprint, &roots, &mut |_| Ok(false)).is_err(),
+            "genuine p11-kit failure is not ignored"
+        );
+    }
+
+    #[test]
+    fn interrupted_cleanup_refuses_prepare_until_exact_reset_finishes() {
+        for retired_remains in [true, false] {
+            let root = TempDir::new().expect("isolated root");
+            let domain = root.path().join("storage");
+            let prepare = || {
+                IndependentSetupHost::prepare(
+                    "storage",
+                    &domain,
+                    "127.0.0.1:31994".parse().expect("address"),
+                    "https://localhost:5173",
+                    "/storage",
+                    false,
+                )
+            };
+            drop(prepare().expect("prepare").expect("host"));
+            let mut reset = IndependentReset::open("storage", &domain, true).expect("reset");
+            reset.secrets_removed().expect("no secrets");
+            reset.journal.phase = super::Phase::Cleanup;
+            reset.save().expect("durable cleanup");
+            fs::rename(&reset.directory, &reset.retired).expect("crash after rename");
+            if !retired_remains {
+                fs::remove_dir_all(&reset.retired).expect("crash after retired removal");
+            }
+            drop(reset);
+            assert!(
+                prepare().is_err(),
+                "ordinary startup cannot replace reset evidence"
+            );
+            assert!(
+                !domain.with_extension("setup-host").exists(),
+                "no new admission or TLS"
+            );
+            IndependentReset::open("storage", &domain, true)
+                .expect("exact retry")
+                .finish_with_trust(|_| panic!("trust already removed"))
+                .expect("finish cleanup");
+            assert!(!domain.with_extension("setup-reset").exists());
+            assert!(!domain.with_extension("setup-reset.json").exists());
+            drop(
+                prepare()
+                    .expect("fresh allowed after reset")
+                    .expect("fresh host"),
+            );
+        }
     }
 
     #[test]
