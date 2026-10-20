@@ -9,7 +9,7 @@ Tickets [02 — Create](../issues/02-app-create-node.md#answer), [03 — Join](.
 - Signer-conflict batching: `f288fc100`; actual Management SDK: `98dfa159d`.
 - Public documentation reconciliation: `ea91aa73f`; final native/shared evidence commit: `f20f77ad6` ([43](43-final-native-shared.md)).
 - The read-only comparison of `a4caa2f71..f20f77ad6` for Rust, Cargo manifests/lock, Cargo configuration and toolchain is empty. No Rust changes were present at acceptance entry. The only parent-owned pending scratch change was ticket 04's claim, retained and completed here.
-- The user supplied final reviewer `ef748`'s acceptance of all three fixes and the signer-free operation proof at `a4caa2f71`. This bookkeeping review separately read the receipts and inspected the operation fixture and listener/reset changes; it does not invent a separate on-disk reviewer report or a new test pass.
+- The parent supplied final reviewer result: `ef748`'s acceptance of all three fixes and the signer-free operation proof at `a4caa2f71`. This bookkeeping review separately read the receipts and inspected the operation fixture and listener/reset changes; it does not invent a separate on-disk reviewer report or a new test pass.
 - The acceptance commit is documentation-only and distinct from the implementation baseline above. It changes only the explicitly named parent spec/map/status/handoff, tickets 02/03/04 and this receipt. Original receipts, including failures and pending-at-the-time assertions, are unchanged.
 
 ## Evidence matrix

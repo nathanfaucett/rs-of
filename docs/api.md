@@ -1,6 +1,6 @@
 # Node API contracts
 
-These contracts include the final lifecycle review through integration `a4caa2f71`. Receipt 42 qualifies the independent same-host Ubuntu/API/mock-provider seams; receipt 36 qualifies native/shared-host seams at its recorded source, with a separate final-source native check ongoing. Neither is full GUI, real OS installation/provider or platform/deployment certification. See [operations](operations.md#qualification-boundary) for evidence and remaining checks, [setup worker design](setup-workers.md) for lifecycle/credential ownership, and [security](security.md) for trust boundaries.
+These contracts include the final lifecycle review through integration `a4caa2f71`. Receipt 42 qualifies the independent same-host Ubuntu/API/mock-provider seams; [receipt 43](../.scratch/ui-driven-node-bootstrap/evidence/43-final-native-shared.md) completes final native/shared-host qualification on unchanged Rust. [Receipt 44](../.scratch/ui-driven-node-bootstrap/evidence/44-acceptance.md) accepts the bounded spec and resolves tickets 02/03/04. Neither is full GUI, real OS installation/provider or platform/deployment certification. See [operations](operations.md#qualification-boundary) for evidence and remaining checks, [setup worker design](setup-workers.md) for lifecycle/credential ownership, and [security](security.md) for trust boundaries.
 
 ## Owner contracts
 
