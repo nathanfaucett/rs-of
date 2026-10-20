@@ -4,7 +4,7 @@ Native owns OS trust/elevation consent, the bundled TLS listener, local host obs
 
 ## Frontend integration contract
 
-No TypeScript/Svelte is changed in this slice. The frontend owner must replace the obsolete native mutation branches with its shared HTTPS setup client:
+The frontend handoff is complete: receipt 35 adopted the shared HTTPS setup client and removed obsolete native mutation branches; [receipt 41](../../../.scratch/ui-driven-node-bootstrap/evidence/41-management-cleanup-client.md) requalifies the focused owner/setup state, routes and rendered form contracts. Current behavior:
 
 - `get_localhost_server_base_url` returns the bundled verified HTTPS origin. Apply `/idp`, `/management`, `/storage` once. Only use this origin when the operator selects bundled services; selecting remote API bases must not call native Create/Join or substitute the local bases.
 - `get_native_setup_code` is explicit **protected local host management**, returning the transient local setup capability or `null` after retirement. Never send it to a selected remote host, put it in a URL, persist it in frontend storage, or log it. This is not an HTTP status endpoint. Remote hosts retain their own admission and deployment-managed trust prerequisites.
@@ -28,16 +28,12 @@ Complexity/risk/priority: high-priority security/lifecycle reconciliation; reduc
 
 ## Validation boundary
 
-Focused tests added for shared native HTTPS routing/admission/Origin, one listener, retained-port reopen, trust/verification refusal, host/TLS evidence loss, explicit reset retry/recovery, retained Join references, two-owner peer revocation, and mock-provider Create/completed retry/offline reopen/reset. The provider test runs in a bounded child process with an isolated in-memory provider and test-only native certificate roots; the trust tests inject commands. They do not qualify real OS trust installation, external provider availability, physical peer discovery, process-exit UI behavior, rendered desktop Create/Join, or independent frontend wiring.
+Focused tests added for shared native HTTPS routing/admission/Origin, one listener, retained-port reopen, trust/verification refusal, host/TLS evidence loss, explicit reset retry/recovery, retained Join references, two-owner peer revocation, and mock-provider Create/completed retry/offline reopen/reset. The provider test runs in a bounded child process with an isolated in-memory provider and test-only native certificate roots; the trust tests inject commands. They do not qualify real OS trust installation, external provider availability, physical peer discovery, process-exit UI behavior or rendered desktop Create/Join. Independent/bundled frontend wiring is delivered and qualified separately at the HTTP/native-substitute seams in receipt 41, not by these Rust tests.
 
-Rust build/test execution is pending the resource/build token. Do not treat source formatting/static checks as passing Rust tests. Once granted, run one bounded command at a time:
+[Receipt 36](../../../.scratch/ui-driven-node-bootstrap/evidence/36-native-shared-lifecycle.md) records completed MAIN qualification at its source: 17 non-ignored native tests and the explicitly launched mock-provider child pass, plus native test-target compilation, strict affected-library Clippy and shared production HTTPS Create/Join/offline reopen. The filters cover native host/listener/admission/Origin, shared Create/reopen/reset, retained Join references, peer revocation, injected trust and completion markers. These are observed tests, not formatting-only evidence. A **separate native final-source check remains ongoing**; receipt 36 is not claimed as a new rerun at the latest integration tip.
 
-```sh
-CARGO_BUILD_JOBS=1 cargo test -p lidp native_host::tests -- --test-threads=1
-CARGO_BUILD_JOBS=1 cargo test -p lidp native_shared_create_reopen_and_provider_safe_reset -- --nocapture --test-threads=1
-CARGO_BUILD_JOBS=1 cargo test -p lidp setup_reset::tests -- --test-threads=1
-CARGO_BUILD_JOBS=1 cargo test -p lidp setup_peer_revocation::tests -- --test-threads=1
-CARGO_BUILD_JOBS=1 cargo test -p lidp localhost_trust::tests -- --test-threads=1
-```
+[Receipt 42](../../../.scratch/ui-driven-node-bootstrap/evidence/42-finalreview.md) qualifies final independent lifecycle/security review fixes and actual signer-free normal Storage operation with same-token/connection and retained-revocation denial. Shared HTTPS startup now verifies native-root TLS/HTTP with OPTIONS on the existing status path (200 from CORS or 405 from the method router), not readiness-bearing GET. Slow/unavailable configured owners do not cancel the listener or disable normal authentication. GET still reports current readiness, including 503/unavailable. This adds no public route or auth-mode transition.
+
+All cited lifecycle qualification is bounded same-host Ubuntu Linux x86_64, isolated native roots and mock/injected provider/trust commands. No real OS install/provider/profile, rendered GUI, WAN/container, other-platform or production-deployment certification is inferred. Receipt 41's full Svelte check still fails with five inherited built Storage SDK export errors; the historical missing Paraglide outputs are no longer current. This documentation update runs no Cargo/code tests or privileged operations.
 
 The existing unified production Join tests remain the qualification seam for authenticated peer approval/import/offline reopen. This native slice delegates to that worker unchanged; it does not claim a new rendered GUI or physical Join qualification.
