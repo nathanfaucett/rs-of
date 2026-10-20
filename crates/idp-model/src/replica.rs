@@ -142,6 +142,38 @@ pub async fn allows_authorization(
     clear(engine, rows).await
 }
 
+/// Inspect candidate (signer row ID, member row ID) pairs without combining their decisions.
+/// Clearance proves only conflict absence; callers must validate the current trust records.
+pub async fn allows_signer_trust_batch(
+    engine: &Database,
+    pairs: &[(Uuid, Uuid)],
+) -> Result<Vec<bool>, db::QueryError> {
+    if pairs.is_empty() {
+        return Ok(Vec::new());
+    }
+    let signers = pairs
+        .iter()
+        .map(|(signer, _)| Row::new(vec![Value::Uuid(*signer)]))
+        .collect::<Vec<_>>();
+    let members = pairs
+        .iter()
+        .map(|(_, member)| Row::new(vec![Value::Uuid(*member)]))
+        .collect::<Vec<_>>();
+    let signer_conflicts = engine
+        .client()
+        .row_conflicts_batch(SecurityTable::ReplicaSigner.name(), &signers)
+        .await?;
+    let member_conflicts = engine
+        .client()
+        .row_conflicts_batch(SecurityTable::ReplicaMember.name(), &members)
+        .await?;
+    Ok(signer_conflicts
+        .iter()
+        .zip(&member_conflicts)
+        .map(|(signer, member)| signer.is_empty() && member.is_empty())
+        .collect())
+}
+
 pub async fn allows_token_issuance(
     engine: &Database,
     rows: &[SecurityRow],
@@ -405,6 +437,75 @@ mod tests {
                 .expect("retain revocation")
                 .is_some()
             );
+        });
+    }
+
+    #[test]
+    fn signer_trust_batch_preserves_pair_local_conflicts_and_refreshes() {
+        block_on(async {
+            for table in ["idp_replica_members", "idp_replica_signers"] {
+                let source = db::Database::in_memory();
+                let destination = db::Database::in_memory();
+                up(&source).await.expect("initialize trust schema");
+                for id in [101, 102] {
+                    let row_id = uuid(id);
+                    source.client().translate_and_execute(
+                        &format!(
+                            "INSERT INTO idp_replica_members (id, installation_id, member_id, endpoint_id, issuer, approved_at) VALUES (CAST('{row_id}' AS UUID), 'issuer', CAST('{row_id}' AS UUID), 'endpoint-{id}', 'issuer', 1); INSERT INTO idp_replica_signers (id, member_id, active_member_id, key_id, issuer, public_jwk, approved_at) VALUES (CAST('{row_id}' AS UUID), CAST('{row_id}' AS UUID), CAST('{row_id}' AS UUID), CAST('{row_id}' AS UUID), 'issuer', '{{}}', 1)"
+                        ),
+                        &db::SqlTranslator,
+                    ).await.expect("seed independent trust pairs");
+                }
+                let pairs = [
+                    (uuid(101), uuid(101)),
+                    (uuid(102), uuid(102)),
+                    (uuid(101), uuid(101)),
+                ];
+                assert!(
+                    super::allows_signer_trust_batch(&source, &[])
+                        .await
+                        .expect("empty batch")
+                        .is_empty()
+                );
+                assert_eq!(
+                    super::allows_signer_trust_batch(&source, &pairs)
+                        .await
+                        .expect("clear pairs"),
+                    vec![true, true, true]
+                );
+                synchronize(&source, &destination).await;
+                update(&source, table, 101, "approved_at", "2").await;
+                update(&destination, table, 101, "approved_at", "3").await;
+                synchronize(&destination, &source).await;
+                assert_eq!(
+                    super::allows_signer_trust_batch(&source, &pairs)
+                        .await
+                        .expect("pair-local conflicts"),
+                    vec![false, true, false],
+                    "{table}"
+                );
+                let table = if table == "idp_replica_members" {
+                    SecurityTable::ReplicaMember
+                } else {
+                    SecurityTable::ReplicaSigner
+                };
+                resolve(
+                    &source,
+                    uuid(ADMIN),
+                    SecurityRow::new(table, uuid(101)),
+                    vec![("approved_at".into(), db::Value::Integer(4))],
+                    4,
+                )
+                .await
+                .expect("resolve trust conflict")
+                .expect("conflict was present");
+                assert_eq!(
+                    super::allows_signer_trust_batch(&source, &pairs)
+                        .await
+                        .expect("fresh evidence"),
+                    vec![true, true, true]
+                );
+            }
         });
     }
 
