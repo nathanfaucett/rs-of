@@ -171,6 +171,178 @@ async fn stale_cleanup_cannot_clear_current_binding_and_exact_retry_stays_restri
     fs::remove_dir_all(root).expect("remove isolated fixture");
 }
 
+#[tokio::test]
+async fn original_owner_return_keeps_retirement_pending_after_stopped_reopen() {
+    let root = std::env::temp_dir().join(format!("original-owner-return-{}", Id::now_v7()));
+    fs::create_dir_all(&root).expect("isolated owner store");
+    let path = root.join("management.redb");
+    let device = Id::now_v7();
+    let old = Id::now_v7().to_string();
+    let next = Id::now_v7().to_string();
+    let endpoint = iroh::SecretKey::generate().public().to_string();
+    let first_id;
+    {
+        let engine = Arc::new(Database::open(&path).expect("Management owner"));
+        up(&engine).await.expect("schema");
+        engine.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{next}', 'cycle', '{endpoint}', '', 1, 1, 1, 1)"), &db::SqlTranslator).await.expect("current endpoint");
+        let policies = DbSelectionPolicyRepo::new(engine.clone());
+        policies
+            .set_prevalidated(SelectionPolicy {
+                device_id: device,
+                owner_subject: old.clone(),
+                application_id: Some(Id::now_v7()),
+                selected_kind: Some("database".into()),
+                selected_id: Some(Id::now_v7()),
+                admin_allowed: true,
+            })
+            .await
+            .expect("original selected policy");
+        assert!(
+            !policies
+                .reconcile_owner_prevalidated(device, &next)
+                .await
+                .expect("transfer")
+        );
+        first_id = policies
+            .pending_cleanup_id(device)
+            .await
+            .expect("intent")
+            .expect("pending");
+        engine
+            .client()
+            .translate_and_execute(
+                &format!(
+                    "UPDATE devices SET owner_subject = '{old}' WHERE id = CAST('{device}' AS UUID)"
+                ),
+                &db::SqlTranslator,
+            )
+            .await
+            .expect("original owner returns before cleanup");
+        assert!(
+            !policies
+                .reconcile_owner_prevalidated(device, &old)
+                .await
+                .expect("return keeps fence")
+        );
+    }
+    {
+        let engine = Arc::new(Database::open(&path).expect("stopped pending reopen"));
+        let policies = DbSelectionPolicyRepo::new(engine.clone());
+        assert_eq!(
+            policies
+                .pending_cleanup_id(device)
+                .await
+                .expect("retained ID"),
+            Some(first_id)
+        );
+        assert!(
+            !policies
+                .complete_owner_cleanup_bound(device, &old, &next, &endpoint, first_id)
+                .await
+                .expect("stale target")
+        );
+        assert!(
+            policies
+                .local_cleanup_pending(device)
+                .await
+                .expect("fence remains")
+        );
+        assert!(
+            policies
+                .complete_owner_cleanup_bound(device, &old, &old, &endpoint, first_id)
+                .await
+                .expect("retire original copies even when owner returns")
+        );
+        let policy = policies
+            .get(device, &old, Id::nil())
+            .await
+            .expect("policy")
+            .expect("retained");
+        assert!(!policy.admin_allowed);
+        assert!(policy.selected_id.is_none());
+        assert!(
+            policies
+                .selected_resources_for_device(device)
+                .await
+                .expect("no restored selection")
+                .is_empty()
+        );
+        engine.client().translate_and_execute(&format!("UPDATE devices SET owner_subject = '{next}' WHERE id = CAST('{device}' AS UUID)"), &db::SqlTranslator).await.expect("separate transfer");
+        assert!(
+            !policies
+                .reconcile_owner_prevalidated(device, &next)
+                .await
+                .expect("fresh obligation")
+        );
+        let fresh = policies
+            .pending_cleanup_id(device)
+            .await
+            .expect("fresh ID")
+            .expect("pending");
+        assert_ne!(fresh, first_id);
+        engine
+            .client()
+            .translate_and_execute(
+                &format!(
+                    "UPDATE devices SET owner_subject = '{old}' WHERE id = CAST('{device}' AS UUID)"
+                ),
+                &db::SqlTranslator,
+            )
+            .await
+            .expect("return again");
+        assert!(
+            !policies
+                .reconcile_owner_prevalidated(device, &old)
+                .await
+                .expect("keep fresh fence")
+        );
+        assert!(
+            !policies
+                .complete_owner_cleanup_bound(device, &old, &old, &endpoint, first_id)
+                .await
+                .expect("same-owner stale replay denied")
+        );
+        assert!(
+            policies
+                .local_cleanup_pending(device)
+                .await
+                .expect("replay cannot drop fence")
+        );
+        assert!(
+            policies
+                .complete_owner_cleanup_bound(device, &old, &old, &endpoint, fresh)
+                .await
+                .expect("fresh same-owner acknowledgement")
+        );
+    }
+    {
+        let engine = Arc::new(Database::open(&path).expect("stopped completed reopen"));
+        let policies = DbSelectionPolicyRepo::new(engine);
+        assert!(
+            !policies
+                .local_cleanup_pending(device)
+                .await
+                .expect("durable completion")
+        );
+        assert!(
+            !policies
+                .get(device, &old, Id::nil())
+                .await
+                .expect("policy")
+                .expect("retained")
+                .admin_allowed
+        );
+        assert!(
+            policies
+                .selected_resources_for_device(device)
+                .await
+                .expect("empty after reopen")
+                .is_empty()
+        );
+    }
+    fs::remove_dir_all(root).expect("isolated fixture cleanup");
+}
+
 struct TlsConfig {
     root: PathBuf,
     address: SocketAddr,
@@ -699,9 +871,9 @@ async fn independent_transfer_https_child() {
         entered.notified().await;
         assert!(
             devices
-                .transfer_owned(device.id, &next, &third)
+                .transfer_owned(device.id, &next, &old)
                 .await
-                .expect("owner changes during delayed HTTPS cleanup")
+                .expect("exact original owner returns during delayed HTTPS cleanup")
         );
         release.notify_one();
         assert!(cleanup_task.await.expect("cleanup task").is_err());
@@ -790,11 +962,12 @@ async fn independent_transfer_https_child() {
             .selected_resources(&local.to_string())
             .await
             .expect("current completed policy");
-        assert_eq!(policy.owner_subject, third);
+        assert_eq!(policy.owner_subject, old);
         assert!(policy.pending_cleanup.is_none());
         assert!(!policy.admin_allowed);
         assert!(policy.resources.is_empty());
         assert!(databases.open(&old_scope, old_database.id).is_err());
+        assert!(files.open_resource(&old_scope, old_files.id).await.is_err());
         assert!(
             databases
                 .open(&other_scope, other_database.id)
@@ -802,7 +975,7 @@ async fn independent_transfer_https_child() {
                 .is_some()
         );
         let current_ack = OwnerCopyCleanup {
-            new_owner_subject: third.clone(),
+            new_owner_subject: old.clone(),
             ..exact.clone()
         };
         client
@@ -843,12 +1016,18 @@ async fn independent_transfer_https_child() {
         );
         assert!(
             !policies
-                .get(device.id, &third, Id::nil())
+                .get(device.id, &old, Id::nil())
                 .await
                 .expect("offline restricted policy")
                 .expect("retained policy")
                 .admin_allowed
         );
+        let databases = DatabaseRuntime::new(storage_root.join("databases"))
+            .expect("stopped returned-owner database reopen");
+        let files = ScopedFileSystemRuntime::new(storage_root.join("filesystems"), local)
+            .expect("stopped returned-owner filesystem reopen");
+        assert!(databases.open(&old_scope, old_database.id).is_err());
+        assert!(files.open_resource(&old_scope, old_files.id).await.is_err());
     })
     .await
     .expect("bounded independent HTTPS transfer");

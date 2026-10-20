@@ -13,6 +13,9 @@ use idp_model::model::Id;
 use reqwest::{Client, StatusCode};
 use tokio_util::sync::CancellationToken;
 
+#[path = "review_transfer_restart_tests.rs"]
+mod review_transfer_restart_tests;
+
 pub(super) fn setup(root: &Path, owner: &str, address: SocketAddr) -> IndependentSetupHost {
     IndependentSetupHost::prepare(
         owner,
@@ -767,6 +770,8 @@ async fn independent_create_child() {
             .expect("offline owner shutdown");
     }
     let endpoints = seed_endpoint_negatives(&root).await;
+    review_transfer_restart_tests::qualify(&root, &addresses, &intent, &http, &management_token)
+        .await;
     let shutdown = CancellationToken::new();
     let servers = start(&root, &addresses, &shutdown).await;
     wait(&http, &intent, true).await;

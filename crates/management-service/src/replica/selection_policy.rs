@@ -641,7 +641,10 @@ impl DbSelectionPolicyRepo {
         new_owner: &str,
         endpoint: Option<(&str, Uuid)>,
     ) -> ManagementResult<bool> {
-        if !new_owner.parse::<Uuid>().is_ok_and(|owner| !owner.is_nil()) || new_owner == old_owner {
+        if ![old_owner, new_owner]
+            .into_iter()
+            .all(|owner| owner.parse::<Uuid>().is_ok_and(|owner| !owner.is_nil()))
+        {
             return Ok(false);
         }
         let mut transaction = self.engine.client().transaction().await.map_err(db_error)?;

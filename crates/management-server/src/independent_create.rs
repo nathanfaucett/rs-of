@@ -214,7 +214,7 @@ async fn run(
             record.validate_operation(&intent)?;
             identity = Some(open_identity(&control, &record).await?);
             engine = Some(open_existing(&config).await?);
-            verify(engine.as_ref().expect("owner"), &record).await?;
+            verify_identity(engine.as_ref().expect("owner"), &record).await?;
             public(&control, &intent, &record).await?;
             router = Some(
                 build(
@@ -293,7 +293,7 @@ async fn open_existing(config: &AppConfig) -> io::Result<Arc<Database>> {
     }
     crate::open_database(config).await
 }
-async fn verify(engine: &Arc<Database>, record: &Record) -> io::Result<()> {
+async fn verify_identity(engine: &Arc<Database>, record: &Record) -> io::Result<String> {
     let endpoint = record
         .endpoint
         .as_deref()
@@ -319,13 +319,17 @@ async fn verify(engine: &Arc<Database>, record: &Record) -> io::Result<()> {
             "current Management Device owner is invalid",
         ));
     }
+    Ok(device.owner_subject)
+}
+async fn verify(engine: &Arc<Database>, record: &Record) -> io::Result<()> {
+    let owner_subject = verify_identity(engine, record).await?;
     let policies = DbSelectionPolicyRepo::new(engine.clone());
     if policies
         .local_cleanup_pending(record.device)
         .await
         .map_err(io::Error::other)?
         || !policies
-            .get(record.device, &device.owner_subject, Id::nil())
+            .get(record.device, &owner_subject, Id::nil())
             .await
             .map_err(io::Error::other)?
             .is_some_and(|policy| policy.admin_allowed)

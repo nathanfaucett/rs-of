@@ -79,7 +79,6 @@ impl LocalReplicationAuthorizer {
                         || pending.endpoint_id != endpoint.to_string()
                         || response.endpoint_id != endpoint.to_string()
                         || pending.new_owner_subject != response.owner_subject
-                        || pending.old_owner_subject == pending.new_owner_subject
                         || ![
                             &pending.device_id,
                             &pending.cleanup_id,
