@@ -20,10 +20,17 @@ import {
     SelectedResourceToJSON,
     SelectedResourceToJSONTyped,
 } from "./SelectedResource.js";
+import type { OwnerCopyCleanup } from "./OwnerCopyCleanup.js";
+import {
+    OwnerCopyCleanupFromJSON,
+    OwnerCopyCleanupFromJSONTyped,
+    OwnerCopyCleanupToJSON,
+    OwnerCopyCleanupToJSONTyped,
+} from "./OwnerCopyCleanup.js";
 
 /**
  * Current policy for an IdP-approved endpoint with an active owner.
- * A successful read attests Device/owner trust, not permission to cache approval.
+ * Pending cleanup is service-only evidence, never replication approval or cacheable permission.
  * @export
  * @interface SelectedResourcesResponse
  */
@@ -44,6 +51,10 @@ export interface SelectedResourcesResponse {
      *
      */
     ownerSubject: string;
+    /**
+     *
+     */
+    pendingCleanup?: OwnerCopyCleanup | null;
     /**
      *
      */
@@ -86,6 +97,12 @@ export function SelectedResourcesResponseFromJSONTyped(
         deviceId: json["deviceId"],
         endpointId: json["endpointId"],
         ownerSubject: json["ownerSubject"],
+        pendingCleanup:
+            json["pendingCleanup"] === undefined
+                ? undefined
+                : json["pendingCleanup"] === null
+                  ? null
+                  : OwnerCopyCleanupFromJSON(json["pendingCleanup"]),
         resources: (json["resources"] as Array<any>).map(
             SelectedResourceFromJSON,
         ),
@@ -111,6 +128,7 @@ export function SelectedResourcesResponseToJSONTyped(
         deviceId: value["deviceId"],
         endpointId: value["endpointId"],
         ownerSubject: value["ownerSubject"],
+        pendingCleanup: OwnerCopyCleanupToJSON(value["pendingCleanup"]),
         resources: (value["resources"] as Array<any>).map(
             SelectedResourceToJSON,
         ),

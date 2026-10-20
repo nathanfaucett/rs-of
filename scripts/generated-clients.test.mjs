@@ -140,8 +140,12 @@ test("Management selected resources requires and round-trips the current device 
       },
     ],
   };
-  assert.deepEqual(SelectedResourcesResponseFromJSON(policy), policy);
-  assert.deepEqual(SelectedResourcesResponseToJSON(policy), policy);
+  const decoded = SelectedResourcesResponseFromJSON(policy);
+  assert.equal(decoded.pendingCleanup, undefined);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(SelectedResourcesResponseToJSON(decoded))),
+    policy,
+  );
   assert.equal(instanceOfSelectedResourcesResponse(policy), true);
   for (const field of Object.keys(policy)) {
     const incomplete = { ...policy };

@@ -14,6 +14,11 @@
 
 import * as runtime from "../runtime.js";
 import {
+    type OwnerCopyCleanup,
+    OwnerCopyCleanupFromJSON,
+    OwnerCopyCleanupToJSON,
+} from "../models/OwnerCopyCleanup.js";
+import {
     type ReplicationAdmissionRequest,
     ReplicationAdmissionRequestFromJSON,
     ReplicationAdmissionRequestToJSON,
@@ -23,6 +28,13 @@ import {
     SelectedResourcesResponseFromJSON,
     SelectedResourcesResponseToJSON,
 } from "../models/SelectedResourcesResponse.js";
+
+export interface OwnerCleanupRequest {
+    /**
+     *
+     */
+    ownerCopyCleanup: OwnerCopyCleanup;
+}
 
 export interface ReplicationAdmissionOperationRequest {
     /**
@@ -45,6 +57,35 @@ export interface SelectedResourcesRequest {
  * @interface SuperRoutesReplicationApiInterface
  */
 export interface SuperRoutesReplicationApiInterface {
+    /**
+     * Creates request options for ownerCleanup without sending the request
+     * @param {OwnerCopyCleanup} ownerCopyCleanup
+     * @throws {RequiredError}
+     * @memberof SuperRoutesReplicationApiInterface
+     */
+    ownerCleanupRequestOpts(
+        requestParameters: OwnerCleanupRequest,
+    ): Promise<runtime.RequestOpts>;
+
+    /**
+     *
+     * @param {OwnerCopyCleanup} ownerCopyCleanup
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof SuperRoutesReplicationApiInterface
+     */
+    ownerCleanupRaw(
+        requestParameters: OwnerCleanupRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>>;
+
+    /**
+     */
+    ownerCleanup(
+        requestParameters: OwnerCleanupRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void>;
+
     /**
      * Creates request options for replicationAdmission without sending the request
      * @param {ReplicationAdmissionRequest} replicationAdmissionRequest
@@ -111,6 +152,67 @@ export class SuperRoutesReplicationApi
     extends runtime.BaseAPI
     implements SuperRoutesReplicationApiInterface
 {
+    /**
+     * Creates request options for ownerCleanup without sending the request
+     */
+    async ownerCleanupRequestOpts(
+        requestParameters: OwnerCleanupRequest,
+    ): Promise<runtime.RequestOpts> {
+        if (requestParameters["ownerCopyCleanup"] == null) {
+            throw new runtime.RequiredError(
+                "ownerCopyCleanup",
+                'Required parameter "ownerCopyCleanup" was null or undefined when calling ownerCleanup().',
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters["Content-Type"] = "application/json";
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("authorization", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+
+        let urlPath = `/replication/owner-cleanup`;
+
+        return {
+            path: urlPath,
+            method: "POST",
+            headers: headerParameters,
+            query: queryParameters,
+            body: OwnerCopyCleanupToJSON(requestParameters["ownerCopyCleanup"]),
+        };
+    }
+
+    /**
+     */
+    async ownerCleanupRaw(
+        requestParameters: OwnerCleanupRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>> {
+        const requestOptions =
+            await this.ownerCleanupRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+
+        return new runtime.VoidApiResponse(response);
+    }
+
+    /**
+     */
+    async ownerCleanup(
+        requestParameters: OwnerCleanupRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void> {
+        await this.ownerCleanupRaw(requestParameters, initOverrides);
+    }
+
     /**
      * Creates request options for replicationAdmission without sending the request
      */

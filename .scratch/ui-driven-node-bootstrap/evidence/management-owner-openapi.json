@@ -473,6 +473,35 @@
           }
         ]
       },
+      "OwnerCopyCleanup": {
+        "additionalProperties": false,
+        "description": "Exact current Management binding; only an authenticated Storage service may acknowledge it.",
+        "properties": {
+          "cleanupId": {
+            "type": "string"
+          },
+          "deviceId": {
+            "type": "string"
+          },
+          "endpointId": {
+            "type": "string"
+          },
+          "newOwnerSubject": {
+            "type": "string"
+          },
+          "oldOwnerSubject": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cleanupId",
+          "deviceId",
+          "endpointId",
+          "oldOwnerSubject",
+          "newOwnerSubject"
+        ],
+        "type": "object"
+      },
       "PairingAcceptance": {
         "properties": {
           "accepting": {
@@ -740,7 +769,7 @@
         "type": "object"
       },
       "SelectedResourcesResponse": {
-        "description": "Current policy for an IdP-approved endpoint with an active owner.\nA successful read attests Device/owner trust, not permission to cache approval.",
+        "description": "Current policy for an IdP-approved endpoint with an active owner.\nPending cleanup is service-only evidence, never replication approval or cacheable permission.",
         "properties": {
           "adminAllowed": {
             "type": "boolean"
@@ -753,6 +782,16 @@
           },
           "ownerSubject": {
             "type": "string"
+          },
+          "pendingCleanup": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OwnerCopyCleanup"
+              }
+            ]
           },
           "resources": {
             "items": {
@@ -2120,6 +2159,43 @@
           },
           "403": {
             "description": "Token lacks replication-read permission"
+          },
+          "503": {
+            "description": "Authorization authority unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "super::routes::replication"
+        ]
+      }
+    },
+    "/replication/owner-cleanup": {
+      "post": {
+        "operationId": "owner_cleanup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnerCopyCleanup"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Exact owner cleanup acknowledged"
+          },
+          "401": {
+            "description": "Invalid bearer token"
+          },
+          "403": {
+            "description": "Stale binding or insufficient service permission"
           },
           "503": {
             "description": "Authorization authority unavailable"
