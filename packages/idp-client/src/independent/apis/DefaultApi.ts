@@ -14,45 +14,45 @@
 
 import * as runtime from "../runtime.js";
 import {
-	type IndependentCreateIntent,
-	IndependentCreateIntentFromJSON,
-	IndependentCreateIntentToJSON,
+    type IndependentCreateIntent,
+    IndependentCreateIntentFromJSON,
+    IndependentCreateIntentToJSON,
 } from "../models/IndependentCreateIntent.js";
 import {
-	type IndependentCreateRequest,
-	IndependentCreateRequestFromJSON,
-	IndependentCreateRequestToJSON,
+    type IndependentCreateRequest,
+    IndependentCreateRequestFromJSON,
+    IndependentCreateRequestToJSON,
 } from "../models/IndependentCreateRequest.js";
 import {
-	type IndependentOwnerPublic,
-	IndependentOwnerPublicFromJSON,
-	IndependentOwnerPublicToJSON,
+    type IndependentOwnerPublic,
+    IndependentOwnerPublicFromJSON,
+    IndependentOwnerPublicToJSON,
 } from "../models/IndependentOwnerPublic.js";
 import {
-	type IndependentSetupStatus,
-	IndependentSetupStatusFromJSON,
-	IndependentSetupStatusToJSON,
+    type IndependentSetupStatus,
+    IndependentSetupStatusFromJSON,
+    IndependentSetupStatusToJSON,
 } from "../models/IndependentSetupStatus.js";
 
 export interface CancelRequest {
-	/**
-	 *
-	 */
-	independentCreateIntent: IndependentCreateIntent;
+    /**
+     *
+     */
+    independentCreateIntent: IndependentCreateIntent;
 }
 
 export interface CreateRequest {
-	/**
-	 *
-	 */
-	independentCreateRequest: IndependentCreateRequest;
+    /**
+     *
+     */
+    independentCreateRequest: IndependentCreateRequest;
 }
 
 export interface JoinRequest {
-	/**
-	 *
-	 */
-	independentCreateRequest: IndependentCreateRequest;
+    /**
+     *
+     */
+    independentCreateRequest: IndependentCreateRequest;
 }
 
 /**
@@ -62,533 +62,535 @@ export interface JoinRequest {
  * @interface DefaultApiInterface
  */
 export interface DefaultApiInterface {
-	/**
-	 * Creates request options for admission without sending the request
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	admissionRequestOpts(): Promise<runtime.RequestOpts>;
+    /**
+     * Creates request options for admission without sending the request
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    admissionRequestOpts(): Promise<runtime.RequestOpts>;
 
-	/**
-	 *
-	 * @param {*} [options] Override http request option.
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	admissionRaw(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<void>>;
+    /**
+     *
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    admissionRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>>;
 
-	/**
-	 */
-	admission(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<void>;
+    /**
+     */
+    admission(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void>;
 
-	/**
-	 * Creates request options for cancel without sending the request
-	 * @param {IndependentCreateIntent} independentCreateIntent
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	cancelRequestOpts(
-		requestParameters: CancelRequest,
-	): Promise<runtime.RequestOpts>;
+    /**
+     * Creates request options for cancel without sending the request
+     * @param {IndependentCreateIntent} independentCreateIntent
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    cancelRequestOpts(
+        requestParameters: CancelRequest,
+    ): Promise<runtime.RequestOpts>;
 
-	/**
-	 *
-	 * @param {IndependentCreateIntent} independentCreateIntent
-	 * @param {*} [options] Override http request option.
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	cancelRaw(
-		requestParameters: CancelRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<void>>;
+    /**
+     *
+     * @param {IndependentCreateIntent} independentCreateIntent
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    cancelRaw(
+        requestParameters: CancelRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>>;
 
-	/**
-	 */
-	cancel(
-		requestParameters: CancelRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<void>;
+    /**
+     */
+    cancel(
+        requestParameters: CancelRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void>;
 
-	/**
-	 * Creates request options for create without sending the request
-	 * @param {IndependentCreateRequest} independentCreateRequest
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	createRequestOpts(
-		requestParameters: CreateRequest,
-	): Promise<runtime.RequestOpts>;
+    /**
+     * Creates request options for create without sending the request
+     * @param {IndependentCreateRequest} independentCreateRequest
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    createRequestOpts(
+        requestParameters: CreateRequest,
+    ): Promise<runtime.RequestOpts>;
 
-	/**
-	 *
-	 * @param {IndependentCreateRequest} independentCreateRequest
-	 * @param {*} [options] Override http request option.
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	createRaw(
-		requestParameters: CreateRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<void>>;
+    /**
+     *
+     * @param {IndependentCreateRequest} independentCreateRequest
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    createRaw(
+        requestParameters: CreateRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>>;
 
-	/**
-	 */
-	create(
-		requestParameters: CreateRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<void>;
+    /**
+     */
+    create(
+        requestParameters: CreateRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void>;
 
-	/**
-	 * Creates request options for join without sending the request
-	 * @param {IndependentCreateRequest} independentCreateRequest
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	joinRequestOpts(requestParameters: JoinRequest): Promise<runtime.RequestOpts>;
+    /**
+     * Creates request options for join without sending the request
+     * @param {IndependentCreateRequest} independentCreateRequest
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    joinRequestOpts(
+        requestParameters: JoinRequest,
+    ): Promise<runtime.RequestOpts>;
 
-	/**
-	 *
-	 * @param {IndependentCreateRequest} independentCreateRequest
-	 * @param {*} [options] Override http request option.
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	joinRaw(
-		requestParameters: JoinRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<void>>;
+    /**
+     *
+     * @param {IndependentCreateRequest} independentCreateRequest
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    joinRaw(
+        requestParameters: JoinRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>>;
 
-	/**
-	 */
-	join(
-		requestParameters: JoinRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<void>;
+    /**
+     */
+    join(
+        requestParameters: JoinRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void>;
 
-	/**
-	 * Creates request options for ownerPublic without sending the request
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	ownerPublicRequestOpts(): Promise<runtime.RequestOpts>;
+    /**
+     * Creates request options for ownerPublic without sending the request
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    ownerPublicRequestOpts(): Promise<runtime.RequestOpts>;
 
-	/**
-	 *
-	 * @param {*} [options] Override http request option.
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	ownerPublicRaw(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<IndependentOwnerPublic>>;
+    /**
+     *
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    ownerPublicRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<IndependentOwnerPublic>>;
 
-	/**
-	 */
-	ownerPublic(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<IndependentOwnerPublic>;
+    /**
+     */
+    ownerPublic(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<IndependentOwnerPublic>;
 
-	/**
-	 * Creates request options for recover without sending the request
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	recoverRequestOpts(): Promise<runtime.RequestOpts>;
+    /**
+     * Creates request options for recover without sending the request
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    recoverRequestOpts(): Promise<runtime.RequestOpts>;
 
-	/**
-	 *
-	 * @param {*} [options] Override http request option.
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	recoverRaw(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<IndependentCreateIntent>>;
+    /**
+     *
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    recoverRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<IndependentCreateIntent>>;
 
-	/**
-	 */
-	recover(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<IndependentCreateIntent | null | undefined>;
+    /**
+     */
+    recover(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<IndependentCreateIntent | null | undefined>;
 
-	/**
-	 * Creates request options for status without sending the request
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	statusRequestOpts(): Promise<runtime.RequestOpts>;
+    /**
+     * Creates request options for status without sending the request
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    statusRequestOpts(): Promise<runtime.RequestOpts>;
 
-	/**
-	 *
-	 * @param {*} [options] Override http request option.
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	statusRaw(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<IndependentSetupStatus>>;
+    /**
+     *
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    statusRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<IndependentSetupStatus>>;
 
-	/**
-	 */
-	status(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<IndependentSetupStatus>;
+    /**
+     */
+    status(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<IndependentSetupStatus>;
 }
 
 /**
  *
  */
 export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
-	/**
-	 * Creates request options for admission without sending the request
-	 */
-	async admissionRequestOpts(): Promise<runtime.RequestOpts> {
-		const queryParameters: any = {};
+    /**
+     * Creates request options for admission without sending the request
+     */
+    async admissionRequestOpts(): Promise<runtime.RequestOpts> {
+        const queryParameters: any = {};
 
-		const headerParameters: runtime.HTTPHeaders = {};
+        const headerParameters: runtime.HTTPHeaders = {};
 
-		if (this.configuration && this.configuration.apiKey) {
-			headerParameters["Authorization"] =
-				await this.configuration.apiKey("Authorization"); // setup_code authentication
-		}
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["Authorization"] =
+                await this.configuration.apiKey("Authorization"); // setup_code authentication
+        }
 
-		let urlPath = `/setup/admission`;
+        let urlPath = `/setup/admission`;
 
-		return {
-			path: urlPath,
-			method: "POST",
-			headers: headerParameters,
-			query: queryParameters,
-		};
-	}
+        return {
+            path: urlPath,
+            method: "POST",
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
 
-	/**
-	 */
-	async admissionRaw(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<void>> {
-		const requestOptions = await this.admissionRequestOpts();
-		const response = await this.request(requestOptions, initOverrides);
+    /**
+     */
+    async admissionRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>> {
+        const requestOptions = await this.admissionRequestOpts();
+        const response = await this.request(requestOptions, initOverrides);
 
-		return new runtime.VoidApiResponse(response);
-	}
+        return new runtime.VoidApiResponse(response);
+    }
 
-	/**
-	 */
-	async admission(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<void> {
-		await this.admissionRaw(initOverrides);
-	}
+    /**
+     */
+    async admission(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void> {
+        await this.admissionRaw(initOverrides);
+    }
 
-	/**
-	 * Creates request options for cancel without sending the request
-	 */
-	async cancelRequestOpts(
-		requestParameters: CancelRequest,
-	): Promise<runtime.RequestOpts> {
-		if (requestParameters["independentCreateIntent"] == null) {
-			throw new runtime.RequiredError(
-				"independentCreateIntent",
-				'Required parameter "independentCreateIntent" was null or undefined when calling cancel().',
-			);
-		}
+    /**
+     * Creates request options for cancel without sending the request
+     */
+    async cancelRequestOpts(
+        requestParameters: CancelRequest,
+    ): Promise<runtime.RequestOpts> {
+        if (requestParameters["independentCreateIntent"] == null) {
+            throw new runtime.RequiredError(
+                "independentCreateIntent",
+                'Required parameter "independentCreateIntent" was null or undefined when calling cancel().',
+            );
+        }
 
-		const queryParameters: any = {};
+        const queryParameters: any = {};
 
-		const headerParameters: runtime.HTTPHeaders = {};
+        const headerParameters: runtime.HTTPHeaders = {};
 
-		headerParameters["Content-Type"] = "application/json";
+        headerParameters["Content-Type"] = "application/json";
 
-		if (this.configuration && this.configuration.apiKey) {
-			headerParameters["Authorization"] =
-				await this.configuration.apiKey("Authorization"); // setup_code authentication
-		}
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["Authorization"] =
+                await this.configuration.apiKey("Authorization"); // setup_code authentication
+        }
 
-		let urlPath = `/setup/cancel`;
+        let urlPath = `/setup/cancel`;
 
-		return {
-			path: urlPath,
-			method: "POST",
-			headers: headerParameters,
-			query: queryParameters,
-			body: IndependentCreateIntentToJSON(
-				requestParameters["independentCreateIntent"],
-			),
-		};
-	}
+        return {
+            path: urlPath,
+            method: "POST",
+            headers: headerParameters,
+            query: queryParameters,
+            body: IndependentCreateIntentToJSON(
+                requestParameters["independentCreateIntent"],
+            ),
+        };
+    }
 
-	/**
-	 */
-	async cancelRaw(
-		requestParameters: CancelRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<void>> {
-		const requestOptions = await this.cancelRequestOpts(requestParameters);
-		const response = await this.request(requestOptions, initOverrides);
+    /**
+     */
+    async cancelRaw(
+        requestParameters: CancelRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>> {
+        const requestOptions = await this.cancelRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
 
-		return new runtime.VoidApiResponse(response);
-	}
+        return new runtime.VoidApiResponse(response);
+    }
 
-	/**
-	 */
-	async cancel(
-		requestParameters: CancelRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<void> {
-		await this.cancelRaw(requestParameters, initOverrides);
-	}
+    /**
+     */
+    async cancel(
+        requestParameters: CancelRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void> {
+        await this.cancelRaw(requestParameters, initOverrides);
+    }
 
-	/**
-	 * Creates request options for create without sending the request
-	 */
-	async createRequestOpts(
-		requestParameters: CreateRequest,
-	): Promise<runtime.RequestOpts> {
-		if (requestParameters["independentCreateRequest"] == null) {
-			throw new runtime.RequiredError(
-				"independentCreateRequest",
-				'Required parameter "independentCreateRequest" was null or undefined when calling create().',
-			);
-		}
+    /**
+     * Creates request options for create without sending the request
+     */
+    async createRequestOpts(
+        requestParameters: CreateRequest,
+    ): Promise<runtime.RequestOpts> {
+        if (requestParameters["independentCreateRequest"] == null) {
+            throw new runtime.RequiredError(
+                "independentCreateRequest",
+                'Required parameter "independentCreateRequest" was null or undefined when calling create().',
+            );
+        }
 
-		const queryParameters: any = {};
+        const queryParameters: any = {};
 
-		const headerParameters: runtime.HTTPHeaders = {};
+        const headerParameters: runtime.HTTPHeaders = {};
 
-		headerParameters["Content-Type"] = "application/json";
+        headerParameters["Content-Type"] = "application/json";
 
-		if (this.configuration && this.configuration.apiKey) {
-			headerParameters["Authorization"] =
-				await this.configuration.apiKey("Authorization"); // setup_code authentication
-		}
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["Authorization"] =
+                await this.configuration.apiKey("Authorization"); // setup_code authentication
+        }
 
-		let urlPath = `/setup/create`;
+        let urlPath = `/setup/create`;
 
-		return {
-			path: urlPath,
-			method: "POST",
-			headers: headerParameters,
-			query: queryParameters,
-			body: IndependentCreateRequestToJSON(
-				requestParameters["independentCreateRequest"],
-			),
-		};
-	}
+        return {
+            path: urlPath,
+            method: "POST",
+            headers: headerParameters,
+            query: queryParameters,
+            body: IndependentCreateRequestToJSON(
+                requestParameters["independentCreateRequest"],
+            ),
+        };
+    }
 
-	/**
-	 */
-	async createRaw(
-		requestParameters: CreateRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<void>> {
-		const requestOptions = await this.createRequestOpts(requestParameters);
-		const response = await this.request(requestOptions, initOverrides);
+    /**
+     */
+    async createRaw(
+        requestParameters: CreateRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>> {
+        const requestOptions = await this.createRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
 
-		return new runtime.VoidApiResponse(response);
-	}
+        return new runtime.VoidApiResponse(response);
+    }
 
-	/**
-	 */
-	async create(
-		requestParameters: CreateRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<void> {
-		await this.createRaw(requestParameters, initOverrides);
-	}
+    /**
+     */
+    async create(
+        requestParameters: CreateRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void> {
+        await this.createRaw(requestParameters, initOverrides);
+    }
 
-	/**
-	 * Creates request options for join without sending the request
-	 */
-	async joinRequestOpts(
-		requestParameters: JoinRequest,
-	): Promise<runtime.RequestOpts> {
-		if (requestParameters["independentCreateRequest"] == null) {
-			throw new runtime.RequiredError(
-				"independentCreateRequest",
-				'Required parameter "independentCreateRequest" was null or undefined when calling join().',
-			);
-		}
+    /**
+     * Creates request options for join without sending the request
+     */
+    async joinRequestOpts(
+        requestParameters: JoinRequest,
+    ): Promise<runtime.RequestOpts> {
+        if (requestParameters["independentCreateRequest"] == null) {
+            throw new runtime.RequiredError(
+                "independentCreateRequest",
+                'Required parameter "independentCreateRequest" was null or undefined when calling join().',
+            );
+        }
 
-		const queryParameters: any = {};
+        const queryParameters: any = {};
 
-		const headerParameters: runtime.HTTPHeaders = {};
+        const headerParameters: runtime.HTTPHeaders = {};
 
-		headerParameters["Content-Type"] = "application/json";
+        headerParameters["Content-Type"] = "application/json";
 
-		if (this.configuration && this.configuration.apiKey) {
-			headerParameters["Authorization"] =
-				await this.configuration.apiKey("Authorization"); // setup_code authentication
-		}
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["Authorization"] =
+                await this.configuration.apiKey("Authorization"); // setup_code authentication
+        }
 
-		let urlPath = `/setup/join`;
+        let urlPath = `/setup/join`;
 
-		return {
-			path: urlPath,
-			method: "POST",
-			headers: headerParameters,
-			query: queryParameters,
-			body: IndependentCreateRequestToJSON(
-				requestParameters["independentCreateRequest"],
-			),
-		};
-	}
+        return {
+            path: urlPath,
+            method: "POST",
+            headers: headerParameters,
+            query: queryParameters,
+            body: IndependentCreateRequestToJSON(
+                requestParameters["independentCreateRequest"],
+            ),
+        };
+    }
 
-	/**
-	 */
-	async joinRaw(
-		requestParameters: JoinRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<void>> {
-		const requestOptions = await this.joinRequestOpts(requestParameters);
-		const response = await this.request(requestOptions, initOverrides);
+    /**
+     */
+    async joinRaw(
+        requestParameters: JoinRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>> {
+        const requestOptions = await this.joinRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
 
-		return new runtime.VoidApiResponse(response);
-	}
+        return new runtime.VoidApiResponse(response);
+    }
 
-	/**
-	 */
-	async join(
-		requestParameters: JoinRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<void> {
-		await this.joinRaw(requestParameters, initOverrides);
-	}
+    /**
+     */
+    async join(
+        requestParameters: JoinRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void> {
+        await this.joinRaw(requestParameters, initOverrides);
+    }
 
-	/**
-	 * Creates request options for ownerPublic without sending the request
-	 */
-	async ownerPublicRequestOpts(): Promise<runtime.RequestOpts> {
-		const queryParameters: any = {};
+    /**
+     * Creates request options for ownerPublic without sending the request
+     */
+    async ownerPublicRequestOpts(): Promise<runtime.RequestOpts> {
+        const queryParameters: any = {};
 
-		const headerParameters: runtime.HTTPHeaders = {};
+        const headerParameters: runtime.HTTPHeaders = {};
 
-		let urlPath = `/setup/independent/public`;
+        let urlPath = `/setup/independent/public`;
 
-		return {
-			path: urlPath,
-			method: "GET",
-			headers: headerParameters,
-			query: queryParameters,
-		};
-	}
+        return {
+            path: urlPath,
+            method: "GET",
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
 
-	/**
-	 */
-	async ownerPublicRaw(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<IndependentOwnerPublic>> {
-		const requestOptions = await this.ownerPublicRequestOpts();
-		const response = await this.request(requestOptions, initOverrides);
+    /**
+     */
+    async ownerPublicRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<IndependentOwnerPublic>> {
+        const requestOptions = await this.ownerPublicRequestOpts();
+        const response = await this.request(requestOptions, initOverrides);
 
-		return new runtime.JSONApiResponse(response, (jsonValue) =>
-			IndependentOwnerPublicFromJSON(jsonValue),
-		);
-	}
+        return new runtime.JSONApiResponse(response, (jsonValue) =>
+            IndependentOwnerPublicFromJSON(jsonValue),
+        );
+    }
 
-	/**
-	 */
-	async ownerPublic(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<IndependentOwnerPublic> {
-		const response = await this.ownerPublicRaw(initOverrides);
-		return await response.value();
-	}
+    /**
+     */
+    async ownerPublic(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<IndependentOwnerPublic> {
+        const response = await this.ownerPublicRaw(initOverrides);
+        return await response.value();
+    }
 
-	/**
-	 * Creates request options for recover without sending the request
-	 */
-	async recoverRequestOpts(): Promise<runtime.RequestOpts> {
-		const queryParameters: any = {};
+    /**
+     * Creates request options for recover without sending the request
+     */
+    async recoverRequestOpts(): Promise<runtime.RequestOpts> {
+        const queryParameters: any = {};
 
-		const headerParameters: runtime.HTTPHeaders = {};
+        const headerParameters: runtime.HTTPHeaders = {};
 
-		if (this.configuration && this.configuration.apiKey) {
-			headerParameters["Authorization"] =
-				await this.configuration.apiKey("Authorization"); // setup_code authentication
-		}
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["Authorization"] =
+                await this.configuration.apiKey("Authorization"); // setup_code authentication
+        }
 
-		let urlPath = `/setup/intent`;
+        let urlPath = `/setup/intent`;
 
-		return {
-			path: urlPath,
-			method: "POST",
-			headers: headerParameters,
-			query: queryParameters,
-		};
-	}
+        return {
+            path: urlPath,
+            method: "POST",
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
 
-	/**
-	 */
-	async recoverRaw(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<IndependentCreateIntent>> {
-		const requestOptions = await this.recoverRequestOpts();
-		const response = await this.request(requestOptions, initOverrides);
+    /**
+     */
+    async recoverRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<IndependentCreateIntent>> {
+        const requestOptions = await this.recoverRequestOpts();
+        const response = await this.request(requestOptions, initOverrides);
 
-		return new runtime.JSONApiResponse(response, (jsonValue) =>
-			IndependentCreateIntentFromJSON(jsonValue),
-		);
-	}
+        return new runtime.JSONApiResponse(response, (jsonValue) =>
+            IndependentCreateIntentFromJSON(jsonValue),
+        );
+    }
 
-	/**
-	 */
-	async recover(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<IndependentCreateIntent | null | undefined> {
-		const response = await this.recoverRaw(initOverrides);
-		switch (response.raw.status) {
-			case 200:
-				return await response.value();
-			case 204:
-				return null;
-			default:
-				return await response.value();
-		}
-	}
+    /**
+     */
+    async recover(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<IndependentCreateIntent | null | undefined> {
+        const response = await this.recoverRaw(initOverrides);
+        switch (response.raw.status) {
+            case 200:
+                return await response.value();
+            case 204:
+                return null;
+            default:
+                return await response.value();
+        }
+    }
 
-	/**
-	 * Creates request options for status without sending the request
-	 */
-	async statusRequestOpts(): Promise<runtime.RequestOpts> {
-		const queryParameters: any = {};
+    /**
+     * Creates request options for status without sending the request
+     */
+    async statusRequestOpts(): Promise<runtime.RequestOpts> {
+        const queryParameters: any = {};
 
-		const headerParameters: runtime.HTTPHeaders = {};
+        const headerParameters: runtime.HTTPHeaders = {};
 
-		let urlPath = `/setup/status`;
+        let urlPath = `/setup/status`;
 
-		return {
-			path: urlPath,
-			method: "GET",
-			headers: headerParameters,
-			query: queryParameters,
-		};
-	}
+        return {
+            path: urlPath,
+            method: "GET",
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
 
-	/**
-	 */
-	async statusRaw(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<IndependentSetupStatus>> {
-		const requestOptions = await this.statusRequestOpts();
-		const response = await this.request(requestOptions, initOverrides);
+    /**
+     */
+    async statusRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<IndependentSetupStatus>> {
+        const requestOptions = await this.statusRequestOpts();
+        const response = await this.request(requestOptions, initOverrides);
 
-		return new runtime.JSONApiResponse(response, (jsonValue) =>
-			IndependentSetupStatusFromJSON(jsonValue),
-		);
-	}
+        return new runtime.JSONApiResponse(response, (jsonValue) =>
+            IndependentSetupStatusFromJSON(jsonValue),
+        );
+    }
 
-	/**
-	 */
-	async status(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<IndependentSetupStatus> {
-		const response = await this.statusRaw(initOverrides);
-		return await response.value();
-	}
+    /**
+     */
+    async status(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<IndependentSetupStatus> {
+        const response = await this.statusRaw(initOverrides);
+        return await response.value();
+    }
 }

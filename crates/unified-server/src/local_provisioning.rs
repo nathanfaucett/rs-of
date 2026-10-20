@@ -263,6 +263,19 @@ impl LocalProvisioner {
         self.provision_with_tls(&password, None).await
     }
 
+    /// Continues only the retained exact local intent over HTTP.
+    pub async fn provision_http(&mut self, password: &str) -> io::Result<()> {
+        self.provision_with_tls(password, None).await
+    }
+
+    /// Verifies local bootstrap readiness without TLS (HTTP).
+    pub async fn verify_http(&self) -> io::Result<()> {
+        self.build_runtime_for_transport(false)
+            .await?
+            .verify_local_bootstrap(None)
+            .await
+    }
+
     pub async fn provision_https(
         &mut self,
         password_file: &Path,
@@ -336,9 +349,10 @@ impl LocalProvisioner {
     pub(crate) async fn prepare_hosted_runtime(
         &mut self,
         password: &str,
+        https: bool,
         cancellation: &tokio_util::sync::CancellationToken,
     ) -> io::Result<UnifiedRuntime> {
-        Box::pin(self.prepare_runtime(password, true, true, cancellation)).await
+        Box::pin(self.prepare_runtime(password, https, true, cancellation)).await
     }
 
     pub(crate) fn mark_complete(&self) -> io::Result<()> {
@@ -539,6 +553,7 @@ impl LocalProvisioner {
             let api_base = match &listener {
                 Some(listener) if !https => format!("http://{}", listener.local_addr()?),
                 Some(listener) => crate::LocalTls::api_base(listener.local_addr()?)?,
+                None if !https => format!("http://{}", self.config.listen_addr),
                 None => crate::LocalTls::api_base(self.config.listen_addr)?,
             };
             if !journal.storage_attempted {
@@ -591,8 +606,8 @@ impl LocalProvisioner {
         self.build_runtime_for_host(https, false).await
     }
 
-    pub(crate) async fn reopen_hosted_runtime(&self) -> io::Result<UnifiedRuntime> {
-        self.build_runtime_for_host(true, true).await
+    pub(crate) async fn reopen_hosted_runtime(&self, https: bool) -> io::Result<UnifiedRuntime> {
+        self.build_runtime_for_host(https, true).await
     }
 
     async fn build_runtime_for_host(

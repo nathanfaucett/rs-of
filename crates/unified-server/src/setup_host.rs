@@ -4,7 +4,7 @@ use std::{
 };
 
 #[cfg(unix)]
-use api::{SetupAdmission, SetupScope, setup_origin as allowed_origin, setup_router};
+use api::{SetupAdmission, SetupScope, setup_router};
 #[cfg(unix)]
 use axum::{Router, http::HeaderValue};
 #[cfg(unix)]
@@ -18,6 +18,28 @@ use crate::{
     LocalTls, UnifiedConfig,
     local_provisioning::{absolute, require_absent},
 };
+
+#[cfg(unix)]
+pub(crate) fn allowed_origin(value: &str) -> io::Result<HeaderValue> {
+    let url = reqwest::Url::parse(value).map_err(io::Error::other)?;
+    if url.scheme() == "http"
+        && url.host_str().is_some_and(|host| {
+            host == "localhost"
+                || host
+                    .trim_matches(['[', ']'])
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback())
+        })
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.path() == "/"
+        && url.query().is_none()
+        && url.fragment().is_none()
+    {
+        return HeaderValue::from_str(value.trim_end_matches('/')).map_err(io::Error::other);
+    }
+    api::setup_origin(value)
+}
 
 fn roots(config: &UnifiedConfig) -> io::Result<[PathBuf; 7]> {
     Ok([
@@ -58,7 +80,11 @@ pub(crate) fn require_host_separation(config: &UnifiedConfig, host: &Path) -> io
     Ok(())
 }
 
-pub(crate) fn require_fresh_roots(config: &UnifiedConfig, tls_absent: bool) -> io::Result<()> {
+pub(crate) fn require_fresh_roots(
+    config: &UnifiedConfig,
+    tls_absent: bool,
+    https: bool,
+) -> io::Result<()> {
     if config.idp.oauth2.local_signer.is_some() {
         return Err(io::Error::other(
             "neutral startup requires no configured Node signer",
@@ -66,7 +92,11 @@ pub(crate) fn require_fresh_roots(config: &UnifiedConfig, tls_absent: bool) -> i
     }
     LocalTls::api_base(config.listen_addr)?;
     #[cfg(unix)]
-    allowed_origin(&config.idp.ui_public_uri)?;
+    if https {
+        api::setup_origin(&config.idp.ui_public_uri)?;
+    } else {
+        allowed_origin(&config.idp.ui_public_uri)?;
+    }
     let roots = roots(config)?;
     for (index, root) in roots.iter().enumerate() {
         if index != roots.len() - 1 || tls_absent {
@@ -87,21 +117,29 @@ pub(crate) fn require_fresh_roots(config: &UnifiedConfig, tls_absent: bool) -> i
 pub struct SetupHost {
     host: BootstrapConfig,
     admission: Arc<SetupAdmission>,
-    tls: LocalTls,
+    tls: Option<LocalTls>,
     origin: HeaderValue,
 }
 
 #[cfg(unix)]
 impl SetupHost {
     pub fn create(host: BootstrapConfig) -> io::Result<Self> {
-        Self::prepare(host, true)
+        Self::prepare(host, true, true)
     }
 
     pub fn open(host: BootstrapConfig) -> io::Result<Self> {
-        Self::prepare(host, false)
+        Self::prepare(host, false, true)
     }
 
-    fn prepare(mut host: BootstrapConfig, fresh: bool) -> io::Result<Self> {
+    pub fn create_http(host: BootstrapConfig) -> io::Result<Self> {
+        Self::prepare(host, true, false)
+    }
+
+    pub fn open_http(host: BootstrapConfig) -> io::Result<Self> {
+        Self::prepare(host, false, false)
+    }
+
+    fn prepare(mut host: BootstrapConfig, fresh: bool, https: bool) -> io::Result<Self> {
         if host.purpose() != BootstrapPurpose::AwaitingChoice
             && !(matches!(
                 host.purpose(),
@@ -120,10 +158,14 @@ impl SetupHost {
         }
         let config = host.config();
         if host.purpose() == BootstrapPurpose::AwaitingChoice {
-            require_fresh_roots(&config, fresh)?;
+            require_fresh_roots(&config, fresh, https)?;
         }
         require_host_separation(&config, host.directory())?;
-        let origin = allowed_origin(&config.idp.ui_public_uri)?;
+        let origin = if https {
+            api::setup_origin(&config.idp.ui_public_uri)?
+        } else {
+            allowed_origin(&config.idp.ui_public_uri)?
+        };
         let admission_root = host.directory().join("setup-admission");
         if fresh {
             require_absent(&admission_root)?;
@@ -134,10 +176,12 @@ impl SetupHost {
             host.begin_setup()?;
         }
         let admission = Arc::new(SetupAdmission::open(&admission_root).map_err(io::Error::other)?);
-        let tls = if fresh {
-            LocalTls::create(&config)?
+        let tls = if !https {
+            None
+        } else if fresh {
+            Some(LocalTls::create(&config)?)
         } else {
-            LocalTls::open(&config)?
+            Some(LocalTls::open(&config)?)
         };
         Ok(Self {
             host,
@@ -152,15 +196,16 @@ impl SetupHost {
         self.host.directory().join("setup-admission/state")
     }
 
+    /// Native HTTPS material. Panics when called on an HTTP setup host.
     pub fn tls(&self) -> &LocalTls {
-        &self.tls
+        self.tls.as_ref().expect("native HTTPS setup host")
     }
 
     pub fn local_addr(&self) -> std::net::SocketAddr {
         self.host.config().listen_addr
     }
 
-    /// Mount only on this host's TLS listener, never the ordinary resource router.
+    /// Mount only on this host's setup listener, never the ordinary resource router.
     pub fn router(&self) -> Router {
         let config = self.host.config();
         let absent_roots = vec![
@@ -182,13 +227,14 @@ impl SetupHost {
         )
     }
 
-    /// Transfer the lifecycle guard and owner worker to a native TLS host.
-    /// The caller owns one verified HTTPS listener and must cancel and join the worker on shutdown.
+    /// Transfer the lifecycle guard and owner worker to an external listener host.
+    /// The caller must preserve the selected transport and cancel/join the worker on shutdown.
     pub fn into_worker(self, cancellation: CancellationToken) -> crate::ApiSetupHost {
         crate::api_create::CreateHost::new(self.host, self.tls, self.admission, cancellation)
     }
 
     pub async fn serve(self, cancellation: CancellationToken) -> io::Result<()> {
+        let public_idp = self.host.config().idp.api_public_uri;
         let tls = self.tls.clone();
         let address = self.local_addr();
         let path = self.admission_path();
@@ -201,16 +247,32 @@ impl SetupHost {
         );
         let router = create.router()?;
         let owner = tokio::spawn(create.run());
-        let result = api::serve_setup(
-            (),
-            tls,
-            address,
-            router,
-            "/idp/setup/status".into(),
-            path,
-            cancellation.clone(),
-        )
-        .await;
+        let result = if let Some(tls) = tls {
+            api::serve_setup(
+                (),
+                tls,
+                address,
+                router,
+                "/idp/setup/status".into(),
+                path,
+                cancellation.clone(),
+            )
+            .await
+        } else {
+            async {
+                let listener = tokio::net::TcpListener::bind(address).await?;
+                println!("Local setup HTTP: http://{}", listener.local_addr()?);
+                println!("Public IdP: {public_idp}");
+                println!(
+                    "Protected management setup-code retrieval path: {}",
+                    path.display()
+                );
+                axum::serve(listener, router.into_make_service())
+                    .with_graceful_shutdown(cancellation.clone().cancelled_owned())
+                    .await
+            }
+            .await
+        };
         cancellation.cancel();
         let cleanup = owner.await.map_err(io::Error::other)?;
         result.and(cleanup)
@@ -237,7 +299,7 @@ impl SetupHost {
         let owner = tokio::spawn(create.run());
         let result = api::serve_setup_verified(
             (),
-            tls,
+            tls.expect("verified native HTTPS setup host"),
             address,
             router,
             "/idp/setup/status".into(),

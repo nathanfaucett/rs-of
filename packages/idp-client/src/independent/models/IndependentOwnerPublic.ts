@@ -15,10 +15,10 @@
 import { mapValues } from "../runtime.js";
 import type { IndependentCreateIntent } from "./IndependentCreateIntent.js";
 import {
-	IndependentCreateIntentFromJSON,
-	IndependentCreateIntentFromJSONTyped,
-	IndependentCreateIntentToJSON,
-	IndependentCreateIntentToJSONTyped,
+    IndependentCreateIntentFromJSON,
+    IndependentCreateIntentFromJSONTyped,
+    IndependentCreateIntentToJSON,
+    IndependentCreateIntentToJSONTyped,
 } from "./IndependentCreateIntent.js";
 
 /**
@@ -27,84 +27,85 @@ import {
  * @interface IndependentOwnerPublic
  */
 export interface IndependentOwnerPublic {
-	/**
-	 *
-	 */
-	clients: Array<any>;
-	/**
-	 *
-	 */
-	facts: any | null;
-	/**
-	 *
-	 */
-	operation: IndependentCreateIntent;
-	/**
-	 *
-	 */
-	owner: string;
-	/**
-	 *
-	 */
-	registered: Array<string>;
+    /**
+     *
+     */
+    clients: Array<any>;
+    /**
+     *
+     */
+    facts: any | null;
+    /**
+     *
+     */
+    operation: IndependentCreateIntent;
+    /**
+     *
+     */
+    owner: string;
+    /**
+     *
+     */
+    registered: Array<string>;
 }
 
 /**
  * Check if a given object implements the IndependentOwnerPublic interface.
  */
 export function instanceOfIndependentOwnerPublic(
-	value: object,
+    value: object,
 ): value is IndependentOwnerPublic {
-	if (!("clients" in value) || value["clients"] === undefined) return false;
-	if (!("facts" in value) || value["facts"] === undefined) return false;
-	if (!("operation" in value) || value["operation"] === undefined) return false;
-	if (!("owner" in value) || value["owner"] === undefined) return false;
-	if (!("registered" in value) || value["registered"] === undefined)
-		return false;
-	return true;
+    if (!("clients" in value) || value["clients"] === undefined) return false;
+    if (!("facts" in value) || value["facts"] === undefined) return false;
+    if (!("operation" in value) || value["operation"] === undefined)
+        return false;
+    if (!("owner" in value) || value["owner"] === undefined) return false;
+    if (!("registered" in value) || value["registered"] === undefined)
+        return false;
+    return true;
 }
 
 export function IndependentOwnerPublicFromJSON(
-	json: any,
+    json: any,
 ): IndependentOwnerPublic {
-	return IndependentOwnerPublicFromJSONTyped(json, false);
+    return IndependentOwnerPublicFromJSONTyped(json, false);
 }
 
 export function IndependentOwnerPublicFromJSONTyped(
-	json: any,
-	ignoreDiscriminator: boolean,
+    json: any,
+    ignoreDiscriminator: boolean,
 ): IndependentOwnerPublic {
-	if (json == null) {
-		return json;
-	}
-	return {
-		clients: json["clients"],
-		facts: json["facts"],
-		operation: IndependentCreateIntentFromJSON(json["operation"]),
-		owner: json["owner"],
-		registered: json["registered"],
-	};
+    if (json == null) {
+        return json;
+    }
+    return {
+        clients: json["clients"],
+        facts: json["facts"],
+        operation: IndependentCreateIntentFromJSON(json["operation"]),
+        owner: json["owner"],
+        registered: json["registered"],
+    };
 }
 
 export function IndependentOwnerPublicToJSON(
-	json: any,
+    json: any,
 ): IndependentOwnerPublic {
-	return IndependentOwnerPublicToJSONTyped(json, false);
+    return IndependentOwnerPublicToJSONTyped(json, false);
 }
 
 export function IndependentOwnerPublicToJSONTyped(
-	value?: IndependentOwnerPublic | null,
-	ignoreDiscriminator: boolean = false,
+    value?: IndependentOwnerPublic | null,
+    ignoreDiscriminator: boolean = false,
 ): any {
-	if (value == null) {
-		return value;
-	}
+    if (value == null) {
+        return value;
+    }
 
-	return {
-		clients: value["clients"],
-		facts: value["facts"],
-		operation: IndependentCreateIntentToJSON(value["operation"]),
-		owner: value["owner"],
-		registered: value["registered"],
-	};
+    return {
+        clients: value["clients"],
+        facts: value["facts"],
+        operation: IndependentCreateIntentToJSON(value["operation"]),
+        owner: value["owner"],
+        registered: value["registered"],
+    };
 }

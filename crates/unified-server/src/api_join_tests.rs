@@ -46,7 +46,7 @@ pub(super) async fn from_source(
             .expect("existing production source fixture");
     let preparation = CancellationToken::new();
     let runtime = provisioning_stage(|| {
-        local.prepare_hosted_runtime("fixture-initial-password", &preparation)
+        local.prepare_hosted_runtime("fixture-initial-password", true, &preparation)
     })
     .await
     .expect("prepare real source owners once");

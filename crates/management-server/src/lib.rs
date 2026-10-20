@@ -20,7 +20,7 @@ pub use cli::run;
 pub use config::AppConfig;
 pub use management_service::MANAGEMENT_APPLICATION_URI;
 pub use provisioning::{open_database, provision_initial_administrator, provision_initial_device};
-pub use router::{RouterState, openapi_router};
+pub use router::{RouterState, openapi_document, openapi_router};
 pub use runtime::{build_router, replication_policy};
 
 #[cfg(unix)]

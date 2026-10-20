@@ -190,8 +190,23 @@ impl LocalJoin {
         crate::LocalTls::api_base(self.config.listen_addr)?;
         self.check_retained()?;
         let cancellation = CancellationToken::new();
-        let runtime = provisioning_stage(|| self.prepare_runtime(false, &cancellation)).await?;
+        let runtime =
+            provisioning_stage(|| self.prepare_runtime(true, false, &cancellation)).await?;
         runtime.verify_local_bootstrap(Some(tls)).await?;
+        if self.journal.complete {
+            return Ok(());
+        }
+        self.journal.complete = true;
+        self.write()
+    }
+
+    /// HTTP join for server deployments behind a terminating proxy.
+    pub async fn join_http(&mut self) -> io::Result<()> {
+        self.check_retained()?;
+        let cancellation = CancellationToken::new();
+        let runtime =
+            provisioning_stage(|| self.prepare_runtime(false, false, &cancellation)).await?;
+        runtime.verify_local_bootstrap(None).await?;
         if self.journal.complete {
             return Ok(());
         }
@@ -203,9 +218,10 @@ impl LocalJoin {
     /// The host owns authorization, exact intent, publication and explicit completion.
     pub async fn prepare_hosted_runtime(
         &mut self,
+        https: bool,
         cancellation: &CancellationToken,
     ) -> io::Result<UnifiedRuntime> {
-        provisioning_stage(|| self.prepare_runtime(true, cancellation)).await
+        provisioning_stage(|| self.prepare_runtime(https, true, cancellation)).await
     }
 
     /// Records local completion after host publication/verification; does not retire setup admission.
@@ -232,14 +248,17 @@ impl LocalJoin {
 
     async fn prepare_runtime(
         &mut self,
+        https: bool,
         hosted: bool,
         cancellation: &CancellationToken,
     ) -> io::Result<UnifiedRuntime> {
-        crate::LocalTls::api_base(self.config.listen_addr)?;
+        if https {
+            crate::LocalTls::api_base(self.config.listen_addr)?;
+        }
         check_cancellation(cancellation)?;
         self.check_retained()?;
         if self.journal.complete {
-            let runtime = Box::pin(self.build(true, hosted)).await?;
+            let runtime = Box::pin(self.build(https, hosted)).await?;
 
             if let Err(error) = check_cancellation(cancellation) {
                 runtime.shutdown().await?;
@@ -286,7 +305,11 @@ impl LocalJoin {
             Some(listener) => listener.local_addr()?,
             None => config.listen_addr,
         };
-        let base = crate::LocalTls::api_base(address)?;
+        let base = if https {
+            crate::LocalTls::api_base(address)?
+        } else {
+            format!("http://{address}")
+        };
         #[cfg(test)]
         let runtime_started = std::time::Instant::now();
         let runtime = Box::pin(UnifiedRuntime::build_with_owners(config, listener, base, owners)).await?;
@@ -393,8 +416,8 @@ impl LocalJoin {
     }
 
     /// Reopens completed locally trusted owners without taking the host's listener or contacting a peer.
-    pub async fn reopen_hosted_runtime(&self) -> io::Result<UnifiedRuntime> {
-        self.build(true, true).await
+    pub async fn reopen_hosted_runtime(&self, https: bool) -> io::Result<UnifiedRuntime> {
+        self.build(https, true).await
     }
 
     async fn build(&self, https: bool, hosted: bool) -> io::Result<UnifiedRuntime> {

@@ -343,7 +343,7 @@ async fn production_https_bootstrap_child() {
         let before = join_journal(&b);
         let cancellation = tokio_util::sync::CancellationToken::new();
         cancellation.cancel();
-        let result = joining.prepare_hosted_runtime(&cancellation).await;
+        let result = joining.prepare_hosted_runtime(true, &cancellation).await;
         assert_eq!(
             result.err().expect("cancel before mutation").kind(),
             io::ErrorKind::Interrupted
@@ -351,12 +351,12 @@ async fn production_https_bootstrap_child() {
         assert_eq!(join_journal(&b), before);
         assert!(!b.config.endpoint_data_dir.exists());
         assert!(!std::path::Path::new(&b.config.idp.data_dir).exists());
-        assert!(joining.reopen_hosted_runtime().await.is_err());
+        assert!(joining.reopen_hosted_runtime(true).await.is_err());
 
         let cancellation = tokio_util::sync::CancellationToken::new();
         let cancel = cancellation.clone();
         let task = tokio::spawn(async move {
-            let result = joining.prepare_hosted_runtime(&cancellation).await;
+            let result = joining.prepare_hosted_runtime(true, &cancellation).await;
             (joining, result)
         });
         let member: Id = before["member"]
@@ -423,7 +423,7 @@ async fn production_https_bootstrap_child() {
     let join_task = tokio::spawn(async move {
         if hosted {
             let runtime = joining
-                .prepare_hosted_runtime(&tokio_util::sync::CancellationToken::new())
+                .prepare_hosted_runtime(true, &tokio_util::sync::CancellationToken::new())
                 .await?;
             Ok::<_, io::Error>((joining, tls_b, Some(runtime)))
         } else {
@@ -497,7 +497,7 @@ async fn production_https_bootstrap_child() {
             false,
             "preparation is not completion"
         );
-        assert!(joining.reopen_hosted_runtime().await.is_err());
+        assert!(joining.reopen_hosted_runtime(true).await.is_err());
         let cancellation = tokio_util::sync::CancellationToken::new();
         cancellation.cancel();
         assert_eq!(
@@ -594,7 +594,7 @@ async fn production_https_bootstrap_child() {
         None
     };
     let runtime = if hosted {
-        provisioning_stage(|| joining.reopen_hosted_runtime()).await
+        provisioning_stage(|| joining.reopen_hosted_runtime(true)).await
     } else {
         provisioning_stage(|| joining.build_https_runtime()).await
     }

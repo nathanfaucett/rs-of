@@ -1,0 +1,344 @@
+use std::{
+    fs,
+    process::Command,
+    time::{Duration, Instant},
+};
+
+use idp_model::model::Id;
+use tokio_util::sync::CancellationToken;
+
+use crate::{BootstrapConfig, BootstrapPurpose, LocalTls, SetupHost};
+
+#[tokio::test]
+async fn fresh_host_publishes_complete_openapi_without_provisioning() {
+    use axum::{
+        body::{Body, to_bytes},
+        http::Request,
+    };
+    use tower::ServiceExt;
+
+    let root = std::env::temp_dir().join(format!("unified-openapi-{}", Id::now_v7()));
+    let host = BootstrapConfig::create_http(
+        &root,
+        BootstrapPurpose::AwaitingChoice,
+        None,
+        "127.0.0.1:3000".parse().expect("HTTP backend address"),
+        "https://unified.localhost:1355".into(),
+    )
+    .expect("fresh neutral host");
+    let config = host.config();
+    let setup = SetupHost::create_http(host).expect("HTTP setup without certificates");
+    let worker = setup.into_worker(CancellationToken::new());
+    let router = worker.router().expect("neutral host router");
+    for service in ["idp", "management"] {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/{service}/openapi.json"))
+                    .body(Body::empty())
+                    .expect("OpenAPI request"),
+            )
+            .await
+            .expect("OpenAPI response");
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), 4 * 1024 * 1024)
+            .await
+            .expect("schema body");
+        let document: serde_json::Value = serde_json::from_slice(&bytes).expect("OpenAPI JSON");
+        let paths = document["paths"].as_object().expect("complete API paths");
+        let operations = paths
+            .values()
+            .flat_map(|path| path.as_object().expect("path item").values())
+            .filter(|operation| operation.get("operationId").is_some())
+            .count();
+        assert_eq!(operations, 38, "complete {service} router inventory");
+        assert!(
+            !document["components"]["schemas"]
+                .as_object()
+                .expect("models")
+                .is_empty()
+        );
+        assert_eq!(
+            document["servers"][0]["url"],
+            format!("https://unified.localhost:1355/{service}")
+        );
+    }
+    for path in [
+        &config.idp.data_dir,
+        &config.management.data_dir,
+        &config.storage.data_dir,
+    ] {
+        assert!(
+            !std::path::Path::new(path).exists(),
+            "schema export must not create owners"
+        );
+    }
+    assert!(!config.endpoint_data_dir.exists());
+    assert!(!config.credential_bootstrap_directory().exists());
+    assert!(!config.local_provisioning_directory().exists());
+    assert!(!LocalTls::directory(&config).exists());
+    drop(worker);
+    fs::remove_dir_all(root).expect("isolated cleanup");
+}
+
+#[test]
+fn http_setup_create_and_reopen_without_certificates() {
+    let mut child = Command::new(std::env::current_exe().expect("test executable"))
+        .args([
+            "--exact",
+            "http_server_tests::http_setup_child",
+            "--ignored",
+            "--nocapture",
+        ])
+        .env("RUST_MIN_STACK", "16777216")
+        .spawn()
+        .expect("isolated provider child");
+    let deadline = Instant::now() + Duration::from_secs(90);
+    loop {
+        if let Some(status) = child.try_wait().expect("child status") {
+            assert!(status.success(), "HTTP setup child must succeed");
+            break;
+        }
+        if Instant::now() >= deadline {
+            child.kill().expect("bound child");
+            child.wait().expect("reap child");
+            panic!("HTTP setup child exceeded 90 seconds");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "parent isolates the mock key provider"]
+async fn http_setup_child() {
+    crate::endpoint::use_isolated_address_lookup();
+    idp_service::repo::PrivateKeyKeyringRepo::new_with_store(
+        "isolated-http-setup",
+        std::sync::Arc::new(crate::local_provisioning_tests::SecretStore {
+            store: keyring_core::mock::Store::new().expect("isolated provider"),
+            fail_node_readback: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }),
+    );
+    let root = std::env::temp_dir().join(format!("unified-http-{}", Id::now_v7()));
+    let reservation = std::net::TcpListener::bind("127.0.0.1:0").expect("test port");
+    let address = reservation.local_addr().expect("test address");
+    drop(reservation);
+    let public = "https://unified.localhost";
+    let host = BootstrapConfig::create_http(
+        &root,
+        BootstrapPurpose::AwaitingChoice,
+        None,
+        address,
+        public.into(),
+    )
+    .expect("fresh proxy host");
+    let config = host.config();
+    assert_eq!(config.listen_addr, address);
+    assert_eq!(config.idp.api_public_uri, format!("{public}/idp"));
+    assert_eq!(config.storage.api_public_uri, format!("{public}/storage"));
+    assert!(config.idp.oauth2.issuer.is_empty());
+    let setup = SetupHost::create_http(host).expect("neutral HTTP without certificates");
+    let admission_path = setup.admission_path();
+    let state = fs::read_to_string(&admission_path).expect("protected host code");
+    let code = state.lines().nth(1).expect("host code");
+    let tls_directory = LocalTls::directory(&config);
+    assert!(!tls_directory.exists());
+    let http = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(5))
+        .build()
+        .expect("HTTP client");
+    let base = format!("http://{address}");
+    let body = serde_json::json!({"operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"operator", "node":"HTTP Node", "password":"fixture-initial-password"});
+    let shutdown = CancellationToken::new();
+    let server = tokio::spawn(setup.serve(shutdown.clone()));
+    wait_status(&http, &base, false).await;
+    for authorization in [None, Some(format!("Setup {}", "0".repeat(64)))] {
+        let mut request = http.post(format!("{base}/idp/setup/create")).json(&body);
+        if let Some(value) = authorization {
+            request = request.header("Authorization", value);
+        }
+        assert_eq!(
+            request.send().await.expect("unauthorized create").status(),
+            reqwest::StatusCode::UNAUTHORIZED
+        );
+    }
+    assert_eq!(
+        http.post(format!("{base}/idp/setup/create"))
+            .header("Authorization", format!("Setup {code}"))
+            .header("Origin", "https://evil.invalid")
+            .json(&body)
+            .send()
+            .await
+            .expect("origin denial")
+            .status(),
+        reqwest::StatusCode::FORBIDDEN
+    );
+    assert!(!std::path::Path::new(&config.idp.data_dir).exists());
+    assert_eq!(
+        http.post(format!("{base}/idp/setup/create"))
+            .header("Authorization", format!("Setup {code}"))
+            .header("Origin", public)
+            .json(&body)
+            .send()
+            .await
+            .expect("authorized create")
+            .status(),
+        reqwest::StatusCode::ACCEPTED
+    );
+    wait_status(&http, &base, true).await;
+    assert!(!tls_directory.exists(), "API Create must not produce TLS");
+    assert_eq!(
+        http.post(format!("{base}/idp/setup/create"))
+            .json(&body)
+            .send()
+            .await
+            .expect("authenticated completed retry over HTTP")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    let mut wrong = body.clone();
+    wrong["password"] = serde_json::json!("wrong-password");
+    assert_eq!(
+        http.post(format!("{base}/idp/setup/create"))
+            .json(&wrong)
+            .send()
+            .await
+            .expect("completed retry password denial")
+            .status(),
+        reqwest::StatusCode::UNAUTHORIZED
+    );
+    shutdown.cancel();
+    server.await.expect("server task").expect("HTTP shutdown");
+
+    let host = BootstrapConfig::open(&root).expect("retained proxy identity");
+    assert_eq!(host.config().idp.api_public_uri, config.idp.api_public_uri);
+    let setup = SetupHost::open_http(host).expect("reopen without certificates");
+    let shutdown = CancellationToken::new();
+    let server = tokio::spawn(setup.serve(shutdown.clone()));
+    wait_status(&http, &base, true).await;
+    assert_eq!(
+        http.get(format!("{base}/idp/health"))
+            .send()
+            .await
+            .expect("normal API")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    shutdown.cancel();
+    server
+        .await
+        .expect("reopened server task")
+        .expect("reopened shutdown");
+    assert!(!tls_directory.exists(), "reopen must not produce TLS");
+    fs::remove_dir_all(root).expect("isolated cleanup");
+
+    let root = std::env::temp_dir().join(format!("unified-http-cli-{}", Id::now_v7()));
+    let host = BootstrapConfig::create_http(
+        &root,
+        BootstrapPurpose::Create,
+        None,
+        address,
+        public.into(),
+    )
+    .expect("CLI create host");
+    let config = host.config();
+    let credentials =
+        crate::CredentialBootstrap::create(config.clone()).expect("HTTP credentials without TLS");
+    let mut local = crate::LocalProvisioner::create_with_password(
+        credentials.load().expect("retained config"),
+        "operator",
+        "CLI Node",
+        "fixture-initial-password",
+    )
+    .expect("CLI create intent");
+    local
+        .provision_http("fixture-initial-password")
+        .await
+        .expect("HTTP CLI provisioning");
+    local.verify_http().await.expect("completed CLI retry");
+    drop(local);
+    let (runtime, local) = crate::LocalProvisioner::open_runtime(config.clone())
+        .await
+        .expect("CLI serve reopen");
+    let shutdown = runtime.cancellation_token();
+    let server = tokio::spawn(runtime.serve());
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        if http
+            .get(format!("{base}/idp/health"))
+            .send()
+            .await
+            .is_ok_and(|response| response.status() == reqwest::StatusCode::OK)
+        {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "bounded CLI HTTP serving"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    shutdown.cancel();
+    if let Err(error) = server.await.expect("CLI server task") {
+        assert_eq!(
+            error.kind(),
+            std::io::ErrorKind::Interrupted,
+            "shutdown may interrupt background startup"
+        );
+    }
+    assert!(
+        !LocalTls::directory(&config).exists(),
+        "CLI create/verify/serve must not produce TLS"
+    );
+    drop((local, credentials, host));
+    fs::remove_dir_all(root).expect("CLI fixture cleanup");
+}
+
+async fn wait_status(http: &reqwest::Client, base: &str, ready: bool) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    loop {
+        if let Ok(response) = http.get(format!("{base}/idp/setup/status")).send().await {
+            let status: serde_json::Value = response.json().await.expect("setup status");
+            if status["ready"] == ready {
+                return;
+            }
+            assert_ne!(status["state"], "unavailable", "{status}");
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "bounded HTTP setup readiness"
+        );
+        tokio::time::sleep(Duration::from_millis(30)).await;
+    }
+}
+
+#[test]
+fn http_setup_origin_is_exact_and_loopback_only() {
+    for origin in [
+        "http://127.0.0.1:3000",
+        "http://[::1]:3000",
+        "http://localhost:3000",
+        "https://unified.localhost",
+    ] {
+        assert!(
+            crate::setup_host::allowed_origin(origin).is_ok(),
+            "{origin}"
+        );
+    }
+    for origin in [
+        "http://evil.invalid",
+        "http://localhost.evil.invalid",
+        "http://localhost/path",
+        "http://user@localhost",
+        "http://localhost?code=secret",
+        "http://localhost#code",
+    ] {
+        assert!(
+            crate::setup_host::allowed_origin(origin).is_err(),
+            "{origin}"
+        );
+    }
+}

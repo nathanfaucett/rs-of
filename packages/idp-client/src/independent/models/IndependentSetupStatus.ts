@@ -19,76 +19,76 @@ import { mapValues } from "../runtime.js";
  * @interface IndependentSetupStatus
  */
 export interface IndependentSetupStatus {
-	/**
-	 *
-	 */
-	owners: Array<string>;
-	/**
-	 *
-	 */
-	ready: boolean;
-	/**
-	 *
-	 */
-	stage: string;
-	/**
-	 *
-	 */
-	state: string;
+    /**
+     *
+     */
+    owners: Array<string>;
+    /**
+     *
+     */
+    ready: boolean;
+    /**
+     *
+     */
+    stage: string;
+    /**
+     *
+     */
+    state: string;
 }
 
 /**
  * Check if a given object implements the IndependentSetupStatus interface.
  */
 export function instanceOfIndependentSetupStatus(
-	value: object,
+    value: object,
 ): value is IndependentSetupStatus {
-	if (!("owners" in value) || value["owners"] === undefined) return false;
-	if (!("ready" in value) || value["ready"] === undefined) return false;
-	if (!("stage" in value) || value["stage"] === undefined) return false;
-	if (!("state" in value) || value["state"] === undefined) return false;
-	return true;
+    if (!("owners" in value) || value["owners"] === undefined) return false;
+    if (!("ready" in value) || value["ready"] === undefined) return false;
+    if (!("stage" in value) || value["stage"] === undefined) return false;
+    if (!("state" in value) || value["state"] === undefined) return false;
+    return true;
 }
 
 export function IndependentSetupStatusFromJSON(
-	json: any,
+    json: any,
 ): IndependentSetupStatus {
-	return IndependentSetupStatusFromJSONTyped(json, false);
+    return IndependentSetupStatusFromJSONTyped(json, false);
 }
 
 export function IndependentSetupStatusFromJSONTyped(
-	json: any,
-	ignoreDiscriminator: boolean,
+    json: any,
+    ignoreDiscriminator: boolean,
 ): IndependentSetupStatus {
-	if (json == null) {
-		return json;
-	}
-	return {
-		owners: json["owners"],
-		ready: json["ready"],
-		stage: json["stage"],
-		state: json["state"],
-	};
+    if (json == null) {
+        return json;
+    }
+    return {
+        owners: json["owners"],
+        ready: json["ready"],
+        stage: json["stage"],
+        state: json["state"],
+    };
 }
 
 export function IndependentSetupStatusToJSON(
-	json: any,
+    json: any,
 ): IndependentSetupStatus {
-	return IndependentSetupStatusToJSONTyped(json, false);
+    return IndependentSetupStatusToJSONTyped(json, false);
 }
 
 export function IndependentSetupStatusToJSONTyped(
-	value?: IndependentSetupStatus | null,
-	ignoreDiscriminator: boolean = false,
+    value?: IndependentSetupStatus | null,
+    ignoreDiscriminator: boolean = false,
 ): any {
-	if (value == null) {
-		return value;
-	}
+    if (value == null) {
+        return value;
+    }
 
-	return {
-		owners: value["owners"],
-		ready: value["ready"],
-		stage: value["stage"],
-		state: value["state"],
-	};
+    return {
+        owners: value["owners"],
+        ready: value["ready"],
+        stage: value["stage"],
+        state: value["state"],
+    };
 }

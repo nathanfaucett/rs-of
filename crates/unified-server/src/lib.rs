@@ -14,6 +14,8 @@ mod credential_bootstrap;
 mod endpoint;
 mod host_reset;
 #[cfg(all(test, unix))]
+mod http_server_tests;
+#[cfg(all(test, unix))]
 mod independent_permission_http_tests;
 mod issuer_discovery;
 mod local_join;

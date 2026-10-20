@@ -25,16 +25,20 @@ These are alternative first attempts; continuation omits name overrides.
 
 The default Node root is `$XDG_DATA_HOME/of/unified`, or
 `$HOME/.local/share/of/unified`. `--data-dir` selects an alternative Node root.
-The host chooses an unused localhost port **once**, durably retains it in
+The CLI listens on localhost port **3000** by default, respects `PORT`, and accepts
+`serve --port` as an explicit override. It retains public identity/settings in
 `host.json`, and derives separate IdP/Management/Storage/endpoint directories,
 public Application URIs, service audiences, Canonical Issuer and a distinct
 local key namespace. A new Installation's Canonical Issuer is
 `https://<retained-random-UUID>.installation.invalid/idp`: a unique retained logical
 identifier, not the loopback address. The actual public HTTP API remains on the
-saved local HTTPS listener. Two machines using the same localhost port therefore
+HTTP backend listener, with public TLS terminating at portless/proxy. Two machines using the same localhost port therefore
 have different Installation identities. Join retains the authenticated peer's
-issuer, independent of its own API address. Restart/continuation uses exactly those retained settings;
-port contention refuses rather than selecting a new identity. `host.json`
+issuer, independent of its own API address. `PORTLESS_URL` supplies the public
+origin on fresh startup when present; otherwise public URLs use loopback HTTP.
+Restart preserves Application URIs, audiences and Installation identity even when
+`PORT` or `PORTLESS_URL` changes. On retained no-config hosts, `PORTLESS_URL` selects
+only the runtime setup UI origin; it does not rewrite retained identity. `host.json`
 contains only public identity/settings, never passwords, relationship secrets,
 private keys or tokens. Missing or malformed retained host identity requires
 explicit recovery, not regeneration.
@@ -42,18 +46,21 @@ explicit recovery, not regeneration.
 Bundled IdP, Management and Storage use current owner-local authorization calls.
 No confidential relationship Clients, generated relationship secrets, or secret
 environment variables are required. The public operator-login Client remains;
-Node private signers and TLS material still require protected retained storage.
+Node private signers still require protected retained storage. Unified CLI
+create/join/serve never generate, install or open server certificates. Desktop/native
+retains its existing local HTTPS and protected TLS material.
 
 ## Public operator login
 
 Create **and** join automatically provision a separate public operator-login Client
 with a retained ID and no Client secret. Completed retry/reopen verifies and reuses
 it. CLI output prints `Operator login Client`, `Login scopes` and
-`Token-exchange audiences`; `serve` also prints the local HTTPS API bases, issuer,
+`Token-exchange audiences`; `serve` also prints the local HTTP base, public IdP URI, issuer,
 IdP token endpoint and service audiences. Use the actual printed login Client ID,
 not a manual UUID or confidential service-client ID.
 
-Sign in through ordinary `POST /idp/oauth2/token` at the printed local HTTPS API,
+Sign in through ordinary `POST /idp/oauth2/token` at the printed API address
+(use the proxy's HTTPS origin for remote/browser clients),
 using `application/x-www-form-urlencoded`: `grant_type=password`, the printed
 `client_id`, the User's `username` (e.g. `operator` or chosen `alice`), securely
 handled `password`, and `scope=openid` (optionally `profile email`). The public
@@ -114,34 +121,31 @@ acknowledgment retry, rechecking the exact anchor, private binding and learned
 context grants. Bulk public state transfer is not given the short handshake
 budget. No temporary general allowlist bypass or resource permission is added.
 
-## Mandatory TLS and completion
+## HTTP server, proxy TLS and completion
 
-Both create and join require OS CA installation and protected retained localhost
-CA/server material. Only `127.0.0.1` and `::1` are supported for localhost TLS.
-Node bootstrap is explicitly Unix-only; unsupported platforms/IPs refuse before
-creating retained material.
+Run `just unified` to serve behind portless. It uses backend port `3000` (or
+`PORT`) and public URLs from `PORTLESS_URL`. Ordinary startup without a subcommand,
+or `serve` on a genuinely fresh root, starts a neutral HTTP setup host: no
+Installation/domain state or server certificates are created. The protected setup
+code retrieval path is printed, never the code itself. Setup authorization,
+exact-origin checks and explicit completion remain mandatory. Only loopback HTTP
+UI origins are accepted; other browser origins require HTTPS. Do not expose the
+backend HTTP listener or setup-code file to untrusted networks.
 
-The secure base is configured before production runtime construction. Completion
-checks current owner-local readiness and serves the **production HTTPS router**
-for native-root listener verification. Full integration qualification separately
-exercises all three health routes and current local Management→IdP identity
-lookup. Bundled Management and Storage bearer validation and endpoint identity
-lookup use local IdP owner callbacks; IdP permissions and Storage replication
-use local Management authorization. These local consumers require no confidential Clients. Owners and listener are closed before completion is
-published. Verification uses native roots only, no redirects or proxies. There is
-no plaintext/browser-only fallback or skip-install flag.
+CLI create/join completion checks current owner-local readiness and closes its
+temporary runtime before recording completion. Node bootstrap remains Unix-only
+and loopback-only. OS secure-provider access is still required for private signers;
+removing server TLS does not remove private-key protection or ordinary API authorization.
 
-Linux uses `trust anchor`, or the matched platform destination/refresh command:
-Debian-family `/usr/local/share/ca-certificates` with `update-ca-certificates`, or
-Fedora-family `/etc/pki/ca-trust/source/anchors` with `update-ca-trust extract`.
-macOS uses the login keychain. Real OS provider availability, elevation and trust
-verification must work in the deployment; no unattended-keyring or universal
-crash-safety claim is made.
+Desktop/native remains HTTPS: `BootstrapConfig::create` still reserves an ephemeral
+localhost port, and native setup still generates/opens local TLS material, installs
+the CA and verifies the production listener through native roots. No certificate
+verification bypass or dummy TLS is used.
 
 ## Retention and explicit compositions
 
-Beside the endpoint root, retain `.credentials`, `.tls` and `.provisioning`
-directories. The historically named `.credentials/credentials.json` retains exact host settings
+Beside the endpoint root, retain `.credentials` and `.provisioning`
+directories, plus `.tls` for native HTTPS hosts. The historically named `.credentials/credentials.json` retains exact host settings
 and TLS-attempt evidence only, not service Client inventories or secrets. TLS
 production history is durable before protected material is created, and writes
 require exact readback. Missing attempted signing material,

@@ -1,6 +1,6 @@
 use api::SecurityAddon;
 use utoipa::OpenApi;
-use utoipa::openapi::{Paths, RefOr, Schema, Server};
+use utoipa::openapi::{OpenApi as OpenApiDocument, Paths, RefOr, Schema, Server};
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::RouterState;
@@ -62,51 +62,50 @@ use super::routes::version::{__path_version, version};
 )]
 pub(crate) struct ApiDoc;
 
-pub fn openapi_router(router_state: RouterState, prefix: &str) -> OpenApiRouter {
+fn routes() -> OpenApiRouter<RouterState> {
+    OpenApiRouter::new()
+        .routes(routes!(health))
+        .routes(routes!(device))
+        .routes(routes!(revoke_self))
+        .routes(routes!(transfer_device))
+        .routes(routes!(lookup_device_endpoint))
+        .routes(routes!(lookup_device_identity))
+        .routes(routes!(list_approved_device_endpoints))
+        .routes(routes!(trusted_devices))
+        .routes(routes!(enroll_device))
+        .routes(routes!(pairing_acceptance))
+        .routes(routes!(set_pairing_acceptance))
+        .routes(routes!(list_devices))
+        .routes(routes!(update_device))
+        .routes(routes!(revoke_device))
+        .routes(routes!(version))
+        .routes(routes!(list_user_roles_across_applications))
+        .routes(routes!(get_device_restriction))
+        .routes(routes!(put_device_restriction))
+        .routes(routes!(put_device_selection))
+        .routes(routes!(delete_device_selection))
+        .routes(routes!(delete_device_resource_selection))
+        .routes(routes!(selected_resources))
+        .routes(routes!(replication_admission))
+        .routes(routes!(owner_cleanup))
+        .routes(routes!(evaluate_permission))
+        .routes(routes!(list_roles))
+        .routes(routes!(create_role))
+        .routes(routes!(delete_role))
+        .routes(routes!(list_user_roles))
+        .routes(routes!(assign_role_to_user))
+        .routes(routes!(revoke_role_from_user))
+        .routes(routes!(list_permissions))
+        .routes(routes!(create_permission))
+        .routes(routes!(delete_permission))
+        .routes(routes!(list_role_permissions))
+        .routes(routes!(assign_permission_to_role))
+        .routes(routes!(revoke_permission_from_role))
+}
+
+/// Builds the complete production API document without provisioning runtime state.
+pub fn openapi_document(api_base_uri: &str, prefix: &str) -> OpenApiDocument {
     let prefix = if prefix == "/" { "" } else { prefix };
-    let api_base_uri = router_state.api_base_uri.clone();
-
-    let routes = || {
-        OpenApiRouter::new()
-            .routes(routes!(health))
-            .routes(routes!(device))
-            .routes(routes!(revoke_self))
-            .routes(routes!(transfer_device))
-            .routes(routes!(lookup_device_endpoint))
-            .routes(routes!(lookup_device_identity))
-            .routes(routes!(list_approved_device_endpoints))
-            .routes(routes!(trusted_devices))
-            .routes(routes!(enroll_device))
-            .routes(routes!(pairing_acceptance))
-            .routes(routes!(set_pairing_acceptance))
-            .routes(routes!(list_devices))
-            .routes(routes!(update_device))
-            .routes(routes!(revoke_device))
-            .routes(routes!(version))
-            .routes(routes!(list_user_roles_across_applications))
-            .routes(routes!(get_device_restriction))
-            .routes(routes!(put_device_restriction))
-            .routes(routes!(put_device_selection))
-            .routes(routes!(delete_device_selection))
-            .routes(routes!(delete_device_resource_selection))
-            .routes(routes!(selected_resources))
-            .routes(routes!(replication_admission))
-            .routes(routes!(owner_cleanup))
-            .routes(routes!(evaluate_permission))
-            .routes(routes!(list_roles))
-            .routes(routes!(create_role))
-            .routes(routes!(delete_role))
-            .routes(routes!(list_user_roles))
-            .routes(routes!(assign_role_to_user))
-            .routes(routes!(revoke_role_from_user))
-            .routes(routes!(list_permissions))
-            .routes(routes!(create_permission))
-            .routes(routes!(delete_permission))
-            .routes(routes!(list_role_permissions))
-            .routes(routes!(assign_permission_to_role))
-            .routes(routes!(revoke_permission_from_role))
-    };
-
     let spec_router = OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(routes());
 
     let mut openapi_spec = spec_router.get_openapi().clone();
@@ -135,6 +134,12 @@ pub fn openapi_router(router_state: RouterState, prefix: &str) -> OpenApiRouter 
         openapi_json_item,
     );
 
+    openapi_spec
+}
+
+pub fn openapi_router(router_state: RouterState, prefix: &str) -> OpenApiRouter {
+    let openapi_spec = openapi_document(&router_state.api_base_uri, prefix);
+    let prefix = if prefix == "/" { "" } else { prefix };
     let runtime_router = if prefix.is_empty() {
         OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(routes().with_state(router_state))
     } else {
@@ -150,5 +155,65 @@ pub fn openapi_router(router_state: RouterState, prefix: &str) -> OpenApiRouter 
         runtime_router.merge(openapi_json_routes)
     } else {
         runtime_router.nest(prefix, openapi_json_routes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use utoipa::OpenApi;
+    use utoipa_axum::router::OpenApiRouter;
+
+    use super::{ApiDoc, routes};
+
+    #[test]
+    fn openapi_document_preserves_full_registered_contract_without_state() {
+        let registered = OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(routes());
+        let expected = serde_json::to_value(registered.get_openapi())
+            .expect("serialize registered Management document");
+
+        for prefix in ["", "/", "/management", "/custom/management"] {
+            let document = crate::openapi_document("https://management.example", prefix);
+            let document = serde_json::to_value(document).expect("serialize Management document");
+            let paths = document["paths"]
+                .as_object()
+                .expect("complete Management paths");
+            let operations = paths
+                .values()
+                .flat_map(|item| item.as_object().expect("path item").values())
+                .filter_map(|operation| operation["operationId"].as_str())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                operations.len(),
+                38,
+                "complete Management operation inventory"
+            );
+            assert_eq!(operations.iter().collect::<BTreeSet<_>>().len(), 38);
+            assert!(document["paths"]["/openapi.json"]["get"]["operationId"].is_string());
+            let mut registered_paths = paths.clone();
+            registered_paths.remove("/openapi.json");
+            assert_eq!(
+                serde_json::Value::Object(registered_paths),
+                expected["paths"]
+            );
+            assert_eq!(document["components"], expected["components"]);
+            assert_eq!(document["tags"], expected["tags"]);
+            for schema in [
+                "SelectedResourcesResponse",
+                "HealthResponse",
+                "VersionResponse",
+            ] {
+                assert!(
+                    document["components"]["schemas"][schema].is_object(),
+                    "missing {schema}"
+                );
+            }
+            let prefix = if prefix == "/" { "" } else { prefix };
+            assert_eq!(
+                document["servers"][0]["url"],
+                format!("https://management.example{prefix}")
+            );
+        }
     }
 }

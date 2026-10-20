@@ -4,7 +4,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use api::{SetupAdmission, SetupAdmissionError, setup_origin};
+use api::{SetupAdmission, SetupAdmissionError};
+
 use axum::{
     Json, Router,
     extract::{Request, State},
@@ -258,7 +259,7 @@ struct Command {
 
 pub struct CreateHost {
     host: BootstrapConfig,
-    tls: LocalTls,
+    tls: Option<LocalTls>,
     shared: Arc<Shared>,
     commands: mpsc::Receiver<Command>,
     runtime: Option<UnifiedRuntime>,
@@ -304,7 +305,7 @@ impl Shared {
 impl CreateHost {
     pub(crate) fn new(
         host: BootstrapConfig,
-        tls: LocalTls,
+        tls: impl Into<Option<LocalTls>>,
         admission: Arc<SetupAdmission>,
         shutdown: CancellationToken,
     ) -> Self {
@@ -316,7 +317,7 @@ impl CreateHost {
         };
         Self {
             host,
-            tls,
+            tls: tls.into(),
             commands,
             shared: Arc::new(Shared {
                 admission,
@@ -335,16 +336,39 @@ impl CreateHost {
     }
 
     pub fn router(&self) -> io::Result<Router> {
-        self.router_for_origin(setup_origin(&self.host.config().idp.ui_public_uri)?)
+        let value = self.host.config().idp.ui_public_uri;
+        let origin = if self.tls.is_some() {
+            api::setup_origin(&value)?
+        } else {
+            crate::setup_host::allowed_origin(&value)?
+        };
+        self.router_for_origin(origin)
     }
 
     /// Host-selected UI origin, including a bundled native WebView's exact origin.
     /// This is not request-controlled and does not replace setup admission.
     pub fn router_for_origin(&self, origin: axum::http::HeaderValue) -> io::Result<Router> {
         if origin != "tauri://localhost" && origin != "http://tauri.localhost" {
-            setup_origin(origin.to_str().map_err(io::Error::other)?)?;
+            let value = origin.to_str().map_err(io::Error::other)?;
+            if self.tls.is_some() {
+                api::setup_origin(value)?;
+            } else {
+                crate::setup_host::allowed_origin(value)?;
+            }
         }
+        let config = self.host.config();
+        let idp_document = idp_server::openapi_document(&config.idp.api_public_uri, "");
+        let management_document =
+            management_server::openapi_document(&config.management.api_public_uri, "");
         let setup = Router::new()
+            .route(
+                "/idp/openapi.json",
+                get(move || async { Json(idp_document) }),
+            )
+            .route(
+                "/management/openapi.json",
+                get(move || async { Json(management_document) }),
+            )
             .route("/idp/setup/status", get(status))
             .route("/idp/setup/create", post(create))
             .route("/idp/setup/join", post(join))
@@ -442,7 +466,7 @@ impl CreateHost {
             .map_err(io::Error::other)?
             .map_err(io::Error::other)?;
         if local.is_complete()? && retired {
-            let runtime = local.reopen_hosted_runtime().await?;
+            let runtime = local.reopen_hosted_runtime(self.tls.is_some()).await?;
             log::info!(
                 "Node reopen stage=runtime elapsed_ms={}",
                 started.elapsed().as_millis()
@@ -583,10 +607,13 @@ impl CreateHost {
         self.credentials = Some(prepared.0);
         self.local = Some(prepared.1.map_err(|_| StatusCode::CONFLICT)?);
         let local = self.local.as_mut().expect("retained owner journal");
-        let runtime =
-            Box::pin(local.prepare_hosted_runtime(&request.password, &command.cancellation))
-                .await
-                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        let runtime = Box::pin(local.prepare_hosted_runtime(
+            &request.password,
+            self.tls.is_some(),
+            &command.cancellation,
+        ))
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
         if let Err(error) = self.publish(runtime).await {
             return Err(if error.kind() == io::ErrorKind::Interrupted {
                 StatusCode::CONFLICT
@@ -788,7 +815,7 @@ impl CreateHost {
                 .joining
                 .as_ref()
                 .expect("retained Join")
-                .reopen_hosted_runtime()
+                .reopen_hosted_runtime(self.tls.is_some())
                 .await?;
             #[cfg(test)]
             eprintln!("Node Join reopen stage=publish");
@@ -819,14 +846,20 @@ impl CreateHost {
                     "credentials",
                     &config.credential_bootstrap_directory(),
                 )? {
-                    CredentialBootstrap::adopt_host_tls(config, &self.tls)?
+                    match &self.tls {
+                        Some(tls) => CredentialBootstrap::adopt_host_tls(config, tls)?,
+                        None => CredentialBootstrap::create(config)?,
+                    }
                 } else {
                     CredentialBootstrap::open(config)?
                 }
             } else if present(&config.credential_bootstrap_directory())? {
                 CredentialBootstrap::open(config)?
             } else {
-                CredentialBootstrap::adopt_host_tls(config, &self.tls)?
+                match &self.tls {
+                    Some(tls) => CredentialBootstrap::adopt_host_tls(config, tls)?,
+                    None => CredentialBootstrap::create(config)?,
+                }
             });
         }
         Ok(())
@@ -881,9 +914,11 @@ impl CreateHost {
         self.credentials = Some(prepared.0);
         self.joining = Some(prepared.1.map_err(|_| StatusCode::CONFLICT)?);
         let joining = self.joining.as_mut().expect("retained Join");
-        let runtime = provisioning_stage(|| joining.prepare_hosted_runtime(&command.cancellation))
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        let runtime = provisioning_stage(|| {
+            joining.prepare_hosted_runtime(self.tls.is_some(), &command.cancellation)
+        })
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
         #[cfg(test)]
         let publish_started = std::time::Instant::now();
         self.publish(runtime)
@@ -995,7 +1030,8 @@ impl CreateHost {
         let http = LocalTls::verification_client().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
         let response = http
             .post(format!(
-                "https://{}/idp/oauth2/token",
+                "{}://{}/idp/oauth2/token",
+                if self.tls.is_some() { "https" } else { "http" },
                 self.host.config().listen_addr
             ))
             .form(&[

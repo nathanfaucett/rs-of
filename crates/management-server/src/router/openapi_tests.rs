@@ -67,7 +67,15 @@ async fn document() -> Value {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("read composed Management OpenAPI");
-    let document = serde_json::from_slice(&body).expect("public Management OpenAPI JSON");
+    let document: Value = serde_json::from_slice(&body).expect("public Management OpenAPI JSON");
+    assert_eq!(
+        document,
+        serde_json::to_value(crate::openapi_document(
+            "https://management.example",
+            "/management",
+        ))
+        .expect("state-free Management OpenAPI JSON"),
+    );
     drop(engine);
     std::fs::remove_dir_all(root).expect("remove isolated schema export database");
     document

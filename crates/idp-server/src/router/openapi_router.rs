@@ -1,6 +1,6 @@
 use api::SecurityAddon;
 use utoipa::OpenApi;
-use utoipa::openapi::{Paths, RefOr, Schema, Server};
+use utoipa::openapi::{OpenApi as OpenApiDocument, Paths, RefOr, Schema, Server};
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::RouterState;
@@ -60,51 +60,50 @@ use super::routes::well_known::{
 )]
 pub(crate) struct ApiDoc;
 
-pub fn openapi_router(router_state: RouterState, prefix: &str) -> OpenApiRouter {
+fn routes() -> OpenApiRouter<RouterState> {
+    OpenApiRouter::new()
+        .routes(routes!(health))
+        .routes(routes!(active_user))
+        .routes(routes!(enroll_replica_signer))
+        .routes(routes!(rotate_replica_signer))
+        .routes(routes!(revoke_replica_signer))
+        .routes(routes!(list_applications))
+        .routes(routes!(create_application))
+        .routes(routes!(get_application))
+        .routes(routes!(update_application))
+        .routes(routes!(delete_application))
+        .routes(routes!(get_user))
+        .routes(routes!(update_user))
+        .routes(routes!(delete_user))
+        .routes(routes!(reset_password))
+        .routes(routes!(list_consents))
+        .routes(routes!(revoke_consent))
+        .routes(routes!(list_client_keys))
+        .routes(routes!(rotate_client_key))
+        .routes(routes!(revoke_client_keys))
+        .routes(routes!(authorize_json))
+        .routes(routes!(authorize_query))
+        .routes(routes!(is_allowed_for_user))
+        .routes(routes!(approve_for_user))
+        .routes(routes!(device_auth))
+        .routes(routes!(device_verify))
+        .routes(routes!(introspect))
+        .routes(routes!(register))
+        .routes(routes!(get_register))
+        .routes(routes!(delete_register))
+        .routes(routes!(put_register))
+        .routes(routes!(token))
+        .routes(routes!(revoke))
+        .routes(routes!(sessions_logout))
+        .routes(routes!(version))
+        .routes(routes!(jwks))
+        .routes(routes!(openid_configuration))
+        .routes(routes!(userinfo))
+}
+
+/// Builds the complete production API document without provisioning runtime state.
+pub fn openapi_document(api_base_uri: &str, prefix: &str) -> OpenApiDocument {
     let prefix = if prefix == "/" { "" } else { prefix };
-    let api_base_uri = router_state.api_base_uri.clone();
-
-    let routes = || {
-        OpenApiRouter::new()
-            .routes(routes!(health))
-            .routes(routes!(active_user))
-            .routes(routes!(enroll_replica_signer))
-            .routes(routes!(rotate_replica_signer))
-            .routes(routes!(revoke_replica_signer))
-            .routes(routes!(list_applications))
-            .routes(routes!(create_application))
-            .routes(routes!(get_application))
-            .routes(routes!(update_application))
-            .routes(routes!(delete_application))
-            .routes(routes!(get_user))
-            .routes(routes!(update_user))
-            .routes(routes!(delete_user))
-            .routes(routes!(reset_password))
-            .routes(routes!(list_consents))
-            .routes(routes!(revoke_consent))
-            .routes(routes!(list_client_keys))
-            .routes(routes!(rotate_client_key))
-            .routes(routes!(revoke_client_keys))
-            .routes(routes!(authorize_json))
-            .routes(routes!(authorize_query))
-            .routes(routes!(is_allowed_for_user))
-            .routes(routes!(approve_for_user))
-            .routes(routes!(device_auth))
-            .routes(routes!(device_verify))
-            .routes(routes!(introspect))
-            .routes(routes!(register))
-            .routes(routes!(get_register))
-            .routes(routes!(delete_register))
-            .routes(routes!(put_register))
-            .routes(routes!(token))
-            .routes(routes!(revoke))
-            .routes(routes!(sessions_logout))
-            .routes(routes!(version))
-            .routes(routes!(jwks))
-            .routes(routes!(openid_configuration))
-            .routes(routes!(userinfo))
-    };
-
     let spec_router = OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(routes());
 
     let mut openapi_spec = spec_router.get_openapi().clone();
@@ -133,6 +132,12 @@ pub fn openapi_router(router_state: RouterState, prefix: &str) -> OpenApiRouter 
         openapi_json_item,
     );
 
+    openapi_spec
+}
+
+pub fn openapi_router(router_state: RouterState, prefix: &str) -> OpenApiRouter {
+    let openapi_spec = openapi_document(&router_state.api_base_uri, prefix);
+    let prefix = if prefix == "/" { "" } else { prefix };
     let runtime_router = if prefix.is_empty() {
         OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(routes().with_state(router_state))
     } else {
@@ -153,13 +158,61 @@ pub fn openapi_router(router_state: RouterState, prefix: &str) -> OpenApiRouter 
 
 #[cfg(test)]
 mod tests {
-    use utoipa::OpenApi;
+    use std::collections::BTreeSet;
 
-    use super::ApiDoc;
+    use utoipa::OpenApi;
+    use utoipa_axum::router::OpenApiRouter;
+
+    use super::{ApiDoc, routes};
+
+    #[test]
+    fn openapi_document_preserves_full_registered_contract_without_state() {
+        let registered = OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(routes());
+        let expected = serde_json::to_value(registered.get_openapi())
+            .expect("serialize registered IdP document");
+
+        for prefix in ["", "/", "/idp", "/custom/idp"] {
+            let document = crate::openapi_document("https://idp.example", prefix);
+            let document = serde_json::to_value(document).expect("serialize IdP document");
+            let paths = document["paths"].as_object().expect("complete IdP paths");
+            let operations = paths
+                .values()
+                .flat_map(|item| item.as_object().expect("path item").values())
+                .filter_map(|operation| operation["operationId"].as_str())
+                .collect::<Vec<_>>();
+            assert_eq!(operations.len(), 38, "complete IdP operation inventory");
+            assert_eq!(operations.iter().collect::<BTreeSet<_>>().len(), 38);
+            assert!(document["paths"]["/openapi.json"]["get"]["operationId"].is_string());
+            let mut registered_paths = paths.clone();
+            registered_paths.remove("/openapi.json");
+            assert_eq!(
+                serde_json::Value::Object(registered_paths),
+                expected["paths"]
+            );
+            assert_eq!(document["components"], expected["components"]);
+            assert_eq!(document["tags"], expected["tags"]);
+            for schema in [
+                "TokenResponse",
+                "UserInfo",
+                "ClientRegistration",
+                "EnrollReplicaSigner",
+            ] {
+                assert!(
+                    document["components"]["schemas"][schema].is_object(),
+                    "missing {schema}"
+                );
+            }
+            let prefix = if prefix == "/" { "" } else { prefix };
+            assert_eq!(
+                document["servers"][0]["url"],
+                format!("https://idp.example{prefix}")
+            );
+        }
+    }
 
     #[test]
     fn excludes_obsolete_bootstrap_and_keeps_idp_signer_routes() {
-        let document = ApiDoc::openapi();
+        let document = crate::openapi_document("https://idp.example", "/idp");
         assert!(!document.paths.paths.contains_key("/setup/bootstrap"));
         let enrollment = document
             .paths

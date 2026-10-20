@@ -38,6 +38,8 @@ struct Host {
     setup_attempted: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     explicit: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    public_base: Option<String>,
 }
 
 /// Public host identity/settings only. Retain the guard through setup and serving.
@@ -68,6 +70,44 @@ impl BootstrapConfig {
         purpose: BootstrapPurpose,
         peer_issuer: Option<(&str, &str)>,
     ) -> io::Result<Self> {
+        Self::create_host(root, purpose, peer_issuer, None)
+    }
+
+    /// Creates a proxy-facing HTTP host with retained public URLs and listener settings.
+    pub fn create_http(
+        root: &Path,
+        purpose: BootstrapPurpose,
+        peer_issuer: Option<(&str, &str)>,
+        listen: SocketAddr,
+        public_base: String,
+    ) -> io::Result<Self> {
+        let url =
+            reqwest::Url::parse(&public_base).map_err(|_| invalid("invalid public base URL"))?;
+        if !matches!(url.scheme(), "http" | "https")
+            || url.host_str().is_none()
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.path() != "/"
+            || url.query().is_some()
+            || url.fragment().is_some()
+        {
+            return Err(invalid("public base must be an HTTP(S) origin"));
+        }
+        crate::LocalTls::api_base(listen)?;
+        Self::create_host(
+            root,
+            purpose,
+            peer_issuer,
+            Some((listen, public_base.trim_end_matches('/').to_owned())),
+        )
+    }
+
+    fn create_host(
+        root: &Path,
+        purpose: BootstrapPurpose,
+        peer_issuer: Option<(&str, &str)>,
+        http: Option<(SocketAddr, String)>,
+    ) -> io::Result<Self> {
         require_unix_bootstrap()?;
         let root = absolute(root)?;
         require_absent(&root)?;
@@ -80,8 +120,18 @@ impl BootstrapConfig {
             idp_server::NodeJoinRequest::validate_trusted_peer(peer)?;
             validate_issuer(issuer)?;
         }
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
-        let listen = listener.local_addr()?;
+        let listener = if http.is_none() {
+            Some(TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?)
+        } else {
+            None
+        };
+        let listen = match &http {
+            Some((listen, _)) => *listen,
+            None => listener
+                .as_ref()
+                .expect("native port reservation")
+                .local_addr()?,
+        };
         let key_namespace = Id::now_v7();
         let host = Host {
             version: 1,
@@ -99,6 +149,7 @@ impl BootstrapConfig {
             trusted_peer: peer_issuer.map(|(peer, _)| peer.to_owned()),
             setup_attempted: (purpose == BootstrapPurpose::AwaitingChoice).then_some(false),
             explicit: None,
+            public_base: http.map(|(_, base)| base),
         };
         let retained = Self::retain(host, None)?;
         drop(listener);
@@ -275,9 +326,17 @@ impl BootstrapConfig {
         config.endpoint_data_dir.with_extension("host")
     }
 
-    pub fn create_explicit(mut config: UnifiedConfig) -> io::Result<Self> {
+    pub fn create_explicit(config: UnifiedConfig) -> io::Result<Self> {
+        Self::create_explicit_host(config, true)
+    }
+
+    pub fn create_explicit_http(config: UnifiedConfig) -> io::Result<Self> {
+        Self::create_explicit_host(config, false)
+    }
+
+    fn create_explicit_host(mut config: UnifiedConfig, https: bool) -> io::Result<Self> {
         require_unix_bootstrap()?;
-        crate::setup_host::require_fresh_roots(&config, true)?;
+        crate::setup_host::require_fresh_roots(&config, true, https)?;
         let root = absolute(&Self::explicit_directory(&config))?;
         crate::setup_host::require_host_separation(&config, &root)?;
         require_absent(&root)?;
@@ -294,6 +353,7 @@ impl BootstrapConfig {
                 trusted_peer: None,
                 setup_attempted: Some(false),
                 explicit: Some(explicit),
+                public_base: None,
             },
             Some(config),
         )
@@ -319,6 +379,11 @@ impl BootstrapConfig {
     pub fn trusted_peer(&self) -> Option<&str> {
         self.host.trusted_peer.as_deref()
     }
+    #[cfg(feature = "cli")]
+    pub(crate) fn set_runtime_config(&mut self, config: UnifiedConfig) {
+        self.explicit_config = Some(config);
+    }
+
     pub fn config(&self) -> UnifiedConfig {
         if let Some(config) = &self.explicit_config {
             let mut config = config.clone();
@@ -326,7 +391,11 @@ impl BootstrapConfig {
             return config;
         }
         let root = &self.host.root;
-        let base = format!("https://{}", self.host.listen);
+        let base = self
+            .host
+            .public_base
+            .clone()
+            .unwrap_or_else(|| format!("https://{}", self.host.listen));
         let idp_uri = format!("{base}/idp");
         let storage_uri = format!("{base}/storage");
         let idp = idp_server::AppConfig {
