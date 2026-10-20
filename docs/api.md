@@ -1,6 +1,6 @@
 # Node API contracts
 
-These are current contracts at integration `41ad8bc47`, not full GUI/provider/deployment acceptance. See [operations](operations.md#qualification-boundary) for evidence and remaining checks, [setup worker design](setup-workers.md) for lifecycle/credential ownership, and [security](security.md) for trust boundaries.
+These contracts include the readiness, transfer and reset merges through integration `1258b0c0a`; final native/independent qualification is ongoing, not full GUI/provider/deployment acceptance. See [operations](operations.md#qualification-boundary) for evidence and remaining checks, [setup worker design](setup-workers.md) for lifecycle/credential ownership, and [security](security.md) for trust boundaries.
 
 ## Owner contracts
 
@@ -21,13 +21,13 @@ Paths below are owner-relative. Unified hosting mounts `/idp`, `/management` and
 
 `/replica-signers` retains its historical spelling; it is not a privileged replica role. Endpoint possession proves transport identity, not permission. An approved endpoint needs no individual IdP token signer or full Node enrollment. Unknown/revoked endpoints deny even with valid OAuth evidence; token issuer/Principal/signer checks remain independently mandatory. Approval alone grants no resource access. See [Storage API](../crates/storage-service/docs/api.md).
 
-`GET /replication/devices/{endpoint_id}/selections` requires a Client token with the configured Storage audience and `management.replication.read`. It returns `deviceId`, `endpointId`, `ownerSubject`, `adminAllowed`, `resources`, and optional `pendingCleanup`. Missing trust/policy or an inactive/revoked/conflicted binding denies. Pending cleanup returns no resources and `adminAllowed:false`; the concrete retirement evidence is exposed only to that authorized service caller, never as permission to use resources. Ordinary restriction likewise grants nothing.
+`GET /replication/devices/{endpoint_id}/selections` requires a Client token with the configured Storage audience and `management.replication.read`. It returns `deviceId`, `endpointId`, `ownerSubject`, `adminAllowed`, `resources`, and optional `pendingCleanup:{cleanupId,deviceId,endpointId,oldOwnerSubject,newOwnerSubject}`. Missing trust/policy or an inactive/revoked/conflicted binding denies. Pending cleanup returns no resources and `adminAllowed:false`; the concrete retirement evidence is exposed only to that authorized service caller, never as permission to use resources. Ordinary restriction likewise grants nothing.
 
 Independent Storage retires both public SQL/KV and filesystem owner copies before sending `POST /replication/owner-cleanup` through its existing Storage→Management service Client. The request is exactly `{cleanupId, deviceId, endpointId, oldOwnerSubject, newOwnerSubject}`; acknowledgement requires the same configured audience, Client principal and `management.replication.admit`. Management compares the durable pending cleanup ID, retained old policy owner and current approved/non-revoked Device/endpoint/new-owner binding inside one local transaction. Changing the owner or endpoint while cleanup is delayed denies; replaying an acknowledgement from an earlier occurrence of the same owner tuple cannot clear a later fence. A lost successful response supports an idempotent no-op retry when no cleanup remains pending.
 
 Cleanup rebinds an empty **restricted** policy, never administrator allowance, selections or old content. Only the configured local Management endpoint can drive this Storage runtime's cleanup; remote-peer policy reads remain read-only. Interrupted cleanup reuses existing Storage retirement evidence and the same Management pending fact/ID after stopped reopen. Local persistence failure, service denial and shutdown deny without acknowledging unfinished retirement. The pending table now includes `cleanup_id`; an older/malformed retained layout is not silently migrated or repaired, and its fence must not be deleted to manufacture freshness.
 
-Independent Storage uses fresh authenticated Management responses for operation/frame/response checks; local denial never falls back remotely. Only service tokens are cached. Cancellation and local-copy retirement are rechecked after asynchronous evaluation before queued frames are released. The new transfer implementation and tests are recorded in [the transfer receipt](../.scratch/ui-driven-node-bootstrap/evidence/independent-transfer.md); Rust/HTTPS execution remains pending parent build permission, not qualified by this documentation.
+Independent Storage uses fresh authenticated Management responses for operation/frame/response checks; local denial never falls back remotely. Only service tokens are cached. Cancellation and local-copy retirement are rechecked after asynchronous evaluation before queued frames are released. The new transfer source and qualification boundary are recorded in [the transfer receipt](../.scratch/ui-driven-node-bootstrap/evidence/independent-transfer.md); final integrated Rust/HTTPS qualification is ongoing. This documentation claims no new test result. The acknowledgement route returns 204 on success, 401 for invalid bearer, 403 for stale binding/insufficient service permission, or 503 for unavailable owner evidence.
 
 ## Prefixes and application identity
 
@@ -43,7 +43,7 @@ Normal protected APIs always enforce their own authentication and exact authoriz
 
 ### Admission and unified setup
 
-A fresh unified HTTPS host exposes `GET /idp/setup/status` with `stage`, `state`, `ready` and `owners:["idp","management","storage"]`. Independent status has the actual singleton owner. Invalid admission/state reports 503 rather than fresh permission. `POST /setup/admission` (unified `/idp/setup/admission`) returns 204 for a valid code; that verifies capability only, not completion.
+A fresh unified HTTPS host exposes `GET /idp/setup/status` with `stage`, `state`, `ready` and `owners:["idp","management","storage"]`. Independent status has the actual singleton owner. Invalid admission reports 503 rather than fresh permission; on an independent worker this can be an empty response, not a recoverable ready state. `POST /setup/admission` (unified `/idp/setup/admission`) returns 204 for a valid code; that verifies capability only, not completion.
 
 Retrieve the host-generated 256-bit code through **protected host/deployment management**. Send exactly one `Authorization: Setup <64 lowercase hex>` header to that code's exact validated target. Independent owners have separate codes even on one origin. Codes are not OAuth bearers; never expose them in status, URLs, logs, ordinary console output or browser persistence. Browser setup requires the configured exact HTTPS UI Origin; the bundled native host additionally admits its exact Tauri Origin. No cookies or credentialed CORS. Origin/TLS/loopback alone is not admission.
 
@@ -63,7 +63,7 @@ Each owner exposes `POST /setup/create`, `/setup/intent`, `/setup/cancel` on its
 - canonical distinct HTTPS `idp`, `management`, `storage` bases;
 - `issuer` equal to the selected IdP base; `peer:null`.
 
-Only IdP receives transient `password`. Each owner durably binds before returning 202; exact active retries return 202, conflicting tuples 409. Status states are `awaiting_choice`, `creating`, `joining`, `unfinished`, `ready`; only ready sets `ready:true`. Recovery returns the retained tuple or 204, never credentials. Cancel returns 204 when signaled. Retired codes deny mutation/recovery; completed-but-unretired state needs exact authorized finalization.
+Only IdP receives transient `password`. Each owner durably binds before returning 202; exact active retries return 202, conflicting tuples 409. Status states are `awaiting_choice`, `creating`, `joining`, `unfinished`, `ready`, `unavailable`; only ready sets `ready:true`. Recovery returns the retained tuple or 204, never credentials. Cancel returns 204 when signaled. Retired codes deny mutation/recovery; completed-but-unretired state needs exact authorized finalization.
 
 `GET /setup/independent/public` publishes operation-bound public registrations/facts, including IdP `facts.login_client`. The app correlates the operation, issuer and all target bases across every owner before navigating to sign-in: three unrelated ready flags are insufficient. Recovery tolerates genuinely unbound awaiting-choice owners and reads public evidence for already-ready/retired owners without sending their retired codes.
 
@@ -97,6 +97,18 @@ Status has exactly `stage`, `state`, `ready`, singleton `owners`, e.g. `{"stage"
 
 The durable `initialized.json` fence and `worker.json` must be preserved, even before domain creation. Lost initialized worker evidence refuses without replacement IDs/provider writes. Callback provider/network work occurs outside the lifecycle gate, then revalidates cancellation, retirement and the exact active operation before progress writes. Normal OAuth/Bearer authentication is unchanged.
 
+### Independent current readiness and retained schemas
+
+Completed `GET /setup/status` rechecks current owner evidence. Failure returns **503** with `{"stage":"installation","state":"unavailable","ready":false,"owners":["<owner>"]}`. A later successful observation can report ready again without rewriting setup, reseeding or restoring admission. This is not an authentication-mode switch: normal routers retain their exact OAuth/Bearer and owner/resource checks.
+
+- IdP checks exact worker/provider material, current approved signer/private capability, active setup User, public login Client and current confidential registration/root metadata locally.
+- Management checks exact worker/consumer/endpoint material, current approved Device binding, current owner/policy agreement, administrator allowance and pending-cleanup fence. Completed readiness follows the current Device owner, not an immutable original-owner grant.
+- Storage checks retained worker/registration receipts, protected service material and catalog roots, plus current Management policy for its configured endpoint. This needs the Node's configured Management/IdP services, not the remote Installation source. Existing-only reconstruction does not perform peer discovery/import or a full token/health qualification suite.
+
+The native-root HTTPS listener probe accepts a valid lifecycle status, including concrete `503 unavailable` with `ready:false`; it does not mistake that response for domain readiness or bypass TLS. Malformed/empty/inconsistent status and other failure responses still refuse verification. Public operation facts alone never override current status. See [readiness evidence](../.scratch/ui-driven-node-bootstrap/evidence/independent-readiness.md).
+
+**Retained worker schemas changed without migration:** IdP and Management `worker.json` are version **2**; Storage remains version **1**. IdP `credential` exists only for Create and is absent on Join. Management Create alone retains `create:{role,permissions}`; Join omits it and old top-level `role`/`permissions` are removed. Ordinary opens refuse older/contradictory state unchanged. Explicit stopped reset alone supports exact validated historical version-1 references and their attempted protected slots; it never converts them for serving or guesses missing inventories. Preserve `initialized.json`, admission, receipts and attempt fences. See [independent reset](operations.md#stopped-independent-owner-reset).
+
 ### Public operator-login Client
 
 Create/Join retain a public Client with token endpoint authentication `none`, password/refresh/token-exchange grants and `openid profile email` login scopes. Unified ready status supplies it; independent IdP public facts supply `facts.login_client` after correlated all-owner completion; CLI prints its actual ID/scopes/audiences. No manual registration or confidential secret is needed.
@@ -121,7 +133,7 @@ Approval binds distinct Device, endpoint, owner, signer member/key and Installat
 
 ## Generated clients
 
-Generate complete actual-router contracts through `scripts/generate-openapi-client.mjs`; never hand-edit generated files. Current regenerated normal owners expose IdP **38** operations (identity, active User, signer; no Devices) and Management **37** (including Device authority). Storage was not regenerated in this reconciliation. Host-composed Node-join coordination is not implied by normal owner OpenAPI.
+Generate complete actual-router contracts through `scripts/generate-openapi-client.mjs`; never hand-edit generated files. The last regenerated normal owners expose IdP **38** operations (identity, active User, signer; no Devices) and Management **37** (including Device authority). Current Management source/OpenAPI inventory is **38** with `POST /replication/owner-cleanup`; its actual schema export, SDK regeneration/build and contract qualification remain pending. Do not describe the older retained artifact/generated SDK as including that route. Storage was not regenerated in this reconciliation. Host-composed Node-join coordination is not implied by normal owner OpenAPI.
 
 The separate unified `@aicacia/idp-client/setup` SDK uses a verified **host origin** because its paths contain `/idp`. In `packages/idp-client`, use `OPENAPI_SPEC_URL=https://node.example/idp/setup/openapi.json pnpm run openapi:setup`, then the normal package build.
 
