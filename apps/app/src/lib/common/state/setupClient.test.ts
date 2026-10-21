@@ -461,7 +461,7 @@ it("discovers three configured web owners and verifies only the selected host's 
   const bases = [host.authority, host.management, "https://data.test/api"];
   fetchApi.mockImplementation(async (url, options) => {
     if (options.method === "POST") return new Response(null, { status: 204 });
-    const index = bases.findIndex((base) => url === `${base}/setup/status`);
+    const index = bases.findIndex((base) => url === `${base}${base.endsWith("/idp") ? "" : "/independent"}/setup/status`);
     return Response.json({
       stage: "installation",
       state: "awaiting_choice",
@@ -480,7 +480,7 @@ it("discovers three configured web owners and verifies only the selected host's 
   );
   expect(posts).toEqual([
     [
-      "https://policy.test/api/setup/admission",
+      "https://policy.test/api/independent/setup/admission",
       {
         method: "POST",
         headers: { Authorization: `Setup ${"b".repeat(64)}` },
@@ -490,7 +490,7 @@ it("discovers three configured web owners and verifies only the selected host's 
       },
     ],
     [
-      "https://data.test/api/setup/admission",
+      "https://data.test/api/independent/setup/admission",
       {
         method: "POST",
         headers: { Authorization: `Setup ${"c".repeat(64)}` },

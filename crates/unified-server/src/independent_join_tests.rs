@@ -463,7 +463,10 @@ async fn pending_offer(http: &Client, source: &ExistingSource, bearer: &str) -> 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
         let response = http
-            .get(format!("{}/node-joins/pending", source.management))
+            .get(format!(
+                "{}/independent/node-joins/pending",
+                source.management
+            ))
             .bearer_auth(bearer)
             .send()
             .await
@@ -536,22 +539,28 @@ async fn independent_join_child() {
     let http = LocalTls::verification_client().expect("native verified HTTPS");
     let (management_token, storage_token) = source_tokens(&http, &source).await;
     assert_eq!(
-        http.put(format!("{}/node-joins/acceptance", source.management))
-            .json(&serde_json::json!({"accepting":true}))
-            .send()
-            .await
-            .expect("unauthorized acceptance")
-            .status(),
+        http.put(format!(
+            "{}/independent/node-joins/acceptance",
+            source.management
+        ))
+        .json(&serde_json::json!({"accepting":true}))
+        .send()
+        .await
+        .expect("unauthorized acceptance")
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        http.put(format!("{}/node-joins/acceptance", source.management))
-            .bearer_auth(&management_token)
-            .json(&serde_json::json!({"accepting":true}))
-            .send()
-            .await
-            .expect("source ordinary User opens Join acceptance")
-            .status(),
+        http.put(format!(
+            "{}/independent/node-joins/acceptance",
+            source.management
+        ))
+        .bearer_auth(&management_token)
+        .json(&serde_json::json!({"accepting":true}))
+        .send()
+        .await
+        .expect("source ordinary User opens Join acceptance")
+        .status(),
         StatusCode::NO_CONTENT
     );
     let target = root.join("target");
@@ -579,7 +588,7 @@ async fn independent_join_child() {
         let base = intent.base(owner).expect("owner");
         let code = setup_code(&target, owner);
         assert_eq!(
-            http.post(format!("{base}/setup/join"))
+            http.post(format!("{base}/independent/setup/join"))
                 .json(&intent)
                 .send()
                 .await
@@ -588,7 +597,7 @@ async fn independent_join_child() {
             StatusCode::UNAUTHORIZED
         );
         assert_eq!(
-            http.post(format!("{base}/setup/join"))
+            http.post(format!("{base}/independent/setup/join"))
                 .header("Authorization", format!("Setup {code}"))
                 .json(&intent)
                 .send()
@@ -627,7 +636,7 @@ async fn independent_join_child() {
     );
     assert_eq!(
         http.post(format!(
-            "{}/node-joins/{first_id}/approve",
+            "{}/independent/node-joins/{first_id}/approve",
             source.management
         ))
         .json(&serde_json::json!({}))
@@ -639,7 +648,7 @@ async fn independent_join_child() {
     );
     assert_eq!(
         http.post(format!(
-            "{}/node-joins/{first_id}/reject",
+            "{}/independent/node-joins/{first_id}/reject",
             source.management
         ))
         .bearer_auth(&management_token)
@@ -652,7 +661,7 @@ async fn independent_join_child() {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
         let status: serde_json::Value = http
-            .get(format!("{}/setup/status", intent.management))
+            .get(format!("{}/independent/setup/status", intent.management))
             .send()
             .await
             .expect("rejection observation")
@@ -672,7 +681,7 @@ async fn independent_join_child() {
         let base = intent.base(owner).expect("owner");
         let code = setup_code(&target, owner);
         let recovered: serde_json::Value = http
-            .post(format!("{base}/setup/intent"))
+            .post(format!("{base}/independent/setup/intent"))
             .header("Authorization", format!("Setup {code}"))
             .send()
             .await
@@ -685,7 +694,7 @@ async fn independent_join_child() {
             serde_json::to_value(&intent).expect("exact admitted discovery")
         );
         assert_eq!(
-            http.post(format!("{base}/setup/cancel"))
+            http.post(format!("{base}/independent/setup/cancel"))
                 .header("Authorization", format!("Setup {code}"))
                 .json(&intent)
                 .send()
@@ -715,7 +724,7 @@ async fn independent_join_child() {
         let mut conflicting = intent.clone();
         conflicting.node = "Competing name".into();
         assert_eq!(
-            http.post(format!("{base}/setup/join"))
+            http.post(format!("{base}/independent/setup/join"))
                 .header("Authorization", format!("Setup {code}"))
                 .json(&conflicting)
                 .send()
@@ -725,7 +734,7 @@ async fn independent_join_child() {
             StatusCode::CONFLICT
         );
         assert_eq!(
-            http.post(format!("{base}/setup/join"))
+            http.post(format!("{base}/independent/setup/join"))
                 .header("Authorization", format!("Setup {code}"))
                 .json(&intent)
                 .send()
@@ -743,7 +752,10 @@ async fn independent_join_child() {
     let id = retry["offer_id"].as_str().expect("new offer ID");
     assert_ne!(id, first_id);
     let response = http
-        .post(format!("{}/node-joins/{id}/approve", source.management))
+        .post(format!(
+            "{}/independent/node-joins/{id}/approve",
+            source.management
+        ))
         .bearer_auth(&management_token)
         .send()
         .await
@@ -782,7 +794,7 @@ async fn independent_join_child() {
     for owner in ["idp", "management", "storage"] {
         let base = intent.base(owner).expect("owner");
         let body = http
-            .get(format!("{base}/setup/status"))
+            .get(format!("{base}/independent/setup/status"))
             .send()
             .await
             .expect("public status")
@@ -826,7 +838,7 @@ async fn independent_join_child() {
     let servers = start(&target, &addresses[3..], &shutdown).await;
     wait_public(&http, &intent.idp).await;
     let status: serde_json::Value = http
-        .get(format!("{}/setup/status", intent.idp))
+        .get(format!("{}/independent/setup/status", intent.idp))
         .send()
         .await
         .expect("unfinished offline Join")
@@ -835,7 +847,7 @@ async fn independent_join_child() {
         .expect("status");
     assert_eq!(status["ready"], false);
     let recovered: serde_json::Value = http
-        .post(format!("{}/setup/intent", intent.idp))
+        .post(format!("{}/independent/setup/intent", intent.idp))
         .header("Authorization", format!("Setup {idp_code}"))
         .send()
         .await
@@ -848,7 +860,7 @@ async fn independent_join_child() {
         serde_json::to_value(&intent).expect("exact source issuer and peer")
     );
     assert_eq!(
-        http.post(format!("{}/setup/join", intent.idp))
+        http.post(format!("{}/independent/setup/join", intent.idp))
             .header("Authorization", format!("Setup {idp_code}"))
             .json(&intent)
             .send()

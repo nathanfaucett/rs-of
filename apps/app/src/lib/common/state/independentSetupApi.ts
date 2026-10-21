@@ -1,10 +1,10 @@
 import {
   Configuration,
-  DefaultApi,
+  IndependentSetupApi as DefaultApi,
   ResponseError,
   IndependentCreateIntentToJSON,
   IndependentOwnerPublicToJSON,
-} from "@aicacia/idp-client/independent";
+} from "@aicacia/idp-client";
 import {
   fetchSetupStatus,
   setupBase,
@@ -182,8 +182,8 @@ export async function submitIndependentSetup(
   };
   const response =
     intent.purpose === "create"
-      ? await api.createRaw(parameters, requestInit)
-      : await api.joinRaw(parameters, requestInit);
+      ? await api.independentSetupCreateRaw(parameters, requestInit)
+      : await api.independentSetupJoinRaw(parameters, requestInit);
   if (response.raw.status !== 202)
     throw new Error(
       `Independent setup rejected (${response.raw.status}); observe all owners`,
@@ -193,7 +193,7 @@ export async function recoverIndependentIntent(
   base: string,
   code: string,
 ): Promise<IndependentIntent | null> {
-  const response = await independentClient(base, code).recoverRaw(requestInit);
+  const response = await independentClient(base, code).independentSetupRecoverRaw(requestInit);
   if (response.raw.status === 204) return null;
   if (response.raw.status !== 200)
     throw new Error(`Independent recovery rejected (${response.raw.status})`);
@@ -210,7 +210,7 @@ export async function cancelIndependentSetup(
 ): Promise<void> {
   const intent = exactIndependentIntent(value, true);
   if (base !== intent[owner]) throw new Error("Setup target changed");
-  const response = await independentClient(base, code).cancelRaw(
+  const response = await independentClient(base, code).independentSetupCancelRaw(
     {
       independentCreateIntent: {
         ...intent,
@@ -231,7 +231,7 @@ export async function fetchIndependentPublic(
 ): Promise<IndependentPublic | null> {
   let response;
   try {
-    response = await independentClient(base).ownerPublicRaw(requestInit);
+    response = await independentClient(base).independentSetupOwnerPublicRaw(requestInit);
   } catch (error) {
     if (
       error instanceof ResponseError &&

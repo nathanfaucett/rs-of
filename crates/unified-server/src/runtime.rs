@@ -1595,19 +1595,19 @@ mod tests {
             management_service::MANAGEMENT_APPLICATION_URI,
         )
         .await;
-        let mut generated = of_node_join_client::apis::configuration::Configuration {
-            base_path: format!("http://{server_address}"),
+        let mut generated = of_management_client::apis::configuration::Configuration {
+            base_path: format!("http://{server_address}/management"),
             client: client.clone(),
             ..Default::default()
         };
         assert!(
-            of_node_join_client::apis::default_api::pending(&generated)
+            of_management_client::apis::node_join_api::node_join_pending(&generated)
                 .await
                 .is_err(),
             "generated host routes require bearer admission"
         );
         generated.bearer_access_token = Some(bearer.clone());
-        of_node_join_client::apis::default_api::acceptance(&generated)
+        of_management_client::apis::node_join_api::node_join_acceptance(&generated)
             .await
             .expect("generated acceptance against actual composed router");
         let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

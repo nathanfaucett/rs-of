@@ -14,7 +14,6 @@
     "apps:desktop": "pnpm --filter \"./apps/*\" run desktop",
     "packages:build": "pnpm --filter \"./packages/*\" --filter \"./crates/*\" run build",
     "openapi:idp": "pnpm --filter \"./packages/idp-client\" run openapi",
-    "openapi:setup": "pnpm --filter \"./packages/idp-client\" run openapi:setup",
     "openapi:management": "pnpm --filter \"./packages/management-client\" run openapi",
     "openapi": "node scripts/generate-openapi-client.mjs",
     "openapi:export": "cargo run -p unified-server --example export-openapi -- openapi",

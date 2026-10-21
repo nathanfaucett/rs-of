@@ -1,20 +1,7 @@
 # IdP Client
 
-IdP Client is generated typescript client for the IdP OpenAPI specification. It is used to interact with the IdP API.
+Generated from the canonical `openapi/idp.json` contract using OpenAPI Generator 7.25.0. The owner package exports normal IdP operations and tagged `SetupApi`, `IndependentSetupApi`, `OwnerSetupApi`, and `IndependentJoinApi` modules. Host-coordinated setup remains at `/idp/setup/...`; it is not a fourth owner or SDK product.
 
-## Unified setup subpath
+Configure a complete verified HTTPS **IdP owner base**, including its mount prefix once. Send transient `Setup <code>` only to the intended setup operation; omit cookies, reject redirects and disable caching. Admission is not OAuth authorization. A 202 response accepts work, not completion; cancellation 204 signals cancellation, not finished cleanup.
 
-`@aicacia/idp-client/setup` comes from the committed `openapi/idp-setup.json`, not a live server. It is separate from the normal owner inventory. From the repository root:
-
-```sh
-pnpm openapi:export
-pnpm --filter @aicacia/idp-client run build:esm
-pnpm openapi
-pnpm openapi:check
-```
-
-See [the shared workflow](../../docs/api.md#generated-clients) for prerequisites, all ten documents, Rust SDKs and CI. Never hand-edit derived contracts or SDKs. All output is staged and compiled before publication; run generation serially.
-
-Configure the SDK with the intended verified HTTPS **host origin**, not a service-prefixed base: generated operation paths already include `/idp`. Send the complete `Setup <code>` value as the API-key authorization value, keep it transient, and explicitly omit cookies, reject redirects and disable caching. A setup code is not an OAuth bearer token. Public status does not require it. `202` is acceptance, not completion; observe status. Intent lookup can return204 (unbound), and cancellation204 means a signal, not completed cleanup.
-
-The app consumes generated request serializers through its existing checked HTTPS setup helper. Those helpers validate service targets and wire evidence and avoid exposing protected response/error data. The raw generated SDK is not a replacement for these checks. Independent-owner Create and Join are not advertised by this setup document.
+From the repository root, export with `pnpm openapi:export`, generate with `pnpm openapi`, and validate the working tree with `pnpm openapi:check`. CI additionally uses `--committed`. See [the shared workflow](../../docs/api.md#generated-clients). Never hand-edit derived contracts or SDKs; run generation serially.

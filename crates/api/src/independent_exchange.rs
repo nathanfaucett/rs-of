@@ -130,14 +130,14 @@ impl IndependentCreateControl {
                 expires: Instant::now() + Duration::from_secs(30),
             });
         }
-        let configuration = of_idp_independent_client::apis::configuration::Configuration {
+        let configuration = of_idp_client::apis::configuration::Configuration {
             base_path: bound.operation.base(&bound.recipient)?.to_owned(),
             client: LocalTls::verification_client()?,
             ..Default::default()
         };
-        let result = of_idp_independent_client::apis::default_api::challenge(
+        let result = of_idp_client::apis::independent_setup_api::independent_setup_challenge(
             &configuration,
-            of_idp_independent_client::apis::default_api::ChallengeParams {
+            of_idp_client::apis::independent_setup_api::IndependentSetupChallengeParams {
                 challenge: serde_json::from_value(serde_json::to_value(&bound)?)?,
             },
         )
@@ -155,7 +155,7 @@ impl IndependentCreateControl {
     }
 }
 
-#[utoipa::path(get, tag = "default", path = "/setup/independent/public", operation_id = "owner_public", responses((status = 200, body = IndependentOwnerPublic, description = "Operation-bound public owner metadata, not setup authorization"), (status = 409, description = "Public owner metadata not yet available")))]
+#[utoipa::path(get, tag = "default", path = "/independent/setup/independent/public", operation_id = "owner_public", responses((status = 200, body = IndependentOwnerPublic, description = "Operation-bound public owner metadata, not setup authorization"), (status = 409, description = "Public owner metadata not yet available")))]
 pub(crate) async fn public(
     State(control): State<IndependentCreateControl>,
 ) -> Result<Json<IndependentOwnerPublic>, StatusCode> {
@@ -163,7 +163,7 @@ pub(crate) async fn public(
     state.public.clone().map(Json).ok_or(StatusCode::CONFLICT)
 }
 
-#[utoipa::path(post, tag = "default", path = "/setup/independent/challenge", operation_id = "challenge", request_body = Challenge, security(()), description = "Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.", responses((status = 204, description = "Exact handoff accepted"), (status = 400, description = "Invalid registration"), (status = 403, description = "Operation or challenge denied"), (status = 409, description = "Owner not ready"), (status = 503, description = "Owner unavailable")))]
+#[utoipa::path(post, tag = "default", path = "/independent/setup/independent/challenge", operation_id = "challenge", request_body = Challenge, security(()), description = "Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.", responses((status = 204, description = "Exact handoff accepted"), (status = 400, description = "Invalid registration"), (status = 403, description = "Operation or challenge denied"), (status = 409, description = "Owner not ready"), (status = 503, description = "Owner unavailable")))]
 pub(crate) async fn challenge(
     State(control): State<IndependentCreateControl>,
     Json(bound): Json<Challenge>,
@@ -225,7 +225,7 @@ pub(crate) async fn challenge(
         Ok(client) => client,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE,
     };
-    let configuration = of_idp_independent_client::apis::configuration::Configuration {
+    let configuration = of_idp_client::apis::configuration::Configuration {
         base_path: bound.operation.idp.clone(),
         client,
         ..Default::default()
@@ -237,8 +237,8 @@ pub(crate) async fn challenge(
     let response = tokio::select! {
         biased;
         () = active.cancelled() => return StatusCode::FORBIDDEN,
-        response = of_idp_independent_client::apis::default_api::register(&configuration,
-            of_idp_independent_client::apis::default_api::RegisterParams { registration }) => response,
+        response = of_idp_client::apis::independent_setup_api::independent_setup_register(&configuration,
+            of_idp_client::apis::independent_setup_api::IndependentSetupRegisterParams { registration }) => response,
     };
     let mut state = control.0.lifecycle.lock().await;
     if active.is_cancelled()
@@ -277,7 +277,7 @@ pub(crate) async fn challenge(
     }
 }
 
-#[utoipa::path(post, tag = "default", path = "/setup/independent/register", operation_id = "register", request_body = Registration, security(()), description = "Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.", responses((status = 204, description = "Exact handoff accepted"), (status = 400, description = "Invalid registration"), (status = 403, description = "Operation or challenge denied"), (status = 409, description = "Owner not ready"), (status = 503, description = "Owner unavailable")))]
+#[utoipa::path(post, tag = "default", path = "/independent/setup/independent/register", operation_id = "register", request_body = Registration, security(()), description = "Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.", responses((status = 204, description = "Exact handoff accepted"), (status = 400, description = "Invalid registration"), (status = 403, description = "Operation or challenge denied"), (status = 409, description = "Owner not ready"), (status = 503, description = "Owner unavailable")))]
 pub(crate) async fn register(
     State(control): State<IndependentCreateControl>,
     Json(mut reply): Json<Registration>,
@@ -390,7 +390,7 @@ mod tests {
         let response = host
             .router()
             .oneshot(
-                Request::post("/setup/create")
+                Request::post("/independent/setup/create")
                     .header("Content-Type", "application/json")
                     .header("Authorization", format!("Setup {code}"))
                     .body(Body::from(create.to_string()))
@@ -450,7 +450,7 @@ mod tests {
             let response = host
                 .router()
                 .oneshot(
-                    Request::post("/setup/independent/register")
+                    Request::post("/independent/setup/independent/register")
                         .header("Content-Type", "application/json")
                         .body(Body::from(body.to_string()))
                         .expect("registration request"),

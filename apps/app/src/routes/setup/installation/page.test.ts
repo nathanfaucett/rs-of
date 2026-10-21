@@ -377,7 +377,7 @@ it("reports mismatched independent web owner evidence as a visible 503, not comp
   });
   expect(host.fetch.mock.calls.map(([url]) => url)).toEqual([
     "https://node.test/idp/setup/status",
-    "https://policy.test/api/setup/status",
+    "https://policy.test/api/independent/setup/status",
   ]);
   expect(host.invoke).not.toHaveBeenCalled();
 });

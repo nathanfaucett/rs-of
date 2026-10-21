@@ -86,7 +86,7 @@ pub(super) async fn qualify(
         let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
         loop {
             let idp_ready = match http
-                .get(format!("{}/setup/status", intent.idp))
+                .get(format!("{}/independent/setup/status", intent.idp))
                 .send()
                 .await
             {

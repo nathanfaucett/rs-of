@@ -115,7 +115,7 @@ async fn operation_child() {
         }
         assert_eq!(
             http.post(format!(
-                "{}/setup/create",
+                "{}/independent/setup/create",
                 intent.base(owner).expect("base")
             ))
             .header(
@@ -507,7 +507,7 @@ async fn delayed_authority_reopen(
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     let status = http
-        .get(format!("{}/setup/status", intent.storage))
+        .get(format!("{}/independent/setup/status", intent.storage))
         .send()
         .await;
     assert!(

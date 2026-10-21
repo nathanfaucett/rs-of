@@ -180,7 +180,15 @@ impl IndependentSetupHost {
             vec![self.settings.domain.clone()],
             SetupScope::from_owners(&[self.settings.owner.as_str()])
                 .expect("validated retained owner scope"),
-        );
+        )
+        .merge(crate::canonical_openapi_router(
+            &self.settings.owner,
+            &format!(
+                "{}{}",
+                LocalTls::api_base(self.local_addr()).expect("validated local TLS address"),
+                self.settings.prefix
+            ),
+        ));
         if self.settings.prefix.is_empty() {
             router
         } else {
@@ -192,7 +200,7 @@ impl IndependentSetupHost {
         let router = self.router();
         let tls = self.tls.clone();
         let address = self.local_addr();
-        let path = format!("{}/setup/status", self.settings.prefix);
+        let path = format!("{}/setup/owner/status", self.settings.prefix);
         let admission_path = self.admission_path();
         serve_setup(
             self,

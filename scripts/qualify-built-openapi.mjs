@@ -63,22 +63,18 @@ const filesystem = await consumer.createFileSystem("Generated consumer");
 assert.equal(filesystem.name, "Generated consumer");
 const socket = await consumer.openSocket(filesystem.id);
 socket.close();
-for (const [owner, exports] of [
-    ["idp", ["setup", "independent", "owner"]],
-    ["management", ["node-join", "owner"]],
-    ["storage", ["owner"]],
-]) {
+for (const owner of ["idp", "management", "storage"]) {
     const require = createRequire(
         path.join(root, `packages/${owner}-client/package.json`),
     );
-    for (const suffix of exports)
-        assert.ok(
-            (
-                await import(
-                    require.resolve(`@aicacia/${owner}-client/${suffix}`)
-                )
-            ).DefaultApi,
-        );
+    const sdk = await import(
+        require.resolve(
+            `@aicacia/${owner}-client${owner === "storage" ? "/generated" : ""}`,
+        )
+    );
+    assert.ok(sdk.IndependentSetupApi);
+    assert.ok(sdk.IndependentJoinApi);
+    assert.ok(sdk.OwnerSetupApi);
 }
 console.log(
     "Built package exports and generated operations qualified against actual owner routers",
@@ -86,16 +82,19 @@ console.log(
 
 const owner = await import(
     createRequire(path.join(root, "packages/idp-client/package.json")).resolve(
-        "@aicacia/idp-client/independent",
+        "@aicacia/idp-client",
     )
 );
-const setup = new owner.DefaultApi(
+const setup = new owner.IndependentSetupApi(
     new owner.Configuration({ basePath: independentBase }),
 );
-assert.equal((await setup.status()).ready, false);
-await assert.rejects(setup.recover(), (error) => error.response.status === 401);
+assert.equal((await setup.independentSetupStatus()).ready, false);
 await assert.rejects(
-    setup.challenge({
+    setup.independentSetupRecover(),
+    (error) => error.response.status === 401,
+);
+await assert.rejects(
+    setup.independentSetupChallenge({
         challenge: {
             challenge: "a".repeat(64),
             recipient: "management",

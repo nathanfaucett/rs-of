@@ -22,7 +22,7 @@ async fn document() -> Value {
     let engine =
         Arc::new(db::Database::open(root.join("management.redb")).expect("open isolated engine"));
     let state = RouterState::new(
-        "https://management.example",
+        "https://management.example/management",
         Arc::new(ManagementService::new(
             DbPermissionRepo::new(Arc::clone(&engine)),
             DbRoleRepo::new(Arc::clone(&engine)),
@@ -54,13 +54,13 @@ async fn document() -> Value {
         .await
         .expect("read composed Management OpenAPI");
     let document: Value = serde_json::from_slice(&body).expect("public Management OpenAPI JSON");
+    let mut expected: Value =
+        serde_json::from_str(include_str!("../../../../openapi/management.json"))
+            .expect("exported Management contract");
+    expected["servers"] = serde_json::json!([{ "url": "https://management.example/management" }]);
     assert_eq!(
-        document,
-        serde_json::to_value(crate::openapi_document(
-            "https://management.example",
-            "/management",
-        ))
-        .expect("state-free Management OpenAPI JSON"),
+        document, expected,
+        "runtime Management contract matches export"
     );
     drop(engine);
     std::fs::remove_dir_all(root).expect("remove isolated schema export database");
@@ -74,7 +74,7 @@ fn assert_contract(document: &Value) {
         .flat_map(|item| item.as_object().expect("path item").values())
         .filter(|operation| operation.get("operationId").is_some())
         .count();
-    assert_eq!(operations, 38, "complete Management operation inventory");
+    assert_eq!(operations, 64, "complete Management operation inventory");
     assert!(paths.contains_key("/openapi.json"));
     for (path, method) in [
         ("/replication/owner-cleanup", "post"),

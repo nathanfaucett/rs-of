@@ -1,13 +1,11 @@
 use axum::{Router, routing::get};
-use utoipa::openapi::Server;
 
-use super::{openapi::openapi_json, openapi_router::openapi_document, routes::version::version};
+use super::{openapi::openapi_json, routes::version::version};
 
 /// Serves version and the full API contract without opening runtime state.
 /// `api_base_uri` is the complete public owner base; `prefix` only mounts routes.
 pub fn public_metadata_router(api_base_uri: &str, prefix: &str) -> Router {
-    let mut document = openapi_document(api_base_uri, "/storage");
-    document.servers = Some(vec![Server::new(api_base_uri)]);
+    let document = api::canonical_openapi("storage", api_base_uri, "");
     let routes = Router::new()
         .route("/version", get(version))
         .route("/openapi.json", get(openapi_json))
@@ -56,12 +54,7 @@ mod tests {
                     assert!(value["version"].is_string());
                     assert!(value["build"].is_string());
                 } else {
-                    let mut expected = crate::openapi_document(base, "/storage");
-                    expected.servers = Some(vec![utoipa::openapi::Server::new(base)]);
-                    assert_eq!(
-                        value,
-                        serde_json::to_value(expected).expect("full contract")
-                    );
+                    assert_eq!(value, api::canonical_openapi("storage", base, ""));
                     assert!(value["paths"]["/databases"].is_object());
                     assert!(value["paths"]["/filesystems"].is_object());
                     assert!(value["paths"]["/"].is_object());

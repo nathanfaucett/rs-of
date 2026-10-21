@@ -94,15 +94,15 @@ impl NativeHost {
 
     pub(crate) async fn status(&self) -> io::Result<serde_json::Value> {
         let configuration = self.configuration();
-        let status = of_idp_setup_client::apis::default_api::status(&configuration)
+        let status = of_idp_client::apis::setup_api::setup_status(&configuration)
             .await
             .map_err(io::Error::other)?;
         serde_json::to_value(status).map_err(io::Error::other)
     }
 
-    fn configuration(&self) -> of_idp_setup_client::apis::configuration::Configuration {
-        of_idp_setup_client::apis::configuration::Configuration {
-            base_path: self.base_url.clone(),
+    fn configuration(&self) -> of_idp_client::apis::configuration::Configuration {
+        of_idp_client::apis::configuration::Configuration {
+            base_path: format!("{}/idp", self.base_url),
             client: self.client.clone(),
             ..Default::default()
         }
@@ -113,12 +113,12 @@ impl NativeHost {
         for _ in 0..40 {
             match tokio::time::timeout(
                 Duration::from_secs(2),
-                of_idp_setup_client::apis::default_api::status(&configuration),
+                of_idp_client::apis::setup_api::setup_status(&configuration),
             )
             .await
             {
                 Ok(Ok(_)) => return Ok(()),
-                Ok(Err(of_idp_setup_client::apis::Error::ResponseError(response)))
+                Ok(Err(of_idp_client::apis::Error::ResponseError(response)))
                     if response.status.as_u16() == 503 =>
                 {
                     return Ok(());

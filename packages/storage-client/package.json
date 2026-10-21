@@ -12,10 +12,6 @@
             "default": "./esm/index.js"
         },
         "./package.json": "./package.json",
-        "./owner": {
-            "types": "./types/owner/index.d.ts",
-            "default": "./esm/owner/index.js"
-        },
         "./generated": {
             "types": "./types/generated/index.d.ts",
             "default": "./esm/generated/index.js"

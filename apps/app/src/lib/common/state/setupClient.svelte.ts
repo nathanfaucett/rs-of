@@ -434,5 +434,5 @@ export async function verifyWebSetupCode(
     throw new Error(
       "Setup admission target is unavailable or no longer configured",
     );
-  await verifySetupCode(host.base, code);
+  await verifySetupCode(host.base, code, host.status.owners.length === 1);
 }

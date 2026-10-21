@@ -79,7 +79,7 @@ pub fn openapi_document(api_base_uri: &str, prefix: &str) -> OpenApiDocument {
 }
 
 pub fn openapi_router(router_state: RouterState, prefix: &str) -> OpenApiRouter {
-    let openapi_spec = openapi_document(&router_state.api_base_uri, prefix);
+    let openapi_spec = api::canonical_openapi("storage", &router_state.api_base_uri, prefix);
     let prefix = if prefix == "/" { "" } else { prefix };
     let runtime_router = if prefix.is_empty() {
         OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(routes().with_state(router_state))
@@ -163,10 +163,18 @@ mod tests {
             .expect("document body");
         let document: serde_json::Value = serde_json::from_slice(&body).expect("document JSON");
         assert_eq!(document["servers"][0]["url"], base);
-        assert!(document["paths"]["/storage/databases"].is_object());
-        assert!(document["paths"]["/storage/filesystems"].is_object());
-        assert!(document["paths"]["/storage"].is_object());
-        assert!(document["paths"]["/databases"].is_null());
+        let mut expected: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../openapi/storage.json"))
+                .expect("exported Storage contract");
+        expected["servers"] = serde_json::json!([{ "url": base }]);
+        assert_eq!(
+            document, expected,
+            "runtime Storage contract matches export"
+        );
+        assert!(document["paths"]["/databases"].is_object());
+        assert!(document["paths"]["/filesystems"].is_object());
+        assert!(document["paths"]["/"].is_object());
+        assert!(document["paths"]["/storage/databases"].is_null());
     }
 
     #[test]

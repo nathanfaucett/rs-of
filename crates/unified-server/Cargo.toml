@@ -25,9 +25,9 @@ swagger-ui = ["idp-server/swagger-ui", "management-server/swagger-ui", "storage-
 
 [dependencies]
 # Generated HTTP operations
-of-idp-client = { path = "../../clients/rust/idp", default-features = false }
-of-management-client = { path = "../../clients/rust/management", default-features = false }
-of-storage-client = { path = "../../clients/rust/storage", default-features = false }
+of-idp-client = { path = "../idp-client", default-features = false }
+of-management-client = { path = "../management-client", default-features = false }
+of-storage-client = { path = "../storage-client", default-features = false }
 
 # CLI
 clap = { version = "4.6", default-features = false, features = ["std", "derive", "help"], optional = true }
@@ -89,10 +89,8 @@ utoipa-axum = { version = "0.2", default-features = false }
 
 [dev-dependencies]
 # Generated HTTP contract consumers (no server dependencies in clients)
-of-idp-client = { path = "../../clients/rust/idp", default-features = false }
-of-storage-client = { path = "../../clients/rust/storage", default-features = false }
-of-idp-independent-client = { path = "../../clients/rust/idp-independent", default-features = false }
-of-node-join-client = { path = "../../clients/rust/node-join", default-features = false }
+of-idp-client = { path = "../idp-client", default-features = false }
+of-storage-client = { path = "../storage-client", default-features = false }
 
 # Setup trust/verifier fault injection, never a production feature
 api = { path = "../api", default-features = false, features = ["test-support"] }

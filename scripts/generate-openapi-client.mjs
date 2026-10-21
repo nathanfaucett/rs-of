@@ -15,16 +15,9 @@ import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "..");
 const destinations = {
-    "owner-setup": ["idp", "admission"],
     idp: ["idp", ""],
     management: ["management", ""],
     storage: ["storage", "generated"],
-    "idp-setup": ["idp", "setup"],
-    "idp-independent": ["idp", "independent"],
-    "node-join": ["management", "node-join"],
-    "independent-idp": ["idp", "owner"],
-    "independent-management": ["management", "owner"],
-    "independent-storage": ["storage", "owner"],
 };
 const selected = process.argv[2];
 if (selected && !destinations[selected])
@@ -287,18 +280,6 @@ try {
     }
     const rust = path.join(stage, "rust");
     mkdirSync(rust);
-    for (const name of Object.keys(destinations)) {
-        if (!names.includes(name))
-            cpSync(
-                path.join(root, "clients/rust", name),
-                path.join(rust, name),
-                { recursive: true },
-            );
-    }
-    cpSync(
-        path.join(root, "clients/rust/Cargo.lock"),
-        path.join(rust, "Cargo.lock"),
-    );
     for (const name of names) {
         const [owner, suffix] = destinations[name];
         const ts = path.join(stage, "typescript", name);
@@ -330,33 +311,13 @@ try {
         generate(name, "rust", path.join(rust, name));
         replacements.push([
             path.join(rust, name),
-            path.join(root, "clients/rust", name),
+            path.join(root, "crates", `${name}-client`),
         ]);
     }
-    writeFileSync(
-        path.join(rust, "Cargo.toml"),
-        `[workspace]\nresolver = "3"\nmembers = ${JSON.stringify(Object.keys(destinations))}\n`,
-    );
-    run("cargo", [
-        "fmt",
-        "--manifest-path",
-        path.join(rust, "Cargo.toml"),
-        "--all",
-    ]);
-    run("cargo", [
-        "fetch",
-        "--manifest-path",
-        path.join(rust, "Cargo.toml"),
-        "--locked",
-    ]);
-    run("cargo", [
-        "check",
-        "--manifest-path",
-        path.join(rust, "Cargo.toml"),
-        "--workspace",
-        "--offline",
-        "--locked",
-    ]);
+    for (const name of names) {
+        const source = path.join(rust, name, "src");
+        run("rustfmt", ["--edition", "2024", path.join(source, "lib.rs")]);
+    }
     for (const owner of owners) {
         const source = path.join(stage, `packages/${owner}-client/src`);
         run(
@@ -403,6 +364,18 @@ try {
             moved.push([to, backup, existed]);
             renameSync(from, to);
         }
+        run("cargo", [
+            "fmt",
+            "--check",
+            ...names.flatMap((name) => ["-p", `of-${name}-client`]),
+        ]);
+        run("cargo", ["fetch", "--locked"]);
+        run("cargo", [
+            "check",
+            "--locked",
+            "--offline",
+            ...names.flatMap((name) => ["-p", `of-${name}-client`]),
+        ]);
     } catch (error) {
         for (const [to, backup, existed] of moved.reverse()) {
             rmSync(to, { recursive: true, force: true });

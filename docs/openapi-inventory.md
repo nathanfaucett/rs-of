@@ -4,167 +4,177 @@ Project-owned production HTTP operations use generated clients. The shared devel
 
 ## Topologies
 
-Normal owner contracts use verified complete owner bases (defaults append `/idp`, `/management`, `/storage` once). Unified Setup paths include `/idp`, Node-join paths include `/management`, so use host origins for those two documents. Independent-owner documents supplement the corresponding normal owner and use complete owner bases, including any configured prefix. Owner-admission-only listeners use owner-setup. `https://localhost` is a deterministic placeholder, not identity or trust.
+All three canonical owner contracts use complete verified owner bases, including any configured prefix once (defaults end in `/idp`, `/management`, `/storage`). Tagged host-coordinated and independent operations remain distinct within their owner contract; no SDK takes a host origin instead of its owner base. `https://localhost/{owner}` is a deterministic placeholder, not identity or trust.
+
+## Canonical owner contracts
+
+Exactly three derived contracts live in `openapi/`: `idp.json`, `management.json`, and `storage.json`. Each generates one TypeScript package and one normal root-workspace Rust crate (`crates/{owner}-client`, named `of-{owner}-client`). Setup and Join are operation tags/modules, never separate SDK products.
+
+All SDK configurations take complete owner bases, including the mount prefix exactly once. The host still coordinates setup at `/idp/setup/...` and source Join at `/management/node-joins/...`; this does not transfer domain ownership. Independent setup uses `/independent/setup/...`, independent source Join/history uses `/independent/node-joins/...`, and neutral owner-only admission/status uses `/setup/owner/...`, relative to each actual owner base. These distinct routes preserve distinct status, payload, and authorization contracts instead of merging incompatible operations. There are no old-path aliases. Public owner `/openapi.json` discovery serves these same canonical contracts on unified and independent hosts, including before provisioning. Only the deployment server URL changes. The obsolete `/idp/setup/openapi.json` discovery product is removed; export still derives contracts from Rust route registrations.
+
+Host Create has its existing 200 completed retry versus 202 accepted work semantics; independent Create returns 202. Host Management approval returns 200 approval evidence; independent Management approval returns 202 accepted work. Independent acceptance writes return 204, versus host writes returning state. Cancellation remains signaling, not cleanup completion. All admission, exact-operation and current-owner permission checks remain authoritative.
 
 ## Mounted application operations
 
-### idp-independent
-
-- `POST /setup/admission` — `admission`
-- `POST /setup/cancel` — `cancel`
-- `POST /setup/create` — `create`
-- `POST /setup/independent/challenge` — `challenge`
-- `POST /setup/independent/history` — `history`
-- `GET /setup/independent/public` — `owner_public`
-- `POST /setup/independent/register` — `register`
-- `POST /setup/intent` — `recover`
-- `POST /setup/join` — `join`
-- `GET /setup/status` — `status`
-
-### idp-setup
-
-- `POST /idp/setup/admission` — `admission`
-- `POST /idp/setup/cancel` — `cancel`
-- `POST /idp/setup/create` — `create`
-- `POST /idp/setup/intent` — `intent`
-- `POST /idp/setup/join` — `join`
-- `GET /idp/setup/openapi.json` — `setup_openapi`
-- `GET /idp/setup/status` — `status`
-
 ### idp
 
-- `GET /.well-known/jwks.json` — `jwks`
-- `GET /.well-known/openid-configuration` — `openid_configuration`
-- `GET /applications` — `list_applications`
-- `POST /applications` — `create_application`
-- `DELETE /applications/{application_id}` — `delete_application`
-- `GET /applications/{application_id}` — `get_application`
-- `PUT /applications/{application_id}` — `update_application`
-- `DELETE /clients/{client_id}/keys` — `revoke_client_keys`
-- `GET /clients/{client_id}/keys` — `list_client_keys`
-- `POST /clients/{client_id}/keys/rotate` — `rotate_client_key`
-- `GET /health` — `health`
-- `GET /oauth2/auth` — `authorize_query`
-- `POST /oauth2/auth` — `authorize_json`
-- `POST /oauth2/auth/allowed-for-user` — `is_allowed_for_user`
-- `POST /oauth2/auth/approve-for-user` — `approve_for_user`
-- `POST /oauth2/device/auth` — `device_auth`
-- `GET /oauth2/device/verify` — `device_verify`
-- `POST /oauth2/introspect` — `introspect`
-- `POST /oauth2/register` — `register`
-- `DELETE /oauth2/register/{client_id}` — `delete_register`
-- `GET /oauth2/register/{client_id}` — `get_register`
-- `PUT /oauth2/register/{client_id}` — `put_register`
-- `POST /oauth2/revoke` — `revoke`
-- `GET /oauth2/sessions/logout` — `sessions_logout`
-- `POST /oauth2/token` — `token`
-- `GET /openapi.json` — `openapi_json`
-- `POST /replica-signers` — `enroll_replica_signer`
-- `DELETE /replica-signers/{member_id}` — `revoke_replica_signer`
-- `PUT /replica-signers/{member_id}` — `rotate_replica_signer`
-- `GET /userinfo` — `userinfo`
-- `DELETE /users/{user_id}` — `delete_user`
-- `GET /users/{user_id}` — `get_user`
-- `PUT /users/{user_id}` — `update_user`
-- `GET /users/{user_id}/active` — `active_user`
-- `GET /users/{user_id}/consents` — `list_consents`
-- `DELETE /users/{user_id}/consents/{consent_id}` — `revoke_consent`
-- `PUT /users/{user_id}/password` — `reset_password`
-- `GET /version` — `version`
-
-### independent-idp
-
-- `POST /node-joins/enroll` — `enroll_node_join`
-- `POST /node-joins/history/request` — `request_history`
-- `GET /node-joins/history/stream` — `history_stream`
-
-### independent-management
-
-- `GET /node-joins/acceptance` — `accepting`
-- `PUT /node-joins/acceptance` — `set_accepting`
-- `POST /node-joins/discover` — `discover`
-- `POST /node-joins/history/request` — `request_history`
-- `GET /node-joins/history/stream` — `history_stream`
-- `GET /node-joins/pending` — `pending`
-- `POST /node-joins/verify` — `verify`
-- `POST /node-joins/{id}/approve` — `approve`
-- `POST /node-joins/{id}/reject` — `reject`
-
-### independent-storage
-
-- `POST /node-joins/history/request` — `request_history`
-- `GET /node-joins/history/stream` — `history_stream`
+- `GET /.well-known/jwks.json` — `jwks` (200)
+- `GET /.well-known/openid-configuration` — `openid_configuration` (200)
+- `GET /applications` — `list_applications` (200)
+- `POST /applications` — `create_application` (200)
+- `DELETE /applications/{application_id}` — `delete_application` (200)
+- `GET /applications/{application_id}` — `get_application` (200)
+- `PUT /applications/{application_id}` — `update_application` (200)
+- `DELETE /clients/{client_id}/keys` — `revoke_client_keys` (200)
+- `GET /clients/{client_id}/keys` — `list_client_keys` (200)
+- `POST /clients/{client_id}/keys/rotate` — `rotate_client_key` (200)
+- `GET /health` — `health` (200)
+- `POST /independent/node-joins/enroll` — `independent_join_enroll_node_join` (204, 400, 401, 403, 409, 503)
+- `POST /independent/node-joins/history/request` — `independent_join_request_history` (202, 400, 403, 503)
+- `GET /independent/node-joins/history/stream` — `independent_join_history_stream` (101, 400, 401, 403)
+- `POST /independent/setup/admission` — `independent_setup_admission` (204, 401, 503)
+- `POST /independent/setup/cancel` — `independent_setup_cancel` (204, 401, 409, 503)
+- `POST /independent/setup/create` — `independent_setup_create` (202, 400, 401, 409, 503)
+- `POST /independent/setup/independent/challenge` — `independent_setup_challenge` (204, 400, 403, 409, 503)
+- `POST /independent/setup/independent/history` — `independent_setup_history` (202, 403, 409)
+- `GET /independent/setup/independent/public` — `independent_setup_owner_public` (200, 409)
+- `POST /independent/setup/independent/register` — `independent_setup_register` (204, 400, 403, 409, 503)
+- `POST /independent/setup/intent` — `independent_setup_recover` (200, 204, 401, 503)
+- `POST /independent/setup/join` — `independent_setup_join` (202, 400, 401, 409, 502, 503)
+- `GET /independent/setup/status` — `independent_setup_status` (200, 503)
+- `GET /oauth2/auth` — `authorize_query` (302)
+- `POST /oauth2/auth` — `authorize_json` (200)
+- `POST /oauth2/auth/allowed-for-user` — `is_allowed_for_user` (200)
+- `POST /oauth2/auth/approve-for-user` — `approve_for_user` (200)
+- `POST /oauth2/device/auth` — `device_auth` (200)
+- `GET /oauth2/device/verify` — `device_verify` (302)
+- `POST /oauth2/introspect` — `introspect` (200, 401, 403)
+- `POST /oauth2/register` — `register` (200)
+- `DELETE /oauth2/register/{client_id}` — `delete_register` (200)
+- `GET /oauth2/register/{client_id}` — `get_register` (200)
+- `PUT /oauth2/register/{client_id}` — `put_register` (200)
+- `POST /oauth2/revoke` — `revoke` (200)
+- `GET /oauth2/sessions/logout` — `sessions_logout` (302)
+- `POST /oauth2/token` — `token` (200, 400, 401)
+- `GET /openapi.json` — `openapi_json` (200)
+- `POST /replica-signers` — `enroll_replica_signer` (201, 403)
+- `DELETE /replica-signers/{member_id}` — `revoke_replica_signer` (200)
+- `PUT /replica-signers/{member_id}` — `rotate_replica_signer` (200)
+- `POST /setup/admission` — `setup_admission` (204, 401, 403, 503)
+- `POST /setup/cancel` — `setup_cancel` (204, 400, 401, 403, 409, 413, 415, 422, 503)
+- `POST /setup/create` — `setup_create` (200, 202, 400, 401, 403, 409, 413, 415, 422, 503)
+- `POST /setup/intent` — `setup_intent` (200, 204, 401, 403, 503)
+- `POST /setup/join` — `setup_join` (202, 400, 401, 403, 409, 413, 415, 422, 503)
+- `POST /setup/owner/admission` — `owner_setup_admission` (204, 401, 403)
+- `GET /setup/owner/status` — `owner_setup_status` (200, 503)
+- `GET /setup/status` — `setup_status` (200, 403, 503)
+- `GET /userinfo` — `userinfo` (200)
+- `DELETE /users/{user_id}` — `delete_user` (200)
+- `GET /users/{user_id}` — `get_user` (200)
+- `PUT /users/{user_id}` — `update_user` (200)
+- `GET /users/{user_id}/active` — `active_user` (204, 401, 403, 404)
+- `GET /users/{user_id}/consents` — `list_consents` (200)
+- `DELETE /users/{user_id}/consents/{consent_id}` — `revoke_consent` (200)
+- `PUT /users/{user_id}/password` — `reset_password` (200)
+- `GET /version` — `version` (200)
 
 ### management
 
-- `GET /applications/{application_id}/permissions` — `list_permissions`
-- `POST /applications/{application_id}/permissions` — `create_permission`
-- `DELETE /applications/{application_id}/permissions/{permission_id}` — `delete_permission`
-- `GET /applications/{application_id}/roles` — `list_roles`
-- `POST /applications/{application_id}/roles` — `create_role`
-- `DELETE /applications/{application_id}/roles/{role_id}` — `delete_role`
-- `GET /applications/{application_id}/roles/{role_id}/permissions` — `list_role_permissions`
-- `DELETE /applications/{application_id}/roles/{role_id}/permissions/{permission_id}` — `revoke_permission_from_role`
-- `POST /applications/{application_id}/roles/{role_id}/permissions/{permission_id}` — `assign_permission_to_role`
-- `GET /applications/{application_id}/users/{user_id}/roles` — `list_user_roles`
-- `DELETE /applications/{application_id}/users/{user_id}/roles/{role_id}` — `revoke_role_from_user`
-- `POST /applications/{application_id}/users/{user_id}/roles/{role_id}` — `assign_role_to_user`
-- `GET /device` — `device`
-- `GET /devices` — `list_devices`
-- `GET /devices/endpoints` — `list_approved_device_endpoints`
-- `GET /devices/endpoints/{endpoint_id}` — `lookup_device_endpoint`
-- `POST /devices/enrollments` — `enroll_device`
-- `GET /devices/identities/{device_id}` — `lookup_device_identity`
-- `GET /devices/pairing-accepting` — `pairing_acceptance`
-- `PUT /devices/pairing-accepting` — `set_pairing_acceptance`
-- `POST /devices/revoke-self` — `revoke_self`
-- `GET /devices/trusted` — `trusted_devices`
-- `PUT /devices/{device_id}/owner` — `transfer_device`
-- `GET /devices/{device_id}/restriction` — `get_device_restriction`
-- `PUT /devices/{device_id}/restriction` — `put_device_restriction`
-- `DELETE /devices/{device_id}/selection` — `delete_device_selection`
-- `PUT /devices/{device_id}/selection` — `put_device_selection`
-- `DELETE /devices/{device_id}/selection/{application_id}/{kind}/{resource_id}` — `delete_device_resource_selection`
-- `DELETE /devices/{id}` — `revoke_device`
-- `PATCH /devices/{id}` — `update_device`
-- `GET /health` — `health`
-- `GET /openapi.json` — `openapi_json`
-- `POST /permissions/evaluate` — `evaluate_permission`
-- `POST /replication/admission` — `replication_admission`
-- `GET /replication/devices/{endpoint_id}/selections` — `selected_resources`
-- `POST /replication/owner-cleanup` — `owner_cleanup`
-- `GET /users/{user_id}/roles` — `list_user_roles_across_applications`
-- `GET /version` — `version`
-
-### node-join
-
-- `GET /management/node-joins/acceptance` — `acceptance`
-- `PUT /management/node-joins/acceptance` — `set_acceptance`
-- `GET /management/node-joins/pending` — `pending`
-- `POST /management/node-joins/{id}/approve` — `approve`
-- `POST /management/node-joins/{id}/reject` — `reject`
-
-### owner-setup
-
-- `POST /setup/admission` — `admission`
-- `GET /setup/status` — `status`
+- `GET /applications/{application_id}/permissions` — `list_permissions` (200)
+- `POST /applications/{application_id}/permissions` — `create_permission` (201)
+- `DELETE /applications/{application_id}/permissions/{permission_id}` — `delete_permission` (204)
+- `GET /applications/{application_id}/roles` — `list_roles` (200)
+- `POST /applications/{application_id}/roles` — `create_role` (201)
+- `DELETE /applications/{application_id}/roles/{role_id}` — `delete_role` (204)
+- `GET /applications/{application_id}/roles/{role_id}/permissions` — `list_role_permissions` (200)
+- `DELETE /applications/{application_id}/roles/{role_id}/permissions/{permission_id}` — `revoke_permission_from_role` (204)
+- `POST /applications/{application_id}/roles/{role_id}/permissions/{permission_id}` — `assign_permission_to_role` (204)
+- `GET /applications/{application_id}/users/{user_id}/roles` — `list_user_roles` (200)
+- `DELETE /applications/{application_id}/users/{user_id}/roles/{role_id}` — `revoke_role_from_user` (204)
+- `POST /applications/{application_id}/users/{user_id}/roles/{role_id}` — `assign_role_to_user` (204)
+- `GET /device` — `device` (200)
+- `GET /devices` — `list_devices` (200)
+- `GET /devices/endpoints` — `list_approved_device_endpoints` (200, 401, 403)
+- `GET /devices/endpoints/{endpoint_id}` — `lookup_device_endpoint` (200, 401, 403, 404)
+- `POST /devices/enrollments` — `enroll_device` (200)
+- `GET /devices/identities/{device_id}` — `lookup_device_identity` (200)
+- `GET /devices/pairing-accepting` — `pairing_acceptance` (200)
+- `PUT /devices/pairing-accepting` — `set_pairing_acceptance` (200)
+- `POST /devices/revoke-self` — `revoke_self` (200)
+- `GET /devices/trusted` — `trusted_devices` (200)
+- `PUT /devices/{device_id}/owner` — `transfer_device` (204)
+- `GET /devices/{device_id}/restriction` — `get_device_restriction` (200)
+- `PUT /devices/{device_id}/restriction` — `put_device_restriction` (204)
+- `DELETE /devices/{device_id}/selection` — `delete_device_selection` (204)
+- `PUT /devices/{device_id}/selection` — `put_device_selection` (204)
+- `DELETE /devices/{device_id}/selection/{application_id}/{kind}/{resource_id}` — `delete_device_resource_selection` (204)
+- `DELETE /devices/{id}` — `revoke_device` (204)
+- `PATCH /devices/{id}` — `update_device` (200)
+- `GET /health` — `health` (200)
+- `GET /independent/node-joins/acceptance` — `independent_join_accepting` (200, 403)
+- `PUT /independent/node-joins/acceptance` — `independent_join_set_accepting` (204, 400, 403)
+- `POST /independent/node-joins/discover` — `independent_join_discover` (200, 400, 403, 503)
+- `POST /independent/node-joins/history/request` — `independent_join_request_history` (202, 400, 403, 503)
+- `GET /independent/node-joins/history/stream` — `independent_join_history_stream` (101, 400, 401, 403)
+- `GET /independent/node-joins/pending` — `independent_join_pending` (200, 403, 409)
+- `POST /independent/node-joins/verify` — `independent_join_verify` (204, 400, 403)
+- `POST /independent/node-joins/{id}/approve` — `independent_join_approve` (202, 403, 409, 503)
+- `POST /independent/node-joins/{id}/reject` — `independent_join_reject` (204, 403, 409)
+- `POST /independent/setup/admission` — `independent_setup_admission` (204, 401, 503)
+- `POST /independent/setup/cancel` — `independent_setup_cancel` (204, 401, 409, 503)
+- `POST /independent/setup/create` — `independent_setup_create` (202, 400, 401, 409, 503)
+- `POST /independent/setup/independent/challenge` — `independent_setup_challenge` (204, 400, 403, 409, 503)
+- `POST /independent/setup/independent/history` — `independent_setup_history` (202, 403, 409)
+- `GET /independent/setup/independent/public` — `independent_setup_owner_public` (200, 409)
+- `POST /independent/setup/independent/register` — `independent_setup_register` (204, 400, 403, 409, 503)
+- `POST /independent/setup/intent` — `independent_setup_recover` (200, 204, 401, 503)
+- `POST /independent/setup/join` — `independent_setup_join` (202, 400, 401, 409, 502, 503)
+- `GET /independent/setup/status` — `independent_setup_status` (200, 503)
+- `GET /node-joins/acceptance` — `node_join_acceptance` (200, 401, 403, 404, 409, 503)
+- `PUT /node-joins/acceptance` — `node_join_set_acceptance` (200, 401, 403, 404, 409, 503)
+- `GET /node-joins/pending` — `node_join_pending` (200, 401, 403, 404, 409, 503)
+- `POST /node-joins/{id}/approve` — `node_join_approve` (200, 401, 403, 404, 409, 503)
+- `POST /node-joins/{id}/reject` — `node_join_reject` (204, 401, 403, 404, 409, 503)
+- `GET /openapi.json` — `openapi_json` (200)
+- `POST /permissions/evaluate` — `evaluate_permission` (200, 401, 403, 503)
+- `POST /replication/admission` — `replication_admission` (204, 401, 403, 503)
+- `GET /replication/devices/{endpoint_id}/selections` — `selected_resources` (200, 401, 403, 503)
+- `POST /replication/owner-cleanup` — `owner_cleanup` (204, 401, 403, 503)
+- `POST /setup/owner/admission` — `owner_setup_admission` (204, 401, 403)
+- `GET /setup/owner/status` — `owner_setup_status` (200, 503)
+- `GET /users/{user_id}/roles` — `list_user_roles_across_applications` (200)
+- `GET /version` — `version` (200)
 
 ### storage
 
-- `GET /` — `upgrade_socket`
-- `GET /databases` — `list_databases`
-- `POST /databases` — `create_database`
-- `DELETE /databases/{database_id}` — `delete_database`
-- `GET /databases/{database_id}` — `get_database`
-- `GET /filesystems` — `list_file_systems`
-- `POST /filesystems` — `create_file_system`
-- `DELETE /filesystems/{filesystem_id}` — `delete_file_system`
-- `GET /filesystems/{filesystem_id}` — `get_file_system`
-- `GET /filesystems/{filesystem_id}/residency` — `get_file_system_residency`
-- `PUT /filesystems/{filesystem_id}/residency` — `put_file_system_residency`
-- `GET /health` — `health`
-- `GET /openapi.json` — `openapi_json`
-- `GET /version` — `version`
+- `GET /` — `upgrade_socket` (101, 401, 503)
+- `GET /databases` — `list_databases` (200, 401, 403, 503)
+- `POST /databases` — `create_database` (201, 401, 403, 503)
+- `DELETE /databases/{database_id}` — `delete_database` (204, 401, 403, 404, 503)
+- `GET /databases/{database_id}` — `get_database` (200, 401, 403, 404, 503)
+- `GET /filesystems` — `list_file_systems` (200, 401, 403, 503)
+- `POST /filesystems` — `create_file_system` (201, 401, 403, 503)
+- `DELETE /filesystems/{filesystem_id}` — `delete_file_system` (204, 401, 403, 404, 503)
+- `GET /filesystems/{filesystem_id}` — `get_file_system` (200, 401, 403, 404, 503)
+- `GET /filesystems/{filesystem_id}/residency` — `get_file_system_residency` (200, 401, 403, 404, 409, 500, 503)
+- `PUT /filesystems/{filesystem_id}/residency` — `put_file_system_residency` (204, 401, 403, 404, 409, 500, 503)
+- `GET /health` — `health` (200)
+- `POST /independent/node-joins/history/request` — `independent_join_request_history` (202, 400, 403, 503)
+- `GET /independent/node-joins/history/stream` — `independent_join_history_stream` (101, 400, 401, 403)
+- `POST /independent/setup/admission` — `independent_setup_admission` (204, 401, 503)
+- `POST /independent/setup/cancel` — `independent_setup_cancel` (204, 401, 409, 503)
+- `POST /independent/setup/create` — `independent_setup_create` (202, 400, 401, 409, 503)
+- `POST /independent/setup/independent/challenge` — `independent_setup_challenge` (204, 400, 403, 409, 503)
+- `POST /independent/setup/independent/history` — `independent_setup_history` (202, 403, 409)
+- `GET /independent/setup/independent/public` — `independent_setup_owner_public` (200, 409)
+- `POST /independent/setup/independent/register` — `independent_setup_register` (204, 400, 403, 409, 503)
+- `POST /independent/setup/intent` — `independent_setup_recover` (200, 204, 401, 503)
+- `POST /independent/setup/join` — `independent_setup_join` (202, 400, 401, 409, 502, 503)
+- `GET /independent/setup/status` — `independent_setup_status` (200, 503)
+- `GET /openapi.json` — `openapi_json` (200)
+- `POST /setup/owner/admission` — `owner_setup_admission` (204, 401, 403)
+- `GET /setup/owner/status` — `owner_setup_status` (200, 503)
+- `GET /version` — `version` (200)
 
 ## Migrated outbound consumers
 
@@ -211,7 +221,6 @@ Normal owner contracts use verified complete owner bases (defaults append `/idp`
 - `apps/password-manager/src/lib/common/state/idpClient.svelte.ts`
 - `packages/oidc-client/src/OidcClient.ts`
 - `packages/storage-client/src/index.ts`
-- `packages/storage-client/src/owner/runtime.ts`
 
 ## Native lifecycle consumers
 
@@ -239,10 +248,10 @@ Normal owner contracts use verified complete owner bases (defaults append `/idp`
 - Existing actual independent-Create/Join HTTPS fixtures exercise operation-bound registration, signed discovery, source enrollment, generated history handshakes, public import, and source-offline reopen. Existing service/local-owner and transport-failure tests retain the security boundaries.
 - Full-suite, feature-powerset, formatting/lint, reproducibility and complexity-check results and any bounded-run limitations are recorded in ticket 02. These checks do not imply native GUI, production deployment or cross-platform acceptance.
 
-## Ticket 03 final reconciliation
+## Historical ticket 03 reconciliation (superseded product layout)
 
-Re-audited 128 method/path operations across the ten committed documents against production owner registration and the separately composed Setup, independent-owner, history and Node-join routers. The gate now runs the existing owner registration comparisons, complete independent Setup contract test and fresh-host publication/Setup security tests in addition to actual SDK listeners. Storage resources/socket and history use their existing runtime/contract adapters; the inventory is navigation, not an independent coverage framework.
+At ticket 03 time, re-audited 128 method/path operations across the then-ten committed documents against production owner registration and the separately composed Setup, independent-owner, history and Node-join routers. The gate now runs the existing owner registration comparisons, complete independent Setup contract test and fresh-host publication/Setup security tests in addition to actual SDK listeners. Storage resources/socket and history use their existing runtime/contract adapters; the inventory is navigation, not an independent coverage framework.
 
 Re-inspected Rust request sends and browser/native fetch call sites across crates, the native app and packages. The remaining production HTTP send outside generated SDK transport is the Setup OPTIONS TLS probe. Other sends are test fixtures, channels, database execution or non-HTTP WebSocket messages. OIDC raw fetches remain only in explicit external-provider mode; project-owned applications opt into generated operations. Deep-link/native fetch is arbitrary transport. No additional undocumented operation or handwritten project-owned fallback was found. Runtime owner calls remain direct/current-state; publishing schemas adds no authorization or central/live dependency.
 
-The shared gate repeats both complete export and both-language generation, compares committed artifacts (including staged/untracked drift), builds all SDKs and real Rust consumers, loads every built JavaScript export, and reruns failure-preservation/transport/authorization qualification at the existing seams. See ticket 03 for exact fresh-run evidence and bounded validation limits; ticket 02 retains the broader local/offline and independent Join evidence without rerunning expensive full suites.
+The current shared gate repeats complete export and both-language generation, compares the working-tree artifacts (and optionally HEAD/staged/untracked drift with `--committed`), builds all SDKs and real Rust consumers, loads every built JavaScript export, and reruns failure-preservation/transport/authorization qualification at the existing seams. See ticket 03 for exact fresh-run evidence and bounded validation limits; ticket 02 retains the broader local/offline and independent Join evidence without rerunning expensive full suites.

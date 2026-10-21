@@ -3,10 +3,10 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
     Configuration,
-    DefaultApi,
+    IndependentSetupApi as DefaultApi,
     IndependentCreateIntentToJSON,
     IndependentCreateRequestToJSON,
-} from "../packages/idp-client/esm/independent/index.js";
+} from "../packages/idp-client/esm/index.js";
 
 const operation = {
     purpose: "join",
@@ -23,32 +23,40 @@ const options = { credentials: "omit", redirect: "error", cache: "no-store" };
 
 test("complete independent schema includes worker handoffs with owner-relative bases", () => {
     const document = JSON.parse(
-        readFileSync(
-            new URL(
-                "../openapi/idp-independent.json",
-                import.meta.url,
-            ),
+        readFileSync(new URL("../openapi/idp.json", import.meta.url)),
+    );
+    assert.deepEqual(
+        Object.keys(document.paths)
+            .filter((path) => path.startsWith("/independent/setup/"))
+            .sort(),
+        [
+            "/independent/setup/admission",
+            "/independent/setup/cancel",
+            "/independent/setup/create",
+            "/independent/setup/independent/challenge",
+            "/independent/setup/independent/history",
+            "/independent/setup/independent/public",
+            "/independent/setup/independent/register",
+            "/independent/setup/intent",
+            "/independent/setup/join",
+            "/independent/setup/status",
+        ],
+    );
+    assert.ok(
+        JSON.stringify(document).includes(
+            "/independent/setup/independent/challenge",
         ),
     );
-    assert.deepEqual(Object.keys(document.paths).sort(), [
-        "/setup/admission",
-        "/setup/cancel",
-        "/setup/create",
-        "/setup/independent/challenge",
-        "/setup/independent/history",
-        "/setup/independent/public",
-        "/setup/independent/register",
-        "/setup/intent",
-        "/setup/join",
-        "/setup/status",
-    ]);
     assert.ok(
-        JSON.stringify(document).includes("/setup/independent/challenge"),
+        JSON.stringify(document).includes(
+            "/independent/setup/independent/register",
+        ),
     );
     assert.ok(
-        JSON.stringify(document).includes("/setup/independent/register"),
+        JSON.stringify(document).includes(
+            "/independent/setup/independent/history",
+        ),
     );
-    assert.ok(JSON.stringify(document).includes("/setup/independent/history"));
 });
 test("generated Join sends empty issuer/admin without password to each exact owner base", async () => {
     for (const owner of ["idp", "management", "storage"]) {
@@ -57,7 +65,10 @@ test("generated Join sends empty issuer/admin without password to each exact own
                 basePath: operation[owner],
                 apiKey: "Setup " + owner,
                 fetchApi: async (url, init) => {
-                    assert.equal(url, operation[owner] + "/setup/join");
+                    assert.equal(
+                        url,
+                        operation[owner] + "/independent/setup/join",
+                    );
                     assert.equal(init.headers.Authorization, "Setup " + owner);
                     const { operationNonce, ...fields } = operation;
                     assert.deepEqual(JSON.parse(init.body), {
@@ -68,7 +79,7 @@ test("generated Join sends empty issuer/admin without password to each exact own
                 },
             }),
         );
-        const raw = await api.joinRaw(
+        const raw = await api.independentSetupJoinRaw(
             { independentCreateRequest: operation },
             options,
         );
@@ -138,16 +149,19 @@ test("public observation carries no setup code and recovery/cancel retain distin
             },
         }),
     );
-    await api.status(options);
-    await api.ownerPublic(options);
+    await api.independentSetupStatus(options);
+    await api.independentSetupOwnerPublic(options);
     for (const { init } of calls)
         assert.equal(init.headers.Authorization, undefined);
-    assert.equal((await api.recoverRaw(options)).raw.status, 204);
+    assert.equal(
+        (await api.independentSetupRecoverRaw(options)).raw.status,
+        204,
+    );
     assert.equal(calls.at(-1).init.body, undefined);
     assert.equal(calls.at(-1).init.headers.Authorization, "Setup code");
     assert.equal(
         (
-            await api.cancelRaw(
+            await api.independentSetupCancelRaw(
                 {
                     independentCreateIntent: {
                         ...operation,

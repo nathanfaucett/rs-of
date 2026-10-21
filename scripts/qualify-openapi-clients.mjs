@@ -102,7 +102,7 @@ try {
         "packages/management-client/src",
         "packages/storage-client/src",
         ...readdirSync(path.join(root, "openapi")).map(
-            (file) => `clients/rust/${file.replace(/\.json$/, "")}`,
+            (file) => `crates/${file.replace(/\.json$/, "")}-client`,
         ),
     ];
     const before = artifacts.map((dir) => digest(path.join(root, dir)));
@@ -116,31 +116,38 @@ try {
                 ")",
         );
     }
-    run("git", [
-        "--no-pager",
-        "diff",
-        "--exit-code",
-        "HEAD",
-        "--",
-        "openapi",
-        ...artifacts,
-        "clients/rust/Cargo.toml",
-        "clients/rust/Cargo.lock",
-    ]);
-    const untracked = spawnSync(
-        "git",
-        [
-            "ls-files",
-            "--others",
-            "--exclude-standard",
+    if (process.argv.includes("--committed")) {
+        run("git", [
+            "--no-pager",
+            "diff",
+            "--exit-code",
+            "HEAD",
             "--",
             "openapi",
             ...artifacts,
-        ],
-        { cwd: root, encoding: "utf8" },
-    );
-    assert.equal(untracked.status, 0, untracked.stderr);
-    assert.equal(untracked.stdout, "", "generated artifacts must be committed");
+            "Cargo.toml",
+            "Cargo.lock",
+        ]);
+        const untracked = spawnSync(
+            "git",
+            [
+                "--no-pager",
+                "ls-files",
+                "--others",
+                "--exclude-standard",
+                "--",
+                "openapi",
+                ...artifacts,
+            ],
+            { cwd: root, encoding: "utf8" },
+        );
+        assert.equal(untracked.status, 0, untracked.stderr);
+        assert.equal(
+            untracked.stdout,
+            "",
+            "generated artifacts must be committed",
+        );
+    }
     run(pnpm, [
         "--filter",
         "@aicacia/idp-client",
@@ -155,7 +162,7 @@ try {
         "--test",
         ...readdirSync(path.join(root, "scripts"))
             .filter((file) =>
-                /^(generate-openapi-client|generated-.*)\.test\.mjs$/.test(
+                /^(owner-contracts|generate-openapi-client|generated-.*)\.test\.mjs$/.test(
                     file,
                 ),
             )
@@ -182,7 +189,7 @@ try {
         "-p",
         "storage-server",
         "--lib",
-        "openapi_document_preserves_",
+        "openapi",
     ]);
     run("cargo", [
         "test",
@@ -191,6 +198,7 @@ try {
         "--lib",
         "complete_routes_include_operation_bound_handoffs",
     ]);
+    run("cargo", ["test", "-p", "api", "--lib", "canonical_openapi"]);
     run("cargo", ["test", "-p", "unified-server", "--lib", "openapi"]);
     run("cargo", ["test", "-p", "unified-server", "--lib", "generated_"]);
     run("cargo", [

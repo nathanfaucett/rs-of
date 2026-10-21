@@ -344,7 +344,7 @@ struct VerificationRequest {
     context: String,
 }
 
-#[utoipa::path(post, path = "/node-joins/discover", operation_id = "discover", security(()), request_body = DiscoveryRequest, responses((status = 200, body = IndependentPeer, description = "Operation-bound Node-join result"), (status = 400, description = "Invalid input or current authorization/operation denied"), (status = 403, description = "Invalid input or current authorization/operation denied"), (status = 503, description = "Invalid input or current authorization/operation denied")))]
+#[utoipa::path(post, path = "/independent/node-joins/discover", operation_id = "discover", security(()), request_body = DiscoveryRequest, responses((status = 200, body = IndependentPeer, description = "Operation-bound Node-join result"), (status = 400, description = "Invalid input or current authorization/operation denied"), (status = 403, description = "Invalid input or current authorization/operation denied"), (status = 503, description = "Invalid input or current authorization/operation denied")))]
 async fn discover(
     State(source): State<Arc<IndependentJoinSource>>,
     Json(body): Json<serde_json::Value>,
@@ -386,7 +386,7 @@ async fn discover(
         .collect();
     Ok(Json(peer))
 }
-#[utoipa::path(get, path = "/node-joins/acceptance", operation_id = "accepting", security(("authorization" = [])), responses((status = 200, body = AcceptanceRequest, description = "Operation-bound Node-join result"), (status = 403, description = "Invalid input or current authorization/operation denied")))]
+#[utoipa::path(get, path = "/independent/node-joins/acceptance", operation_id = "accepting", security(("authorization" = [])), responses((status = 200, body = AcceptanceRequest, description = "Operation-bound Node-join result"), (status = 403, description = "Invalid input or current authorization/operation denied")))]
 async fn accepting(
     State(source): State<Arc<IndependentJoinSource>>,
     headers: HeaderMap,
@@ -405,7 +405,7 @@ async fn accepting(
         serde_json::json!({"accepting":source.server.pairing_enabled()}),
     ))
 }
-#[utoipa::path(put, path = "/node-joins/acceptance", operation_id = "set_accepting", security(("authorization" = [])), request_body = AcceptanceRequest, responses((status = 204, description = "Operation-bound Node-join result"), (status = 400, description = "Invalid input or current authorization/operation denied"), (status = 403, description = "Invalid input or current authorization/operation denied")))]
+#[utoipa::path(put, path = "/independent/node-joins/acceptance", operation_id = "set_accepting", security(("authorization" = [])), request_body = AcceptanceRequest, responses((status = 204, description = "Operation-bound Node-join result"), (status = 400, description = "Invalid input or current authorization/operation denied"), (status = 403, description = "Invalid input or current authorization/operation denied")))]
 async fn set_accepting(
     State(source): State<Arc<IndependentJoinSource>>,
     headers: HeaderMap,
@@ -428,7 +428,7 @@ async fn set_accepting(
     source.server.set_pairing_enabled(enabled);
     Ok(StatusCode::NO_CONTENT)
 }
-#[utoipa::path(get, path = "/node-joins/pending", operation_id = "pending", security(("authorization" = [])), responses((status = 200, body = Vec<serde_json::Value>, description = "Operation-bound Node-join result"), (status = 403, description = "Invalid input or current authorization/operation denied"), (status = 409, description = "Invalid input or current authorization/operation denied")))]
+#[utoipa::path(get, path = "/independent/node-joins/pending", operation_id = "pending", security(("authorization" = [])), responses((status = 200, body = Vec<serde_json::Value>, description = "Operation-bound Node-join result"), (status = 403, description = "Invalid input or current authorization/operation denied"), (status = 409, description = "Invalid input or current authorization/operation denied")))]
 async fn pending(
     State(source): State<Arc<IndependentJoinSource>>,
     headers: HeaderMap,
@@ -461,7 +461,7 @@ async fn pending(
     }
     Ok(Json(serde_json::json!(visible)))
 }
-#[utoipa::path(post, path = "/node-joins/{id}/approve", operation_id = "approve", security(("authorization" = [])), params(("id" = String, Path)), responses((status = 202, description = "Operation-bound Node-join result"), (status = 403, description = "Invalid input or current authorization/operation denied"), (status = 409, description = "Invalid input or current authorization/operation denied"), (status = 503, description = "Invalid input or current authorization/operation denied")))]
+#[utoipa::path(post, path = "/independent/node-joins/{id}/approve", operation_id = "approve", security(("authorization" = [])), params(("id" = String, Path)), responses((status = 202, description = "Operation-bound Node-join result"), (status = 403, description = "Invalid input or current authorization/operation denied"), (status = 409, description = "Invalid input or current authorization/operation denied"), (status = 503, description = "Invalid input or current authorization/operation denied")))]
 async fn approve(
     State(source): State<Arc<IndependentJoinSource>>,
     Path(id): Path<Id>,
@@ -578,7 +578,7 @@ async fn approve_work(source: &IndependentJoinSource, job: ApprovalWork) -> Resu
         .await
         .map_err(|_| StatusCode::FORBIDDEN)?;
 
-    let configuration = of_independent_idp_client::apis::configuration::Configuration {
+    let configuration = of_idp_client::apis::configuration::Configuration {
         base_path: source.idp.clone(),
         client: LocalTls::verification_client().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
         bearer_access_token: Some(
@@ -588,9 +588,9 @@ async fn approve_work(source: &IndependentJoinSource, job: ApprovalWork) -> Resu
         ),
         ..Default::default()
     };
-    of_independent_idp_client::apis::default_api::enroll_node_join(
+    of_idp_client::apis::independent_join_api::independent_join_enroll_node_join(
         &configuration,
-        of_independent_idp_client::apis::default_api::EnrollNodeJoinParams {
+        of_idp_client::apis::independent_join_api::IndependentJoinEnrollNodeJoinParams {
             independent_join_approval: serde_json::from_value(
                 serde_json::to_value(&approval).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
             )
@@ -635,7 +635,7 @@ async fn approve_work(source: &IndependentJoinSource, job: ApprovalWork) -> Resu
     source.offers.lock().await.remove(&id);
     Ok(())
 }
-#[utoipa::path(post, path = "/node-joins/{id}/reject", operation_id = "reject", security(("authorization" = [])), params(("id" = String, Path)), responses((status = 204, description = "Operation-bound Node-join result"), (status = 403, description = "Invalid input or current authorization/operation denied"), (status = 409, description = "Invalid input or current authorization/operation denied")))]
+#[utoipa::path(post, path = "/independent/node-joins/{id}/reject", operation_id = "reject", security(("authorization" = [])), params(("id" = String, Path)), responses((status = 204, description = "Operation-bound Node-join result"), (status = 403, description = "Invalid input or current authorization/operation denied"), (status = 409, description = "Invalid input or current authorization/operation denied")))]
 async fn reject(
     State(source): State<Arc<IndependentJoinSource>>,
     Path(id): Path<Id>,
@@ -672,7 +672,7 @@ async fn reject(
     source.offers.lock().await.remove(&id);
     Ok(StatusCode::NO_CONTENT)
 }
-#[utoipa::path(post, path = "/node-joins/verify", operation_id = "verify", security(()), request_body = VerificationRequest, responses((status = 204, description = "Operation-bound Node-join result"), (status = 400, description = "Invalid input or current authorization/operation denied"), (status = 403, description = "Invalid input or current authorization/operation denied")))]
+#[utoipa::path(post, path = "/independent/node-joins/verify", operation_id = "verify", security(()), request_body = VerificationRequest, responses((status = 204, description = "Operation-bound Node-join result"), (status = 400, description = "Invalid input or current authorization/operation denied"), (status = 403, description = "Invalid input or current authorization/operation denied")))]
 async fn verify(
     State(source): State<Arc<IndependentJoinSource>>,
     Json(body): Json<serde_json::Value>,

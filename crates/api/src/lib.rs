@@ -1,3 +1,5 @@
+mod canonical_openapi;
+pub use canonical_openapi::{canonical_openapi, canonical_openapi_router};
 mod config;
 #[cfg(unix)]
 mod independent_reset;

@@ -173,7 +173,7 @@ pub(super) async fn wait(http: &Client, intent: &IndependentCreateIntent, ready:
         loop {
             if let Ok(response) = http
                 .get(format!(
-                    "{}/setup/status",
+                    "{}/independent/setup/status",
                     intent.base(owner).expect("owner")
                 ))
                 .send()
@@ -199,7 +199,10 @@ pub(super) async fn normal_use(
     intent: &IndependentCreateIntent,
 ) -> (String, String, String) {
     let public: serde_json::Value = http
-        .get(format!("{}/setup/independent/public", intent.idp))
+        .get(format!(
+            "{}/independent/setup/independent/public",
+            intent.idp
+        ))
         .send()
         .await
         .expect("public login discovery")
@@ -384,7 +387,7 @@ async fn independent_create_child() {
     wait(&http, &intent, false).await;
     let management_code = setup_code(&root, "management");
     let storage_code = setup_code(&root, "storage");
-    let create = format!("{}/setup/create", intent.management);
+    let create = format!("{}/independent/setup/create", intent.management);
     assert_eq!(
         http.post(&create)
             .header("Authorization", format!("Setup {storage_code}"))
@@ -418,7 +421,7 @@ async fn independent_create_child() {
     );
     let retained = wait_public(&http, &intent.management).await;
     let recovered: serde_json::Value = http
-        .post(format!("{}/setup/intent", intent.management))
+        .post(format!("{}/independent/setup/intent", intent.management))
         .header("Authorization", format!("Setup {management_code}"))
         .send()
         .await
@@ -454,15 +457,18 @@ async fn independent_create_child() {
     );
     let forged = serde_json::json!({"operation":intent,"recipient":"management","registration":retained["clients"][0],"challenge":"a".repeat(64)});
     assert_eq!(
-        http.post(format!("{}/setup/independent/challenge", intent.management))
-            .json(&forged)
-            .send()
-            .await
-            .expect("unsolicited challenge")
-            .status(),
+        http.post(format!(
+            "{}/independent/setup/independent/challenge",
+            intent.management
+        ))
+        .json(&forged)
+        .send()
+        .await
+        .expect("unsolicited challenge")
+        .status(),
         StatusCode::FORBIDDEN
     );
-    let cancel = format!("{}/setup/cancel", intent.management);
+    let cancel = format!("{}/independent/setup/cancel", intent.management);
     assert_eq!(
         http.post(&cancel)
             .json(&intent)
@@ -483,12 +489,15 @@ async fn independent_create_child() {
         StatusCode::NO_CONTENT
     );
     assert_eq!(
-        http.post(format!("{}/setup/independent/challenge", intent.management))
-            .json(&forged)
-            .send()
-            .await
-            .expect("cancelled challenge replay")
-            .status(),
+        http.post(format!(
+            "{}/independent/setup/independent/challenge",
+            intent.management
+        ))
+        .json(&forged)
+        .send()
+        .await
+        .expect("cancelled challenge replay")
+        .status(),
         StatusCode::FORBIDDEN
     );
     shutdown.cancel();
@@ -570,7 +579,7 @@ async fn independent_create_child() {
             request["password"] = serde_json::json!("protected-password");
         }
         assert_eq!(
-            http.post(format!("{base}/setup/create"))
+            http.post(format!("{base}/independent/setup/create"))
                 .json(&request)
                 .send()
                 .await
@@ -581,7 +590,7 @@ async fn independent_create_child() {
         let code = setup_code(&root, owner);
         let started = Instant::now();
         let response = http
-            .post(format!("{base}/setup/create"))
+            .post(format!("{base}/independent/setup/create"))
             .header("Authorization", format!("Setup {code}"))
             .json(&request)
             .send()
@@ -602,12 +611,15 @@ async fn independent_create_child() {
     wait(&http, &intent, true).await;
     let finalized = fs::read(&worker_path).expect("finalized recipient evidence");
     assert_eq!(
-        http.post(format!("{}/setup/independent/challenge", intent.management))
-            .json(&forged)
-            .send()
-            .await
-            .expect("post-finalization callback")
-            .status(),
+        http.post(format!(
+            "{}/independent/setup/independent/challenge",
+            intent.management
+        ))
+        .json(&forged)
+        .send()
+        .await
+        .expect("post-finalization callback")
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
@@ -632,7 +644,7 @@ async fn independent_create_child() {
             &storage_code
         };
         assert_eq!(
-            http.post(format!("{base}/setup/intent"))
+            http.post(format!("{base}/independent/setup/intent"))
                 .header("Authorization", format!("Setup {code}"))
                 .send()
                 .await
@@ -797,7 +809,7 @@ async fn independent_create_child() {
     let servers = start(&root, &addresses, &shutdown).await;
     wait_public(&http, &intent.idp).await;
     let status: serde_json::Value = http
-        .get(format!("{}/setup/status", intent.idp))
+        .get(format!("{}/independent/setup/status", intent.idp))
         .send()
         .await
         .expect("unfinished completion")
@@ -809,7 +821,7 @@ async fn independent_create_child() {
         "unretired completion never automatically becomes ready"
     );
     let recovered: serde_json::Value = http
-        .post(format!("{}/setup/intent", intent.idp))
+        .post(format!("{}/independent/setup/intent", intent.idp))
         .header("Authorization", format!("Setup {idp_code}"))
         .send()
         .await
@@ -824,7 +836,7 @@ async fn independent_create_child() {
     let mut finalize = serde_json::to_value(&intent).expect("finalize intent");
     finalize["password"] = serde_json::json!("protected-password");
     assert_eq!(
-        http.post(format!("{}/setup/create", intent.idp))
+        http.post(format!("{}/independent/setup/create", intent.idp))
             .header("Authorization", format!("Setup {idp_code}"))
             .json(&finalize)
             .send()
@@ -1262,7 +1274,7 @@ async fn revoke_current_signer(
 
 pub(super) async fn current_status(http: &Client, base: &str, ready: bool) {
     let response = http
-        .get(format!("{base}/setup/status"))
+        .get(format!("{base}/independent/setup/status"))
         .send()
         .await
         .expect("current owner setup observation");
@@ -1296,7 +1308,7 @@ async fn delayed_forged_https_callback(
     let observed = reached.clone();
     let blocked = release.clone();
     let router = axum::Router::new().route(
-        "/idp/setup/independent/register",
+        "/idp/independent/setup/independent/register",
         axum::routing::post(move || {
             let observed = observed.clone();
             let blocked = blocked.clone();
@@ -1323,7 +1335,7 @@ async fn delayed_forged_https_callback(
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         if http
-            .get(format!("{}/setup/status", intent.management))
+            .get(format!("{}/independent/setup/status", intent.management))
             .send()
             .await
             .is_ok()
@@ -1334,7 +1346,7 @@ async fn delayed_forged_https_callback(
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     assert_eq!(
-        http.post(format!("{}/setup/create", intent.management))
+        http.post(format!("{}/independent/setup/create", intent.management))
             .header("Authorization", format!("Setup {code}"))
             .json(intent)
             .send()
@@ -1360,7 +1372,10 @@ async fn delayed_forged_https_callback(
         .expect("arranged public recipient");
     let forged = serde_json::json!({"operation":intent,"recipient":"management","registration":registration,"challenge":"a".repeat(64)});
     let request = http
-        .post(format!("{}/setup/independent/challenge", intent.management))
+        .post(format!(
+            "{}/independent/setup/independent/challenge",
+            intent.management
+        ))
         .json(&forged);
     let callback = tokio::spawn(async move { request.send().await });
     tokio::time::timeout(Duration::from_secs(5), reached.notified())
@@ -1368,7 +1383,7 @@ async fn delayed_forged_https_callback(
         .expect("forged callback reached delayed verified HTTPS IdP");
     let cancellation = tokio::time::timeout(
         Duration::from_millis(250),
-        http.post(format!("{}/setup/cancel", intent.management))
+        http.post(format!("{}/independent/setup/cancel", intent.management))
             .header("Authorization", format!("Setup {code}"))
             .json(intent)
             .send(),
@@ -1408,7 +1423,7 @@ async fn delayed_forged_https_callback(
         "cancelled operation cannot finalize"
     );
     assert_eq!(
-        http.get(format!("{}/setup/status", intent.management))
+        http.get(format!("{}/independent/setup/status", intent.management))
             .send()
             .await
             .expect("responsive status")
@@ -1441,7 +1456,7 @@ pub(super) async fn wait_public(http: &Client, base: &str) -> serde_json::Value 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
         if let Ok(response) = http
-            .get(format!("{base}/setup/independent/public"))
+            .get(format!("{base}/independent/setup/independent/public"))
             .send()
             .await
         {

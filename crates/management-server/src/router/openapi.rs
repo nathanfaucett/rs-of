@@ -1,7 +1,7 @@
 use axum::{Json, extract::State};
-use utoipa::openapi::OpenApi as OpenApiDocument;
+use serde_json::Value;
 
 #[utoipa::path(get, path = "/openapi.json", responses((status = 200, description = "OpenAPI specification")))]
-pub(crate) async fn openapi_json(State(openapi): State<OpenApiDocument>) -> Json<OpenApiDocument> {
+pub(crate) async fn openapi_json(State(openapi): State<Value>) -> Json<Value> {
     Json(openapi)
 }

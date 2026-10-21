@@ -65,7 +65,7 @@ it("sends one exact Create tuple with each owner's own header and a password onl
     ]),
   ).toEqual(
     owners.map((owner) => [
-      bases[owner] + "/setup/create",
+      bases[owner] + "/independent/setup/create",
       "Setup " + codes[owner],
       {
         ...create,
@@ -84,8 +84,9 @@ it("sends one exact Create tuple with each owner's own header and a password onl
 it("discovers ready independent IdP login facts only after all exact operations and issuers agree", async () => {
   const api = await import("./setupApi");
   fetchApi.mockImplementation(async (url: string) => {
+    if (url === bases.idp + "/setup/status") return new Response(null, { status: 404 });
     const owner = owners.find((owner) => url.startsWith(bases[owner] + "/"))!;
-    return url.endsWith("/setup/status")
+    return url.endsWith("/independent/setup/status")
       ? Response.json(status(owner, "ready"))
       : Response.json({
           operation: create,
@@ -106,8 +107,9 @@ it("discovers ready independent IdP login facts only after all exact operations 
     "01900000-0000-7000-8000-000000000001",
   );
   fetchApi.mockImplementation(async (url: string) => {
+    if (url === bases.idp + "/setup/status") return new Response(null, { status: 404 });
     const owner = owners.find((owner) => url.startsWith(bases[owner] + "/"))!;
-    return url.endsWith("/setup/status")
+    return url.endsWith("/independent/setup/status")
       ? Response.json(status(owner, "ready"))
       : Response.json({
           operation: {
@@ -193,6 +195,7 @@ it("does not adopt a recovered tuple if completion switches to a different opera
   const { IndependentSetupSession } = await import("./independentSetup.svelte");
   let lookups = 0;
   fetchApi.mockImplementation(async (url: string) => {
+    if (url === bases.idp + "/setup/status") return new Response(null, { status: 404 });
     const owner = owners.find((owner) => url.startsWith(bases[owner] + "/"))!;
     if (url.endsWith("/status"))
       return Response.json(
@@ -278,6 +281,7 @@ it.each([
 it("cancels recovered exact tuples per owner with fresh codes and preserves partial cancellation uncertainty", async () => {
   const { IndependentSetupSession } = await import("./independentSetup.svelte");
   fetchApi.mockImplementation(async (url: string) => {
+    if (url === bases.idp + "/setup/status") return new Response(null, { status: 404 });
     const owner = owners.find((owner) => url.startsWith(bases[owner] + "/"))!;
     if (url.endsWith("/status"))
       return Response.json(status(owner, "unfinished"));
@@ -301,7 +305,7 @@ it("cancels recovered exact tuples per owner with fresh codes and preserves part
     ]),
   ).toEqual(
     owners.map((owner) => [
-      bases[owner] + "/setup/cancel",
+      bases[owner] + "/independent/setup/cancel",
       "Setup " + codes[owner],
       create,
     ]),
@@ -359,6 +363,7 @@ it("recovers an entirely unbound operation without inventing an intent or nonce"
 it("never treats three unrelated ready flags as global readiness or sends retired codes to ready owners", async () => {
   const { IndependentSetupSession } = await import("./independentSetup.svelte");
   fetchApi.mockImplementation(async (url: string) => {
+    if (url === bases.idp + "/setup/status") return new Response(null, { status: 404 });
     const owner = owners.find((owner) => url.startsWith(bases[owner] + "/"))!;
     if (url.endsWith("/status")) return Response.json(status(owner, "ready"));
     return Response.json({

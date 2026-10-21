@@ -66,15 +66,15 @@ impl IndependentPeer {
     pub async fn discover(choice: &str) -> io::Result<Self> {
         let (base, _) = Self::choice(choice)?;
         let nonce = crate::independent_exchange::random_capability()?;
-        let configuration = of_independent_management_client::apis::configuration::Configuration {
+        let configuration = of_management_client::apis::configuration::Configuration {
             base_path: base.to_owned(),
             client: LocalTls::verification_client()?,
             ..Default::default()
         };
-        let response = of_independent_management_client::apis::default_api::discover(
+        let response = of_management_client::apis::independent_join_api::independent_join_discover(
             &configuration,
-            of_independent_management_client::apis::default_api::DiscoverParams {
-                discovery_request: of_independent_management_client::models::DiscoveryRequest {
+            of_management_client::apis::independent_join_api::IndependentJoinDiscoverParams {
+                discovery_request: of_management_client::models::DiscoveryRequest {
                     nonce: nonce.clone(),
                 },
             },

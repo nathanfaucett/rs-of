@@ -30,7 +30,7 @@ async fn fresh_host_publishes_complete_openapi_without_provisioning() {
     let setup = SetupHost::create_http(host).expect("HTTP setup without certificates");
     let worker = setup.into_worker(CancellationToken::new());
     let router = worker.router().expect("neutral host router");
-    for (service, count) in [("idp", 38), ("management", 38), ("storage", 14)] {
+    for service in ["idp", "management", "storage"] {
         let response = router
             .clone()
             .oneshot(
@@ -46,18 +46,17 @@ async fn fresh_host_publishes_complete_openapi_without_provisioning() {
             .await
             .expect("schema body");
         let document: serde_json::Value = serde_json::from_slice(&bytes).expect("OpenAPI JSON");
-        let paths = document["paths"].as_object().expect("complete API paths");
-        let operations = paths
-            .values()
-            .flat_map(|path| path.as_object().expect("path item").values())
-            .filter(|operation| operation.get("operationId").is_some())
-            .count();
-        assert_eq!(operations, count, "complete {service} router inventory");
-        assert!(
-            !document["components"]["schemas"]
-                .as_object()
-                .expect("models")
-                .is_empty()
+        let mut expected: serde_json::Value = serde_json::from_str(match service {
+            "idp" => include_str!("../../../openapi/idp.json"),
+            "management" => include_str!("../../../openapi/management.json"),
+            "storage" => include_str!("../../../openapi/storage.json"),
+            _ => unreachable!("known owner"),
+        })
+        .expect("canonical owner contract");
+        expected["servers"] = document["servers"].clone();
+        assert_eq!(
+            document, expected,
+            "served {service} contract must match export"
         );
         assert_eq!(
             document["servers"][0]["url"],
@@ -95,6 +94,7 @@ async fn fresh_host_publishes_complete_openapi_without_provisioning() {
         ("DELETE", "/storage/filesystems/test-id", 503),
         ("GET", "/storage/filesystems/test-id/residency", 503),
         ("POST", "/idp/.well-known/openid-configuration", 405),
+        ("GET", "/idp/setup/openapi.json", 404),
         ("GET", "/idp/nonexistent", 404),
         ("GET", "/nonexistent", 404),
     ] {

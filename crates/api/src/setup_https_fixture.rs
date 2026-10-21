@@ -140,7 +140,11 @@ pub async fn child(
     let base = format!("https://{address}{prefix}");
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     let response = loop {
-        if let Ok(response) = client.get(format!("{base}/setup/status")).send().await {
+        if let Ok(response) = client
+            .get(format!("{base}/setup/owner/status"))
+            .send()
+            .await
+        {
             break response;
         }
         assert!(tokio::time::Instant::now() < deadline, "bounded startup");
@@ -151,7 +155,7 @@ pub async fn child(
         response.json::<serde_json::Value>().await.expect("status"),
         serde_json::json!({"stage":"installation", "state":"awaiting_choice", "ready":false, "owners":[owner]})
     );
-    let admission = format!("{base}/setup/admission");
+    let admission = format!("{base}/setup/owner/admission");
     let other_owner = if owner == "management" {
         "storage"
     } else {
@@ -271,7 +275,7 @@ pub async fn child(
     );
     assert_eq!(
         client
-            .get(format!("{base}/{owner}/setup/status"))
+            .get(format!("{base}/{owner}/setup/owner/status"))
             .send()
             .await
             .expect("no doubled prefix")
@@ -296,7 +300,7 @@ pub async fn child(
                 .expect("restore exact state without clearing poison");
         }
         let response = client
-            .get(format!("{base}/setup/status"))
+            .get(format!("{base}/setup/owner/status"))
             .send()
             .await
             .expect("unavailable scope status");

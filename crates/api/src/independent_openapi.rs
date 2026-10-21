@@ -46,20 +46,20 @@ mod tests {
         let paths = document.paths.paths;
         assert_eq!(paths.len(), 10);
         for path in [
-            "/setup/status",
-            "/setup/admission",
-            "/setup/create",
-            "/setup/join",
-            "/setup/intent",
-            "/setup/cancel",
-            "/setup/independent/public",
+            "/independent/setup/status",
+            "/independent/setup/admission",
+            "/independent/setup/create",
+            "/independent/setup/join",
+            "/independent/setup/intent",
+            "/independent/setup/cancel",
+            "/independent/setup/independent/public",
         ] {
             assert!(paths.contains_key(path), "actual public route {path}");
         }
         for path in [
-            "/setup/independent/challenge",
-            "/setup/independent/register",
-            "/setup/independent/history",
+            "/independent/setup/independent/challenge",
+            "/independent/setup/independent/register",
+            "/independent/setup/independent/history",
         ] {
             assert!(
                 paths.contains_key(path),

@@ -43,14 +43,14 @@ impl IndependentCreateControl {
             serde_json::json!({"approval":approval,"recipient":self.owner(),"return_nonce":nonce});
         match self.owner() {
             "idp" => {
-                let configuration = of_independent_idp_client::apis::configuration::Configuration {
+                let configuration = of_idp_client::apis::configuration::Configuration {
                     base_path: source.to_owned(),
                     client: LocalTls::verification_client()?,
                     ..Default::default()
                 };
-                of_independent_idp_client::apis::default_api::request_history(
+                of_idp_client::apis::independent_join_api::independent_join_request_history(
                     &configuration,
-                    of_independent_idp_client::apis::default_api::RequestHistoryParams {
+                    of_idp_client::apis::independent_join_api::IndependentJoinRequestHistoryParams {
                         history_request: serde_json::from_value(body)?,
                     },
                 )
@@ -58,15 +58,14 @@ impl IndependentCreateControl {
                 .map_err(|_| io::Error::other("source public history unavailable or denied"))?;
             }
             "management" => {
-                let configuration =
-                    of_independent_management_client::apis::configuration::Configuration {
-                        base_path: source.to_owned(),
-                        client: LocalTls::verification_client()?,
-                        ..Default::default()
-                    };
-                of_independent_management_client::apis::default_api::request_history(
+                let configuration = of_management_client::apis::configuration::Configuration {
+                    base_path: source.to_owned(),
+                    client: LocalTls::verification_client()?,
+                    ..Default::default()
+                };
+                of_management_client::apis::independent_join_api::independent_join_request_history(
                     &configuration,
-                    of_independent_management_client::apis::default_api::RequestHistoryParams {
+                    of_management_client::apis::independent_join_api::IndependentJoinRequestHistoryParams {
                         history_request: serde_json::from_value(body)?,
                     },
                 )
@@ -85,7 +84,7 @@ impl IndependentCreateControl {
     }
 }
 
-#[utoipa::path(post, tag = "default", path = "/setup/independent/history", operation_id = "history", request_body = Object, security(()), description = "Worker-only return channel: active exact admitted Join, matching approval and constant-time return nonce, and a 64-character capability are required. Not OAuth authority.", responses((status = 202, description = "History capability accepted"), (status = 403, description = "Operation or return nonce denied"), (status = 409, description = "Return channel full")))]
+#[utoipa::path(post, tag = "default", path = "/independent/setup/independent/history", operation_id = "history", request_body = Object, security(()), description = "Worker-only return channel: active exact admitted Join, matching approval and constant-time return nonce, and a 64-character capability are required. Not OAuth authority.", responses((status = 202, description = "History capability accepted"), (status = 403, description = "Operation or return nonce denied"), (status = 409, description = "Return channel full")))]
 pub(crate) async fn challenge(
     State(control): State<IndependentCreateControl>,
     Json(body): Json<Value>,

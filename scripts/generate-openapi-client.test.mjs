@@ -32,7 +32,9 @@ function digest() {
         "packages/idp-client/src",
         "packages/management-client/src",
         "packages/storage-client/src",
-        "clients/rust",
+        "crates/idp-client",
+        "crates/management-client",
+        "crates/storage-client",
     ])
         visit(path.join(root, dir));
     return hash.digest("hex");
@@ -130,7 +132,7 @@ const path = require("node:path");
 const args = process.argv.slice(2);
 if (args.includes("generate")) {
     const language = args[args.indexOf("-g") + 1];
-    cpSync(path.join(${JSON.stringify(root)}, language === "rust" ? "clients/rust/idp" : "packages/idp-client/src"), args[args.indexOf("-o") + 1], {recursive: true});
+    cpSync(path.join(${JSON.stringify(root)}, language === "rust" ? "crates/idp-client" : "packages/idp-client/src"), args[args.indexOf("-o") + 1], {recursive: true});
 }
 `,
             );
@@ -141,8 +143,7 @@ if (args.includes("generate")) {
 const {appendFileSync, readFileSync} = require("node:fs");
 const path = require("node:path");
 const args = process.argv.slice(2);
-const manifest = args[args.indexOf("--manifest-path") + 1];
-const lock = readFileSync(path.join(path.dirname(manifest), "Cargo.lock"), "utf8");
+const lock = readFileSync(path.join(${JSON.stringify(root)}, "Cargo.lock"), "utf8");
 appendFileSync(${JSON.stringify(log)}, JSON.stringify({args, lock}) + String.fromCharCode(10));
 if (args[0] === ${JSON.stringify(failure)}) process.exit(39);
 `,
@@ -176,10 +177,7 @@ if (args[0] === ${JSON.stringify(failure)}) process.exit(39);
             );
             assert.equal(
                 calls[fetch].lock,
-                readFileSync(
-                    path.join(root, "clients/rust/Cargo.lock"),
-                    "utf8",
-                ),
+                readFileSync(path.join(root, "Cargo.lock"), "utf8"),
             );
             assert.ok(calls[fetch].args.includes("--locked"));
             if (failure === "fetch") {
@@ -190,12 +188,7 @@ if (args[0] === ${JSON.stringify(failure)}) process.exit(39);
                 );
             } else {
                 assert.ok(fetch < check);
-                assert.deepEqual(calls[fetch].args, [
-                    "fetch",
-                    "--manifest-path",
-                    calls[check].args[2],
-                    "--locked",
-                ]);
+                assert.deepEqual(calls[fetch].args, ["fetch", "--locked"]);
                 assert.ok(calls[check].args.includes("--offline"));
                 assert.ok(calls[check].args.includes("--locked"));
             }

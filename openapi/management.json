@@ -1,6 +1,29 @@
 {
   "components": {
     "schemas": {
+      "Acceptance": {
+        "additionalProperties": false,
+        "properties": {
+          "accepting": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "accepting"
+        ],
+        "type": "object"
+      },
+      "AcceptanceRequest": {
+        "properties": {
+          "accepting": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "accepting"
+        ],
+        "type": "object"
+      },
       "ApprovedDeviceEndpoints": {
         "additionalProperties": false,
         "properties": {
@@ -13,6 +36,28 @@
         },
         "required": [
           "endpointIds"
+        ],
+        "type": "object"
+      },
+      "Challenge": {
+        "additionalProperties": false,
+        "properties": {
+          "challenge": {
+            "type": "string"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/IndependentCreateIntent"
+          },
+          "recipient": {
+            "type": "string"
+          },
+          "registration": {}
+        },
+        "required": [
+          "operation",
+          "recipient",
+          "registration",
+          "challenge"
         ],
         "type": "object"
       },
@@ -215,6 +260,20 @@
         ],
         "type": "object"
       },
+      "DiscoveryRequest": {
+        "properties": {
+          "nonce": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-fA-F]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "nonce"
+        ],
+        "type": "object"
+      },
       "HealthResponse": {
         "properties": {
           "database": {
@@ -246,6 +305,26 @@
             "type": "object"
           }
         ]
+      },
+      "HistoryRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "$ref": "#/components/schemas/IndependentJoinApproval"
+          },
+          "recipient": {
+            "type": "string"
+          },
+          "return_nonce": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "approval",
+          "recipient",
+          "return_nonce"
+        ],
+        "type": "object"
       },
       "IdentityAction": {
         "enum": [
@@ -473,6 +552,399 @@
           }
         ]
       },
+      "IndependentCreateIntent": {
+        "additionalProperties": false,
+        "properties": {
+          "administrator": {
+            "type": "string"
+          },
+          "idp": {
+            "type": "string"
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "management": {
+            "type": "string"
+          },
+          "node": {
+            "type": "string"
+          },
+          "operation_nonce": {
+            "type": "string"
+          },
+          "peer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "storage": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "purpose",
+          "operation_nonce",
+          "administrator",
+          "node",
+          "idp",
+          "management",
+          "storage",
+          "issuer"
+        ],
+        "type": "object"
+      },
+      "IndependentCreateRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/IndependentCreateIntent"
+          },
+          {
+            "properties": {
+              "password": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        ]
+      },
+      "IndependentJoinApproval": {
+        "additionalProperties": false,
+        "properties": {
+          "owner_subject": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request": {
+            "$ref": "#/components/schemas/IndependentJoinRequest"
+          },
+          "signature": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request",
+          "owner_subject",
+          "signature"
+        ],
+        "type": "object"
+      },
+      "IndependentJoinRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "endpoint_id": {
+            "type": "string"
+          },
+          "member_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/IndependentCreateIntent"
+          },
+          "public_signer": {
+            "$ref": "#/components/schemas/JwkPublic"
+          },
+          "source": {
+            "$ref": "#/components/schemas/IndependentPeer"
+          }
+        },
+        "required": [
+          "operation",
+          "device_id",
+          "member_id",
+          "endpoint_id",
+          "public_signer",
+          "source"
+        ],
+        "type": "object"
+      },
+      "IndependentOwnerPublic": {
+        "additionalProperties": false,
+        "properties": {
+          "clients": {
+            "items": {},
+            "type": "array"
+          },
+          "facts": {},
+          "operation": {
+            "$ref": "#/components/schemas/IndependentCreateIntent"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "registered": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "operation",
+          "owner",
+          "clients",
+          "facts",
+          "registered"
+        ],
+        "type": "object"
+      },
+      "IndependentPeer": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {},
+          "endpoint": {
+            "type": "string"
+          },
+          "idp": {
+            "type": "string"
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "management": {
+            "type": "string"
+          },
+          "nonce": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "nonce",
+          "issuer",
+          "idp",
+          "management",
+          "endpoint",
+          "address",
+          "signature"
+        ],
+        "type": "object"
+      },
+      "IndependentSetupStatus": {
+        "properties": {
+          "owners": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage",
+          "state",
+          "ready",
+          "owners"
+        ],
+        "type": "object"
+      },
+      "JwkPublic": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/JwkPublicParameters"
+          },
+          {
+            "properties": {
+              "alg": {
+                "$ref": "#/components/schemas/JwsAlgorithm",
+                "description": "Algorithm intended for use"
+              },
+              "kid": {
+                "description": "Key ID",
+                "type": "string"
+              },
+              "use": {
+                "$ref": "#/components/schemas/KeyUse",
+                "description": "Key use (sig, enc)"
+              }
+            },
+            "required": [
+              "use",
+              "kid",
+              "alg"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "JwkPublicParameters": {
+        "oneOf": [
+          {
+            "properties": {
+              "e": {
+                "type": "string"
+              },
+              "kty": {
+                "enum": [
+                  "Rsa"
+                ],
+                "type": "string"
+              },
+              "n": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "n",
+              "e",
+              "kty"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "crv": {
+                "type": "string"
+              },
+              "kty": {
+                "enum": [
+                  "Ec"
+                ],
+                "type": "string"
+              },
+              "x": {
+                "type": "string"
+              },
+              "y": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "crv",
+              "x",
+              "y",
+              "kty"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "crv": {
+                "type": "string"
+              },
+              "kty": {
+                "enum": [
+                  "Opk"
+                ],
+                "type": "string"
+              },
+              "x": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "crv",
+              "x",
+              "kty"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "JwsAlgorithm": {
+        "enum": [
+          "RS256",
+          "RS384",
+          "RS512",
+          "ES256",
+          "ES256K",
+          "ES384",
+          "ES512",
+          "PS256",
+          "PS384",
+          "PS512",
+          "EdDSA"
+        ],
+        "type": "string"
+      },
+      "KeyUse": {
+        "enum": [
+          "sig",
+          "enc"
+        ],
+        "type": "string"
+      },
+      "NodeJoinApproval": {
+        "additionalProperties": false,
+        "properties": {
+          "owner_subject": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request": {
+            "$ref": "#/components/schemas/NodeJoinRequest"
+          },
+          "signature": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request",
+          "owner_subject",
+          "signature"
+        ],
+        "type": "object"
+      },
+      "NodeJoinRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "approving_peer": {
+            "type": "string"
+          },
+          "endpoint_id": {
+            "type": "string"
+          },
+          "installation": {
+            "type": "string"
+          },
+          "member_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "public_signer": {
+            "$ref": "#/components/schemas/JwkPublic"
+          },
+          "purpose": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "purpose",
+          "installation",
+          "member_id",
+          "endpoint_id",
+          "name",
+          "public_signer",
+          "approving_peer"
+        ],
+        "type": "object"
+      },
       "OwnerCopyCleanup": {
         "additionalProperties": false,
         "description": "Exact current Management binding; only an authenticated Storage service may acknowledge it.",
@@ -678,6 +1150,28 @@
           }
         ]
       },
+      "Registration": {
+        "additionalProperties": false,
+        "properties": {
+          "challenge": {
+            "type": "string"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/IndependentCreateIntent"
+          },
+          "recipient": {
+            "type": "string"
+          },
+          "registration": {}
+        },
+        "required": [
+          "operation",
+          "recipient",
+          "registration",
+          "challenge"
+        ],
+        "type": "object"
+      },
       "ReplicationAdmissionRequest": {
         "additionalProperties": false,
         "properties": {
@@ -840,6 +1334,32 @@
         ],
         "type": "object"
       },
+      "SetupStatus": {
+        "properties": {
+          "owners": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage",
+          "state",
+          "ready",
+          "owners"
+        ],
+        "type": "object"
+      },
       "TrustedDevice": {
         "properties": {
           "address": {
@@ -901,6 +1421,21 @@
         ],
         "type": "object"
       },
+      "VerificationRequest": {
+        "properties": {
+          "approval": {
+            "$ref": "#/components/schemas/IndependentJoinApproval"
+          },
+          "context": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "approval",
+          "context"
+        ],
+        "type": "object"
+      },
       "VersionResponse": {
         "properties": {
           "build": {
@@ -927,6 +1462,12 @@
         "bearerFormat": "JWT",
         "scheme": "bearer",
         "type": "http"
+      },
+      "setup_code": {
+        "description": "Setup <this owner's host-generated code>; never OAuth or another owner's code",
+        "in": "header",
+        "name": "Authorization",
+        "type": "apiKey"
       }
     }
   },
@@ -2041,6 +2582,904 @@
         }
       }
     },
+    "/independent/node-joins/acceptance": {
+      "get": {
+        "operationId": "independent_join_accepting",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptanceRequest"
+                }
+              }
+            },
+            "description": "Operation-bound Node-join result"
+          },
+          "403": {
+            "description": "Invalid input or current authorization/operation denied"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "independent_join"
+        ]
+      },
+      "put": {
+        "operationId": "independent_join_set_accepting",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptanceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Operation-bound Node-join result"
+          },
+          "400": {
+            "description": "Invalid input or current authorization/operation denied"
+          },
+          "403": {
+            "description": "Invalid input or current authorization/operation denied"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "independent_join"
+        ]
+      }
+    },
+    "/independent/node-joins/discover": {
+      "post": {
+        "operationId": "independent_join_discover",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscoveryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndependentPeer"
+                }
+              }
+            },
+            "description": "Operation-bound Node-join result"
+          },
+          "400": {
+            "description": "Invalid input or current authorization/operation denied"
+          },
+          "403": {
+            "description": "Invalid input or current authorization/operation denied"
+          },
+          "503": {
+            "description": "Invalid input or current authorization/operation denied"
+          }
+        },
+        "security": [
+          {}
+        ],
+        "tags": [
+          "independent_join"
+        ]
+      }
+    },
+    "/independent/node-joins/history/request": {
+      "post": {
+        "description": "Requires verified exact independent approval and current owner permission. Returns a capability only through the operation-bound recipient callback.",
+        "operationId": "independent_join_request_history",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HistoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Callback accepted"
+          },
+          "400": {
+            "description": "Invalid recipient"
+          },
+          "403": {
+            "description": "Approval denied"
+          },
+          "503": {
+            "description": "Unavailable"
+          }
+        },
+        "security": [
+          {}
+        ],
+        "tags": [
+          "independent_join"
+        ]
+      }
+    },
+    "/independent/node-joins/history/stream": {
+      "get": {
+        "description": "WebSocket upgrade only. The subsequent bounded binary SQL history protocol is not implemented by generated HTTP clients.",
+        "operationId": "independent_join_history_stream",
+        "parameters": [
+          {
+            "description": "History <single-use operation-bound capability>",
+            "in": "header",
+            "name": "Authorization",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Upgrade",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Connection",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Sec-WebSocket-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Sec-WebSocket-Version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "Switching to bounded history WebSocket protocol"
+          },
+          "400": {
+            "description": "Invalid WebSocket handshake"
+          },
+          "401": {
+            "description": "History capability required"
+          },
+          "403": {
+            "description": "Capability expired or denied"
+          }
+        },
+        "security": [
+          {}
+        ],
+        "tags": [
+          "independent_join"
+        ]
+      }
+    },
+    "/independent/node-joins/pending": {
+      "get": {
+        "operationId": "independent_join_pending",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {},
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Operation-bound Node-join result"
+          },
+          "403": {
+            "description": "Invalid input or current authorization/operation denied"
+          },
+          "409": {
+            "description": "Invalid input or current authorization/operation denied"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "independent_join"
+        ]
+      }
+    },
+    "/independent/node-joins/verify": {
+      "post": {
+        "operationId": "independent_join_verify",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Operation-bound Node-join result"
+          },
+          "400": {
+            "description": "Invalid input or current authorization/operation denied"
+          },
+          "403": {
+            "description": "Invalid input or current authorization/operation denied"
+          }
+        },
+        "security": [
+          {}
+        ],
+        "tags": [
+          "independent_join"
+        ]
+      }
+    },
+    "/independent/node-joins/{id}/approve": {
+      "post": {
+        "operationId": "independent_join_approve",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Operation-bound Node-join result"
+          },
+          "403": {
+            "description": "Invalid input or current authorization/operation denied"
+          },
+          "409": {
+            "description": "Invalid input or current authorization/operation denied"
+          },
+          "503": {
+            "description": "Invalid input or current authorization/operation denied"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "independent_join"
+        ]
+      }
+    },
+    "/independent/node-joins/{id}/reject": {
+      "post": {
+        "operationId": "independent_join_reject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Operation-bound Node-join result"
+          },
+          "403": {
+            "description": "Invalid input or current authorization/operation denied"
+          },
+          "409": {
+            "description": "Invalid input or current authorization/operation denied"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "independent_join"
+        ]
+      }
+    },
+    "/independent/setup/admission": {
+      "post": {
+        "operationId": "independent_setup_admission",
+        "responses": {
+          "204": {
+            "description": "This owner code is currently admitted"
+          },
+          "401": {
+            "description": "Code invalid or retired"
+          },
+          "503": {
+            "description": "Admission unavailable"
+          }
+        },
+        "security": [
+          {
+            "setup_code": []
+          }
+        ],
+        "tags": [
+          "independent_setup"
+        ]
+      }
+    },
+    "/independent/setup/cancel": {
+      "post": {
+        "operationId": "independent_setup_cancel",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IndependentCreateIntent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Cancellation signaled; not cleanup completion"
+          },
+          "401": {
+            "description": "Code invalid or retired"
+          },
+          "409": {
+            "description": "No matching active operation"
+          },
+          "503": {
+            "description": "Admission unavailable"
+          }
+        },
+        "security": [
+          {
+            "setup_code": []
+          }
+        ],
+        "tags": [
+          "independent_setup"
+        ]
+      }
+    },
+    "/independent/setup/create": {
+      "post": {
+        "operationId": "independent_setup_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IndependentCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Exact Create accepted; empty body, not completion"
+          },
+          "400": {
+            "description": "Invalid tuple or password"
+          },
+          "401": {
+            "description": "Code invalid or retired"
+          },
+          "409": {
+            "description": "Conflicting retained operation"
+          },
+          "503": {
+            "description": "Owner unavailable"
+          }
+        },
+        "security": [
+          {
+            "setup_code": []
+          }
+        ],
+        "tags": [
+          "independent_setup"
+        ]
+      }
+    },
+    "/independent/setup/independent/challenge": {
+      "post": {
+        "description": "Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.",
+        "operationId": "independent_setup_challenge",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Challenge"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Exact handoff accepted"
+          },
+          "400": {
+            "description": "Invalid registration"
+          },
+          "403": {
+            "description": "Operation or challenge denied"
+          },
+          "409": {
+            "description": "Owner not ready"
+          },
+          "503": {
+            "description": "Owner unavailable"
+          }
+        },
+        "security": [
+          {}
+        ],
+        "tags": [
+          "independent_setup"
+        ]
+      }
+    },
+    "/independent/setup/independent/history": {
+      "post": {
+        "description": "Worker-only return channel: active exact admitted Join, matching approval and constant-time return nonce, and a 64-character capability are required. Not OAuth authority.",
+        "operationId": "independent_setup_history",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "History capability accepted"
+          },
+          "403": {
+            "description": "Operation or return nonce denied"
+          },
+          "409": {
+            "description": "Return channel full"
+          }
+        },
+        "security": [
+          {}
+        ],
+        "tags": [
+          "independent_setup"
+        ]
+      }
+    },
+    "/independent/setup/independent/public": {
+      "get": {
+        "operationId": "independent_setup_owner_public",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndependentOwnerPublic"
+                }
+              }
+            },
+            "description": "Operation-bound public owner metadata, not setup authorization"
+          },
+          "409": {
+            "description": "Public owner metadata not yet available"
+          }
+        },
+        "tags": [
+          "independent_setup"
+        ]
+      }
+    },
+    "/independent/setup/independent/register": {
+      "post": {
+        "description": "Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.",
+        "operationId": "independent_setup_register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Registration"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Exact handoff accepted"
+          },
+          "400": {
+            "description": "Invalid registration"
+          },
+          "403": {
+            "description": "Operation or challenge denied"
+          },
+          "409": {
+            "description": "Owner not ready"
+          },
+          "503": {
+            "description": "Owner unavailable"
+          }
+        },
+        "security": [
+          {}
+        ],
+        "tags": [
+          "independent_setup"
+        ]
+      }
+    },
+    "/independent/setup/intent": {
+      "post": {
+        "operationId": "independent_setup_recover",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndependentCreateIntent"
+                }
+              }
+            },
+            "description": "Exact retained nonsecret operation with authenticated issuer"
+          },
+          "204": {
+            "description": "No bound operation; empty body"
+          },
+          "401": {
+            "description": "Code invalid or retired"
+          },
+          "503": {
+            "description": "Admission unavailable"
+          }
+        },
+        "security": [
+          {
+            "setup_code": []
+          }
+        ],
+        "tags": [
+          "independent_setup"
+        ]
+      }
+    },
+    "/independent/setup/join": {
+      "post": {
+        "operationId": "independent_setup_join",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IndependentCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Exact Join accepted after authenticated discovery; empty body"
+          },
+          "400": {
+            "description": "Invalid tuple; Join forbids password and administrator"
+          },
+          "401": {
+            "description": "Code invalid or retired"
+          },
+          "409": {
+            "description": "Conflicting retained operation"
+          },
+          "502": {
+            "description": "Pinned peer discovery failed"
+          },
+          "503": {
+            "description": "Owner unavailable"
+          }
+        },
+        "security": [
+          {
+            "setup_code": []
+          }
+        ],
+        "tags": [
+          "independent_setup"
+        ]
+      }
+    },
+    "/independent/setup/status": {
+      "get": {
+        "operationId": "independent_setup_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndependentSetupStatus"
+                }
+              }
+            },
+            "description": "Owner-local state; no login Client or secret"
+          },
+          "503": {
+            "description": "Admission unavailable (empty body), or current owner readiness failed (nonsecret status with ready:false)"
+          }
+        },
+        "tags": [
+          "independent_setup"
+        ]
+      }
+    },
+    "/node-joins/acceptance": {
+      "get": {
+        "operationId": "node_join_acceptance",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Acceptance"
+                }
+              }
+            },
+            "description": "Current locally authorized Node-join operation"
+          },
+          "401": {
+            "description": "Bearer required"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Offer not found"
+          },
+          "409": {
+            "description": "Offer changed"
+          },
+          "503": {
+            "description": "Unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "node_join"
+        ]
+      },
+      "put": {
+        "operationId": "node_join_set_acceptance",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Acceptance"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Acceptance"
+                }
+              }
+            },
+            "description": "Current locally authorized Node-join operation"
+          },
+          "401": {
+            "description": "Bearer required"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Offer not found"
+          },
+          "409": {
+            "description": "Offer changed"
+          },
+          "503": {
+            "description": "Unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "node_join"
+        ]
+      }
+    },
+    "/node-joins/pending": {
+      "get": {
+        "operationId": "node_join_pending",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Current locally authorized Node-join operation"
+          },
+          "401": {
+            "description": "Bearer required"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Offer not found"
+          },
+          "409": {
+            "description": "Offer changed"
+          },
+          "503": {
+            "description": "Unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "node_join"
+        ]
+      }
+    },
+    "/node-joins/{id}/approve": {
+      "post": {
+        "operationId": "node_join_approve",
+        "parameters": [
+          {
+            "description": "Pending offer UUID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeJoinApproval"
+                }
+              }
+            },
+            "description": "Current locally authorized Node-join operation"
+          },
+          "401": {
+            "description": "Bearer required"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Offer not found"
+          },
+          "409": {
+            "description": "Offer changed"
+          },
+          "503": {
+            "description": "Unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "node_join"
+        ]
+      }
+    },
+    "/node-joins/{id}/reject": {
+      "post": {
+        "operationId": "node_join_reject",
+        "parameters": [
+          {
+            "description": "Pending offer UUID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Current locally authorized Node-join operation"
+          },
+          "401": {
+            "description": "Bearer required"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Offer not found"
+          },
+          "409": {
+            "description": "Offer changed"
+          },
+          "503": {
+            "description": "Unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "node_join"
+        ]
+      }
+    },
     "/openapi.json": {
       "get": {
         "operationId": "openapi_json",
@@ -2208,6 +3647,60 @@
         ],
         "tags": [
           "super::routes::replication"
+        ]
+      }
+    },
+    "/setup/owner/admission": {
+      "post": {
+        "operationId": "owner_setup_admission",
+        "responses": {
+          "204": {
+            "description": "Owner-local Setup admission accepted"
+          },
+          "401": {
+            "description": "Setup code required"
+          },
+          "403": {
+            "description": "Denied"
+          }
+        },
+        "security": [
+          {
+            "setup_code": []
+          }
+        ],
+        "tags": [
+          "owner_setup"
+        ]
+      }
+    },
+    "/setup/owner/status": {
+      "get": {
+        "operationId": "owner_setup_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupStatus"
+                }
+              }
+            },
+            "description": "Awaiting owner setup"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupStatus"
+                }
+              }
+            },
+            "description": "Owner state unavailable"
+          }
+        },
+        "tags": [
+          "owner_setup"
         ]
       }
     },

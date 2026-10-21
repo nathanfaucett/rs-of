@@ -1052,6 +1052,22 @@ fn generated_token_params() -> of_idp_client::apis::default_api::TokenParams {
 async fn generated_rust_and_built_javascript_use_actual_owner_routes() {
     use of_idp_client::apis::{configuration::Configuration, default_api};
     let fixture = Fixture::new(Gate::default()).await;
+    let document: serde_json::Value = fixture
+        .http
+        .get(format!("{}/openapi.json", fixture.idp_listener.base))
+        .send()
+        .await
+        .expect("runtime IdP discovery")
+        .error_for_status()
+        .expect("public contract")
+        .json()
+        .await
+        .expect("served IdP contract");
+    let mut expected: serde_json::Value =
+        serde_json::from_str(include_str!("../../../openapi/idp.json"))
+            .expect("exported IdP contract");
+    expected["servers"] = document["servers"].clone();
+    assert_eq!(document, expected, "runtime IdP contract matches export");
     let configuration = Configuration {
         base_path: fixture.idp_listener.base.clone(),
         client: fixture.http.clone(),
@@ -1120,33 +1136,35 @@ async fn generated_rust_and_built_javascript_use_actual_owner_routes() {
         .into_create(CancellationToken::new())
         .expect("Setup host");
     let mut independent = Listener::start(host.router()).await;
-    let setup_config = of_idp_independent_client::apis::configuration::Configuration {
+    let setup_config = of_idp_client::apis::configuration::Configuration {
         base_path: independent.base.clone(),
         client: fixture.http.clone(),
         ..Default::default()
     };
     assert!(
-        !of_idp_independent_client::apis::default_api::status(&setup_config)
+        !of_idp_client::apis::independent_setup_api::independent_setup_status(&setup_config)
             .await
             .expect("actual independent status")
             .ready
     );
     assert!(
-        of_idp_independent_client::apis::default_api::recover(&setup_config)
+        of_idp_client::apis::independent_setup_api::independent_setup_recover(&setup_config)
             .await
             .is_err(),
         "discovery does not grant Setup admission"
     );
-    let challenge = of_idp_independent_client::models::Challenge {
+    let challenge = of_idp_client::models::Challenge {
         challenge: "a".repeat(64),
         operation: Box::default(),
         recipient: "management".into(),
         registration: Some(serde_json::json!({"client_id":"unregistered"})),
     };
     assert!(
-        of_idp_independent_client::apis::default_api::challenge(
+        of_idp_client::apis::independent_setup_api::independent_setup_challenge(
             &setup_config,
-            of_idp_independent_client::apis::default_api::ChallengeParams { challenge }
+            of_idp_client::apis::independent_setup_api::IndependentSetupChallengeParams {
+                challenge
+            }
         )
         .await
         .is_err(),

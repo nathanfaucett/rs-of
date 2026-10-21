@@ -90,14 +90,14 @@ impl Source {
     }
     async fn management(&self, approval: &IndependentJoinApproval) -> io::Result<()> {
         self.binding(approval)?;
-        let configuration = of_independent_management_client::apis::configuration::Configuration {
+        let configuration = of_management_client::apis::configuration::Configuration {
             base_path: self.management.clone(),
             client: api::LocalTls::verification_client()?,
             ..Default::default()
         };
-        of_independent_management_client::apis::default_api::verify(
+        of_management_client::apis::independent_join_api::independent_join_verify(
             &configuration,
-            of_independent_management_client::apis::default_api::VerifyParams {
+            of_management_client::apis::independent_join_api::IndependentJoinVerifyParams {
                 verification_request: serde_json::from_value(
                     serde_json::json!({"approval":approval,"context":"idp"}),
                 )?,
@@ -135,7 +135,7 @@ impl Source {
         Ok(())
     }
 }
-#[utoipa::path(post, path = "/node-joins/enroll", operation_id = "enroll_node_join", request_body = IndependentJoinApproval, security(("authorization" = [])), responses((status = 204, description = "Exact signer enrolled"), (status = 400, description = "Invalid signer"), (status = 401, description = "Bearer required"), (status = 403, description = "Current owner permission or approval denied"), (status = 409, description = "Enrollment conflict"), (status = 503, description = "Unavailable")))]
+#[utoipa::path(post, path = "/independent/node-joins/enroll", operation_id = "enroll_node_join", request_body = IndependentJoinApproval, security(("authorization" = [])), responses((status = 204, description = "Exact signer enrolled"), (status = 400, description = "Invalid signer"), (status = 401, description = "Bearer required"), (status = 403, description = "Current owner permission or approval denied"), (status = 409, description = "Enrollment conflict"), (status = 503, description = "Unavailable")))]
 async fn enroll(
     State(source): State<Arc<Source>>,
     headers: HeaderMap,

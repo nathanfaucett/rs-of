@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const host = vi.hoisted(() => ({
     invoke: vi.fn(),
     desktop: true,
+    sourceTopology: null as "coordinated" | "independent" | null,
     token: "current-user",
     env: {} as Record<string, string>,
 }));
@@ -31,6 +32,7 @@ beforeEach(() => {
     vi.resetModules();
     for (const key of Object.keys(host.env)) delete host.env[key];
     host.desktop = true;
+    host.sourceTopology = null;
     host.token = "current-user";
     host.invoke.mockReset().mockResolvedValue("https://localhost:4100");
     fetchApi.mockReset().mockImplementation(async (url: string) => {
@@ -50,7 +52,19 @@ beforeEach(() => {
             return Response.json({ adminAllowed: true });
         throw new Error(`Unexpected URL: ${url}`);
     });
-    vi.stubGlobal("fetch", fetchApi);
+    vi.stubGlobal("fetch", (url: string, init: RequestInit) => {
+        if (host.sourceTopology && url.endsWith("/setup/status"))
+            return Response.json({
+                stage: "installation",
+                state: "awaiting_choice",
+                ready: false,
+                owners:
+                    host.sourceTopology === "independent"
+                        ? ["idp"]
+                        : ["idp", "management", "storage"],
+            });
+        return fetchApi(url, init);
+    });
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -447,6 +461,7 @@ it("uses the Management prefix once and audience for web source acceptance and e
         return new Response(null, { status: 204 });
     });
     const devices = await import("./devices.svelte");
+    host.sourceTopology = "coordinated";
     await expect(devices.nodeJoinAccepting(true)).resolves.toBe(true);
     await expect(devices.pendingNodeJoins()).resolves.toEqual(offers);
     await devices.approvePendingNodeJoin(offers[0].offer_id);
@@ -496,6 +511,7 @@ it("web source approval refuses missing User authorization, insecure targets and
     host.desktop = false;
     const idp = await import("./idpClient.svelte");
     const devices = await import("./devices.svelte");
+    host.sourceTopology = "coordinated";
     const management = await import("./managementClient.svelte");
     idp.setIdpApiUrl("https://identity.test/idp");
     management.setManagementApiUrl("http://source.test/management");
@@ -519,8 +535,12 @@ it.each(["https://management.test", "https://node.test/management"])(
         const idp = await import("./idpClient.svelte");
         const management = await import("./managementClient.svelte");
         const devices = await import("./devices.svelte");
+        host.sourceTopology = "coordinated";
         idp.setIdpApiUrl("https://identity.test/idp");
         management.setManagementApiUrl(base);
+        host.sourceTopology = base.endsWith("/management")
+            ? "coordinated"
+            : "independent";
         fetchApi.mockImplementation(async (url: string) =>
             url.endsWith("/oauth2/token")
                 ? Response.json({
@@ -532,7 +552,7 @@ it.each(["https://management.test", "https://node.test/management"])(
         await expect(devices.nodeJoinAccepting()).resolves.toBe(false);
         expect(fetchApi.mock.calls.map(([url]) => url)).toEqual([
             "https://identity.test/idp/oauth2/token",
-            `${base}/node-joins/acceptance`,
+            `${base}${base.endsWith("/management") ? "" : "/independent"}/node-joins/acceptance`,
         ]);
         expect(fetchApi.mock.calls[0][1].body.get("resource")).toBe(
             "idp-management",
@@ -548,6 +568,7 @@ it("does not transfer source approval to a changed Management target during toke
     const idp = await import("./idpClient.svelte");
     const management = await import("./managementClient.svelte");
     const devices = await import("./devices.svelte");
+    host.sourceTopology = "coordinated";
     idp.setIdpApiUrl("https://identity.test/idp");
     management.setManagementApiUrl("https://source.test/management");
     fetchApi.mockImplementation(async () => {
@@ -573,6 +594,7 @@ it("uses Management HTTPS approval and audience on bundled desktop without remov
             : ownerFetch?.(url, init),
     );
     const devices = await import("./devices.svelte");
+    host.sourceTopology = "coordinated";
     await expect(devices.nodeJoinAccepting(true)).resolves.toBe(true);
     expect(
         fetchApi.mock.calls
@@ -594,6 +616,7 @@ it("uses Management Device client routes and audience for list, rename and revok
     const idp = await import("./idpClient.svelte");
     const management = await import("./managementClient.svelte");
     const devices = await import("./devices.svelte");
+    host.sourceTopology = "coordinated";
     idp.setIdpApiUrl("https://identity.test/idp");
     management.setManagementApiUrl("https://devices.test/management");
     fetchApi.mockImplementation(async (url: string, init: RequestInit) => {
@@ -681,6 +704,7 @@ it("handles independent source acceptance 204 with readback, exact offers and as
         });
     });
     const devices = await import("./devices.svelte");
+    host.sourceTopology = "coordinated";
     await expect(devices.nodeJoinAccepting(true)).resolves.toBe(true);
     const offers = await devices.pendingNodeJoins();
     expect(offers[0].request).toMatchObject({
@@ -721,6 +745,7 @@ it("keeps desktop remote owner targets and source approval on HTTPS without invo
             : Response.json({ accepting: true }),
     );
     const devices = await import("./devices.svelte");
+    host.sourceTopology = "coordinated";
     await expect(devices.nodeJoinAccepting()).resolves.toBe(true);
     expect(fetchApi.mock.calls.map(([url]) => url)).toEqual([
         "https://remote.test/idp/oauth2/token",
@@ -766,7 +791,7 @@ it.each(["idp", "management"] as const)(
             true,
         );
         expect(fetchApi.mock.calls.at(-1)?.[0]).toBe(
-            `https://node.test/${owner}/setup/status`,
+            `https://node.test/${owner}${owner === "idp" ? "" : "/independent"}/setup/status`,
         );
         expect(host.invoke).not.toHaveBeenCalled();
     },
@@ -801,3 +826,25 @@ it.each(["idp", "management"] as const)(
         );
     },
 );
+
+it("uses independent Join operations even when the owner mount prefix is /management", async () => {
+    host.desktop = false;
+    host.sourceTopology = "independent";
+    const idp = await import("./idpClient.svelte");
+    const management = await import("./managementClient.svelte");
+    const devices = await import("./devices.svelte");
+    idp.setIdpApiUrl("https://identity.test/idp");
+    management.setManagementApiUrl("https://source.test/management");
+    fetchApi.mockImplementation(async (url: string) =>
+        url.endsWith("/oauth2/token")
+            ? Response.json({
+                  access_token: "management-token",
+                  token_type: "Bearer",
+              })
+            : Response.json({ accepting: false }),
+    );
+    await expect(devices.nodeJoinAccepting()).resolves.toBe(false);
+    expect(fetchApi.mock.calls.at(-1)?.[0]).toBe(
+        "https://source.test/management/independent/node-joins/acceptance",
+    );
+});

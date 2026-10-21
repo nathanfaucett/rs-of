@@ -52,7 +52,7 @@ async fn independent_create_requires_owner_code_and_retains_exact_intent() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/setup/create")
+                    .uri("/independent/setup/create")
                     .header("Content-Type", "application/json")
                     .header("Authorization", authorization)
                     .body(Body::from(payload.to_string()))
@@ -69,7 +69,7 @@ async fn independent_create_requires_owner_code_and_retains_exact_intent() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/setup/intent")
+                .uri("/independent/setup/intent")
                 .header("Authorization", format!("Setup {code}"))
                 .body(Body::empty())
                 .expect("recovery"),
@@ -171,7 +171,7 @@ async fn delayed_forged_challenge_does_not_block_cancel_or_commit_after_cancel()
     let response = host
         .router()
         .oneshot(
-            Request::post("/setup/create")
+            Request::post("/independent/setup/create")
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Setup {code}"))
                 .body(Body::from(serde_json::to_vec(&intent).expect("operation")))
@@ -210,7 +210,7 @@ async fn delayed_forged_challenge_does_not_block_cancel_or_commit_after_cancel()
     let forged = serde_json::json!({"operation":intent,"recipient":"management","registration":registration,"challenge":"a".repeat(64)});
     let callback = tokio::spawn(
         host.router().oneshot(
-            Request::post("/setup/independent/challenge")
+            Request::post("/independent/setup/independent/challenge")
                 .header("Content-Type", "application/json")
                 .body(Body::from(forged.to_string()))
                 .expect("forged callback"),
@@ -220,7 +220,7 @@ async fn delayed_forged_challenge_does_not_block_cancel_or_commit_after_cancel()
     let cancellation = tokio::time::timeout(
         Duration::from_millis(250),
         host.router().oneshot(
-            Request::post("/setup/cancel")
+            Request::post("/independent/setup/cancel")
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Setup {code}"))
                 .body(Body::from(serde_json::to_vec(&intent).expect("operation")))
@@ -240,7 +240,7 @@ async fn delayed_forged_challenge_does_not_block_cancel_or_commit_after_cancel()
     let status = host
         .router()
         .oneshot(
-            Request::get("/setup/status")
+            Request::get("/independent/setup/status")
                 .body(Body::empty())
                 .expect("status"),
         )
@@ -343,7 +343,7 @@ async fn owner_scope_is_retained_not_inferred_from_origin_or_path() {
             .router()
             .oneshot(
                 Request::builder()
-                    .uri("/setup/status")
+                    .uri("/setup/owner/status")
                     .body(Body::empty())
                     .expect("status request"),
             )
@@ -383,7 +383,7 @@ async fn exact_https_ui_preflight_allows_explicit_authorization_without_ambient_
         .oneshot(
             Request::builder()
                 .method("OPTIONS")
-                .uri("/setup/admission")
+                .uri("/setup/owner/admission")
                 .header("Origin", "https://localhost:5173")
                 .header("Access-Control-Request-Method", "POST")
                 .header(
@@ -431,7 +431,7 @@ async fn live_awaiting_choice_status_refuses_partial_domain_state() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/setup/status")
+                .uri("/setup/owner/status")
                 .body(Body::empty())
                 .expect("request"),
         )
@@ -453,7 +453,7 @@ async fn live_awaiting_choice_status_refuses_partial_domain_state() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/setup/admission")
+                .uri("/setup/owner/admission")
                 .header("Authorization", format!("Setup {code}"))
                 .body(Body::empty())
                 .expect("admission request"),
@@ -521,4 +521,61 @@ fn retained_owner_setup_is_not_new_admission_permission_after_loss_or_domain_mut
         "partial provisioning cannot report awaiting choice"
     );
     assert!(domain.exists(), "partial state is preserved");
+}
+
+#[tokio::test]
+async fn independent_hosts_serve_canonical_openapi_without_provisioning() {
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode},
+    };
+    use tower::ServiceExt;
+
+    let root = tempfile::tempdir().expect("isolated metadata hosts");
+    for owner in ["idp", "management", "storage"] {
+        for (index, prefix) in [String::new(), format!("/{owner}")].iter().enumerate() {
+            let domain = root.path().join(format!("{owner}-{index}"));
+            let host = IndependentSetupHost::prepare(
+                owner,
+                &domain,
+                "127.0.0.1:3000".parse().expect("address"),
+                "https://localhost:5173",
+                prefix,
+                false,
+            )
+            .expect("prepare neutral owner")
+            .expect("fresh host");
+            let neutral = host.router();
+            let (host, _commands) = host
+                .into_create(tokio_util::sync::CancellationToken::new())
+                .expect("independent worker");
+            for router in [neutral, host.router()] {
+                let response = router
+                    .oneshot(
+                        Request::get(format!("{prefix}/openapi.json"))
+                            .body(Body::empty())
+                            .expect("metadata request"),
+                    )
+                    .await
+                    .expect("metadata response");
+                assert_eq!(response.status(), StatusCode::OK);
+                let bytes = to_bytes(response.into_body(), 4 * 1024 * 1024)
+                    .await
+                    .expect("bounded contract");
+                let actual: serde_json::Value =
+                    serde_json::from_slice(&bytes).expect("served contract");
+                let mut expected: serde_json::Value = serde_json::from_str(match owner {
+                    "idp" => include_str!("../../../openapi/idp.json"),
+                    "management" => include_str!("../../../openapi/management.json"),
+                    "storage" => include_str!("../../../openapi/storage.json"),
+                    _ => unreachable!("known owner"),
+                })
+                .expect("canonical owner contract");
+                expected["servers"] =
+                    serde_json::json!([{ "url": format!("https://127.0.0.1:3000{prefix}") }]);
+                assert_eq!(actual, expected, "{owner} discovery at {prefix}");
+                assert!(!domain.exists(), "discovery must not provision owner state");
+            }
+        }
+    }
 }

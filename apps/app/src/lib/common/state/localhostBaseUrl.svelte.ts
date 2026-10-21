@@ -1,8 +1,8 @@
 import { Configuration, DefaultApi } from "@aicacia/idp-client";
 import {
   Configuration as SetupConfiguration,
-  DefaultApi as SetupApi,
-} from "@aicacia/idp-client/setup";
+  SetupApi,
+} from "@aicacia/idp-client";
 import { createStorage } from "@aicacia/svelte-headless";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
@@ -28,8 +28,8 @@ async function isLocalhostListenerAvailable(baseUrl: string): Promise<boolean> {
   } catch {}
   try {
     const status = await new SetupApi(
-      new SetupConfiguration({ basePath: baseUrl, fetchApi: fetch }),
-    ).status();
+      new SetupConfiguration({ basePath: `${baseUrl}/idp`, fetchApi: fetch }),
+    ).setupStatus();
     return status?.stage === "installation";
   } catch {
     return false;
