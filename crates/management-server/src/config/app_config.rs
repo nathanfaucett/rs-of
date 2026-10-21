@@ -25,7 +25,7 @@ impl Default for AppConfig {
             server: ServerConfig::default(),
             data_dir: "data".to_string(),
 
-            log_level: "DEBUG".to_string(),
+            log_level: "info".to_string(),
             api_public_uri: "https://management-api.localhost:1355".to_string(),
             idp_api_base: String::new(),
             storage_api_base: String::new(),

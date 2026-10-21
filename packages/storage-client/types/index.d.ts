@@ -1,3 +1,7 @@
+export { ResourcesResidencyApi } from "./generated/apis/ResourcesResidencyApi.js";
+export { ResidencyMode } from "./generated/models/ResidencyMode.js";
+export type { ResourceResidency } from "./generated/models/ResourceResidency.js";
+export { Configuration as StorageOwnerConfiguration } from "./generated/runtime.js";
 export type StorageRequest = {
     type: "read";
     path: string;
@@ -54,8 +58,8 @@ export type FileSystemResource = {
 };
 type FetchFunction = (input: URL | RequestInfo, init?: RequestInit) => Promise<Response>;
 export type StorageClientOptions = {
-    baseUrl: URL | string;
-    audience: string;
+    idpBaseUrl: URL | string;
+    storageBaseUrl: URL | string;
     clientId: string;
     bearerToken: () => string | Promise<string>;
     fetch?: FetchFunction;
@@ -76,5 +80,4 @@ export declare class StorageClient {
     private exchangeToken;
     private request;
 }
-export {};
 //# sourceMappingURL=index.d.ts.map

@@ -1,13 +1,13 @@
 import { isHttpError, isRedirect } from "@sveltejs/kit";
 import { render } from "svelte/server";
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const host = vi.hoisted(() => ({
     token: { access_token: "session", iss: "https://installation.test" } as
         | { access_token: string; iss?: string }
         | undefined,
     clear: vi.fn(),
-    returnTo: vi.fn(),
+    returnTo: vi.fn((url: URL) => `${url.pathname}${url.search}${url.hash}`),
     goto: vi.fn(),
     native: true,
     installation: { issuer: "https://installation.test" },
@@ -49,9 +49,9 @@ vi.mock("$lib/common/state/afterSigninRedirect.svelte", () => ({
 }));
 vi.mock("$lib/common/state/oidc.svelte", () => ({
     ensureOidcClientId: host.clientId,
-    getOidcClient: () => ({
+    getOidcClient: vi.fn(() => ({
         getStoredTokenResponse: () => host.token,
-    }),
+    })),
     clearOidcSession: () => {
         host.clear();
         host.token = undefined;
@@ -69,6 +69,12 @@ const event = {
     url: new URL("https://app.test/devices?view=local"),
 } as Parameters<typeof load>[0];
 
+Object.defineProperty(event.url, "hash", {
+    get() {
+        throw new Error("Cannot access event.url.hash");
+    },
+});
+
 beforeEach(() => {
     vi.clearAllMocks();
     fetchApi.mockReset();
@@ -80,6 +86,7 @@ beforeEach(() => {
 function respond(failure: () => Promise<Response>, endpoint = "userinfo") {
     fetchApi.mockImplementation(async (url: string) => {
         if (url.endsWith(`/${endpoint}`)) return failure();
+        if (url.endsWith("/setup/status")) return setupStatus("ready");
         if (url.endsWith("/oauth2/token"))
             return Response.json({
                 access_token: "owner-token",
@@ -93,6 +100,55 @@ function respond(failure: () => Promise<Response>, endpoint = "userinfo") {
         });
     });
 }
+
+function setupStatus(state: string) {
+    return Response.json(
+        {
+            stage: "installation",
+            state,
+            ready: state === "ready",
+            owners: ["idp", "management", "storage"],
+            ...(state === "ready"
+                ? {
+                      login_client: {
+                          client_id: "01900000-0000-7000-8000-000000000001",
+                          scopes: ["openid"],
+                      },
+                  }
+                : {}),
+        },
+        { status: state === "unavailable" ? 503 : 200 },
+    );
+}
+
+it("routes an unconfigured web app to setup without constructing an OIDC client", async () => {
+    host.native = false;
+    const idp = await import("$lib/common/state/idpClient.svelte");
+    const previousBase = idp.getIdpApiUrl();
+    idp.setIdpApiUrl("");
+    const oidc = await import("$lib/common/state/oidc.svelte");
+    const client = vi.spyOn(oidc, "getOidcClient");
+    try {
+        const failure = await load(event).catch((cause: unknown) => cause);
+        expect(isRedirect(failure)).toBe(true);
+        expect(failure).toMatchObject({
+            status: 302,
+            location: "/setup/installation",
+        });
+        expect(client).not.toHaveBeenCalled();
+        expect(host.returnTo).not.toHaveBeenCalled();
+        expect(host.clear).not.toHaveBeenCalled();
+        const { load: setup } = await import("../setup/installation/+page");
+        await expect(setup()).rejects.toMatchObject({
+            status: 302,
+            location: "/config",
+        });
+        expect(fetchApi).not.toHaveBeenCalled();
+    } finally {
+        idp.setIdpApiUrl(previousBase ?? "");
+        client.mockRestore();
+    }
+});
 
 it("routes a fresh Installation to setup before owner discovery or credentials", async () => {
     host.stage = "installation";
@@ -258,7 +314,7 @@ it.each(["userinfo", "oauth2/token"])(
         expect(failure).toMatchObject({ status: 302, location: "/signin" });
         expect(host.token).toBeUndefined();
         expect(host.clear).toHaveBeenCalledOnce();
-        expect(host.returnTo).toHaveBeenCalledWith(event.url);
+        expect(host.returnTo).toHaveBeenCalledWith(new URL(event.url.href));
     },
 );
 
@@ -362,15 +418,155 @@ it("retains the missing-bearer and other-Installation denial guards", async () =
     ).toBe(true);
 });
 
-it("also preserves web sessions during owner unavailability", async () => {
-    host.native = false;
-    host.token = { access_token: "web-session" };
-    respond(async () => new Response(null, { status: 503 }));
-    expect(
-        isHttpError(await load(event).catch((cause: unknown) => cause), 503),
-    ).toBe(true);
-    expect(host.token?.access_token).toBe("web-session");
-    expect(host.clear).not.toHaveBeenCalled();
+describe("web startup readiness", () => {
+    beforeEach(async () => {
+        host.native = false;
+        const { setIdpApiUrl } = await import(
+            "$lib/common/state/idpClient.svelte"
+        );
+        setIdpApiUrl("https://node.test/idp");
+        vi.stubGlobal("window", { location: new URL("https://app.test") });
+    });
+
+    afterEach(() => {
+        vi.stubGlobal("window", undefined);
+    });
+
+    it.each([
+        "awaiting_choice",
+        "creating",
+        "joining",
+        "unfinished",
+        "unavailable",
+    ])(
+        "routes %s to installation setup before OIDC or owner requests",
+        async (state) => {
+            fetchApi.mockResolvedValue(setupStatus(state));
+            const { getOidcClient } = await import(
+                "$lib/common/state/oidc.svelte"
+            );
+            const failure = await load(event).catch((cause: unknown) => cause);
+            expect(isRedirect(failure)).toBe(true);
+            expect(failure).toMatchObject({
+                status: 302,
+                location: "/setup/installation",
+            });
+            expect(fetchApi.mock.calls).toEqual([
+                [
+                    "https://node.test/idp/setup/status",
+                    {
+                        credentials: "omit",
+                        redirect: "error",
+                        cache: "no-store",
+                    },
+                ],
+            ]);
+            expect(getOidcClient).not.toHaveBeenCalled();
+            expect(host.invoke).not.toHaveBeenCalled();
+            expect(host.clientId).not.toHaveBeenCalled();
+            expect(host.token?.access_token).toBe("session");
+            expect(host.clear).not.toHaveBeenCalled();
+            expect(host.returnTo).not.toHaveBeenCalled();
+        },
+    );
+
+    it("routes a ready web node without credentials to sign-in after setup observation", async () => {
+        host.token = undefined;
+        fetchApi.mockResolvedValue(setupStatus("ready"));
+        const failure = await load(event).catch((cause: unknown) => cause);
+        expect(isRedirect(failure)).toBe(true);
+        expect(failure).toMatchObject({ status: 302, location: "/signin" });
+        expect(fetchApi).toHaveBeenCalledOnce();
+        expect(fetchApi.mock.calls[0][0]).toBe(
+            "https://node.test/idp/setup/status",
+        );
+        expect(host.returnTo).toHaveBeenCalledWith(new URL(event.url.href));
+        expect(host.invoke).not.toHaveBeenCalled();
+        const { getOidcClient } = await import("$lib/common/state/oidc.svelte");
+        expect(host.clientId).toHaveBeenCalledOnce();
+        expect(fetchApi.mock.invocationCallOrder[0]).toBeLessThan(
+            host.clientId.mock.invocationCallOrder[0],
+        );
+        expect(host.clientId.mock.invocationCallOrder[0]).toBeLessThan(
+            vi.mocked(getOidcClient).mock.invocationCallOrder[0],
+        );
+    });
+
+    it("awaits verified web login metadata before constructing OIDC", async () => {
+        const { getOidcClient } = await import("$lib/common/state/oidc.svelte");
+        respond(async () => Response.json({ sub: "web-user" }));
+        host.clientId.mockImplementationOnce(async () => {
+            await Promise.resolve();
+            expect(getOidcClient).not.toHaveBeenCalled();
+            return "verified-web-client";
+        });
+        await expect(load(event)).resolves.toMatchObject({
+            userInfo: { sub: "web-user" },
+        });
+        expect(host.clientId).toHaveBeenCalledOnce();
+        expect(getOidcClient).toHaveBeenCalled();
+    });
+
+    it("returns 503 without constructing OIDC when web login metadata fails", async () => {
+        fetchApi.mockResolvedValue(setupStatus("ready"));
+        host.clientId.mockRejectedValueOnce(
+            new Error("Login evidence unavailable"),
+        );
+        const { getOidcClient } = await import("$lib/common/state/oidc.svelte");
+        expect(
+            isHttpError(
+                await load(event).catch((cause: unknown) => cause),
+                503,
+            ),
+        ).toBe(true);
+        expect(getOidcClient).not.toHaveBeenCalled();
+        expect(host.clear).not.toHaveBeenCalled();
+        expect(host.returnTo).not.toHaveBeenCalled();
+    });
+
+    it.each(["network", "http", "malformed"])(
+        "returns 503 for %s setup failure without assuming a fresh node or constructing OIDC",
+        async (failureKind) => {
+            fetchApi.mockImplementation(async () => {
+                if (failureKind === "network")
+                    throw new TypeError("Failed to fetch");
+                return failureKind === "http"
+                    ? new Response(null, { status: 503 })
+                    : Response.json({ ready: true });
+            });
+            const { getOidcClient } = await import(
+                "$lib/common/state/oidc.svelte"
+            );
+            const failure = await load(event).catch((cause: unknown) => cause);
+            expect(isHttpError(failure, 503)).toBe(true);
+            expect(failure).toMatchObject({
+                body: { message: expect.stringContaining("Retry") },
+            });
+            expect(fetchApi).toHaveBeenCalledOnce();
+            expect(getOidcClient).not.toHaveBeenCalled();
+            expect(host.token?.access_token).toBe("session");
+            expect(host.clear).not.toHaveBeenCalled();
+            expect(host.returnTo).not.toHaveBeenCalled();
+            expect(host.invoke).not.toHaveBeenCalled();
+        },
+    );
+
+    it("also preserves web sessions during owner unavailability", async () => {
+        host.token = { access_token: "web-session" };
+        respond(async () => new Response(null, { status: 503 }));
+        expect(
+            isHttpError(
+                await load(event).catch((cause: unknown) => cause),
+                503,
+            ),
+        ).toBe(true);
+        expect(fetchApi).toHaveBeenCalledWith(
+            "https://node.test/idp/userinfo",
+            expect.anything(),
+        );
+        expect(host.token?.access_token).toBe("web-session");
+        expect(host.clear).not.toHaveBeenCalled();
+    });
 });
 
 it("presents actionable retry outside the failed auth layout without authenticated content", async () => {

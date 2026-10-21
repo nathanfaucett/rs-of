@@ -42,6 +42,8 @@ pub(crate) struct DatabaseProtocolHandler {
     authorizer: LocalReplicationAuthorizer,
     databases: Arc<DatabaseRuntime>,
     staging_directory: PathBuf,
+    sessions: Arc<crate::database_sessions::DatabaseSessions>,
+    pub(crate) admission: crate::replication_admission::ReplicationAdmission,
     cancellation_token: CancellationToken,
 }
 
@@ -58,49 +60,31 @@ impl DatabaseProtocolHandler {
             authorizer,
             databases,
             staging_directory,
+            sessions: Arc::default(),
+            admission: crate::replication_admission::ReplicationAdmission::new(
+                cancellation_token.clone(),
+            ),
             cancellation_token,
         }
     }
 
-    pub(crate) async fn synchronize_selected_peers(&self) {
-        let Ok(selected) = self
-            .authorizer
-            .selected_resources(self.server.endpoint().id())
-            .await
-        else {
-            return;
+    pub(crate) fn sync_changes(
+        &self,
+        resource: &DatabaseResourceDescriptor,
+    ) -> io::Result<Option<ofdb_sql::ChangeSubscription>> {
+        let namespace = Namespace {
+            owner_subject: resource.owner_subject.clone(),
+            application_id: resource.application_id.parse().map_err(io::Error::other)?,
         };
-        let selected_databases = selected
-            .iter()
-            .filter(|resource| resource.kind == "database")
-            .filter_map(|resource| {
-                Some((
-                    resource.owner_subject.clone(),
-                    resource.application_id.parse().ok()?,
-                    resource.resource_id.parse().ok()?,
-                ))
-            })
-            .collect::<Vec<_>>();
-        if let Err(error) = self
+        let id = resource.database_id.parse().map_err(io::Error::other)?;
+        let Some(sql) = self.databases.open_selected(&namespace, id)? else {
+            return Ok(None);
+        };
+        let kv = self
             .databases
-            .reconcile_selected_copies(&selected_databases)
-            .await
-        {
-            log::warn!("database local-copy cleanup is pending: {error}");
-        }
-        for peer in self.server.peers().ids() {
-            if self.server.endpoint().id().to_string() >= peer.to_string() {
-                continue;
-            }
-            for resource in selected
-                .iter()
-                .filter(|resource| resource.kind == "database")
-            {
-                if let Err(error) = self.synchronize_peer(peer, descriptor(resource)).await {
-                    log::debug!("database sync with {peer} failed: {error}");
-                }
-            }
-        }
+            .open_kv_selected(&namespace, id)?
+            .ok_or_else(|| io::Error::other("selected KV database unavailable"))?;
+        Ok(Some(sql.sync_changes()?.merge(kv.sync_changes()?)))
     }
 
     pub(crate) async fn synchronize_peer(
@@ -111,7 +95,14 @@ impl DatabaseProtocolHandler {
         tokio::select! {
             biased;
             () = self.cancellation_token.cancelled() => Err(io::Error::new(io::ErrorKind::Interrupted, "database sync cancelled")),
-            result = self.synchronize_peer_active(peer, resource) => result,
+            result = async {
+                let permit = self.sessions.outbound(peer, &resource).await;
+                tokio::select! {
+                    biased;
+                    () = permit.cancellation.cancelled() => Err(io::Error::new(io::ErrorKind::Interrupted, "simultaneous database session yielded to lower-ID initiator")),
+                    result = self.synchronize_peer_active(peer, resource) => result,
+                }
+            } => result,
         }
     }
 
@@ -168,7 +159,10 @@ impl DatabaseProtocolHandler {
         resource: &DatabaseResourceDescriptor,
         connection: &Connection,
     ) -> bool {
-        if self.cancellation_token.is_cancelled() {
+        if self.cancellation_token.is_cancelled()
+            || !self.admission.allows()
+            || !self.server.peers().contains(connection.remote_id())
+        {
             return false;
         }
         let (Ok(application_id), Ok(database_id)) = (
@@ -201,6 +195,8 @@ impl DatabaseProtocolHandler {
             )
             .await
             && !self.cancellation_token.is_cancelled()
+            && self.admission.allows()
+            && self.server.peers().contains(connection.remote_id())
             && self
                 .databases
                 .require_local_copy(&scope, database_id)
@@ -228,12 +224,14 @@ impl DatabaseProtocolHandler {
         mut send: iroh::endpoint::SendStream,
         mut recv: iroh::endpoint::RecvStream,
     ) {
+        let _ = self.admission.run(&self.server, connection.remote_id(), Box::pin(async {
         let result = tokio::select! {
             biased;
             () = self.cancellation_token.cancelled() => return,
             result = async {
                 let handshake: DatabaseSyncHandshake = serde_json::from_slice(&read_frame(&mut recv, MAX_HANDSHAKE_BYTES).await?).map_err(io::Error::other)?;
                 self.require_authorized(&handshake.resource, &connection).await?;
+                let _permit = self.sessions.inbound(self.server.endpoint().id(), connection.remote_id(), &handshake.resource).await;
                 let database_id = handshake.resource.database_id.parse::<DatabaseId>().map_err(io::Error::other)?;
                 let namespace = Namespace { owner_subject: handshake.resource.owner_subject.clone(), application_id: handshake.resource.application_id.parse().map_err(io::Error::other)? };
                 if handshake.deleted {
@@ -250,6 +248,7 @@ impl DatabaseProtocolHandler {
         if let Err(error) = result {
             log::debug!("database sync session ended: {error}");
         }
+        })).await;
     }
 
     async fn exchange(
@@ -345,7 +344,7 @@ impl ProtocolHandler for DatabaseProtocolHandler {
     }
 }
 
-fn descriptor(resource: &SelectedResource) -> DatabaseResourceDescriptor {
+pub(crate) fn descriptor(resource: &SelectedResource) -> DatabaseResourceDescriptor {
     DatabaseResourceDescriptor {
         owner_subject: resource.owner_subject.clone(),
         application_id: resource.application_id.clone(),

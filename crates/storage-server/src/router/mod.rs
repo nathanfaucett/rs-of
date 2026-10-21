@@ -1,12 +1,14 @@
 mod openapi;
 mod openapi_router;
+mod public_metadata;
 mod resources;
 mod routes;
 mod state;
 mod storage_authorization;
 mod storage_socket;
 
-pub use openapi_router::openapi_router;
+pub use openapi_router::{openapi_document, openapi_router};
+pub use public_metadata::public_metadata_router;
 pub use resources::resource_router;
 pub use state::RouterState;
 pub use storage_authorization::{

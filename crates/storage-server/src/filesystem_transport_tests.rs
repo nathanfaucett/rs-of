@@ -23,7 +23,7 @@ async fn accept_transport<F, Fut>(
     send: iroh::endpoint::SendStream,
     mut recv: iroh::endpoint::RecvStream,
     authorize: F,
-) -> Result<(IrohFileTransport, IrohResourceDescriptor, bool), std::io::Error>
+) -> Result<(IrohFileTransport, IrohResourceDescriptor), std::io::Error>
 where
     F: Fn(IrohResourceDescriptor) -> Fut + Send + Sync + 'static,
     Fut: std::future::Future<Output = bool> + Send + 'static,
@@ -33,7 +33,15 @@ where
         .await
         .map_err(std::io::Error::other)?;
     assert_eq!(marker[0], FILESYSTEM_STREAM_KIND);
-    IrohFileTransport::accept_authorized_after_marker(connection, send, recv, authorize).await
+    IrohFileTransport::accept_authorized_after_marker(
+        connection,
+        send,
+        recv,
+        authorize,
+        |_| async { Err(std::io::Error::other("unexpected test tombstone")) },
+    )
+    .await?
+    .ok_or_else(|| std::io::Error::other("expected live transport"))
 }
 
 #[tokio::test]
@@ -360,10 +368,9 @@ async fn cancelled_sync_closes_its_peer_stream_and_releases_local_filesystem() {
                 .await
                 .expect("open authorized stream");
         let (send, recv) = incoming.accept_bi().await.expect("accept stream");
-        let (responder_transport, _, _) =
-            accept_transport(&incoming, send, recv, |_| async { true })
-                .await
-                .expect("accept authorized stream");
+        let (responder_transport, _) = accept_transport(&incoming, send, recv, |_| async { true })
+            .await
+            .expect("accept authorized stream");
 
         let initiator_root = root();
         let responder_root = root();
@@ -488,7 +495,7 @@ async fn syncs_metadata_and_remote_file_sessions_over_one_stream() {
         let allowed = Arc::new(AtomicBool::new(true));
         let checks = Arc::clone(&authorization_checks);
         let authorized = Arc::clone(&allowed);
-        let (right_transport, accepted_resource, deleted) =
+        let (right_transport, accepted_resource) =
             accept_transport(&incoming, send, recv, move |_| {
                 let checks = Arc::clone(&checks);
                 let authorized = Arc::clone(&authorized);
@@ -500,7 +507,6 @@ async fn syncs_metadata_and_remote_file_sessions_over_one_stream() {
             .await
             .expect("validate accepted stream");
         assert_eq!(accepted_resource, resource);
-        assert!(!deleted);
 
         let left_root = root();
         let right_root = root();
@@ -624,7 +630,7 @@ async fn syncs_metadata_and_remote_file_sessions_over_one_stream() {
                 .await
                 .expect("open fresh stream on the same authenticated connection");
         let (send, recv) = incoming.accept_bi().await.expect("accept fresh stream");
-        let (retry_right, accepted_resource, _) =
+        let (retry_right, accepted_resource) =
             accept_transport(&incoming, send, recv, move |candidate| {
                 let expected = resource.clone();
                 async move { candidate == expected }
@@ -759,10 +765,9 @@ async fn shutdown_during_live_multichunk_file_read_closes_stream() {
             .await
             .expect("open initiator transport");
         let (send, recv) = incoming.accept_bi().await.expect("accept stream");
-        let (responder_transport, _, _) =
-            accept_transport(&incoming, send, recv, |_| async { true })
-                .await
-                .expect("accept responder transport");
+        let (responder_transport, _) = accept_transport(&incoming, send, recv, |_| async { true })
+            .await
+            .expect("accept responder transport");
 
         let initiator_root = root();
         let responder_root = root();

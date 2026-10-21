@@ -110,31 +110,6 @@ impl IrohFileTransport {
         F: Fn(IrohResourceDescriptor) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = bool> + Send + 'static,
     {
-        Self::open_authorized_with_deletion(connection, resource, false, authorize).await
-    }
-
-    pub async fn open_tombstone_authorized<F, Fut>(
-        connection: &Connection,
-        resource: IrohResourceDescriptor,
-        authorize: F,
-    ) -> Result<Self, Error>
-    where
-        F: Fn(IrohResourceDescriptor) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = bool> + Send + 'static,
-    {
-        Self::open_authorized_with_deletion(connection, resource, true, authorize).await
-    }
-
-    async fn open_authorized_with_deletion<F, Fut>(
-        connection: &Connection,
-        resource: IrohResourceDescriptor,
-        deleted: bool,
-        authorize: F,
-    ) -> Result<Self, Error>
-    where
-        F: Fn(IrohResourceDescriptor) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = bool> + Send + 'static,
-    {
         if !authorize(resource.clone()).await {
             return Err(Error::new(
                 ErrorKind::PermissionDenied,
@@ -167,21 +142,74 @@ impl IrohFileTransport {
             .enqueue(WireMessage::<EndpointId>::Hello {
                 version: IROH_FILE_PROTOCOL_VERSION,
                 resource,
-                deleted,
+                deleted: false,
             })
             .await?;
         Ok(transport)
     }
 
-    pub async fn accept_authorized_after_marker<F, Fut>(
+    pub async fn send_tombstone_authorized<F, Fut>(
         connection: &Connection,
-        send: SendStream,
-        mut recv: RecvStream,
+        resource: IrohResourceDescriptor,
         authorize: F,
-    ) -> Result<(Self, IrohResourceDescriptor, bool), Error>
+    ) -> Result<(), Error>
     where
         F: Fn(IrohResourceDescriptor) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = bool> + Send + 'static,
+    {
+        if !authorize(resource.clone()).await {
+            return Err(Error::new(
+                ErrorKind::PermissionDenied,
+                "filesystem tombstone denied",
+            ));
+        }
+        let (mut send, mut recv) = connection.open_bi().await.map_err(Error::other)?;
+        if !authorize(resource.clone()).await {
+            return Err(Error::new(
+                ErrorKind::PermissionDenied,
+                "filesystem tombstone authorization changed",
+            ));
+        }
+        send.write_all(&[FILESYSTEM_STREAM_KIND]).await?;
+        write_frame(
+            &mut send,
+            &encode(&WireMessage::<EndpointId>::Hello {
+                version: IROH_FILE_PROTOCOL_VERSION,
+                resource: resource.clone(),
+                deleted: true,
+            })?,
+        )
+        .await?;
+        if !matches!(read_message::<EndpointId>(&mut recv).await?,
+            WireMessage::Hello { version, resource: acknowledged, deleted: true }
+                if version == IROH_FILE_PROTOCOL_VERSION && acknowledged == resource)
+        {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                "invalid filesystem tombstone acknowledgement",
+            ));
+        }
+        if !authorize(resource).await {
+            return Err(Error::new(
+                ErrorKind::PermissionDenied,
+                "filesystem tombstone acknowledgement denied",
+            ));
+        }
+        Ok(())
+    }
+
+    pub async fn accept_authorized_after_marker<F, Fut, D, Deleted>(
+        connection: &Connection,
+        mut send: SendStream,
+        mut recv: RecvStream,
+        authorize: F,
+        apply_tombstone: D,
+    ) -> Result<Option<(Self, IrohResourceDescriptor)>, Error>
+    where
+        F: Fn(IrohResourceDescriptor) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = bool> + Send + 'static,
+        D: FnOnce(IrohResourceDescriptor) -> Deleted,
+        Deleted: Future<Output = Result<(), Error>>,
     {
         let (resource, deleted) = match read_message::<EndpointId>(&mut recv).await? {
             WireMessage::Hello {
@@ -201,6 +229,27 @@ impl IrohFileTransport {
                 ErrorKind::PermissionDenied,
                 "filesystem resource is not authorized for sync",
             ));
+        }
+        if deleted {
+            apply_tombstone(resource.clone()).await?;
+            if !authorize(resource.clone()).await {
+                return Err(Error::new(
+                    ErrorKind::PermissionDenied,
+                    "filesystem tombstone acknowledgement denied",
+                ));
+            }
+            write_frame(
+                &mut send,
+                &encode(&WireMessage::<EndpointId>::Hello {
+                    version: IROH_FILE_PROTOCOL_VERSION,
+                    resource,
+                    deleted: true,
+                })?,
+            )
+            .await?;
+            send.finish().map_err(Error::other)?;
+            send.stopped().await.map_err(Error::other)?;
+            return Ok(None);
         }
         let authorize = Arc::new(authorize);
         let authorized_resource = resource.clone();
@@ -223,7 +272,7 @@ impl IrohFileTransport {
                 deleted: false,
             })
             .await?;
-        Ok((transport, resource, deleted))
+        Ok(Some((transport, resource)))
     }
 
     fn new(

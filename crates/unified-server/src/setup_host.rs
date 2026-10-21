@@ -4,9 +4,9 @@ use std::{
 };
 
 #[cfg(unix)]
-use api::{SetupAdmission, SetupScope, setup_router};
+use api::SetupAdmission;
 #[cfg(unix)]
-use axum::{Router, http::HeaderValue};
+use axum::http::HeaderValue;
 #[cfg(unix)]
 use std::sync::Arc;
 #[cfg(unix)]
@@ -118,7 +118,6 @@ pub struct SetupHost {
     host: BootstrapConfig,
     admission: Arc<SetupAdmission>,
     tls: Option<LocalTls>,
-    origin: HeaderValue,
 }
 
 #[cfg(unix)]
@@ -161,7 +160,7 @@ impl SetupHost {
             require_fresh_roots(&config, fresh, https)?;
         }
         require_host_separation(&config, host.directory())?;
-        let origin = if https {
+        if https {
             api::setup_origin(&config.idp.ui_public_uri)?
         } else {
             allowed_origin(&config.idp.ui_public_uri)?
@@ -187,7 +186,6 @@ impl SetupHost {
             host,
             admission,
             tls,
-            origin,
         })
     }
 
@@ -203,28 +201,6 @@ impl SetupHost {
 
     pub fn local_addr(&self) -> std::net::SocketAddr {
         self.host.config().listen_addr
-    }
-
-    /// Mount only on this host's setup listener, never the ordinary resource router.
-    pub fn router(&self) -> Router {
-        let config = self.host.config();
-        let absent_roots = vec![
-            PathBuf::from(&config.idp.data_dir),
-            PathBuf::from(&config.management.data_dir),
-            PathBuf::from(&config.storage.data_dir),
-            config.endpoint_data_dir.clone(),
-            config.credential_bootstrap_directory(),
-            config.local_provisioning_directory(),
-        ];
-        Router::new().nest(
-            "/idp",
-            setup_router(
-                self.admission.clone(),
-                self.origin.clone(),
-                absent_roots,
-                SetupScope::Unified,
-            ),
-        )
     }
 
     /// Transfer the lifecycle guard and owner worker to an external listener host.

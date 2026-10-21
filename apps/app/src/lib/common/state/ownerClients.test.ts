@@ -4,6 +4,7 @@ const host = vi.hoisted(() => ({
     invoke: vi.fn(),
     desktop: true,
     token: "current-user",
+    env: {} as Record<string, string>,
 }));
 vi.mock("@tauri-apps/api/core", () => ({
     invoke: host.invoke,
@@ -20,7 +21,7 @@ vi.mock("./afterSigninRedirect.svelte", () => ({
 vi.mock("$app/navigation", () => ({ goto: vi.fn() }));
 vi.mock("$app/paths", () => ({ resolve: (path: string) => path }));
 vi.mock("$app/state", () => ({ page: { url: new URL("https://app.test") } }));
-vi.mock("$env/dynamic/public", () => ({ env: {} }));
+vi.mock("$env/dynamic/public", () => ({ env: host.env }));
 vi.mock("@aicacia/svelte-headless", () => ({
     createStorage: (_key: string, item: unknown) => ({ item }),
 }));
@@ -28,6 +29,7 @@ const fetchApi = vi.fn();
 
 beforeEach(() => {
     vi.resetModules();
+    for (const key of Object.keys(host.env)) delete host.env[key];
     host.desktop = true;
     host.token = "current-user";
     host.invoke.mockReset().mockResolvedValue("https://localhost:4100");
@@ -703,3 +705,52 @@ it("keeps desktop remote owner targets and source approval on HTTPS without invo
   ]);
   expect(host.invoke).not.toHaveBeenCalled();
 });
+
+it("uses the configured public owner environment names without deriving service bases", async () => {
+    host.desktop = false;
+    host.env.PUBLIC_IDP_BASE_URL = "https://identity.test/custom";
+    host.env.PUBLIC_MANAGEMENT_BASE_URL = "https://policy.test/custom";
+    const idp = await import("./idpClient.svelte");
+    const management = await import("./managementClient.svelte");
+    expect(idp.getIdpApiUrl()).toBe(host.env.PUBLIC_IDP_BASE_URL);
+    expect(management.getManagementApiUrl()).toBe(host.env.PUBLIC_MANAGEMENT_BASE_URL);
+    expect(idp.usesRemoteApis()).toBe(true);
+    expect(host.invoke).not.toHaveBeenCalled();
+});
+
+it.each(["idp", "management"] as const)(
+    "accepts fresh %s setup evidence without initialized discovery",
+    async (owner) => {
+        host.desktop = false;
+        fetchApi.mockImplementation(async (url: string) =>
+            url.endsWith("/setup/status")
+                ? Response.json({ stage: "installation", state: "awaiting_choice", ready: false, owners: [owner] })
+                : new Response(null, { status: 503 }),
+        );
+        const validate = owner === "idp"
+            ? (await import("./idpClient.svelte")).validateIdpApiUrl
+            : (await import("./managementClient.svelte")).validateManagementApiUrl;
+        await expect(validate(`https://node.test/${owner}`)).resolves.toBe(true);
+        expect(fetchApi.mock.calls.at(-1)?.[0]).toBe(`https://node.test/${owner}/setup/status`);
+        expect(host.invoke).not.toHaveBeenCalled();
+    },
+);
+
+it.each(["idp", "management"] as const)(
+    "rejects wrong-owner, malformed and unreachable %s setup endpoints",
+    async (owner) => {
+        host.desktop = false;
+        const validate = owner === "idp"
+            ? (await import("./idpClient.svelte")).validateIdpApiUrl
+            : (await import("./managementClient.svelte")).validateManagementApiUrl;
+        for (const evidence of [
+            { stage: "installation", state: "awaiting_choice", ready: false, owners: ["storage"] },
+            { stage: "installation", ready: true, owners: [owner] },
+        ]) {
+            fetchApi.mockImplementation(async () => Response.json(evidence));
+            await expect(validate(`https://node.test/${owner}`)).resolves.toBe(false);
+        }
+        fetchApi.mockRejectedValue(new TypeError("network unavailable"));
+        await expect(validate(`https://node.test/${owner}`)).resolves.toBe(false);
+    },
+);

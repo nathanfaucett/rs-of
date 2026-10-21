@@ -12,7 +12,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     middleware,
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{MethodFilter, get, on, post},
 };
 use idp_server::OwnerProvisioner;
 use serde::{Deserialize, Serialize};
@@ -277,8 +277,9 @@ struct Active {
 struct Shared {
     admission: Arc<SetupAdmission>,
     commands: mpsc::Sender<Command>,
-    view: RwLock<CreateResult>,
+    view: Arc<RwLock<CreateResult>>,
     normal: RwLock<Option<Router>>,
+    unavailable: Router,
     readiness: RwLock<Option<(SecurityProtocol, Arc<OwnerProvisioner>)>>,
     active: Mutex<Option<Active>>,
     shutdown: CancellationToken,
@@ -315,6 +316,8 @@ impl CreateHost {
             BootstrapPurpose::Create => "creating",
             BootstrapPurpose::Join => "joining",
         };
+        let view = Arc::new(RwLock::new(CreateResult::unfinished(state)));
+        let unavailable = owner_routes(&host.config()).with_state(view.clone());
         Self {
             host,
             tls: tls.into(),
@@ -322,8 +325,9 @@ impl CreateHost {
             shared: Arc::new(Shared {
                 admission,
                 commands: sender,
-                view: RwLock::new(CreateResult::unfinished(state)),
+                view,
                 normal: RwLock::new(None),
+                unavailable,
                 readiness: RwLock::new(None),
                 active: Mutex::new(None),
                 shutdown,
@@ -357,18 +361,18 @@ impl CreateHost {
             }
         }
         let config = self.host.config();
-        let idp_document = idp_server::openapi_document(&config.idp.api_public_uri, "");
-        let management_document =
-            management_server::openapi_document(&config.management.api_public_uri, "");
+        let owners = idp_server::public_metadata_router(&config.idp.api_public_uri, "/idp")
+            .merge(management_server::public_metadata_router(
+                &config.management.api_public_uri,
+                "/management",
+            ))
+            .merge(storage_server::public_metadata_router(
+                &config.storage.api_public_uri,
+                "/storage",
+            ))
+            .with_state(());
         let setup = Router::new()
-            .route(
-                "/idp/openapi.json",
-                get(move || async { Json(idp_document) }),
-            )
-            .route(
-                "/management/openapi.json",
-                get(move || async { Json(management_document) }),
-            )
+            .merge(owners)
             .route("/idp/setup/status", get(status))
             .route("/idp/setup/create", post(create))
             .route("/idp/setup/join", post(join))
@@ -384,7 +388,15 @@ impl CreateHost {
             .layer(
                 CorsLayer::new()
                     .allow_origin(origin.clone())
-                    .allow_methods([axum::http::Method::GET, axum::http::Method::POST])
+                    .allow_methods([
+                        axum::http::Method::GET,
+                        axum::http::Method::HEAD,
+                        axum::http::Method::POST,
+                        axum::http::Method::PUT,
+                        axum::http::Method::PATCH,
+                        axum::http::Method::DELETE,
+                        axum::http::Method::OPTIONS,
+                    ])
                     .allow_headers([
                         axum::http::header::AUTHORIZATION,
                         axum::http::header::CONTENT_TYPE,
@@ -1350,14 +1362,81 @@ async fn cancel(
 }
 
 async fn normal(State(shared): State<Arc<Shared>>, request: Request) -> Response {
-    let router = shared.normal.read().await.clone();
-    match router {
-        Some(router) => router
-            .oneshot(request)
-            .await
-            .expect("infallible owner router"),
-        None => StatusCode::NOT_FOUND.into_response(),
+    let router = shared
+        .normal
+        .read()
+        .await
+        .clone()
+        .unwrap_or_else(|| shared.unavailable.clone());
+    router
+        .oneshot(request)
+        .await
+        .expect("infallible owner router")
+}
+
+async fn unavailable(State(view): State<Arc<RwLock<CreateResult>>>) -> Response {
+    let state = view.read().await;
+    let error = if state.state == "awaiting_choice" {
+        "setup_required"
+    } else {
+        "node_not_ready"
+    };
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({"error": error})),
+    )
+        .into_response()
+}
+
+fn owner_routes(config: &crate::UnifiedConfig) -> Router<Arc<RwLock<CreateResult>>> {
+    let mut router = Router::new();
+    for (prefix, document) in [
+        (
+            "/idp",
+            idp_server::openapi_document(&config.idp.api_public_uri, ""),
+        ),
+        (
+            "/management",
+            management_server::openapi_document(&config.management.api_public_uri, ""),
+        ),
+        (
+            "/storage",
+            storage_server::openapi_document(&config.storage.api_public_uri, "/storage"),
+        ),
+    ] {
+        for (path, item) in document.paths.paths {
+            if matches!(path.as_str(), "/version" | "/openapi.json") {
+                continue;
+            }
+            for (present, method) in [
+                (item.get.is_some(), MethodFilter::GET),
+                (item.put.is_some(), MethodFilter::PUT),
+                (item.post.is_some(), MethodFilter::POST),
+                (item.delete.is_some(), MethodFilter::DELETE),
+                (item.options.is_some(), MethodFilter::OPTIONS),
+                (item.head.is_some(), MethodFilter::HEAD),
+                (item.patch.is_some(), MethodFilter::PATCH),
+                (item.trace.is_some(), MethodFilter::TRACE),
+            ] {
+                if present {
+                    let path = if path == "/" {
+                        prefix.to_owned()
+                    } else {
+                        format!("{prefix}{path}")
+                    };
+                    router = router.route(&path, on(method, unavailable));
+                }
+            }
+        }
     }
+    router
+        .route(
+            "/management/node-joins/acceptance",
+            get(unavailable).put(unavailable),
+        )
+        .route("/management/node-joins/pending", get(unavailable))
+        .route("/management/node-joins/{id}/approve", post(unavailable))
+        .route("/management/node-joins/{id}/reject", post(unavailable))
 }
 
 #[derive(OpenApi)]
@@ -1409,6 +1488,123 @@ pub(crate) mod tests {
     use super::{
         Active, CreateIntent, CreateRequest, CreateResult, SetupIntent, Shared, cancel, create,
     };
+
+    #[tokio::test]
+    async fn owner_routes_stay_mounted_when_runtime_becomes_available_or_unavailable() {
+        use axum::{
+            Router,
+            body::Body,
+            extract::Path,
+            http::Request,
+            routing::{delete, get},
+        };
+        use idp_model::model::Id;
+        use tower::ServiceExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "stable-owner-routes-{}",
+            idp_model::model::Id::now_v7()
+        ));
+        let host = crate::BootstrapConfig::create_http(
+            &root,
+            crate::BootstrapPurpose::AwaitingChoice,
+            None,
+            "127.0.0.1:3000".parse().expect("HTTP backend"),
+            "https://unified.localhost:1355".into(),
+        )
+        .expect("neutral host");
+        let worker = crate::SetupHost::create_http(host)
+            .expect("HTTP setup")
+            .into_worker(CancellationToken::new());
+        let router = worker.router().expect("stable router");
+        let owner = Router::new()
+            .route(
+                "/idp/.well-known/openid-configuration",
+                get(|| async { "discovery" }),
+            )
+            .route(
+                "/idp/users/{user_id}",
+                get(|Path(_id): Path<Id>| async { StatusCode::UNAUTHORIZED }),
+            )
+            .route(
+                "/idp/users/{user_id}/consents/{consent_id}",
+                delete(|Path((_user, _consent)): Path<(Id, Id)>| async { StatusCode::NO_CONTENT }),
+            )
+            .route("/storage", get(|| async { StatusCode::OK }));
+        let user = Id::now_v7();
+        let consent = Id::now_v7();
+        for available in [false, true, false] {
+            *worker.shared.normal.write().await = available.then(|| owner.clone());
+            for (method, path, ready_status) in [
+                (
+                    "GET",
+                    "/idp/.well-known/openid-configuration".to_owned(),
+                    StatusCode::OK,
+                ),
+                (
+                    "GET",
+                    format!("/idp/users/{user}"),
+                    StatusCode::UNAUTHORIZED,
+                ),
+                (
+                    "DELETE",
+                    format!("/idp/users/{user}/consents/{consent}"),
+                    StatusCode::NO_CONTENT,
+                ),
+                ("GET", "/storage".to_owned(), StatusCode::OK),
+            ] {
+                let response = router
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .method(method)
+                            .uri(path)
+                            .body(Body::empty())
+                            .expect("owner request"),
+                    )
+                    .await
+                    .expect("owner response");
+                assert_eq!(
+                    response.status(),
+                    if available {
+                        ready_status
+                    } else {
+                        StatusCode::SERVICE_UNAVAILABLE
+                    }
+                );
+            }
+            for path in [
+                "/idp/version",
+                "/management/openapi.json",
+                "/storage/openapi.json",
+            ] {
+                let response = router
+                    .clone()
+                    .oneshot(
+                        Request::get(path)
+                            .body(Body::empty())
+                            .expect("metadata request"),
+                    )
+                    .await
+                    .expect("metadata response");
+                assert_eq!(response.status(), StatusCode::OK);
+            }
+            for path in ["/idp/nonexistent", "/storage/"] {
+                let response = router
+                    .clone()
+                    .oneshot(
+                        Request::get(path)
+                            .body(Body::empty())
+                            .expect("unknown request"),
+                    )
+                    .await
+                    .expect("unknown response");
+                assert_eq!(response.status(), StatusCode::NOT_FOUND);
+            }
+        }
+        drop(worker);
+        std::fs::remove_dir_all(root).expect("isolated cleanup");
+    }
 
     pub(crate) async fn status_tracks_revocation_in_existing_runtime(
         runtime: crate::UnifiedRuntime,
@@ -1584,8 +1780,9 @@ pub(crate) mod tests {
         let shared = Arc::new(Shared {
             admission,
             commands: sender,
-            view: RwLock::new(CreateResult::unfinished("creating")),
+            view: Arc::new(RwLock::new(CreateResult::unfinished("creating"))),
             normal: RwLock::new(None),
+            unavailable: axum::Router::new(),
             readiness: RwLock::new(None),
             active: Mutex::new(None),
             shutdown: CancellationToken::new(),
@@ -1694,8 +1891,9 @@ pub(crate) mod tests {
         let shared = Arc::new(Shared {
             admission,
             commands: sender,
-            view: RwLock::new(CreateResult::unfinished("awaiting_choice")),
+            view: Arc::new(RwLock::new(CreateResult::unfinished("awaiting_choice"))),
             normal: RwLock::new(None),
+            unavailable: axum::Router::new(),
             readiness: RwLock::new(None),
             active: Mutex::new(None),
             shutdown: CancellationToken::new(),

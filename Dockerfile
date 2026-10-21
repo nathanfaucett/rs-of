@@ -12,7 +12,7 @@ WORKDIR /workspace/of
 RUN cargo build --locked --release -p unified-server --features cli --bin unified-server
 
 FROM debian:trixie-slim
-LABEL org.opencontainers.image.source=https://github.com/aicacia/rs-local
+LABEL org.opencontainers.image.source=https://github.com/nathanfaucett/rs-of
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates libdbus-1-3 \

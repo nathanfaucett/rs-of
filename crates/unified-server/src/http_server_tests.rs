@@ -30,7 +30,7 @@ async fn fresh_host_publishes_complete_openapi_without_provisioning() {
     let setup = SetupHost::create_http(host).expect("HTTP setup without certificates");
     let worker = setup.into_worker(CancellationToken::new());
     let router = worker.router().expect("neutral host router");
-    for service in ["idp", "management"] {
+    for (service, count) in [("idp", 38), ("management", 38), ("storage", 14)] {
         let response = router
             .clone()
             .oneshot(
@@ -52,7 +52,7 @@ async fn fresh_host_publishes_complete_openapi_without_provisioning() {
             .flat_map(|path| path.as_object().expect("path item").values())
             .filter(|operation| operation.get("operationId").is_some())
             .count();
-        assert_eq!(operations, 38, "complete {service} router inventory");
+        assert_eq!(operations, count, "complete {service} router inventory");
         assert!(
             !document["components"]["schemas"]
                 .as_object()
@@ -64,6 +64,81 @@ async fn fresh_host_publishes_complete_openapi_without_provisioning() {
             format!("https://unified.localhost:1355/{service}")
         );
     }
+    for service in ["idp", "management", "storage"] {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::get(format!("/{service}/version"))
+                    .body(Body::empty())
+                    .expect("version request"),
+            )
+            .await
+            .expect("public version");
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+    }
+    for (method, path, expected) in [
+        ("GET", "/idp/.well-known/openid-configuration", 503),
+        ("GET", "/idp/.well-known/jwks.json", 503),
+        ("GET", "/idp/health", 503),
+        ("GET", "/management/health", 503),
+        ("GET", "/storage/health", 503),
+        ("GET", "/storage", 503),
+        ("GET", "/storage/", 404),
+        ("POST", "/idp/oauth2/token", 503),
+        ("GET", "/management/node-joins/acceptance", 503),
+        ("PUT", "/management/node-joins/acceptance", 503),
+        ("GET", "/management/node-joins/pending", 503),
+        ("POST", "/management/node-joins/test/approve", 503),
+        ("POST", "/management/node-joins/test/reject", 503),
+        ("GET", "/storage/filesystems", 503),
+        ("POST", "/storage/filesystems", 503),
+        ("DELETE", "/storage/filesystems/test-id", 503),
+        ("GET", "/storage/filesystems/test-id/residency", 503),
+        ("POST", "/idp/.well-known/openid-configuration", 405),
+        ("GET", "/idp/nonexistent", 404),
+        ("GET", "/nonexistent", 404),
+    ] {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .body(Body::empty())
+                    .expect("API request"),
+            )
+            .await
+            .expect("stable API response");
+        assert_eq!(response.status().as_u16(), expected, "{method} {path}");
+        if expected == 503 {
+            let bytes = to_bytes(response.into_body(), 1024)
+                .await
+                .expect("readiness response");
+            let error: serde_json::Value = serde_json::from_slice(&bytes).expect("readiness JSON");
+            assert_eq!(error["error"], "setup_required");
+        }
+    }
+    let preflight = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("OPTIONS")
+                .uri("/storage/filesystems/test-id")
+                .header("Origin", "https://unified.localhost:1355")
+                .header("Access-Control-Request-Method", "DELETE")
+                .header("Access-Control-Request-Headers", "authorization")
+                .body(Body::empty())
+                .expect("owner preflight"),
+        )
+        .await
+        .expect("preflight response");
+    assert_eq!(preflight.status(), axum::http::StatusCode::OK);
+    assert!(
+        preflight.headers()["access-control-allow-methods"]
+            .to_str()
+            .expect("allowed methods")
+            .contains("DELETE")
+    );
     for path in [
         &config.idp.data_dir,
         &config.management.data_dir,
@@ -91,7 +166,7 @@ fn http_setup_create_and_reopen_without_certificates() {
             "--ignored",
             "--nocapture",
         ])
-        .env("RUST_MIN_STACK", "16777216")
+        .env("RUST_MIN_STACK", "2097152")
         .spawn()
         .expect("isolated provider child");
     let deadline = Instant::now() + Duration::from_secs(90);

@@ -1,0 +1,96 @@
+use axum::{Router, routing::get};
+use utoipa::openapi::Server;
+
+use super::{openapi::openapi_json, openapi_router::openapi_document, routes::version::version};
+
+/// Serves version and the full API contract without opening runtime state.
+/// `api_base_uri` is the complete public owner base; `prefix` only mounts routes.
+pub fn public_metadata_router(api_base_uri: &str, prefix: &str) -> Router {
+    let mut document = openapi_document(api_base_uri, "/storage");
+    document.servers = Some(vec![Server::new(api_base_uri)]);
+    let routes = Router::new()
+        .route("/version", get(version))
+        .route("/openapi.json", get(openapi_json))
+        .with_state(document);
+
+    if prefix.is_empty() || prefix == "/" {
+        routes
+    } else {
+        Router::new().nest(prefix, routes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode},
+    };
+    use serde_json::Value;
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn public_metadata_is_state_free_and_only_exposes_version_and_openapi() {
+        for prefix in ["", "/", "/storage", "/custom/storage"] {
+            let base = "https://node.example/custom/storage";
+            let router = crate::public_metadata_router(base, prefix);
+            let mount = if prefix == "/" { "" } else { prefix };
+            for path in ["/version", "/openapi.json"] {
+                let response = router
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .uri(format!("{mount}{path}"))
+                            .body(Body::empty())
+                            .expect("metadata request"),
+                    )
+                    .await
+                    .expect("metadata response");
+                assert_eq!(response.status(), StatusCode::OK);
+                let body = to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .expect("metadata body");
+                let value: Value = serde_json::from_slice(&body).expect("metadata JSON");
+                if path == "/version" {
+                    assert_eq!(value["name"], env!("CARGO_PKG_NAME"));
+                    assert!(value["version"].is_string());
+                    assert!(value["build"].is_string());
+                } else {
+                    let mut expected = crate::openapi_document(base, "/storage");
+                    expected.servers = Some(vec![utoipa::openapi::Server::new(base)]);
+                    assert_eq!(
+                        value,
+                        serde_json::to_value(expected).expect("full contract")
+                    );
+                    assert!(value["paths"]["/databases"].is_object());
+                    assert!(value["paths"]["/filesystems"].is_object());
+                    assert!(value["paths"]["/"].is_object());
+                    assert!(value["paths"]["/storage/databases"].is_null());
+                    assert_eq!(value["servers"][0]["url"], base);
+                    assert!(value["paths"]["/version"].is_object());
+                    assert!(value["paths"]["/openapi.json"].is_object());
+                }
+            }
+            for path in [
+                "/health",
+                "/.well-known/openid-configuration",
+                "/.well-known/jwks.json",
+                "/oauth2/token",
+                "/missing",
+                "/storage/version",
+            ] {
+                let response = router
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .uri(format!("{mount}{path}"))
+                            .body(Body::empty())
+                            .expect("unregistered request"),
+                    )
+                    .await
+                    .expect("unregistered response");
+                assert_eq!(response.status(), StatusCode::NOT_FOUND, "{mount}{path}");
+            }
+        }
+    }
+}

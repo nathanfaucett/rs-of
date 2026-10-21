@@ -107,7 +107,10 @@ pub async fn run() -> io::Result<()> {
             AppConfig::default()
         }
     });
-    env_logger::Builder::from_env(Env::default().default_filter_or(&app_config.log_level)).init();
+    env_logger::Builder::from_env(
+        Env::default().default_filter_or(format!("{},automerge=warn", app_config.log_level)),
+    )
+    .init();
 
     #[cfg(unix)]
     if matches!(args.command, None | Some(IdpCommand::Serve { .. })) {

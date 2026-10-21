@@ -75,4 +75,4 @@ storage config:
     cargo run -p storage-server --features cli --bin storage-server -- --config {{ config }}
 
 unified *args:
-    PORTLESS_APP_PORT=${PORT:-3000} pnpm exec portless unified cargo run -p unified-server --features cli --bin unified-server -- {{ args }}
+    UNIFIED__IDP__UI_PUBLIC_URI="${UNIFIED__IDP__UI_PUBLIC_URI-$(pnpm exec portless get of)}" PORTLESS_APP_PORT=${PORT:-3000} pnpm exec portless unified cargo run -p unified-server --features cli --bin unified-server -- {{ args }}

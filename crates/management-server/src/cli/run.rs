@@ -85,8 +85,11 @@ pub async fn run() -> io::Result<()> {
         });
         let address = SocketAddr::new(setup_host, port.unwrap_or(app_config.server.port));
         if let Some(setup) = crate::prepare_setup(&app_config, address)? {
-            env_logger::Builder::from_env(Env::default().default_filter_or(&app_config.log_level))
-                .init();
+            env_logger::Builder::from_env(
+                Env::default()
+                    .default_filter_or(format!("{},automerge=warn", app_config.log_level)),
+            )
+            .init();
             let shutdown = shutdown_signal(cancellation_token.clone());
             let serving = crate::serve_independent_create(
                 app_config.clone(),
@@ -152,7 +155,10 @@ pub async fn run() -> io::Result<()> {
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?,
     );
 
-    env_logger::Builder::from_env(Env::default().default_filter_or(&app_config.log_level)).init();
+    env_logger::Builder::from_env(
+        Env::default().default_filter_or(format!("{},automerge=warn", app_config.log_level)),
+    )
+    .init();
 
     let engine = crate::open_database(&app_config).await?;
     let router = build_router(

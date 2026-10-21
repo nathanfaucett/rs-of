@@ -116,20 +116,20 @@ impl Fixture {
         let [mut source, mut target] = self.transports().await;
         let config = ofdb_sql::SessionConfig::default();
         let (a, b) = tokio::join!(
-            self.databases[0].synchronize_with_stage_directory_checked(
+            Box::pin(self.databases[0].synchronize_with_stage_directory_checked(
                 &mut source,
                 &config,
                 sql_opposite(role),
                 self.nodes[0].root.join("staging"),
                 || check_apply(self.authorize(0), CancellationToken::new())
-            ),
-            self.databases[1].synchronize_with_stage_directory_checked(
+            )),
+            Box::pin(self.databases[1].synchronize_with_stage_directory_checked(
                 &mut target,
                 &config,
                 role,
                 self.nodes[1].root.join("staging"),
                 || check_apply(self.authorize(1), CancellationToken::new())
-            ),
+            )),
         );
         a.expect("authorized source SQL sync");
         b.expect("authorized target SQL sync");
@@ -317,7 +317,7 @@ async fn delayed_http_policy_cannot_release_database_frame_after_local_denial() 
             ).expect("authenticated Management client"));
             let cancellation = CancellationToken::new();
             let handler = super::DatabaseProtocolHandler::new(
-                Server::new(fixture.peers.endpoints[0].clone(), EndpointIdStore::default()),
+                Server::new(fixture.peers.endpoints[0].clone(), { let peers = EndpointIdStore::default(); peers.add(fixture.peers.ids()[1]); peers }),
                 policy, fixture.runtimes[0].clone(), fixture.nodes[0].root.join("staging"), cancellation.clone(),
             );
             let resource = super::descriptor(&fixture.resource);
@@ -531,7 +531,7 @@ impl ofdb_kv::SyncTransport for QueuedPayload {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn real_selected_sql_and_kv_queued_payloads_recheck_native_sender_policy_on_both_peers() {
-    tokio::time::timeout(std::time::Duration::from_secs(600), async {
+    tokio::time::timeout(std::time::Duration::from_secs(600), tokio::spawn(async {
         for kv in [false, true] {
             for sender in 0..2 {
                 let receiver = 1 - sender;
@@ -588,7 +588,7 @@ async fn real_selected_sql_and_kv_queued_payloads_recheck_native_sender_policy_o
                 fixture.peers.close().await;
             }
         }
-    }).await.expect("native queued SQL/KV payload tests complete");
+    })).await.expect("native queued SQL/KV payload tests complete").expect("native queued SQL/KV payload task completes");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -709,7 +709,7 @@ async fn real_selected_sql_denies_received_apply_and_retries_on_existing_connect
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn real_selected_kv_first_commit_survives_learned_denial_and_same_connection_retry() {
-    tokio::time::timeout(std::time::Duration::from_secs(600), async {
+    tokio::time::timeout(std::time::Duration::from_secs(600), tokio::spawn(async {
         for role in [ofdb_kv::SyncRole::Initiator, ofdb_kv::SyncRole::Responder] {
             for device in 0..2 {
                 eprintln!("KV case {role:?} Device {device}: setup");
@@ -766,5 +766,5 @@ async fn real_selected_kv_first_commit_survives_learned_denial_and_same_connecti
                 fixture.peers.close().await;
             }
         }
-    }).await.expect("deterministic KV acceptance completes");
+    })).await.expect("deterministic KV acceptance completes").expect("deterministic KV acceptance task completes");
 }

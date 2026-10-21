@@ -72,7 +72,10 @@ pub async fn run() -> io::Result<()> {
         return crate::reset_independent(&app_config, *remove_os_trust).await;
     }
 
-    env_logger::Builder::from_env(Env::default().default_filter_or(&app_config.log_level)).init();
+    env_logger::Builder::from_env(
+        Env::default().default_filter_or(format!("{},automerge=warn", app_config.log_level)),
+    )
+    .init();
 
     #[cfg(unix)]
     if matches!(args.command, None | Some(StorageCommand::Serve { .. })) {
@@ -242,9 +245,8 @@ pub async fn run() -> io::Result<()> {
             port.unwrap_or(app_config.server.port),
         ));
 
-        let serve_task = spawn(serve(router, addr, cancellation_token.clone()));
-        storage_runtime.start_background_tasks();
-        serve_task
+        storage_runtime.start_background_tasks()?;
+        Ok::<_, io::Error>(spawn(serve(router, addr, cancellation_token.clone())))
     };
 
     let command_handle = match args.command {
@@ -256,8 +258,8 @@ pub async fn run() -> io::Result<()> {
         Some(StorageCommand::Completions { shell }) => {
             spawn(async move { cli::run_completions(shell).await })
         }
-        Some(StorageCommand::Serve { host, port }) => run_serve(host, port),
-        None => run_serve(None, None),
+        Some(StorageCommand::Serve { host, port }) => run_serve(host, port)?,
+        None => run_serve(None, None)?,
     };
 
     shutdown_signal(cancellation_token).await;

@@ -18,10 +18,11 @@ import {
   getLocalhostBaseUrlCached,
 } from "./localhostBaseUrl.svelte";
 import { getOidcClient } from "./oidc.svelte";
+import { fetchSetupStatus } from "./setupApi";
 
 const idpApiUrl = createStorage<string | null>(
   "idp-api-url",
-  env.PUBLIC_LIDP_BASE_URL ?? null,
+  env.PUBLIC_IDP_BASE_URL ?? null,
 );
 
 function readAccessToken(): string {
@@ -134,7 +135,7 @@ export function usesRemoteApis(): boolean {
   const base = idpApiUrl.item?.replace(/\/$/, "");
   const local = getLocalhostBaseUrlCached();
   return Boolean(
-    env.PUBLIC_LIDP_BASE_URL || (base && (!local || base !== `${local}/idp`)),
+    env.PUBLIC_IDP_BASE_URL || (base && (!local || base !== `${local}/idp`)),
   );
 }
 
@@ -164,9 +165,11 @@ export async function validateIdpApiUrl(basePath: string): Promise<boolean> {
 
   try {
     const metadata = await api.openidConfiguration();
-    return (
-      metadata.tokenEndpoint === `${basePath.replace(/\/$/, "")}/oauth2/token`
-    );
+    if (metadata.tokenEndpoint === `${basePath.replace(/\/$/, "")}/oauth2/token`)
+      return true;
+  } catch {}
+  try {
+    return (await fetchSetupStatus(basePath)).owners.includes("idp");
   } catch {
     return false;
   }
@@ -177,7 +180,7 @@ async function hydrateWebApiUrl(): Promise<void> {
     return;
   }
 
-  const fallback = env.PUBLIC_LIDP_BASE_URL;
+  const fallback = env.PUBLIC_IDP_BASE_URL;
   if (fallback && (await validateIdpApiUrl(fallback))) {
     idpApiUrl.item = fallback;
   }

@@ -53,6 +53,7 @@ pub struct ScopedFileSystemRuntime<PeerId>
 where
     PeerId: Clone + Debug + Ord + Serialize + DeserializeOwned + 'static,
 {
+    changes: tokio::sync::watch::Sender<()>,
     root: PathBuf,
     local_peer: PeerId,
     pub(crate) local_copies: Arc<crate::local_copy::LocalCopyPolicy>,
@@ -72,6 +73,7 @@ where
     pub fn new(root: PathBuf, local_peer: PeerId) -> io::Result<Self> {
         std::fs::create_dir_all(&root)?;
         Ok(Self {
+            changes: tokio::sync::watch::channel(()).0,
             local_copies: Arc::new(crate::local_copy::LocalCopyPolicy::new(
                 root.join("filesystem-local-copies.json"),
             )),
@@ -84,6 +86,10 @@ where
             residency_updates: StdMutex::new(BTreeMap::new()),
             copy_catalogs: StdMutex::new(BTreeMap::new()),
         })
+    }
+
+    pub fn catalog_changes(&self) -> tokio::sync::watch::Receiver<()> {
+        self.changes.subscribe()
     }
 
     pub fn set_content_reader<F, U>(&self, reader: F) -> Result<(), String>
@@ -111,9 +117,12 @@ where
         self.local_copies
             .require_owner(scope.user_sub())
             .map_err(|error| error.to_string())?;
-        self.catalog(&id)?
+        let resource = self
+            .catalog(&id)?
             .create(name)
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        self.changes.send_replace(());
+        Ok(resource)
     }
 
     pub async fn list_resources<S: StorageNamespace>(
@@ -134,6 +143,7 @@ where
         match self.catalog(&id)?.delete(resource_id) {
             Ok(()) => {
                 resources.remove(&(id, resource_id));
+                self.changes.send_replace(());
                 Ok(true)
             }
             Err(file_system::Error::NotFound) => Ok(false),
@@ -147,10 +157,14 @@ where
         resource_id: FileSystemId,
     ) -> Result<(), String> {
         let id = storage_namespace_id(scope)?;
+        let deleted = self.is_tombstoned(scope, resource_id).await?;
         self.catalog(&id)?
             .apply_tombstone(resource_id)
             .map_err(|error| error.to_string())?;
         self.resources.lock().await.remove(&(id, resource_id));
+        if !deleted {
+            self.changes.send_replace(());
+        }
         Ok(())
     }
 
@@ -298,7 +312,9 @@ where
             .map_err(|error| error.to_string())?;
         catalog
             .mark_projected(resource_id)
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        self.changes.send_replace(());
+        Ok(())
     }
 
     pub async fn remove_unselected_projected_resources(
@@ -348,11 +364,23 @@ where
             .pending()
             .map_err(|error| error.to_string())?
         {
-            self.remove_local_copy(
-                &crate::local_copy::CopyScope(owner, app),
-                FileSystemId::parse(&id.to_string()).map_err(|error| error.to_string())?,
-            )
-            .await?;
+            let scope = crate::local_copy::CopyScope(owner, app);
+            let namespace = storage_namespace_id(&scope)?;
+            let resource_id =
+                FileSystemId::parse(&id.to_string()).map_err(|error| error.to_string())?;
+            if self
+                .catalog(&namespace)?
+                .snapshot()
+                .map_err(|error| error.to_string())?
+                .iter()
+                .any(|entry| entry.resource.id == resource_id)
+            {
+                self.remove_local_copy(&scope, resource_id).await?;
+            } else {
+                self.local_copies
+                    .complete(&scope, id)
+                    .map_err(|error| error.to_string())?;
+            }
         }
         Ok(())
     }
@@ -442,6 +470,7 @@ where
             .await
             .map_err(|error| error.to_string())?;
         resources.insert((id, resource_id), Arc::clone(&file_system));
+        self.changes.send_replace(());
         Ok(file_system)
     }
 

@@ -18,6 +18,8 @@ mod data_protocol;
 #[cfg(feature = "network")]
 mod database_protocol;
 #[cfg(feature = "network")]
+mod database_sessions;
+#[cfg(feature = "network")]
 mod database_transport;
 #[cfg(all(test, feature = "network"))]
 mod execution_test_support;
@@ -27,6 +29,8 @@ mod idp_client;
 #[cfg(feature = "network")]
 mod local_replication_authorizer;
 mod management_client;
+#[cfg(feature = "network")]
+mod replication_admission;
 #[cfg(feature = "network")]
 mod replication_runtime;
 mod router;
@@ -52,7 +56,7 @@ pub use management_client::ManagementClient;
 pub use replication_runtime::StorageReplicationRuntime;
 pub use router::{
     RouterState, StorageSocketAccess, StorageSocketAuthorizationError, StorageSocketAuthorizer,
-    openapi_router, resource_router, storage_router,
+    openapi_document, openapi_router, public_metadata_router, resource_router, storage_router,
 };
 pub use router::{
     StorageAuthorization, StorageAuthorizationError, authorize_storage_token,

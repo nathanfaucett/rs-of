@@ -12,7 +12,7 @@ let webLogin = $state.raw<{ base: string; clientId: string }>();
 const CLIENT_ID = $derived(
     !usesRemoteApis()
         ? desktopClientId
-        : webLogin?.base === getIdpApiUrl()?.replace(/\/$/, "")
+        : webLogin && webLogin.base === getIdpApiUrl()?.replace(/\/$/, "")
           ? webLogin.clientId
           : undefined,
 );

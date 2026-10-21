@@ -21,6 +21,7 @@ pub struct DatabaseRuntime {
     open: Mutex<BTreeMap<(String, idp_model::model::Id, DatabaseId), Arc<Database>>>,
     kv_open: Mutex<KvStores>,
     cleanup: tokio::sync::Mutex<()>,
+    changes: tokio::sync::watch::Sender<()>,
 }
 
 impl DatabaseRuntime {
@@ -34,7 +35,12 @@ impl DatabaseRuntime {
             open: Mutex::new(BTreeMap::new()),
             kv_open: Mutex::new(BTreeMap::new()),
             cleanup: tokio::sync::Mutex::new(()),
+            changes: tokio::sync::watch::channel(()).0,
         })
+    }
+
+    pub fn catalog_changes(&self) -> tokio::sync::watch::Receiver<()> {
+        self.changes.subscribe()
     }
 
     pub fn create<S: StorageNamespace>(
@@ -53,6 +59,7 @@ impl DatabaseRuntime {
             Ok(database) => {
                 let database = Arc::new(database);
                 open.insert(database_key(scope, resource.id), Arc::clone(&database));
+                self.changes.send_replace(());
                 Ok((resource, database))
             }
             Err(error) => {
@@ -82,6 +89,7 @@ impl DatabaseRuntime {
         let deleted = self.catalog.delete(scope, id)?;
         if deleted {
             self.evict(scope, id, &mut open)?;
+            self.changes.send_replace(());
         }
         Ok(deleted)
     }
@@ -95,8 +103,13 @@ impl DatabaseRuntime {
             .open
             .lock()
             .map_err(|_| io::Error::other("database runtime lock poisoned"))?;
+        let deleted = self.catalog.is_tombstoned(scope, id)?;
         self.catalog.apply_tombstone(scope, id)?;
-        self.evict(scope, id, &mut open)
+        self.evict(scope, id, &mut open)?;
+        if !deleted {
+            self.changes.send_replace(());
+        }
+        Ok(())
     }
 
     pub fn is_tombstoned<S: StorageNamespace>(
@@ -133,8 +146,12 @@ impl DatabaseRuntime {
             Err(error) => return Err(error),
         }
         for (owner, app, id) in self.local_copies.pending()? {
-            self.remove_local_copy(&crate::local_copy::CopyScope(owner, app), id)
-                .await?;
+            let scope = crate::local_copy::CopyScope(owner, app);
+            if self.catalog.get(&scope, id)?.is_none() && !self.catalog.is_tombstoned(&scope, id)? {
+                self.local_copies.complete(&scope, id)?;
+            } else {
+                self.remove_local_copy(&scope, id).await?;
+            }
         }
         Ok(())
     }
@@ -281,6 +298,7 @@ impl DatabaseRuntime {
                 .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?,
         );
         open.insert(key, Arc::clone(&database));
+        self.changes.send_replace(());
         Ok(Some(database))
     }
 
@@ -310,6 +328,7 @@ impl DatabaseRuntime {
                 .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?,
         );
         open.insert(key, Arc::clone(&store));
+        self.changes.send_replace(());
         Ok(Some(store))
     }
 
@@ -338,6 +357,7 @@ impl DatabaseRuntime {
                 .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?,
         );
         open.insert(key, Arc::clone(&database));
+        self.changes.send_replace(());
         Ok(Some(database))
     }
 }

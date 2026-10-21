@@ -173,8 +173,12 @@ pub async fn run() -> io::Result<()> {
     } else if config.listen_addr.port() == 0 {
         config.listen_addr.set_port(3000);
     }
+    set_ui_origin(
+        &mut config,
+        std::env::var("UNIFIED__IDP__UI_PUBLIC_URI").ok().as_deref(),
+    )?;
     if let Some(base) = public_base {
-        set_proxy_origin(&mut config, &base)?;
+        crate::setup_host::allowed_origin(&base)?;
         if args.config.is_some() {
             let base = base.trim_end_matches('/');
             config.idp.api_public_uri = format!("{base}/idp");
@@ -184,7 +188,10 @@ pub async fn run() -> io::Result<()> {
             config.storage.api_public_uri = format!("{base}/storage");
         }
     }
-    env_logger::Builder::from_env(Env::default().default_filter_or(&config.idp.log_level)).init();
+    env_logger::Builder::from_env(
+        Env::default().default_filter_or(format!("{},automerge=warn", config.idp.log_level)),
+    )
+    .init();
     if let Some(UnifiedCommand::Serve { host, port }) = &args.command {
         if let Some(host) = host {
             config.listen_addr.set_ip(*host);
@@ -446,10 +453,11 @@ fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, message)
 }
 
-fn set_proxy_origin(config: &mut UnifiedConfig, base: &str) -> io::Result<()> {
-    let base = base.trim_end_matches('/');
-    crate::setup_host::allowed_origin(base)?;
-    config.idp.ui_public_uri = base.to_owned();
+fn set_ui_origin(config: &mut UnifiedConfig, origin: Option<&str>) -> io::Result<()> {
+    if let Some(origin) = origin {
+        crate::setup_host::allowed_origin(origin)?;
+        config.idp.ui_public_uri = origin.trim_end_matches('/').to_owned();
+    }
     Ok(())
 }
 
@@ -457,8 +465,44 @@ fn set_proxy_origin(config: &mut UnifiedConfig, base: &str) -> io::Result<()> {
 mod tests {
     use super::UnifiedArgs;
     use clap::Parser;
+
+    #[test]
+    fn default_logger_filter_quiets_automerge_and_preserves_configured_levels() {
+        use log::{Level, Log, Metadata};
+
+        let defaults = [
+            idp_server::AppConfig::default().log_level,
+            management_server::AppConfig::default().log_level,
+            storage_server::AppConfig::default().log_level,
+        ];
+        for level in &defaults {
+            assert_eq!(level, "info");
+        }
+        for level in defaults
+            .iter()
+            .map(String::as_str)
+            .chain(["DEBUG", "trace"])
+        {
+            let logger = env_logger::Builder::new()
+                .parse_filters(&format!("{level},automerge=warn"))
+                .build();
+            for (target, level, expected) in [
+                ("unified_server", Level::Info, true),
+                ("unified_server", Level::Debug, level != "info"),
+                ("automerge", Level::Info, false),
+                ("automerge::autocommit", Level::Debug, false),
+                ("automerge::autocommit", Level::Warn, true),
+            ] {
+                assert_eq!(
+                    logger.enabled(&Metadata::builder().target(target).level(level).build()),
+                    expected,
+                    "{target} {level}"
+                );
+            }
+        }
+    }
     #[tokio::test]
-    async fn retained_host_accepts_proxy_origin_without_rewriting_identity() {
+    async fn retained_host_accepts_only_configured_ui_origin_without_rewriting_identity() {
         use axum::{body::Body, http::Request};
         use tower::ServiceExt;
 
@@ -479,8 +523,8 @@ mod tests {
         let metadata = std::fs::read(root.join("host.json")).expect("retained metadata");
         let mut host = crate::BootstrapConfig::open(&root).expect("reopen retained host");
         let mut config = host.config();
-        super::set_proxy_origin(&mut config, "https://unified.localhost:1355/")
-            .expect("proxy origin override");
+        super::set_ui_origin(&mut config, Some("https://of.localhost:1355"))
+            .expect("UI origin override");
         config.listen_addr.set_port(49152);
         assert_eq!(config.idp.api_public_uri, original.idp.api_public_uri);
         assert_eq!(
@@ -504,23 +548,56 @@ mod tests {
         let cancellation = tokio_util::sync::CancellationToken::new();
         let worker = setup.into_worker(cancellation);
         let router = worker.router().expect("proxy origin router");
-        for (origin, expected) in [
-            ("https://unified.localhost:1355", axum::http::StatusCode::OK),
-            ("https://evil.invalid", axum::http::StatusCode::FORBIDDEN),
+        for origin in [
+            "https://of.localhost:1355",
+            "https://unified.localhost:1355",
+            "https://of.localhost:1356",
+            "http://of.localhost:1355",
+            "https://of.localhost.evil.invalid:1355",
+            "https://evil.invalid",
         ] {
-            let response = router
-                .clone()
-                .oneshot(
-                    Request::builder()
-                        .uri("/idp/setup/status")
-                        .header("Origin", origin)
-                        .body(Body::empty())
-                        .expect("status request"),
-                )
-                .await
-                .expect("status response");
-            assert_eq!(response.status(), expected);
+            let allowed = origin == "https://of.localhost:1355";
+            for method in ["GET", "OPTIONS"] {
+                let mut request = Request::builder()
+                    .method(method)
+                    .uri("/idp/setup/status")
+                    .header("Origin", origin);
+                if method == "OPTIONS" {
+                    request = request.header("Access-Control-Request-Method", "GET");
+                }
+                let response = router
+                    .clone()
+                    .oneshot(request.body(Body::empty()).expect("status request"))
+                    .await
+                    .expect("status response");
+                assert_eq!(
+                    response.status(),
+                    if allowed {
+                        axum::http::StatusCode::OK
+                    } else {
+                        axum::http::StatusCode::FORBIDDEN
+                    },
+                    "{method} {origin}"
+                );
+                assert_eq!(
+                    response.headers().get("Access-Control-Allow-Origin"),
+                    allowed.then_some(&axum::http::HeaderValue::from_static(
+                        "https://of.localhost:1355"
+                    )),
+                    "{method} {origin}"
+                );
+            }
         }
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/idp/setup/status")
+                    .body(Body::empty())
+                    .expect("status request without origin"),
+            )
+            .await
+            .expect("status response without origin");
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
         assert_eq!(
             std::fs::read(root.join("host.json")).expect("unchanged metadata"),
             metadata
@@ -531,18 +608,25 @@ mod tests {
     }
 
     #[test]
-    fn proxy_origin_rejects_non_origins_without_changing_configuration() {
+    fn ui_origin_override_is_optional_and_rejects_non_origins() {
         let root = std::env::temp_dir().join("unified-invalid-proxy-origin");
         let mut config = crate::config::test_config(&root);
         let original = config.idp.ui_public_uri.clone();
+        super::set_ui_origin(&mut config, None).expect("keep configured UI origin");
+        assert_eq!(config.idp.ui_public_uri, original);
         for value in [
+            "",
             "invalid",
+            "http://evil.invalid",
+            "https://node.example/",
+            "https://node.example//",
+            "https://node.example#fragment",
             "https://user:password@node.example",
             "https://node.example/path",
             "https://node.example?query=1",
         ] {
             assert!(
-                super::set_proxy_origin(&mut config, value).is_err(),
+                super::set_ui_origin(&mut config, Some(value)).is_err(),
                 "{value}"
             );
             assert_eq!(config.idp.ui_public_uri, original);

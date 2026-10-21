@@ -219,7 +219,7 @@ async fn retired_join_reopen_refuses_mismatched_or_missing_intent_without_owner_
             )
             .await
             .expect("normal fallback");
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(fs::read(&state).expect("unchanged fault"), retained);
         assert!(!std::path::Path::new(&config.idp.data_dir).exists());
         assert!(!config.endpoint_data_dir.exists());
@@ -425,7 +425,7 @@ async fn partial_credentials_reopen_preserves_recovery_for_create_and_join() {
                 )
                 .await
                 .expect("normal response");
-            assert_eq!(normal.status(), StatusCode::NOT_FOUND);
+            assert_eq!(normal.status(), StatusCode::SERVICE_UNAVAILABLE);
             assert_eq!(
                 config.local_provisioning_directory().exists(),
                 fault == "unexpected_owner"
@@ -475,7 +475,7 @@ fn production_api_create_authentication_and_offline_reopen() {
         .env("OF_API_CREATE_ROOT", &root)
         .env("SSL_CERT_FILE", bundle)
         .env("SSL_CERT_DIR", empty)
-        .env("RUST_MIN_STACK", "16777216")
+        .env("RUST_MIN_STACK", "2097152")
         .stdin(Stdio::null())
         .spawn()
         .expect("isolated native roots child");

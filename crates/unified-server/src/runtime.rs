@@ -30,7 +30,7 @@ use crate::{
 const IDP_PREFIX: &str = "/idp";
 const MANAGEMENT_PREFIX: &str = "/management";
 const STORAGE_PREFIX: &str = "/storage";
-const PEER_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
+const PEER_REFRESH_RETRY_DELAY: Duration = Duration::from_secs(2);
 
 pub(crate) fn storage_introspection_error(
     error: idp_model::contract::ErrorResponse,
@@ -188,6 +188,7 @@ pub struct UnifiedRuntime {
     storage_runtime: Option<StorageRuntime>,
     cancellation_token: CancellationToken,
     peer_refresh: Option<JoinHandle<()>>,
+    peer_changes: ofdb_sql::ChangeSubscription,
     security_protocol: SecurityProtocol,
     owner: Arc<OwnerProvisioner>,
     node_joins: Arc<crate::node_join_source::NodeJoinSource>,
@@ -359,6 +360,9 @@ impl UnifiedRuntime {
                     &idp_config,
                     Arc::clone(&idp_engine),
                 )?);
+                let peer_changes = idp_engine
+                    .sync_changes()?
+                    .merge(management_engine.sync_changes()?);
                 let security_protocol = SecurityProtocol::new(
                     server.clone(),
                     idp_engine,
@@ -407,6 +411,7 @@ impl UnifiedRuntime {
                     storage_runtime: pending_storage.take(),
                     cancellation_token: cancellation_token.clone(),
                     peer_refresh: None,
+                    peer_changes,
                     security_protocol,
                     owner,
                     node_joins,
@@ -522,6 +527,8 @@ impl UnifiedRuntime {
                 "current local Node readiness is required before background startup",
             ));
         }
+        let peer_changes = self.peer_changes.clone();
+        let policy_changes = self.peer_changes.clone();
         if let Err(error) = self
             .endpoint
             .refresh_approved_peers(&self.management_control_plane)
@@ -550,12 +557,14 @@ impl UnifiedRuntime {
                 io::Error::other("unified Storage replication handler is unavailable")
             })?,
         );
-        storage_runtime.start_background_tasks();
+        storage_runtime.set_policy_changes(policy_changes);
+        storage_runtime.start_background_tasks()?;
         let source = self.node_joins.clone();
         self.join_processing = Some(tokio::spawn(async move { source.run().await }));
         self.peer_refresh = Some(spawn_peer_refresh(
             Arc::clone(&self.endpoint),
             Arc::clone(&self.management_control_plane),
+            peer_changes,
             self.cancellation_token.clone(),
         ));
         Ok(())
@@ -838,22 +847,53 @@ fn invalid_config(error: String) -> io::Error {
 fn spawn_peer_refresh(
     endpoint: Arc<UnifiedEndpoint>,
     management_control_plane: Arc<HostedControlPlane>,
+    changes: ofdb_sql::ChangeSubscription,
     cancellation_token: CancellationToken,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                () = cancellation_token.cancelled() => return,
-                () = sleep(PEER_REFRESH_INTERVAL) => {
-                    if let Err(error) = endpoint.refresh_approved_peers(&management_control_plane).await {
-                        log::warn!("failed to refresh unified Iroh peer admission: {error}");
-                        endpoint.refresh_admission([]);
-                    }
-                }
+        run_peer_refresh(changes, cancellation_token, || async {
+            let result = endpoint
+                .refresh_approved_peers(&management_control_plane)
+                .await;
+            if let Err(error) = &result {
+                log::warn!("failed to refresh unified Iroh peer admission: {error}");
+                endpoint.refresh_admission([]);
             }
-        }
+            result
+        })
+        .await;
+        endpoint.refresh_admission([]);
     })
 }
+
+async fn run_peer_refresh<F, Fut>(
+    mut changes: ofdb_sql::ChangeSubscription,
+    cancellation_token: CancellationToken,
+    mut refresh: F,
+) where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = io::Result<()>>,
+{
+    let mut retry = false;
+    loop {
+        tokio::select! {
+            biased;
+            () = cancellation_token.cancelled() => return,
+            result = changes.changed() => if result.is_err() { return; },
+            () = sleep(PEER_REFRESH_RETRY_DELAY), if retry => {},
+        }
+
+        tokio::select! {
+            biased;
+            () = cancellation_token.cancelled() => return,
+            result = refresh() => retry = result.is_err(),
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "runtime_peer_refresh_tests.rs"]
+mod peer_refresh_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1025,9 +1065,11 @@ mod tests {
         initial.close().await;
         drop(initial);
         for revoked in [false, true] {
-            let endpoint = crate::UnifiedEndpoint::open(&endpoint_dir, &config)
-                .await
-                .expect("offline endpoint reopen");
+            let endpoint = std::sync::Arc::new(
+                crate::UnifiedEndpoint::open(&endpoint_dir, &config)
+                    .await
+                    .expect("offline endpoint reopen"),
+            );
             assert_eq!(endpoint.endpoint_id(), local);
             let engine = super::open_service_engine(&config.data_dir, "idp.redb")
                 .expect("native trust reopen");
@@ -1186,6 +1228,16 @@ mod tests {
                         .owner_subject,
                     owner.id.to_string()
                 );
+                let cancellation = tokio_util::sync::CancellationToken::new();
+                let refresh = super::spawn_peer_refresh(
+                    endpoint.clone(),
+                    control.clone(),
+                    engine
+                        .sync_changes()
+                        .expect("IdP subscription")
+                        .merge(management.sync_changes().expect("Management subscription")),
+                    cancellation.clone(),
+                );
                 management
                     .client()
                     .translate_and_execute(
@@ -1197,10 +1249,13 @@ mod tests {
                     )
                     .await
                     .expect("learn timestamp-only Device revocation while state remains Approved");
-                endpoint
-                    .refresh_approved_peers(&control)
-                    .await
-                    .expect("apply Device admission removal");
+                tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                    while endpoint.server().peers().contains(peer) {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .expect("committed Device revocation removes admission without explicit refresh");
                 assert!(!endpoint.server().peers().contains(peer));
                 assert!(endpoint.server().peers().contains(device_only));
                 assert!(
@@ -1209,6 +1264,8 @@ mod tests {
                         .await
                         .is_err()
                 );
+                cancellation.cancel();
+                refresh.await.expect("peer refresh shutdown");
             } else {
                 use idp_service::repo::UserRepo;
                 let users = idp_service::replica::DbUserRepo::new(

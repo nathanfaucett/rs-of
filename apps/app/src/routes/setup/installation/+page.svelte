@@ -14,7 +14,16 @@
 
     import type { SetupHost } from "$lib/common/state/setupApi";
 
-    let { data }: { data: { stage: string; hosts?: SetupHost[]; bundled?: boolean; nativeError?: string } } = $props();
+    let {
+        data,
+    }: {
+        data: {
+            stage: string;
+            hosts?: SetupHost[];
+            bundled?: boolean;
+            nativeError?: string;
+        };
+    } = $props();
     let purpose = $derived<"create" | "join">(
         data.hosts?.[0]?.status.state === "joining" ? "join" : "create",
     );
@@ -37,17 +46,13 @@
         data.hosts;
         return false;
     });
-    let selectedBase = $derived(data.hosts?.[0]?.base ?? "");
+
     let verifiedBase = $derived.by(() => {
         data.hosts;
         return "";
     });
     let active = true;
-    const selectedHost = $derived(
-        selectedBase
-            ? data.hosts?.find((host) => host.base === selectedBase)
-            : data.hosts?.[0],
-    );
+    const selectedHost = $derived(data.hosts?.[0]);
 
     const webStatus = $derived(
         web?.base === selectedHost?.base && observedHosts === data.hosts
@@ -85,17 +90,38 @@
                 (!web?.intent && webStatus.state === "awaiting_choice")),
     );
 
-    function selectHost(event: Event) {
-        if (web?.intent || busy) return;
-        web?.destroy();
-        web = null;
-        password = "";
-        selectedBase = (event.currentTarget as HTMLSelectElement).value;
-        setupCode = "";
-        admissionVerified = false;
-        verifiedBase = "";
-        error = "";
-    }
+    const setupStarted = $derived(
+        unified &&
+            !webStatus?.ready &&
+            (!!web?.intent ||
+                ["creating", "joining", "unfinished"].includes(
+                    webStatus?.state ?? "",
+                )),
+    );
+    const progressTitle = $derived(
+        web?.observationRequired
+            ? "Unable to confirm setup status"
+            : webStatus?.state === "unfinished"
+              ? "Setup needs attention"
+              : webStatus?.state === "joining" || purpose === "join"
+                ? "Joining the Installation"
+                : "Creating your Node",
+    );
+    const progressDescription = $derived(
+        web?.observationRequired
+            ? "Your server may still be working. Check its connection before retrying."
+            : webStatus?.state === "unfinished"
+              ? "Setup did not finish. Open recovery options to resume or cancel."
+              : webStatus?.state === "joining" || purpose === "join"
+                ? "If approval is needed, approve this Node on the source Node. Status updates automatically."
+                : "Your server is setting up the Installation. Status updates automatically.",
+    );
+
+    $effect(() => {
+        if (!setupStarted || webStatus?.state === "unfinished") return;
+        const interval = setInterval(() => void observeWeb(), 3000);
+        return () => clearInterval(interval);
+    });
 
     onDestroy(() => {
         active = false;
@@ -244,314 +270,347 @@
         try {
             const code = await readNativeSetupCode(base);
             if (!active || selectedHost?.base !== base) return;
-            if (code === null) error = "Bundled setup admission is retired; observe readiness.";
+            if (code === null)
+                error =
+                    "Bundled setup admission is retired; observe readiness.";
             else setupCode = code;
-        } catch { error = "Protected bundled code retrieval failed or the selected target changed. No code was sent."; }
-        finally { busy = false; }
+        } catch {
+            error =
+                "Protected bundled code retrieval failed or the selected target changed. No code was sent.";
+        } finally {
+            busy = false;
+        }
     }
 </script>
 
-<div class="flex grow flex-col items-center justify-center">
-    <div class="card w-sm">
-        <h1>Installation setup</h1>
-        {#if data.hosts?.length === 3}
-            {#key data.hosts}<IndependentSetup hosts={data.hosts} />{/key}
-        {:else if !isTauri() || data.hosts}
-            <p>
-                Retrieve each host-generated setup code through your protected
-                deployment-management channel. Do not put it in a URL or logs.
-                Your deployment must install the required OS CA trust; this
-                browser cannot perform privileged OS installation. The current
-                HTTPS UI origin must be explicitly allowed by each backend.
-            </p>
-            <label>
-                Installation setup choice
-                <select
-                    bind:value={purpose}
-                    onchange={() => {
-                        setupCode = "";
-                        admissionVerified = false;
-                        verifiedBase = "";
-                        password = "";
-                    }}
-                    disabled={busy || !!web?.intent}
-                >
-                    <option value="create">Create an Installation</option>
-                    <option value="join">Join through a trusted peer</option>
-                </select>
-            </label>
-            <p role="status">
-                Unified API Create and Join controls are available.
-                Code verification alone cannot complete setup; observe verified readiness.
-            </p>
-            <p>
-                Credentials are transient. After a browser reload, recover the
-                exact intent using the host code before retrying or canceling
-                retained Create or Join. Public status alone does not reveal
-                that intent. Recovery does not generate a nonce, retry or cancel
-                work. Closing this page does not cancel host-owned work. Exact
-                Create retries require the original password. Join retries
-                retain the exact Node and pinned peer; cancellation requires the
-                recovered issuer too. Re-enter the host code for every
-                privileged request.
-            </p>
-            <p>
-                On the source Node, sign in as an authorized User and open
-                <a href={resolve("/devices")}>Devices → Equal-Node joining</a>
-                to enable acceptance, inspect the exact offer and approve or reject
-                it. Use the source app configured for that Node, not this joining
-                host. Setup codes never authorize source approval; approval alone
-                is not readiness.
-            </p>
-            {#if data.hosts?.length}
-                <p>
-                    Owner scope describes only this host's setup-code authority,
-                    not membership, domain permissions or readiness. Independent
-                    hosts require their own codes; a unified host uses one code
-                    at the displayed IdP API base only.
-                </p>
-                {#each data.hosts as host (host.base)}
-                    <p>
-                        <strong>{host.status.owners.join(", ")}</strong>:
-                        {host.base} — {host.base === selectedHost?.base
-                            ? webStatus?.state
-                            : host.status.state}
-                    </p>
-                {/each}
-                <form onsubmit={unified ? webSubmit : verifyAdmission}>
+<div class="flex grow flex-col items-center w-full overflow-auto">
+    <div class="flex flex-col w-full max-w-lg gap-4 px-4 py-8">
+        <div class="card flex flex-col gap-4">
+            <h1 class="text-2xl font-semibold">
+                {setupStarted ? progressTitle : "Installation setup"}
+            </h1>
+            {#if data.hosts?.length === 3}
+                {#key data.hosts}<IndependentSetup hosts={data.hosts} />{/key}
+            {:else if !isTauri() || data.hosts}
+                {#if webStatus?.stage === "installation" && !webStatus.ready && !setupStarted}
+                    <p>Create a new Installation or join an existing one.</p>
                     <label>
-                        Setup host / exact API base
+                        Installation setup choice
                         <select
-                            value={selectedHost?.base ?? ""}
-                            onchange={selectHost}
+                            bind:value={purpose}
+                            onchange={() => {
+                                setupCode = "";
+                                admissionVerified = false;
+                                verifiedBase = "";
+                                password = "";
+                            }}
                             disabled={busy || !!web?.intent}
                         >
-                            {#each data.hosts as host (host.base)}
-                                <option value={host.base}>
-                                    {host.status.owners.join(", ")} — {host.base}
-                                </option>
-                            {/each}
+                            <option value="create"
+                                >Create an Installation</option
+                            >
+                            <option value="join"
+                                >Join through a trusted peer</option
+                            >
                         </select>
                     </label>
-                    {#if webStatus?.stage === "installation" && !webStatus.ready}
-                        {#if data.bundled}<button type="button" onclick={loadNativeCode} disabled={busy}>Get bundled host code</button>{/if}
-                        <label>
-                            Host setup code
-                            <input
-                                type="password"
-                                bind:value={setupCode}
-                                oninput={() => {
-                                    admissionVerified = false;
-                                    verifiedBase = "";
-                                }}
-                                autocomplete="off"
-                                spellcheck="false"
-                                pattern={"[a-f0-9]{64}"}
-                                minlength="64"
-                                maxlength="64"
-                                required
-                                disabled={busy}
-                            />
-                        </label>
-                        {#if unified}
-                            {#if purpose === "create"}
-                                {#if canCreate || (web?.intent && "administrator" in web.intent)}
-                                    <label>
-                                        Administrator name
-                                        <input
-                                            bind:value={name}
-                                            autocomplete="username"
-                                            required
-                                            disabled={busy || !!web?.intent}
-                                        />
-                                    </label>
-                                    <label>
-                                        Node name
-                                        <input
-                                            bind:value={node}
-                                            autocomplete="off"
-                                            required
-                                            disabled={busy || !!web?.intent}
-                                        />
-                                    </label>
-                                    <label>
-                                        Password
-                                        <input
-                                            type="password"
-                                            bind:value={password}
-                                            autocomplete="new-password"
-                                            required
-                                            disabled={busy}
-                                        />
-                                    </label>
+                {/if}
+                {#if data.hosts?.length}
+                    {#snippet setupForm()}
+                        <form
+                            onsubmit={unified ? webSubmit : verifyAdmission}
+                            class="flex flex-col gap-4"
+                        >
+                            {#if webStatus?.stage === "installation" && !webStatus.ready}
+                                {#if data.bundled}<button
+                                        type="button"
+                                        onclick={loadNativeCode}
+                                        disabled={busy}
+                                        >Get bundled host code</button
+                                    >{/if}
+                                <label>
+                                    Host setup code
+                                    <input
+                                        type="password"
+                                        aria-describedby="setup-code-hint"
+                                        bind:value={setupCode}
+                                        oninput={() => {
+                                            admissionVerified = false;
+                                            verifiedBase = "";
+                                        }}
+                                        autocomplete="off"
+                                        spellcheck="false"
+                                        pattern={"[a-f0-9]{64}"}
+                                        minlength="64"
+                                        maxlength="64"
+                                        required
+                                        disabled={busy}
+                                    />
+                                </label>
+                                <p
+                                    id="setup-code-hint"
+                                    class="text-sm opacity-70"
+                                >
+                                    Use the code from your server's setup-code
+                                    file. Keep it private; re-enter it for each
+                                    action.
+                                </p>
+                                {#if unified}
+                                    {#if purpose === "create"}
+                                        {#if canCreate || (web?.intent && "administrator" in web.intent)}
+                                            <label>
+                                                Administrator name
+                                                <input
+                                                    bind:value={name}
+                                                    autocomplete="username"
+                                                    required
+                                                    disabled={busy ||
+                                                        !!web?.intent}
+                                                />
+                                            </label>
+                                            <label>
+                                                Node name
+                                                <input
+                                                    bind:value={node}
+                                                    autocomplete="off"
+                                                    required
+                                                    disabled={busy ||
+                                                        !!web?.intent}
+                                                />
+                                            </label>
+                                            <label>
+                                                Password
+                                                <input
+                                                    type="password"
+                                                    bind:value={password}
+                                                    autocomplete="new-password"
+                                                    required
+                                                    disabled={busy}
+                                                />
+                                            </label>
+                                            <button
+                                                type="submit"
+                                                disabled={busy ||
+                                                    !canCreate ||
+                                                    !setupCode ||
+                                                    !name.trim() ||
+                                                    !node.trim() ||
+                                                    !password}
+                                            >
+                                                {web?.intent
+                                                    ? "Retry exact Create"
+                                                    : "Create Node"}
+                                            </button>
+                                        {:else}
+                                            <p role="alert">
+                                                Setup is already in progress.
+                                                Enter your setup code and use
+                                                Resume setup below. Retrying
+                                                Create also requires the
+                                                original password.
+                                            </p>
+                                        {/if}
+                                    {:else}
+                                        <p>
+                                            Verify the peer's endpoint ID with
+                                            its administrator. On the source
+                                            Node, enable and approve joining in
+                                            Devices → Equal-Node joining.
+                                        </p>
+                                        {#if canJoin || (web?.intent && "peer" in web.intent)}
+                                            <label>
+                                                Node name
+                                                <input
+                                                    bind:value={node}
+                                                    autocomplete="off"
+                                                    required
+                                                    disabled={busy ||
+                                                        !!web?.intent}
+                                                />
+                                            </label>
+                                            <label>
+                                                Trusted peer endpoint ID
+                                                <input
+                                                    bind:value={peer}
+                                                    autocomplete="off"
+                                                    spellcheck="false"
+                                                    pattern="[a-f0-9]{64}"
+                                                    required
+                                                    disabled={busy ||
+                                                        !!web?.intent}
+                                                />
+                                            </label>
+                                            {#if web?.intent && "peer" in web.intent && web.intent.issuer}
+                                                <p>
+                                                    Recovered Installation
+                                                    issuer: {web.intent.issuer}
+                                                </p>
+                                            {/if}
+                                            <button
+                                                type="submit"
+                                                disabled={busy ||
+                                                    !canJoin ||
+                                                    !setupCode ||
+                                                    !node ||
+                                                    !peer}
+                                            >
+                                                {web?.intent
+                                                    ? "Retry exact Join"
+                                                    : "Request approval and join"}
+                                            </button>
+                                        {:else}
+                                            <p role="alert">
+                                                Setup is already in progress.
+                                                Enter your setup code and use
+                                                Resume setup below.
+                                            </p>
+                                        {/if}
+                                    {/if}
+                                    <details open={setupStarted}>
+                                        <summary
+                                            >Recovery and diagnostics</summary
+                                        >
+                                        <div class="flex flex-col gap-3 pt-3">
+                                            <p class="text-sm">
+                                                Resume after a reload before
+                                                retrying or canceling. Closing
+                                                this page does not cancel setup.
+                                            </p>
+                                            <button
+                                                type="button"
+                                                onclick={recoverWeb}
+                                                disabled={busy || !setupCode}
+                                                >Resume setup</button
+                                            >
+                                            <button
+                                                type="button"
+                                                onclick={verifyAdmission}
+                                                disabled={busy || !setupCode}
+                                                >Verify setup code</button
+                                            >
+                                            {#if web?.intent}
+                                                <button
+                                                    type="button"
+                                                    onclick={cancelWeb}
+                                                    disabled={busy ||
+                                                        !setupCode ||
+                                                        ("peer" in web.intent &&
+                                                            web.observationRequired) ||
+                                                        (web.intent &&
+                                                            "peer" in
+                                                                web.intent &&
+                                                            !web.intent.issuer)}
+                                                    >Cancel exact {"peer" in
+                                                    web.intent
+                                                        ? "Join"
+                                                        : "Create"}</button
+                                                >
+                                            {/if}
+                                        </div>
+                                    </details>
+                                {:else}
                                     <button
                                         type="submit"
                                         disabled={busy ||
-                                            !canCreate ||
                                             !setupCode ||
-                                            !name.trim() ||
-                                            !node.trim() ||
-                                            !password}
+                                            purpose === "join"}
+                                        >Verify setup code</button
                                     >
-                                        {web?.intent
-                                            ? "Retry exact Create"
-                                            : "Create Node"}
-                                    </button>
+                                    <button type="button" disabled
+                                        >{purpose === "join"
+                                            ? "Request approval and join"
+                                            : "Independent Create unavailable"}</button
+                                    >
+                                {/if}
+                            {:else if webStatus?.ready && !web?.observationRequired}
+                                {#if unified}
+                                    <p role="status">Your Node is ready.</p>
+                                    <a
+                                        class="btn"
+                                        href={resolve(
+                                            data.bundled
+                                                ? "/setup/device"
+                                                : "/signin",
+                                        )}
+                                        >{data.bundled
+                                            ? "Continue Device setup"
+                                            : "Continue to sign in"}</a
+                                    >
                                 {:else}
-                                    <p role="alert">
-                                        Recover the exact retained intent before
-                                        retrying or canceling. Enter the host
-                                        code; recovery restores the locked
-                                        administrator and Node names, not the
-                                        password. Observation alone does not
-                                        recover intent.
+                                    <p role="status">
+                                        This owner's readiness does not
+                                        establish readiness for the other
+                                        independent owners.
                                     </p>
                                 {/if}
                             {:else}
-                                <p>
-                                    Verify the canonical peer endpoint identity
-                                    out of band. The host authenticates the
-                                    pinned peer and discovers the issuer; do not
-                                    enter an issuer or source credentials here.
+                                <p role="alert">
+                                    Setup status is unavailable. Check the
+                                    server before retrying.
                                 </p>
-                                {#if canJoin || (web?.intent && "peer" in web.intent)}
-                                    <label>
-                                        Node name
-                                        <input
-                                            bind:value={node}
-                                            autocomplete="off"
-                                            required
-                                            disabled={busy || !!web?.intent}
-                                        />
-                                    </label>
-                                    <label>
-                                        Trusted peer endpoint ID
-                                        <input
-                                            bind:value={peer}
-                                            autocomplete="off"
-                                            spellcheck="false"
-                                            pattern="[a-f0-9]{64}"
-                                            required
-                                            disabled={busy || !!web?.intent}
-                                        />
-                                    </label>
-                                    {#if web?.intent && "peer" in web.intent && web.intent.issuer}
-                                        <p>
-                                            Recovered Installation issuer: {web
-                                                .intent.issuer}
-                                        </p>
-                                    {/if}
-                                    <button
-                                        type="submit"
-                                        disabled={busy ||
-                                            !canJoin ||
-                                            !setupCode ||
-                                            !node ||
-                                            !peer}
-                                    >
-                                        {web?.intent
-                                            ? "Retry exact Join"
-                                            : "Request approval and join"}
-                                    </button>
-                                {:else}
-                                    <p role="alert">
-                                        Recover the exact retained intent before
-                                        retrying or canceling. Observation alone
-                                        does not recover intent.
-                                    </p>
-                                {/if}
                             {/if}
-                            <button
-                                type="button"
-                                onclick={recoverWeb}
-                                disabled={busy || !setupCode}
-                                >Recover retained Create or Join</button
-                            >
-                            <button
-                                type="button"
-                                onclick={verifyAdmission}
-                                disabled={busy || !setupCode}
-                                >Verify setup code</button
-                            >
-                            {#if web?.intent}
-                                <button
-                                    type="button"
-                                    onclick={cancelWeb}
-                                    disabled={busy ||
-                                        !setupCode ||
-                                        ("peer" in web.intent &&
-                                            web.observationRequired) ||
-                                        (web.intent &&
-                                            "peer" in web.intent &&
-                                            !web.intent.issuer)}
-                                    >Cancel exact {"peer" in web.intent
-                                        ? "Join"
-                                        : "Create"}</button
-                                >
+                        </form>
+                    {/snippet}
+                    {#if setupStarted}
+                        <div role="status" class="flex flex-col gap-3">
+                            {#if !web?.observationRequired && webStatus?.state !== "unfinished"}
+                                <progress
+                                    class="w-full"
+                                    aria-label="Setup in progress"
+                                ></progress>
                             {/if}
-                        {:else}
-                            <button
-                                type="submit"
-                                disabled={busy ||
-                                    !setupCode ||
-                                    purpose === "join"}
-                                >Verify setup code</button
-                            >
-                            <button type="button" disabled
-                                >{purpose === "join"
-                                    ? "Request approval and join"
-                                    : "Independent Create unavailable"}</button
-                            >
-                        {/if}
-                    {:else if webStatus?.ready && !web?.observationRequired}
-                        {#if unified}
-                            <p role="status">
-                                Node readiness verified. Setup does not sign you
-                                in or grant resource access.
-                            </p>
-                            <a class="btn" href={resolve(data.bundled ? "/setup/device" : "/signin")}
-                                >{data.bundled ? "Continue Device setup" : "Continue to sign in"}</a
-                            >
-                        {:else}
-                            <p role="status">
-                                This owner's readiness does not establish
-                                readiness for the other independent owners.
-                            </p>
-                        {/if}
+                            <p>{progressDescription}</p>
+                        </div>
+                        <details>
+                            <summary>Recovery options</summary>
+                            <div class="flex flex-col gap-4 pt-4">
+                                {@render setupForm()}
+                            </div>
+                        </details>
                     {:else}
-                        <p role="alert">
-                            This host's setup state is unavailable. Restore its
-                            protected host state before retrying; readiness has
-                            not been established.
+                        {@render setupForm()}
+                    {/if}
+                    <button type="button" onclick={observeWeb} disabled={busy}
+                        >{busy ? "Checking…" : "Refresh status"}</button
+                    >
+                    {#if web?.message && !setupStarted && !webStatus?.ready}
+                        <p role={web.observationRequired ? "alert" : "status"}>
+                            {web.message}
                         </p>
                     {/if}
-                </form>
-                <button type="button" onclick={observeWeb} disabled={busy}
-                    >Observe host status</button
-                >
-                {#if web?.message}<p
-                        role={web.observationRequired ? "alert" : "status"}
-                    >
-                        {web.message}
-                    </p>{/if}
-                {#if admissionVerified && verifiedBase === selectedHost?.base}
-                    <p role="status">
-                        Setup code accepted for {verifiedBase} only. This does not
-                        complete Installation Setup, approve membership, grant permissions
-                        or sign you in. The code has been cleared; future mutations
-                        must carry their own admission.
+                    {#if admissionVerified && verifiedBase === selectedHost?.base}
+                        <p role="status">
+                            Code verified. Re-enter it to continue setup.
+                        </p>
+                    {/if}
+                    <details>
+                        <summary>Connection details</summary>
+                        <p class="text-sm break-all">{selectedHost?.base}</p>
+                        <p class="text-sm">
+                            Services: {selectedHost?.status.owners.join(", ")}
+                        </p>
+                        <p class="text-sm">Status: {webStatus?.state}</p>
+                        {#if setupStarted && web?.message}
+                            <p class="text-sm break-words">{web.message}</p>
+                        {/if}
+                    </details>
+                {:else}
+                    <p role="alert">
+                        Setup host scope is unavailable. Readiness has not been
+                        established; no code can be submitted.
                     </p>
                 {/if}
             {:else}
                 <p role="alert">
-                    Setup host scope is unavailable. Readiness has not been
-                    established; no code can be submitted.
+                    Shared HTTPS setup is unavailable. Restore the selected host
+                    prerequisites; no replacement identity is created.
                 </p>
             {/if}
-        {:else}
-            <p role="alert">Shared HTTPS setup is unavailable. Restore the selected host prerequisites; no replacement identity is created.</p>
-        {/if}
-        {#if data.bundled}<NativeSetupRecovery stage={data.stage} nativeError={data.nativeError} />{/if}
-        {#if error}<p role="alert">{error}</p>{/if}
+            {#if data.bundled}<NativeSetupRecovery
+                    stage={data.stage}
+                    nativeError={data.nativeError}
+                />{/if}
+            {#if error}<p role="alert">{error}</p>{/if}
+        </div>
     </div>
 </div>

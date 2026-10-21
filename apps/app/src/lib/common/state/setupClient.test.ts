@@ -415,6 +415,13 @@ it("does not swallow native persistent session clearing failures", async () => {
   expect(host.invoke).not.toHaveBeenCalled();
 });
 
+it("does not read a missing web login when the IdP is unconfigured", async () => {
+  host.native = false;
+  const { getOidcClient, clearOidcSession } = await import("./oidc.svelte");
+  expect(() => getOidcClient()).toThrow("Invalid authority URL");
+  expect(() => clearOidcSession()).not.toThrow();
+});
+
 it.each([false, true])(
   "preserves authority-scoped web token clearing with an existing client: %s",
   async (existing) => {

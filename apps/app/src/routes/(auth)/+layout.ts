@@ -44,6 +44,30 @@ export const load = (async (event) => {
         await ensureTauriIdpApiUrl();
         await ensureOidcClientId();
         await ensureTauriManagementApiUrl();
+    } else {
+        if (!getIdpApiUrl()) {
+            redirect(302, resolve("/setup/installation"));
+        }
+        const stage = await getSetupStage().catch(() =>
+            error(
+                503,
+                "Unable to determine setup readiness. Retry when the configured services are reachable.",
+            ),
+        );
+        if (stage !== "ready") {
+            redirect(302, resolve("/setup/installation"));
+        }
+        await ensureOidcClientId().catch(() =>
+            error(
+                503,
+                "Verified public login Client is unavailable. Retry when the configured services are reachable.",
+            ),
+        );
+    }
+
+    if (!getIdpApiUrl()) {
+        afterSigninRedirect.setURL(new URL(event.url.href));
+        redirect(302, resolve("/signin"));
     }
 
     const oidcClient = getOidcClient();
@@ -71,7 +95,7 @@ export const load = (async (event) => {
         (isTauri() && token.iss && token.iss !== issuer)
     ) {
         clearOidcSession();
-        afterSigninRedirect.setURL(event.url);
+        afterSigninRedirect.setURL(new URL(event.url.href));
         redirect(302, resolve("/signin"));
     }
 
@@ -94,7 +118,7 @@ export const load = (async (event) => {
                 body?.error === "invalid_grant"
             ) {
                 clearOidcSession();
-                afterSigninRedirect.setURL(event.url);
+                afterSigninRedirect.setURL(new URL(event.url.href));
                 redirect(302, resolve("/signin"));
             }
         }

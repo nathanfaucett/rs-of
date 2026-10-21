@@ -1,4 +1,4 @@
-import { isHttpError } from "@sveltejs/kit";
+import { isHttpError, isRedirect } from "@sveltejs/kit";
 import { render } from "svelte/server";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { SetupHost } from "$lib/common/state/setupApi";
@@ -8,7 +8,9 @@ const host = vi.hoisted(() => ({
   invoke: vi.fn(),
   fetch: vi.fn(),
   management: "https://policy.test/api" as string | null,
+  idp: "https://node.test/idp" as string | null,
   oidc: vi.fn(),
+  clientId: vi.fn(),
 }));
 vi.mock("@tauri-apps/api/core", () => ({
   isTauri: () => host.native,
@@ -17,9 +19,12 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 vi.mock("$app/navigation", () => ({ goto: vi.fn() }));
 vi.mock("$app/paths", () => ({ resolve: (path: string) => path }));
-vi.mock("$lib/common/state/oidc.svelte", () => ({ getOidcClient: host.oidc }));
+vi.mock("$lib/common/state/oidc.svelte", () => ({
+  getOidcClient: host.oidc,
+  ensureOidcClientId: host.clientId,
+}));
 vi.mock("$lib/common/state/idpClient.svelte", () => ({
-  getIdpApiUrl: () => "https://node.test/idp",
+  getIdpApiUrl: () => host.idp,
   ensureTauriIdpApiUrl: async () => "https://node.test/idp",
   usesRemoteApis: () => !host.native,
 }));
@@ -78,8 +83,8 @@ it("offers bundled Create through the same HTTPS controls and explicit protected
   });
   expect(body).toContain("Create an Installation");
   expect(body).toContain("Get bundled host code");
-  expect(body).toContain("Recover retained Create");
-  expect(body).toContain("Observe host status");
+  expect(body).toContain("Resume setup");
+  expect(body).toContain("Refresh status");
   expect(body).toContain("Administrator name");
   expect(body).not.toContain("Create local Node");
   expect(host.invoke).not.toHaveBeenCalled();
@@ -107,16 +112,21 @@ it("offers unified web Create with protected credentials and explicit observatio
   });
   expect(body).toContain("Create an Installation");
   expect(body).toContain("Join through a trusted peer");
-  expect(body).toContain("Unified API Create and Join controls are available");
-  expect(body).not.toContain("independent-owner Create is unavailable");
-  expect(body).toContain("source Node");
+  expect(body).not.toContain(
+    "Unified API Create and Join controls are available",
+  );
+  expect(body).not.toContain("Setup host / exact API base");
+  expect(body).not.toContain("Your deployment must install");
+  expect(body).toMatch(
+    /<details>\s*<summary>Recovery and diagnostics<\/summary>/,
+  );
+  expect(body).toMatch(/<details>\s*<summary>Connection details<\/summary>/);
   expect(body).toContain("Administrator name");
   expect(body).toContain("Node name");
   expect(body).toContain("Password");
-  expect(body).toContain("Observe host status");
-  expect(body).toContain("Recover retained Create");
-  expect(body).toMatch(/recover the\s+exact intent using the host code/);
-  expect(body).toContain("not membership, domain permissions or readiness");
+  expect(body).toContain("Refresh status");
+  expect(body).toContain("Resume setup");
+  expect(body).toContain("Keep it private");
   expect(body).toMatch(/<button[^>]*disabled[^>]*>\s*Create Node\s*<\/button>/);
   expect(body).toContain("Host setup code");
   expect(body).toContain("Verify setup code");
@@ -162,6 +172,29 @@ it("shows native host prerequisite failure without probing or inventing fresh se
     nativeError: "OS trust installation refused",
   });
   expect(host.fetch).not.toHaveBeenCalled();
+});
+
+it.each([null, ""])(
+  "routes missing web endpoint %j to configuration without setup probes",
+  async (base) => {
+    host.native = false;
+    host.idp = base;
+    const failure = await load().catch((cause: unknown) => cause);
+    expect(isRedirect(failure)).toBe(true);
+    expect(failure).toMatchObject({ status: 302, location: "/config" });
+    expect(host.fetch).not.toHaveBeenCalled();
+    expect(host.invoke).not.toHaveBeenCalled();
+    expect(host.oidc).not.toHaveBeenCalled();
+  },
+);
+
+it("keeps configured web setup transport failures as 503 instead of configuration or fresh setup", async () => {
+  host.native = false;
+  host.fetch.mockRejectedValue(new TypeError("Failed to fetch"));
+  expect(isHttpError(await load().catch((cause: unknown) => cause), 503)).toBe(
+    true,
+  );
+  expect(host.invoke).not.toHaveBeenCalled();
 });
 
 it("reads web setup evidence from the API without invoking native controls", async () => {
@@ -213,6 +246,8 @@ it("does not turn a local evidence failure into readiness or a redirect", async 
 beforeEach(() => {
   host.native = true;
   host.management = "https://policy.test/api";
+  host.idp = "https://node.test/idp";
+  host.clientId.mockReset().mockResolvedValue("verified-client");
   vi.stubGlobal("window", { location: new URL("https://app.test") });
   host.invoke.mockReset().mockResolvedValue(null);
   host.oidc.mockReset();
@@ -369,9 +404,13 @@ it("routes fresh unified web setup to Installation, never normal OAuth/sign-in c
   expect(host.oidc).not.toHaveBeenCalled();
 });
 
-it.each(["creating", "joining", "unfinished"] as const)(
-  "observes %s after reload without manufacturing a reconnect intent",
-  (state) => {
+it.each([
+  ["creating", "Creating your Node"],
+  ["joining", "Joining the Installation"],
+  ["unfinished", "Setup needs attention"],
+] as const)(
+  "shows a focused %s status after reload without manufacturing a reconnect intent",
+  (state, title) => {
     host.native = false;
     const { body } = render(Installation, {
       props: {
@@ -391,11 +430,21 @@ it.each(["creating", "joining", "unfinished"] as const)(
         },
       },
     });
-    expect(body).toContain("Observe host status");
-    expect(body).toContain("Recover retained Create");
-    expect(body).toMatch(
-      /Recover the exact retained intent\s+before\s+retrying or canceling/,
+    expect(body).toContain(title);
+    expect(body).toContain("Refresh status");
+    expect(body).toContain("Resume setup");
+    expect(body).toMatch(/<details>\s*<summary>Recovery options<\/summary>/);
+    expect(body).not.toContain("Installation setup choice");
+    expect(body).not.toContain(
+      "Create a new Installation or join an existing one",
     );
+    if (state === "unfinished") {
+      expect(body).not.toContain("<progress");
+      expect(body).toContain("Setup did not finish");
+    } else {
+      expect(body).toContain('aria-label="Setup in progress"');
+      expect(body).toContain("Status updates automatically");
+    }
     expect(body).not.toContain("Retained setup cannot be resumed");
     expect(body).not.toContain("reload cannot recover");
     expect(body).not.toContain("Administrator name");
@@ -432,12 +481,119 @@ it("shows verified unified web readiness without automatic sign-in or code/passw
     },
   });
   expect(body).toContain('href="/signin"');
-  expect(body).toContain("Node readiness verified");
+  expect(body).toContain("Your Node is ready");
   expect(body).not.toContain('type="password"');
-  expect(body).not.toContain("Recover retained Create");
+  expect(body).not.toContain("Resume setup");
+  expect(body).not.toContain("Installation setup choice");
   expect(host.oidc).not.toHaveBeenCalled();
   expect(host.invoke).not.toHaveBeenCalled();
 });
+
+it.each([
+  "awaiting_choice",
+  "creating",
+  "joining",
+  "unfinished",
+  "unavailable",
+])(
+  "direct web sign-in redirects %s to setup before login metadata or OIDC",
+  async (state) => {
+    host.native = false;
+    host.fetch.mockResolvedValue(
+      Response.json(
+        {
+          stage: "installation",
+          state,
+          ready: false,
+          owners: ["idp", "management", "storage"],
+        },
+        { status: state === "unavailable" ? 503 : 200 },
+      ),
+    );
+    const { load: signin } = await import("../../signin/+page");
+    await expect(signin()).rejects.toMatchObject({
+      status: 302,
+      location: "/setup/installation",
+    });
+    expect(host.fetch).toHaveBeenCalledOnce();
+    expect(host.clientId).not.toHaveBeenCalled();
+    expect(host.oidc).not.toHaveBeenCalled();
+    expect(host.invoke).not.toHaveBeenCalled();
+  },
+);
+
+it.each([null, ""])(
+  "direct web sign-in with missing endpoint %j opens configuration",
+  async (base) => {
+    host.native = false;
+    host.idp = base;
+    const { load: signin } = await import("../../signin/+page");
+    await expect(signin()).rejects.toMatchObject({
+      status: 302,
+      location: "/config",
+    });
+    expect(host.fetch).not.toHaveBeenCalled();
+    expect(host.clientId).not.toHaveBeenCalled();
+    expect(host.oidc).not.toHaveBeenCalled();
+  },
+);
+
+it("direct web sign-in awaits verified login metadata after readiness", async () => {
+  host.native = false;
+  readyNative("ready");
+  const { load: signin } = await import("../../signin/+page");
+  host.clientId.mockImplementationOnce(async () => {
+    await Promise.resolve();
+    expect(host.fetch).toHaveBeenCalledOnce();
+    expect(host.oidc).not.toHaveBeenCalled();
+    return "verified-client";
+  });
+  await expect(signin()).resolves.toBeUndefined();
+  expect(host.clientId).toHaveBeenCalledOnce();
+  expect(host.invoke).not.toHaveBeenCalled();
+});
+
+it.each(["network", "http", "malformed", "login"])(
+  "direct web sign-in reports %s evidence failure as 503, not fresh setup",
+  async (failureKind) => {
+    host.native = false;
+    readyNative("ready");
+    if (failureKind === "network")
+      host.fetch.mockRejectedValue(new TypeError("Failed to fetch"));
+    if (failureKind === "http")
+      host.fetch.mockResolvedValue(new Response(null, { status: 503 }));
+    if (failureKind === "malformed")
+      host.fetch.mockResolvedValue(Response.json({ ready: true }));
+    if (failureKind === "login")
+      host.clientId.mockRejectedValue(new Error("Login evidence unavailable"));
+    const { load: signin } = await import("../../signin/+page");
+    const failure = await signin().catch((cause: unknown) => cause);
+    expect(isHttpError(failure, 503)).toBe(true);
+    expect(failure).toMatchObject({
+      body: { message: expect.stringContaining("Retry") },
+    });
+    if (failureKind !== "login") expect(host.clientId).not.toHaveBeenCalled();
+    expect(host.oidc).not.toHaveBeenCalled();
+    expect(host.invoke).not.toHaveBeenCalled();
+  },
+);
+
+it.each(["installation", "device", "unavailable", "ready"])(
+  "preserves native direct sign-in behavior for %s",
+  async (stage) => {
+    host.invoke.mockResolvedValue(stage);
+    const { load: signin } = await import("../../signin/+page");
+    if (stage === "ready") await expect(signin()).resolves.toBeUndefined();
+    else
+      await expect(signin()).rejects.toMatchObject({
+        status: 302,
+        location: "/setup",
+      });
+    expect(host.invoke.mock.calls).toEqual([["get_setup_stage"]]);
+    expect(host.fetch).not.toHaveBeenCalled();
+    expect(host.clientId).not.toHaveBeenCalled();
+  },
+);
 
 it("does not accept invented web readiness or send the operator through OAuth on load failure", async () => {
   host.native = false;

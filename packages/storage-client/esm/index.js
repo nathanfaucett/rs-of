@@ -10,6 +10,9 @@ var __classPrivateFieldSet = (this && this.__classPrivateFieldSet) || function (
     return (kind === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value)), value;
 };
 var _StorageSocket_queue;
+export { ResourcesResidencyApi } from "./generated/apis/ResourcesResidencyApi.js";
+export { ResidencyMode } from "./generated/models/ResidencyMode.js";
+export { Configuration as StorageOwnerConfiguration } from "./generated/runtime.js";
 export class StorageSocket {
     constructor(socket) {
         this.socket = socket;
@@ -18,7 +21,7 @@ export class StorageSocket {
     request(request) {
         const response = __classPrivateFieldGet(this, _StorageSocket_queue, "f").then(async () => {
             const next = receive(this.socket);
-            this.socket.send(JSON.stringify({ type: "request", request }));
+            this.socket.send(JSON.stringify(request));
             return next;
         });
         __classPrivateFieldSet(this, _StorageSocket_queue, response.then(() => undefined, () => undefined), "f");
@@ -35,7 +38,7 @@ export class StorageClient {
     }
     async listFileSystems() {
         const token = await this.exchangeToken(["read"]);
-        const response = await this.request("/storage/filesystems", token);
+        const response = await this.request("/filesystems", token);
         if (!response.ok) {
             throw new Error(`Filesystem list failed: ${response.status}`);
         }
@@ -43,7 +46,7 @@ export class StorageClient {
     }
     async createFileSystem(name) {
         const token = await this.exchangeToken(["write"]);
-        const response = await this.request("/storage/filesystems", token, {
+        const response = await this.request("/filesystems", token, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name: name ?? null }),
@@ -57,9 +60,8 @@ export class StorageClient {
         if (!filesystemId) {
             throw new Error("Select a filesystem before opening storage");
         }
-        const baseUrl = parseUrl(this.options.baseUrl);
+        const url = parseUrl(this.options.storageBaseUrl);
         const token = await this.exchangeToken(["read", "write"]);
-        const url = new URL("/storage", baseUrl);
         url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
         url.searchParams.set("access_token", token);
         url.searchParams.set("filesystem_id", filesystemId);
@@ -76,13 +78,13 @@ export class StorageClient {
             grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
             subject_token: subjectToken,
             subject_token_type: "urn:ietf:params:oauth:token-type:access_token",
-            audience: this.options.audience,
+            resource: "storage:filesystems",
             client_id: this.options.clientId,
             authorization_details: JSON.stringify([
                 { type: "storage", actions },
             ]),
         });
-        const response = await (this.options.fetch ?? fetch)(new URL("/oauth2/token", parseUrl(this.options.baseUrl)), {
+        const response = await (this.options.fetch ?? fetch)(parseUrl(this.options.idpBaseUrl, "/oauth2/token"), {
             method: "POST",
             headers: {
                 "Content-Type": "application/x-www-form-urlencoded",
@@ -99,17 +101,21 @@ export class StorageClient {
         return result.access_token;
     }
     request(path, token, init = {}) {
-        return (this.options.fetch ?? fetch)(new URL(path, parseUrl(this.options.baseUrl)), {
+        return (this.options.fetch ?? fetch)(parseUrl(this.options.storageBaseUrl, path), {
             ...init,
             headers: { ...init.headers, Authorization: `Bearer ${token}` },
         });
     }
 }
-function parseUrl(value) {
+function parseUrl(value, path = "") {
     const url = new URL(value);
     if (url.protocol !== "http:" && url.protocol !== "https:") {
-        throw new Error("LIDP API URL must use HTTP or HTTPS");
+        throw new Error("Service base URL must use HTTP or HTTPS");
     }
+    if (url.username || url.password || url.search || url.hash) {
+        throw new Error("Service base URL must not contain credentials, query or fragment");
+    }
+    url.pathname = url.pathname.replace(/\/+$/, "") + path;
     return url;
 }
 function opened(socket) {

@@ -39,7 +39,7 @@ impl Default for AppConfig {
             management_oauth_client_secret: None,
             management_service_audience: None,
             management_endpoint_id: None,
-            log_level: "DEBUG".to_string(),
+            log_level: "info".to_string(),
             env: Environment::default(),
         }
     }

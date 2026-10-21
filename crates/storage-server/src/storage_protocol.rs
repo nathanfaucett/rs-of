@@ -25,6 +25,7 @@ pub(crate) struct StorageProtocolHandler {
     server: Server,
     authorizer: LocalReplicationAuthorizer,
     file_systems: Arc<ScopedFileSystemRuntime<EndpointId>>,
+    pub(crate) admission: crate::replication_admission::ReplicationAdmission,
     cancellation_token: CancellationToken,
 }
 
@@ -39,6 +40,9 @@ impl StorageProtocolHandler {
             server,
             authorizer,
             file_systems,
+            admission: crate::replication_admission::ReplicationAdmission::new(
+                cancellation_token.clone(),
+            ),
             cancellation_token,
         }
     }
@@ -48,10 +52,11 @@ impl StorageProtocolHandler {
         let server = self.server.clone();
         let authorizer = self.authorizer.clone();
         let cancellation = self.cancellation_token.clone();
+        let admission = self.admission.clone();
         self.file_systems.set_content_reader(move |owner, app, id, path| {
-            let files = files.clone(); let server = server.clone(); let authorizer = authorizer.clone(); let cancellation_token = cancellation.clone();
+            let files = files.clone(); let server = server.clone(); let authorizer = authorizer.clone(); let cancellation_token = cancellation.clone(); let admission = admission.clone();
             async move {
-                let handler = Self { server, authorizer, file_systems: files.upgrade().ok_or("Storage runtime is unavailable")?, cancellation_token };
+                let handler = Self { server, authorizer, file_systems: files.upgrade().ok_or("Storage runtime is unavailable")?, cancellation_token, admission };
                 let resource = IrohResourceDescriptor { owner_subject: owner, application_id: app.to_string(), filesystem_id: id.as_uuid().to_string() };
                 let mut failure = "no configured peers".to_owned();
                 for peer in handler.server.peers().ids() {
@@ -111,48 +116,7 @@ impl StorageProtocolHandler {
         Ok(content)
     }
 
-    pub(crate) async fn synchronize_selected_peers(&self) {
-        let Ok(selected) = self
-            .authorizer
-            .selected_resources(self.server.endpoint().id())
-            .await
-        else {
-            return;
-        };
-        let selected_filesystems = selected
-            .iter()
-            .filter(|resource| resource.kind == "filesystem")
-            .filter_map(|resource| {
-                Some((
-                    resource.owner_subject.clone(),
-                    resource.application_id.parse().ok()?,
-                    FileSystemId::parse(&resource.resource_id).ok()?,
-                ))
-            })
-            .collect::<Vec<_>>();
-        if let Err(error) = self
-            .file_systems
-            .remove_unselected_projected_resources(&selected_filesystems)
-            .await
-        {
-            log::warn!("failed to evict deselected filesystem copies: {error}");
-        }
-        for peer in self.server.peers().ids() {
-            if self.server.endpoint().id().to_string() >= peer.to_string() {
-                continue;
-            }
-            for resource in selected
-                .iter()
-                .filter(|resource| resource.kind == "filesystem")
-            {
-                if let Err(error) = self.synchronize_peer(peer, descriptor(resource)).await {
-                    log::debug!("filesystem sync with {peer} failed: {error}");
-                }
-            }
-        }
-    }
-
-    async fn synchronize_peer(
+    pub(crate) async fn synchronize_peer(
         &self,
         peer: EndpointId,
         resource: IrohResourceDescriptor,
@@ -184,18 +148,21 @@ impl StorageProtocolHandler {
             let connection = connection_for_guard.clone();
             async move { handler.authorize(&resource, &connection).await }
         };
+        if deleted {
+            return tokio::select! {
+                () = self.cancellation_token.cancelled() => Ok(()),
+                result = IrohFileTransport::send_tombstone_authorized(&connection, resource, authorize) => result,
+            };
+        }
         let transport = tokio::select! {
             () = self.cancellation_token.cancelled() => return Ok(()),
-            result = async {
-                if deleted { IrohFileTransport::open_tombstone_authorized(&connection, resource.clone(), authorize).await }
-                else { IrohFileTransport::open_authorized(&connection, resource.clone(), authorize).await }
-            } => result?,
+            result = IrohFileTransport::open_authorized(&connection, resource.clone(), authorize) => result?,
         };
-        if deleted {
-            transport.close();
-            return Ok(());
-        }
         self.require_authorized(&resource, &connection).await?;
+        self.file_systems
+            .register_selected_resource(&namespace, filesystem_id)
+            .await
+            .map_err(std::io::Error::other)?;
         let file_system = self
             .file_systems
             .open_resource(&namespace, filesystem_id)
@@ -230,18 +197,27 @@ impl StorageProtocolHandler {
         send: SendStream,
         recv: RecvStream,
     ) {
+        let _ = self.admission.run(&self.server, connection.remote_id(), Box::pin(async {
         let handler = self.clone();
         let connection_for_guard = connection.clone();
+        let deletion_handler = self.clone();
+        let deletion_connection = connection.clone();
         let accepted = tokio::select! {
             () = self.cancellation_token.cancelled() => return,
             result = IrohFileTransport::accept_authorized_after_marker(&connection, send, recv, move |resource| {
                 let handler = handler.clone();
                 let connection = connection_for_guard.clone();
                 async move { handler.authorize(&resource, &connection).await }
+            }, move |resource| async move {
+                deletion_handler.require_authorized(&resource, &deletion_connection).await?;
+                let namespace = Namespace { owner_subject: resource.owner_subject.clone(), application_id: resource.application_id.parse().map_err(std::io::Error::other)? };
+                let id = FileSystemId::parse(&resource.filesystem_id).map_err(std::io::Error::other)?;
+                deletion_handler.file_systems.apply_deletion_tombstone(&namespace, id).await.map_err(std::io::Error::other)
             }) => result,
         };
-        let (transport, resource, deleted) = match accepted {
-            Ok(accepted) => accepted,
+        let (transport, resource) = match accepted {
+            Ok(Some(accepted)) => accepted,
+            Ok(None) => return,
             Err(error) => {
                 log::debug!("rejected filesystem sync stream: {error}");
                 return;
@@ -258,14 +234,6 @@ impl StorageProtocolHandler {
             let filesystem_id =
                 FileSystemId::parse(&resource.filesystem_id).map_err(std::io::Error::other)?;
             self.require_authorized(&resource, &connection).await?;
-            if deleted {
-                self.file_systems
-                    .apply_deletion_tombstone(&namespace, filesystem_id)
-                    .await
-                    .map_err(std::io::Error::other)?;
-                transport.close();
-                return Ok(());
-            }
             self.file_systems
                 .register_selected_resource(&namespace, filesystem_id)
                 .await
@@ -283,6 +251,7 @@ impl StorageProtocolHandler {
         if let Err(error) = result {
             log::debug!("filesystem sync session ended: {error}");
         }
+        })).await;
     }
 
     fn operation_control(
@@ -337,7 +306,10 @@ impl StorageProtocolHandler {
         resource: &IrohResourceDescriptor,
         connection: &Connection,
     ) -> bool {
-        if self.cancellation_token.is_cancelled() {
+        if self.cancellation_token.is_cancelled()
+            || !self.admission.allows()
+            || !self.server.peers().contains(connection.remote_id())
+        {
             return false;
         }
         let (Ok(application_id), Ok(filesystem_id)) = (
@@ -370,6 +342,8 @@ impl StorageProtocolHandler {
             )
             .await
             && !self.cancellation_token.is_cancelled()
+            && self.admission.allows()
+            && self.server.peers().contains(connection.remote_id())
             && self
                 .file_systems
                 .require_local_copy(&scope, filesystem_id)
@@ -410,7 +384,7 @@ impl ProtocolHandler for StorageProtocolHandler {
         }
     }
 }
-fn descriptor(resource: &SelectedResource) -> IrohResourceDescriptor {
+pub(crate) fn descriptor(resource: &SelectedResource) -> IrohResourceDescriptor {
     IrohResourceDescriptor {
         owner_subject: resource.owner_subject.clone(),
         application_id: resource.application_id.clone(),

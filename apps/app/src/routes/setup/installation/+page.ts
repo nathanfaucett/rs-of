@@ -1,5 +1,6 @@
-import { error } from "@sveltejs/kit";
+import { error, redirect } from "@sveltejs/kit";
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { getIdpApiUrl } from "$lib/common/state/idpClient.svelte";
 import {
   getSetupStage,
   getWebSetupHosts,
@@ -7,6 +8,7 @@ import {
 } from "$lib/common/state/setupClient.svelte";
 
 export async function load() {
+  if (!isTauri() && !getIdpApiUrl()) throw redirect(302, "/config");
   const bundled = isTauri() && !usesRemoteApis();
   if (bundled) {
     try {
@@ -22,14 +24,14 @@ export async function load() {
       };
     }
   }
-    try {
-      const hosts = await getWebSetupHosts();
+  try {
+    const hosts = await getWebSetupHosts();
     const stage = hosts.every((host) => host.status.ready)
       ? bundled
         ? await getSetupStage()
         : "ready"
-          : hosts.some((host) => host.status.stage === "unavailable")
-            ? "unavailable"
+      : hosts.some((host) => host.status.stage === "unavailable")
+        ? "unavailable"
         : "installation";
     if (!["installation", "unavailable", "ready", "device"].includes(stage))
       throw new Error("Setup evidence is invalid; readiness not established");
@@ -42,9 +44,9 @@ export async function load() {
         nativeError:
           "Bundled HTTPS setup unavailable; explicitly retry host prerequisites or recover/reset local references.",
       };
-      throw error(
-        503,
-        cause instanceof Error ? cause.message : "Setup status unavailable",
-      );
-    }
+    throw error(
+      503,
+      cause instanceof Error ? cause.message : "Setup status unavailable",
+    );
   }
+}

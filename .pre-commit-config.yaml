@@ -1,5 +1,5 @@
 repos:
-  - repo: local
+  - repo: of
     hooks:
       - id: fmt
         name: Run rustfmt

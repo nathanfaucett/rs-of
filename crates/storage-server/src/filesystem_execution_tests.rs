@@ -215,7 +215,7 @@ impl Fixture {
         assert_eq!(marker[0], FILESYSTEM_STREAM_KIND);
         let authorize = self.authorize(1);
         let expected = self.descriptor();
-        let (right, resource, deleted) = IrohFileTransport::accept_authorized_after_marker(
+        let (right, resource) = IrohFileTransport::accept_authorized_after_marker(
             &self.peers.connections[1],
             send,
             recv,
@@ -224,11 +224,12 @@ impl Fixture {
                 let expected = expected.clone();
                 async move { resource == expected && authorize().await }
             },
+            |_| async { Err(std::io::Error::other("unexpected test tombstone")) },
         )
         .await
-        .expect("selected resource independently authorized on target Node");
+        .expect("selected resource independently authorized on target Node")
+        .expect("live resource");
         assert_eq!(resource, self.descriptor());
-        assert!(!deleted);
         [left, right]
     }
 }
@@ -287,7 +288,7 @@ async fn delayed_http_policy_cannot_release_queued_filesystem_content_after_loca
             ).expect("authenticated Management client"));
             let cancellation = CancellationToken::new();
             let handler = crate::storage_protocol::StorageProtocolHandler::new(
-                Server::new(fixture.peers.endpoints[0].clone(), EndpointIdStore::default()),
+                Server::new(fixture.peers.endpoints[0].clone(), { let peers = EndpointIdStore::default(); peers.add(fixture.peers.ids()[1]); peers }),
                 policy, fixture.runtimes[0].clone(), cancellation.clone(),
             );
             let resource = fixture.descriptor();
@@ -469,6 +470,7 @@ async fn real_selected_filesystem_parent_cancellation_releases_admitted_session(
             fixture.peers.endpoints[1].clone(),
             EndpointIdStore::default(),
         );
+        server.peers().add(fixture.peers.ids()[0]);
         let runtime = Arc::new(
             ScopedFileSystemRuntime::new(
                 fixture.nodes[1].root.join("production-files"),
@@ -605,7 +607,7 @@ async fn serve(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn real_selected_filesystem_denies_fetched_content_publication_then_reconnects() {
-    tokio::time::timeout(Duration::from_secs(300), async {
+    tokio::time::timeout(Duration::from_secs(300), Box::pin(async {
         let mut fixture = Fixture::new().await;
         fixture.files[0].write("remote.txt", b"complete source content").await.expect("source write");
         let [left, right] = fixture.transports().await;
@@ -638,7 +640,7 @@ async fn real_selected_filesystem_denies_fetched_content_publication_then_reconn
         assert!(right.open(fixture.peers.ids()[0], OpenRequest { path: "remote.txt".into(), revision: None }).await.is_err(), "learned local Device revocation denies next existing-connection request");
         left.close(); right.close(); task.await.expect("retry task joins").expect("retry stream released"); drop(right_sync);
         fixture.peers.close().await;
-    }).await.expect("content domain acceptance completes");
+    })).await.expect("content domain acceptance completes");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

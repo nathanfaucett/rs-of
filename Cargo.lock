@@ -4825,6 +4825,7 @@ dependencies = [
  "async-stream",
  "futures",
  "thiserror 2.0.20",
+ "tokio",
 ]
 
 [[package]]
@@ -4895,6 +4896,7 @@ dependencies = [
  "ofdb-btree",
  "ofdb-btree-automerge",
  "ofdb-kv-store",
+ "ofdb-sync-runtime",
  "postcard",
  "serde",
 ]
@@ -5000,6 +5002,7 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "ofdb-sql-engine",
+ "ofdb-sync-runtime",
  "ofdb-value",
  "postcard",
  "serde",
@@ -5020,6 +5023,14 @@ dependencies = [
  "sqlparser",
  "thiserror 2.0.20",
  "uuid",
+]
+
+[[package]]
+name = "ofdb-sync-runtime"
+version = "0.1.0"
+dependencies = [
+ "ofdb-btree",
+ "tokio",
 ]
 
 [[package]]

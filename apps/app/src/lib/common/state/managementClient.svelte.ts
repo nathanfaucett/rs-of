@@ -12,10 +12,11 @@ import { env } from "$env/dynamic/public";
 import { afterSigninRedirect } from "./afterSigninRedirect.svelte";
 import { ensureLocalhostBaseUrl } from "./localhostBaseUrl.svelte";
 import { ownerAccessToken, usesRemoteApis } from "./idpClient.svelte";
+import { fetchSetupStatus } from "./setupApi";
 
 const managementApiUrl = createStorage<string | null>(
   "management-api-url",
-  env.PUBLIC_LIDP_MANAGEMENT_BASE_URL ?? null,
+  env.PUBLIC_MANAGEMENT_BASE_URL ?? null,
 );
 
 function readAccessToken(): Promise<string> {
@@ -93,7 +94,10 @@ export async function validateManagementApiUrl(
 
   try {
     const version = await api.version();
-    return version.name === "management-server";
+    if (version.name === "management-server") return true;
+  } catch {}
+  try {
+    return (await fetchSetupStatus(basePath)).owners.includes("management");
   } catch {
     return false;
   }

@@ -43,7 +43,7 @@ impl Default for AppConfig {
             service_audience: None,
             management_data_dir: None,
             management_permissions: None,
-            log_level: "DEBUG".to_string(),
+            log_level: "info".to_string(),
             env: Environment::default(),
         }
     }

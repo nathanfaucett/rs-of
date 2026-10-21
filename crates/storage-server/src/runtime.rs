@@ -30,10 +30,18 @@ impl StorageRuntime {
             .map(StorageReplicationRuntime::data_handler)
     }
 
-    pub fn start_background_tasks(&mut self) {
+    /// Install merged IdP/Management changes before starting replication.
+    pub fn set_policy_changes(&mut self, subscription: ofdb_sql::ChangeSubscription) {
         if let Some(replication) = self.replication.as_mut() {
-            replication.start_sync(self.cancellation_token.clone());
+            replication.set_policy_changes(subscription);
         }
+    }
+
+    pub fn start_background_tasks(&mut self) -> io::Result<()> {
+        if let Some(replication) = self.replication.as_mut() {
+            replication.start_sync(self.cancellation_token.clone())?;
+        }
+        Ok(())
     }
 
     pub async fn shutdown(self) -> io::Result<()> {

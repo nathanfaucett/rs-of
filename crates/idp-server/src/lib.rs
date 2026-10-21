@@ -43,7 +43,9 @@ pub use management_permission_client::ManagementPermissionClient;
 
 pub use node_join::{NodeJoinApproval, NodeJoinRequest, NodeJoinStage, bind_node_join_endpoint};
 pub use provisioning::OwnerProvisioner;
-pub use router::{RouterState, authorize_bearer, openapi_document, openapi_router};
+pub use router::{
+    RouterState, authorize_bearer, openapi_document, openapi_router, public_metadata_router,
+};
 pub(crate) use router::{authorize_bearer_any_principal, authorize_bearer_client};
 pub use runtime::{IdpRuntime, build_oauth_runtime, build_runtime};
 
