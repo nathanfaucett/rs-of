@@ -57,3 +57,6 @@ mod independent_join;
 pub use independent_create::serve_independent_create;
 #[cfg(unix)]
 pub use independent_join::build_independent_idp;
+
+#[cfg(unix)]
+pub use independent_join::independent_join_openapi;

@@ -1564,42 +1564,11 @@ mod tests {
         ] {
             let openapi = get_json(&client, format!("http://{server_address}{path}")).await;
             assert_eq!(openapi["servers"][0]["url"], expected_server, "{path}");
-            if !path.starts_with("/storage/")
-                && let Some(directory) = std::env::var_os("OF04_OPENAPI_OUTPUT")
-            {
-                let directory = std::path::PathBuf::from(directory);
-                std::fs::create_dir_all(&directory)
-                    .expect("create requested API snapshot directory");
-                let name = path.trim_start_matches('/').replace('/', "-");
-                std::fs::write(
-                    directory.join(name),
-                    serde_json::to_vec_pretty(&openapi)
-                        .expect("serialize live owner specification"),
-                )
-                .expect("export live owner specification");
-            }
             if path.starts_with("/storage/") {
                 assert!(openapi["paths"].get("/databases").is_some());
                 assert!(openapi["paths"].get("/storage/databases").is_none());
             }
         }
-
-        let client_qualification =
-            if let Some(script) = std::env::var_os("OF06_CLIENT_QUALIFICATION") {
-                Some(
-                    tokio::task::spawn_blocking(move || {
-                        std::process::Command::new("node")
-                            .arg(script)
-                            .arg(format!("http://{server_address}"))
-                            .status()
-                            .expect("run client qualification against live public routers")
-                    })
-                    .await
-                    .expect("client qualification worker joins"),
-                )
-            } else {
-                None
-            };
 
         for path in ["/idp/health", "/management/health", "/storage/health"] {
             let response = client
@@ -1626,6 +1595,35 @@ mod tests {
             management_service::MANAGEMENT_APPLICATION_URI,
         )
         .await;
+        let mut generated = of_node_join_client::apis::configuration::Configuration {
+            base_path: format!("http://{server_address}"),
+            client: client.clone(),
+            ..Default::default()
+        };
+        assert!(
+            of_node_join_client::apis::default_api::pending(&generated)
+                .await
+                .is_err(),
+            "generated host routes require bearer admission"
+        );
+        generated.bearer_access_token = Some(bearer.clone());
+        of_node_join_client::apis::default_api::acceptance(&generated)
+            .await
+            .expect("generated acceptance against actual composed router");
+        let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../scripts/qualify-built-node-join.mjs");
+        let node_bearer = bearer.clone();
+        let status = tokio::task::spawn_blocking(move || {
+            std::process::Command::new("node")
+                .arg(script)
+                .arg(format!("http://{server_address}"))
+                .env("OF_TEST_BEARER", node_bearer)
+                .status()
+                .expect("built Node-join SDK consumer")
+        })
+        .await
+        .expect("Node-join consumer task");
+        assert!(status.success());
         assert!(
             runtime
                 .node_public_ready()
@@ -2070,12 +2068,6 @@ mod tests {
         restored_endpoint.close().await;
         drop(restored_control);
         fs::remove_dir_all(root).expect("remove unified runtime data");
-        if let Some(status) = client_qualification {
-            assert!(
-                status.success(),
-                "live public API client qualification failed"
-            );
-        }
     }
 
     async fn issue_client_token(

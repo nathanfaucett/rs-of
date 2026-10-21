@@ -1,0 +1,110 @@
+{
+  "components": {
+    "schemas": {
+      "SetupStatus": {
+        "properties": {
+          "owners": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage",
+          "state",
+          "ready",
+          "owners"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "setup_code": {
+        "description": "Setup <this owner's host-generated code>; never OAuth or another owner's code",
+        "in": "header",
+        "name": "Authorization",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "contact": {
+      "name": "nathanfaucett@gmail.com"
+    },
+    "description": "OAuth 2.x API",
+    "license": {
+      "identifier": "MIT OR Apache-2.0",
+      "name": "MIT OR Apache-2.0"
+    },
+    "title": "api",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/setup/admission": {
+      "post": {
+        "operationId": "admission",
+        "responses": {
+          "204": {
+            "description": "Owner-local Setup admission accepted"
+          },
+          "401": {
+            "description": "Setup code required"
+          },
+          "403": {
+            "description": "Denied"
+          }
+        },
+        "security": [
+          {
+            "setup_code": []
+          }
+        ],
+        "tags": []
+      }
+    },
+    "/setup/status": {
+      "get": {
+        "operationId": "status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupStatus"
+                }
+              }
+            },
+            "description": "Awaiting owner setup"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupStatus"
+                }
+              }
+            },
+            "description": "Owner state unavailable"
+          }
+        },
+        "tags": []
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "https://localhost/"
+    }
+  ]
+}

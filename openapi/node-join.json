@@ -1,0 +1,436 @@
+{
+  "components": {
+    "schemas": {
+      "Acceptance": {
+        "additionalProperties": false,
+        "properties": {
+          "accepting": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "accepting"
+        ],
+        "type": "object"
+      },
+      "JwkPublic": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/JwkPublicParameters"
+          },
+          {
+            "properties": {
+              "alg": {
+                "$ref": "#/components/schemas/JwsAlgorithm",
+                "description": "Algorithm intended for use"
+              },
+              "kid": {
+                "description": "Key ID",
+                "type": "string"
+              },
+              "use": {
+                "$ref": "#/components/schemas/KeyUse",
+                "description": "Key use (sig, enc)"
+              }
+            },
+            "required": [
+              "use",
+              "kid",
+              "alg"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "JwkPublicParameters": {
+        "oneOf": [
+          {
+            "properties": {
+              "e": {
+                "type": "string"
+              },
+              "kty": {
+                "enum": [
+                  "Rsa"
+                ],
+                "type": "string"
+              },
+              "n": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "n",
+              "e",
+              "kty"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "crv": {
+                "type": "string"
+              },
+              "kty": {
+                "enum": [
+                  "Ec"
+                ],
+                "type": "string"
+              },
+              "x": {
+                "type": "string"
+              },
+              "y": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "crv",
+              "x",
+              "y",
+              "kty"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "crv": {
+                "type": "string"
+              },
+              "kty": {
+                "enum": [
+                  "Opk"
+                ],
+                "type": "string"
+              },
+              "x": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "crv",
+              "x",
+              "kty"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "JwsAlgorithm": {
+        "enum": [
+          "RS256",
+          "RS384",
+          "RS512",
+          "ES256",
+          "ES256K",
+          "ES384",
+          "ES512",
+          "PS256",
+          "PS384",
+          "PS512",
+          "EdDSA"
+        ],
+        "type": "string"
+      },
+      "KeyUse": {
+        "enum": [
+          "sig",
+          "enc"
+        ],
+        "type": "string"
+      },
+      "NodeJoinApproval": {
+        "additionalProperties": false,
+        "properties": {
+          "owner_subject": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "request": {
+            "$ref": "#/components/schemas/NodeJoinRequest"
+          },
+          "signature": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request",
+          "owner_subject",
+          "signature"
+        ],
+        "type": "object"
+      },
+      "NodeJoinRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "approving_peer": {
+            "type": "string"
+          },
+          "endpoint_id": {
+            "type": "string"
+          },
+          "installation": {
+            "type": "string"
+          },
+          "member_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "public_signer": {
+            "$ref": "#/components/schemas/JwkPublic"
+          },
+          "purpose": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "purpose",
+          "installation",
+          "member_id",
+          "endpoint_id",
+          "name",
+          "public_signer",
+          "approving_peer"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "authorization": {
+        "bearerFormat": "JWT",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "contact": {
+      "email": "juha7kukkonen@gmail.com",
+      "name": "Juha Kukkonen"
+    },
+    "description": "Utoipa's axum bindings for seamless integration for the two",
+    "license": {
+      "identifier": "MIT OR Apache-2.0",
+      "name": "MIT OR Apache-2.0"
+    },
+    "title": "utoipa-axum",
+    "version": "0.2.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/management/node-joins/acceptance": {
+      "get": {
+        "operationId": "acceptance",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Acceptance"
+                }
+              }
+            },
+            "description": "Current locally authorized Node-join operation"
+          },
+          "401": {
+            "description": "Bearer required"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Offer not found"
+          },
+          "409": {
+            "description": "Offer changed"
+          },
+          "503": {
+            "description": "Unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "set_acceptance",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Acceptance"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Acceptance"
+                }
+              }
+            },
+            "description": "Current locally authorized Node-join operation"
+          },
+          "401": {
+            "description": "Bearer required"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Offer not found"
+          },
+          "409": {
+            "description": "Offer changed"
+          },
+          "503": {
+            "description": "Unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
+    "/management/node-joins/pending": {
+      "get": {
+        "operationId": "pending",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Current locally authorized Node-join operation"
+          },
+          "401": {
+            "description": "Bearer required"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Offer not found"
+          },
+          "409": {
+            "description": "Offer changed"
+          },
+          "503": {
+            "description": "Unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
+    "/management/node-joins/{id}/approve": {
+      "post": {
+        "operationId": "approve",
+        "parameters": [
+          {
+            "description": "Pending offer UUID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeJoinApproval"
+                }
+              }
+            },
+            "description": "Current locally authorized Node-join operation"
+          },
+          "401": {
+            "description": "Bearer required"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Offer not found"
+          },
+          "409": {
+            "description": "Offer changed"
+          },
+          "503": {
+            "description": "Unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
+    "/management/node-joins/{id}/reject": {
+      "post": {
+        "operationId": "reject",
+        "parameters": [
+          {
+            "description": "Pending offer UUID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Current locally authorized Node-join operation"
+          },
+          "401": {
+            "description": "Bearer required"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Offer not found"
+          },
+          "409": {
+            "description": "Offer changed"
+          },
+          "503": {
+            "description": "Unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "https://localhost/"
+    }
+  ]
+}

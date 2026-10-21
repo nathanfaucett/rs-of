@@ -42,6 +42,7 @@ impl From<idp_model::model::Role> for RoleResponse {
 #[derive(
     Clone, Debug, Deserialize, Eq, PartialEq, Serialize, utoipa::IntoParams, utoipa::ToSchema,
 )]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ListRolesQuery {
     #[serde(default)]
     pub offset: u32,

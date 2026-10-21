@@ -36,6 +36,7 @@ tokio = { version = "1.52", default-features = false, features = [
 ] }
 
 [workspace]
+exclude = ["clients/rust"]
 members = [
   "crates/db",
   "crates/cli",

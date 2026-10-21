@@ -12,6 +12,7 @@ use super::{CodeChallengeMethod, ResponseMode, ResponseType};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema, utoipa::IntoParams))]
+#[cfg_attr(feature = "utoipa", into_params(parameter_in = Query))]
 #[cfg_attr(
     feature = "wasm",
     derive(tsify::Tsify),

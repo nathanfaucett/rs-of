@@ -57,7 +57,12 @@ where
 #[utoipa::path(
     get,
     path = "/storage",
+    description = "HTTP WebSocket upgrade only; generated HTTP clients do not implement subsequent Storage messages. User token and filesystem resource authorization are checked before upgrade.",
     params(
+        ("Upgrade" = String, Header, description = "websocket"),
+        ("Connection" = String, Header, description = "Upgrade"),
+        ("Sec-WebSocket-Key" = String, Header),
+        ("Sec-WebSocket-Version" = String, Header, description = "13"),
         ("access_token" = String, Query, description = "User access token"),
         ("filesystem_id" = String, Query, description = "Filesystem resource ID")
     ),

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::LocalTls;
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct IndependentPeer {
     pub nonce: String,

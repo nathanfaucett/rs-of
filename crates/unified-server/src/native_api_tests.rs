@@ -1023,3 +1023,149 @@ async fn native_catalog_all_result_kinds_recheck_after_execution_and_retain_muta
     .await
     .expect("native catalog result matrix completes");
 }
+
+fn generated_token_params() -> of_idp_client::apis::default_api::TokenParams {
+    of_idp_client::apis::default_api::TokenParams {
+        authorization: None,
+        client_id: None,
+        password: None,
+        resource: None,
+        scope: None,
+        username: None,
+        grant_type: None,
+        code: None,
+        code_verifier: None,
+        redirect_uri: None,
+        audience: None,
+        client_secret: None,
+        refresh_token: None,
+        actor_token: None,
+        actor_token_type: None,
+        authorization_details: None,
+        requested_token_type: None,
+        subject_token: None,
+        subject_token_type: None,
+    }
+}
+
+#[tokio::test]
+async fn generated_rust_and_built_javascript_use_actual_owner_routes() {
+    use of_idp_client::apis::{configuration::Configuration, default_api};
+    let fixture = Fixture::new(Gate::default()).await;
+    let configuration = Configuration {
+        base_path: fixture.idp_listener.base.clone(),
+        client: fixture.http.clone(),
+        ..Configuration::default()
+    };
+    let mut params = generated_token_params();
+    params.authorization = Some("Basic aHVtYW46aHVtYW4tc2VjcmV0".into());
+    params.client_id = Some("human".into());
+    params.username = Some("administrator".into());
+    params.password = Some("valid-password".into());
+    params.scope = Some("openid".into());
+    params.grant_type = Some("password".into());
+    let token = default_api::token(&configuration, params)
+        .await
+        .expect("generated OAuth form accepted by actual handler");
+    assert!(!token.access_token.is_empty());
+    let denied = of_idp_client::apis::super_routes_oauth2_introspect_api::introspect(
+        &configuration,
+        of_idp_client::apis::super_routes_oauth2_introspect_api::IntrospectParams {
+            introspection_request: of_idp_client::models::IntrospectionRequest {
+                token: token.access_token.clone(),
+                token_type_hint: None,
+            },
+        },
+    )
+    .await
+    .expect_err("successful decoding cannot authorize an unauthenticated caller");
+    assert!(matches!(
+        denied,
+        of_idp_client::apis::Error::ResponseError(_)
+    ));
+    let mut invalid = generated_token_params();
+    invalid.grant_type = Some("client_credentials".into());
+    invalid.client_id = Some("not-registered".into());
+    invalid.client_secret = Some("not-a-secret".into());
+    assert!(default_api::token(&configuration, invalid).await.is_err());
+    let storage = of_storage_client::apis::configuration::Configuration {
+        base_path: format!("{}/storage", fixture.storage_listener.base),
+        client: fixture.http.clone(),
+        ..Default::default()
+    };
+    assert!(
+        of_storage_client::apis::resources_api::list_file_systems(&storage)
+            .await
+            .is_err(),
+        "actual catalog requires authorization"
+    );
+    let setup = api::IndependentSetupHost::prepare(
+        "idp",
+        &fixture._directory.0.join("independent"),
+        "127.0.0.1:3000".parse().expect("owner address"),
+        "https://localhost:5173",
+        "",
+        false,
+    )
+    .expect("isolated owner Setup")
+    .expect("fresh owner");
+    let (host, _commands) = setup
+        .into_create(CancellationToken::new())
+        .expect("Setup host");
+    let mut independent = Listener::start(host.router()).await;
+    let setup_config = of_idp_independent_client::apis::configuration::Configuration {
+        base_path: independent.base.clone(),
+        client: fixture.http.clone(),
+        ..Default::default()
+    };
+    assert!(
+        !of_idp_independent_client::apis::default_api::status(&setup_config)
+            .await
+            .expect("actual independent status")
+            .ready
+    );
+    assert!(
+        of_idp_independent_client::apis::default_api::recover(&setup_config)
+            .await
+            .is_err(),
+        "discovery does not grant Setup admission"
+    );
+    let challenge = of_idp_independent_client::models::Challenge {
+        challenge: "a".repeat(64),
+        operation: Box::default(),
+        recipient: "management".into(),
+        registration: Some(serde_json::json!({"client_id":"unregistered"})),
+    };
+    assert!(
+        of_idp_independent_client::apis::default_api::challenge(
+            &setup_config,
+            of_idp_independent_client::apis::default_api::ChallengeParams { challenge }
+        )
+        .await
+        .is_err(),
+        "published worker handoff remains operation-bound"
+    );
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let status = tokio::task::spawn_blocking({
+        let idp = fixture.idp_listener.base.clone();
+        let storage = fixture.storage_listener.base.clone();
+        let independent = independent.base.clone();
+        move || {
+            std::process::Command::new("node")
+                .arg(root.join("scripts/qualify-built-openapi.mjs"))
+                .arg(idp)
+                .arg(format!("{storage}/storage"))
+                .arg(independent)
+                .status()
+                .expect("run built JavaScript package consumers")
+        }
+    })
+    .await
+    .expect("JavaScript consumer task");
+    assert!(
+        status.success(),
+        "built exported SDK operations against actual routers"
+    );
+    independent.stop().await;
+    fixture.stop().await;
+}

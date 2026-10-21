@@ -181,7 +181,7 @@ fn document() -> Value {
 fn setup_openapi_describes_async_create_status_cancel_and_admission() {
     let doc = document();
     let paths = doc["paths"].as_object().expect("setup paths");
-    assert_eq!(paths.len(), 6);
+    assert_eq!(paths.len(), 7);
     for (path, method, operation, codes) in [
         (
             "/idp/setup/create",

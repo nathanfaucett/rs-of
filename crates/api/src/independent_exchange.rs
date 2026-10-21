@@ -3,19 +3,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-use axum::{
-    Json, Router,
-    extract::State,
-    http::StatusCode,
-    routing::{get, post},
-};
+use axum::{Json, extract::State, http::StatusCode};
 use serde::{Deserialize, Serialize};
 
 use crate::{IndependentCreateControl, IndependentCreateIntent, IndependentOwnerPublic, LocalTls};
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
-struct Challenge {
+pub(crate) struct Challenge {
     operation: IndependentCreateIntent,
     recipient: String,
     registration: serde_json::Value,
@@ -27,9 +22,9 @@ pub(crate) struct OutstandingChallenge {
     expires: Instant,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
-struct Registration {
+pub(crate) struct Registration {
     operation: IndependentCreateIntent,
     recipient: String,
     registration: serde_json::Value,
@@ -42,11 +37,11 @@ pub(crate) fn random_capability() -> io::Result<String> {
     Ok(random.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-pub(crate) fn routes() -> Router<IndependentCreateControl> {
-    Router::new()
-        .route("/setup/independent/public", get(public))
-        .route("/setup/independent/challenge", post(challenge))
-        .route("/setup/independent/register", post(register))
+pub(crate) fn routes() -> utoipa_axum::router::OpenApiRouter<IndependentCreateControl> {
+    utoipa_axum::router::OpenApiRouter::new()
+        .routes(utoipa_axum::routes!(public))
+        .routes(utoipa_axum::routes!(challenge))
+        .routes(utoipa_axum::routes!(register))
 }
 
 impl IndependentCreateControl {
@@ -164,7 +159,8 @@ pub(crate) async fn public(
     state.public.clone().map(Json).ok_or(StatusCode::CONFLICT)
 }
 
-async fn challenge(
+#[utoipa::path(post, tag = "default", path = "/setup/independent/challenge", operation_id = "challenge", request_body = Challenge, security(()), description = "Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.", responses((status = 204, description = "Exact handoff accepted"), (status = 400, description = "Invalid registration"), (status = 403, description = "Operation or challenge denied"), (status = 409, description = "Owner not ready"), (status = 503, description = "Owner unavailable")))]
+pub(crate) async fn challenge(
     State(control): State<IndependentCreateControl>,
     Json(bound): Json<Challenge>,
 ) -> StatusCode {
@@ -270,7 +266,8 @@ async fn challenge(
     }
 }
 
-async fn register(
+#[utoipa::path(post, tag = "default", path = "/setup/independent/register", operation_id = "register", request_body = Registration, security(()), description = "Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.", responses((status = 204, description = "Exact handoff accepted"), (status = 400, description = "Invalid registration"), (status = 403, description = "Operation or challenge denied"), (status = 409, description = "Owner not ready"), (status = 503, description = "Owner unavailable")))]
+pub(crate) async fn register(
     State(control): State<IndependentCreateControl>,
     Json(mut reply): Json<Registration>,
 ) -> StatusCode {

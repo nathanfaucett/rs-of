@@ -34,6 +34,8 @@ pub struct TokenExchangeGrantRequest {
         deserialize_with = "deserialize_authorization_details",
         skip_serializing_if = "Option::is_none"
     )]
+    /// JSON-encoded authorization details array in the OAuth form field.
+    #[cfg_attr(feature = "utoipa", schema(value_type = Option<String>))]
     pub authorization_details: Option<Vec<AuthorizationDetail>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,

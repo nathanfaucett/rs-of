@@ -1,0 +1,8 @@
+{
+  "files": {
+    "support.mustache": {
+      "templateType": "SupportingFiles",
+      "destinationFilename": "src/apis/support.rs"
+    }
+  }
+}

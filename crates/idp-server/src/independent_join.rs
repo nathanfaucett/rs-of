@@ -5,11 +5,11 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use api::SecurityAddon;
 use axum::{
     Json, Router,
     extract::State,
     http::{HeaderMap, StatusCode},
-    routing::post,
 };
 use db::Database;
 use idp_model::contract::{IdpSignerRecord, ReplicaMembership};
@@ -57,9 +57,10 @@ pub async fn build_independent_idp(
         check,
         cancellation,
     );
-    let routes = Router::new()
-        .route("/node-joins/enroll", post(enroll))
+    let routes = join_routes()
         .with_state(source)
+        .split_for_parts()
+        .0
         .merge(history.router());
     let routes = if config.server.prefix().is_empty() {
         routes
@@ -129,6 +130,7 @@ impl Source {
         Ok(())
     }
 }
+#[utoipa::path(post, path = "/node-joins/enroll", operation_id = "enroll_node_join", request_body = IndependentJoinApproval, security(("authorization" = [])), responses((status = 204, description = "Exact signer enrolled"), (status = 400, description = "Invalid signer"), (status = 401, description = "Bearer required"), (status = 403, description = "Current owner permission or approval denied"), (status = 409, description = "Enrollment conflict"), (status = 503, description = "Unavailable")))]
 async fn enroll(
     State(source): State<Arc<Source>>,
     headers: HeaderMap,
@@ -202,4 +204,14 @@ async fn enroll(
         .map_err(|_| StatusCode::FORBIDDEN)?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+fn join_routes() -> utoipa_axum::router::OpenApiRouter<Arc<Source>> {
+    utoipa_axum::router::OpenApiRouter::new().routes(utoipa_axum::routes!(enroll))
+}
+
+pub fn independent_join_openapi() -> utoipa::openapi::OpenApi {
+    let mut document = join_routes().get_openapi().clone();
+    utoipa::Modify::modify(&SecurityAddon, &mut document);
+    document
 }

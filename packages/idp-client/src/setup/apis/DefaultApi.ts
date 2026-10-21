@@ -97,7 +97,7 @@ export interface DefaultApiInterface {
     ): Promise<runtime.RequestOpts>;
 
     /**
-     * Requires the setup capability and exact active nonsecret Create or Join intent (including discovered Join issuer, recoverable through /idp/setup/intent). Signals host-owned cancellation without binding new intent. A 204 is not proof cleanup has finished; observe status. Disconnect alone never cancels accepted work.
+     * Requires the setup capability and exact active nonsecret Create or Join intent (including discovered Join issuer, recoverable through /idp/setup/intent). Cancellation and entry into retirement serialize on the same active-operation lock: cancellation cannot acknowledge 204 after retirement starts (409 while the capability remains valid; retired capabilities deny). A 204 is not proof cleanup has finished; observe status. Disconnect alone never cancels accepted work.
      * @param {SetupIntent} setupIntent
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -109,7 +109,7 @@ export interface DefaultApiInterface {
     ): Promise<runtime.ApiResponse<void>>;
 
     /**
-     * Requires the setup capability and exact active nonsecret Create or Join intent (including discovered Join issuer, recoverable through /idp/setup/intent). Signals host-owned cancellation without binding new intent. A 204 is not proof cleanup has finished; observe status. Disconnect alone never cancels accepted work.
+     * Requires the setup capability and exact active nonsecret Create or Join intent (including discovered Join issuer, recoverable through /idp/setup/intent). Cancellation and entry into retirement serialize on the same active-operation lock: cancellation cannot acknowledge 204 after retirement starts (409 while the capability remains valid; retired capabilities deny). A 204 is not proof cleanup has finished; observe status. Disconnect alone never cancels accepted work.
      */
     cancel(
         requestParameters: CancelRequest,
@@ -201,6 +201,29 @@ export interface DefaultApiInterface {
     ): Promise<CreateResult>;
 
     /**
+     * Creates request options for setupOpenapi without sending the request
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    setupOpenapiRequestOpts(): Promise<runtime.RequestOpts>;
+
+    /**
+     *
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    setupOpenapiRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>>;
+
+    /**
+     */
+    setupOpenapi(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void>;
+
+    /**
      * Creates request options for status without sending the request
      * @throws {RequiredError}
      * @memberof DefaultApiInterface
@@ -208,7 +231,7 @@ export interface DefaultApiInterface {
     statusRequestOpts(): Promise<runtime.RequestOpts>;
 
     /**
-     * Public nonsecret setup observation, not mutation authority. Poll after 202; only ready:true reports current readiness and the public login Client. No password, token or setup code is returned.
+     * Public nonsecret setup observation, not mutation authority. Poll after 202. Completed status re-evaluates existing local owner readiness on every request; learned revocation or a failed check returns 503 with ready:false and no login Client. Normal protected APIs retain their independent authentication/authorization. No password, token or setup code is returned.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      * @memberof DefaultApiInterface
@@ -218,7 +241,7 @@ export interface DefaultApiInterface {
     ): Promise<runtime.ApiResponse<CreateResult>>;
 
     /**
-     * Public nonsecret setup observation, not mutation authority. Poll after 202; only ready:true reports current readiness and the public login Client. No password, token or setup code is returned.
+     * Public nonsecret setup observation, not mutation authority. Poll after 202. Completed status re-evaluates existing local owner readiness on every request; learned revocation or a failed check returns 503 with ready:false and no login Client. Normal protected APIs retain their independent authentication/authorization. No password, token or setup code is returned.
      */
     status(
         initOverrides?: RequestInit | runtime.InitOverrideFunction,
@@ -309,7 +332,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
     }
 
     /**
-     * Requires the setup capability and exact active nonsecret Create or Join intent (including discovered Join issuer, recoverable through /idp/setup/intent). Signals host-owned cancellation without binding new intent. A 204 is not proof cleanup has finished; observe status. Disconnect alone never cancels accepted work.
+     * Requires the setup capability and exact active nonsecret Create or Join intent (including discovered Join issuer, recoverable through /idp/setup/intent). Cancellation and entry into retirement serialize on the same active-operation lock: cancellation cannot acknowledge 204 after retirement starts (409 while the capability remains valid; retired capabilities deny). A 204 is not proof cleanup has finished; observe status. Disconnect alone never cancels accepted work.
      */
     async cancelRaw(
         requestParameters: CancelRequest,
@@ -322,7 +345,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
     }
 
     /**
-     * Requires the setup capability and exact active nonsecret Create or Join intent (including discovered Join issuer, recoverable through /idp/setup/intent). Signals host-owned cancellation without binding new intent. A 204 is not proof cleanup has finished; observe status. Disconnect alone never cancels accepted work.
+     * Requires the setup capability and exact active nonsecret Create or Join intent (including discovered Join issuer, recoverable through /idp/setup/intent). Cancellation and entry into retirement serialize on the same active-operation lock: cancellation cannot acknowledge 204 after retirement starts (409 while the capability remains valid; retired capabilities deny). A 204 is not proof cleanup has finished; observe status. Disconnect alone never cancels accepted work.
      */
     async cancel(
         requestParameters: CancelRequest,
@@ -508,6 +531,43 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
     }
 
     /**
+     * Creates request options for setupOpenapi without sending the request
+     */
+    async setupOpenapiRequestOpts(): Promise<runtime.RequestOpts> {
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        let urlPath = `/idp/setup/openapi.json`;
+
+        return {
+            path: urlPath,
+            method: "GET",
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+
+    /**
+     */
+    async setupOpenapiRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>> {
+        const requestOptions = await this.setupOpenapiRequestOpts();
+        const response = await this.request(requestOptions, initOverrides);
+
+        return new runtime.VoidApiResponse(response);
+    }
+
+    /**
+     */
+    async setupOpenapi(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void> {
+        await this.setupOpenapiRaw(initOverrides);
+    }
+
+    /**
      * Creates request options for status without sending the request
      */
     async statusRequestOpts(): Promise<runtime.RequestOpts> {
@@ -526,7 +586,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
     }
 
     /**
-     * Public nonsecret setup observation, not mutation authority. Poll after 202; only ready:true reports current readiness and the public login Client. No password, token or setup code is returned.
+     * Public nonsecret setup observation, not mutation authority. Poll after 202. Completed status re-evaluates existing local owner readiness on every request; learned revocation or a failed check returns 503 with ready:false and no login Client. Normal protected APIs retain their independent authentication/authorization. No password, token or setup code is returned.
      */
     async statusRaw(
         initOverrides?: RequestInit | runtime.InitOverrideFunction,
@@ -540,7 +600,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
     }
 
     /**
-     * Public nonsecret setup observation, not mutation authority. Poll after 202; only ready:true reports current readiness and the public login Client. No password, token or setup code is returned.
+     * Public nonsecret setup observation, not mutation authority. Poll after 202. Completed status re-evaluates existing local owner readiness on every request; learned revocation or a failed check returns 503 with ready:false and no login Client. Normal protected APIs retain their independent authentication/authorization. No password, token or setup code is returned.
      */
     async status(
         initOverrides?: RequestInit | runtime.InitOverrideFunction,

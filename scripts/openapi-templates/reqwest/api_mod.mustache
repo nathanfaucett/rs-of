@@ -1,0 +1,10 @@
+mod support;
+pub use support::{Error, ResponseContent, parse_deep_object, urlencode};
+use support::ContentType;
+{{#apiInfo}}
+{{#apis}}
+pub mod {{{classFilename}}};
+{{/apis}}
+{{/apiInfo}}
+
+pub mod configuration;

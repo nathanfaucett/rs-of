@@ -9,7 +9,7 @@ use model::contract::TokenResponse;
 
 use crate::router::RouterState;
 
-#[utoipa::path(post, path = "/oauth2/token", request_body(content = TokenRequest, content_type = "application/x-www-form-urlencoded"), responses((status = 200, description = "Token response", body = TokenResponse)))]
+#[utoipa::path(post, path = "/oauth2/token", params(("Authorization" = Option<String>, Header, description = "Optional HTTP Basic OAuth Client credentials; client_credentials also accepts client_secret_post")), request_body(content = TokenRequest, content_type = "application/x-www-form-urlencoded"), responses((status = 200, description = "Token response", body = TokenResponse), (status = 400, description = "Invalid OAuth grant", body = ErrorResponse), (status = 401, description = "Client authentication denied", body = ErrorResponse)))]
 pub(crate) async fn token(
     headers: HeaderMap,
     State(state): State<RouterState>,

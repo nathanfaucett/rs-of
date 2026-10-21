@@ -14,20 +14,36 @@
 
 import * as runtime from "../runtime.js";
 import {
-	type VersionResponse,
-	VersionResponseFromJSON,
-	VersionResponseToJSON,
+    type VersionResponse,
+    VersionResponseFromJSON,
+    VersionResponseToJSON,
 } from "../models/VersionResponse.js";
 
 export interface UpgradeSocketRequest {
-	/**
-	 * User access token
-	 */
-	accessToken: string;
-	/**
-	 * Filesystem resource ID
-	 */
-	filesystemId: string;
+    /**
+     * websocket
+     */
+    upgrade: string;
+    /**
+     * Upgrade
+     */
+    connection: string;
+    /**
+     *
+     */
+    secWebSocketKey: string;
+    /**
+     * 13
+     */
+    secWebSocketVersion: string;
+    /**
+     * User access token
+     */
+    accessToken: string;
+    /**
+     * Filesystem resource ID
+     */
+    filesystemId: string;
 }
 
 /**
@@ -37,291 +53,353 @@ export interface UpgradeSocketRequest {
  * @interface DefaultApiInterface
  */
 export interface DefaultApiInterface {
-	/**
-	 * Creates request options for health without sending the request
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	healthRequestOpts(): Promise<runtime.RequestOpts>;
+    /**
+     * Creates request options for health without sending the request
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    healthRequestOpts(): Promise<runtime.RequestOpts>;
 
-	/**
-	 *
-	 * @param {*} [options] Override http request option.
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	healthRaw(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<any>>;
+    /**
+     *
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    healthRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<any>>;
 
-	/**
-	 */
-	health(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<any>;
+    /**
+     */
+    health(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<any>;
 
-	/**
-	 * Creates request options for openapiJson without sending the request
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	openapiJsonRequestOpts(): Promise<runtime.RequestOpts>;
+    /**
+     * Creates request options for openapiJson without sending the request
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    openapiJsonRequestOpts(): Promise<runtime.RequestOpts>;
 
-	/**
-	 *
-	 * @param {*} [options] Override http request option.
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	openapiJsonRaw(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<void>>;
+    /**
+     *
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    openapiJsonRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>>;
 
-	/**
-	 */
-	openapiJson(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<void>;
+    /**
+     */
+    openapiJson(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void>;
 
-	/**
-	 * Creates request options for upgradeSocket without sending the request
-	 * @param {string} accessToken User access token
-	 * @param {string} filesystemId Filesystem resource ID
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	upgradeSocketRequestOpts(
-		requestParameters: UpgradeSocketRequest,
-	): Promise<runtime.RequestOpts>;
+    /**
+     * Creates request options for upgradeSocket without sending the request
+     * @param {string} upgrade websocket
+     * @param {string} connection Upgrade
+     * @param {string} secWebSocketKey
+     * @param {string} secWebSocketVersion 13
+     * @param {string} accessToken User access token
+     * @param {string} filesystemId Filesystem resource ID
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    upgradeSocketRequestOpts(
+        requestParameters: UpgradeSocketRequest,
+    ): Promise<runtime.RequestOpts>;
 
-	/**
-	 *
-	 * @param {string} accessToken User access token
-	 * @param {string} filesystemId Filesystem resource ID
-	 * @param {*} [options] Override http request option.
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	upgradeSocketRaw(
-		requestParameters: UpgradeSocketRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<void>>;
+    /**
+     * HTTP WebSocket upgrade only; generated HTTP clients do not implement subsequent Storage messages. User token and filesystem resource authorization are checked before upgrade.
+     * @param {string} upgrade websocket
+     * @param {string} connection Upgrade
+     * @param {string} secWebSocketKey
+     * @param {string} secWebSocketVersion 13
+     * @param {string} accessToken User access token
+     * @param {string} filesystemId Filesystem resource ID
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    upgradeSocketRaw(
+        requestParameters: UpgradeSocketRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>>;
 
-	/**
-	 */
-	upgradeSocket(
-		requestParameters: UpgradeSocketRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<void>;
+    /**
+     * HTTP WebSocket upgrade only; generated HTTP clients do not implement subsequent Storage messages. User token and filesystem resource authorization are checked before upgrade.
+     */
+    upgradeSocket(
+        requestParameters: UpgradeSocketRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void>;
 
-	/**
-	 * Creates request options for version without sending the request
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	versionRequestOpts(): Promise<runtime.RequestOpts>;
+    /**
+     * Creates request options for version without sending the request
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    versionRequestOpts(): Promise<runtime.RequestOpts>;
 
-	/**
-	 *
-	 * @param {*} [options] Override http request option.
-	 * @throws {RequiredError}
-	 * @memberof DefaultApiInterface
-	 */
-	versionRaw(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<VersionResponse>>;
+    /**
+     *
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    versionRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<VersionResponse>>;
 
-	/**
-	 */
-	version(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<VersionResponse>;
+    /**
+     */
+    version(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<VersionResponse>;
 }
 
 /**
  *
  */
 export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
-	/**
-	 * Creates request options for health without sending the request
-	 */
-	async healthRequestOpts(): Promise<runtime.RequestOpts> {
-		const queryParameters: any = {};
+    /**
+     * Creates request options for health without sending the request
+     */
+    async healthRequestOpts(): Promise<runtime.RequestOpts> {
+        const queryParameters: any = {};
 
-		const headerParameters: runtime.HTTPHeaders = {};
+        const headerParameters: runtime.HTTPHeaders = {};
 
-		let urlPath = `/health`;
+        let urlPath = `/health`;
 
-		return {
-			path: urlPath,
-			method: "GET",
-			headers: headerParameters,
-			query: queryParameters,
-		};
-	}
+        return {
+            path: urlPath,
+            method: "GET",
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
 
-	/**
-	 */
-	async healthRaw(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<any>> {
-		const requestOptions = await this.healthRequestOpts();
-		const response = await this.request(requestOptions, initOverrides);
+    /**
+     */
+    async healthRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<any>> {
+        const requestOptions = await this.healthRequestOpts();
+        const response = await this.request(requestOptions, initOverrides);
 
-		if (this.isJsonMime(response.headers.get("content-type"))) {
-			return new runtime.JSONApiResponse<any>(response);
-		} else {
-			return new runtime.TextApiResponse(response) as any;
-		}
-	}
+        if (this.isJsonMime(response.headers.get("content-type"))) {
+            return new runtime.JSONApiResponse<any>(response);
+        } else {
+            return new runtime.TextApiResponse(response) as any;
+        }
+    }
 
-	/**
-	 */
-	async health(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<any> {
-		const response = await this.healthRaw(initOverrides);
-		return await response.value();
-	}
+    /**
+     */
+    async health(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<any> {
+        const response = await this.healthRaw(initOverrides);
+        return await response.value();
+    }
 
-	/**
-	 * Creates request options for openapiJson without sending the request
-	 */
-	async openapiJsonRequestOpts(): Promise<runtime.RequestOpts> {
-		const queryParameters: any = {};
+    /**
+     * Creates request options for openapiJson without sending the request
+     */
+    async openapiJsonRequestOpts(): Promise<runtime.RequestOpts> {
+        const queryParameters: any = {};
 
-		const headerParameters: runtime.HTTPHeaders = {};
+        const headerParameters: runtime.HTTPHeaders = {};
 
-		let urlPath = `/openapi.json`;
+        let urlPath = `/openapi.json`;
 
-		return {
-			path: urlPath,
-			method: "GET",
-			headers: headerParameters,
-			query: queryParameters,
-		};
-	}
+        return {
+            path: urlPath,
+            method: "GET",
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
 
-	/**
-	 */
-	async openapiJsonRaw(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<void>> {
-		const requestOptions = await this.openapiJsonRequestOpts();
-		const response = await this.request(requestOptions, initOverrides);
+    /**
+     */
+    async openapiJsonRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>> {
+        const requestOptions = await this.openapiJsonRequestOpts();
+        const response = await this.request(requestOptions, initOverrides);
 
-		return new runtime.VoidApiResponse(response);
-	}
+        return new runtime.VoidApiResponse(response);
+    }
 
-	/**
-	 */
-	async openapiJson(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<void> {
-		await this.openapiJsonRaw(initOverrides);
-	}
+    /**
+     */
+    async openapiJson(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void> {
+        await this.openapiJsonRaw(initOverrides);
+    }
 
-	/**
-	 * Creates request options for upgradeSocket without sending the request
-	 */
-	async upgradeSocketRequestOpts(
-		requestParameters: UpgradeSocketRequest,
-	): Promise<runtime.RequestOpts> {
-		if (requestParameters["accessToken"] == null) {
-			throw new runtime.RequiredError(
-				"accessToken",
-				'Required parameter "accessToken" was null or undefined when calling upgradeSocket().',
-			);
-		}
+    /**
+     * Creates request options for upgradeSocket without sending the request
+     */
+    async upgradeSocketRequestOpts(
+        requestParameters: UpgradeSocketRequest,
+    ): Promise<runtime.RequestOpts> {
+        if (requestParameters["upgrade"] == null) {
+            throw new runtime.RequiredError(
+                "upgrade",
+                'Required parameter "upgrade" was null or undefined when calling upgradeSocket().',
+            );
+        }
 
-		if (requestParameters["filesystemId"] == null) {
-			throw new runtime.RequiredError(
-				"filesystemId",
-				'Required parameter "filesystemId" was null or undefined when calling upgradeSocket().',
-			);
-		}
+        if (requestParameters["connection"] == null) {
+            throw new runtime.RequiredError(
+                "connection",
+                'Required parameter "connection" was null or undefined when calling upgradeSocket().',
+            );
+        }
 
-		const queryParameters: any = {};
+        if (requestParameters["secWebSocketKey"] == null) {
+            throw new runtime.RequiredError(
+                "secWebSocketKey",
+                'Required parameter "secWebSocketKey" was null or undefined when calling upgradeSocket().',
+            );
+        }
 
-		if (requestParameters["accessToken"] != null) {
-			queryParameters["access_token"] = requestParameters["accessToken"];
-		}
+        if (requestParameters["secWebSocketVersion"] == null) {
+            throw new runtime.RequiredError(
+                "secWebSocketVersion",
+                'Required parameter "secWebSocketVersion" was null or undefined when calling upgradeSocket().',
+            );
+        }
 
-		if (requestParameters["filesystemId"] != null) {
-			queryParameters["filesystem_id"] = requestParameters["filesystemId"];
-		}
+        if (requestParameters["accessToken"] == null) {
+            throw new runtime.RequiredError(
+                "accessToken",
+                'Required parameter "accessToken" was null or undefined when calling upgradeSocket().',
+            );
+        }
 
-		const headerParameters: runtime.HTTPHeaders = {};
+        if (requestParameters["filesystemId"] == null) {
+            throw new runtime.RequiredError(
+                "filesystemId",
+                'Required parameter "filesystemId" was null or undefined when calling upgradeSocket().',
+            );
+        }
 
-		let urlPath = `/`;
+        const queryParameters: any = {};
 
-		return {
-			path: urlPath,
-			method: "GET",
-			headers: headerParameters,
-			query: queryParameters,
-		};
-	}
+        if (requestParameters["accessToken"] != null) {
+            queryParameters["access_token"] = requestParameters["accessToken"];
+        }
 
-	/**
-	 */
-	async upgradeSocketRaw(
-		requestParameters: UpgradeSocketRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<void>> {
-		const requestOptions =
-			await this.upgradeSocketRequestOpts(requestParameters);
-		const response = await this.request(requestOptions, initOverrides);
+        if (requestParameters["filesystemId"] != null) {
+            queryParameters["filesystem_id"] =
+                requestParameters["filesystemId"];
+        }
 
-		return new runtime.VoidApiResponse(response);
-	}
+        const headerParameters: runtime.HTTPHeaders = {};
 
-	/**
-	 */
-	async upgradeSocket(
-		requestParameters: UpgradeSocketRequest,
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<void> {
-		await this.upgradeSocketRaw(requestParameters, initOverrides);
-	}
+        if (requestParameters["upgrade"] != null) {
+            headerParameters["Upgrade"] = String(requestParameters["upgrade"]);
+        }
 
-	/**
-	 * Creates request options for version without sending the request
-	 */
-	async versionRequestOpts(): Promise<runtime.RequestOpts> {
-		const queryParameters: any = {};
+        if (requestParameters["connection"] != null) {
+            headerParameters["Connection"] = String(
+                requestParameters["connection"],
+            );
+        }
 
-		const headerParameters: runtime.HTTPHeaders = {};
+        if (requestParameters["secWebSocketKey"] != null) {
+            headerParameters["Sec-WebSocket-Key"] = String(
+                requestParameters["secWebSocketKey"],
+            );
+        }
 
-		let urlPath = `/version`;
+        if (requestParameters["secWebSocketVersion"] != null) {
+            headerParameters["Sec-WebSocket-Version"] = String(
+                requestParameters["secWebSocketVersion"],
+            );
+        }
 
-		return {
-			path: urlPath,
-			method: "GET",
-			headers: headerParameters,
-			query: queryParameters,
-		};
-	}
+        let urlPath = `/`;
 
-	/**
-	 */
-	async versionRaw(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<runtime.ApiResponse<VersionResponse>> {
-		const requestOptions = await this.versionRequestOpts();
-		const response = await this.request(requestOptions, initOverrides);
+        return {
+            path: urlPath,
+            method: "GET",
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
 
-		return new runtime.JSONApiResponse(response, (jsonValue) =>
-			VersionResponseFromJSON(jsonValue),
-		);
-	}
+    /**
+     * HTTP WebSocket upgrade only; generated HTTP clients do not implement subsequent Storage messages. User token and filesystem resource authorization are checked before upgrade.
+     */
+    async upgradeSocketRaw(
+        requestParameters: UpgradeSocketRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>> {
+        const requestOptions =
+            await this.upgradeSocketRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
 
-	/**
-	 */
-	async version(
-		initOverrides?: RequestInit | runtime.InitOverrideFunction,
-	): Promise<VersionResponse> {
-		const response = await this.versionRaw(initOverrides);
-		return await response.value();
-	}
+        return new runtime.VoidApiResponse(response);
+    }
+
+    /**
+     * HTTP WebSocket upgrade only; generated HTTP clients do not implement subsequent Storage messages. User token and filesystem resource authorization are checked before upgrade.
+     */
+    async upgradeSocket(
+        requestParameters: UpgradeSocketRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void> {
+        await this.upgradeSocketRaw(requestParameters, initOverrides);
+    }
+
+    /**
+     * Creates request options for version without sending the request
+     */
+    async versionRequestOpts(): Promise<runtime.RequestOpts> {
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        let urlPath = `/version`;
+
+        return {
+            path: urlPath,
+            method: "GET",
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+
+    /**
+     */
+    async versionRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<VersionResponse>> {
+        const requestOptions = await this.versionRequestOpts();
+        const response = await this.request(requestOptions, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) =>
+            VersionResponseFromJSON(jsonValue),
+        );
+    }
+
+    /**
+     */
+    async version(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<VersionResponse> {
+        const response = await this.versionRaw(initOverrides);
+        return await response.value();
+    }
 }

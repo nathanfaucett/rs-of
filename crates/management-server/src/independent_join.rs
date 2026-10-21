@@ -8,12 +8,12 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use api::SecurityAddon;
 use api::{IndependentPeer, LocalTls};
 use axum::{
     Json, Router,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
-    routing::{get, post},
 };
 use db::Database;
 use idp_model::{
@@ -123,14 +123,10 @@ pub async fn build_independent_management(
         check,
         source.cancellation.child_token(),
     );
-    let routes = Router::new()
-        .route("/node-joins/discover", post(discover))
-        .route("/node-joins/acceptance", get(accepting).put(set_accepting))
-        .route("/node-joins/pending", get(pending))
-        .route("/node-joins/{id}/approve", post(approve))
-        .route("/node-joins/{id}/reject", post(reject))
-        .route("/node-joins/verify", post(verify))
+    let routes = join_routes()
         .with_state(source.clone())
+        .split_for_parts()
+        .0
         .merge(history.router())
         .layer(cors);
     let routes = if config.server.prefix().is_empty() {
@@ -332,6 +328,23 @@ fn denied() -> io::Error {
     )
 }
 
+#[derive(serde::Deserialize, utoipa::ToSchema)]
+struct DiscoveryRequest {
+    #[schema(min_length = 64, max_length = 64, pattern = "^[0-9a-fA-F]{64}$")]
+    nonce: String,
+}
+#[derive(serde::Deserialize, utoipa::ToSchema)]
+struct AcceptanceRequest {
+    accepting: bool,
+}
+#[derive(serde::Deserialize, utoipa::ToSchema)]
+struct VerificationRequest {
+    approval: IndependentJoinApproval,
+    #[schema(value_type = String)]
+    context: String,
+}
+
+#[utoipa::path(post, path = "/node-joins/discover", operation_id = "discover", security(()), request_body = DiscoveryRequest, responses((status = 200, body = IndependentPeer, description = "Operation-bound Node-join result"), (status = 400, description = "Invalid input or current authorization/operation denied"), (status = 403, description = "Invalid input or current authorization/operation denied"), (status = 503, description = "Invalid input or current authorization/operation denied")))]
 async fn discover(
     State(source): State<Arc<IndependentJoinSource>>,
     Json(body): Json<serde_json::Value>,
@@ -339,10 +352,12 @@ async fn discover(
     if !source.server.pairing_enabled() {
         return Err(StatusCode::FORBIDDEN);
     }
-    let nonce = body["nonce"]
-        .as_str()
-        .filter(|nonce| nonce.len() == 64 && nonce.bytes().all(|byte| byte.is_ascii_hexdigit()))
-        .ok_or(StatusCode::BAD_REQUEST)?;
+    let input: DiscoveryRequest =
+        serde_json::from_value(body).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let nonce = input.nonce.as_str();
+    if nonce.len() != 64 || !nonce.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     source
         .plane
         .get_storage_endpoint_identity(&source.identity.endpoint_id().to_string())
@@ -371,6 +386,7 @@ async fn discover(
         .collect();
     Ok(Json(peer))
 }
+#[utoipa::path(get, path = "/node-joins/acceptance", operation_id = "accepting", security(("authorization" = [])), responses((status = 200, body = AcceptanceRequest, description = "Operation-bound Node-join result"), (status = 403, description = "Invalid input or current authorization/operation denied")))]
 async fn accepting(
     State(source): State<Arc<IndependentJoinSource>>,
     headers: HeaderMap,
@@ -389,6 +405,7 @@ async fn accepting(
         serde_json::json!({"accepting":source.server.pairing_enabled()}),
     ))
 }
+#[utoipa::path(put, path = "/node-joins/acceptance", operation_id = "set_accepting", security(("authorization" = [])), request_body = AcceptanceRequest, responses((status = 204, description = "Operation-bound Node-join result"), (status = 400, description = "Invalid input or current authorization/operation denied"), (status = 403, description = "Invalid input or current authorization/operation denied")))]
 async fn set_accepting(
     State(source): State<Arc<IndependentJoinSource>>,
     headers: HeaderMap,
@@ -404,11 +421,14 @@ async fn set_accepting(
         )
         .await
         .map_err(|_| StatusCode::FORBIDDEN)?;
-    let enabled = body["accepting"].as_bool().ok_or(StatusCode::BAD_REQUEST)?;
+    let input: AcceptanceRequest =
+        serde_json::from_value(body).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let enabled = input.accepting;
     let _acceptance = source.acceptance_gate.lock().await;
     source.server.set_pairing_enabled(enabled);
     Ok(StatusCode::NO_CONTENT)
 }
+#[utoipa::path(get, path = "/node-joins/pending", operation_id = "pending", security(("authorization" = [])), responses((status = 200, body = Vec<serde_json::Value>, description = "Operation-bound Node-join result"), (status = 403, description = "Invalid input or current authorization/operation denied"), (status = 409, description = "Invalid input or current authorization/operation denied")))]
 async fn pending(
     State(source): State<Arc<IndependentJoinSource>>,
     headers: HeaderMap,
@@ -441,6 +461,7 @@ async fn pending(
     }
     Ok(Json(serde_json::json!(visible)))
 }
+#[utoipa::path(post, path = "/node-joins/{id}/approve", operation_id = "approve", security(("authorization" = [])), params(("id" = String, Path)), responses((status = 202, description = "Operation-bound Node-join result"), (status = 403, description = "Invalid input or current authorization/operation denied"), (status = 409, description = "Invalid input or current authorization/operation denied"), (status = 503, description = "Invalid input or current authorization/operation denied")))]
 async fn approve(
     State(source): State<Arc<IndependentJoinSource>>,
     Path(id): Path<Id>,
@@ -604,6 +625,7 @@ async fn approve_work(source: &IndependentJoinSource, job: ApprovalWork) -> Resu
     source.offers.lock().await.remove(&id);
     Ok(())
 }
+#[utoipa::path(post, path = "/node-joins/{id}/reject", operation_id = "reject", security(("authorization" = [])), params(("id" = String, Path)), responses((status = 204, description = "Operation-bound Node-join result"), (status = 403, description = "Invalid input or current authorization/operation denied"), (status = 409, description = "Invalid input or current authorization/operation denied")))]
 async fn reject(
     State(source): State<Arc<IndependentJoinSource>>,
     Path(id): Path<Id>,
@@ -640,22 +662,39 @@ async fn reject(
     source.offers.lock().await.remove(&id);
     Ok(StatusCode::NO_CONTENT)
 }
+#[utoipa::path(post, path = "/node-joins/verify", operation_id = "verify", security(()), request_body = VerificationRequest, responses((status = 204, description = "Operation-bound Node-join result"), (status = 400, description = "Invalid input or current authorization/operation denied"), (status = 403, description = "Invalid input or current authorization/operation denied")))]
 async fn verify(
     State(source): State<Arc<IndependentJoinSource>>,
     Json(body): Json<serde_json::Value>,
 ) -> StatusCode {
-    let Ok(approval) = serde_json::from_value::<IndependentJoinApproval>(body["approval"].clone())
-    else {
+    let Ok(input) = serde_json::from_value::<VerificationRequest>(body) else {
         return StatusCode::BAD_REQUEST;
     };
-    let action = match body["context"].as_str() {
-        Some("idp") => IdentityAction::IdpSecuritySync,
-        Some("management") => IdentityAction::ManagementSecuritySync,
+    let action = match input.context.as_str() {
+        "idp" => IdentityAction::IdpSecuritySync,
+        "management" => IdentityAction::ManagementSecuritySync,
         _ => return StatusCode::BAD_REQUEST,
     };
-    if source.verify(&approval, action).await.is_ok() {
+    if source.verify(&input.approval, action).await.is_ok() {
         StatusCode::NO_CONTENT
     } else {
         StatusCode::FORBIDDEN
     }
+}
+
+fn join_routes() -> utoipa_axum::router::OpenApiRouter<Arc<IndependentJoinSource>> {
+    utoipa_axum::router::OpenApiRouter::new()
+        .routes(utoipa_axum::routes!(discover))
+        .routes(utoipa_axum::routes!(accepting))
+        .routes(utoipa_axum::routes!(set_accepting))
+        .routes(utoipa_axum::routes!(pending))
+        .routes(utoipa_axum::routes!(approve))
+        .routes(utoipa_axum::routes!(reject))
+        .routes(utoipa_axum::routes!(verify))
+}
+
+pub fn independent_join_openapi() -> utoipa::openapi::OpenApi {
+    let mut document = join_routes().get_openapi().clone();
+    utoipa::Modify::modify(&SecurityAddon, &mut document);
+    document
 }

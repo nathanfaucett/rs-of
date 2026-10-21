@@ -31,3 +31,6 @@ mod independent_join;
 pub use independent_create::serve_independent_create;
 #[cfg(unix)]
 pub use independent_join::{IndependentManagementRuntime, build_independent_management};
+
+#[cfg(unix)]
+pub use independent_join::independent_join_openapi;

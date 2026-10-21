@@ -29,11 +29,6 @@ import {
     AuthorizationCodeResponseToJSON,
 } from "../models/AuthorizationCodeResponse.js";
 import {
-    type AuthorizationDetail,
-    AuthorizationDetailFromJSON,
-    AuthorizationDetailToJSON,
-} from "../models/AuthorizationDetail.js";
-import {
     type AuthorizationRequest,
     AuthorizationRequestFromJSON,
     AuthorizationRequestToJSON,
@@ -58,6 +53,11 @@ import {
     DeviceAuthorizationFromJSON,
     DeviceAuthorizationToJSON,
 } from "../models/DeviceAuthorization.js";
+import {
+    type ErrorResponse,
+    ErrorResponseFromJSON,
+    ErrorResponseToJSON,
+} from "../models/ErrorResponse.js";
 import {
     type HealthResponse,
     HealthResponseFromJSON,
@@ -136,52 +136,52 @@ export interface AuthorizeQueryRequest {
     /**
      * redirect URI is optional if the client has only one registered redirect URI
      */
-    redirectUri: string | null;
+    redirectUri?: string;
     /**
      *
      */
-    scope: string | null;
+    scope?: string;
     /**
      *
      */
-    state: string | null;
+    state?: string;
     /**
      * Audience parameter (RFC 8707) to specify the intended recipients of the token.
      */
-    resource: string | null;
+    resource?: string;
     /**
      * PKCE parameters (RFC 7636) for public clients and enhanced security
      */
-    codeChallenge: string | null;
+    codeChallenge?: string;
     /**
      * The method used to derive the code challenge (e.g., "S256" or "plain").
      * only required if `code_challenge` is present. "S256" is strongly recommended in OAuth 2.1 for better security.
      */
-    codeChallengeMethod: CodeChallengeMethod | null;
+    codeChallengeMethod?: CodeChallengeMethod;
     /**
      *
      */
-    nonce: string | null;
+    nonce?: string;
     /**
      *
      */
-    prompt: string | null;
+    prompt?: string;
     /**
      *
      */
-    responseMode: ResponseMode | null;
+    responseMode?: ResponseMode;
     /**
      *
      */
-    loginHint: string | null;
+    loginHint?: string;
     /**
      *
      */
-    idTokenHint: string | null;
+    idTokenHint?: string;
     /**
      *
      */
-    uiLocales: string | null;
+    uiLocales?: string;
 }
 
 export interface CreateApplicationRequest {
@@ -255,11 +255,11 @@ export interface ListApplicationsRequest {
     /**
      *
      */
-    offset: number;
+    offset?: number;
     /**
      *
      */
-    limit: number;
+    limit?: number;
 }
 
 export interface ListClientKeysRequest {
@@ -277,11 +277,11 @@ export interface ListConsentsRequest {
     /**
      *
      */
-    offset: number;
+    offset?: number;
     /**
      *
      */
-    limit: number;
+    limit?: number;
 }
 
 export interface PutRegisterRequest {
@@ -351,6 +351,10 @@ export interface RotateClientKeyRequest {
 
 export interface TokenRequest {
     /**
+     * Optional HTTP Basic OAuth Client credentials; client_credentials also accepts client_secret_post
+     */
+    authorization?: string | null;
+    /**
      *
      */
     clientId?: string;
@@ -407,9 +411,9 @@ export interface TokenRequest {
      */
     actorTokenType?: string | null;
     /**
-     *
+     * JSON-encoded authorization details array in the OAuth form field.
      */
-    authorizationDetails?: Array<AuthorizationDetail> | null;
+    authorizationDetails?: string | null;
     /**
      *
      */
@@ -515,18 +519,18 @@ export interface DefaultApiInterface {
      * Creates request options for authorizeQuery without sending the request
      * @param {ResponseType} responseType
      * @param {string} clientId
-     * @param {string} redirectUri redirect URI is optional if the client has only one registered redirect URI
-     * @param {string} scope
-     * @param {string} state
-     * @param {string} resource Audience parameter (RFC 8707) to specify the intended recipients of the token.
-     * @param {string} codeChallenge PKCE parameters (RFC 7636) for public clients and enhanced security
-     * @param {CodeChallengeMethod} codeChallengeMethod The method used to derive the code challenge (e.g., \&quot;S256\&quot; or \&quot;plain\&quot;). only required if &#x60;code_challenge&#x60; is present. \&quot;S256\&quot; is strongly recommended in OAuth 2.1 for better security.
-     * @param {string} nonce
-     * @param {string} prompt
-     * @param {ResponseMode} responseMode
-     * @param {string} loginHint
-     * @param {string} idTokenHint
-     * @param {string} uiLocales
+     * @param {string} [redirectUri] redirect URI is optional if the client has only one registered redirect URI
+     * @param {string} [scope]
+     * @param {string} [state]
+     * @param {string} [resource] Audience parameter (RFC 8707) to specify the intended recipients of the token.
+     * @param {string} [codeChallenge] PKCE parameters (RFC 7636) for public clients and enhanced security
+     * @param {CodeChallengeMethod} [codeChallengeMethod] The method used to derive the code challenge (e.g., \&quot;S256\&quot; or \&quot;plain\&quot;). only required if &#x60;code_challenge&#x60; is present. \&quot;S256\&quot; is strongly recommended in OAuth 2.1 for better security.
+     * @param {string} [nonce]
+     * @param {string} [prompt]
+     * @param {ResponseMode} [responseMode]
+     * @param {string} [loginHint]
+     * @param {string} [idTokenHint]
+     * @param {string} [uiLocales]
      * @throws {RequiredError}
      * @memberof DefaultApiInterface
      */
@@ -538,18 +542,18 @@ export interface DefaultApiInterface {
      *
      * @param {ResponseType} responseType
      * @param {string} clientId
-     * @param {string} redirectUri redirect URI is optional if the client has only one registered redirect URI
-     * @param {string} scope
-     * @param {string} state
-     * @param {string} resource Audience parameter (RFC 8707) to specify the intended recipients of the token.
-     * @param {string} codeChallenge PKCE parameters (RFC 7636) for public clients and enhanced security
-     * @param {CodeChallengeMethod} codeChallengeMethod The method used to derive the code challenge (e.g., \&quot;S256\&quot; or \&quot;plain\&quot;). only required if &#x60;code_challenge&#x60; is present. \&quot;S256\&quot; is strongly recommended in OAuth 2.1 for better security.
-     * @param {string} nonce
-     * @param {string} prompt
-     * @param {ResponseMode} responseMode
-     * @param {string} loginHint
-     * @param {string} idTokenHint
-     * @param {string} uiLocales
+     * @param {string} [redirectUri] redirect URI is optional if the client has only one registered redirect URI
+     * @param {string} [scope]
+     * @param {string} [state]
+     * @param {string} [resource] Audience parameter (RFC 8707) to specify the intended recipients of the token.
+     * @param {string} [codeChallenge] PKCE parameters (RFC 7636) for public clients and enhanced security
+     * @param {CodeChallengeMethod} [codeChallengeMethod] The method used to derive the code challenge (e.g., \&quot;S256\&quot; or \&quot;plain\&quot;). only required if &#x60;code_challenge&#x60; is present. \&quot;S256\&quot; is strongly recommended in OAuth 2.1 for better security.
+     * @param {string} [nonce]
+     * @param {string} [prompt]
+     * @param {ResponseMode} [responseMode]
+     * @param {string} [loginHint]
+     * @param {string} [idTokenHint]
+     * @param {string} [uiLocales]
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      * @memberof DefaultApiInterface
@@ -900,8 +904,8 @@ export interface DefaultApiInterface {
 
     /**
      * Creates request options for listApplications without sending the request
-     * @param {number} offset
-     * @param {number} limit
+     * @param {number} [offset]
+     * @param {number} [limit]
      * @throws {RequiredError}
      * @memberof DefaultApiInterface
      */
@@ -911,8 +915,8 @@ export interface DefaultApiInterface {
 
     /**
      *
-     * @param {number} offset
-     * @param {number} limit
+     * @param {number} [offset]
+     * @param {number} [limit]
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      * @memberof DefaultApiInterface
@@ -961,8 +965,8 @@ export interface DefaultApiInterface {
     /**
      * Creates request options for listConsents without sending the request
      * @param {string} userId
-     * @param {number} offset
-     * @param {number} limit
+     * @param {number} [offset]
+     * @param {number} [limit]
      * @throws {RequiredError}
      * @memberof DefaultApiInterface
      */
@@ -973,8 +977,8 @@ export interface DefaultApiInterface {
     /**
      *
      * @param {string} userId
-     * @param {number} offset
-     * @param {number} limit
+     * @param {number} [offset]
+     * @param {number} [limit]
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      * @memberof DefaultApiInterface
@@ -1273,6 +1277,7 @@ export interface DefaultApiInterface {
 
     /**
      * Creates request options for token without sending the request
+     * @param {string} [authorization] Optional HTTP Basic OAuth Client credentials; client_credentials also accepts client_secret_post
      * @param {string} [clientId]
      * @param {string} [password]
      * @param {string} [resource]
@@ -1287,7 +1292,7 @@ export interface DefaultApiInterface {
      * @param {string} [refreshToken]
      * @param {string} [actorToken]
      * @param {string} [actorTokenType]
-     * @param {Array<AuthorizationDetail>} [authorizationDetails]
+     * @param {string} [authorizationDetails] JSON-encoded authorization details array in the OAuth form field.
      * @param {string} [requestedTokenType]
      * @param {string} [subjectToken]
      * @param {SubjectTokenType} [subjectTokenType]
@@ -1300,6 +1305,7 @@ export interface DefaultApiInterface {
 
     /**
      *
+     * @param {string} [authorization] Optional HTTP Basic OAuth Client credentials; client_credentials also accepts client_secret_post
      * @param {string} [clientId]
      * @param {string} [password]
      * @param {string} [resource]
@@ -1314,7 +1320,7 @@ export interface DefaultApiInterface {
      * @param {string} [refreshToken]
      * @param {string} [actorToken]
      * @param {string} [actorTokenType]
-     * @param {Array<AuthorizationDetail>} [authorizationDetails]
+     * @param {string} [authorizationDetails] JSON-encoded authorization details array in the OAuth form field.
      * @param {string} [requestedTokenType]
      * @param {string} [subjectToken]
      * @param {SubjectTokenType} [subjectTokenType]
@@ -1605,153 +1611,71 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
             );
         }
 
-        if (requestParameters["redirectUri"] == null) {
-            throw new runtime.RequiredError(
-                "redirectUri",
-                'Required parameter "redirectUri" was null or undefined when calling authorizeQuery().',
-            );
-        }
-
-        if (requestParameters["scope"] == null) {
-            throw new runtime.RequiredError(
-                "scope",
-                'Required parameter "scope" was null or undefined when calling authorizeQuery().',
-            );
-        }
-
-        if (requestParameters["state"] == null) {
-            throw new runtime.RequiredError(
-                "state",
-                'Required parameter "state" was null or undefined when calling authorizeQuery().',
-            );
-        }
-
-        if (requestParameters["resource"] == null) {
-            throw new runtime.RequiredError(
-                "resource",
-                'Required parameter "resource" was null or undefined when calling authorizeQuery().',
-            );
-        }
-
-        if (requestParameters["codeChallenge"] == null) {
-            throw new runtime.RequiredError(
-                "codeChallenge",
-                'Required parameter "codeChallenge" was null or undefined when calling authorizeQuery().',
-            );
-        }
-
-        if (requestParameters["codeChallengeMethod"] == null) {
-            throw new runtime.RequiredError(
-                "codeChallengeMethod",
-                'Required parameter "codeChallengeMethod" was null or undefined when calling authorizeQuery().',
-            );
-        }
-
-        if (requestParameters["nonce"] == null) {
-            throw new runtime.RequiredError(
-                "nonce",
-                'Required parameter "nonce" was null or undefined when calling authorizeQuery().',
-            );
-        }
-
-        if (requestParameters["prompt"] == null) {
-            throw new runtime.RequiredError(
-                "prompt",
-                'Required parameter "prompt" was null or undefined when calling authorizeQuery().',
-            );
-        }
-
-        if (requestParameters["responseMode"] == null) {
-            throw new runtime.RequiredError(
-                "responseMode",
-                'Required parameter "responseMode" was null or undefined when calling authorizeQuery().',
-            );
-        }
-
-        if (requestParameters["loginHint"] == null) {
-            throw new runtime.RequiredError(
-                "loginHint",
-                'Required parameter "loginHint" was null or undefined when calling authorizeQuery().',
-            );
-        }
-
-        if (requestParameters["idTokenHint"] == null) {
-            throw new runtime.RequiredError(
-                "idTokenHint",
-                'Required parameter "idTokenHint" was null or undefined when calling authorizeQuery().',
-            );
-        }
-
-        if (requestParameters["uiLocales"] == null) {
-            throw new runtime.RequiredError(
-                "uiLocales",
-                'Required parameter "uiLocales" was null or undefined when calling authorizeQuery().',
-            );
-        }
-
         const queryParameters: any = {};
+
+        if (requestParameters["responseType"] != null) {
+            queryParameters["response_type"] =
+                requestParameters["responseType"];
+        }
+
+        if (requestParameters["clientId"] != null) {
+            queryParameters["client_id"] = requestParameters["clientId"];
+        }
+
+        if (requestParameters["redirectUri"] != null) {
+            queryParameters["redirect_uri"] = requestParameters["redirectUri"];
+        }
+
+        if (requestParameters["scope"] != null) {
+            queryParameters["scope"] = requestParameters["scope"];
+        }
+
+        if (requestParameters["state"] != null) {
+            queryParameters["state"] = requestParameters["state"];
+        }
+
+        if (requestParameters["resource"] != null) {
+            queryParameters["resource"] = requestParameters["resource"];
+        }
+
+        if (requestParameters["codeChallenge"] != null) {
+            queryParameters["code_challenge"] =
+                requestParameters["codeChallenge"];
+        }
+
+        if (requestParameters["codeChallengeMethod"] != null) {
+            queryParameters["code_challenge_method"] =
+                requestParameters["codeChallengeMethod"];
+        }
+
+        if (requestParameters["nonce"] != null) {
+            queryParameters["nonce"] = requestParameters["nonce"];
+        }
+
+        if (requestParameters["prompt"] != null) {
+            queryParameters["prompt"] = requestParameters["prompt"];
+        }
+
+        if (requestParameters["responseMode"] != null) {
+            queryParameters["response_mode"] =
+                requestParameters["responseMode"];
+        }
+
+        if (requestParameters["loginHint"] != null) {
+            queryParameters["login_hint"] = requestParameters["loginHint"];
+        }
+
+        if (requestParameters["idTokenHint"] != null) {
+            queryParameters["id_token_hint"] = requestParameters["idTokenHint"];
+        }
+
+        if (requestParameters["uiLocales"] != null) {
+            queryParameters["ui_locales"] = requestParameters["uiLocales"];
+        }
 
         const headerParameters: runtime.HTTPHeaders = {};
 
         let urlPath = `/oauth2/auth`;
-        urlPath = urlPath.replace(
-            "{response_type}",
-            encodeURIComponent(String(requestParameters["responseType"])),
-        );
-        urlPath = urlPath.replace(
-            "{client_id}",
-            encodeURIComponent(String(requestParameters["clientId"])),
-        );
-        urlPath = urlPath.replace(
-            "{redirect_uri}",
-            encodeURIComponent(String(requestParameters["redirectUri"])),
-        );
-        urlPath = urlPath.replace(
-            "{scope}",
-            encodeURIComponent(String(requestParameters["scope"])),
-        );
-        urlPath = urlPath.replace(
-            "{state}",
-            encodeURIComponent(String(requestParameters["state"])),
-        );
-        urlPath = urlPath.replace(
-            "{resource}",
-            encodeURIComponent(String(requestParameters["resource"])),
-        );
-        urlPath = urlPath.replace(
-            "{code_challenge}",
-            encodeURIComponent(String(requestParameters["codeChallenge"])),
-        );
-        urlPath = urlPath.replace(
-            "{code_challenge_method}",
-            encodeURIComponent(
-                String(requestParameters["codeChallengeMethod"]),
-            ),
-        );
-        urlPath = urlPath.replace(
-            "{nonce}",
-            encodeURIComponent(String(requestParameters["nonce"])),
-        );
-        urlPath = urlPath.replace(
-            "{prompt}",
-            encodeURIComponent(String(requestParameters["prompt"])),
-        );
-        urlPath = urlPath.replace(
-            "{response_mode}",
-            encodeURIComponent(String(requestParameters["responseMode"])),
-        );
-        urlPath = urlPath.replace(
-            "{login_hint}",
-            encodeURIComponent(String(requestParameters["loginHint"])),
-        );
-        urlPath = urlPath.replace(
-            "{id_token_hint}",
-            encodeURIComponent(String(requestParameters["idTokenHint"])),
-        );
-        urlPath = urlPath.replace(
-            "{ui_locales}",
-            encodeURIComponent(String(requestParameters["uiLocales"])),
-        );
 
         return {
             path: urlPath,
@@ -2495,21 +2419,15 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
     async listApplicationsRequestOpts(
         requestParameters: ListApplicationsRequest,
     ): Promise<runtime.RequestOpts> {
-        if (requestParameters["offset"] == null) {
-            throw new runtime.RequiredError(
-                "offset",
-                'Required parameter "offset" was null or undefined when calling listApplications().',
-            );
-        }
-
-        if (requestParameters["limit"] == null) {
-            throw new runtime.RequiredError(
-                "limit",
-                'Required parameter "limit" was null or undefined when calling listApplications().',
-            );
-        }
-
         const queryParameters: any = {};
+
+        if (requestParameters["offset"] != null) {
+            queryParameters["offset"] = requestParameters["offset"];
+        }
+
+        if (requestParameters["limit"] != null) {
+            queryParameters["limit"] = requestParameters["limit"];
+        }
 
         const headerParameters: runtime.HTTPHeaders = {};
 
@@ -2523,14 +2441,6 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
         }
 
         let urlPath = `/applications`;
-        urlPath = urlPath.replace(
-            "{offset}",
-            encodeURIComponent(String(requestParameters["offset"])),
-        );
-        urlPath = urlPath.replace(
-            "{limit}",
-            encodeURIComponent(String(requestParameters["limit"])),
-        );
 
         return {
             path: urlPath,
@@ -2556,7 +2466,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
     /**
      */
     async listApplications(
-        requestParameters: ListApplicationsRequest,
+        requestParameters: ListApplicationsRequest = {},
         initOverrides?: RequestInit | runtime.InitOverrideFunction,
     ): Promise<void> {
         await this.listApplicationsRaw(requestParameters, initOverrides);
@@ -2637,21 +2547,15 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
             );
         }
 
-        if (requestParameters["offset"] == null) {
-            throw new runtime.RequiredError(
-                "offset",
-                'Required parameter "offset" was null or undefined when calling listConsents().',
-            );
-        }
-
-        if (requestParameters["limit"] == null) {
-            throw new runtime.RequiredError(
-                "limit",
-                'Required parameter "limit" was null or undefined when calling listConsents().',
-            );
-        }
-
         const queryParameters: any = {};
+
+        if (requestParameters["offset"] != null) {
+            queryParameters["offset"] = requestParameters["offset"];
+        }
+
+        if (requestParameters["limit"] != null) {
+            queryParameters["limit"] = requestParameters["limit"];
+        }
 
         const headerParameters: runtime.HTTPHeaders = {};
 
@@ -2668,14 +2572,6 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
         urlPath = urlPath.replace(
             "{user_id}",
             encodeURIComponent(String(requestParameters["userId"])),
-        );
-        urlPath = urlPath.replace(
-            "{offset}",
-            encodeURIComponent(String(requestParameters["offset"])),
-        );
-        urlPath = urlPath.replace(
-            "{limit}",
-            encodeURIComponent(String(requestParameters["limit"])),
         );
 
         return {
@@ -3324,6 +3220,12 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
 
         const headerParameters: runtime.HTTPHeaders = {};
 
+        if (requestParameters["authorization"] != null) {
+            headerParameters["Authorization"] = String(
+                requestParameters["authorization"],
+            );
+        }
+
         const consumes: runtime.Consume[] = [
             { contentType: "application/x-www-form-urlencoded" },
         ];
@@ -3421,9 +3323,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
         if (requestParameters["authorizationDetails"] != null) {
             formParams.append(
                 "authorization_details",
-                requestParameters["authorizationDetails"]!.join(
-                    runtime.COLLECTION_FORMATS["csv"],
-                ),
+                requestParameters["authorizationDetails"] as any,
             );
         }
 

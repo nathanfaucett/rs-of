@@ -53,6 +53,7 @@ impl IndependentCreateControl {
     }
 }
 
+#[utoipa::path(post, tag = "default", path = "/setup/independent/history", operation_id = "history", request_body = Object, security(()), description = "Worker-only return channel: active exact admitted Join, matching approval and constant-time return nonce, and a 64-character capability are required. Not OAuth authority.", responses((status = 202, description = "History capability accepted"), (status = 403, description = "Operation or return nonce denied"), (status = 409, description = "Return channel full")))]
 pub(crate) async fn challenge(
     State(control): State<IndependentCreateControl>,
     Json(body): Json<Value>,

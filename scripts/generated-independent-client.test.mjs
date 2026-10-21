@@ -21,11 +21,11 @@ const operation = {
 };
 const options = { credentials: "omit", redirect: "error", cache: "no-store" };
 
-test("actual independent schema contains only public browser routes with owner-relative bases", () => {
+test("complete independent schema includes worker handoffs with owner-relative bases", () => {
     const document = JSON.parse(
         readFileSync(
             new URL(
-                "../.scratch/ui-driven-node-bootstrap/evidence/independent-setup-openapi.json",
+                "../openapi/idp-independent.json",
                 import.meta.url,
             ),
         ),
@@ -34,18 +34,21 @@ test("actual independent schema contains only public browser routes with owner-r
         "/setup/admission",
         "/setup/cancel",
         "/setup/create",
+        "/setup/independent/challenge",
+        "/setup/independent/history",
         "/setup/independent/public",
+        "/setup/independent/register",
         "/setup/intent",
         "/setup/join",
         "/setup/status",
     ]);
     assert.ok(
-        !JSON.stringify(document).includes("/setup/independent/challenge"),
+        JSON.stringify(document).includes("/setup/independent/challenge"),
     );
     assert.ok(
-        !JSON.stringify(document).includes("/setup/independent/register"),
+        JSON.stringify(document).includes("/setup/independent/register"),
     );
-    assert.ok(!JSON.stringify(document).includes("/setup/independent/history"));
+    assert.ok(JSON.stringify(document).includes("/setup/independent/history"));
 });
 test("generated Join sends empty issuer/admin without password to each exact owner base", async () => {
     for (const owner of ["idp", "management", "storage"]) {

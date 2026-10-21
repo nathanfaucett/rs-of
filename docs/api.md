@@ -133,15 +133,26 @@ Approval binds distinct Device, endpoint, owner, signer member/key and Installat
 
 ## Generated clients
 
-Generate complete actual-router contracts through `scripts/generate-openapi-client.mjs`; never hand-edit generated files. The regenerated normal owners expose IdP **38** operations (identity, active User, signer; no Devices) and Management **38**, including `POST /replication/owner-cleanup`. Receipt 41 exports the actual current Management router, regenerates/builds its SDK and qualifies the source/built contracts. `SuperRoutesReplicationApi.ownerCleanup` preserves all five required camelCase fields; `SelectedResourcesResponse.pendingCleanup` is optional/nullable, not permission or SDK-side security validation. Storage was not regenerated in this reconciliation. Host-composed Node-join coordination is not implied by normal owner OpenAPI.
+Rust route/schema definitions remain authoritative. `openapi/*.json` are deterministic derived contracts shared by both languages; never hand-edit contracts or generated output. See the [route and consumer inventory](openapi-inventory.md) for topology boundaries and the ticket 02 migration queue.
 
-Run `just unified`, then `pnpm openapi`. Both normal owner OpenAPI documents are available even while the node is awaiting setup; schema publication uses the same route registrations as the provisioned APIs and does not create owner state or grant API access. Client generation resolves the default base with `pnpm exec portless get unified` and appends each service's OpenAPI path. The unified server listens over HTTP behind portless; it does not generate or install server certificates. Desktop/native hosts retain their local HTTPS behavior. `OPENAPI_SPEC_URL` overrides the complete document URL; `OPENAPI_BASE_URL` overrides the base for all service scripts. The independent-owner SDK still requires an explicit independent-owner document or base.
+```sh
+pnpm install --frozen-lockfile --ignore-scripts
+cargo run -p unified-server --example export-openapi -- openapi
+pnpm openapi
+pnpm openapi:check
+pnpm --filter @aicacia/idp-client --filter @aicacia/management-client --filter @aicacia/storage-client run build:esm
+cargo check --manifest-path clients/rust/Cargo.toml --workspace
+node --test scripts/generate-openapi-client.test.mjs scripts/generated-*.test.mjs
+cargo test -p unified-server generated_
+```
 
-The separate unified `@aicacia/idp-client/setup` SDK uses a verified **host origin** because its paths contain `/idp`. In `packages/idp-client`, use `OPENAPI_SPEC_URL=https://node.example/idp/setup/openapi.json pnpm run openapi:setup`, then the normal package build.
+Export needs no listener, Installation, credentials or peer. Generation reads only committed local documents; `OPENAPI_SPEC_FILE` is an explicit local-file override for validation/failure tests. Java and OpenAPI Generator 7.25.0 (wrapper 2.41.0) are required. Initial tool/dependency acquisition may need network access; cached generation is offline. All output is staged, validated, formatted and compiled before replacing either SDK family; failed validation/generation/format/build preserves previous artifacts. Run generation serially.
 
-The generated `@aicacia/idp-client/independent` SDK (`pnpm run openapi:independent` with `OPENAPI_SPEC_URL` pointing to the actual exported independent document) uses verified **owner bases**. Its seven public paths are `/setup/status`, `/setup/admission`, `/setup/create`, `/setup/join`, `/setup/intent`, `/setup/cancel`, `/setup/independent/public`; operations are `status`, `admission`, `create`, `join`, `recover`, `cancel`, `ownerPublic`. The app consumes its generated serializers, including `operationNonce` → `operation_nonce`. Internal challenge/register/history routes are deliberately excluded. Normal IdP generation preserves both setup subtrees. Run generation serially and build package exports before consumption.
+Rust crates live in the independent `clients/rust` workspace and have no server dependencies. Their configurations accept existing reqwest 0.12 clients and request/response byte bounds, preserving transport-policy injection without handwritten operations. Default clients use native-root verified HTTPS, no redirect or proxy, 5-second connect/15-second request deadlines, and 1 MiB bounds. Response limits apply incrementally, before unbounded buffering, to successes and errors. Ticket 02 must retain each caller's stricter limits, cached credentials and issuer/audience/type/scope/expiry/domain checks. Decoding does not authorize a call.
 
-Missing/incomplete schemas, generator or staged formatting failures must leave checked-in sources unchanged. See [owner-client evidence](../.scratch/ui-driven-node-bootstrap/evidence/34-owner-client-cutover.md) and [independent SDK/web evidence](../.scratch/ui-driven-node-bootstrap/evidence/35-independent-web.md); contract tests are not full GUI/native acceptance.
+TypeScript exports: normal owner roots (Storage's generated API is `@aicacia/storage-client/generated`); IdP `/setup`, `/independent`, `/owner`, `/admission`; Management `/node-join`, `/owner`; Storage `/owner`. Unified Setup and Node-join take verified **host origins** because paths include owner prefixes. Other documents use complete verified **owner bases**, including the configured mount prefix exactly once. Stable `https://localhost` defaults are placeholders, not discovered identities.
+
+Independent challenge/register/history handoffs are included, not hidden browser exclusions. Existing active-operation, Setup, recipient, challenge, bearer and permission checks are unchanged. WebSocket upgrade contracts describe only HTTP handshakes, not subsequent Storage/history messages or Iroh/SQL/filesystem streams. Built JavaScript exports and generated Rust operations are tested against actual owner/Setup listeners; transport tests cover TLS, redirects, deadlines and streaming bounds. These are not native GUI or production acceptance claims.
 
 ## Storage client consumption
 

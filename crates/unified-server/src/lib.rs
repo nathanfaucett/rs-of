@@ -73,3 +73,12 @@ mod independent_operation_tests;
 mod independent_reset_tests;
 #[cfg(all(test, target_os = "linux"))]
 mod independent_transfer_tests;
+
+#[cfg(unix)]
+pub use node_join_source::node_join_openapi;
+
+#[cfg(unix)]
+pub use api_create::setup_openapi;
+
+#[cfg(test)]
+mod generated_transport_tests;

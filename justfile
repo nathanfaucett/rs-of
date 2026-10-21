@@ -76,3 +76,9 @@ storage config:
 
 unified *args:
     UNIFIED__IDP__UI_PUBLIC_URI="${UNIFIED__IDP__UI_PUBLIC_URI-$(pnpm exec portless get of)}" PORTLESS_APP_PORT=${PORT:-3000} pnpm exec portless unified cargo run -p unified-server --features cli --bin unified-server -- {{ args }}
+
+openapi-export:
+    cargo run -p unified-server --example export-openapi -- openapi
+
+openapi-generate:
+    pnpm openapi

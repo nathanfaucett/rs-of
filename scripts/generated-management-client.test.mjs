@@ -31,7 +31,7 @@ test("current composed Management schema has 38 operations and the exact service
   const document = JSON.parse(
     readFileSync(
       new URL(
-        "../.scratch/ui-driven-node-bootstrap/evidence/management-owner-openapi.json",
+        "../openapi/management.json",
         import.meta.url,
       ),
     ),
@@ -46,7 +46,7 @@ test("current composed Management schema has 38 operations and the exact service
   );
   assert.equal(
     document.servers[0].url,
-    "https://management.example/management",
+    "https://localhost/management",
   );
   assert.ok(
     Object.keys(document.paths).every(

@@ -85,6 +85,7 @@ impl JoinHistoryContext {
 }
 
 #[derive(Deserialize, Serialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(deny_unknown_fields)]
 struct HistoryRequest {
     approval: IndependentJoinApproval,
@@ -135,6 +136,7 @@ fn capability() -> io::Result<String> {
     getrandom::fill(&mut bytes).map_err(|_| io::Error::other("secure randomness unavailable"))?;
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
+#[cfg_attr(feature = "utoipa", utoipa::path(post, path = "/node-joins/history/request", operation_id = "request_history", request_body = HistoryRequest, security(()), description = "Requires verified exact independent approval and current owner permission. Returns a capability only through the operation-bound recipient callback.", responses((status = 202, description = "Callback accepted"), (status = 400, description = "Invalid recipient"), (status = 403, description = "Approval denied"), (status = 503, description = "Unavailable"))))]
 async fn request(
     State(source): State<JoinHistorySource>,
     Json(body): Json<HistoryRequest>,
@@ -183,6 +185,7 @@ async fn request(
         StatusCode::FORBIDDEN
     }
 }
+#[cfg_attr(feature = "utoipa", utoipa::path(get, path = "/node-joins/history/stream", operation_id = "history_stream", params(("Authorization" = String, Header, description = "History <single-use operation-bound capability>"), ("Upgrade" = String, Header), ("Connection" = String, Header), ("Sec-WebSocket-Key" = String, Header), ("Sec-WebSocket-Version" = String, Header)), security(()), description = "WebSocket upgrade only. The subsequent bounded binary SQL history protocol is not implemented by generated HTTP clients.", responses((status = 101, description = "Switching to bounded history WebSocket protocol"), (status = 400, description = "Invalid WebSocket handshake"), (status = 401, description = "History capability required"), (status = 403, description = "Capability expired or denied"))))]
 async fn stream(
     State(source): State<JoinHistorySource>,
     headers: HeaderMap,
@@ -395,4 +398,13 @@ fn validate_candidate(
             Some(&candidate),
         ),
     }
+}
+
+#[cfg(feature = "utoipa")]
+#[derive(utoipa::OpenApi)]
+#[openapi(paths(request, stream))]
+struct HistoryDoc;
+#[cfg(feature = "utoipa")]
+pub fn history_openapi() -> utoipa::openapi::OpenApi {
+    <HistoryDoc as utoipa::OpenApi>::openapi()
 }

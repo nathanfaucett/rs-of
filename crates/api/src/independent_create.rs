@@ -15,7 +15,6 @@ use axum::{
     },
     middleware,
     response::{IntoResponse, Response},
-    routing::{get, post},
 };
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::{Mutex, mpsc};
@@ -175,19 +174,10 @@ impl IndependentCreateHost {
             ])
             .allow_headers([AUTHORIZATION, CONTENT_TYPE])
             .allow_private_network(true);
-        let setup = Router::new()
-            .route("/setup/status", get(status))
-            .route("/setup/admission", post(admission))
-            .route("/setup/create", post(create))
-            .route("/setup/join", post(join))
-            .route(
-                "/setup/independent/history",
-                post(crate::independent_history::challenge),
-            )
-            .route("/setup/intent", post(recover))
-            .route("/setup/cancel", post(cancel))
-            .merge(crate::independent_exchange::routes())
+        let setup = setup_routes()
             .with_state(self.control.clone())
+            .split_for_parts()
+            .0
             .layer(middleware::from_fn_with_state(origin, setup_origin_guard));
         let setup = if self.host.settings.prefix.is_empty() {
             setup
@@ -644,4 +634,16 @@ async fn normal(State(control): State<IndependentCreateControl>, request: Reques
             .expect("owner router is infallible"),
         None => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
+}
+
+pub(crate) fn setup_routes() -> utoipa_axum::router::OpenApiRouter<IndependentCreateControl> {
+    utoipa_axum::router::OpenApiRouter::new()
+        .routes(utoipa_axum::routes!(status))
+        .routes(utoipa_axum::routes!(admission))
+        .routes(utoipa_axum::routes!(create))
+        .routes(utoipa_axum::routes!(join))
+        .routes(utoipa_axum::routes!(recover))
+        .routes(utoipa_axum::routes!(cancel))
+        .routes(utoipa_axum::routes!(crate::independent_history::challenge))
+        .merge(crate::independent_exchange::routes())
 }

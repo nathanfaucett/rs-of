@@ -159,7 +159,7 @@ for (const service of ["idp", "management", "storage"]) {
     const directory = source(service);
     assert.match(
       readFileSync(path.join(directory, "runtime.ts"), "utf8"),
-      new RegExp(`BASE_PATH = "https://${service}\\.example/${service}"`),
+      new RegExp(`BASE_PATH = "https://localhost/${service}"`),
     );
     for (const file of readdirSync(path.join(directory, "apis")).filter(
       (name) => name.endsWith(".ts"),

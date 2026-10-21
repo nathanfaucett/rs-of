@@ -1,0 +1,717 @@
+{
+  "components": {
+    "schemas": {
+      "CreateResourceRequest": {
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "DatabaseDetailResponse": {
+        "properties": {
+          "applicationId": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "applicationId"
+        ],
+        "type": "object"
+      },
+      "DatabaseResource": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "FileSystemDetailResponse": {
+        "properties": {
+          "applicationId": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "applicationId"
+        ],
+        "type": "object"
+      },
+      "FileSystemResourceResponse": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "ResidencyMode": {
+        "enum": [
+          "full",
+          "passthrough"
+        ],
+        "type": "string"
+      },
+      "ResourceResidency": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/ResidencyMode"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "type": "object"
+      },
+      "VersionResponse": {
+        "properties": {
+          "build": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "build"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "authorization": {
+        "bearerFormat": "JWT",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "contact": {
+      "name": "nathanfaucett@gmail.com"
+    },
+    "description": "Local first storage server",
+    "license": {
+      "identifier": "MIT OR Apache-2.0",
+      "name": "MIT OR Apache-2.0"
+    },
+    "title": "Storage Server",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/": {
+      "get": {
+        "description": "HTTP WebSocket upgrade only; generated HTTP clients do not implement subsequent Storage messages. User token and filesystem resource authorization are checked before upgrade.",
+        "operationId": "upgrade_socket",
+        "parameters": [
+          {
+            "description": "websocket",
+            "in": "header",
+            "name": "Upgrade",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Upgrade",
+            "in": "header",
+            "name": "Connection",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Sec-WebSocket-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "13",
+            "in": "header",
+            "name": "Sec-WebSocket-Version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "User access token",
+            "in": "query",
+            "name": "access_token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filesystem resource ID",
+            "in": "query",
+            "name": "filesystem_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "WebSocket connection upgraded"
+          },
+          "401": {
+            "description": "Invalid storage authorization"
+          },
+          "503": {
+            "description": "IdP validation service unavailable"
+          }
+        },
+        "tags": []
+      }
+    },
+    "/databases": {
+      "get": {
+        "operationId": "list_databases",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DatabaseResource"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Namespace database resources"
+          },
+          "401": {
+            "description": "Invalid storage authorization"
+          },
+          "403": {
+            "description": "Token does not permit reads"
+          },
+          "503": {
+            "description": "Storage runtime or IdP unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "resources"
+        ]
+      },
+      "post": {
+        "operationId": "create_database",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateResourceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseResource"
+                }
+              }
+            },
+            "description": "Database resource created"
+          },
+          "401": {
+            "description": "Invalid storage authorization"
+          },
+          "403": {
+            "description": "Token does not permit writes"
+          },
+          "503": {
+            "description": "Storage runtime or IdP unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "resources"
+        ]
+      }
+    },
+    "/databases/{database_id}": {
+      "delete": {
+        "operationId": "delete_database",
+        "parameters": [
+          {
+            "description": "Database resource ID",
+            "in": "path",
+            "name": "database_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Database resource tombstoned"
+          },
+          "401": {
+            "description": "Invalid storage authorization"
+          },
+          "403": {
+            "description": "Token does not permit writes"
+          },
+          "404": {
+            "description": "Database resource not found"
+          },
+          "503": {
+            "description": "Storage runtime or IdP unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "resources"
+        ]
+      },
+      "get": {
+        "operationId": "get_database",
+        "parameters": [
+          {
+            "description": "Database resource ID",
+            "in": "path",
+            "name": "database_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseDetailResponse"
+                }
+              }
+            },
+            "description": "Database resource"
+          },
+          "401": {
+            "description": "Invalid storage authorization"
+          },
+          "403": {
+            "description": "Token does not permit reads"
+          },
+          "404": {
+            "description": "Database resource not found"
+          },
+          "503": {
+            "description": "Storage runtime or IdP unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "resources"
+        ]
+      }
+    },
+    "/filesystems": {
+      "get": {
+        "operationId": "list_file_systems",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FileSystemResourceResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Namespace filesystem resources"
+          },
+          "401": {
+            "description": "Invalid storage authorization"
+          },
+          "403": {
+            "description": "Token does not permit reads"
+          },
+          "503": {
+            "description": "Storage runtime or IdP unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "resources"
+        ]
+      },
+      "post": {
+        "operationId": "create_file_system",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateResourceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileSystemResourceResponse"
+                }
+              }
+            },
+            "description": "Filesystem resource created"
+          },
+          "401": {
+            "description": "Invalid storage authorization"
+          },
+          "403": {
+            "description": "Token does not permit writes"
+          },
+          "503": {
+            "description": "Storage runtime or IdP unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "resources"
+        ]
+      }
+    },
+    "/filesystems/{filesystem_id}": {
+      "delete": {
+        "operationId": "delete_file_system",
+        "parameters": [
+          {
+            "description": "Filesystem resource ID",
+            "in": "path",
+            "name": "filesystem_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Filesystem resource tombstoned"
+          },
+          "401": {
+            "description": "Invalid storage authorization"
+          },
+          "403": {
+            "description": "Token does not permit writes"
+          },
+          "404": {
+            "description": "Filesystem resource not found"
+          },
+          "503": {
+            "description": "Storage runtime or IdP unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "resources"
+        ]
+      },
+      "get": {
+        "operationId": "get_file_system",
+        "parameters": [
+          {
+            "description": "Filesystem resource ID",
+            "in": "path",
+            "name": "filesystem_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileSystemDetailResponse"
+                }
+              }
+            },
+            "description": "Filesystem resource"
+          },
+          "401": {
+            "description": "Invalid storage authorization"
+          },
+          "403": {
+            "description": "Token does not permit reads"
+          },
+          "404": {
+            "description": "Filesystem resource not found"
+          },
+          "503": {
+            "description": "Storage runtime or IdP unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "resources"
+        ]
+      }
+    },
+    "/filesystems/{filesystem_id}/residency": {
+      "get": {
+        "operationId": "get_file_system_residency",
+        "parameters": [
+          {
+            "description": "Filesystem resource ID",
+            "in": "path",
+            "name": "filesystem_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourceResidency"
+                }
+              }
+            },
+            "description": "Current local whole-filesystem mode, not content availability"
+          },
+          "401": {
+            "description": "Invalid Storage User authorization"
+          },
+          "403": {
+            "description": "Token does not permit reads"
+          },
+          "404": {
+            "description": "Filesystem not found in the authorized namespace"
+          },
+          "409": {
+            "description": "Local copy unavailable; cleanup must not be bypassed"
+          },
+          "500": {
+            "description": "Owner Residency read failed"
+          },
+          "503": {
+            "description": "Local Storage or identity service unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "resources::residency"
+        ]
+      },
+      "put": {
+        "operationId": "put_file_system_residency",
+        "parameters": [
+          {
+            "description": "Filesystem resource ID",
+            "in": "path",
+            "name": "filesystem_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResourceResidency"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Local whole-filesystem Residency persisted; not content availability or cleanup completion"
+          },
+          "401": {
+            "description": "Invalid Storage User authorization"
+          },
+          "403": {
+            "description": "Token does not permit writes"
+          },
+          "404": {
+            "description": "Filesystem not found in the authorized namespace"
+          },
+          "409": {
+            "description": "Local copy unavailable; cleanup must not be bypassed"
+          },
+          "500": {
+            "description": "Owner Residency update failed; retry/read current mode"
+          },
+          "503": {
+            "description": "Local Storage or identity service unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "resources::residency"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "default": null
+                }
+              }
+            },
+            "description": "Server is healthy"
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "operationId": "openapi_json",
+        "responses": {
+          "200": {
+            "description": "OpenAPI specification"
+          }
+        }
+      }
+    },
+    "/version": {
+      "get": {
+        "operationId": "version",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionResponse"
+                }
+              }
+            },
+            "description": "Version"
+          }
+        }
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "https://localhost/storage"
+    }
+  ]
+}

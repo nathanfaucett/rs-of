@@ -22,6 +22,7 @@ test-support = []
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
 tower = { version = "0.5", default-features = false, features = ["util"] }
 utoipa = { version = "5.5", default-features = false, features = ["macros"] }
+utoipa-axum = { version = "0.2", default-features = false }
 
 # async
 tokio = { version = "1.52", default-features = false, features = ["net", "signal", "rt", "macros", "sync", "time"] }

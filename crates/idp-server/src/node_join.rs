@@ -18,11 +18,12 @@ pub use transport::bind_node_join_endpoint;
 
 const PURPOSE: &str = "of.equal-node-join.v1";
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct NodeJoinRequest {
     purpose: String,
     pub installation: String,
+    #[schema(value_type = String, format = "uuid")]
     pub member_id: Id,
     pub endpoint_id: String,
     pub name: String,
@@ -30,10 +31,11 @@ pub struct NodeJoinRequest {
     pub approving_peer: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct NodeJoinApproval {
     pub request: NodeJoinRequest,
+    #[schema(value_type = String, format = "uuid")]
     pub owner_subject: Id,
     pub signature: String,
 }

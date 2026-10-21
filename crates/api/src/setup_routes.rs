@@ -36,7 +36,7 @@ async fn healthy(state: Arc<SetupState>) -> bool {
     )
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
 pub(crate) struct SetupStatus {
     pub(crate) stage: String,
     pub(crate) state: String,
@@ -86,10 +86,7 @@ pub fn setup_router(
         .with_state(state.clone())
         .merge(
             Router::new()
-                .route(
-                    "/setup/admission",
-                    post(|| async { StatusCode::NO_CONTENT }),
-                )
+                .route("/setup/admission", post(check_admission))
                 .route_layer(middleware::from_fn_with_state(
                     admission,
                     setup_admission_middleware,
@@ -99,6 +96,7 @@ pub fn setup_router(
         .layer(middleware::from_fn_with_state(origin, setup_origin_guard))
 }
 
+#[utoipa::path(get, path = "/setup/status", operation_id = "status", responses((status = 200, body = SetupStatus, description = "Awaiting owner setup"), (status = 503, body = SetupStatus, description = "Owner state unavailable")))]
 async fn status(State(state): State<Arc<SetupState>>) -> (StatusCode, axum::Json<SetupStatus>) {
     let scope = state.scope;
     let healthy = healthy(state).await;
@@ -134,4 +132,18 @@ pub async fn setup_origin_guard(
         return StatusCode::FORBIDDEN.into_response();
     }
     next.run(request).await
+}
+
+#[utoipa::path(post, path = "/setup/admission", operation_id = "admission", security(("setup_code" = [])), responses((status = 204, description = "Owner-local Setup admission accepted"), (status = 401, description = "Setup code required"), (status = 403, description = "Denied")))]
+async fn check_admission() -> StatusCode {
+    StatusCode::NO_CONTENT
+}
+
+#[derive(utoipa::OpenApi)]
+#[openapi(paths(status, check_admission))]
+struct OwnerSetupDoc;
+pub fn owner_setup_openapi() -> utoipa::openapi::OpenApi {
+    let mut document = <OwnerSetupDoc as utoipa::OpenApi>::openapi();
+    utoipa::Modify::modify(&crate::independent_openapi::SetupSecurity, &mut document);
+    document
 }

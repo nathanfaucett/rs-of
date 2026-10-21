@@ -151,6 +151,7 @@ dependencies = [
  "tower",
  "tower-http 0.7.1",
  "utoipa",
+ "utoipa-axum",
 ]
 
 [[package]]
@@ -4818,6 +4819,55 @@ dependencies = [
 ]
 
 [[package]]
+name = "of-idp-client"
+version = "0.1.0"
+dependencies = [
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "serde_with",
+ "url",
+]
+
+[[package]]
+name = "of-idp-independent-client"
+version = "0.1.0"
+dependencies = [
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "serde_with",
+ "url",
+]
+
+[[package]]
+name = "of-node-join-client"
+version = "0.1.0"
+dependencies = [
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "serde_with",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "of-storage-client"
+version = "0.1.0"
+dependencies = [
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "serde_with",
+ "url",
+]
+
+[[package]]
 name = "ofdb-btree"
 version = "0.1.0"
 dependencies = [
@@ -5804,6 +5854,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "futures-core",
+ "futures-util",
  "http",
  "http-body",
  "http-body-util",
@@ -5812,6 +5863,7 @@ dependencies = [
  "hyper-util",
  "js-sys",
  "log",
+ "mime_guess",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -8078,6 +8130,10 @@ dependencies = [
  "management-server",
  "management-service",
  "model",
+ "of-idp-client",
+ "of-idp-independent-client",
+ "of-node-join-client",
+ "of-storage-client",
  "ofdb-sql",
  "postcard",
  "rcgen",
@@ -8096,6 +8152,7 @@ dependencies = [
  "tower",
  "tower-http 0.7.1",
  "utoipa",
+ "utoipa-axum",
 ]
 
 [[package]]

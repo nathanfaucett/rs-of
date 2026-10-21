@@ -16,20 +16,6 @@ async fn composed_openapi_requires_current_selected_resources_policy() {
     assert_contract(&document().await);
 }
 
-#[tokio::test]
-#[ignore = "explicit generation workflow supplies OF_MANAGEMENT_OPENAPI_OUT; no host or provider changes"]
-async fn export_management_openapi_for_client_generation() {
-    let path = std::env::var_os("OF_MANAGEMENT_OPENAPI_OUT")
-        .expect("explicit Management schema destination");
-    let document = document().await;
-    assert_contract(&document);
-    std::fs::write(
-        path,
-        serde_json::to_vec_pretty(&document).expect("Management schema JSON"),
-    )
-    .expect("write requested public Management schema");
-}
-
 async fn document() -> Value {
     let root = std::env::temp_dir().join(format!("management-openapi-{}", Id::now_v7()));
     std::fs::create_dir_all(&root).expect("create isolated schema export directory");

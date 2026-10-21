@@ -1,265 +1,228 @@
 import { spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import {
-    access,
-    copyFile,
-    cp,
-    mkdtemp,
-    readFile,
-    rename,
-    rm,
-} from "node:fs/promises";
+    cpSync,
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    readdirSync,
+    renameSync,
+    rmSync,
+    writeFileSync,
+} from "node:fs";
 import path from "node:path";
-import process from "node:process";
 
-const service = process.argv[2];
-// Current Rust OpenAPI router inventory; group names follow typescript-fetch output.
-const expectedApis = {
-    idp: {
-        DefaultApi:
-            "approveForUser authorizeJson authorizeQuery createApplication deleteApplication deleteRegister deleteUser deviceAuth deviceVerify getApplication getRegister getUser health isAllowedForUser jwks listApplications listClientKeys listConsents openapiJson openidConfiguration putRegister register resetPassword revoke revokeClientKeys revokeConsent rotateClientKey sessionsLogout token updateApplication updateUser userinfo version",
-        SuperRoutesActiveUserApi: "activeUser",
-        SuperRoutesOauth2IntrospectApi: "introspect",
-        SuperRoutesReplicaSignersApi:
-            "enrollReplicaSigner revokeReplicaSigner rotateReplicaSigner",
-    },
-    "idp-setup": {
-        DefaultApi: "admission cancel create intent join status",
-    },
-    "idp-independent": {
-        DefaultApi: "admission cancel create join ownerPublic recover status",
-    },
-    management: {
-        DefaultApi:
-            "assignPermissionToRole assignRoleToUser createPermission createRole deleteDeviceResourceSelection deleteDeviceSelection deletePermission deleteRole device enrollDevice evaluatePermission getDeviceRestriction health listApprovedDeviceEndpoints listDevices listPermissions listRolePermissions listRoles listUserRoles listUserRolesAcrossApplications lookupDeviceEndpoint lookupDeviceIdentity openapiJson pairingAcceptance putDeviceRestriction putDeviceSelection revokeDevice revokePermissionFromRole revokeRoleFromUser revokeSelf setPairingAcceptance transferDevice trustedDevices updateDevice version",
-        SuperRoutesReplicationApi:
-            "ownerCleanup replicationAdmission selectedResources",
-    },
-    storage: {
-        DefaultApi: "health openapiJson upgradeSocket version",
-        ResourcesApi:
-            "createDatabase createFileSystem deleteDatabase deleteFileSystem getDatabase getFileSystem listDatabases listFileSystems",
-        ResourcesResidencyApi: "getFileSystemResidency putFileSystemResidency",
-    },
-}[service];
-const pnpmPath = process.env.npm_execpath;
-function defaultSpecUrl(service) {
-    let base = process.env.OPENAPI_BASE_URL;
-    if (!base) {
-        if (service === "idp-independent") {
-            throw new Error(
-                "Set OPENAPI_SPEC_URL or OPENAPI_BASE_URL for the independent IdP owner",
-            );
-        }
-        const result = spawnSync(
-            pnpmPath,
-            ["exec", "portless", "get", "unified"],
-            {
-                encoding: "utf8",
-                timeout: 10000,
-                maxBuffer: 1024 * 1024,
-            },
-        );
-        if (result.error) throw result.error;
-        if (result.status !== 0 || !result.stdout.trim()) {
-            throw new Error(
-                "Could not resolve the unified portless URL; run just unified or set OPENAPI_BASE_URL",
-            );
-        }
-        base = result.stdout.trim();
-    }
-    base = new URL(base).href.replace(/\/$/, "");
-    if (service === "idp-independent") return `${base}/openapi.json`;
-    if (service === "idp-setup") return `${base}/idp/setup/openapi.json`;
-    return `${base}/${service}/openapi.json`;
+const root = path.resolve(import.meta.dirname, "..");
+const destinations = {
+    "owner-setup": ["idp", "admission"],
+    idp: ["idp", ""],
+    management: ["management", ""],
+    storage: ["storage", "generated"],
+    "idp-setup": ["idp", "setup"],
+    "idp-independent": ["idp", "independent"],
+    "node-join": ["management", "node-join"],
+    "independent-idp": ["idp", "owner"],
+    "independent-management": ["management", "owner"],
+    "independent-storage": ["storage", "owner"],
+};
+const selected = process.argv[2];
+if (selected && !destinations[selected])
+    throw new Error("Unknown OpenAPI document");
+const names = selected ? [selected] : Object.keys(destinations);
+const stage = mkdtempSync(path.join(root, ".openapi-generation-"));
+const pnpm = process.env.npm_execpath || "pnpm";
+function run(command, args, cwd = root) {
+    const result = spawnSync(command, args, {
+        cwd,
+        stdio: "inherit",
+        timeout: 180000,
+    });
+    if (result.error) throw result.error;
+    if (result.status !== 0)
+        throw new Error(`${command} failed (${result.status})`);
 }
-
-if (
-    !["idp", "idp-setup", "idp-independent", "management", "storage"].includes(
-        service,
+function generate(name, language, output) {
+    const spec = process.env.OPENAPI_SPEC_FILE
+        ? path.resolve(process.env.OPENAPI_SPEC_FILE)
+        : path.join(root, "openapi", `${name}.json`);
+    const document = JSON.parse(readFileSync(spec, "utf8"));
+    if (
+        !document.openapi ||
+        !document.paths ||
+        !Object.keys(document.paths).length
     )
-) {
-    throw new Error(
-        "Choose the idp, management or storage client generator, or idp-setup/idp-independent",
+        throw new Error("Invalid or empty OpenAPI document");
+    run(
+        pnpm,
+        ["exec", "openapi-generator-cli", "validate", "-i", spec],
+        path.join(root, "packages/idp-client"),
     );
-}
-
-if (!pnpmPath) {
-    throw new Error(
-        "Run this generator through pnpm so its local OpenAPI generator is available",
-    );
-}
-
-const specUrl = process.env.OPENAPI_SPEC_URL || defaultSpecUrl(service);
-const packageDir = process.cwd();
-const sourceDir = path.join(
-    packageDir,
-    "src",
-    ...(service === "storage"
-        ? ["generated"]
-        : service === "idp-setup"
-          ? ["setup"]
-          : service === "idp-independent"
-            ? ["independent"]
-            : []),
-);
-const temporaryDir = await mkdtemp(
-    path.join(path.dirname(packageDir), ".openapi-generation-"),
-);
-const generatedDir = path.join(temporaryDir, "src");
-const backupDir = path.join(packageDir, `.src-backup-${randomUUID()}`);
-
-try {
-    const result = spawnSync(
-        pnpmPath,
-        [
-            "exec",
-            "openapi-generator-cli",
-            "generate",
-            "-i",
-            specUrl,
-            "-g",
-            "typescript-fetch",
-            "-o",
-            generatedDir,
-            "--type-mappings=DateTime=Date",
-            "--global-property=apiDocs=false,modelDocs=false",
-            "--additional-properties=supportsES6=true,typescriptThreePlus=true,withInterfaces=true,useSingleRequestParameter=true,importFileExtension=.js",
-        ],
-        { cwd: packageDir, stdio: "inherit" },
-    );
-
-    if (result.error) {
-        throw result.error;
-    }
-    if (result.status !== 0) {
-        throw new Error(
-            `OpenAPI generation failed with exit code ${result.status}`,
+    const args = [
+        "exec",
+        "openapi-generator-cli",
+        "generate",
+        "-i",
+        spec,
+        "-g",
+        language,
+        "-o",
+        output,
+        "--global-property=apiDocs=false,modelDocs=false,apiTests=false,modelTests=false",
+    ];
+    if (language === "rust")
+        args.push(
+            "-c",
+            path.join(root, "scripts/openapi-templates/config.json"),
+            "-t",
+            path.join(root, "scripts/openapi-templates"),
+            `--additional-properties=packageName=of-${name}-client,useSingleRequestParameter=true,useChrono=false`,
         );
+    else
+        args.push(
+            "--type-mappings=DateTime=Date",
+            "--additional-properties=supportsES6=true,typescriptThreePlus=true,withInterfaces=true,useSingleRequestParameter=true,importFileExtension=.js",
+        );
+    run(pnpm, args, path.join(root, "packages/idp-client"));
+    for (const entry of readdirSync(output)) {
+        if (
+            entry !== "src" &&
+            !(language === "rust" && entry === "Cargo.toml") &&
+            !(
+                language === "typescript-fetch" &&
+                ["apis", "models", "index.ts", "runtime.ts"].includes(entry)
+            )
+        )
+            rmSync(path.join(output, entry), { recursive: true, force: true });
     }
-
-    for (const [group, operations] of Object.entries(expectedApis)) {
-        let generatedApi;
-        try {
-            generatedApi = await readFile(
-                path.join(generatedDir, "apis", `${group}.ts`),
-                "utf8",
-            );
-        } catch (error) {
-            if (error.code !== "ENOENT") {
-                throw error;
-            }
-            throw new Error(
-                `The ${service} output is missing required API group ${group}`,
-                { cause: error },
-            );
-        }
-        for (const operation of operations.split(" ")) {
-            if (
-                !new RegExp(`^\\s*async ${operation}\\s*\\(`, "m").test(
-                    generatedApi,
-                )
-            ) {
-                throw new Error(
-                    `The ${service} output is missing required operation ${operation} in ${group}`,
-                );
-            }
-        }
+}
+const replacements = [];
+try {
+    const owners = [...new Set(names.map((name) => destinations[name][0]))];
+    for (const owner of owners) {
+        const source = path.join(root, `packages/${owner}-client/src`);
+        const staged = path.join(stage, `packages/${owner}-client/src`);
+        cpSync(source, staged, { recursive: true });
+        replacements.push([staged, source]);
     }
-
-    for (const file of [
-        "index.ts",
-        "runtime.ts",
-        "apis/index.ts",
-        "models/index.ts",
-    ]) {
-        const content = await readFile(
-            path.join(generatedDir, file),
-            "utf8",
-        ).catch((error) => {
-            if (error.code !== "ENOENT") {
-                throw error;
-            }
-            return "";
-        });
-        if (!content.trim()) {
-            throw new Error(
-                `The ${service} output has missing or empty required generated file ${file}`,
+    const rust = path.join(stage, "rust");
+    mkdirSync(rust);
+    for (const name of Object.keys(destinations)) {
+        if (!names.includes(name))
+            cpSync(
+                path.join(root, "clients/rust", name),
+                path.join(rust, name),
+                { recursive: true },
             );
-        }
     }
-
-    // Stage beside the package so its src-only includes cannot exclude temporary output.
-    await copyFile(
-        path.join(packageDir, "biome.json"),
-        path.join(temporaryDir, "biome.json"),
+    cpSync(
+        path.join(root, "clients/rust/Cargo.lock"),
+        path.join(rust, "Cargo.lock"),
     );
-    const formatting = spawnSync(
-        pnpmPath,
-        [
+    for (const name of names) {
+        const [owner, suffix] = destinations[name];
+        const ts = path.join(stage, "typescript", name);
+        generate(name, "typescript-fetch", ts);
+        const target = path.join(stage, `packages/${owner}-client/src`, suffix);
+        if (suffix) rmSync(target, { recursive: true, force: true });
+        else
+            for (const entry of [
+                "apis",
+                "models",
+                "runtime.ts",
+                "index.ts",
+                ".openapi-generator",
+                ".openapi-generator-ignore",
+            ])
+                rmSync(path.join(target, entry), {
+                    recursive: true,
+                    force: true,
+                });
+        run(pnpm, [
             "exec",
             "biome",
             "format",
             "--write",
             "--format-with-errors=false",
-            "--config-path",
-            temporaryDir,
-            generatedDir,
-        ],
-        { cwd: packageDir, stdio: "inherit" },
-    );
-    if (formatting.error) {
-        throw formatting.error;
+            ts,
+        ]);
+        cpSync(ts, target, { recursive: true });
+        generate(name, "rust", path.join(rust, name));
+        replacements.push([
+            path.join(rust, name),
+            path.join(root, "clients/rust", name),
+        ]);
     }
-    if (formatting.status !== 0) {
-        throw new Error(
-            `OpenAPI formatting failed with exit code ${formatting.status}`,
+    writeFileSync(
+        path.join(rust, "Cargo.toml"),
+        `[workspace]\nresolver = "3"\nmembers = ${JSON.stringify(Object.keys(destinations))}\n`,
+    );
+    run("cargo", [
+        "fmt",
+        "--manifest-path",
+        path.join(rust, "Cargo.toml"),
+        "--all",
+    ]);
+    run("cargo", [
+        "check",
+        "--manifest-path",
+        path.join(rust, "Cargo.toml"),
+        "--workspace",
+        "--offline",
+        "--locked",
+    ]);
+    for (const owner of owners) {
+        const source = path.join(stage, `packages/${owner}-client/src`);
+        run(
+            pnpm,
+            [
+                "exec",
+                "tsc",
+                "--target",
+                "es2020",
+                "--module",
+                "es2020",
+                "--moduleResolution",
+                "bundler",
+                "--strict",
+                "--skipLibCheck",
+                "--outDir",
+                path.join(stage, "build", owner),
+                ...readdirSync(source)
+                    .filter(
+                        (file) =>
+                            file.endsWith(".ts") && !file.endsWith(".test.ts"),
+                    )
+                    .map((file) => path.join(source, file)),
+                ...names
+                    .filter(
+                        (name) =>
+                            destinations[name][0] === owner &&
+                            destinations[name][1],
+                    )
+                    .map((name) =>
+                        path.join(source, destinations[name][1], "index.ts"),
+                    ),
+            ],
+            path.join(root, "packages/idp-client"),
         );
     }
-
-    if (service === "idp") {
-        for (const subtree of ["setup", "independent"]) {
-            const setupDir = path.join(sourceDir, subtree);
-            const hasSetup = await access(setupDir).then(
-                () => true,
-                (error) => {
-                    if (error.code !== "ENOENT") {
-                        throw error;
-                    }
-                    return false;
-                },
-            );
-            if (hasSetup) {
-                await cp(setupDir, path.join(generatedDir, subtree), {
-                    recursive: true,
-                });
-            }
-        }
-    }
-
-    let movedExistingSource = false;
+    const moved = [];
     try {
-        await access(sourceDir);
-        await rename(sourceDir, backupDir);
-        movedExistingSource = true;
-    } catch (error) {
-        if (error.code !== "ENOENT") {
-            throw error;
+        for (const [from, to] of replacements) {
+            mkdirSync(path.dirname(to), { recursive: true });
+            const backup = path.join(stage, `backup-${moved.length}`);
+            const existed = existsSync(to);
+            if (existed) renameSync(to, backup);
+            moved.push([to, backup, existed]);
+            renameSync(from, to);
         }
-    }
-
-    try {
-        await rename(generatedDir, sourceDir);
     } catch (error) {
-        if (movedExistingSource) {
-            await rename(backupDir, sourceDir);
+        for (const [to, backup, existed] of moved.reverse()) {
+            rmSync(to, { recursive: true, force: true });
+            if (existed) renameSync(backup, to);
         }
         throw error;
     }
-
-    if (movedExistingSource) {
-        await rm(backupDir, { recursive: true, force: true });
-    }
 } finally {
-    await rm(temporaryDir, { recursive: true, force: true });
+    rmSync(stage, { recursive: true, force: true });
 }

@@ -249,11 +249,11 @@ export interface ListPermissionsRequest {
     /**
      *
      */
-    offset: number;
+    offset?: number;
     /**
      *
      */
-    limit: number;
+    limit?: number;
 }
 
 export interface ListRolePermissionsRequest {
@@ -275,11 +275,11 @@ export interface ListRolesRequest {
     /**
      *
      */
-    offset: number;
+    offset?: number;
     /**
      *
      */
-    limit: number;
+    limit?: number;
 }
 
 export interface ListUserRolesRequest {
@@ -852,8 +852,8 @@ export interface DefaultApiInterface {
     /**
      * Creates request options for listPermissions without sending the request
      * @param {string} applicationId Application ID
-     * @param {number} offset
-     * @param {number} limit
+     * @param {number} [offset]
+     * @param {number} [limit]
      * @throws {RequiredError}
      * @memberof DefaultApiInterface
      */
@@ -864,8 +864,8 @@ export interface DefaultApiInterface {
     /**
      *
      * @param {string} applicationId Application ID
-     * @param {number} offset
-     * @param {number} limit
+     * @param {number} [offset]
+     * @param {number} [limit]
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      * @memberof DefaultApiInterface
@@ -916,8 +916,8 @@ export interface DefaultApiInterface {
     /**
      * Creates request options for listRoles without sending the request
      * @param {string} applicationId Application ID
-     * @param {number} offset
-     * @param {number} limit
+     * @param {number} [offset]
+     * @param {number} [limit]
      * @throws {RequiredError}
      * @memberof DefaultApiInterface
      */
@@ -928,8 +928,8 @@ export interface DefaultApiInterface {
     /**
      *
      * @param {string} applicationId Application ID
-     * @param {number} offset
-     * @param {number} limit
+     * @param {number} [offset]
+     * @param {number} [limit]
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      * @memberof DefaultApiInterface
@@ -2473,21 +2473,15 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
             );
         }
 
-        if (requestParameters["offset"] == null) {
-            throw new runtime.RequiredError(
-                "offset",
-                'Required parameter "offset" was null or undefined when calling listPermissions().',
-            );
-        }
-
-        if (requestParameters["limit"] == null) {
-            throw new runtime.RequiredError(
-                "limit",
-                'Required parameter "limit" was null or undefined when calling listPermissions().',
-            );
-        }
-
         const queryParameters: any = {};
+
+        if (requestParameters["offset"] != null) {
+            queryParameters["offset"] = requestParameters["offset"];
+        }
+
+        if (requestParameters["limit"] != null) {
+            queryParameters["limit"] = requestParameters["limit"];
+        }
 
         const headerParameters: runtime.HTTPHeaders = {};
 
@@ -2504,14 +2498,6 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
         urlPath = urlPath.replace(
             "{application_id}",
             encodeURIComponent(String(requestParameters["applicationId"])),
-        );
-        urlPath = urlPath.replace(
-            "{offset}",
-            encodeURIComponent(String(requestParameters["offset"])),
-        );
-        urlPath = urlPath.replace(
-            "{limit}",
-            encodeURIComponent(String(requestParameters["limit"])),
         );
 
         return {
@@ -2642,21 +2628,15 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
             );
         }
 
-        if (requestParameters["offset"] == null) {
-            throw new runtime.RequiredError(
-                "offset",
-                'Required parameter "offset" was null or undefined when calling listRoles().',
-            );
-        }
-
-        if (requestParameters["limit"] == null) {
-            throw new runtime.RequiredError(
-                "limit",
-                'Required parameter "limit" was null or undefined when calling listRoles().',
-            );
-        }
-
         const queryParameters: any = {};
+
+        if (requestParameters["offset"] != null) {
+            queryParameters["offset"] = requestParameters["offset"];
+        }
+
+        if (requestParameters["limit"] != null) {
+            queryParameters["limit"] = requestParameters["limit"];
+        }
 
         const headerParameters: runtime.HTTPHeaders = {};
 
@@ -2673,14 +2653,6 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
         urlPath = urlPath.replace(
             "{application_id}",
             encodeURIComponent(String(requestParameters["applicationId"])),
-        );
-        urlPath = urlPath.replace(
-            "{offset}",
-            encodeURIComponent(String(requestParameters["offset"])),
-        );
-        urlPath = urlPath.replace(
-            "{limit}",
-            encodeURIComponent(String(requestParameters["limit"])),
         );
 
         return {

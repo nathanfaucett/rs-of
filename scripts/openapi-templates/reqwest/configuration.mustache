@@ -1,0 +1,156 @@
+{{>partial_header}}
+
+{{#withAWSV4Signature}}
+use std::time::SystemTime;
+use aws_sigv4::http_request::{sign, SigningSettings, SigningParams, SignableRequest};
+use http;
+use secrecy::{SecretString, ExposeSecret};
+{{/withAWSV4Signature}}
+{{#supportTokenSource}}
+use std::sync::Arc;
+use google_cloud_token::TokenSource;
+use async_trait::async_trait;
+{{/supportTokenSource}}
+
+#[derive(Debug, Clone)]
+pub struct Configuration {
+    pub response_limit: usize,
+    pub request_limit: usize,
+    pub base_path: String,
+    pub user_agent: Option<String>,
+    pub client: {{#supportMiddleware}}reqwest_middleware::ClientWithMiddleware{{/supportMiddleware}}{{^supportMiddleware}}reqwest{{^supportAsync}}::blocking{{/supportAsync}}::Client{{/supportMiddleware}},
+    {{^supportTokenSource}}
+    pub basic_auth: Option<BasicAuth>,
+    pub oauth_access_token: Option<String>,
+    pub bearer_access_token: Option<String>,
+    pub api_key: Option<ApiKey>,
+    {{/supportTokenSource}}
+    {{#withAWSV4Signature}}
+    pub aws_v4_key: Option<AWSv4Key>,
+    {{/withAWSV4Signature}}
+    {{#supportAsync}}
+    {{#supportTokenSource}}
+    pub token_source: Arc<dyn TokenSource>,
+    {{/supportTokenSource}}
+    {{/supportAsync}}
+}
+{{^supportTokenSource}}
+
+pub type BasicAuth = (String, Option<String>);
+
+#[derive(Debug, Clone)]
+pub struct ApiKey {
+    pub prefix: Option<String>,
+    pub key: String,
+}
+{{/supportTokenSource}}
+
+{{#withAWSV4Signature}}
+#[derive(Debug, Clone)]
+pub struct AWSv4Key {
+    pub access_key: String,
+    pub secret_key: SecretString,
+    pub region: String,
+    pub service: String,
+}
+
+impl AWSv4Key {
+    pub fn sign(&self, uri: &str, method: &str, body: &str) -> Result<Vec::<(String, String)>, aws_sigv4::http_request::Error> {
+	let request = http::Request::builder()
+	    .uri(uri)
+	    .method(method)
+	    .body(body).unwrap();
+	let signing_settings = SigningSettings::default();
+	let signing_params = SigningParams::builder()
+	    .access_key(self.access_key.as_str())
+	    .secret_key(self.secret_key.expose_secret().as_str())
+	    .region(self.region.as_str())
+	    .service_name(self.service.as_str())
+	    .time(SystemTime::now())
+	    .settings(signing_settings)
+	    .build()
+	    .unwrap();
+	let signable_request = SignableRequest::from(&request);
+	let (mut signing_instructions, _signature) = sign(signable_request, &signing_params)?.into_parts();
+	let mut additional_headers = Vec::<(String, String)>::new();
+	if let Some(new_headers) = signing_instructions.take_headers() {
+            for (name, value) in new_headers.into_iter() {
+		additional_headers.push((name.expect("header should have name").to_string(),
+		                         value.to_str().expect("header value should be a string").to_string()));
+            }
+        }
+	Ok(additional_headers)
+    }
+}
+{{/withAWSV4Signature}}
+
+impl Configuration {
+    pub fn new() -> Configuration {
+        Configuration::default()
+    }
+}
+
+impl Default for Configuration {
+    fn default() -> Self {
+        Configuration {
+            response_limit: 1024 * 1024,
+            request_limit: 1024 * 1024,
+            base_path: "{{{basePath}}}".to_owned(),
+            user_agent: {{#httpUserAgent}}Some("{{{.}}}".to_owned()){{/httpUserAgent}}{{^httpUserAgent}}Some("OpenAPI-Generator/{{{version}}}/rust".to_owned()){{/httpUserAgent}},
+            client: {{#supportMiddleware}}reqwest_middleware::ClientBuilder::new(reqwest::Client::builder().https_only(true).no_proxy().redirect(reqwest::redirect::Policy::none()).connect_timeout(std::time::Duration::from_secs(5)).timeout(std::time::Duration::from_secs(15)).build().expect("verified bounded HTTP client")).build(){{/supportMiddleware}}{{^supportMiddleware}}reqwest::Client::builder().https_only(true).no_proxy().redirect(reqwest::redirect::Policy::none()).connect_timeout(std::time::Duration::from_secs(5)).timeout(std::time::Duration::from_secs(15)).build().expect("verified bounded HTTP client"){{/supportMiddleware}},
+            {{^supportTokenSource}}
+            basic_auth: None,
+            oauth_access_token: None,
+            bearer_access_token: None,
+            api_key: None,
+            {{/supportTokenSource}}
+            {{#withAWSV4Signature}}
+            aws_v4_key: None,
+            {{/withAWSV4Signature}}
+            {{#supportTokenSource}}
+            token_source: Arc::new(NoopTokenSource{}),
+            {{/supportTokenSource}}
+        }
+    }
+}
+{{#supportTokenSource}}
+#[derive(Debug)]
+struct NoopTokenSource{}
+
+#[async_trait]
+impl TokenSource for NoopTokenSource {
+    async fn token(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        panic!("This is dummy token source. You can use TokenSourceProvider from 'google_cloud_auth' crate, or any other compatible crate.")
+    }
+}
+{{/supportTokenSource}}
+
+pub async fn bounded_text(mut response: reqwest::Response, limit: usize) -> Result<String, serde_json::Error> {
+    use serde::de::Error;
+    if response.content_length().is_some_and(|length| length > limit as u64) {
+        return Err(serde_json::Error::custom("response exceeds byte limit"));
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| serde_json::Error::custom("response read failed"))? {
+        if chunk.len() > limit.saturating_sub(bytes.len()) {
+            return Err(serde_json::Error::custom("response exceeds byte limit"));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    String::from_utf8(bytes).map_err(|_| serde_json::Error::custom("response is not UTF-8"))
+}
+
+pub fn check_request(request: &reqwest::Request, limit: usize) -> Result<(), serde_json::Error> {
+    use serde::de::Error;
+    let mut size = request.headers().iter().fold(request.url().as_str().len(), |size, (name, value)| {
+        size.saturating_add(name.as_str().len()).saturating_add(value.len())
+    });
+    if let Some(body) = request.body() {
+        let bytes = body.as_bytes().ok_or_else(|| serde_json::Error::custom("request body is unbounded"))?;
+        size = size.saturating_add(bytes.len());
+    }
+    if size > limit {
+        return Err(serde_json::Error::custom("request exceeds byte limit"));
+    }
+    Ok(())
+}

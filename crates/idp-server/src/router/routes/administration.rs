@@ -18,6 +18,7 @@ use crate::router::{
 };
 
 #[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct Page {
     #[serde(default)]
     pub offset: u32,

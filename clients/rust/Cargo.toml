@@ -1,0 +1,3 @@
+[workspace]
+resolver = "3"
+members = ["idp-independent", "idp-setup", "idp", "independent-idp", "independent-management", "independent-storage", "management", "node-join", "owner-setup", "storage"]

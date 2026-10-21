@@ -9,10 +9,13 @@ use serde::{Deserialize, Serialize};
 use crate::DeviceIdentity;
 
 #[derive(Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(deny_unknown_fields)]
 pub struct IndependentJoinRequest {
     pub operation: IndependentCreateIntent,
+    #[cfg_attr(feature = "utoipa", schema(value_type = String, format = "uuid"))]
     pub device_id: Id,
+    #[cfg_attr(feature = "utoipa", schema(value_type = String, format = "uuid"))]
     pub member_id: Id,
     pub endpoint_id: String,
     pub public_signer: JwkPublic,
@@ -53,9 +56,11 @@ impl IndependentJoinRequest {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(deny_unknown_fields)]
 pub struct IndependentJoinApproval {
     pub request: IndependentJoinRequest,
+    #[cfg_attr(feature = "utoipa", schema(value_type = String, format = "uuid"))]
     pub owner_subject: Id,
     pub signature: String,
 }

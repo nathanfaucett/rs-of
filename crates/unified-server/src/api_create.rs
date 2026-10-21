@@ -379,10 +379,7 @@ impl CreateHost {
             .route("/idp/setup/cancel", post(cancel))
             .route("/idp/setup/admission", post(admission))
             .route("/idp/setup/intent", post(intent))
-            .route(
-                "/idp/setup/openapi.json",
-                get(|| async { Json(CreateDoc::openapi()) }),
-            )
+            .route("/idp/setup/openapi.json", get(setup_openapi_json))
             .fallback(normal)
             .with_state(self.shared.clone())
             .layer(
@@ -1441,7 +1438,7 @@ fn owner_routes(config: &crate::UnifiedConfig) -> Router<Arc<RwLock<CreateResult
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(create, join, status, cancel, admission, intent),
+    paths(create, join, status, cancel, admission, intent, setup_openapi_json),
     servers((url = "https://localhost", description = "Set the intended verified HTTPS host origin explicitly; operation paths include the IdP prefix")),
     components(schemas(CreateRequest, CreateIntent, JoinRequest, JoinIntent, SetupIntent, CreateResult, LoginClient)),
     modifiers(&SetupSecurity)
@@ -1967,4 +1964,13 @@ pub(crate) mod tests {
         drop(shared);
         fs::remove_dir_all(root).expect("isolated cleanup");
     }
+}
+
+pub fn setup_openapi() -> utoipa::openapi::OpenApi {
+    CreateDoc::openapi()
+}
+
+#[utoipa::path(get, path = "/idp/setup/openapi.json", operation_id = "setup_openapi", responses((status = 200, description = "Complete Setup contract")))]
+async fn setup_openapi_json() -> Json<utoipa::openapi::OpenApi> {
+    Json(CreateDoc::openapi())
 }

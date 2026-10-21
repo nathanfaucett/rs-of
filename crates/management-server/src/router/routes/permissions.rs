@@ -40,6 +40,7 @@ impl From<idp_model::model::Permission> for PermissionResponse {
 #[derive(
     Clone, Debug, Deserialize, Eq, PartialEq, Serialize, utoipa::IntoParams, utoipa::ToSchema,
 )]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ListPermissionsQuery {
     #[serde(default)]
     pub offset: u32,

@@ -1,10 +1,10 @@
 use std::{collections::BTreeMap, io, sync::Arc};
 
+use api::SecurityAddon;
 use axum::{
     Json, Router,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
-    routing::{get, post},
 };
 use db::Database;
 use idp_model::model::Id;
@@ -114,15 +114,10 @@ impl NodeJoinSource {
     }
 
     pub(crate) fn router(self: &Arc<Self>) -> Router {
-        Router::new()
-            .route(
-                "/management/node-joins/acceptance",
-                get(acceptance).put(set_acceptance),
-            )
-            .route("/management/node-joins/pending", get(pending))
-            .route("/management/node-joins/{id}/approve", post(approve))
-            .route("/management/node-joins/{id}/reject", post(reject))
+        node_join_routes()
             .with_state(self.clone())
+            .split_for_parts()
+            .0
     }
 
     pub(crate) async fn run(&self) -> io::Result<()> {
@@ -549,7 +544,7 @@ mod tests {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 struct Acceptance {
     accepting: bool,
@@ -581,6 +576,7 @@ fn http_error(error: io::Error) -> HttpError {
         Json(serde_json::json!({"error": "node_join_request_denied"})),
     )
 }
+#[utoipa::path(get, path = "/management/node-joins/acceptance", operation_id = "acceptance", security(("authorization" = [])), responses((status = 200, body = Acceptance, description = "Current locally authorized Node-join operation"), (status = 401, description = "Bearer required"), (status = 403, description = "Permission denied"), (status = 404, description = "Offer not found"), (status = 409, description = "Offer changed"), (status = 503, description = "Unavailable")))]
 async fn acceptance(
     State(source): State<Arc<NodeJoinSource>>,
     headers: HeaderMap,
@@ -592,6 +588,7 @@ async fn acceptance(
             .map_err(http_error)?,
     }))
 }
+#[utoipa::path(put, path = "/management/node-joins/acceptance", operation_id = "set_acceptance", security(("authorization" = [])), request_body = Acceptance, responses((status = 200, body = Acceptance, description = "Current locally authorized Node-join operation"), (status = 401, description = "Bearer required"), (status = 403, description = "Permission denied"), (status = 404, description = "Offer not found"), (status = 409, description = "Offer changed"), (status = 503, description = "Unavailable")))]
 async fn set_acceptance(
     State(source): State<Arc<NodeJoinSource>>,
     headers: HeaderMap,
@@ -604,6 +601,7 @@ async fn set_acceptance(
             .map_err(http_error)?,
     }))
 }
+#[utoipa::path(get, path = "/management/node-joins/pending", operation_id = "pending", security(("authorization" = [])), responses((status = 200, body = serde_json::Value, description = "Current locally authorized Node-join operation"), (status = 401, description = "Bearer required"), (status = 403, description = "Permission denied"), (status = 404, description = "Offer not found"), (status = 409, description = "Offer changed"), (status = 503, description = "Unavailable")))]
 async fn pending(
     State(source): State<Arc<NodeJoinSource>>,
     headers: HeaderMap,
@@ -615,6 +613,7 @@ async fn pending(
             .map_err(http_error)?,
     ))
 }
+#[utoipa::path(post, path = "/management/node-joins/{id}/approve", operation_id = "approve", security(("authorization" = [])), params(("id" = String, Path, description = "Pending offer UUID")), responses((status = 200, body = NodeJoinApproval, description = "Current locally authorized Node-join operation"), (status = 401, description = "Bearer required"), (status = 403, description = "Permission denied"), (status = 404, description = "Offer not found"), (status = 409, description = "Offer changed"), (status = 503, description = "Unavailable")))]
 async fn approve(
     State(source): State<Arc<NodeJoinSource>>,
     Path(id): Path<Id>,
@@ -627,6 +626,7 @@ async fn approve(
             .map_err(http_error)?,
     ))
 }
+#[utoipa::path(post, path = "/management/node-joins/{id}/reject", operation_id = "reject", security(("authorization" = [])), params(("id" = String, Path, description = "Pending offer UUID")), responses((status = 204, description = "Current locally authorized Node-join operation"), (status = 401, description = "Bearer required"), (status = 403, description = "Permission denied"), (status = 404, description = "Offer not found"), (status = 409, description = "Offer changed"), (status = 503, description = "Unavailable")))]
 async fn reject(
     State(source): State<Arc<NodeJoinSource>>,
     Path(id): Path<Id>,
@@ -640,4 +640,18 @@ async fn reject(
 }
 fn denied(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::PermissionDenied, message)
+}
+
+fn node_join_routes() -> utoipa_axum::router::OpenApiRouter<Arc<NodeJoinSource>> {
+    utoipa_axum::router::OpenApiRouter::new()
+        .routes(utoipa_axum::routes!(acceptance, set_acceptance))
+        .routes(utoipa_axum::routes!(pending))
+        .routes(utoipa_axum::routes!(approve))
+        .routes(utoipa_axum::routes!(reject))
+}
+
+pub fn node_join_openapi() -> utoipa::openapi::OpenApi {
+    let mut document = node_join_routes().get_openapi().clone();
+    utoipa::Modify::modify(&SecurityAddon, &mut document);
+    document
 }

@@ -16,7 +16,9 @@
     "openapi:idp": "pnpm --filter \"./packages/idp-client\" run openapi",
     "openapi:setup": "pnpm --filter \"./packages/idp-client\" run openapi:setup",
     "openapi:management": "pnpm --filter \"./packages/management-client\" run openapi",
-    "openapi": "pnpm run openapi:idp && pnpm run openapi:management"
+    "openapi": "node scripts/generate-openapi-client.mjs",
+    "openapi:export": "cargo run -p unified-server --example export-openapi -- openapi",
+    "openapi:check": "node scripts/qualify-openapi-clients.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3",

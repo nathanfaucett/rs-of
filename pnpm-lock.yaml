@@ -232,7 +232,7 @@ importers:
         specifier: ^2.5.3
         version: 2.5.6
       '@openapitools/openapi-generator-cli':
-        specifier: ^2.41.0
+        specifier: 2.41.0
         version: 2.41.0(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)
       '@types/benchmark':
         specifier: ^2.1.5
@@ -281,7 +281,7 @@ importers:
         specifier: ^2.5.3
         version: 2.5.6
       '@openapitools/openapi-generator-cli':
-        specifier: ^2.41.0
+        specifier: 2.41.0
         version: 2.41.0(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)
       '@types/benchmark':
         specifier: ^2.1.5
@@ -417,7 +417,7 @@ importers:
         specifier: ^2.5.3
         version: 2.5.6
       '@openapitools/openapi-generator-cli':
-        specifier: '2.41'
+        specifier: 2.41.0
         version: 2.41.0(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)
       rolldown:
         specifier: ^1.1.5
