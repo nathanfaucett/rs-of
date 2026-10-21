@@ -1,6 +1,6 @@
 # HTTP route and consumer inventory
 
-Ticket 02 migration: project-owned production HTTP operations use generated clients; CI enforcement remains ticket 03. This inventory is navigation, not sole coverage evidence: state-free owner registration tests and generated SDK actual-router listener tests (including host-composed Node-join) also exercise these contracts.
+Project-owned production HTTP operations use generated clients. The shared developer/CI gate is documented in [API contracts](api.md#developer-and-ci-gate). This inventory is navigation, not sole coverage evidence: state-free owner registration tests and generated SDK actual-router listener tests (including host-composed Node-join) also exercise these contracts.
 
 ## Topologies
 
@@ -238,3 +238,11 @@ Normal owner contracts use verified complete owner bases (defaults append `/idp`
 - Red/green regressions cover request bounds before credential transmission, exact cleanup acknowledgement status, valid JWK variants against the actual IdP router, discovery refusing a foreign credential recipient, and built Storage consumer list/create/upgrade against actual routers.
 - Existing actual independent-Create/Join HTTPS fixtures exercise operation-bound registration, signed discovery, source enrollment, generated history handshakes, public import, and source-offline reopen. Existing service/local-owner and transport-failure tests retain the security boundaries.
 - Full-suite, feature-powerset, formatting/lint, reproducibility and complexity-check results and any bounded-run limitations are recorded in ticket 02. These checks do not imply native GUI, production deployment or cross-platform acceptance.
+
+## Ticket 03 final reconciliation
+
+Re-audited 128 method/path operations across the ten committed documents against production owner registration and the separately composed Setup, independent-owner, history and Node-join routers. The gate now runs the existing owner registration comparisons, complete independent Setup contract test and fresh-host publication/Setup security tests in addition to actual SDK listeners. Storage resources/socket and history use their existing runtime/contract adapters; the inventory is navigation, not an independent coverage framework.
+
+Re-inspected Rust request sends and browser/native fetch call sites across crates, the native app and packages. The remaining production HTTP send outside generated SDK transport is the Setup OPTIONS TLS probe. Other sends are test fixtures, channels, database execution or non-HTTP WebSocket messages. OIDC raw fetches remain only in explicit external-provider mode; project-owned applications opt into generated operations. Deep-link/native fetch is arbitrary transport. No additional undocumented operation or handwritten project-owned fallback was found. Runtime owner calls remain direct/current-state; publishing schemas adds no authorization or central/live dependency.
+
+The shared gate repeats both complete export and both-language generation, compares committed artifacts (including staged/untracked drift), builds all SDKs and real Rust consumers, loads every built JavaScript export, and reruns failure-preservation/transport/authorization qualification at the existing seams. See ticket 03 for exact fresh-run evidence and bounded validation limits; ticket 02 retains the broader local/offline and independent Join evidence without rerunning expensive full suites.

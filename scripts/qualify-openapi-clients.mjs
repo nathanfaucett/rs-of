@@ -32,6 +32,11 @@ function digest(directory) {
     visit(directory);
     return hash.digest("hex");
 }
+process.env.RUST_MIN_STACK ??= "67108864";
+assert.ok(
+    !process.env.OPENAPI_SPEC_FILE,
+    "qualification requires canonical documents",
+);
 const temp = mkdtempSync(path.join(tmpdir(), "of-openapi-export-"));
 try {
     for (const directory of ["first", "second"])
@@ -82,6 +87,16 @@ try {
                         assert.ok(doc.components.securitySchemes[scheme]);
             }
     }
+    run(pnpm, [
+        "--filter",
+        "@aicacia/idp-client",
+        "--filter",
+        "@aicacia/management-client",
+        "--filter",
+        "@aicacia/storage-client",
+        "run",
+        "build:esm",
+    ]);
     const artifacts = [
         "packages/idp-client/src",
         "packages/management-client/src",
@@ -91,12 +106,41 @@ try {
         ),
     ];
     const before = artifacts.map((dir) => digest(path.join(root, dir)));
-    run(process.execPath, ["scripts/generate-openapi-client.mjs"]);
-    assert.deepEqual(
-        artifacts.map((dir) => digest(path.join(root, dir))),
-        before,
-        "both SDK families must regenerate without drift",
+    for (let pass = 1; pass <= 2; pass++) {
+        run(process.execPath, ["scripts/generate-openapi-client.mjs"]);
+        assert.deepEqual(
+            artifacts.map((dir) => digest(path.join(root, dir))),
+            before,
+            "both SDK families must regenerate without drift (pass " +
+                pass +
+                ")",
+        );
+    }
+    run("git", [
+        "--no-pager",
+        "diff",
+        "--exit-code",
+        "HEAD",
+        "--",
+        "openapi",
+        ...artifacts,
+        "clients/rust/Cargo.toml",
+        "clients/rust/Cargo.lock",
+    ]);
+    const untracked = spawnSync(
+        "git",
+        [
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "--",
+            "openapi",
+            ...artifacts,
+        ],
+        { cwd: root, encoding: "utf8" },
     );
+    assert.equal(untracked.status, 0, untracked.stderr);
+    assert.equal(untracked.stdout, "", "generated artifacts must be committed");
     run(pnpm, [
         "--filter",
         "@aicacia/idp-client",
@@ -117,7 +161,38 @@ try {
             )
             .map((file) => `scripts/${file}`),
     ]);
-    run("cargo", ["test", "-p", "unified-server", "generated_"]);
+    run("cargo", [
+        "check",
+        "--locked",
+        "-p",
+        "unified-server",
+        "-p",
+        "storage-server",
+        "-p",
+        "idp-server",
+        "-p",
+        "management-server",
+    ]);
+    run("cargo", [
+        "test",
+        "-p",
+        "idp-server",
+        "-p",
+        "management-server",
+        "-p",
+        "storage-server",
+        "--lib",
+        "openapi_document_preserves_",
+    ]);
+    run("cargo", [
+        "test",
+        "-p",
+        "api",
+        "--lib",
+        "complete_routes_include_operation_bound_handoffs",
+    ]);
+    run("cargo", ["test", "-p", "unified-server", "--lib", "openapi"]);
+    run("cargo", ["test", "-p", "unified-server", "--lib", "generated_"]);
     run("cargo", [
         "test",
         "-p",

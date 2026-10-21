@@ -4,14 +4,16 @@ IdP Client is generated typescript client for the IdP OpenAPI specification. It 
 
 ## Unified setup subpath
 
-`@aicacia/idp-client/setup` is generated separately from the unified host's `/idp/setup/openapi.json`; it does not replace or extend the normal IdP owner inventory. From this package:
+`@aicacia/idp-client/setup` comes from the committed `openapi/idp-setup.json`, not a live server. It is separate from the normal owner inventory. From the repository root:
 
 ```sh
-OPENAPI_SPEC_URL=https://node.example/idp/setup/openapi.json pnpm run openapi:setup
-pnpm run build:esm
+pnpm openapi:export
+pnpm --filter @aicacia/idp-client run build:esm
+pnpm openapi
+pnpm openapi:check
 ```
 
-The existing generator validates the five implemented setup operations before replacing `src/setup`. Normal IdP regeneration preserves that subtree. Run generation commands serially; concurrent publication is not supported. Generated source must not be edited by hand.
+See [the shared workflow](../../docs/api.md#generated-clients) for prerequisites, all ten documents, Rust SDKs and CI. Never hand-edit derived contracts or SDKs. All output is staged and compiled before publication; run generation serially.
 
 Configure the SDK with the intended verified HTTPS **host origin**, not a service-prefixed base: generated operation paths already include `/idp`. Send the complete `Setup <code>` value as the API-key authorization value, keep it transient, and explicitly omit cookies, reject redirects and disable caching. A setup code is not an OAuth bearer token. Public status does not require it. `202` is acceptance, not completion; observe status. Intent lookup can return204 (unbound), and cancellation204 means a signal, not completed cleanup.
 

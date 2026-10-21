@@ -10,7 +10,8 @@ Implementation branches/worktrees are user-authorized. Ticket 01 work is isolate
 
 - [02: Generated HTTP consumers](issues/02-replace-handwritten-http-calls.md) — resolved. All inventoried project-owned production HTTP operations use generated implementations/builders; local owners, transport limits, renewal and domain checks remain. Offline qualification, actual owner/Join/Storage upgrade checks, 225 browser/package tests, 53 focused Rust tests, root feature powerset and library Clippy pass. Broader-suite, coverage and existing fixture/tooling limits are explicit in the ticket.
 
+- [03: Generation enforcement and workflow](issues/03-enforce-and-document-generation.md) — resolved. One shared developer/CI gate checks production registration, repeated canonical exports and both-language regeneration, committed drift, all built JavaScript exports and real Rust consumers. Final inventory/docs reconciled. Fresh gate, library Clippy and formatting pass; bounded powerset/complexity and inherited broader-suite limits are explicit in the ticket.
+
 ## Fog
 
-- Ticket 03 owns CI enforcement and final migration reconciliation.
 - Full workspace CRAP/coverage did not finish within the bounded runs; existing all-target test clippy lints remain.

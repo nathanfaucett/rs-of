@@ -67,7 +67,7 @@ Only IdP receives transient `password`. Each owner durably binds before returnin
 
 `GET /setup/independent/public` publishes operation-bound public registrations/facts, including IdP `facts.login_client`. The app correlates the operation, issuer and all target bases across every owner before navigating to sign-in: three unrelated ready flags are insufficient. Recovery tolerates genuinely unbound awaiting-choice owners and reads public evidence for already-ready/retired owners without sending their retired codes.
 
-Worker-only `/setup/independent/challenge` and `/setup/independent/register` exchange consumer credentials directly over verified HTTPS, with redirects disabled and outstanding exact single-use capability checks. They return no secret/challenge to the caller and are excluded from the browser SDK. Public metadata/nonce equality is not registration authority. See [worker design](setup-workers.md).
+Worker-only `/setup/independent/challenge` and `/setup/independent/register` exchange consumer credentials directly over verified HTTPS, with redirects disabled and outstanding exact single-use capability checks. They return no secret/challenge to the caller and are included in the shared contract and both SDK families; their availability in JavaScript grants no browser authority. Public metadata/nonce equality is not registration authority. See [worker design](setup-workers.md).
 
 Workers reuse owner-local handles for seed/serving, retain one actual Management Device/endpoint, and create no Storage resources or per-process Nodes/Devices. Fresh Create needs no peer/history/content exchange. Separate listeners/stores do not imply separate domain enrollment or copied endpoint keys.
 
@@ -133,11 +133,12 @@ Approval binds distinct Device, endpoint, owner, signer member/key and Installat
 
 ## Generated clients
 
-Rust route/schema definitions remain authoritative. `openapi/*.json` are deterministic derived contracts shared by both languages; never hand-edit contracts or generated output. See the [route and consumer inventory](openapi-inventory.md) for topology boundaries and the ticket 02 migration queue.
+Rust route/schema definitions remain authoritative. `openapi/*.json` are deterministic derived contracts shared by both languages; never hand-edit contracts or generated output. See the [route and consumer inventory](openapi-inventory.md) for topology boundaries and the reconciled consumer audit.
 
 ```sh
 pnpm install --frozen-lockfile --ignore-scripts
 cargo run -p unified-server --example export-openapi -- openapi
+pnpm --filter @aicacia/idp-client run build:esm
 pnpm openapi
 pnpm openapi:check
 pnpm --filter @aicacia/idp-client --filter @aicacia/management-client --filter @aicacia/storage-client run build:esm
@@ -148,7 +149,17 @@ cargo test -p unified-server generated_
 
 Export needs no listener, Installation, credentials or peer. Generation reads only committed local documents; `OPENAPI_SPEC_FILE` is an explicit local-file override for validation/failure tests. Java and OpenAPI Generator 7.25.0 (wrapper 2.41.0) are required. Initial tool/dependency acquisition may need network access; cached generation is offline. All output is staged, validated, formatted and compiled before replacing either SDK family; failed validation/generation/format/build preserves previous artifacts. Run generation serially.
 
-Rust crates live in the independent `clients/rust` workspace and have no server dependencies. Their configurations accept existing reqwest 0.12 clients and request/response byte bounds, preserving transport-policy injection without handwritten operations. Default clients use native-root verified HTTPS, no redirect or proxy, 5-second connect/15-second request deadlines, and 1 MiB bounds. Response limits apply incrementally, before unbounded buffering, to successes and errors. Ticket 02 must retain each caller's stricter limits, cached credentials and issuer/audience/type/scope/expiry/domain checks. Decoding does not authorize a call.
+### Developer and CI gate
+
+Run `pnpm openapi:check` from the repository root after committing the derived artifacts. CI runs exactly this command in its independent **OpenAPI contracts and SDKs** job (45-minute limit, read-only repository permission, no deployment credentials).
+
+The check exports all ten documents twice into temporary directories and compares bytes with each other and `openapi/`; builds SDK prerequisites for a clean checkout; regenerates all ten TypeScript/Rust SDK pairs twice and compares complete artifact trees; rejects tracked, staged or untracked artifact drift against HEAD; rebuilds ESM/declarations; loads every package export; runs the existing generation-failure and SDK tests; compiles real owner/Unified Rust consumers; and runs production owner registration, independent handoff, fresh-host publication, Setup security, generated transport/actual-owner and host-composed Node-join tests. A failure exits nonzero. Update Rust definitions/templates, export, regenerate, review and commit both contract and SDK changes, then rerun the gate. Do not fix drift by hand-editing generated artifacts or updating only one language.
+
+Prerequisites: Node from `.nvmrc` (26), pnpm 12.4.1, stable Rust with rustfmt, Java 21, and the pinned generator above. Install dependencies with the frozen lockfile; use `--offline` on pnpm install and `CARGO_NET_OFFLINE=true` after dependencies and the generator JAR are cached. No running deployment, provisioned Installation or peer is needed. Controlled loopback listeners are used by integration tests; this is not a network-isolation test. Initial package/crate/JAR acquisition needs network access. Each qualification subprocess is bounded to ten minutes; generator stages have three-minute bounds. Do not run generation/check commands concurrently.
+
+When adding a route, register/document it through the existing owner/host router seam, retain actual-router SDK tests and update the inventory with any new outbound consumer. Every project-owned operation, including service-only handoffs, must use generated operations/builders. Direct current-state in-process owner calls, arbitrary external-provider/native fetch transport, framework HEAD/OPTIONS and non-HTTP message protocols are separate boundaries, not fallback HTTP implementations. Completeness tests derive owner operations from production registration; the Markdown inventory is not the sole oracle. Contract checks do not prove every authorization scenario: retain local/offline, exact Setup/Join authorization and transport tests. No full native GUI, cross-platform or production acceptance is implied.
+
+Rust crates live in the independent `clients/rust` workspace and have no server dependencies. Their configurations accept existing reqwest 0.12 clients and request/response byte bounds, preserving transport-policy injection without handwritten operations. Default clients use native-root verified HTTPS, no redirect or proxy, 5-second connect/15-second request deadlines, and 1 MiB bounds. Response limits apply incrementally, before unbounded buffering, to successes and errors. Migrated consumers retain each caller's stricter limits, cached credentials and issuer/audience/type/scope/expiry/domain checks. Decoding does not authorize a call.
 
 TypeScript exports: normal owner roots (Storage's generated API is `@aicacia/storage-client/generated`); IdP `/setup`, `/independent`, `/owner`, `/admission`; Management `/node-join`, `/owner`; Storage `/owner`. Unified Setup and Node-join take verified **host origins** because paths include owner prefixes. Other documents use complete verified **owner bases**, including the configured mount prefix exactly once. Stable `https://localhost` defaults are placeholders, not discovered identities.
 
@@ -158,7 +169,7 @@ Independent challenge/register/history handoffs are included, not hidden browser
 
 Use explicit `idpBaseUrl` and `storageBaseUrl`, not legacy `baseUrl`/`audience` or origin fallback. Password-manager requires complete `PUBLIC_LIDP_BASE_URL` and `PUBLIC_STORAGE_BASE_URL`; `PUBLIC_STORAGE_AUDIENCE` is no longer consumed. Filesystem token exchange uses `resource=storage:filesystems`; catalog/socket paths append once.
 
-Storage exports resolve through `esm`/`types`. Build explicitly before publication (no automatic `prepack`) and distribute complete compiled generated dependencies. Workspace source tests do not prove installed exports; current inherited Storage export errors are recorded in [operations](operations.md#qualification-boundary).
+Storage exports resolve through `esm`/`types`. Build explicitly before publication (no automatic `prepack`) and distribute complete compiled generated dependencies. Workspace source tests alone do not prove package exports. The shared check builds ESM/declarations, loads every public JavaScript export, and exercises actual owner listeners; historical export failures are superseded by ticket 02 qualification.
 
 ## Source anchors
 
