@@ -13,7 +13,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 const root = path.resolve(import.meta.dirname, "..");
-const realPnpm = spawnSync("which", ["pnpm"], { encoding: "utf8" }).stdout.trim();
+const realPnpm = spawnSync("which", ["pnpm"], {
+    encoding: "utf8",
+}).stdout.trim();
 function digest() {
     const hash = createHash("sha256");
     function visit(dir) {
@@ -102,6 +104,102 @@ for (const failure of [
                 before,
                 "failed generation must not alter any prior SDK",
             );
+            assert.ok(
+                !readdirSync(root).some((name) =>
+                    name.startsWith(".openapi-generation-"),
+                ),
+            );
+        } finally {
+            rmSync(temp, { recursive: true, force: true });
+        }
+    });
+}
+
+for (const failure of ["check", "fetch"]) {
+    test(`cold SDK cache fetch precedes offline checking and preserves artifacts on ${failure} failure`, () => {
+        const temp = mkdtempSync(path.join(tmpdir(), "of-generation-cold-"));
+        const before = digest();
+        try {
+            const log = path.join(temp, "cargo.jsonl");
+            const pnpm = path.join(temp, "pnpm");
+            writeFileSync(
+                pnpm,
+                `#!/usr/bin/env node
+const {cpSync} = require("node:fs");
+const path = require("node:path");
+const args = process.argv.slice(2);
+if (args.includes("generate")) {
+    const language = args[args.indexOf("-g") + 1];
+    cpSync(path.join(${JSON.stringify(root)}, language === "rust" ? "clients/rust/idp" : "packages/idp-client/src"), args[args.indexOf("-o") + 1], {recursive: true});
+}
+`,
+            );
+            const cargo = path.join(temp, "cargo");
+            writeFileSync(
+                cargo,
+                `#!/usr/bin/env node
+const {appendFileSync, readFileSync} = require("node:fs");
+const path = require("node:path");
+const args = process.argv.slice(2);
+const manifest = args[args.indexOf("--manifest-path") + 1];
+const lock = readFileSync(path.join(path.dirname(manifest), "Cargo.lock"), "utf8");
+appendFileSync(${JSON.stringify(log)}, JSON.stringify({args, lock}) + String.fromCharCode(10));
+if (args[0] === ${JSON.stringify(failure)}) process.exit(39);
+`,
+            );
+            chmodSync(pnpm, 0o755);
+            chmodSync(cargo, 0o755);
+            const result = spawnSync(
+                process.execPath,
+                [path.join(root, "scripts/generate-openapi-client.mjs"), "idp"],
+                {
+                    cwd: root,
+                    env: {
+                        ...process.env,
+                        npm_execpath: pnpm,
+                        PATH: temp + path.delimiter + process.env.PATH,
+                    },
+                    encoding: "utf8",
+                    timeout: 10000,
+                },
+            );
+            assert.match(result.stderr, /cargo failed \(39\)/);
+            const calls = readFileSync(log, "utf8")
+                .trim()
+                .split("\n")
+                .map((line) => JSON.parse(line));
+            const fetch = calls.findIndex((call) => call.args[0] === "fetch");
+            const check = calls.findIndex((call) => call.args[0] === "check");
+            assert.ok(
+                fetch >= 0,
+                "fetch SDK dependencies before offline checking on a cold cache",
+            );
+            assert.equal(
+                calls[fetch].lock,
+                readFileSync(
+                    path.join(root, "clients/rust/Cargo.lock"),
+                    "utf8",
+                ),
+            );
+            assert.ok(calls[fetch].args.includes("--locked"));
+            if (failure === "fetch") {
+                assert.equal(
+                    check,
+                    -1,
+                    "failed acquisition must stop before checking or publication",
+                );
+            } else {
+                assert.ok(fetch < check);
+                assert.deepEqual(calls[fetch].args, [
+                    "fetch",
+                    "--manifest-path",
+                    calls[check].args[2],
+                    "--locked",
+                ]);
+                assert.ok(calls[check].args.includes("--offline"));
+                assert.ok(calls[check].args.includes("--locked"));
+            }
+            assert.equal(digest(), before);
             assert.ok(
                 !readdirSync(root).some((name) =>
                     name.startsWith(".openapi-generation-"),

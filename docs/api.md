@@ -147,7 +147,7 @@ node --test scripts/generate-openapi-client.test.mjs scripts/generated-*.test.mj
 cargo test -p unified-server generated_
 ```
 
-Export needs no listener, Installation, credentials or peer. Generation reads only committed local documents; `OPENAPI_SPEC_FILE` is an explicit local-file override for validation/failure tests. Java and OpenAPI Generator 7.25.0 (wrapper 2.41.0) are required. Initial tool/dependency acquisition may need network access; cached generation is offline. All output is staged, validated, formatted and compiled before replacing either SDK family; failed validation/generation/format/build preserves previous artifacts. Run generation serially.
+Export needs no listener, Installation, credentials or peer. Generation reads only committed local documents; `OPENAPI_SPEC_FILE` is an explicit local-file override for validation/failure tests. Java and OpenAPI Generator 7.25.0 (wrapper 2.41.0) are required. Initial tool/dependency acquisition may need network access; cached generation is offline. Before staged offline compilation, the generator fetches the SDK workspace dependencies with its own lockfile (`cargo fetch --locked`), independently of the root workspace cache. All output is staged, validated, formatted and compiled before replacing either SDK family; failed validation/generation/format/build preserves previous artifacts. Run generation serially.
 
 ### Developer and CI gate
 

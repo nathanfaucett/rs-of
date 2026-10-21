@@ -344,6 +344,12 @@ try {
         "--all",
     ]);
     run("cargo", [
+        "fetch",
+        "--manifest-path",
+        path.join(rust, "Cargo.toml"),
+        "--locked",
+    ]);
+    run("cargo", [
         "check",
         "--manifest-path",
         path.join(rust, "Cargo.toml"),
