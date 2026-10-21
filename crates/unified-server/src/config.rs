@@ -78,8 +78,163 @@ impl TryFrom<&Path> for UnifiedConfig {
 
 #[cfg(test)]
 mod tests {
+    use std::{fs, path::Path};
+
     use super::UnifiedConfig;
-    use std::fs;
+
+    #[test]
+    fn default_unified_config_loads_without_relationship_secrets() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/unified/config.yaml");
+        let config = UnifiedConfig::try_from(path.as_path()).expect("default unified config");
+        assert_eq!(config.listen_addr.to_string(), "127.0.0.1:3000");
+        assert_eq!(
+            config.endpoint_data_dir,
+            Path::new("./data/unified/endpoint")
+        );
+        assert_eq!(config.idp.data_dir, "./data/unified/idp");
+        assert_eq!(config.management.data_dir, "./data/unified/management");
+        assert_eq!(config.storage.data_dir, "./data/unified/storage");
+        assert_eq!(config.idp.ui_public_uri, "https://of.localhost:1355");
+        assert_eq!(
+            config.idp.api_public_uri,
+            "https://unified.localhost:1355/idp"
+        );
+        assert_eq!(
+            config.management.api_public_uri,
+            "https://unified.localhost:1355/management"
+        );
+        assert_eq!(
+            config.storage.api_public_uri,
+            "https://unified.localhost:1355/storage"
+        );
+        assert_eq!(config.idp_audience(), config.idp.api_public_uri);
+        assert_eq!(
+            config.management.storage_audience,
+            config.storage.api_public_uri
+        );
+        assert!(config.idp.oauth2.issuer.is_empty());
+        assert!(config.idp.oauth2.local_signer.is_none());
+        assert!(config.idp.management_data_dir.is_none());
+        assert!(config.idp.management_permissions.is_none());
+        assert!(config.management.expected_issuer.is_empty());
+        assert!(
+            config
+                .management
+                .idp_permission_evaluator_client_id
+                .is_none()
+        );
+        assert!(config.storage.idp_issuer_uri.is_empty());
+        assert!(config.storage.idp_oauth_client_id.is_none());
+        assert!(config.storage.idp_oauth_client_secret.is_none());
+        assert!(config.storage.management_oauth_client_id.is_none());
+        assert!(config.storage.management_oauth_client_secret.is_none());
+        assert!(config.storage.management_endpoint_id.is_none());
+    }
+
+    #[test]
+    fn default_standalone_configs_load_without_relationship_secrets() {
+        let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config");
+        let idp = idp_server::AppConfig::try_from(directory.join("idp/config.yaml").as_path())
+            .expect("default IdP config");
+        let management = management_server::AppConfig::try_from(
+            directory.join("management/config.yaml").as_path(),
+        )
+        .expect("default Management config");
+        let storage =
+            storage_server::AppConfig::try_from(directory.join("storage/config.yaml").as_path())
+                .expect("default Storage config");
+        for (name, server, data_dir, public_uri, port) in [
+            ("idp", &idp.server, &idp.data_dir, &idp.api_public_uri, 3000),
+            (
+                "management",
+                &management.server,
+                &management.data_dir,
+                &management.api_public_uri,
+                3001,
+            ),
+            (
+                "storage",
+                &storage.server,
+                &storage.data_dir,
+                &storage.api_public_uri,
+                3002,
+            ),
+        ] {
+            assert_eq!(server.host.to_string(), "127.0.0.1");
+            assert_eq!(server.port, port);
+            assert_eq!(server.prefix(), "");
+            assert_eq!(
+                server.setup_ui_origin.as_deref(),
+                Some("https://of.localhost:1355")
+            );
+            assert_eq!(data_dir, &format!("./data/{name}"));
+            assert_eq!(public_uri, &format!("https://{name}-api.localhost:1355"));
+        }
+        assert_eq!(idp.ui_public_uri, "https://of.localhost:1355");
+        assert!(idp.oauth2.issuer.is_empty());
+        assert!(idp.oauth2.local_signer.is_none());
+        assert!(idp.management_data_dir.is_none());
+        assert!(idp.management_permissions.is_none());
+        assert!(management.expected_issuer.is_empty());
+        assert!(management.idp_permission_evaluator_client_id.is_none());
+        assert!(storage.idp_issuer_uri.is_empty());
+        assert!(storage.idp_oauth_client_id.is_none());
+        assert!(storage.idp_oauth_client_secret.is_none());
+        assert!(storage.management_oauth_client_id.is_none());
+        assert!(storage.management_oauth_client_secret.is_none());
+        assert!(storage.management_endpoint_id.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn default_unified_config_supports_fresh_explicit_bootstrap_and_retained_issuer() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/unified/config.yaml");
+        let mut config = UnifiedConfig::try_from(path.as_path()).expect("default unified config");
+        let root = std::env::temp_dir().join(format!(
+            "default-unified-bootstrap-{}",
+            idp_model::model::Id::now_v7()
+        ));
+        config.endpoint_data_dir = root.join(&config.endpoint_data_dir);
+        for data_dir in [
+            &mut config.idp.data_dir,
+            &mut config.management.data_dir,
+            &mut config.storage.data_dir,
+        ] {
+            *data_dir = root.join(&*data_dir).to_string_lossy().into_owned();
+        }
+        let host = crate::BootstrapConfig::create_explicit_http(config.clone())
+            .expect("fresh default explicit bootstrap");
+        assert!(host.purpose() == crate::BootstrapPurpose::AwaitingChoice);
+        assert!(host.config().idp.oauth2.issuer.is_empty());
+        let setup = crate::SetupHost::create_http(host).expect("default proxy setup host");
+        assert!(setup.admission_path().is_file());
+        drop(setup);
+        let mut host = crate::BootstrapConfig::open_explicit(config.clone())
+            .expect("reopen default neutral host");
+        assert!(host.config().idp.oauth2.issuer.is_empty());
+        host.select_create().expect("app chooses Create");
+        let issuer = host.config().idp.oauth2.issuer;
+        assert!(!issuer.is_empty());
+        assert_ne!(issuer, config.idp.api_public_uri);
+        drop(host);
+        let host = crate::BootstrapConfig::open_explicit(config.clone())
+            .expect("reopen selected installation");
+        assert_eq!(host.config().idp.oauth2.issuer, issuer);
+        assert!(host.purpose() == crate::BootstrapPurpose::Create);
+        for directory in [
+            &config.endpoint_data_dir,
+            Path::new(&config.idp.data_dir),
+            Path::new(&config.management.data_dir),
+            Path::new(&config.storage.data_dir),
+        ] {
+            assert!(
+                !directory.exists(),
+                "bootstrap must not create domain state"
+            );
+        }
+        drop(host);
+        fs::remove_dir_all(root).expect("isolated bootstrap cleanup");
+    }
 
     #[test]
     fn bundled_config_needs_no_relationship_secrets_and_refuses_removed_configuration() {
@@ -113,8 +268,6 @@ mod tests {
         }
         fs::remove_dir_all(root).expect("isolated cleanup");
     }
-
-    use std::path::Path;
 }
 
 #[cfg(test)]

@@ -18,10 +18,10 @@ help:
     @printf "  clean          Remove build artifacts\n"
     @printf "  doc            Build workspace documentation\n"
     @printf "  boundary-check Check server dependency boundaries\n"
-    @printf "  idp CONFIG     Run the standalone IdP server\n"
-    @printf "  management CONFIG Run the standalone Management server\n"
-    @printf "  storage CONFIG Run the standalone Storage server\n"
-    @printf "  unified CONFIG Run the unified server\n"
+    @printf "  idp [CONFIG]   Run the standalone IdP server\n"
+    @printf "  management [CONFIG] Run the standalone Management server\n"
+    @printf "  storage [CONFIG] Run the standalone Storage server\n"
+    @printf "  unified [CONFIG] Run the unified server\n"
 
 build:
     cargo build --workspace
@@ -65,17 +65,17 @@ doc:
 boundary-check:
     python3 scripts/check_server_dependencies.py
 
-idp config:
-    cargo run -p idp-server --features cli --bin idp-server -- --config {{ config }}
+idp config="config/idp/config.yaml" *args:
+    cargo run -p idp-server --features cli --bin idp-server -- --config "{{ config }}" {{ args }}
 
-management config:
-    cargo run -p management-server --features cli --bin management-server -- --config {{ config }}
+management config="config/management/config.yaml" *args:
+    cargo run -p management-server --features cli --bin management-server -- --config "{{ config }}" {{ args }}
 
-storage config:
-    cargo run -p storage-server --features cli --bin storage-server -- --config {{ config }}
+storage config="config/storage/config.yaml" *args:
+    cargo run -p storage-server --features cli --bin storage-server -- --config "{{ config }}" {{ args }}
 
-unified *args:
-    UNIFIED__IDP__UI_PUBLIC_URI="${UNIFIED__IDP__UI_PUBLIC_URI-$(pnpm exec portless get of)}" PORTLESS_APP_PORT=${PORT:-3000} pnpm exec portless unified cargo run -p unified-server --features cli --bin unified-server -- {{ args }}
+unified config="config/unified/config.yaml" *args:
+    PORTLESS_APP_PORT=${PORT:-3000} pnpm exec portless unified cargo run -p unified-server --features cli --bin unified-server -- --config "{{ config }}" {{ args }}
 
 openapi-export:
     cargo run -p unified-server --example export-openapi -- openapi

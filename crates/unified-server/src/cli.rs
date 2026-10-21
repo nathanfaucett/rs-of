@@ -173,10 +173,7 @@ pub async fn run() -> io::Result<()> {
     } else if config.listen_addr.port() == 0 {
         config.listen_addr.set_port(3000);
     }
-    set_ui_origin(
-        &mut config,
-        std::env::var("UNIFIED__IDP__UI_PUBLIC_URI").ok().as_deref(),
-    )?;
+
     if let Some(base) = public_base {
         crate::setup_host::allowed_origin(&base)?;
         if args.config.is_some() {
@@ -453,14 +450,6 @@ fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, message)
 }
 
-fn set_ui_origin(config: &mut UnifiedConfig, origin: Option<&str>) -> io::Result<()> {
-    if let Some(origin) = origin {
-        crate::setup_host::allowed_origin(origin)?;
-        config.idp.ui_public_uri = origin.trim_end_matches('/').to_owned();
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::UnifiedArgs;
@@ -523,8 +512,7 @@ mod tests {
         let metadata = std::fs::read(root.join("host.json")).expect("retained metadata");
         let mut host = crate::BootstrapConfig::open(&root).expect("reopen retained host");
         let mut config = host.config();
-        super::set_ui_origin(&mut config, Some("https://of.localhost:1355"))
-            .expect("UI origin override");
+        config.idp.ui_public_uri = "https://of.localhost:1355".into();
         config.listen_addr.set_port(49152);
         assert_eq!(config.idp.api_public_uri, original.idp.api_public_uri);
         assert_eq!(
@@ -605,32 +593,6 @@ mod tests {
         assert!(!crate::LocalTls::directory(&original).exists());
         drop(worker);
         std::fs::remove_dir_all(root).expect("isolated cleanup");
-    }
-
-    #[test]
-    fn ui_origin_override_is_optional_and_rejects_non_origins() {
-        let root = std::env::temp_dir().join("unified-invalid-proxy-origin");
-        let mut config = crate::config::test_config(&root);
-        let original = config.idp.ui_public_uri.clone();
-        super::set_ui_origin(&mut config, None).expect("keep configured UI origin");
-        assert_eq!(config.idp.ui_public_uri, original);
-        for value in [
-            "",
-            "invalid",
-            "http://evil.invalid",
-            "https://node.example/",
-            "https://node.example//",
-            "https://node.example#fragment",
-            "https://user:password@node.example",
-            "https://node.example/path",
-            "https://node.example?query=1",
-        ] {
-            assert!(
-                super::set_ui_origin(&mut config, Some(value)).is_err(),
-                "{value}"
-            );
-            assert_eq!(config.idp.ui_public_uri, original);
-        }
     }
 
     #[test]

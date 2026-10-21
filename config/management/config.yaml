@@ -1,0 +1,6 @@
+server:
+  host: 127.0.0.1
+  port: 3001
+  setup_ui_origin: https://of.localhost:1355
+data_dir: ./data/management
+api_public_uri: https://management-api.localhost:1355

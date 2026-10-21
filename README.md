@@ -39,6 +39,12 @@ Approved devices synchronize explicitly selected resources peer-to-peer over aut
 
 ## App-driven Node setup
 
+Start `just unified`, or run `just idp`, `just management`, and `just storage`
+for separate owners. Recipes load their defaults from `config/<server>/config.yaml`;
+pass another config path as the first argument. URLs, app origin, and separate
+persistent data roots are declared in those files. See [default configurations](config/README.md)
+for routing, setup, and path details.
+
 Start the intended APIs, open the existing app and choose Create or Join. Web works without Tauri with unified or independently deployed owners; bundled desktop uses the same HTTPS setup worker. APIs do not serve UI assets. Retrieve the host-generated Setup code through protected host/deployment management; independent owners require separate codes sent only to their exact bases. Only IdP Create receives the transient administrator password. Codes/passwords are not persisted in browser storage; infrastructure secrets never pass through the browser.
 
 OS trust installation and verified HTTPS are required: desktop coordinates explicit native consent, while web deployments arrange trust on relevant hosts/clients. Browsers cannot install it; certificate-warning bypasses are not supported. A durable 202 accepts host-owned work, not completion. Observe status, recover/retry the exact retained intent or explicitly cancel; closing the page does not cancel. Missing/corrupt state refuses without silent repair. Completed Nodes reopen offline without reseeding. Fresh Create performs no peer/history/content sync and leaves Storage/selection empty; Join imports only approved public identity/policy after ordinary source User approval.
@@ -67,7 +73,7 @@ Both create and join automatically retain a public operator-login Client with no
 
 The host derives and retains settings, uses owner-local calls without bundled confidential service credentials, and retains a unique logical Canonical Issuer separate from its local HTTPS API address. Join retains the authenticated Installation issuer. Both create and join require OS CA installation, elevation/trust consent and production HTTPS verification; there is no plaintext/browser-only or skip-install fallback. Setup exits after completion; `serve` reopens existing state only. `--data-dir` and explicit `--config` are optional alternatives, not prerequisites.
 
-See [Node operations](docs/operations.md#automatic-unified-cli-bootstrap) and the [bootstrap reference](config/unified/README.md) for username/password examples, approval, retry, retention and qualification limits. Desktop fresh create also derives a unique retained issuer and join uses the shared authenticated discovery helper; manual issuer UI/input is removed. The current CLI is Unix-only; documented code paths and historical Ubuntu results are not new native installation or universal platform acceptance claims.
+See [Node operations](docs/operations.md#automatic-unified-cli-bootstrap) and the [configuration reference](config/README.md) for username/password examples, approval, retry, retention and qualification limits. Desktop fresh create also derives a unique retained issuer and join uses the shared authenticated discovery helper; manual issuer UI/input is removed. The current CLI is Unix-only; documented code paths and historical Ubuntu results are not new native installation or universal platform acceptance claims.
 
 ## Applications
 
