@@ -70,6 +70,14 @@ export function IndependentJoinApprovalFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): IndependentJoinApproval {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some(
+            (key) => !["owner_subject", "request", "signature"].includes(key),
+        )
+    )
+        throw new Error("Unexpected IndependentJoinApproval field");
     if (json == null) {
         return json;
     }

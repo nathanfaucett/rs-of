@@ -68,6 +68,14 @@ export function NodeJoinApprovalFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): NodeJoinApproval {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some(
+            (key) => !["owner_subject", "request", "signature"].includes(key),
+        )
+    )
+        throw new Error("Unexpected NodeJoinApproval field");
     if (json == null) {
         return json;
     }

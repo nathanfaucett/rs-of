@@ -75,6 +75,23 @@ export function IndependentPeerFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): IndependentPeer {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some(
+            (key) =>
+                ![
+                    "address",
+                    "endpoint",
+                    "idp",
+                    "issuer",
+                    "management",
+                    "nonce",
+                    "signature",
+                ].includes(key),
+        )
+    )
+        throw new Error("Unexpected IndependentPeer field");
     if (json == null) {
         return json;
     }

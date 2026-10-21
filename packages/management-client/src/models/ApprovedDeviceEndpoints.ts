@@ -46,6 +46,12 @@ export function ApprovedDeviceEndpointsFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): ApprovedDeviceEndpoints {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some((key) => !["endpointIds"].includes(key))
+    )
+        throw new Error("Unexpected ApprovedDeviceEndpoints field");
     if (json == null) {
         return json;
     }

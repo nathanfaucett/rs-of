@@ -1,3 +1,8 @@
+import { Configuration, DefaultApi } from "@aicacia/idp-client";
+import {
+  Configuration as SetupConfiguration,
+  DefaultApi as SetupApi,
+} from "@aicacia/idp-client/setup";
 import { createStorage } from "@aicacia/svelte-headless";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
@@ -15,19 +20,20 @@ function wait(delayMs: number): Promise<void> {
 }
 
 async function isLocalhostListenerAvailable(baseUrl: string): Promise<boolean> {
-  for (const path of ["/idp/health", "/idp/setup/status"]) {
-    try {
-      const response = await fetch(`${baseUrl}${path}`);
-      if (response.ok) {
-        if (path === "/idp/health") return true;
-        const status = await response.json();
-        return status?.stage === "installation";
-      }
-    } catch {
-      continue;
-    }
+  try {
+    await new DefaultApi(
+      new Configuration({ basePath: `${baseUrl}/idp`, fetchApi: fetch }),
+    ).healthRaw();
+    return true;
+  } catch {}
+  try {
+    const status = await new SetupApi(
+      new SetupConfiguration({ basePath: baseUrl, fetchApi: fetch }),
+    ).status();
+    return status?.stage === "installation";
+  } catch {
+    return false;
   }
-  return false;
 }
 
 export function getLocalhostBaseUrlCached(): string | null {

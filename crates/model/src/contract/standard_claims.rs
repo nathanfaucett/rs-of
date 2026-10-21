@@ -36,5 +36,6 @@ pub struct StandardClaims {
         serialize_with = "crate::space_delimited::serialize",
         deserialize_with = "crate::space_delimited::deserialize"
     )]
+    #[cfg_attr(feature = "utoipa", schema(value_type = String))]
     pub scope: Vec<String>,
 }

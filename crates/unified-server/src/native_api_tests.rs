@@ -1068,6 +1068,13 @@ async fn generated_rust_and_built_javascript_use_actual_owner_routes() {
         .await
         .expect("generated OAuth form accepted by actual handler");
     assert!(!token.access_token.is_empty());
+    let jwks = default_api::jwks(&configuration)
+        .await
+        .expect("generated JWKS decodes actual signing key variants");
+    assert!(
+        !jwks.keys.is_empty(),
+        "actual IdP publishes its signing key"
+    );
     let denied = of_idp_client::apis::super_routes_oauth2_introspect_api::introspect(
         &configuration,
         of_idp_client::apis::super_routes_oauth2_introspect_api::IntrospectParams {

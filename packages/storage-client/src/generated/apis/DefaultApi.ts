@@ -329,7 +329,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
             );
         }
 
-        let urlPath = `/`;
+        let urlPath = ``;
 
         return {
             path: urlPath,

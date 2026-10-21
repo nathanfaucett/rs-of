@@ -175,3 +175,38 @@ test("getAccessToken refreshes an expired access token", async () => {
   expect(requestBody?.get("refresh_token")).toBe("refresh-token");
   expect(requestBody?.get("client_id")).toBe("client-id");
 });
+
+test("project-owned discovery cannot redirect refresh credentials to a foreign token endpoint", async () => {
+  const fetch = vi
+    .fn()
+    .mockResolvedValueOnce(
+      Response.json({
+        ...createOidcConfiguration(),
+        token_endpoint: "https://foreign.example/oauth/token",
+      }),
+    )
+    .mockResolvedValue(
+      Response.json({
+        access_token: "unsafe",
+        token_type: "Bearer",
+        expires_in: 60,
+      }),
+    );
+  const client = new OidcClient({
+    projectOwned: true,
+    storage: "memory",
+    fetch,
+    clientConfig: {
+      authority: "https://issuer.example",
+      clientId: "client-id",
+      registration: { redirectUris: ["https://app.example/callback"] },
+    },
+  });
+  client.setToken({
+    access_token: "expired",
+    access_token_expires_at: 1,
+    refresh_token: "refresh-secret",
+  });
+  await expect(client.getAccessToken()).rejects.toThrow("owner endpoint");
+  expect(fetch).toHaveBeenCalledTimes(1);
+});

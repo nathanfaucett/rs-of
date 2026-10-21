@@ -17,6 +17,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
+# Generated HTTP operations
+of-idp-client = { path = "../../../clients/rust/idp", default-features = false }
+of-idp-setup-client = { path = "../../../clients/rust/idp-setup", default-features = false }
+of-management-client = { path = "../../../clients/rust/management", default-features = false }
+
 # HTTP
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
 reqwest = { version = "0.12", default-features = false, features = [

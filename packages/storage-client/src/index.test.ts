@@ -74,7 +74,9 @@ describe("StorageClient", () => {
             await expect(
                 client.openSocket("01900000-0000-7000-8000-000000000001"),
             ).rejects.toThrow(message);
-            expect(fetch.mock.calls.map(([url]) => url.href)).toEqual(
+            expect(
+                fetch.mock.calls.map(([url]) => new URL(String(url)).href),
+            ).toEqual(
                 subject
                     ? [
                           "https://idp.example/idp/oauth2/token",
@@ -155,7 +157,9 @@ describe("StorageClient", () => {
                 id: "filesystem-id",
                 name: "Vault",
             });
-            expect(fetch.mock.calls.map(([url]) => url.href)).toEqual([
+            expect(
+                fetch.mock.calls.map(([url]) => new URL(String(url)).href),
+            ).toEqual([
                 "https://idp.example/deployment/idp/oauth2/token",
                 "https://storage.example/deployment/storage/filesystems",
             ]);
@@ -193,8 +197,8 @@ describe("StorageClient", () => {
         expect((socket.socket as unknown as TestSocket).url).toBe(
             "wss://storage.example/storage?access_token=socket-token&filesystem_id=01900000-0000-7000-8000-000000000001",
         );
-        expect(fetch.mock.calls[0]?.[0]).toEqual(
-            new URL("https://idp.example/idp/oauth2/token"),
+        expect(String(fetch.mock.calls[0]?.[0])).toBe(
+            "https://idp.example/idp/oauth2/token",
         );
         const body = fetch.mock.calls[0]?.[1]?.body as URLSearchParams;
         expect(body.get("resource")).toBe("storage:filesystems");
@@ -254,8 +258,8 @@ describe("StorageClient", () => {
             { id: "filesystem-id", name: "Vault" },
         ]);
         const exchange = fetch.mock.calls[0];
-        expect(exchange?.[0]).toEqual(
-            new URL("https://idp.example/idp/oauth2/token"),
+        expect(String(exchange?.[0])).toBe(
+            "https://idp.example/idp/oauth2/token",
         );
         const body = exchange?.[1]?.body as URLSearchParams;
         expect(body.get("grant_type")).toBe(
@@ -268,8 +272,8 @@ describe("StorageClient", () => {
         expect(body.get("subject_token_type")).toBe(
             "urn:ietf:params:oauth:token-type:access_token",
         );
-        expect(fetch.mock.calls[1]?.[0]).toEqual(
-            new URL("https://storage.example/storage/filesystems"),
+        expect(String(fetch.mock.calls[1]?.[0])).toBe(
+            "https://storage.example/storage/filesystems",
         );
         expect(JSON.parse(body.get("authorization_details") ?? "null")).toEqual(
             [{ type: "storage", actions: ["read"] }],

@@ -578,17 +578,27 @@ async fn approve_work(source: &IndependentJoinSource, job: ApprovalWork) -> Resu
         .await
         .map_err(|_| StatusCode::FORBIDDEN)?;
 
-    let response = LocalTls::verification_client()
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-        .post(format!("{}/node-joins/enroll", source.idp))
-        .bearer_auth(bearer(&headers).map_err(|_| StatusCode::UNAUTHORIZED)?)
-        .json(&approval)
-        .send()
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    if !response.status().is_success() {
-        return Err(StatusCode::FORBIDDEN);
-    }
+    let configuration = of_independent_idp_client::apis::configuration::Configuration {
+        base_path: source.idp.clone(),
+        client: LocalTls::verification_client().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+        bearer_access_token: Some(
+            bearer(&headers)
+                .map_err(|_| StatusCode::UNAUTHORIZED)?
+                .to_owned(),
+        ),
+        ..Default::default()
+    };
+    of_independent_idp_client::apis::default_api::enroll_node_join(
+        &configuration,
+        of_independent_idp_client::apis::default_api::EnrollNodeJoinParams {
+            independent_join_approval: serde_json::from_value(
+                serde_json::to_value(&approval).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+            )
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+        },
+    )
+    .await
+    .map_err(|_| StatusCode::FORBIDDEN)?;
     if source
         .actor(
             &headers,

@@ -77,7 +77,7 @@ pub async fn enroll_replica_signer(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 201 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -116,7 +116,7 @@ pub async fn revoke_replica_signer(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -154,7 +154,7 @@ pub async fn rotate_replica_signer(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;

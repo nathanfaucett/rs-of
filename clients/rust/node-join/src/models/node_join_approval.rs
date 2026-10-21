@@ -12,6 +12,7 @@ use crate::models;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NodeJoinApproval {
     #[serde(rename = "owner_subject")]
     pub owner_subject: uuid::Uuid,

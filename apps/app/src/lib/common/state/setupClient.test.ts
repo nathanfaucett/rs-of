@@ -324,11 +324,14 @@ it("reads web setup stage through the configured API without native IPC", async 
   const { getSetupStage } = await import("./setupClient.svelte");
   expect(await getSetupStage()).toBe("installation");
   expect(host.invoke).not.toHaveBeenCalled();
-  expect(fetchApi).toHaveBeenCalledWith("https://node.test/idp/setup/status", {
-    credentials: "omit",
-    redirect: "error",
-    cache: "no-store",
-  });
+  expect(fetchApi).toHaveBeenCalledWith(
+    "https://node.test/idp/setup/status",
+    expect.objectContaining({
+      credentials: "omit",
+      redirect: "error",
+      cache: "no-store",
+    }),
+  );
 });
 
 it("web sign-in discovers the retained public login Client rather than hard-coded idp-web", async () => {
@@ -350,11 +353,14 @@ it("web sign-in discovers the retained public login Client rather than hard-code
   expect(await ensureOidcClientId()).toBe(
     "01234567-89ab-4def-8123-456789abcdef",
   );
-  expect(fetchApi).toHaveBeenCalledWith("https://node.test/idp/setup/status", {
-    credentials: "omit",
-    redirect: "error",
-    cache: "no-store",
-  });
+  expect(fetchApi).toHaveBeenCalledWith(
+    "https://node.test/idp/setup/status",
+    expect.objectContaining({
+      credentials: "omit",
+      redirect: "error",
+      cache: "no-store",
+    }),
+  );
   expect(host.invoke).not.toHaveBeenCalled();
   expect(entries.size).toBe(0);
 });
@@ -922,7 +928,11 @@ it.each(["creating", "unfinished"] as const)(
     ]);
     expect(fetchApi).toHaveBeenCalledWith(
       "https://node.test/idp/setup/status",
-      { credentials: "omit", redirect: "error", cache: "no-store" },
+      expect.objectContaining({
+        credentials: "omit",
+        redirect: "error",
+        cache: "no-store",
+      }),
     );
     expect(session.intent).toEqual(retained);
     expect(session.status?.state).toBe(state);

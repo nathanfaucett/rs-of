@@ -65,6 +65,15 @@ export function PermissionAuditIdentityFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): PermissionAuditIdentity {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some(
+            (key) =>
+                !["actor", "serviceClientId", "serviceSubject"].includes(key),
+        )
+    )
+        throw new Error("Unexpected PermissionAuditIdentity field");
     if (json == null) {
         return json;
     }

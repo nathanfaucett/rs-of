@@ -66,19 +66,22 @@ impl IndependentPeer {
     pub async fn discover(choice: &str) -> io::Result<Self> {
         let (base, _) = Self::choice(choice)?;
         let nonce = crate::independent_exchange::random_capability()?;
-        let response = LocalTls::verification_client()?
-            .post(format!("{base}/node-joins/discover"))
-            .json(&serde_json::json!({"nonce":nonce}))
-            .send()
-            .await
-            .map_err(|_| io::Error::other("trusted peer discovery unavailable"))?;
-        if !response.status().is_success() {
-            return Err(io::Error::other("trusted peer is not accepting Join"));
-        }
-        let peer: Self = response
-            .json()
-            .await
-            .map_err(|_| io::Error::other("invalid peer discovery"))?;
+        let configuration = of_independent_management_client::apis::configuration::Configuration {
+            base_path: base.to_owned(),
+            client: LocalTls::verification_client()?,
+            ..Default::default()
+        };
+        let response = of_independent_management_client::apis::default_api::discover(
+            &configuration,
+            of_independent_management_client::apis::default_api::DiscoverParams {
+                discovery_request: of_independent_management_client::models::DiscoveryRequest {
+                    nonce: nonce.clone(),
+                },
+            },
+        )
+        .await
+        .map_err(|_| io::Error::other("trusted peer discovery unavailable or Join denied"))?;
+        let peer: Self = serde_json::from_value(serde_json::to_value(response)?)?;
         peer.verify(choice, &nonce)?;
         Ok(peer)
     }

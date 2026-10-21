@@ -5,12 +5,20 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use idp_model::contract::{IntrospectionRequest, IntrospectionResponse};
+use idp_model::contract::IntrospectionResponse;
 #[cfg(feature = "network")]
 use iroh::EndpointId;
 use model::contract::{TokenResponse, TokenType};
+use of_idp_client::{
+    apis::{
+        Error,
+        configuration::Configuration,
+        default_api::{TokenParams, token},
+        super_routes_oauth2_introspect_api::{IntrospectParams, introspect},
+    },
+    models::IntrospectionRequest,
+};
 use reqwest::{Client, Url, redirect::Policy};
-use serde::Serialize;
 
 const MAX_RESPONSE_SIZE: usize = 64 * 1024;
 const SERVICE_SCOPES: &str = "idp.token.validate";
@@ -57,15 +65,6 @@ struct HttpIdpClient {
 struct CachedToken {
     value: String,
     valid_until: SystemTime,
-}
-
-#[derive(Serialize)]
-struct ClientCredentialsRequest<'a> {
-    grant_type: &'static str,
-    client_id: &'a str,
-    client_secret: &'a str,
-    scope: &'static str,
-    audience: &'a str,
 }
 
 impl IdpClient {
@@ -163,6 +162,16 @@ impl IdpClient {
 }
 
 impl HttpIdpClient {
+    fn configuration(&self, bearer_access_token: Option<String>) -> Configuration {
+        Configuration {
+            base_path: self.base_url.as_str().trim_end_matches('/').to_owned(),
+            client: self.client.clone(),
+            response_limit: MAX_RESPONSE_SIZE,
+            bearer_access_token,
+            ..Configuration::default()
+        }
+    }
+
     async fn service_access_token(&self) -> Result<String, String> {
         if let Some(token) = self
             .cached_token
@@ -180,29 +189,26 @@ impl HttpIdpClient {
             return Ok(token);
         }
 
-        let url = self
-            .base_url
-            .join("oauth2/token")
-            .map_err(|_| "invalid IdP token endpoint URL".to_owned())?;
-        let mut response = self
-            .client
-            .post(url)
-            .form(&ClientCredentialsRequest {
-                grant_type: "client_credentials",
-                client_id: &self.client_id,
-                client_secret: &self.client_secret,
-                scope: SERVICE_SCOPES,
-                audience: &self.audience,
-            })
-            .send()
-            .await
-            .map_err(|_| "IdP token endpoint is unavailable".to_owned())?;
-        if !response.status().is_success() {
-            return Err("IdP rejected the Storage service client".to_owned());
-        }
-        let body = read_limited_body(&mut response, "IdP token response").await?;
-        let token: TokenResponse =
-            serde_json::from_slice(&body).map_err(|_| "invalid IdP token response".to_owned())?;
+        let configuration = self.configuration(None);
+        let response = token(
+            &configuration,
+            TokenParams {
+                grant_type: Some("client_credentials".to_owned()),
+                client_id: Some(self.client_id.clone()),
+                client_secret: Some(self.client_secret.clone()),
+                scope: Some(SERVICE_SCOPES.to_owned()),
+                audience: Some(self.audience.clone()),
+                ..Default::default()
+            },
+        )
+        .await
+        .map_err(|_| {
+            "IdP token endpoint is unavailable or rejected the Storage service client".to_owned()
+        })?;
+        let token: TokenResponse = serde_json::from_value(
+            serde_json::to_value(response).map_err(|_| "invalid IdP token response".to_owned())?,
+        )
+        .map_err(|_| "invalid IdP token response".to_owned())?;
         if token.token_type != TokenType::Bearer
             || token.issuer.as_deref() != Some(self.issuer.as_str())
             || !token.scope.as_deref().is_some_and(|scope| {
@@ -236,10 +242,6 @@ impl HttpIdpClient {
         &self,
         token: &str,
     ) -> Result<IntrospectionResponse, IdpIntrospectionError> {
-        let url = self
-            .base_url
-            .join("oauth2/introspect")
-            .map_err(|_| IdpIntrospectionError::ServiceUnavailable)?;
         let started = std::time::Instant::now();
         let caller_token = self
             .service_access_token()
@@ -249,59 +251,34 @@ impl HttpIdpClient {
             "Storage authentication phase=service-token elapsed_ms={}",
             started.elapsed().as_millis()
         );
-        let mut response = self
-            .client
-            .post(url)
-            .bearer_auth(caller_token)
-            .json(&IntrospectionRequest {
-                token: token.to_owned(),
-                token_type_hint: Some("access_token".to_owned()),
-            })
-            .send()
-            .await
-            .map_err(|error| {
-                log::warn!(
-                    "IdP introspection transport failed (timeout={}): {}",
-                    error.is_timeout(),
-                    error.without_url()
-                );
-                IdpIntrospectionError::ServiceUnavailable
-            })?;
-        if !response.status().is_success() {
-            return Err(match response.status().as_u16() {
-                401 => IdpIntrospectionError::InvalidToken,
-                _ => IdpIntrospectionError::ServiceUnavailable,
-            });
-        }
-        let body = read_limited_body(&mut response, "IdP introspection response")
-            .await
-            .map_err(|_| IdpIntrospectionError::ServiceUnavailable)?;
-        let response: IntrospectionResponse =
-            serde_json::from_slice(&body).map_err(|_| IdpIntrospectionError::ServiceUnavailable)?;
+        let configuration = self.configuration(Some(caller_token));
+        let response = introspect(
+            &configuration,
+            IntrospectParams {
+                introspection_request: IntrospectionRequest {
+                    token: token.to_owned(),
+                    token_type_hint: Some(Some("access_token".to_owned())),
+                },
+            },
+        )
+        .await
+        .map_err(|error| match error {
+            Error::ResponseError(response) if response.status.as_u16() == 401 => {
+                IdpIntrospectionError::InvalidToken
+            }
+            _ => IdpIntrospectionError::ServiceUnavailable,
+        })?;
+        let response: IntrospectionResponse = serde_json::from_value(
+            serde_json::to_value(response)
+                .map_err(|_| IdpIntrospectionError::ServiceUnavailable)?,
+        )
+        .map_err(|_| IdpIntrospectionError::ServiceUnavailable)?;
         log::debug!(
             "Storage authentication phase=introspection elapsed_ms={}",
             started.elapsed().as_millis()
         );
         Ok(response)
     }
-}
-
-async fn read_limited_body(
-    response: &mut reqwest::Response,
-    description: &str,
-) -> Result<Vec<u8>, String> {
-    let mut body = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|_| format!("invalid {description}"))?
-    {
-        if body.len() + chunk.len() > MAX_RESPONSE_SIZE {
-            return Err(format!("{description} is too large"));
-        }
-        body.extend_from_slice(&chunk);
-    }
-    Ok(body)
 }
 
 fn validate_http_url(value: &str, description: &str) -> Result<Url, String> {
@@ -344,6 +321,42 @@ mod tests {
             panic!("expected HTTP client");
         };
         http
+    }
+
+    #[tokio::test]
+    async fn oversized_introspection_request_is_rejected_before_sending_credentials() {
+        use axum::{Json, routing::post};
+        let app = axum::Router::new()
+            .route(
+                "/idp/oauth2/token",
+                post(|| async {
+                    Json(serde_json::json!({
+                        "access_token": "service-token", "token_type": "Bearer", "expires_in": 300,
+                        "scope": "idp.token.validate", "iss": ISSUER
+                    }))
+                }),
+            )
+            .route(
+                "/idp/oauth2/introspect",
+                post(|| async { axum::http::StatusCode::UNAUTHORIZED }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind IdP listener");
+        let base = format!(
+            "http://{}/idp",
+            listener.local_addr().expect("listener address")
+        );
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("serve IdP");
+        });
+        let client =
+            IdpClient::new(&base, CLIENT_ID, CLIENT_SECRET, ISSUER, AUDIENCE).expect("IdP client");
+        assert_eq!(
+            client.introspect(&"x".repeat(1024 * 1024)).await.err(),
+            Some(super::IdpIntrospectionError::ServiceUnavailable)
+        );
+        server.abort();
     }
 
     const CLIENT_ID: &str = "storage-service";

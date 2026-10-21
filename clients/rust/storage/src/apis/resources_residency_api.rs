@@ -84,7 +84,7 @@ pub async fn get_file_system_residency(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -135,7 +135,7 @@ pub async fn put_file_system_residency(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 204 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;

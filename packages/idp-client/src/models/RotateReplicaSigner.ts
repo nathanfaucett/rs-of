@@ -52,6 +52,12 @@ export function RotateReplicaSignerFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): RotateReplicaSigner {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some((key) => !["publicJwk"].includes(key))
+    )
+        throw new Error("Unexpected RotateReplicaSigner field");
     if (json == null) {
         return json;
     }

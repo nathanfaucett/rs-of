@@ -83,6 +83,15 @@ export function PermissionEvaluationRequestFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): PermissionEvaluationRequest {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some(
+            (key) =>
+                !["action", "requestId", "subject", "target"].includes(key),
+        )
+    )
+        throw new Error("Unexpected PermissionEvaluationRequest field");
     if (json == null) {
         return json;
     }

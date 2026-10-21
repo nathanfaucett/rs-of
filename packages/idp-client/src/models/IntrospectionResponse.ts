@@ -59,6 +59,14 @@ export function IntrospectionResponseFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): IntrospectionResponse {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some(
+            (key) => !["applicationId", "claims"].includes(key),
+        )
+    )
+        throw new Error("Unexpected IntrospectionResponse field");
     if (json == null) {
         return json;
     }

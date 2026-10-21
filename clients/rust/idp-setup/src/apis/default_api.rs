@@ -139,7 +139,7 @@ pub async fn admission(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 204 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -181,7 +181,7 @@ pub async fn cancel(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 204 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -229,7 +229,7 @@ pub async fn create(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || status.as_u16() == 202 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -288,7 +288,7 @@ pub async fn intent(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || status.as_u16() == 204 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -349,7 +349,7 @@ pub async fn join(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 202 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -391,7 +391,7 @@ pub async fn setup_openapi(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -427,7 +427,7 @@ pub async fn status(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),

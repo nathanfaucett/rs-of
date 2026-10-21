@@ -454,11 +454,11 @@ describe("web startup readiness", () => {
             expect(fetchApi.mock.calls).toEqual([
                 [
                     "https://node.test/idp/setup/status",
-                    {
+                    expect.objectContaining({
                         credentials: "omit",
                         redirect: "error",
                         cache: "no-store",
-                    },
+                    }),
                 ],
             ]);
             expect(getOidcClient).not.toHaveBeenCalled();

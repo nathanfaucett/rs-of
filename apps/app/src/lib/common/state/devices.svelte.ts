@@ -1,3 +1,11 @@
+import {
+  Configuration as IndependentJoinConfiguration,
+  DefaultApi as IndependentJoinApi,
+} from "@aicacia/management-client/owner";
+import {
+  Configuration as NodeJoinConfiguration,
+  DefaultApi as NodeJoinApi,
+} from "@aicacia/management-client/node-join";
 import * as v from "valibot";
 import type {
   DeviceEnrollment,
@@ -39,11 +47,14 @@ async function nodeJoinBearer(): Promise<string> {
   return token;
 }
 
-async function sourceNodeJoinRequest(
-  path: string,
-  method: "GET" | "PUT" | "POST",
-  body?: object,
-): Promise<Response> {
+const nodeJoinInit: RequestInit = {
+  credentials: "omit",
+  redirect: "error",
+  cache: "no-store",
+};
+async function sourceNodeJoinClient(): Promise<
+  NodeJoinApi | IndependentJoinApi
+> {
   await ensureTauriIdpApiUrl();
   await ensureTauriManagementApiUrl();
   const base = setupBase(getManagementApiUrl() ?? "");
@@ -52,29 +63,21 @@ async function sourceNodeJoinRequest(
     throw new Error(
       "Source owner target changed; sign in to the intended Node",
     );
-  let response: Response;
-  try {
-    response = await fetch(`${base}/node-joins/${path}`, {
-      method,
-      headers: {
-        Authorization: `Bearer ${bearer}`,
-        ...(body ? { "Content-Type": "application/json" } : {}),
-      },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-      credentials: "omit",
-      redirect: "error",
-      cache: "no-store",
-    });
-  } catch {
-    throw new Error(
-      "Source Node request outcome is uncertain; refresh acceptance and offers before retrying",
+  if (!base.endsWith("/management"))
+    return new IndependentJoinApi(
+      new IndependentJoinConfiguration({
+        basePath: base,
+        fetchApi: fetch,
+        headers: { Authorization: `Bearer ${bearer}` },
+      }),
     );
-  }
-  if (!response.ok)
-    throw new Error(
-      `Source Node request denied (${response.status}); refresh acceptance and offers`,
-    );
-  return response;
+  return new NodeJoinApi(
+    new NodeJoinConfiguration({
+      basePath: base.slice(0, -11),
+      fetchApi: fetch,
+      headers: { Authorization: `Bearer ${bearer}` },
+    }),
+  );
 }
 
 const unifiedJoinRequest = v.object({
@@ -115,23 +118,36 @@ function exactOfferId(offerId: string): string {
 }
 
 export async function nodeJoinAccepting(accepting?: boolean): Promise<boolean> {
-  const response = await sourceNodeJoinRequest(
-    "acceptance",
-    accepting === undefined ? "GET" : "PUT",
-    accepting === undefined ? undefined : { accepting },
-  );
-  if (response.status === 204 && accepting !== undefined)
+  const api = await sourceNodeJoinClient();
+  const response =
+    api instanceof NodeJoinApi
+      ? accepting === undefined
+        ? await api.acceptanceRaw(nodeJoinInit)
+        : await api.setAcceptanceRaw(
+            { acceptance: { accepting } },
+            nodeJoinInit,
+          )
+      : accepting === undefined
+        ? await api.acceptingRaw(nodeJoinInit)
+        : await api.setAcceptingRaw(
+            { acceptanceRequest: { accepting } },
+            nodeJoinInit,
+          );
+  if (response.raw.status === 204 && accepting !== undefined)
     return nodeJoinAccepting();
-  if (response.status !== 200)
+  if (response.raw.status !== 200)
     throw new Error("Invalid source acceptance evidence");
-  return v.parse(v.object({ accepting: v.boolean() }), await response.json())
+  return v.parse(v.object({ accepting: v.boolean() }), await response.value())
     .accepting;
 }
 
 export async function pendingNodeJoins(): Promise<PendingNodeJoin[]> {
-  const response = await sourceNodeJoinRequest("pending", "GET");
-  if (response.status !== 200) throw new Error("Invalid source offer evidence");
-  const offers = v.parse(v.array(pendingJoinSchema), await response.json());
+  const response = await (await sourceNodeJoinClient()).pendingRaw(
+    nodeJoinInit,
+  );
+  if (response.raw.status !== 200)
+    throw new Error("Invalid source offer evidence");
+  const offers = v.parse(v.array(pendingJoinSchema), await response.value());
   if (
     offers.some(
       (offer) => offer.authenticated_endpoint !== offer.request.endpoint_id,
@@ -164,21 +180,21 @@ export async function pendingNodeJoins(): Promise<PendingNodeJoin[]> {
 export async function approvePendingNodeJoin(
   offerId: string,
 ): Promise<"accepted" | "approved"> {
-  const response = await sourceNodeJoinRequest(
-    `${exactOfferId(offerId)}/approve`,
-    "POST",
+  const response = await (await sourceNodeJoinClient()).approveRaw(
+    { id: exactOfferId(offerId) },
+    nodeJoinInit,
   );
-  if (response.status !== 200 && response.status !== 202)
+  if (response.raw.status !== 200 && response.raw.status !== 202)
     throw new Error("Invalid source approval response; refresh offers");
-  return response.status === 202 ? "accepted" : "approved";
+  return response.raw.status === 202 ? "accepted" : "approved";
 }
 
 export async function rejectPendingNodeJoin(offerId: string): Promise<void> {
-  const response = await sourceNodeJoinRequest(
-    `${exactOfferId(offerId)}/reject`,
-    "POST",
+  const response = await (await sourceNodeJoinClient()).rejectRaw(
+    { id: exactOfferId(offerId) },
+    nodeJoinInit,
   );
-  if (response.status !== 204)
+  if (response.raw.status !== 204)
     throw new Error("Invalid source rejection response; refresh offers");
   return;
 }

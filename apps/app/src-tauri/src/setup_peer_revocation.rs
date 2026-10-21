@@ -2,7 +2,6 @@ use std::path::Path;
 
 use idp_model::model::Id;
 use management_server::MANAGEMENT_APPLICATION_URI;
-use serde_json::Value;
 
 use crate::setup_reset as reset;
 
@@ -45,67 +44,60 @@ pub(super) async fn revoke(
             "select a trusted HTTPS peer IdP base URL and an authorized User session".into(),
         );
     }
-    let metadata: Value = client
-        .get(format!("{peer_api}/.well-known/openid-configuration"))
-        .send()
-        .await
-        .map_err(|error| error.to_string())?
-        .error_for_status()
-        .map_err(|error| error.to_string())?
-        .json()
+    let mut idp = of_idp_client::apis::configuration::Configuration {
+        base_path: peer_api.to_owned(),
+        client: client.clone(),
+        ..Default::default()
+    };
+    let metadata = of_idp_client::apis::default_api::openid_configuration(&idp)
         .await
         .map_err(|error| error.to_string())?;
-    if metadata["issuer"] != target["issuer"] {
+    if target["issuer"].as_str() != Some(metadata.issuer.as_str()) {
         return Err("peer belongs to a different Installation; no bearer was sent".into());
     }
     let management_api = format!("{}/management", url.origin().ascii_serialization());
-    for (base, resource, path) in [
-        (peer_api, peer_api, format!("replica-signers/{member_id}")),
-        (
-            management_api.as_str(),
-            MANAGEMENT_APPLICATION_URI,
-            format!("devices/{member_id}"),
-        ),
-    ] {
-        let token: Value = client
-            .post(format!("{peer_api}/oauth2/token"))
-            .form(&[
-                (
-                    "grant_type",
-                    "urn:ietf:params:oauth:grant-type:token-exchange",
-                ),
-                (
-                    "subject_token_type",
-                    "urn:ietf:params:oauth:token-type:access_token",
-                ),
-                ("subject_token", bearer),
-                ("resource", resource),
-            ])
-            .send()
+    for (idp_owner, resource) in [(true, peer_api), (false, MANAGEMENT_APPLICATION_URI)] {
+        idp.bearer_access_token = None;
+        let token = of_idp_client::apis::default_api::token(&idp,
+            of_idp_client::apis::default_api::TokenParams {
+                grant_type: Some("urn:ietf:params:oauth:grant-type:token-exchange".to_owned()),
+                subject_token_type: Some(of_idp_client::models::SubjectTokenType::UrnColonIetfColonParamsColonOauthColonTokenTypeColonAccessToken),
+                subject_token: Some(bearer.to_owned()), resource: Some(resource.to_owned()), ..Default::default()
+            }).await.map_err(|error| format!("peer User audience exchange denied; target retained: {error}"))?;
+        if token.access_token.is_empty() {
+            return Err(
+                "peer did not return an authorized User access token; target retained".into(),
+            );
+        }
+        if idp_owner {
+            idp.bearer_access_token = Some(token.access_token);
+            of_idp_client::apis::super_routes_replica_signers_api::revoke_replica_signer(
+                &idp,
+                of_idp_client::apis::super_routes_replica_signers_api::RevokeReplicaSignerParams {
+                    member_id: member_id.to_string(),
+                },
+            )
             .await
-            .map_err(|error| error.to_string())?
-            .error_for_status()
             .map_err(|error| {
-                format!("peer User audience exchange denied; target retained: {error}")
-            })?
-            .json()
+                format!("peer signer revocation incomplete; public target retained: {error}")
+            })?;
+        } else {
+            let configuration = of_management_client::apis::configuration::Configuration {
+                base_path: management_api.clone(),
+                client: client.clone(),
+                bearer_access_token: Some(token.access_token),
+                ..Default::default()
+            };
+            of_management_client::apis::default_api::revoke_device(
+                &configuration,
+                of_management_client::apis::default_api::RevokeDeviceParams {
+                    id: member_id.to_string(),
+                },
+            )
             .await
-            .map_err(|error| error.to_string())?;
-        let access_token = token["access_token"]
-            .as_str()
-            .filter(|token| !token.is_empty())
-            .ok_or("peer did not return an authorized User access token; target retained")?;
-        let response = client
-            .delete(format!("{base}/{path}"))
-            .bearer_auth(access_token)
-            .send()
-            .await
-            .map_err(|error| error.to_string())?;
-        let status = response.status();
-        if !status.is_success() {
-            return Err(format!(
-                "peer revocation incomplete; public target retained for later authorized retry: {path} returned {status}"
-            ));
+            .map_err(|error| {
+                format!("peer Device revocation incomplete; public target retained: {error}")
+            })?;
         }
     }
     let mut acknowledged = target;

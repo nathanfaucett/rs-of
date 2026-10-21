@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 /// OwnerCopyCleanup : Exact current Management binding; only an authenticated Storage service may acknowledge it.
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OwnerCopyCleanup {
     #[serde(rename = "cleanupId")]
     pub cleanup_id: String,

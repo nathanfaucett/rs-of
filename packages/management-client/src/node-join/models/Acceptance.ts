@@ -42,6 +42,12 @@ export function AcceptanceFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): Acceptance {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some((key) => !["accepting"].includes(key))
+    )
+        throw new Error("Unexpected Acceptance field");
     if (json == null) {
         return json;
     }

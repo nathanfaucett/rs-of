@@ -71,6 +71,17 @@ export function SelectionRequestFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): SelectionRequest {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some(
+            (key) =>
+                !["applicationId", "id", "kind", "storageAccessToken"].includes(
+                    key,
+                ),
+        )
+    )
+        throw new Error("Unexpected SelectionRequest field");
     if (json == null) {
         return json;
     }

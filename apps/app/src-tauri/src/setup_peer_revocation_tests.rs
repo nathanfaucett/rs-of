@@ -36,7 +36,7 @@ async fn exchange(State(peer): State<Arc<Peer>>, request: Request) -> Json<Value
         .lock()
         .expect("exchange records")
         .push(String::from_utf8(bytes.to_vec()).expect("form input"));
-    Json(json!({"access_token":"exchanged-peer-user"}))
+    Json(json!({"access_token":"exchanged-peer-user", "token_type":"Bearer"}))
 }
 
 async fn revoke(State(peer): State<Arc<Peer>>, request: Request) -> StatusCode {
@@ -45,12 +45,15 @@ async fn revoke(State(peer): State<Arc<Peer>>, request: Request) -> StatusCode {
         "Bearer exchanged-peer-user"
     );
     let path = request.uri().path().to_owned();
-    let denied = path.starts_with("/management") && peer.deny_device.load(Ordering::SeqCst);
+    let management = path.starts_with("/management");
+    let denied = management && peer.deny_device.load(Ordering::SeqCst);
     peer.deletions.lock().expect("deletion records").push(path);
     if denied {
         StatusCode::FORBIDDEN
-    } else {
+    } else if management {
         StatusCode::NO_CONTENT
+    } else {
+        StatusCode::OK
     }
 }
 

@@ -516,7 +516,7 @@ pub async fn assign_permission_to_role(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 204 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -557,7 +557,7 @@ pub async fn assign_role_to_user(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 204 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -603,7 +603,7 @@ pub async fn create_permission(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 201 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -662,7 +662,7 @@ pub async fn create_role(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 201 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -717,7 +717,7 @@ pub async fn delete_device_resource_selection(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 204 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -757,7 +757,7 @@ pub async fn delete_device_selection(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 204 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -797,7 +797,7 @@ pub async fn delete_permission(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 204 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -837,7 +837,7 @@ pub async fn delete_role(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 204 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -872,7 +872,7 @@ pub async fn device(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -927,7 +927,7 @@ pub async fn enroll_device(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -982,7 +982,7 @@ pub async fn evaluate_permission(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -1038,7 +1038,7 @@ pub async fn get_device_restriction(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -1086,7 +1086,7 @@ pub async fn health(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -1137,7 +1137,7 @@ pub async fn list_approved_device_endpoints(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -1188,7 +1188,7 @@ pub async fn list_devices(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -1250,7 +1250,7 @@ pub async fn list_permissions(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -1307,7 +1307,7 @@ pub async fn list_role_permissions(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -1369,7 +1369,7 @@ pub async fn list_roles(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -1426,7 +1426,7 @@ pub async fn list_user_roles(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -1482,7 +1482,7 @@ pub async fn list_user_roles_across_applications(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -1539,7 +1539,7 @@ pub async fn lookup_device_endpoint(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -1595,7 +1595,7 @@ pub async fn lookup_device_identity(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -1637,7 +1637,7 @@ pub async fn openapi_json(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1675,7 +1675,7 @@ pub async fn pairing_acceptance(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -1726,7 +1726,7 @@ pub async fn put_device_restriction(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 204 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1764,7 +1764,7 @@ pub async fn put_device_selection(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 204 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1803,7 +1803,7 @@ pub async fn revoke_device(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 204 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1844,7 +1844,7 @@ pub async fn revoke_permission_from_role(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 204 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1885,7 +1885,7 @@ pub async fn revoke_role_from_user(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 204 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1918,7 +1918,7 @@ pub async fn revoke_self(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1958,7 +1958,7 @@ pub async fn set_pairing_acceptance(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -2009,7 +2009,7 @@ pub async fn transfer_device(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 204 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -2047,7 +2047,7 @@ pub async fn trusted_devices(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -2106,7 +2106,7 @@ pub async fn update_device(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -2154,7 +2154,7 @@ pub async fn version(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),

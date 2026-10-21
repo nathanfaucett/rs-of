@@ -51,6 +51,12 @@ export function ResourceResidencyFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): ResourceResidency {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some((key) => !["mode"].includes(key))
+    )
+        throw new Error("Unexpected ResourceResidency field");
     if (json == null) {
         return json;
     }

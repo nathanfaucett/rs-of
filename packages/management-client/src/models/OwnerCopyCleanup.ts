@@ -67,6 +67,21 @@ export function OwnerCopyCleanupFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): OwnerCopyCleanup {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some(
+            (key) =>
+                ![
+                    "cleanupId",
+                    "deviceId",
+                    "endpointId",
+                    "newOwnerSubject",
+                    "oldOwnerSubject",
+                ].includes(key),
+        )
+    )
+        throw new Error("Unexpected OwnerCopyCleanup field");
     if (json == null) {
         return json;
     }

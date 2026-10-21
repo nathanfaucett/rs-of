@@ -174,11 +174,16 @@ async fn request(
             },
         );
     }
-    let result = match api::LocalTls::verification_client() {
-        Ok(client) => client.post(format!("{base}/setup/independent/history")).json(&serde_json::json!({"approval":body.approval,"return_nonce":body.return_nonce,"capability":nonce})).send().await.ok().map(|reply| reply.status()),
-        Err(_) => None,
-    };
-    if result == Some(StatusCode::ACCEPTED) {
+    let result = async {
+        let configuration = of_idp_independent_client::apis::configuration::Configuration {
+            base_path: base, client: api::LocalTls::verification_client()?, ..Default::default()
+        };
+        of_idp_independent_client::apis::default_api::history(&configuration,
+            of_idp_independent_client::apis::default_api::HistoryParams {
+                body: serde_json::json!({"approval":body.approval,"return_nonce":body.return_nonce,"capability":nonce}),
+            }).await.map_err(|_| io::Error::other("history callback denied"))
+    }.await;
+    if result.is_ok() {
         StatusCode::ACCEPTED
     } else {
         source.pending.lock().await.remove(&nonce);
@@ -284,18 +289,56 @@ pub async fn import_join_history(
         JoinHistoryContext::Idp => &approval.request.source.idp,
         JoinHistoryContext::Management => &approval.request.source.management,
     };
-    let url = format!(
-        "{}/node-joins/history/stream",
-        base.replacen("https://", "wss://", 1)
-    );
-    let mut request = url.into_client_request().map_err(io::Error::other)?;
-    request.headers_mut().insert(
-        "Authorization",
-        format!("History {capability}")
-            .parse()
-            .map_err(io::Error::other)?,
-    );
-    let (socket, _) = tokio::select! { biased; () = cancellation.cancelled() => return Err(io::Error::new(io::ErrorKind::Interrupted,"history cancelled")), result = tokio_tungstenite::connect_async(request) => result.map_err(|_| io::Error::other("authenticated public history stream unavailable"))? };
+    let client = api::LocalTls::verification_client()?;
+    let key = tokio_tungstenite::tungstenite::handshake::client::generate_key();
+    let request = match context {
+        JoinHistoryContext::Idp => {
+            let configuration = of_independent_idp_client::apis::configuration::Configuration {
+                base_path: base.clone(),
+                client,
+                ..Default::default()
+            };
+            of_independent_idp_client::apis::default_api::history_stream_request(
+                &configuration,
+                of_independent_idp_client::apis::default_api::HistoryStreamParams {
+                    authorization: format!("History {capability}"),
+                    upgrade: "websocket".to_owned(),
+                    connection: "Upgrade".to_owned(),
+                    sec_web_socket_key: key,
+                    sec_web_socket_version: "13".to_owned(),
+                },
+            )
+            .map_err(io::Error::other)?
+        }
+        JoinHistoryContext::Management => {
+            let configuration =
+                of_independent_management_client::apis::configuration::Configuration {
+                    base_path: base.clone(),
+                    client,
+                    ..Default::default()
+                };
+            of_independent_management_client::apis::default_api::history_stream_request(
+                &configuration,
+                of_independent_management_client::apis::default_api::HistoryStreamParams {
+                    authorization: format!("History {capability}"),
+                    upgrade: "websocket".to_owned(),
+                    connection: "Upgrade".to_owned(),
+                    sec_web_socket_key: key,
+                    sec_web_socket_version: "13".to_owned(),
+                },
+            )
+            .map_err(io::Error::other)?
+        }
+    };
+    let mut url = request.url().clone();
+    url.set_scheme("wss")
+        .map_err(|_| io::Error::other("invalid history WebSocket URL"))?;
+    let mut handshake = url
+        .as_str()
+        .into_client_request()
+        .map_err(io::Error::other)?;
+    handshake.headers_mut().extend(request.headers().clone());
+    let (socket, _) = tokio::select! { biased; () = cancellation.cancelled() => return Err(io::Error::new(io::ErrorKind::Interrupted,"history cancelled")), result = tokio_tungstenite::connect_async(handshake) => result.map_err(|_| io::Error::other("authenticated public history stream unavailable"))? };
     let check: CheckJoinHistory = Arc::new(|approval| Box::pin(async move { approval.verify() }));
     let mut transport = HistorySocket::Client(Box::new(socket));
     synchronize(

@@ -70,6 +70,14 @@ export function PermissionEvaluationResponseFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): PermissionEvaluationResponse {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some(
+            (key) => !["allowed", "audit", "request"].includes(key),
+        )
+    )
+        throw new Error("Unexpected PermissionEvaluationResponse field");
     if (json == null) {
         return json;
     }

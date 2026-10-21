@@ -1,3 +1,17 @@
+import {
+    Configuration as IdpConfiguration,
+    DefaultApi as IdpApi,
+    SubjectTokenType,
+    ResponseError as IdpResponseError,
+} from "@aicacia/idp-client";
+import { ResourcesApi } from "./generated/apis/ResourcesApi.js";
+import { DefaultApi as StorageApi } from "./generated/apis/DefaultApi.js";
+import {
+    Configuration,
+    querystring,
+    ResponseError,
+} from "./generated/runtime.js";
+
 export { ResourcesResidencyApi } from "./generated/apis/ResourcesResidencyApi.js";
 export { ResidencyMode } from "./generated/models/ResidencyMode.js";
 export type { ResourceResidency } from "./generated/models/ResourceResidency.js";
@@ -29,8 +43,6 @@ export type StorageResponse =
     | { type: "error"; code: "invalidRequest" | "operationFailed" };
 
 export type FileSystemResource = { id: string; name: string | null };
-
-type TokenResponse = { access_token?: string };
 
 type FetchFunction = (
     input: URL | RequestInfo,
@@ -73,24 +85,31 @@ export class StorageClient {
 
     async listFileSystems(): Promise<FileSystemResource[]> {
         const token = await this.exchangeToken(["read"]);
-        const response = await this.request("/filesystems", token);
-        if (!response.ok) {
-            throw new Error(`Filesystem list failed: ${response.status}`);
-        }
-        return (await response.json()) as FileSystemResource[];
+        return (
+            await this.resources(token)
+                .listFileSystems()
+                .catch((error) => {
+                    if (error instanceof ResponseError)
+                        throw new Error(
+                            `Filesystem list failed: ${error.response.status}`,
+                        );
+                    throw error;
+                })
+        ).map((resource) => ({ id: resource.id, name: resource.name ?? null }));
     }
 
     async createFileSystem(name?: string): Promise<FileSystemResource> {
         const token = await this.exchangeToken(["write"]);
-        const response = await this.request("/filesystems", token, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: name ?? null }),
-        });
-        if (!response.ok) {
-            throw new Error(`Filesystem creation failed: ${response.status}`);
-        }
-        return (await response.json()) as FileSystemResource;
+        const resource = await this.resources(token)
+            .createFileSystem({ createResourceRequest: { name: name ?? null } })
+            .catch((error) => {
+                if (error instanceof ResponseError)
+                    throw new Error(
+                        `Filesystem creation failed: ${error.response.status}`,
+                    );
+                throw error;
+            });
+        return { id: resource.id, name: resource.name ?? null };
     }
 
     async openSocket(filesystemId: string): Promise<StorageSocket> {
@@ -100,8 +119,19 @@ export class StorageClient {
         const url = parseUrl(this.options.storageBaseUrl);
         const token = await this.exchangeToken(["read", "write"]);
         url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-        url.searchParams.set("access_token", token);
-        url.searchParams.set("filesystem_id", filesystemId);
+        // The browser supplies handshake headers; the generated builder owns the URL/query.
+        const operation = await new StorageApi(
+            new Configuration(),
+        ).upgradeSocketRequestOpts({
+            accessToken: token,
+            filesystemId,
+            upgrade: "websocket",
+            connection: "Upgrade",
+            secWebSocketKey: "",
+            secWebSocketVersion: "13",
+        });
+        url.pathname = url.pathname.replace(/\/+$/, "") + operation.path;
+        url.search = querystring(operation.query ?? {});
         const socket = new WebSocket(url.href);
         await opened(socket);
         return new StorageSocket(socket);
@@ -114,49 +144,51 @@ export class StorageClient {
         if (!subjectToken) {
             throw new Error("Missing OIDC access token");
         }
-        const body = new URLSearchParams({
-            grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
-            subject_token: subjectToken,
-            subject_token_type: "urn:ietf:params:oauth:token-type:access_token",
-            resource: "storage:filesystems",
-            client_id: this.options.clientId,
-            authorization_details: JSON.stringify([
-                { type: "storage", actions },
-            ]),
-        });
-        const response = await (this.options.fetch ?? fetch)(
-            parseUrl(this.options.idpBaseUrl, "/oauth2/token"),
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/x-www-form-urlencoded",
-                },
-                body,
-            },
+        const api = new IdpApi(
+            new IdpConfiguration({
+                basePath: parseUrl(this.options.idpBaseUrl).href.replace(
+                    /\/$/,
+                    "",
+                ),
+                fetchApi: this.options.fetch ?? fetch,
+            }),
         );
-        if (!response.ok) {
-            throw new Error(
-                `Storage token exchange failed: ${response.status}`,
-            );
+        let result;
+        try {
+            result = await api.token({
+                grantType: "urn:ietf:params:oauth:grant-type:token-exchange",
+                subjectToken,
+                subjectTokenType:
+                    SubjectTokenType.UrnIetfParamsOauthTokenTypeAccessToken,
+                resource: "storage:filesystems",
+                clientId: this.options.clientId,
+                authorizationDetails: JSON.stringify([
+                    { type: "storage", actions },
+                ]),
+            });
+        } catch (error) {
+            if (error instanceof IdpResponseError)
+                throw new Error(
+                    `Storage token exchange failed: ${error.response.status}`,
+                );
+            throw error;
         }
-        const result = (await response.json()) as TokenResponse;
-        if (!result.access_token) {
+        if (!result.accessToken) {
             throw new Error("Storage token exchange returned no access token");
         }
-        return result.access_token;
+        return result.accessToken;
     }
 
-    private request(
-        path: string,
-        token: string,
-        init: RequestInit = {},
-    ): Promise<Response> {
-        return (this.options.fetch ?? fetch)(
-            parseUrl(this.options.storageBaseUrl, path),
-            {
-                ...init,
-                headers: { ...init.headers, Authorization: `Bearer ${token}` },
-            },
+    private resources(token: string): ResourcesApi {
+        return new ResourcesApi(
+            new Configuration({
+                basePath: parseUrl(this.options.storageBaseUrl).href.replace(
+                    /\/$/,
+                    "",
+                ),
+                fetchApi: this.options.fetch ?? fetch,
+                headers: { Authorization: `Bearer ${token}` },
+            }),
         );
     }
 }

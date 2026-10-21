@@ -9,6 +9,7 @@ const CLIENT_ID = "password-manager-web";
 const oidcClient = $derived.by(
     () =>
         new OidcClient({
+            projectOwned: true,
             clientConfig: {
                 authority: getIdpApiUrl(),
                 redirectUri: `${env.PUBLIC_URL}/callback`,

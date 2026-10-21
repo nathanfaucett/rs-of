@@ -171,7 +171,7 @@ pub struct RotateClientKeyParams {
 }
 
 /// struct for passing parameters to the method [`token`]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct TokenParams {
     /// Optional HTTP Basic OAuth Client credentials; client_credentials also accepts client_secret_post
     pub authorization: Option<String>,
@@ -474,7 +474,7 @@ pub async fn approve_for_user(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -529,7 +529,7 @@ pub async fn authorize_json(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -610,7 +610,7 @@ pub async fn authorize_query(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -646,7 +646,7 @@ pub async fn create_application(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -685,7 +685,7 @@ pub async fn delete_application(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -724,7 +724,7 @@ pub async fn delete_register(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -763,7 +763,7 @@ pub async fn delete_user(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -809,7 +809,7 @@ pub async fn device_auth(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -851,7 +851,7 @@ pub async fn device_verify(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -888,7 +888,7 @@ pub async fn get_application(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -931,7 +931,7 @@ pub async fn get_register(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -987,7 +987,7 @@ pub async fn get_user(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -1035,7 +1035,7 @@ pub async fn health(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -1090,7 +1090,7 @@ pub async fn is_allowed_for_user(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -1138,7 +1138,7 @@ pub async fn jwks(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -1190,7 +1190,7 @@ pub async fn list_applications(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1227,7 +1227,7 @@ pub async fn list_client_keys(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1270,7 +1270,7 @@ pub async fn list_consents(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1299,7 +1299,7 @@ pub async fn openapi_json(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1337,7 +1337,7 @@ pub async fn openid_configuration(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -1394,7 +1394,7 @@ pub async fn put_register(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -1449,7 +1449,7 @@ pub async fn register(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -1500,7 +1500,7 @@ pub async fn reset_password(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1538,7 +1538,7 @@ pub async fn revoke(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1577,7 +1577,7 @@ pub async fn revoke_client_keys(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1617,7 +1617,7 @@ pub async fn revoke_consent(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1656,7 +1656,7 @@ pub async fn rotate_client_key(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1685,7 +1685,7 @@ pub async fn sessions_logout(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1782,7 +1782,7 @@ pub async fn token(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -1833,7 +1833,7 @@ pub async fn update_application(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1877,7 +1877,7 @@ pub async fn update_user(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -1928,7 +1928,7 @@ pub async fn userinfo(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -1976,7 +1976,7 @@ pub async fn version(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),

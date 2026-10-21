@@ -1,6 +1,9 @@
 import {
+  Configuration,
+  DefaultApi,
+  ResponseError,
   IndependentCreateIntentToJSON,
-  IndependentCreateRequestToJSON,
+  IndependentOwnerPublicToJSON,
 } from "@aicacia/idp-client/independent";
 import {
   fetchSetupStatus,
@@ -140,30 +143,19 @@ function codeHeader(code: string) {
     throw new Error("Enter each owner's exact host-generated code");
   return { Authorization: `Setup ${code}` };
 }
-async function readJson(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    throw new Error("Invalid independent setup evidence");
-}
-}
-async function request(
-  base: string,
-  path: string,
-  init: RequestInit,
-): Promise<Response> {
-  try {
-    return await fetch(`${setupBase(base)}/setup/${path}`, {
-      ...init,
-      credentials: "omit",
-      redirect: "error",
-      cache: "no-store",
-    });
-  } catch {
-    throw new Error(
-      "Independent setup outcome is uncertain; observe all owners before retrying",
-    );
-}
+const requestInit: RequestInit = {
+  credentials: "omit",
+  redirect: "error",
+  cache: "no-store",
+};
+function independentClient(base: string, code?: string): DefaultApi {
+  return new DefaultApi(
+    new Configuration({
+      basePath: setupBase(base),
+      fetchApi: fetch,
+      headers: code === undefined ? {} : codeHeader(code),
+    }),
+  );
 }
 export async function submitIndependentSetup(
   base: string,
@@ -184,32 +176,31 @@ export async function submitIndependentSetup(
       new TextEncoder().encode(password).length > 4096)
   )
     throw new Error("IdP Create password must be 8–4096 UTF-8 bytes");
-  const response = await request(base, intent.purpose, {
-    method: "POST",
-    headers: { ...codeHeader(code), "Content-Type": "application/json" },
-    body: JSON.stringify(
-      IndependentCreateRequestToJSON(
-        includePassword ? { ...body, password } : body,
-      ),
-    ),
-  });
-  if (response.status !== 202)
+  const api = independentClient(base, code);
+  const parameters = {
+    independentCreateRequest: includePassword ? { ...body, password } : body,
+  };
+  const response =
+    intent.purpose === "create"
+      ? await api.createRaw(parameters, requestInit)
+      : await api.joinRaw(parameters, requestInit);
+  if (response.raw.status !== 202)
     throw new Error(
-      `Independent setup rejected (${response.status}); observe all owners`,
+      `Independent setup rejected (${response.raw.status}); observe all owners`,
     );
 }
 export async function recoverIndependentIntent(
   base: string,
   code: string,
 ): Promise<IndependentIntent | null> {
-  const response = await request(base, "intent", {
-    method: "POST",
-    headers: codeHeader(code),
-  });
-  if (response.status === 204) return null;
-  if (response.status !== 200)
-    throw new Error(`Independent recovery rejected (${response.status})`);
-  return exactIndependentIntent(await readJson(response), true);
+  const response = await independentClient(base, code).recoverRaw(requestInit);
+  if (response.raw.status === 204) return null;
+  if (response.raw.status !== 200)
+    throw new Error(`Independent recovery rejected (${response.raw.status})`);
+  return exactIndependentIntent(
+    IndependentCreateIntentToJSON(await response.value()),
+    true,
+  );
 }
 export async function cancelIndependentSetup(
   base: string,
@@ -219,19 +210,18 @@ export async function cancelIndependentSetup(
 ): Promise<void> {
   const intent = exactIndependentIntent(value, true);
   if (base !== intent[owner]) throw new Error("Setup target changed");
-  const response = await request(base, "cancel", {
-    method: "POST",
-    headers: { ...codeHeader(code), "Content-Type": "application/json" },
-    body: JSON.stringify(
-      IndependentCreateIntentToJSON({
+  const response = await independentClient(base, code).cancelRaw(
+    {
+      independentCreateIntent: {
         ...intent,
         operationNonce: intent.operation_nonce,
-      }),
-    ),
-  });
-  if (response.status !== 204)
+      },
+    },
+    requestInit,
+  );
+  if (response.raw.status !== 204)
     throw new Error(
-      `Independent cancellation rejected (${response.status}); observe all owners`,
+      `Independent cancellation rejected (${response.raw.status}); observe all owners`,
     );
 }
 export async function fetchIndependentPublic(
@@ -239,11 +229,23 @@ export async function fetchIndependentPublic(
   owner: SetupOwner,
   required = true,
 ): Promise<IndependentPublic | null> {
-  const response = await request(base, "independent/public", {});
-  if (response.status === 409 && !required) return null;
-  if (response.status !== 200)
+  let response;
+  try {
+    response = await independentClient(base).ownerPublicRaw(requestInit);
+  } catch (error) {
+    if (
+      error instanceof ResponseError &&
+      error.response.status === 409 &&
+      !required
+    )
+      return null;
+    throw new Error("Owner public operation is unavailable", {
+      cause: error,
+    });
+  }
+  if (response.raw.status !== 200)
     throw new Error("Owner public operation is unavailable");
-  const raw = await readJson(response);
+  const raw: unknown = IndependentOwnerPublicToJSON(await response.value());
   if (!raw || typeof raw !== "object" || Array.isArray(raw))
     throw new Error("Invalid public owner evidence");
   const value = raw as Record<string, unknown>;

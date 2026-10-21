@@ -93,29 +93,37 @@ impl NativeHost {
     }
 
     pub(crate) async fn status(&self) -> io::Result<serde_json::Value> {
-        self.client
-            .get(format!("{}/idp/setup/status", self.base_url))
-            .send()
+        let configuration = self.configuration();
+        let status = of_idp_setup_client::apis::default_api::status(&configuration)
             .await
-            .map_err(io::Error::other)?
-            .error_for_status()
-            .map_err(io::Error::other)?
-            .json()
-            .await
-            .map_err(io::Error::other)
+            .map_err(io::Error::other)?;
+        serde_json::to_value(status).map_err(io::Error::other)
+    }
+
+    fn configuration(&self) -> of_idp_setup_client::apis::configuration::Configuration {
+        of_idp_setup_client::apis::configuration::Configuration {
+            base_path: self.base_url.clone(),
+            client: self.client.clone(),
+            ..Default::default()
+        }
     }
 
     async fn verify(&self) -> io::Result<()> {
+        let configuration = self.configuration();
         for _ in 0..40 {
-            if let Ok(response) = self
-                .client
-                .get(format!("{}/idp/setup/status", self.base_url))
-                .timeout(Duration::from_secs(2))
-                .send()
-                .await
-                && matches!(response.status().as_u16(), 200 | 503)
+            match tokio::time::timeout(
+                Duration::from_secs(2),
+                of_idp_setup_client::apis::default_api::status(&configuration),
+            )
+            .await
             {
-                return Ok(());
+                Ok(Ok(_)) => return Ok(()),
+                Ok(Err(of_idp_setup_client::apis::Error::ResponseError(response)))
+                    if response.status.as_u16() == 503 =>
+                {
+                    return Ok(());
+                }
+                _ => {}
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }

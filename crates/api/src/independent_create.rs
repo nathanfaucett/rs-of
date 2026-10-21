@@ -417,24 +417,19 @@ impl IndependentCreateControl {
         intent: &IndependentCreateIntent,
         owner: &str,
     ) -> io::Result<IndependentOwnerPublic> {
-        let response = LocalTls::verification_client()?
-            .get(format!("{}/setup/independent/public", intent.base(owner)?))
-            .send()
+        let configuration = of_idp_independent_client::apis::configuration::Configuration {
+            base_path: intent.base(owner)?.to_owned(),
+            client: LocalTls::verification_client()?,
+            response_limit: 65536,
+            ..Default::default()
+        };
+        let response = of_idp_independent_client::apis::default_api::owner_public(&configuration)
             .await
-            .map_err(|_| io::Error::other("owner HTTPS discovery unavailable"))?;
-        if response.status() != StatusCode::OK {
-            return Err(io::Error::other(
-                "owner has not admitted the exact operation",
-            ));
-        }
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|_| io::Error::other("owner discovery unavailable"))?;
-        if bytes.len() > 65536 {
-            return Err(io::Error::other("owner discovery is too large"));
-        }
-        let public: IndependentOwnerPublic = serde_json::from_slice(&bytes)?;
+            .map_err(|_| {
+                io::Error::other("owner HTTPS discovery unavailable or operation not admitted")
+            })?;
+        let public: IndependentOwnerPublic =
+            serde_json::from_value(serde_json::to_value(response)?)?;
         if public.operation != *intent
             || public.owner != owner
             || public.clients.iter().any(|r| !r["client_secret"].is_null())

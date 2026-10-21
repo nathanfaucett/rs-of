@@ -12,6 +12,7 @@ use crate::models;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct IndependentPeer {
     #[serde(rename = "address", deserialize_with = "Option::deserialize")]
     pub address: Option<serde_json::Value>,

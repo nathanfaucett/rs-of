@@ -46,6 +46,12 @@ export function DeviceTransferRequestFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): DeviceTransferRequest {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some((key) => !["ownerSubject"].includes(key))
+    )
+        throw new Error("Unexpected DeviceTransferRequest field");
     if (json == null) {
         return json;
     }

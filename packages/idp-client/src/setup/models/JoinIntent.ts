@@ -62,6 +62,15 @@ export function JoinIntentFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): JoinIntent {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some(
+            (key) =>
+                !["issuer", "node", "operation_nonce", "peer"].includes(key),
+        )
+    )
+        throw new Error("Unexpected JoinIntent field");
     if (json == null) {
         return json;
     }

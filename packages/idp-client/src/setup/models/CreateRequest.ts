@@ -63,6 +63,20 @@ export function CreateRequestFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): CreateRequest {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some(
+            (key) =>
+                ![
+                    "administrator",
+                    "node",
+                    "operation_nonce",
+                    "password",
+                ].includes(key),
+        )
+    )
+        throw new Error("Unexpected CreateRequest field");
     if (json == null) {
         return json;
     }

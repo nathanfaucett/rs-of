@@ -602,7 +602,7 @@ pub {{#supportAsync}}async {{/supportAsync}}fn {{{operationId}}}(configuration: 
     {{/isResponseFile}}
     {{/supportMultipleResponses}}
 
-    if status.is_success() {
+    if {{#responses}}{{#is2xx}}status.as_u16() == {{code}} || {{/is2xx}}{{/responses}}false {
         {{^supportMultipleResponses}}
         {{#isResponseFile}}
         Ok(resp)

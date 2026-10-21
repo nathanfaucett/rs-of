@@ -68,6 +68,20 @@ export function RegistrationFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): Registration {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some(
+            (key) =>
+                ![
+                    "challenge",
+                    "operation",
+                    "recipient",
+                    "registration",
+                ].includes(key),
+        )
+    )
+        throw new Error("Unexpected Registration field");
     if (json == null) {
         return json;
     }

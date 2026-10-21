@@ -44,6 +44,12 @@ export function DeviceRestrictionFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): DeviceRestriction {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some((key) => !["adminAllowed"].includes(key))
+    )
+        throw new Error("Unexpected DeviceRestriction field");
     if (json == null) {
         return json;
     }

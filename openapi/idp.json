@@ -1162,10 +1162,7 @@
             ]
           },
           "scope": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
+            "type": "string"
           },
           "sub": {
             "type": "string"

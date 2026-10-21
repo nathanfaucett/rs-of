@@ -137,6 +137,9 @@ dependencies = [
  "getrandom 0.3.4",
  "iroh",
  "log",
+ "of-idp-independent-client",
+ "of-independent-idp-client",
+ "of-independent-management-client",
  "rcgen",
  "reqwest 0.12.28",
  "rustix",
@@ -3133,6 +3136,8 @@ dependencies = [
  "log",
  "management-service",
  "model",
+ "of-independent-management-client",
+ "of-management-client",
  "ofdb-sql",
  "reqwest 0.12.28",
  "serde",
@@ -3781,6 +3786,9 @@ dependencies = [
  "keyring-core",
  "log",
  "management-server",
+ "of-idp-client",
+ "of-idp-setup-client",
+ "of-management-client",
  "reqwest 0.12.28",
  "rustix",
  "rustls",
@@ -3900,6 +3908,7 @@ dependencies = [
  "log",
  "management-service",
  "model",
+ "of-independent-idp-client",
  "ofdb-sql",
  "serde",
  "serde_json",
@@ -3929,6 +3938,11 @@ dependencies = [
  "iroh",
  "iroh-chain",
  "model",
+ "of-idp-client",
+ "of-idp-independent-client",
+ "of-independent-idp-client",
+ "of-independent-management-client",
+ "of-storage-client",
  "ofdb-sql",
  "reqwest 0.12.28",
  "serde",
@@ -4832,6 +4846,56 @@ dependencies = [
 
 [[package]]
 name = "of-idp-independent-client"
+version = "0.1.0"
+dependencies = [
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "serde_with",
+ "url",
+]
+
+[[package]]
+name = "of-idp-setup-client"
+version = "0.1.0"
+dependencies = [
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "serde_with",
+ "url",
+]
+
+[[package]]
+name = "of-independent-idp-client"
+version = "0.1.0"
+dependencies = [
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "serde_with",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "of-independent-management-client"
+version = "0.1.0"
+dependencies = [
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "serde_with",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "of-management-client"
 version = "0.1.0"
 dependencies = [
  "reqwest 0.12.28",
@@ -6867,6 +6931,8 @@ dependencies = [
  "log",
  "management-service",
  "model",
+ "of-idp-client",
+ "of-management-client",
  "ofdb-kv",
  "ofdb-sql",
  "postcard",
@@ -8132,6 +8198,7 @@ dependencies = [
  "model",
  "of-idp-client",
  "of-idp-independent-client",
+ "of-management-client",
  "of-node-join-client",
  "of-storage-client",
  "ofdb-sql",

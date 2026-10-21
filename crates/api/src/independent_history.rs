@@ -39,9 +39,41 @@ impl IndependentCreateControl {
             }
             state.history = Some((nonce.clone(), approval.clone(), sender));
         }
-        let response = LocalTls::verification_client()?.post(format!("{source}/node-joins/history/request")).json(&serde_json::json!({"approval":approval,"recipient":self.owner(),"return_nonce":nonce})).send().await.map_err(|_| io::Error::other("source public history unavailable"))?;
-        if response.status() != StatusCode::ACCEPTED {
-            return Err(io::Error::other("source public history denied"));
+        let body =
+            serde_json::json!({"approval":approval,"recipient":self.owner(),"return_nonce":nonce});
+        match self.owner() {
+            "idp" => {
+                let configuration = of_independent_idp_client::apis::configuration::Configuration {
+                    base_path: source.to_owned(),
+                    client: LocalTls::verification_client()?,
+                    ..Default::default()
+                };
+                of_independent_idp_client::apis::default_api::request_history(
+                    &configuration,
+                    of_independent_idp_client::apis::default_api::RequestHistoryParams {
+                        history_request: serde_json::from_value(body)?,
+                    },
+                )
+                .await
+                .map_err(|_| io::Error::other("source public history unavailable or denied"))?;
+            }
+            "management" => {
+                let configuration =
+                    of_independent_management_client::apis::configuration::Configuration {
+                        base_path: source.to_owned(),
+                        client: LocalTls::verification_client()?,
+                        ..Default::default()
+                    };
+                of_independent_management_client::apis::default_api::request_history(
+                    &configuration,
+                    of_independent_management_client::apis::default_api::RequestHistoryParams {
+                        history_request: serde_json::from_value(body)?,
+                    },
+                )
+                .await
+                .map_err(|_| io::Error::other("source public history unavailable or denied"))?;
+            }
+            _ => return Err(io::Error::other("unsupported public history owner")),
         }
         let result = tokio::select! {
             biased;

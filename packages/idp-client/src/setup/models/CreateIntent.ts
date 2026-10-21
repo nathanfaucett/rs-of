@@ -58,6 +58,15 @@ export function CreateIntentFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): CreateIntent {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some(
+            (key) =>
+                !["administrator", "node", "operation_nonce"].includes(key),
+        )
+    )
+        throw new Error("Unexpected CreateIntent field");
     if (json == null) {
         return json;
     }

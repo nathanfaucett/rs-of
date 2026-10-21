@@ -90,16 +90,21 @@ impl Source {
     }
     async fn management(&self, approval: &IndependentJoinApproval) -> io::Result<()> {
         self.binding(approval)?;
-        let response = api::LocalTls::verification_client()?
-            .post(format!("{}/node-joins/verify", self.management))
-            .json(&serde_json::json!({"approval":approval,"context":"idp"}))
-            .send()
-            .await
-            .map_err(|_| io::Error::other("current Management enrollment unavailable"))?;
-        if response.status() != StatusCode::NO_CONTENT {
-            return Err(io::Error::other("current Management enrollment denied"));
-        }
-        Ok(())
+        let configuration = of_independent_management_client::apis::configuration::Configuration {
+            base_path: self.management.clone(),
+            client: api::LocalTls::verification_client()?,
+            ..Default::default()
+        };
+        of_independent_management_client::apis::default_api::verify(
+            &configuration,
+            of_independent_management_client::apis::default_api::VerifyParams {
+                verification_request: serde_json::from_value(
+                    serde_json::json!({"approval":approval,"context":"idp"}),
+                )?,
+            },
+        )
+        .await
+        .map_err(|_| io::Error::other("current Management enrollment unavailable or denied"))
     }
     async fn verify(&self, approval: &IndependentJoinApproval) -> io::Result<()> {
         self.management(approval).await?;

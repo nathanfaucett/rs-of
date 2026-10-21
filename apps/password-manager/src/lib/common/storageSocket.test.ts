@@ -35,7 +35,9 @@ it("lists through the explicit Storage base and exchanges the current User at th
     expect(await listFileSystems()).toEqual([
         { id: "filesystem-id", name: "Vault" },
     ]);
-    expect(fetchApi.mock.calls.map(([url]) => url.href)).toEqual([
+    expect(
+        fetchApi.mock.calls.map(([url]) => new URL(String(url)).href),
+    ).toEqual([
         "https://api.localhost:1355/idp/oauth2/token",
         "https://storage.localhost:1355/storage/filesystems",
     ]);

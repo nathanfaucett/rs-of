@@ -81,7 +81,7 @@ pub async fn health(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -123,7 +123,7 @@ pub async fn openapi_json(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -137,11 +137,11 @@ pub async fn openapi_json(
 }
 
 /// HTTP WebSocket upgrade only; generated HTTP clients do not implement subsequent Storage messages. User token and filesystem resource authorization are checked before upgrade.
-pub async fn upgrade_socket(
+pub fn upgrade_socket_request(
     configuration: &configuration::Configuration,
     params: UpgradeSocketParams,
-) -> Result<(), Error<UpgradeSocketError>> {
-    let uri_str = format!("{}/", configuration.base_path);
+) -> Result<reqwest::Request, Error<UpgradeSocketError>> {
+    let uri_str = format!("{}", configuration.base_path);
     let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
 
     req_builder = req_builder.query(&[("access_token", &params.access_token.to_string())]);
@@ -159,12 +159,20 @@ pub async fn upgrade_socket(
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
+    Ok(req)
+}
+
+pub async fn upgrade_socket(
+    configuration: &configuration::Configuration,
+    params: UpgradeSocketParams,
+) -> Result<reqwest::Response, Error<UpgradeSocketError>> {
+    let req = upgrade_socket_request(configuration, params)?;
     let resp = configuration.client.execute(req).await?;
 
     let status = resp.status();
 
-    if status.is_success() {
-        Ok(())
+    if status == reqwest::StatusCode::SWITCHING_PROTOCOLS {
+        Ok(resp)
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<UpgradeSocketError> = serde_json::from_str(&content).ok();
@@ -198,7 +206,7 @@ pub async fn version(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),

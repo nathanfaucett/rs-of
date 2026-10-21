@@ -117,6 +117,22 @@ export function IndependentJoinRequestFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): IndependentJoinRequest {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some(
+            (key) =>
+                ![
+                    "device_id",
+                    "endpoint_id",
+                    "member_id",
+                    "operation",
+                    "public_signer",
+                    "source",
+                ].includes(key),
+        )
+    )
+        throw new Error("Unexpected IndependentJoinRequest field");
     if (json == null) {
         return json;
     }

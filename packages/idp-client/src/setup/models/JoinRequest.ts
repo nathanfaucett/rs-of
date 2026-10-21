@@ -57,6 +57,14 @@ export function JoinRequestFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): JoinRequest {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some(
+            (key) => !["node", "operation_nonce", "peer"].includes(key),
+        )
+    )
+        throw new Error("Unexpected JoinRequest field");
     if (json == null) {
         return json;
     }

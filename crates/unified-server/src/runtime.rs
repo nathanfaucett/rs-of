@@ -817,15 +817,15 @@ async fn wait_until_ready(
     cancellation_token: &CancellationToken,
 ) -> io::Result<()> {
     let client = crate::LocalTls::verification_client()?;
-    let health_url = format!("{api_base}{IDP_PREFIX}/health");
+    let owner_base = format!("{api_base}{IDP_PREFIX}");
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     loop {
         tokio::select! {
             () = cancellation_token.cancelled() => {
                 return Err(io::Error::new(io::ErrorKind::Interrupted, "unified startup was cancelled"));
             }
-            response = client.get(&health_url).send() => {
-                if response.is_ok_and(|response| response.status().is_success()) {
+            response = crate::owner_health::check(&owner_base, "idp", &client) => {
+                if response.is_ok() {
                     return Ok(());
                 }
             }

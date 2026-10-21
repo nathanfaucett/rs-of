@@ -106,6 +106,23 @@ export function NodeJoinRequestFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): NodeJoinRequest {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some(
+            (key) =>
+                ![
+                    "approving_peer",
+                    "endpoint_id",
+                    "installation",
+                    "member_id",
+                    "name",
+                    "public_signer",
+                    "purpose",
+                ].includes(key),
+        )
+    )
+        throw new Error("Unexpected NodeJoinRequest field");
     if (json == null) {
         return json;
     }

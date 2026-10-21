@@ -11,8 +11,16 @@ use model::contract::{
     OwnerCopyCleanup, ReplicationAdmissionRequest, SelectedResourcesResponse, TokenResponse,
     TokenType,
 };
+use of_idp_client::apis::default_api::{TokenParams, token};
+use of_management_client::apis::{
+    configuration::Configuration,
+    default_api::list_approved_device_endpoints,
+    super_routes_replication_api::{
+        OwnerCleanupParams, ReplicationAdmissionParams, SelectedResourcesParams, owner_cleanup,
+        replication_admission, selected_resources,
+    },
+};
 use reqwest::{Client, Url, redirect::Policy};
-use serde::Serialize;
 
 const MAX_RESPONSE_SIZE: usize = 64 * 1024;
 const RENEWAL_MARGIN: Duration = Duration::from_secs(15);
@@ -34,15 +42,6 @@ pub struct ManagementClient {
 struct CachedToken {
     value: String,
     valid_until: SystemTime,
-}
-
-#[derive(Serialize)]
-struct ClientCredentialsRequest<'a> {
-    grant_type: &'static str,
-    client_id: &'a str,
-    client_secret: &'a str,
-    scope: &'static str,
-    audience: &'a str,
 }
 
 impl ManagementClient {
@@ -95,29 +94,31 @@ impl ManagementClient {
         {
             return Ok(token);
         }
-        let url = self
-            .idp_base_url
-            .join("oauth2/token")
-            .map_err(|_| "invalid IdP token endpoint URL".to_owned())?;
-        let mut response = self
-            .client
-            .post(url)
-            .form(&ClientCredentialsRequest {
-                grant_type: "client_credentials",
-                client_id: &self.client_id,
-                client_secret: &self.client_secret,
-                scope: SERVICE_SCOPES,
-                audience: &self.audience,
-            })
-            .send()
-            .await
-            .map_err(|_| "IdP token endpoint is unavailable".to_owned())?;
-        if !response.status().is_success() {
-            return Err("IdP rejected the Storage service client".to_owned());
-        }
-        let body = read_limited_body(&mut response, "IdP token response").await?;
-        let token: TokenResponse =
-            serde_json::from_slice(&body).map_err(|_| "invalid IdP token response".to_owned())?;
+        let configuration = of_idp_client::apis::configuration::Configuration {
+            base_path: self.idp_base_url.as_str().trim_end_matches('/').to_owned(),
+            client: self.client.clone(),
+            response_limit: MAX_RESPONSE_SIZE,
+            ..Default::default()
+        };
+        let response = token(
+            &configuration,
+            TokenParams {
+                grant_type: Some("client_credentials".to_owned()),
+                client_id: Some(self.client_id.clone()),
+                client_secret: Some(self.client_secret.clone()),
+                scope: Some(SERVICE_SCOPES.to_owned()),
+                audience: Some(self.audience.clone()),
+                ..Default::default()
+            },
+        )
+        .await
+        .map_err(|_| {
+            "IdP token endpoint is unavailable or rejected the Storage service client".to_owned()
+        })?;
+        let token: TokenResponse = serde_json::from_value(
+            serde_json::to_value(response).map_err(|_| "invalid IdP token response".to_owned())?,
+        )
+        .map_err(|_| "invalid IdP token response".to_owned())?;
         if token.token_type != TokenType::Bearer
             || token.issuer.as_deref() != Some(self.issuer.as_str())
             || !token.scope.as_deref().is_some_and(|granted| {
@@ -148,27 +149,15 @@ impl ManagementClient {
     }
 
     pub async fn approved_device_endpoints(&self) -> Result<Vec<String>, String> {
-        let url = self
-            .management_base_url
-            .join("devices/endpoints")
-            .map_err(|_| "invalid Management endpoint list URL".to_owned())?;
-        let token = self.service_access_token().await?;
-        let mut response = self
-            .client
-            .get(url)
-            .bearer_auth(token)
-            .send()
+        let configuration = self.configuration().await?;
+        let response = list_approved_device_endpoints(&configuration)
             .await
-            .map_err(|_| "Management endpoint list is unavailable".to_owned())?;
-        if !response.status().is_success() {
-            return Err(match response.status().as_u16() {
-                401 | 403 => "Management rejected Storage device-list permission".to_owned(),
-                _ => "Management endpoint list failed".to_owned(),
-            });
-        }
-        let body = read_limited_body(&mut response, "Management endpoint list response").await?;
-        let response: ApprovedDeviceEndpoints = serde_json::from_slice(&body)
-            .map_err(|_| "invalid Management endpoint list response".to_owned())?;
+            .map_err(|_| "Management endpoint list is unavailable or denied".to_owned())?;
+        let response: ApprovedDeviceEndpoints = serde_json::from_value(
+            serde_json::to_value(response)
+                .map_err(|_| "invalid Management endpoint list response".to_owned())?,
+        )
+        .map_err(|_| "invalid Management endpoint list response".to_owned())?;
         let mut seen = HashSet::with_capacity(response.endpoint_ids.len());
         for endpoint in &response.endpoint_ids {
             let parsed = endpoint
@@ -187,55 +176,38 @@ impl ManagementClient {
         &self,
         endpoint_id: &str,
     ) -> Result<SelectedResourcesResponse, String> {
-        let mut url = self
-            .management_base_url
-            .join("replication/devices/")
-            .map_err(|_| "invalid Management replication URL".to_owned())?;
-        url.path_segments_mut()
-            .map_err(|_| "invalid Management replication URL".to_owned())?
-            .pop_if_empty()
-            .push(endpoint_id)
-            .push("selections");
-        let token = self.service_access_token().await?;
-        let mut response = self
-            .client
-            .get(url)
-            .bearer_auth(token)
-            .send()
-            .await
-            .map_err(|_| "Management replication API is unavailable".to_owned())?;
-        if !response.status().is_success() {
-            return Err(match response.status().as_u16() {
-                401 | 403 => "Management rejected Storage replication-read permission".to_owned(),
-                _ => "Management selected-resources request failed".to_owned(),
-            });
-        }
-        let body = read_limited_body(&mut response, "Management selections response").await?;
-        serde_json::from_slice(&body)
-            .map_err(|_| "invalid Management selections response".to_owned())
+        let configuration = self.configuration().await?;
+        let response = selected_resources(
+            &configuration,
+            SelectedResourcesParams {
+                endpoint_id: endpoint_id.to_owned(),
+            },
+        )
+        .await
+        .map_err(|_| "Management selected-resources request unavailable or denied".to_owned())?;
+        serde_json::from_value(
+            serde_json::to_value(response)
+                .map_err(|_| "invalid Management selections response".to_owned())?,
+        )
+        .map_err(|_| "invalid Management selections response".to_owned())
     }
 
     pub async fn acknowledge_owner_cleanup(
         &self,
         cleanup: &OwnerCopyCleanup,
     ) -> Result<(), String> {
-        let url = self
-            .management_base_url
-            .join("replication/owner-cleanup")
-            .map_err(|_| "invalid Management owner cleanup URL")?;
-        let token = self.service_access_token().await?;
-        let response = self
-            .client
-            .post(url)
-            .bearer_auth(token)
-            .json(cleanup)
-            .send()
-            .await
-            .map_err(|_| "Management owner cleanup API is unavailable")?;
-        if response.status().as_u16() != 204 {
-            return Err("Management rejected owner cleanup acknowledgement".into());
-        }
-        Ok(())
+        let configuration = self.configuration().await?;
+        owner_cleanup(
+            &configuration,
+            OwnerCleanupParams {
+                owner_copy_cleanup: serde_json::from_value(
+                    serde_json::to_value(cleanup).map_err(|_| "invalid cleanup request")?,
+                )
+                .map_err(|_| "invalid cleanup request")?,
+            },
+        )
+        .await
+        .map_err(|_| "Management rejected owner cleanup acknowledgement".to_owned())
     }
 
     pub async fn admit_peer_replication(
@@ -254,46 +226,33 @@ impl ManagementClient {
             resource_id: resource_id.to_owned(),
             operation: "synchronize".to_owned(),
         };
-        let url = self
-            .management_base_url
-            .join("replication/admission")
-            .map_err(|_| "invalid Management replication URL".to_owned())?;
-        let token = self.service_access_token().await?;
-        let response = self
-            .client
-            .post(url)
-            .bearer_auth(token)
-            .json(&request)
-            .send()
-            .await
-            .map_err(|_| "Management replication API is unavailable".to_owned())?;
-        if response.status().as_u16() == 204 {
-            Ok(())
-        } else {
-            Err(match response.status().as_u16() {
-                401 | 403 => "Management denied Storage replication admission".to_owned(),
-                _ => "Management replication admission request failed".to_owned(),
-            })
-        }
-    }
-}
-
-async fn read_limited_body(
-    response: &mut reqwest::Response,
-    description: &str,
-) -> Result<Vec<u8>, String> {
-    let mut body = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
+        let configuration = self.configuration().await?;
+        replication_admission(
+            &configuration,
+            ReplicationAdmissionParams {
+                replication_admission_request: serde_json::from_value(
+                    serde_json::to_value(request).map_err(|_| "invalid replication request")?,
+                )
+                .map_err(|_| "invalid replication request")?,
+            },
+        )
         .await
-        .map_err(|_| format!("invalid {description}"))?
-    {
-        if body.len() + chunk.len() > MAX_RESPONSE_SIZE {
-            return Err(format!("{description} is too large"));
-        }
-        body.extend_from_slice(&chunk);
+        .map_err(|_| "Management replication admission unavailable or denied".to_owned())
     }
-    Ok(body)
+
+    async fn configuration(&self) -> Result<Configuration, String> {
+        Ok(Configuration {
+            base_path: self
+                .management_base_url
+                .as_str()
+                .trim_end_matches('/')
+                .to_owned(),
+            client: self.client.clone(),
+            response_limit: MAX_RESPONSE_SIZE,
+            bearer_access_token: Some(self.service_access_token().await?),
+            ..Default::default()
+        })
+    }
 }
 
 fn normalize_base_url(value: &str, description: &str) -> Result<Url, String> {
@@ -349,6 +308,40 @@ mod tests {
     use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
 
     use super::ManagementClient;
+
+    #[tokio::test]
+    async fn cleanup_requires_exact_no_content_status() {
+        use axum::{Json, routing::post};
+        let app = axum::Router::new().route("/idp/oauth2/token", post(|| async {
+            Json(serde_json::json!({"access_token":"service-token", "token_type":"Bearer", "expires_in":300,
+                "scope":super::SERVICE_SCOPES, "iss":ISSUER}))
+        })).route("/management/replication/owner-cleanup", post(|| async { axum::http::StatusCode::OK }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind owners");
+        let base = format!("http://{}", listener.local_addr().expect("owner address"));
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("serve owners");
+        });
+        let client = ManagementClient::new(
+            &format!("{base}/management"),
+            &format!("{base}/idp"),
+            CLIENT_ID,
+            CLIENT_SECRET,
+            ISSUER,
+            AUDIENCE,
+        )
+        .expect("Management client");
+        let cleanup = model::contract::OwnerCopyCleanup {
+            cleanup_id: "cleanup".into(),
+            device_id: "device".into(),
+            endpoint_id: "endpoint".into(),
+            new_owner_subject: "new".into(),
+            old_owner_subject: "old".into(),
+        };
+        assert!(client.acknowledge_owner_cleanup(&cleanup).await.is_err());
+        server.abort();
+    }
 
     const CLIENT_ID: &str = "storage-service";
     const CLIENT_SECRET: &str = "test-secret";
@@ -430,7 +423,7 @@ mod tests {
                 |State(evidence): State<Arc<Mutex<(StatusCode, String)>>>, headers: HeaderMap| async move {
                     assert_eq!(headers["authorization"], "Bearer service-token");
                     assert!(!headers.contains_key("client_secret"));
-                    evidence.lock().expect("current endpoint evidence").clone()
+                    { let (status, body) = evidence.lock().expect("current endpoint evidence").clone(); (status, [(axum::http::header::CONTENT_TYPE, "application/json")], body) }
                 }
             ))
             .with_state(evidence.clone());

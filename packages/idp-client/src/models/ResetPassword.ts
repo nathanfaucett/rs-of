@@ -41,6 +41,12 @@ export function ResetPasswordFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): ResetPassword {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some((key) => !["password"].includes(key))
+    )
+        throw new Error("Unexpected ResetPassword field");
     if (json == null) {
         return json;
     }

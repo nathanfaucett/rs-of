@@ -92,6 +92,25 @@ export function IndependentCreateIntentFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): IndependentCreateIntent {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some(
+            (key) =>
+                ![
+                    "administrator",
+                    "idp",
+                    "issuer",
+                    "management",
+                    "node",
+                    "operation_nonce",
+                    "peer",
+                    "purpose",
+                    "storage",
+                ].includes(key),
+        )
+    )
+        throw new Error("Unexpected IndependentCreateIntent field");
     if (json == null) {
         return json;
     }

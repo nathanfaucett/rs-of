@@ -169,7 +169,7 @@ pub async fn accepting(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -221,7 +221,7 @@ pub async fn approve(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 202 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -260,7 +260,7 @@ pub async fn discover(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -287,10 +287,10 @@ pub async fn discover(
 }
 
 /// WebSocket upgrade only. The subsequent bounded binary SQL history protocol is not implemented by generated HTTP clients.
-pub async fn history_stream(
+pub fn history_stream_request(
     configuration: &configuration::Configuration,
     params: HistoryStreamParams,
-) -> Result<(), Error<HistoryStreamError>> {
+) -> Result<reqwest::Request, Error<HistoryStreamError>> {
     let uri_str = format!("{}/node-joins/history/stream", configuration.base_path);
     let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
 
@@ -308,12 +308,20 @@ pub async fn history_stream(
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
+    Ok(req)
+}
+
+pub async fn history_stream(
+    configuration: &configuration::Configuration,
+    params: HistoryStreamParams,
+) -> Result<reqwest::Response, Error<HistoryStreamError>> {
+    let req = history_stream_request(configuration, params)?;
     let resp = configuration.client.execute(req).await?;
 
     let status = resp.status();
 
-    if status.is_success() {
-        Ok(())
+    if status == reqwest::StatusCode::SWITCHING_PROTOCOLS {
+        Ok(resp)
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<HistoryStreamError> = serde_json::from_str(&content).ok();
@@ -350,7 +358,7 @@ pub async fn pending(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.is_success() {
+    if status.as_u16() == 200 || false {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -402,7 +410,7 @@ pub async fn reject(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 204 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -436,7 +444,7 @@ pub async fn request_history(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 202 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -470,7 +478,7 @@ pub async fn set_accepting(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 204 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -503,7 +511,7 @@ pub async fn verify(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 204 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;

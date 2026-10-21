@@ -68,6 +68,14 @@ export function HistoryRequestFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): HistoryRequest {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some(
+            (key) => !["approval", "recipient", "return_nonce"].includes(key),
+        )
+    )
+        throw new Error("Unexpected HistoryRequest field");
     if (json == null) {
         return json;
     }

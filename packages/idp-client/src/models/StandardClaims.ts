@@ -87,7 +87,7 @@ export interface StandardClaims {
     /**
      *
      */
-    scope: Array<string>;
+    scope: string;
     /**
      *
      */

@@ -37,6 +37,32 @@ const catalog = new storage.ResourcesApi(
 await assert.rejects(catalog.listFileSystems(), (error) =>
     [401, 403].includes(error.response.status),
 );
+const { StorageClient } = await import(
+    createRequire(
+        path.join(root, "packages/storage-client/package.json"),
+    ).resolve("@aicacia/storage-client")
+);
+const consumer = new StorageClient({
+    idpBaseUrl: basePath,
+    storageBaseUrl: storageBase,
+    clientId: "human",
+    bearerToken: () => result.accessToken,
+    fetch: (input, init) =>
+        fetch(input, {
+            ...init,
+            headers: {
+                ...init?.headers,
+                ...(new URL(input).origin === new URL(basePath).origin
+                    ? { Authorization: "Basic aHVtYW46aHVtYW4tc2VjcmV0" }
+                    : {}),
+            },
+        }),
+});
+assert.ok((await consumer.listFileSystems()).length);
+const filesystem = await consumer.createFileSystem("Generated consumer");
+assert.equal(filesystem.name, "Generated consumer");
+const socket = await consumer.openSocket(filesystem.id);
+socket.close();
 for (const [owner, exports] of [
     ["idp", ["setup", "independent", "owner"]],
     ["management", ["node-join", "owner"]],

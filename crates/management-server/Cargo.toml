@@ -24,6 +24,9 @@ completions = ["cli?/completions"]
 swagger-ui = ["utoipa-swagger-ui"]
 
 [dependencies]
+# Generated HTTP operations
+of-independent-idp-client = { path = "../../clients/rust/independent-idp", default-features = false }
+
 # CLI
 dotenvy = { version = "0.15", default-features = false, features = [
 ], optional = true }

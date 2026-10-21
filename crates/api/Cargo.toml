@@ -17,6 +17,10 @@ default = []
 test-support = []
 
 [dependencies]
+# Generated HTTP operations
+of-idp-independent-client = { path = "../../clients/rust/idp-independent", default-features = false }
+of-independent-idp-client = { path = "../../clients/rust/independent-idp", default-features = false }
+of-independent-management-client = { path = "../../clients/rust/independent-management", default-features = false }
 
 # Web
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }

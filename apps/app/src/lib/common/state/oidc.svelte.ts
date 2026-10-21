@@ -43,6 +43,7 @@ export async function ensureOidcClientId(): Promise<string> {
 const oidcClient = $derived.by(
     () =>
         new OidcClient({
+            projectOwned: true,
             clientConfig: {
                 authority: getIdpApiUrl(),
                 redirectUri: `${env.PUBLIC_URL}/callback`,

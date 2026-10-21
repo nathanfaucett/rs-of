@@ -24,6 +24,11 @@ completions = ["cli", "dep:clap_complete"]
 swagger-ui = ["idp-server/swagger-ui", "management-server/swagger-ui", "storage-server/swagger-ui"]
 
 [dependencies]
+# Generated HTTP operations
+of-idp-client = { path = "../../clients/rust/idp", default-features = false }
+of-management-client = { path = "../../clients/rust/management", default-features = false }
+of-storage-client = { path = "../../clients/rust/storage", default-features = false }
+
 # CLI
 clap = { version = "4.6", default-features = false, features = ["std", "derive", "help"], optional = true }
 clap_complete = { version = "4.5", default-features = false, features = [], optional = true }

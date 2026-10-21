@@ -53,7 +53,7 @@ pub async fn active_user(
 
     let status = resp.status();
 
-    if status.is_success() {
+    if status.as_u16() == 204 || false {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;

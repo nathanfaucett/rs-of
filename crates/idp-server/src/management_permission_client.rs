@@ -9,13 +9,18 @@ use idp_model::{
     model::Id,
 };
 use model::contract::PrincipalType;
-use reqwest::{Client, StatusCode, Url};
+use of_management_client::apis::{
+    Error,
+    configuration::Configuration,
+    default_api::{EvaluatePermissionParams, evaluate_permission},
+};
+use reqwest::{Client, Url};
 
 use crate::{ManagementPermissionConfig, RouterState};
 
 #[derive(Clone)]
 pub struct ManagementPermissionClient {
-    endpoint: Url,
+    base: Url,
     client_id: String,
     client_secret: String,
     client: Client,
@@ -36,11 +41,8 @@ impl ManagementPermissionClient {
             return Err(invalid_configuration());
         }
         base.set_path(&format!("{}/", base.path().trim_end_matches('/')));
-        let endpoint = base
-            .join("permissions/evaluate")
-            .map_err(|_| invalid_configuration())?;
         Ok(Self {
-            endpoint,
+            base,
             client_id: config.client_id.clone(),
             client_secret: config.client_secret.clone(),
             client: api::LocalTls::verification_client()?,
@@ -90,23 +92,31 @@ impl ManagementPermissionClient {
         {
             return Err(unavailable());
         }
-        let response = self
-            .client
-            .post(self.endpoint.clone())
-            .bearer_auth(&token.access_token.0)
-            .json(request)
-            .send()
-            .await
-            .map_err(|_| unavailable())?;
-        match response.status() {
-            StatusCode::OK => {}
-            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
-                return Err(ErrorResponse::new(ErrorCode::AccessDenied));
+        let configuration = Configuration {
+            base_path: self.base.as_str().trim_end_matches('/').to_owned(),
+            client: self.client.clone(),
+            bearer_access_token: Some(token.access_token.0),
+            ..Default::default()
+        };
+        let response = evaluate_permission(
+            &configuration,
+            EvaluatePermissionParams {
+                permission_evaluation_request: serde_json::from_value(
+                    serde_json::to_value(request).map_err(|_| unavailable())?,
+                )
+                .map_err(|_| unavailable())?,
+            },
+        )
+        .await
+        .map_err(|error| match error {
+            Error::ResponseError(response) if matches!(response.status.as_u16(), 401 | 403) => {
+                ErrorResponse::new(ErrorCode::AccessDenied)
             }
-            _ => return Err(unavailable()),
-        }
+            _ => unavailable(),
+        })?;
         let decision: PermissionEvaluationResponse =
-            response.json().await.map_err(|_| unavailable())?;
+            serde_json::from_value(serde_json::to_value(response).map_err(|_| unavailable())?)
+                .map_err(|_| unavailable())?;
         if decision.request != *request
             || decision.audit.actor != request.subject
             || decision.audit.service_client_id != self.client_id

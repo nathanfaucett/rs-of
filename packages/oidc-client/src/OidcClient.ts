@@ -1,3 +1,13 @@
+import {
+  Configuration,
+  DefaultApi,
+  TokenGrantTypeEnum,
+  TokenResponseToJSON,
+  AuthorizationServerMetadataToJSON,
+  UserInfoToJSON,
+  ClientRegistrationFromJSON,
+  ClientRegistrationToJSON,
+} from "@aicacia/idp-client";
 import { EventEmitter } from "eventemitter3";
 import type { OidcClientConfig } from "./OidcClientConfig.js";
 import { OidcClientError } from "./OidcClientError.js";
@@ -24,6 +34,7 @@ export type OidcClientEvents = {
 };
 
 export type OidcClientOptions = {
+  projectOwned?: boolean;
   clientConfig: OidcClientConfig;
   disableNativeRequests?: boolean;
   storage?: "local" | "memory";
@@ -90,6 +101,7 @@ export class OidcClient<
   UserInfo extends OidcUserInfo = OidcUserInfo,
 > extends EventEmitter<OidcClientEvents> {
   private readonly config: OidcClientConfig;
+  private readonly projectOwned: boolean;
   private readonly disableNativeRequests: boolean;
   private readonly nativeFetch: NativeFetch;
   private readonly fetch: Fetch;
@@ -105,6 +117,7 @@ export class OidcClient<
   constructor(options: OidcClientOptions) {
     super();
     this.config = OidcClient.validateConfig(options.clientConfig);
+    this.projectOwned = options.projectOwned ?? false;
     this.pkceStoragePrefix = `${PKCE_STORAGE_PREFIX}:${this.config.authority}`;
     this.tokenStoragePrefix = `${TOKEN_STORAGE_PREFIX}:${this.config.authority}`;
     this.memoryOnly = options.storage === "memory";
@@ -117,6 +130,22 @@ export class OidcClient<
           options.fetch,
         )
       : (options.fetch ?? fetch);
+  }
+
+  private ownerApi(headers: Record<string, string> = {}): DefaultApi {
+    return new DefaultApi(
+      new Configuration({
+        basePath: this.config.authority,
+        fetchApi: this.fetch,
+        headers,
+        credentials: this.config.fetchRequestCredentials ?? "same-origin",
+      }),
+    );
+  }
+
+  private requireOwnerEndpoint(endpoint: URL | string, path: string): void {
+    if (new URL(endpoint).href !== new URL(this.config.authority + path).href)
+      throw new Error("Discovery does not match the configured owner endpoint");
   }
 
   private removePersistentSession(): void {
@@ -179,7 +208,7 @@ export class OidcClient<
       return null;
     }
     try {
-      return JSON.parse(value) as OidcTokenResponse;
+      return JSON.parse(value) as unknown as OidcTokenResponse;
     } catch {
       return null;
     }
@@ -411,6 +440,25 @@ export class OidcClient<
     }
     const userInfoUrl = new URL(config.userinfo_endpoint);
 
+    if (this.projectOwned) {
+      const api = this.ownerApi({
+        Authorization: `Bearer ${accessToken}`,
+      });
+      this.requireOwnerEndpoint(
+        userInfoUrl,
+        (await api.userinfoRequestOpts()).path,
+      );
+      const userInfo = UserInfoToJSON(
+        await api.userinfo({ redirect: "error" }),
+      ) as unknown as UserInfo;
+      if (!userInfo || typeof userInfo.sub !== "string")
+        throw new OidcClientError(
+          "INVALID_USERINFO_RESPONSE",
+          "Userinfo response did not include a valid sub claim",
+        );
+      return userInfo;
+    }
+
     let userInfoResponse: Response;
     try {
       const isNative =
@@ -468,7 +516,7 @@ export class OidcClient<
 
     let userInfo: UserInfo;
     try {
-      userInfo = (await userInfoResponse.json()) as UserInfo;
+      userInfo = (await userInfoResponse.json()) as unknown as UserInfo;
     } catch (error: unknown) {
       throw new OidcClientError(
         "JSON_PARSE_ERROR",
@@ -506,6 +554,35 @@ export class OidcClient<
       typeof tokenEndpointUrlOrString === "string"
         ? new URL(tokenEndpointUrlOrString)
         : tokenEndpointUrlOrString;
+    if (this.projectOwned) {
+      const grantType = body.get("grant_type");
+      if (
+        !Object.values(TokenGrantTypeEnum).includes(
+          grantType as (typeof TokenGrantTypeEnum)[keyof typeof TokenGrantTypeEnum],
+        )
+      )
+        throw new Error("Unsupported owner token grant");
+      const parameters: NonNullable<Parameters<DefaultApi["token"]>[0]> = {
+        grantType: grantType as NonNullable<
+          Parameters<DefaultApi["token"]>[0]
+        >["grantType"],
+        clientId: body.get("client_id") ?? undefined,
+        clientSecret: body.get("client_secret") ?? undefined,
+        code: body.get("code") ?? undefined,
+        codeVerifier: body.get("code_verifier") ?? undefined,
+        redirectUri: body.get("redirect_uri") ?? undefined,
+        refreshToken: body.get("refresh_token") ?? undefined,
+        scope: body.get("scope") ?? undefined,
+      };
+      const api = this.ownerApi(headers);
+      this.requireOwnerEndpoint(
+        tokenEndpointUrl,
+        (await api.tokenRequestOpts(parameters)).path,
+      );
+      return TokenResponseToJSON(
+        await api.token(parameters, { redirect: "error" }),
+      ) as unknown as OidcTokenResponse;
+    }
     const isNative =
       !this.disableNativeRequests && isNativeProtocol(tokenEndpointUrl);
 
@@ -524,7 +601,7 @@ export class OidcClient<
           `Failed token request: ${response.status} ${response.statusText}`,
         );
       }
-      return (await response.json()) as OidcTokenResponse;
+      return (await response.json()) as unknown as OidcTokenResponse;
     }
 
     const response = await this.fetch(tokenEndpointUrl, {
@@ -540,7 +617,7 @@ export class OidcClient<
       );
     }
 
-    return (await response.json()) as OidcTokenResponse;
+    return (await response.json()) as unknown as OidcTokenResponse;
   }
 
   async handleSigninCallback(url?: URL): Promise<OidcTokenResponse | null> {
@@ -737,6 +814,14 @@ export class OidcClient<
   }
 
   private async fetchOidcConfiguration(): Promise<OidcConfiguration> {
+    if (this.projectOwned) {
+      return AuthorizationServerMetadataToJSON(
+        await this.ownerApi().openidConfiguration({
+          redirect: "error",
+        }),
+      ) as OidcConfiguration;
+    }
+
     const urlString = `${this.config.authority}/.well-known/openid-configuration`;
     const url = new URL(urlString);
     const isNative = !this.disableNativeRequests && isNativeProtocol(url);
@@ -849,6 +934,27 @@ export class OidcClient<
         "registration_endpoint is required for dynamic client registration",
       );
     }
+    if (this.projectOwned) {
+      const api = this.ownerApi();
+      const parameters = {
+        clientRegistration: ClientRegistrationFromJSON(
+          snakeCaseKeys(this.getRegistrationMetadata()),
+        ),
+      };
+      this.requireOwnerEndpoint(
+        endpointUrlString,
+        (await api.registerRequestOpts(parameters)).path,
+      );
+      const json = ClientRegistrationToJSON(
+        await api.register(parameters, { redirect: "error" }),
+      ) as unknown as OidcClientRegistrationResponse;
+      if (!json.client_id)
+        throw new Error("registration response missing client_id");
+      this.config.clientId = json.client_id;
+      if (json.client_secret) this.config.clientSecret = json.client_secret;
+      this.emit("registered", json);
+      return json.client_id;
+    }
     const endpointUrl = new URL(endpointUrlString);
     const isNative =
       !this.disableNativeRequests && isNativeProtocol(endpointUrl);
@@ -871,7 +977,8 @@ export class OidcClient<
           `Failed dynamic client registration: ${response.status}`,
         );
       }
-      const json = (await response.json()) as OidcClientRegistrationResponse;
+      const json =
+        (await response.json()) as unknown as OidcClientRegistrationResponse;
       if (!json.client_id) {
         throw new Error("registration response missing client_id");
       }
@@ -892,7 +999,8 @@ export class OidcClient<
       throw new Error(`Failed dynamic client registration: ${res.status}`);
     }
 
-    const json = (await res.json()) as OidcClientRegistrationResponse;
+    const json =
+      (await res.json()) as unknown as OidcClientRegistrationResponse;
     if (!json.client_id) {
       throw new Error("registration response missing client_id");
     }

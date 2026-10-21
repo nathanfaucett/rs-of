@@ -1,9 +1,22 @@
 import {
-  CreateIntentToJSON,
-  CreateRequestToJSON,
-  JoinIntentToJSON,
-  JoinRequestToJSON,
+  Configuration,
+  DefaultApi,
+  CreateResultToJSON,
+  CreateResultFromJSON,
+  SetupIntentToJSON,
+  JSONApiResponse,
+  ResponseError,
+  FetchError,
 } from "@aicacia/idp-client/setup";
+import {
+  Configuration as IndependentConfiguration,
+  DefaultApi as IndependentApi,
+  IndependentSetupStatusToJSON,
+  IndependentSetupStatusFromJSON,
+  JSONApiResponse as IndependentJSONApiResponse,
+  ResponseError as IndependentResponseError,
+  FetchError as IndependentFetchError,
+} from "@aicacia/idp-client/independent";
 
 export type SetupStage = "installation" | "device" | "ready" | "unavailable";
 export type SetupOwner = "idp" | "management" | "storage";
@@ -34,7 +47,8 @@ export type SetupJoinRequest = {
 export type SetupJoinIntent = SetupJoinRequest & { issuer: string };
 export type SetupIntent = SetupCreateIntent | SetupJoinIntent;
 export type SetupSessionIntent =
-  SetupCreateIntent | (SetupJoinRequest & { issuer?: string });
+  | SetupCreateIntent
+  | (SetupJoinRequest & { issuer?: string });
 export type SetupHost = { base: string; status: SetupStatus };
 export type SetupBases = {
   idp: string;
@@ -74,32 +88,82 @@ export function requireSetupUiOrigin(origin: string): void {
 
 const owners: SetupOwner[] = ["idp", "management", "storage"];
 
-export async function fetchSetupStatus(base: string): Promise<SetupStatus> {
-  const url = `${setupBase(base)}/setup/status`;
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      credentials: "omit",
-      redirect: "error",
-      cache: "no-store",
-    });
-  } catch {
-    throw new Error(
-      "Setup status request failed; verify HTTPS trust and UI origin configuration",
-    );
-  }
-  if (response.status !== 200 && response.status !== 503)
-    throw new Error(`Setup status unavailable (${response.status})`);
-  return readSetupStatus(response);
+const setupInit: RequestInit = {
+  credentials: "omit",
+  redirect: "error",
+  cache: "no-store",
+};
+
+function setupClient(base: string, code?: string): DefaultApi {
+  const target = setupBase(base);
+  if (!target.endsWith("/idp"))
+    throw new Error("Unified setup requires the configured IdP base");
+  if (code !== undefined) requireSetupCode(code);
+  return new DefaultApi(
+    new Configuration({
+      basePath: target.slice(0, -4),
+      fetchApi: fetch,
+      headers: code === undefined ? {} : { Authorization: `Setup ${code}` },
+    }),
+  );
 }
 
-async function readSetupStatus(response: Response): Promise<SetupStatus> {
-  let status: unknown;
+export async function fetchSetupStatus(base: string): Promise<SetupStatus> {
+  const target = setupBase(base);
   try {
-    status = await response.json();
-  } catch {
-    throw new Error("Setup evidence is invalid");
+    if (target.endsWith("/idp")) {
+      const response = await setupClient(base).statusRaw(setupInit);
+      if (response.raw.status !== 200) throw new Error("Invalid Setup status");
+      return readSetupStatus(
+        CreateResultToJSON(await response.value()),
+        response.raw.status,
+      );
+    }
+    const api = new IndependentApi(
+      new IndependentConfiguration({ basePath: target, fetchApi: fetch }),
+    );
+    const response = await api.statusRaw(setupInit);
+    if (response.raw.status !== 200) throw new Error("Invalid Setup status");
+    return readSetupStatus(
+      IndependentSetupStatusToJSON(await response.value()),
+      response.raw.status,
+    );
+  } catch (error) {
+    if (error instanceof ResponseError && error.response.status === 503) {
+      return readSetupStatus(
+        CreateResultToJSON(
+          await new JSONApiResponse(
+            error.response,
+            CreateResultFromJSON,
+          ).value(),
+        ),
+        503,
+      );
+    }
+    if (
+      error instanceof IndependentResponseError &&
+      error.response.status === 503
+    ) {
+      return readSetupStatus(
+        IndependentSetupStatusToJSON(
+          await new IndependentJSONApiResponse(
+            error.response,
+            IndependentSetupStatusFromJSON,
+          ).value(),
+        ),
+        503,
+      );
+    }
+    if (error instanceof FetchError || error instanceof IndependentFetchError)
+      throw new Error(
+        "Setup status request failed; verify HTTPS trust and UI origin configuration",
+        { cause: error },
+      );
+    throw new Error("Setup evidence is invalid", { cause: error });
   }
+}
+
+function readSetupStatus(status: unknown, responseStatus: number): SetupStatus {
   if (!status || typeof status !== "object" || Array.isArray(status))
     throw new Error("Setup evidence is invalid");
   const value = status as Record<string, unknown>;
@@ -115,7 +179,7 @@ async function readSetupStatus(response: Response): Promise<SetupStatus> {
       "ready",
     ].includes(value.state as string) ||
     value.ready !== (value.state === "ready") ||
-    (response.status === 503 && value.state !== "unavailable") ||
+    (responseStatus === 503 && value.state !== "unavailable") ||
     !Array.isArray(value.owners) ||
     (value.owners.length !== 1 && value.owners.length !== 3) ||
     value.owners.some((owner) => !owners.includes(owner)) ||
@@ -124,10 +188,14 @@ async function readSetupStatus(response: Response): Promise<SetupStatus> {
     throw new Error("Setup evidence is invalid");
   }
   let login: SetupStatus["login_client"];
-  if (value.ready && value.owners.length === 3 && value.owners.includes("idp")) {
+  if (
+    value.ready &&
+    value.owners.length === 3 &&
+    value.owners.includes("idp")
+  ) {
     const client = value.login_client as Record<string, unknown> | undefined;
     if (
-      response.status !== 200 ||
+      responseStatus !== 200 ||
       !client ||
       typeof client.client_id !== "string" ||
       !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(
@@ -194,8 +262,10 @@ export async function fetchSetupHosts(bases: SetupBases): Promise<SetupHost[]> {
       );
     hosts.push({ base: target, status: targetStatus });
   }
-  if (hosts.every(host => host.status.ready)) {
-    const { verifyIndependentReadiness, independentLoginClient } = await import("./independentSetupApi.ts");
+  if (hosts.every((host) => host.status.ready)) {
+    const { verifyIndependentReadiness, independentLoginClient } = await import(
+      "./independentSetupApi.ts"
+    );
     const evidence = await verifyIndependentReadiness(hosts);
     hosts[0].status.login_client = independentLoginClient(evidence[0]);
   }
@@ -233,33 +303,6 @@ function exactCreateIntent(intent: SetupCreateIntent): SetupCreateIntent {
   };
 }
 
-async function setupMutation(
-  base: string,
-  code: string,
-  action: "create" | "join" | "cancel",
-  body: object,
-): Promise<Response> {
-  requireSetupCode(code);
-  const url = `${setupBase(base)}/setup/${action}`;
-  try {
-    return await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Setup ${code}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-      credentials: "omit",
-      redirect: "error",
-      cache: "no-store",
-    });
-  } catch {
-    throw new Error(
-      "Setup request failed; the host may still be working. Observe status before an exact retry",
-    );
-  }
-}
-
 export async function submitSetupCreate(
   base: string,
   code: string,
@@ -272,27 +315,30 @@ export async function submitSetupCreate(
     !/^\P{Cc}+$/u.test(request.password)
   )
     throw new Error("Invalid protected administrator password");
-  const response = await setupMutation(
-    base,
-    code,
-    "create",
-    CreateRequestToJSON({
-      operationNonce: intent.operation_nonce,
-      administrator: intent.administrator,
-      node: intent.node,
-      password: request.password,
-    }),
+  const response = await setupClient(base, code).createRaw(
+    {
+      createRequest: {
+        operationNonce: intent.operation_nonce,
+        administrator: intent.administrator,
+        node: intent.node,
+        password: request.password,
+      },
+    },
+    setupInit,
   );
-  if (response.status !== 202 && response.status !== 200)
+  if (response.raw.status !== 202 && response.raw.status !== 200)
     throw new Error(
-      `Setup Create rejected (${response.status}); observe status before an exact retry`,
+      `Setup Create rejected (${response.raw.status}); observe status before an exact retry`,
     );
-  const status = await readSetupStatus(response);
+  const status = await readSetupStatus(
+    CreateResultToJSON(await response.value()),
+    response.raw.status,
+  );
   if (
     status.owners.length !== 3 ||
-    (response.status === 202 &&
+    (response.raw.status === 202 &&
       (status.ready || status.state !== "creating")) ||
-    (response.status === 200 && !status.ready)
+    (response.raw.status === 200 && !status.ready)
   )
     throw new Error("Setup evidence is invalid");
   return status;
@@ -303,19 +349,20 @@ export async function cancelSetupCreate(
   code: string,
   intent: SetupCreateIntent,
 ): Promise<void> {
-  const response = await setupMutation(
-    base,
-    code,
-    "cancel",
-    CreateIntentToJSON({
-      operationNonce: exactCreateIntent(intent).operation_nonce,
-      administrator: intent.administrator,
-      node: intent.node,
-    }),
+  const exact = exactCreateIntent(intent);
+  const response = await setupClient(base, code).cancelRaw(
+    {
+      setupIntent: {
+        operationNonce: exact.operation_nonce,
+        administrator: exact.administrator,
+        node: exact.node,
+      },
+    },
+    setupInit,
   );
-  if (response.status !== 204)
+  if (response.raw.status !== 204)
     throw new Error(
-      `Setup cancellation rejected (${response.status}); observe status`,
+      `Setup cancellation rejected (${response.raw.status}); observe status`,
     );
 }
 
@@ -323,27 +370,12 @@ export async function fetchSetupIntent(
   base: string,
   code: string,
 ): Promise<SetupIntent | null> {
-  requireSetupCode(code);
-  const url = `${setupBase(base)}/setup/intent`;
-  let response: Response;
+  const response = await setupClient(base, code).intentRaw(setupInit);
+  if (response.raw.status === 204) return null;
+  if (response.raw.status !== 200)
+    throw new Error(`Setup intent recovery rejected (${response.raw.status})`);
   try {
-    response = await fetch(url, {
-      method: "POST",
-      headers: { Authorization: `Setup ${code}` },
-      credentials: "omit",
-      redirect: "error",
-      cache: "no-store",
-    });
-  } catch {
-    throw new Error(
-      "Setup intent recovery failed; verify HTTPS trust and host configuration",
-    );
-  }
-  if (response.status === 204) return null;
-  if (response.status !== 200)
-    throw new Error(`Setup intent recovery rejected (${response.status})`);
-  try {
-    const value: unknown = await response.json();
+    const value: unknown = SetupIntentToJSON(await response.value());
     if (!value || typeof value !== "object" || Array.isArray(value))
       throw new Error("Invalid retained setup intent");
     const keys = Object.keys(value).sort().join(",");
@@ -385,21 +417,24 @@ export async function submitSetupJoin(
   request: SetupJoinRequest,
 ): Promise<SetupStatus> {
   const intent = exactJoinRequest(request);
-  const response = await setupMutation(
-    base,
-    code,
-    "join",
-    JoinRequestToJSON({
-      operationNonce: intent.operation_nonce,
-      node: intent.node,
-      peer: intent.peer,
-    }),
+  const response = await setupClient(base, code).joinRaw(
+    {
+      joinRequest: {
+        operationNonce: intent.operation_nonce,
+        node: intent.node,
+        peer: intent.peer,
+      },
+    },
+    setupInit,
   );
-  if (response.status !== 202)
+  if (response.raw.status !== 202)
     throw new Error(
-      `Setup Join rejected (${response.status}); observe status before an exact retry`,
+      `Setup Join rejected (${response.raw.status}); observe status before an exact retry`,
     );
-  const status = await readSetupStatus(response);
+  const status = await readSetupStatus(
+    CreateResultToJSON(await response.value()),
+    response.raw.status,
+  );
   if (status.owners.length !== 3 || status.ready || status.state !== "joining")
     throw new Error("Setup evidence is invalid");
   return status;
@@ -411,20 +446,20 @@ export async function cancelSetupJoin(
   intent: SetupJoinIntent,
 ): Promise<void> {
   const exact = exactJoinIntent(intent);
-  const response = await setupMutation(
-    base,
-    code,
-    "cancel",
-    JoinIntentToJSON({
-      operationNonce: exact.operation_nonce,
-      node: exact.node,
-      peer: exact.peer,
-      issuer: exact.issuer,
-    }),
+  const response = await setupClient(base, code).cancelRaw(
+    {
+      setupIntent: {
+        operationNonce: exact.operation_nonce,
+        node: exact.node,
+        peer: exact.peer,
+        issuer: exact.issuer,
+      },
+    },
+    setupInit,
   );
-  if (response.status !== 204)
+  if (response.raw.status !== 204)
     throw new Error(
-      `Setup cancellation rejected (${response.status}); observe status`,
+      `Setup cancellation rejected (${response.raw.status}); observe status`,
     );
 }
 
@@ -433,21 +468,14 @@ export async function verifySetupCode(
   code: string,
 ): Promise<void> {
   requireSetupCode(code);
-  const url = `${setupBase(base)}/setup/admission`;
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: "POST",
+  const api = new IndependentApi(
+    new IndependentConfiguration({
+      basePath: setupBase(base),
+      fetchApi: fetch,
       headers: { Authorization: `Setup ${code}` },
-      credentials: "omit",
-      redirect: "error",
-      cache: "no-store",
-    });
-  } catch {
-    throw new Error(
-      "Setup admission request failed; verify HTTPS trust and UI origin configuration",
-    );
-  }
-  if (response.status !== 204)
-    throw new Error(`Setup admission rejected (${response.status})`);
+    }),
+  );
+  const response = await api.admissionRaw(setupInit);
+  if (response.raw.status !== 204)
+    throw new Error(`Setup admission rejected (${response.raw.status})`);
 }

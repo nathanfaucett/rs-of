@@ -54,14 +54,12 @@ impl UnifiedRuntime {
             self.probe_bootstrap().await
         } else {
             async {
-                let response = LocalTls::verification_client()?
-                    .get(format!("{}/idp/health", self.api_base))
-                    .send()
-                    .await
-                    .map_err(|_| failed("production HTTPS listener is not trusted or reachable"))?;
-                if response.status() != reqwest::StatusCode::OK {
-                    return Err(failed("production HTTPS listener verification failed"));
-                }
+                crate::owner_health::check(
+                    &format!("{}/idp", self.api_base),
+                    "idp",
+                    &LocalTls::verification_client()?,
+                )
+                .await?;
                 Ok(())
             }
             .await
@@ -86,11 +84,9 @@ impl UnifiedRuntime {
         let http = LocalTls::verification_client()?;
         let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
         loop {
-            if http
-                .get(format!("{}/idp/health", self.api_base))
-                .send()
+            if crate::owner_health::check(&format!("{}/idp", self.api_base), "idp", &http)
                 .await
-                .is_ok_and(|response| response.status() == reqwest::StatusCode::OK)
+                .is_ok()
             {
                 break;
             }
@@ -102,14 +98,8 @@ impl UnifiedRuntime {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         for context in ["idp", "management", "storage"] {
-            let response = http
-                .get(format!("{}/{context}/health", self.api_base))
-                .send()
-                .await
-                .map_err(|_| failed("production HTTPS context health transport failed"))?;
-            if response.status() != reqwest::StatusCode::OK {
-                return Err(failed("production HTTPS context is not healthy"));
-            }
+            crate::owner_health::check(&format!("{}/{context}", self.api_base), context, &http)
+                .await?;
         }
         if !self.node_public_ready().await? {
             return Err(failed("local Node public state is not ready"));

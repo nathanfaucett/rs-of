@@ -54,10 +54,16 @@ export function SetupIntentFromJSONTyped(
     if (typeof json !== "object") {
         return json;
     }
-    if (instanceOfCreateIntent(json)) {
+    if (
+        ["operation_nonce", "administrator", "node"].every((key) => key in json)
+    ) {
         return CreateIntentFromJSONTyped(json, true);
     }
-    if (instanceOfJoinIntent(json)) {
+    if (
+        ["operation_nonce", "node", "peer", "issuer"].every(
+            (key) => key in json,
+        )
+    ) {
         return JoinIntentFromJSONTyped(json, true);
     }
     return {} as any;

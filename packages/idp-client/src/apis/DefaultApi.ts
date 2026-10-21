@@ -3629,6 +3629,12 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
  * @export
  */
 export const TokenGrantTypeEnum = {
+    password: "password",
+    authorization_code: "authorization_code",
+    client_credentials: "client_credentials",
+    refresh_token: "refresh_token",
+    "urn:ietf:params:oauth:grant-type:token-exchange":
+        "urn:ietf:params:oauth:grant-type:token-exchange",
     UrnIetfParamsOauthGrantTypeTokenExchange:
         "urn:ietf:params:oauth:grant-type:token-exchange",
 } as const;

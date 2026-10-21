@@ -130,20 +130,24 @@ impl IndependentCreateControl {
                 expires: Instant::now() + Duration::from_secs(30),
             });
         }
-        let result = LocalTls::verification_client()?
-            .post(format!(
-                "{}/setup/independent/challenge",
-                bound.operation.base(&bound.recipient)?
-            ))
-            .json(&bound)
-            .send()
-            .await;
+        let configuration = of_idp_independent_client::apis::configuration::Configuration {
+            base_path: bound.operation.base(&bound.recipient)?.to_owned(),
+            client: LocalTls::verification_client()?,
+            ..Default::default()
+        };
+        let result = of_idp_independent_client::apis::default_api::challenge(
+            &configuration,
+            of_idp_independent_client::apis::default_api::ChallengeParams {
+                challenge: serde_json::from_value(serde_json::to_value(&bound)?)?,
+            },
+        )
+        .await;
         let mut state = self.0.lifecycle.lock().await;
         state
             .challenges
             .retain(|entry| entry.bound.challenge != bound.challenge);
         match result {
-            Ok(response) if response.status() == StatusCode::NO_CONTENT => Ok(()),
+            Ok(()) => Ok(()),
             _ => Err(io::Error::other(
                 "exact HTTPS recipient registration did not complete",
             )),
@@ -221,13 +225,20 @@ pub(crate) async fn challenge(
         Ok(client) => client,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE,
     };
+    let configuration = of_idp_independent_client::apis::configuration::Configuration {
+        base_path: bound.operation.idp.clone(),
+        client,
+        ..Default::default()
+    };
+    let registration = match serde_json::to_value(reply).and_then(serde_json::from_value) {
+        Ok(registration) => registration,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE,
+    };
     let response = tokio::select! {
         biased;
         () = active.cancelled() => return StatusCode::FORBIDDEN,
-        response = client
-            .post(format!("{}/setup/independent/register", bound.operation.idp))
-            .json(&reply)
-            .send() => response,
+        response = of_idp_independent_client::apis::default_api::register(&configuration,
+            of_idp_independent_client::apis::default_api::RegisterParams { registration }) => response,
     };
     let mut state = control.0.lifecycle.lock().await;
     if active.is_cancelled()
@@ -246,7 +257,7 @@ pub(crate) async fn challenge(
         return StatusCode::FORBIDDEN;
     }
     match response {
-        Ok(response) if response.status() == StatusCode::NO_CONTENT => {
+        Ok(()) => {
             if control
                 .confirm_registration(&bound.operation, &public_registration)
                 .is_err()

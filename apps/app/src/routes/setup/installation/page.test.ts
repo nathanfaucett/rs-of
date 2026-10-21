@@ -224,11 +224,11 @@ it("reads web setup evidence from the API without invoking native controls", asy
   expect(host.invoke).not.toHaveBeenCalled();
   expect(host.fetch).toHaveBeenCalledWith(
     "https://node.test/idp/setup/status",
-    {
+    expect.objectContaining({
       credentials: "omit",
       redirect: "error",
       cache: "no-store",
-    },
+    }),
   );
 });
 

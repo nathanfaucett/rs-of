@@ -8,7 +8,7 @@ use std::{
 use idp_service::oauth2::{decode_jwt, verify_jwt};
 
 use idp_model::{
-    contract::{IntrospectionRequest, IntrospectionResponse, Jwks},
+    contract::{IntrospectionResponse, Jwks},
     model::Id,
 };
 use iroh::EndpointId;
@@ -16,8 +16,16 @@ use model::contract::{
     AuthorizationDetail, StandardClaims, StorageAuthorizationAction, TokenResponse, TokenType,
     TokenUse,
 };
+use of_idp_client::apis::{
+    configuration::Configuration,
+    default_api::{TokenParams, jwks, token},
+    super_routes_active_user_api::{ActiveUserParams, active_user},
+    super_routes_oauth2_introspect_api::{IntrospectParams, introspect},
+};
+use of_storage_client::apis::resources_api::{
+    GetDatabaseParams, GetFileSystemParams, get_database, get_file_system,
+};
 use reqwest::{Client, Url, redirect::Policy};
-use serde::Deserialize;
 use storage_model::ResourceKind;
 
 use crate::{DeviceEndpointIdentity, DeviceIdentity, PairingAcceptanceController};
@@ -157,24 +165,14 @@ impl HostedControlPlane {
             return (local.active_user)(user).await;
         }
         let token = self.idp_service_access_token().await?;
-        let mut response = self
-            .client
-            .get(service_url(
-                &self.idp_base_url,
-                &format!("users/{user}/active"),
-            )?)
-            .bearer_auth(token)
-            .send()
-            .await
-            .map_err(|_| "IdP User lookup is unavailable".to_owned())?;
-        if response.status() != reqwest::StatusCode::NO_CONTENT {
-            return Err("IdP User is not currently active or lookup is unavailable".into());
-        }
-        let body = read_limited_body(&mut response, "IdP User response").await?;
-        if !body.is_empty() {
-            return Err("invalid IdP User response".into());
-        }
-        Ok(())
+        active_user(
+            &self.idp_configuration(Some(token)),
+            ActiveUserParams {
+                user_id: user.to_string(),
+            },
+        )
+        .await
+        .map_err(|_| "IdP User is not currently active or lookup is unavailable".to_owned())
     }
 
     pub fn with_permission_evaluator(mut self, client_id: &str) -> Result<Self, String> {
@@ -261,29 +259,26 @@ impl HostedControlPlane {
             return Ok(token);
         }
 
-        let form = [
-            ("grant_type".to_owned(), "client_credentials".to_owned()),
-            ("client_id".to_owned(), token_client.client_id.clone()),
-            (
-                "client_secret".to_owned(),
-                token_client.client_secret.clone(),
-            ),
-            ("scope".to_owned(), token_client.scope.to_owned()),
-            ("audience".to_owned(), token_client.audience.clone()),
-        ];
-        let mut response = self
-            .client
-            .post(service_url(&self.idp_base_url, "oauth2/token")?)
-            .form(&form)
-            .send()
-            .await
-            .map_err(|_| "IdP token endpoint is unavailable".to_owned())?;
-        if !response.status().is_success() {
-            return Err("IdP rejected the Management service client".to_owned());
-        }
-        let body = read_limited_body(&mut response, "IdP token response").await?;
-        let token: TokenResponse =
-            serde_json::from_slice(&body).map_err(|_| "invalid IdP token response".to_owned())?;
+        let configuration = self.idp_configuration(None);
+        let response = token(
+            &configuration,
+            TokenParams {
+                grant_type: Some("client_credentials".to_owned()),
+                client_id: Some(token_client.client_id.clone()),
+                client_secret: Some(token_client.client_secret.clone()),
+                scope: Some(token_client.scope.to_owned()),
+                audience: Some(token_client.audience.clone()),
+                ..Default::default()
+            },
+        )
+        .await
+        .map_err(|_| {
+            "IdP token endpoint is unavailable or rejected the Storage service client".to_owned()
+        })?;
+        let token: TokenResponse = serde_json::from_value(
+            serde_json::to_value(response).map_err(|_| "invalid IdP token response".to_owned())?,
+        )
+        .map_err(|_| "invalid IdP token response".to_owned())?;
         if token.token_type != TokenType::Bearer
             || token.issuer.as_deref() != Some(self.expected_issuer.as_str())
             || !token.scope.as_deref().is_some_and(|scope| {
@@ -331,38 +326,29 @@ impl HostedControlPlane {
         actor_token: &str,
     ) -> Result<IntrospectionResponse, String> {
         let service_token = self.idp_service_access_token().await?;
-        let request = IntrospectionRequest {
-            token: actor_token.to_owned(),
-            token_type_hint: Some("access_token".to_owned()),
-        };
-        let mut response = self
-            .client
-            .post(service_url(&self.idp_base_url, "oauth2/introspect")?)
-            .bearer_auth(service_token)
-            .json(&request)
-            .send()
-            .await
-            .map_err(|_| "IdP token validation is unavailable".to_owned())?;
-        if response.status().as_u16() == 401 {
-            return Err("actor token was rejected by IdP".to_owned());
-        }
-        if !response.status().is_success() {
-            return Err("IdP token validation is unavailable".to_owned());
-        }
-        const MAX_RESPONSE_SIZE: usize = 64 * 1024;
-        let mut body = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|_| "invalid IdP token validation response".to_owned())?
-        {
-            if body.len() + chunk.len() > MAX_RESPONSE_SIZE {
-                return Err("IdP token validation response is too large".to_owned());
+        let response = introspect(
+            &self.idp_configuration(Some(service_token)),
+            IntrospectParams {
+                introspection_request: of_idp_client::models::IntrospectionRequest {
+                    token: actor_token.to_owned(),
+                    token_type_hint: Some(Some("access_token".to_owned())),
+                },
+            },
+        )
+        .await
+        .map_err(|error| match error {
+            of_idp_client::apis::Error::ResponseError(response)
+                if response.status.as_u16() == 401 =>
+            {
+                "actor token was rejected by IdP".to_owned()
             }
-            body.extend_from_slice(&chunk);
-        }
-        serde_json::from_slice(&body)
-            .map_err(|_| "invalid IdP token validation response".to_owned())
+            error => format!("IdP token validation is unavailable: {error}"),
+        })?;
+        serde_json::from_value(
+            serde_json::to_value(response)
+                .map_err(|_| "invalid IdP token validation response".to_owned())?,
+        )
+        .map_err(|_| "invalid IdP token validation response".to_owned())
     }
 
     fn validate_actor_response(
@@ -479,20 +465,51 @@ impl HostedControlPlane {
         if resource_id != id.to_string() {
             return Err("invalid storage resource ID".to_owned());
         }
-        let collection = match kind {
-            ResourceKind::Database => "databases",
-            ResourceKind::FileSystem => "filesystems",
+        let configuration = of_storage_client::apis::configuration::Configuration {
+            base_path: self
+                .storage_base_url
+                .as_str()
+                .trim_end_matches('/')
+                .to_owned(),
+            client: self.client.clone(),
+            response_limit: 64 * 1024,
+            bearer_access_token: Some(read_token.to_owned()),
+            ..Default::default()
         };
-        let resource: StorageResourceDetail = self
-            .get_storage(&format!("{collection}/{id}"), read_token)
-            .await?;
-        if resource.id != resource_id {
+        let (returned_id, application_id) = match kind {
+            ResourceKind::Database => {
+                let resource = get_database(
+                    &configuration,
+                    GetDatabaseParams {
+                        database_id: id.to_string(),
+                    },
+                )
+                .await
+                .map_err(|error| error.to_string())?;
+                (resource.id, resource.application_id)
+            }
+            ResourceKind::FileSystem => {
+                let resource = get_file_system(
+                    &configuration,
+                    GetFileSystemParams {
+                        filesystem_id: id.to_string(),
+                    },
+                )
+                .await
+                .map_err(|error| error.to_string())?;
+                (resource.id, resource.application_id)
+            }
+        };
+        if returned_id != resource_id {
             return Err("storage resource ID mismatch".to_owned());
         }
-        if resource.application_id != expected_application_id {
+        let application_id: Id = application_id
+            .parse()
+            .map_err(|_| "invalid storage application ID".to_owned())?;
+        if application_id != expected_application_id {
             return Err("storage application ID mismatch".to_owned());
         }
-        Ok(resource.application_id)
+        Ok(application_id)
     }
 
     pub async fn get_storage_device_identity(
@@ -552,7 +569,13 @@ impl HostedControlPlane {
     async fn verify_remote_signature(&self, token: &str) -> Result<StandardClaims, String> {
         let (header, _) =
             decode_jwt::<StandardClaims>(token).map_err(|_| "invalid token".to_owned())?;
-        let jwks: Jwks = self.get_idp(".well-known/jwks.json", "").await?;
+        let response = jwks(&self.idp_configuration(None))
+            .await
+            .map_err(|error| error.to_string())?;
+        let jwks: Jwks = serde_json::from_value(
+            serde_json::to_value(response).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?;
         let jwk = jwks
             .keys
             .iter()
@@ -570,37 +593,14 @@ impl HostedControlPlane {
         Ok(())
     }
 
-    async fn get_idp<T>(&self, path: &str, token: &str) -> Result<T, String>
-    where
-        T: serde::de::DeserializeOwned,
-    {
-        self.get_from(&self.idp_base_url, path, token).await
-    }
-
-    async fn get_storage<T>(&self, path: &str, token: &str) -> Result<T, String>
-    where
-        T: serde::de::DeserializeOwned,
-    {
-        self.get_from(&self.storage_base_url, path, token).await
-    }
-
-    async fn get_from<T>(&self, base_url: &Url, path: &str, token: &str) -> Result<T, String>
-    where
-        T: serde::de::DeserializeOwned,
-    {
-        let mut request = self.client.get(service_url(base_url, path)?);
-        if !token.is_empty() {
-            request = request.bearer_auth(token);
+    fn idp_configuration(&self, bearer_access_token: Option<String>) -> Configuration {
+        Configuration {
+            base_path: self.idp_base_url.as_str().trim_end_matches('/').to_owned(),
+            client: self.client.clone(),
+            response_limit: 64 * 1024,
+            bearer_access_token,
+            ..Default::default()
         }
-        request
-            .send()
-            .await
-            .map_err(|error| error.to_string())?
-            .error_for_status()
-            .map_err(|error| error.to_string())?
-            .json()
-            .await
-            .map_err(|error| error.to_string())
     }
 }
 
@@ -633,10 +633,6 @@ fn is_loopback(url: &Url) -> bool {
             .is_ok_and(|address| address.is_loopback())
 }
 
-fn service_url(base_url: &Url, path: &str) -> Result<Url, String> {
-    base_url.join(path).map_err(|error| error.to_string())
-}
-
 struct ServiceTokenClient {
     client_id: String,
     client_secret: String,
@@ -648,32 +644,6 @@ struct ServiceTokenClient {
 struct CachedServiceToken {
     value: String,
     valid_until: SystemTime,
-}
-
-pub(crate) async fn read_limited_body(
-    response: &mut reqwest::Response,
-    label: &str,
-) -> Result<Vec<u8>, String> {
-    const MAX_RESPONSE_SIZE: usize = 64 * 1024;
-    let mut body = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|_| format!("invalid {label}"))?
-    {
-        if body.len() + chunk.len() > MAX_RESPONSE_SIZE {
-            return Err(format!("{label} is too large"));
-        }
-        body.extend_from_slice(&chunk);
-    }
-    Ok(body)
-}
-
-#[derive(Deserialize)]
-struct StorageResourceDetail {
-    id: String,
-    #[serde(rename = "applicationId")]
-    application_id: Id,
 }
 
 fn validate_storage_read_claims(

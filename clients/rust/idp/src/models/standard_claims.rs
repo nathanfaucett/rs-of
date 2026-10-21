@@ -42,7 +42,7 @@ pub struct StandardClaims {
     )]
     pub resource: Option<Option<String>>,
     #[serde(rename = "scope")]
-    pub scope: Vec<String>,
+    pub scope: String,
     #[serde(rename = "sub")]
     pub sub: String,
     #[serde(rename = "type")]
@@ -60,7 +60,7 @@ impl StandardClaims {
         iss: String,
         nbf: i64,
         principal_type: models::PrincipalType,
-        scope: Vec<String>,
+        scope: String,
         sub: String,
         r#type: models::TokenType,
         r#use: models::TokenUse,

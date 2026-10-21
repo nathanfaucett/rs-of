@@ -2,7 +2,6 @@ import {
   Configuration,
   type ConfigurationParameters,
   DefaultApi,
-  TokenResponseFromJSON,
   SubjectTokenType,
   TokenGrantTypeEnum,
 } from "@aicacia/idp-client";
@@ -84,23 +83,22 @@ export async function passwordToken(
 ) {
   const base = await ensureTauriIdpApiUrl();
   if (!base) throw new Error("An IdP endpoint is required");
-  const response = await fetch(`${base.replace(/\/$/, "")}/oauth2/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "password",
-      client_id: clientId,
+  const owner = new DefaultApi(
+    new Configuration({
+      basePath: base.replace(/\/$/, ""),
+      fetchApi: fetch,
+    }),
+  );
+  return owner.token(
+    {
+      grantType: "password",
+      clientId,
       username,
       password,
       scope: "openid profile email",
-    }),
-    redirect: "error",
-  });
-  if (!response.ok)
-    throw new Error(
-      `IdP sign-in rejected (${response.status}): ${await response.text()}`,
-    );
-  return TokenResponseFromJSON(await response.json());
+    },
+    { redirect: "error" },
+  );
 }
 
 export async function ownerAccessToken(resource: string): Promise<string> {
@@ -165,7 +163,9 @@ export async function validateIdpApiUrl(basePath: string): Promise<boolean> {
 
   try {
     const metadata = await api.openidConfiguration();
-    if (metadata.tokenEndpoint === `${basePath.replace(/\/$/, "")}/oauth2/token`)
+    if (
+      metadata.tokenEndpoint === `${basePath.replace(/\/$/, "")}/oauth2/token`
+    )
       return true;
   } catch {}
   try {

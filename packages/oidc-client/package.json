@@ -46,6 +46,7 @@
         }
     },
     "dependencies": {
+        "@aicacia/idp-client": "workspace:*",
         "@aicacia/native-fetch": "workspace:*",
         "eventemitter3": "^5.0.4"
     },

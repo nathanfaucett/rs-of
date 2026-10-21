@@ -63,6 +63,14 @@ export function EnrollReplicaSignerFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): EnrollReplicaSigner {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some(
+            (key) => !["endpointId", "memberId", "publicJwk"].includes(key),
+        )
+    )
+        throw new Error("Unexpected EnrollReplicaSigner field");
     if (json == null) {
         return json;
     }

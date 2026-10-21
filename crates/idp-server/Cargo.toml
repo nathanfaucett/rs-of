@@ -24,6 +24,10 @@ completions = ["cli?/completions", "dep:clap_complete"]
 swagger-ui = ["utoipa-swagger-ui"]
 
 [dependencies]
+# Generated HTTP operations
+of-independent-management-client = { path = "../../clients/rust/independent-management", default-features = false }
+of-management-client = { path = "../../clients/rust/management", default-features = false }
+
 # CLI
 dotenvy = { version = "0.15", default-features = false, features = [
 ], optional = true }

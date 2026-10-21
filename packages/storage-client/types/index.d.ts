@@ -78,6 +78,6 @@ export declare class StorageClient {
     createFileSystem(name?: string): Promise<FileSystemResource>;
     openSocket(filesystemId: string): Promise<StorageSocket>;
     private exchangeToken;
-    private request;
+    private resources;
 }
 //# sourceMappingURL=index.d.ts.map

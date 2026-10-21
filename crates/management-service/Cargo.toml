@@ -16,9 +16,11 @@ name = "management_service"
 default = []
 utoipa = ["std", "dep:utoipa"]
 
-replica = ["std", "dep:db", "idp-model/replica", "idp-service/replica", "dep:api", "dep:axum", "dep:futures-util", "dep:getrandom", "dep:ofdb-sql", "dep:tokio", "dep:tokio-tungstenite", "dep:tokio-util"]
+replica = ["dep:of-independent-idp-client", "dep:of-independent-management-client", "dep:of-idp-independent-client", "std", "dep:db", "idp-model/replica", "idp-service/replica", "dep:api", "dep:axum", "dep:futures-util", "dep:getrandom", "dep:ofdb-sql", "dep:tokio", "dep:tokio-tungstenite", "dep:tokio-util"]
 
 std = [
+  "dep:of-idp-client",
+  "dep:of-storage-client",
   "idp-model/std",
   "idp-service/std",
   "model/std",
@@ -36,6 +38,11 @@ std = [
 utoipa = { version = "5.5", default-features = false, features = ["macros"], optional = true }
 
 # Internal
+of-independent-idp-client = { path = "../../clients/rust/independent-idp", default-features = false, optional = true }
+of-independent-management-client = { path = "../../clients/rust/independent-management", default-features = false, optional = true }
+of-idp-independent-client = { path = "../../clients/rust/idp-independent", default-features = false, optional = true }
+of-idp-client = { path = "../../clients/rust/idp", default-features = false, optional = true }
+of-storage-client = { path = "../../clients/rust/storage", default-features = false, optional = true }
 api = { path = "../api", default-features = false, optional = true }
 db = { package = "idp-db", path = "../db", default-features = false, features = [], optional = true }
 idp-model = { path = "../idp-model", default-features = false, features = [] }

@@ -81,6 +81,22 @@ export function ReplicationAdmissionRequestFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): ReplicationAdmissionRequest {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some(
+            (key) =>
+                ![
+                    "applicationId",
+                    "kind",
+                    "operation",
+                    "resourceId",
+                    "sourceEndpointId",
+                    "targetEndpointId",
+                ].includes(key),
+        )
+    )
+        throw new Error("Unexpected ReplicationAdmissionRequest field");
     if (json == null) {
         return json;
     }

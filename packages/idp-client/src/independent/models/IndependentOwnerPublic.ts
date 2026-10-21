@@ -75,6 +75,21 @@ export function IndependentOwnerPublicFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): IndependentOwnerPublic {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some(
+            (key) =>
+                ![
+                    "clients",
+                    "facts",
+                    "operation",
+                    "owner",
+                    "registered",
+                ].includes(key),
+        )
+    )
+        throw new Error("Unexpected IndependentOwnerPublic field");
     if (json == null) {
         return json;
     }

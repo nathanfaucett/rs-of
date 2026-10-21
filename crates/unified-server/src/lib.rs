@@ -82,3 +82,5 @@ pub use api_create::setup_openapi;
 
 #[cfg(test)]
 mod generated_transport_tests;
+
+mod owner_health;

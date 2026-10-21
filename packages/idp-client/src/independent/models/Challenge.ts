@@ -68,6 +68,20 @@ export function ChallengeFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
 ): Challenge {
+    if (
+        json &&
+        typeof json === "object" &&
+        Object.keys(json).some(
+            (key) =>
+                ![
+                    "challenge",
+                    "operation",
+                    "recipient",
+                    "registration",
+                ].includes(key),
+        )
+    )
+        throw new Error("Unexpected Challenge field");
     if (json == null) {
         return json;
     }

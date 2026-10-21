@@ -1037,29 +1037,33 @@ impl CreateHost {
             .expect("ready public login Client")
             .client_id;
         let http = LocalTls::verification_client().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        let response = http
-            .post(format!(
-                "{}://{}/idp/oauth2/token",
+        let configuration = of_idp_client::apis::configuration::Configuration {
+            base_path: format!(
+                "{}://{}/idp",
                 if self.tls.is_some() { "https" } else { "http" },
                 self.host.config().listen_addr
-            ))
-            .form(&[
-                ("grant_type", "password"),
-                ("client_id", client_id.as_str()),
-                ("username", request.administrator.as_str()),
-                ("password", request.password.as_str()),
-                ("scope", "openid"),
-            ])
-            .send()
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        if response.status() != reqwest::StatusCode::OK {
-            return Err(StatusCode::UNAUTHORIZED);
-        }
-        let token: model::contract::TokenResponse = response
-            .json()
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+            ),
+            client: http,
+            ..Default::default()
+        };
+        let response = of_idp_client::apis::default_api::token(
+            &configuration,
+            of_idp_client::apis::default_api::TokenParams {
+                grant_type: Some("password".to_owned()),
+                client_id: Some(client_id.clone()),
+                username: Some(request.administrator.clone()),
+                password: Some(request.password.clone()),
+                scope: Some("openid".to_owned()),
+                ..Default::default()
+            },
+        )
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        let token: model::contract::TokenResponse = serde_json::from_value(
+            serde_json::to_value(response).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+        )
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
         if token.access_token.0.is_empty() {
             return Err(StatusCode::UNAUTHORIZED);
         }

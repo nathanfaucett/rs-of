@@ -19,6 +19,8 @@ export default defineConfig({
       "@aicacia/idp-client": fileURLToPath(
         new URL("../../packages/idp-client/src/index.ts", import.meta.url),
       ),
+      "@aicacia/management-client/owner": fileURLToPath(new URL("../../packages/management-client/src/owner/index.ts", import.meta.url)),
+      "@aicacia/management-client/node-join": fileURLToPath(new URL("../../packages/management-client/src/node-join/index.ts", import.meta.url)),
       "@aicacia/management-client": fileURLToPath(
         new URL(
           "../../packages/management-client/src/index.ts",
