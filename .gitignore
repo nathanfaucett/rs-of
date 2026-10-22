@@ -1,6 +1,4 @@
 /target
-/.scratch
-/.worktrees
 /node_modules
 /.env*
 !/.env.example
