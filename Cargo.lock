@@ -3135,6 +3135,7 @@ dependencies = [
  "log",
  "management-service",
  "model",
+ "of-idp-client",
  "of-management-client",
  "ofdb-sql",
  "reqwest 0.12.28",
@@ -8152,7 +8153,6 @@ dependencies = [
  "tower",
  "tower-http 0.7.1",
  "utoipa",
- "utoipa-axum",
 ]
 
 [[package]]
