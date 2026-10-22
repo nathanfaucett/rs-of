@@ -1,20 +1,3 @@
-use std::{net::SocketAddr, path::PathBuf};
-
-pub use api::LocalTls;
-use api::LocalTlsConfig;
-
-use crate::UnifiedConfig;
-
-impl LocalTlsConfig for UnifiedConfig {
-    fn tls_directory(&self) -> PathBuf {
-        self.endpoint_data_dir.with_extension("tls")
-    }
-
-    fn tls_address(&self) -> SocketAddr {
-        self.listen_addr
-    }
-}
-
 #[cfg(all(test, not(unix)))]
 mod unsupported_tests {
     #[test]
@@ -25,7 +8,7 @@ mod unsupported_tests {
         ));
         let config = crate::config::test_config(&root);
         for error in [
-            super::LocalTls::create(&config)
+            crate::LocalTls::create(&config)
                 .err()
                 .expect("unsupported TLS"),
             crate::CredentialBootstrap::create(config.clone())

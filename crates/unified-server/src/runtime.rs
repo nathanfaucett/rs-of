@@ -283,7 +283,7 @@ impl UnifiedRuntime {
                 let devices = Arc::new(management_service::replica::DbDeviceRepo::new(Arc::clone(
                     &management_engine,
                 )));
-                let mut idp_config = config.idp;
+                let mut idp_config = config.idp.clone();
                 idp_config.server.prefix = Some(IDP_PREFIX.to_owned());
                 idp_config.control_plane_uri = None;
                 let idp_runtime = Arc::new(
@@ -313,9 +313,9 @@ impl UnifiedRuntime {
                         .with_pairing_acceptance(idp_runtime.pairing_acceptance()),
                 );
 
-                let mut management_config = config.management;
+                let mut management_config = config.management.clone();
                 management_config.server.prefix = Some(MANAGEMENT_PREFIX.to_owned());
-                let mut storage_config = config.storage;
+                let mut storage_config = config.storage.clone();
                 storage_config.server.prefix = Some(STORAGE_PREFIX.to_owned());
                 let copies = Arc::new(OnceLock::new());
                 let authorizer = owner_replication_authorizer(
@@ -479,7 +479,8 @@ impl UnifiedRuntime {
         bearer: &str,
         id: Id,
     ) -> io::Result<NodeJoinApproval> {
-        crate::local_provisioning::provisioning_stage(|| self.node_joins.approve(bearer, id)).await
+        idp_server::local_provisioning::provisioning_stage(|| self.node_joins.approve(bearer, id))
+            .await
     }
 
     pub async fn reject_pending_node_join(&self, bearer: &str, id: Id) -> io::Result<()> {
@@ -724,12 +725,7 @@ impl UnifiedRuntime {
 }
 
 pub(crate) fn validate_config(config: &UnifiedConfig) -> io::Result<()> {
-    if config.idp_audience().trim().is_empty() {
-        return Err(invalid_config(
-            "IdP service audience must not be empty".to_owned(),
-        ));
-    }
-    Ok(())
+    idp_server::bootstrap_settings::validate_config(config)
 }
 
 fn validate_data_dirs(config: &UnifiedConfig) -> io::Result<()> {
@@ -1323,13 +1319,14 @@ mod tests {
         let mut storage = storage_server::AppConfig::default();
         storage.data_dir = root.join("storage").to_string_lossy().into_owned();
         storage.api_public_uri = "https://storage.example".to_owned();
-        let mut config = UnifiedConfig {
+        let mut config: UnifiedConfig = idp_server::BootstrapSettings {
             listen_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
             endpoint_data_dir: root.join("endpoint"),
             idp,
             management,
             storage,
-        };
+        }
+        .into();
         let mut invalid = config.clone();
         invalid.idp.service_audience = Some(String::new());
         assert!(validate_config(&invalid).is_err());

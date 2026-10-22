@@ -7,12 +7,11 @@ use std::{
 use idp_model::model::Id;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    UnifiedConfig,
-    local_provisioning::{
-        absolute, create_private_directory, lock, private_options, read_private, require_absent,
-        sync_ancestry,
-    },
+use crate::BootstrapSettings;
+use crate::bootstrap_host::BootstrapHost;
+use crate::local_provisioning::{
+    absolute, create_private_directory, lock, private_options, read_private, require_absent,
+    sync_ancestry,
 };
 
 #[derive(Deserialize, Serialize, PartialEq)]
@@ -30,20 +29,20 @@ struct References {
 
 /// Durable host references and consumed TLS production history; never contains raw secrets.
 /// Hold this guard through setup or serving to exclude cooperating CLI operations.
-pub struct CredentialBootstrap {
-    config: UnifiedConfig,
+pub struct CredentialBootstrap<H: BootstrapHost> {
+    config: H::Config,
     directory: PathBuf,
     references: References,
     _operation: File,
 }
 
-impl CredentialBootstrap {
+impl<H: BootstrapHost> CredentialBootstrap<H> {
     /// Explicit fresh authorization. Context, endpoint, provisioning and credential roots must be absent.
-    pub fn create(config: UnifiedConfig) -> io::Result<Self> {
+    pub fn create(config: H::Config) -> io::Result<Self> {
         Self::create_inner(config, false)
     }
 
-    pub(crate) fn adopt_host_tls(config: UnifiedConfig, tls: &crate::LocalTls) -> io::Result<Self> {
+    pub fn adopt_host_tls(config: H::Config, tls: &crate::LocalTls) -> io::Result<Self> {
         let expected = absolute(&crate::LocalTls::directory(&config))?.join("ca.pem");
         if tls.ca_path() != expected {
             return Err(invalid("neutral TLS does not belong to the selected host"));
@@ -52,7 +51,7 @@ impl CredentialBootstrap {
         Self::create_inner(config, true)
     }
 
-    fn create_inner(config: UnifiedConfig, retained_tls: bool) -> io::Result<Self> {
+    fn create_inner(config: H::Config, retained_tls: bool) -> io::Result<Self> {
         crate::local_provisioning::require_unix_bootstrap()?;
         crate::LocalTls::validate_ip(config.listen_addr.ip())?;
         let mut references = references(&config)?;
@@ -98,7 +97,7 @@ impl CredentialBootstrap {
     }
 
     /// Opens exact public references only; missing or malformed state is never fresh authorization.
-    pub fn open(config: UnifiedConfig) -> io::Result<Self> {
+    pub fn open(config: H::Config) -> io::Result<Self> {
         let directory = absolute(&config.credential_bootstrap_directory())?;
         let operation = lock(&directory, false)?;
         let bytes = read_private(&directory.join("credentials.json"))?;
@@ -137,7 +136,7 @@ impl CredentialBootstrap {
         Ok(tls)
     }
 
-    pub fn load(&self) -> io::Result<UnifiedConfig> {
+    pub fn load(&self) -> io::Result<H::Config> {
         self.check_retained()?;
         crate::local_provisioning::normalized_config(self.config.clone())
     }
@@ -166,7 +165,7 @@ impl CredentialBootstrap {
     }
 }
 
-fn references(config: &UnifiedConfig) -> io::Result<References> {
+fn references(config: &BootstrapSettings) -> io::Result<References> {
     Ok(References {
         version: 1,
         tls_attempted: false,

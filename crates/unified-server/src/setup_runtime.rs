@@ -1,8 +1,6 @@
 use crate::{
     BootstrapConfig, BootstrapPurpose, CredentialBootstrap, LocalJoin, LocalProvisioner, LocalTls,
     UnifiedRuntime,
-    bootstrap_config::present,
-    local_provisioning::{provisioning_stage, require_absent},
 };
 use api::SetupAdmission;
 use axum::{Router, http::StatusCode};
@@ -16,6 +14,9 @@ use idp_server::{
 };
 use std::{io, sync::Arc};
 use tokio_util::sync::CancellationToken;
+
+use idp_server::bootstrap_config::present;
+use idp_server::local_provisioning::{provisioning_stage, require_absent};
 
 pub type ApiSetupHost = HostedSetup<RuntimeSetupOwners>;
 
@@ -466,7 +467,7 @@ impl HostedSetupOwners for RuntimeSetupOwners {
         self.host.trusted_peer()
     }
     fn issuer(&self) -> String {
-        self.host.config().idp.oauth2.issuer
+        self.host.config().idp.oauth2.issuer.clone()
     }
     fn service_router(&self, control: HostedSetupControl) -> Router {
         let config = self.host.config();
@@ -483,7 +484,7 @@ impl HostedSetupOwners for RuntimeSetupOwners {
         LocalTls::verification_client()
     }
     async fn discover(&self, peer: &str, cancellation: &CancellationToken) -> io::Result<String> {
-        crate::issuer_discovery::discover_with_cancellation(peer, cancellation).await
+        crate::bootstrap_adapter::discover_with_cancellation(peer, cancellation).await
     }
     async fn reopen(
         &mut self,

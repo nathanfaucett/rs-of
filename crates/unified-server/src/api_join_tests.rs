@@ -1,13 +1,13 @@
 use std::{collections::HashMap, fs, sync::Arc, time::Duration};
 
+use idp_server::local_provisioning::provisioning_stage;
+
 use reqwest::{Client, StatusCode};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::{Fixture, HttpsHost, exchange, pending_http, token};
-use crate::{
-    BootstrapConfig, LocalProvisioner, LocalTls, SetupHost, local_provisioning::provisioning_stage,
-};
+use crate::{BootstrapConfig, LocalProvisioner, LocalTls, SetupHost};
 
 #[derive(Clone, Copy)]
 enum Case {

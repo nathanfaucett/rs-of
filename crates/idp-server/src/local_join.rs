@@ -11,13 +11,13 @@ use idp_service::oauth2::NodeSignerBinding;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use crate::{
-    SecurityProtocol, UnifiedConfig, UnifiedEndpoint, UnifiedRuntime,
-    local_provisioning::{
-        Intent, absolute, create_private_directory, intent, lock, private_options,
-        provisioning_stage, read_private, require_absent, require_file, require_retained_directory,
-        require_storage, sync_ancestry,
-    },
+use crate::bootstrap_host::{
+    BootstrapEndpoint, BootstrapHost, BootstrapOwners, BootstrapProtocol, BootstrapRuntime,
+};
+use crate::local_provisioning::{
+    Intent, absolute, create_private_directory, intent, lock, private_options, provisioning_stage,
+    read_private, require_absent, require_file, require_retained_directory, require_storage,
+    sync_ancestry,
 };
 
 #[derive(Serialize, Deserialize, PartialEq)]
@@ -40,15 +40,15 @@ struct JoinIntent {
 }
 
 /// Restricted local joining through the existing authenticated, purpose-bound owner protocol.
-pub struct LocalJoin {
-    config: UnifiedConfig,
+pub struct LocalJoin<H: BootstrapHost> {
+    config: H::Config,
     directory: PathBuf,
     journal: JoinIntent,
     _operation: File,
 }
 
-impl LocalJoin {
-    pub fn create(config: UnifiedConfig, peer: &str, name: &str) -> io::Result<Self> {
+impl<H: BootstrapHost> LocalJoin<H> {
+    pub fn create(config: H::Config, peer: &str, name: &str) -> io::Result<Self> {
         crate::local_provisioning::require_unix_bootstrap()?;
         let config = crate::local_provisioning::normalized_config(config)?;
         peer.parse::<iroh::EndpointId>().map_err(io::Error::other)?;
@@ -97,7 +97,7 @@ impl LocalJoin {
         Ok(local)
     }
 
-    pub fn open(config: UnifiedConfig) -> io::Result<Self> {
+    pub fn open(config: H::Config) -> io::Result<Self> {
         let config = crate::local_provisioning::normalized_config(config)?;
         let directory = absolute(&config.local_provisioning_directory())?;
         let operation = lock(&directory, false)?;
@@ -151,7 +151,7 @@ impl LocalJoin {
         })
     }
 
-    pub(crate) fn reset_references(&self) -> io::Result<serde_json::Value> {
+    pub fn reset_references(&self) -> io::Result<serde_json::Value> {
         self.check_retained()?;
         Ok(serde_json::json!({
             "member_id": self.journal.member,
@@ -162,16 +162,16 @@ impl LocalJoin {
         }))
     }
 
-    pub(crate) fn trusted_peer(&self) -> &str {
+    pub fn trusted_peer(&self) -> &str {
         &self.journal.peer
     }
 
-    pub(crate) fn is_complete(&self) -> io::Result<bool> {
+    pub fn is_complete(&self) -> io::Result<bool> {
         self.check_retained()?;
         Ok(self.journal.complete)
     }
 
-    pub(crate) fn validate_retry(&self, peer: &str, name: &str) -> io::Result<()> {
+    pub fn validate_retry(&self, peer: &str, name: &str) -> io::Result<()> {
         self.check_retained()?;
         if self.journal.peer != peer || self.journal.name != name {
             return Err(invalid(
@@ -220,14 +220,14 @@ impl LocalJoin {
         &mut self,
         https: bool,
         cancellation: &CancellationToken,
-    ) -> io::Result<UnifiedRuntime> {
+    ) -> io::Result<H::Runtime> {
         provisioning_stage(|| self.prepare_runtime(https, true, cancellation)).await
     }
 
     /// Records local completion after host publication/verification; does not retire setup admission.
     pub async fn complete_hosted(
         &mut self,
-        runtime: &UnifiedRuntime,
+        runtime: &H::Runtime,
         cancellation: &CancellationToken,
     ) -> io::Result<()> {
         check_cancellation(cancellation)?;
@@ -251,7 +251,7 @@ impl LocalJoin {
         https: bool,
         hosted: bool,
         cancellation: &CancellationToken,
-    ) -> io::Result<UnifiedRuntime> {
+    ) -> io::Result<H::Runtime> {
         if https {
             crate::LocalTls::api_base(self.config.listen_addr)?;
         }
@@ -275,11 +275,11 @@ impl LocalJoin {
             require_storage(&self.config)?;
         }
         let endpoint = if self.journal.endpoint_attempted {
-            UnifiedEndpoint::open(&self.config.endpoint_data_dir, &self.config.idp).await?
+            H::Endpoint::open(&self.config.endpoint_data_dir, &self.config.idp).await?
         } else {
             self.journal.endpoint_attempted = true;
             self.write()?;
-            UnifiedEndpoint::open_fresh(&self.config.endpoint_data_dir, &self.config.idp).await?
+            H::Endpoint::open_fresh(&self.config.endpoint_data_dir, &self.config.idp).await?
         };
         let endpoint = Arc::new(endpoint);
         let result = async {
@@ -312,7 +312,7 @@ impl LocalJoin {
         };
         #[cfg(test)]
         let runtime_started = std::time::Instant::now();
-        let runtime = Box::pin(UnifiedRuntime::build_with_owners(config, listener, base, owners)).await?;
+        let runtime = Box::pin(H::Runtime::build_with_owners(config, listener, base, owners)).await?;
         #[cfg(test)]
         eprintln!("Node Join stage=runtime elapsed_ms={}", runtime_started.elapsed().as_millis());
         self.journal.storage_initialized = true;
@@ -335,8 +335,8 @@ impl LocalJoin {
 
     async fn join_on_endpoint(
         &mut self,
-        endpoint: Arc<UnifiedEndpoint>,
-    ) -> io::Result<crate::runtime::RuntimeOwners> {
+        endpoint: Arc<H::Endpoint>,
+    ) -> io::Result<BootstrapOwners<H::Endpoint>> {
         let endpoint_id = endpoint.endpoint_id().to_string();
         if self
             .journal
@@ -367,7 +367,7 @@ impl LocalJoin {
             )?;
         }
         let binding = self.binding()?;
-        let (protocol, owner) = SecurityProtocol::open_node_bootstrap(
+        let (protocol, owner) = H::Protocol::open_node_bootstrap(
             &endpoint,
             &self.config.idp,
             Path::new(&self.config.management.data_dir),
@@ -408,19 +408,19 @@ impl LocalJoin {
         Ok(protocol.into_runtime_owners(endpoint))
     }
 
-    pub async fn build_runtime(&self) -> io::Result<UnifiedRuntime> {
+    pub async fn build_runtime(&self) -> io::Result<H::Runtime> {
         self.build(false, false).await
     }
-    pub async fn build_https_runtime(&self) -> io::Result<UnifiedRuntime> {
+    pub async fn build_https_runtime(&self) -> io::Result<H::Runtime> {
         self.build(true, false).await
     }
 
     /// Reopens completed locally trusted owners without taking the host's listener or contacting a peer.
-    pub async fn reopen_hosted_runtime(&self, https: bool) -> io::Result<UnifiedRuntime> {
+    pub async fn reopen_hosted_runtime(&self, https: bool) -> io::Result<H::Runtime> {
         self.build(https, true).await
     }
 
-    async fn build(&self, https: bool, hosted: bool) -> io::Result<UnifiedRuntime> {
+    async fn build(&self, https: bool, hosted: bool) -> io::Result<H::Runtime> {
         self.check_retained()?;
         if !self.journal.complete {
             return Err(invalid("join is incomplete; explicitly continue join"));
@@ -441,18 +441,18 @@ impl LocalJoin {
             false,
         )?;
         require_storage(&self.config)?;
-        if UnifiedEndpoint::persisted_endpoint_id(&self.config.endpoint_data_dir)?.to_string()
+        if H::Endpoint::persisted_endpoint_id(&self.config.endpoint_data_dir)?.to_string()
             != self.binding()?.endpoint_id
         {
             return Err(invalid("joining endpoint changed; exact recovery required"));
         }
         let config = self.bound_config()?;
         let runtime = if hosted {
-            Box::pin(UnifiedRuntime::build_hosted_https(config)).await?
+            Box::pin(H::Runtime::build_hosted_https(config)).await?
         } else if https {
-            Box::pin(UnifiedRuntime::build_https(config)).await?
+            Box::pin(H::Runtime::build_https(config)).await?
         } else {
-            Box::pin(UnifiedRuntime::build(config)).await?
+            Box::pin(H::Runtime::build(config)).await?
         };
         let verified = async {
             #[cfg(test)]
@@ -489,7 +489,7 @@ impl LocalJoin {
                 .ok_or_else(|| invalid("missing joining endpoint"))?,
         })
     }
-    fn bound_config(&self) -> io::Result<UnifiedConfig> {
+    fn bound_config(&self) -> io::Result<H::Config> {
         let mut config = self.config.clone();
         config.idp.oauth2.local_signer = Some(self.binding()?);
         Ok(config)

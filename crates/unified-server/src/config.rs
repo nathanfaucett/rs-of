@@ -3,12 +3,31 @@ use std::{net::SocketAddr, path::Path};
 use serde::Deserialize;
 
 #[derive(Clone)]
-pub struct UnifiedConfig {
-    pub listen_addr: SocketAddr,
-    pub endpoint_data_dir: std::path::PathBuf,
-    pub idp: idp_server::AppConfig,
-    pub management: management_server::AppConfig,
-    pub storage: storage_server::AppConfig,
+pub struct UnifiedConfig(idp_server::BootstrapSettings);
+
+impl From<idp_server::BootstrapSettings> for UnifiedConfig {
+    fn from(settings: idp_server::BootstrapSettings) -> Self {
+        Self(settings)
+    }
+}
+impl core::ops::Deref for UnifiedConfig {
+    type Target = idp_server::BootstrapSettings;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl core::ops::DerefMut for UnifiedConfig {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl api::LocalTlsConfig for UnifiedConfig {
+    fn tls_directory(&self) -> std::path::PathBuf {
+        self.endpoint_data_dir.with_extension("tls")
+    }
+    fn tls_address(&self) -> SocketAddr {
+        self.listen_addr
+    }
 }
 
 #[derive(Deserialize)]
@@ -33,23 +52,6 @@ impl Default for FileConfig {
     }
 }
 
-impl UnifiedConfig {
-    pub fn credential_bootstrap_directory(&self) -> std::path::PathBuf {
-        self.endpoint_data_dir.with_extension("credentials")
-    }
-
-    pub fn local_provisioning_directory(&self) -> std::path::PathBuf {
-        self.endpoint_data_dir.with_extension("provisioning")
-    }
-
-    pub fn idp_audience(&self) -> &str {
-        self.idp
-            .service_audience
-            .as_deref()
-            .unwrap_or(&self.idp.api_public_uri)
-    }
-}
-
 impl TryFrom<&Path> for UnifiedConfig {
     type Error = config::ConfigError;
 
@@ -66,13 +68,14 @@ impl TryFrom<&Path> for UnifiedConfig {
         let listen_addr = file.listen_addr.parse().map_err(|error| {
             config::ConfigError::Message(format!("invalid listen_addr: {error}"))
         })?;
-        Ok(Self {
+        Ok(idp_server::BootstrapSettings {
             listen_addr,
             endpoint_data_dir: file.endpoint_data_dir.into(),
             idp: file.idp,
             management: file.management,
             storage: file.storage,
-        })
+        }
+        .into())
     }
 }
 
@@ -195,10 +198,11 @@ mod tests {
             idp_model::model::Id::now_v7()
         ));
         config.endpoint_data_dir = root.join(&config.endpoint_data_dir);
+        let settings = &mut config.0;
         for data_dir in [
-            &mut config.idp.data_dir,
-            &mut config.management.data_dir,
-            &mut config.storage.data_dir,
+            &mut settings.idp.data_dir,
+            &mut settings.management.data_dir,
+            &mut settings.storage.data_dir,
         ] {
             *data_dir = root.join(&*data_dir).to_string_lossy().into_owned();
         }
@@ -213,7 +217,7 @@ mod tests {
             .expect("reopen default neutral host");
         assert!(host.config().idp.oauth2.issuer.is_empty());
         host.select_create().expect("app chooses Create");
-        let issuer = host.config().idp.oauth2.issuer;
+        let issuer = host.config().idp.oauth2.issuer.clone();
         assert!(!issuer.is_empty());
         assert_ne!(issuer, config.idp.api_public_uri);
         drop(host);
@@ -272,7 +276,7 @@ mod tests {
 
 #[cfg(test)]
 pub(crate) fn test_config(root: &Path) -> UnifiedConfig {
-    UnifiedConfig {
+    idp_server::BootstrapSettings {
         listen_addr: "127.0.0.1:3000".parse().expect("test loopback"),
         endpoint_data_dir: root.join("endpoint"),
         idp: idp_server::AppConfig {
@@ -288,4 +292,5 @@ pub(crate) fn test_config(root: &Path) -> UnifiedConfig {
             ..Default::default()
         },
     }
+    .into()
 }

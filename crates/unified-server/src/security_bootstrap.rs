@@ -26,7 +26,7 @@ use ofdb_sql::{
 use serde::{Deserialize, Serialize};
 use storage_server::DatabaseTransport;
 
-use crate::local_provisioning::provisioning_stage;
+use idp_server::local_provisioning::provisioning_stage;
 
 use super::{SecurityContext, SecurityProtocol, candidates, denied, now};
 

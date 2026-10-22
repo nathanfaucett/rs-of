@@ -61,7 +61,7 @@ impl UnifiedEndpoint {
         data_dir: &Path,
         idp_config: &idp_server::AppConfig,
     ) -> io::Result<Self> {
-        crate::local_provisioning::require_unix_bootstrap()?;
+        idp_server::local_provisioning::require_unix_bootstrap()?;
         reject_symlink_ancestry(data_dir)?;
         let parent = data_dir
             .parent()

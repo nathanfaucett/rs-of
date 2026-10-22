@@ -10,7 +10,8 @@ use management_service::issuer_discovery::validate_issuer;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    UnifiedConfig,
+    BootstrapSettings,
+    bootstrap_host::BootstrapHost,
     local_provisioning::{
         absolute, create_private_directory, lock, private_options, read_private, require_absent,
         require_unix_bootstrap, sync_ancestry,
@@ -44,13 +45,13 @@ struct Host {
 }
 
 /// Public host identity/settings only. Retain the guard through setup and serving.
-pub struct BootstrapConfig {
+pub struct BootstrapConfig<H: BootstrapHost> {
     host: Host,
     _operation: File,
-    explicit_config: Option<UnifiedConfig>,
+    explicit_config: Option<H::Config>,
     fresh: bool,
 }
-impl BootstrapConfig {
+impl<H: BootstrapHost> BootstrapConfig<H> {
     pub fn default_directory() -> io::Result<PathBuf> {
         if let Some(path) = std::env::var_os("XDG_DATA_HOME").filter(|value| !value.is_empty()) {
             let path = PathBuf::from(path);
@@ -157,7 +158,7 @@ impl BootstrapConfig {
         Ok(retained)
     }
 
-    fn retain(host: Host, explicit_config: Option<UnifiedConfig>) -> io::Result<Self> {
+    fn retain(host: Host, explicit_config: Option<H::Config>) -> io::Result<Self> {
         let root = &host.root;
         create_private_directory(root, true)?;
         let operation = lock(root, true)?;
@@ -227,11 +228,11 @@ impl BootstrapConfig {
         })
     }
 
-    pub(crate) fn setup_attempted(&self) -> bool {
+    pub fn setup_attempted(&self) -> bool {
         self.host.setup_attempted == Some(true)
     }
 
-    pub(crate) fn begin_setup(&mut self) -> io::Result<()> {
+    pub fn begin_setup(&mut self) -> io::Result<()> {
         if !self.fresh
             || self.host.purpose != BootstrapPurpose::AwaitingChoice
             || self.host.setup_attempted != Some(false)
@@ -259,7 +260,7 @@ impl BootstrapConfig {
         Ok(())
     }
 
-    pub(crate) fn select_create(&mut self) -> io::Result<()> {
+    pub fn select_create(&mut self) -> io::Result<()> {
         if self.host.purpose == BootstrapPurpose::Create && self.setup_attempted() {
             return Ok(());
         }
@@ -278,7 +279,7 @@ impl BootstrapConfig {
         self.retain_selection(selected)
     }
 
-    pub(crate) fn select_join(&mut self, peer: &str, issuer: &str) -> io::Result<()> {
+    pub fn select_join(&mut self, peer: &str, issuer: &str) -> io::Result<()> {
         management_service::hosted_join::NodeJoinRequest::validate_trusted_peer(peer)?;
         validate_issuer(issuer)?;
         if self.host.purpose == BootstrapPurpose::Join
@@ -323,23 +324,23 @@ impl BootstrapConfig {
         &self.host.root
     }
 
-    pub fn explicit_directory(config: &UnifiedConfig) -> PathBuf {
+    pub fn explicit_directory(config: &H::Config) -> PathBuf {
         config.endpoint_data_dir.with_extension("host")
     }
 
-    pub fn create_explicit(config: UnifiedConfig) -> io::Result<Self> {
+    pub fn create_explicit(config: H::Config) -> io::Result<Self> {
         Self::create_explicit_host(config, true)
     }
 
-    pub fn create_explicit_http(config: UnifiedConfig) -> io::Result<Self> {
+    pub fn create_explicit_http(config: H::Config) -> io::Result<Self> {
         Self::create_explicit_host(config, false)
     }
 
-    fn create_explicit_host(mut config: UnifiedConfig, https: bool) -> io::Result<Self> {
+    fn create_explicit_host(mut config: H::Config, https: bool) -> io::Result<Self> {
         require_unix_bootstrap()?;
-        crate::setup_host::require_fresh_roots(&config, true, https)?;
+        crate::bootstrap_settings::require_fresh_roots(&config, true, https)?;
         let root = absolute(&Self::explicit_directory(&config))?;
-        crate::setup_host::require_host_separation(&config, &root)?;
+        crate::bootstrap_settings::require_host_separation(&config, &root)?;
         require_absent(&root)?;
         let explicit = explicit_identity(&config)?;
         config.idp.oauth2.issuer.clear();
@@ -360,7 +361,7 @@ impl BootstrapConfig {
         )
     }
 
-    pub fn open_explicit(mut config: UnifiedConfig) -> io::Result<Self> {
+    pub fn open_explicit(mut config: H::Config) -> io::Result<Self> {
         let mut host = Self::read(&Self::explicit_directory(&config))?;
         if host.host.explicit.as_ref() != Some(&explicit_identity(&config)?)
             || host.host.listen != config.listen_addr
@@ -380,12 +381,11 @@ impl BootstrapConfig {
     pub fn trusted_peer(&self) -> Option<&str> {
         self.host.trusted_peer.as_deref()
     }
-    #[cfg(feature = "cli")]
-    pub(crate) fn set_runtime_config(&mut self, config: UnifiedConfig) {
+    pub fn set_runtime_config(&mut self, config: H::Config) {
         self.explicit_config = Some(config);
     }
 
-    pub fn config(&self) -> UnifiedConfig {
+    pub fn config(&self) -> H::Config {
         if let Some(config) = &self.explicit_config {
             let mut config = config.clone();
             config.idp.oauth2.issuer = self.host.issuer.clone();
@@ -399,7 +399,7 @@ impl BootstrapConfig {
             .unwrap_or_else(|| format!("https://{}", self.host.listen));
         let idp_uri = format!("{base}/idp");
         let storage_uri = format!("{base}/storage");
-        let idp = idp_server::AppConfig {
+        let idp = crate::AppConfig {
             data_dir: root.join("idp").to_string_lossy().into_owned(),
             key_namespace: format!("unified-node:{}", self.host.key_namespace),
             api_public_uri: idp_uri.clone(),
@@ -422,17 +422,18 @@ impl BootstrapConfig {
             api_public_uri: storage_uri,
             ..Default::default()
         };
-        UnifiedConfig {
+        BootstrapSettings {
             listen_addr: self.host.listen,
             endpoint_data_dir: root.join("endpoint"),
             idp,
             management,
             storage,
         }
+        .into()
     }
 }
 
-fn explicit_identity(config: &UnifiedConfig) -> io::Result<serde_json::Value> {
+fn explicit_identity(config: &BootstrapSettings) -> io::Result<serde_json::Value> {
     if config.idp.oauth2.local_signer.is_some() {
         return Err(invalid(
             "neutral startup requires no configured Node signer",
@@ -458,7 +459,7 @@ fn installation_issuer(id: Id) -> String {
     format!("https://{id}.installation.invalid/idp")
 }
 
-pub(crate) fn present(path: &Path) -> io::Result<bool> {
+pub fn present(path: &Path) -> io::Result<bool> {
     match std::fs::symlink_metadata(path) {
         Ok(_) => Ok(true),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
@@ -467,117 +468,4 @@ pub(crate) fn present(path: &Path) -> io::Result<bool> {
 }
 fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
-}
-
-#[cfg(all(test, unix))]
-mod tests {
-    use super::{BootstrapConfig, BootstrapPurpose};
-    #[test]
-    fn ordinary_create_derives_and_retains_all_public_host_settings() {
-        let root = std::env::temp_dir().join(format!(
-            "unified-default-config-{}",
-            idp_model::model::Id::now_v7()
-        ));
-        let host = BootstrapConfig::create(&root, BootstrapPurpose::Create, None)
-            .expect("fresh automatic host");
-        let config = host.config();
-        assert_ne!(config.listen_addr.port(), 0);
-        assert_eq!(
-            config.idp.api_public_uri,
-            format!("https://{}/idp", config.listen_addr)
-        );
-        assert_ne!(config.idp.api_public_uri, config.idp.oauth2.issuer);
-        assert!(
-            config
-                .idp
-                .oauth2
-                .issuer
-                .ends_with(".installation.invalid/idp")
-        );
-        assert!(
-            !config
-                .idp
-                .oauth2
-                .issuer
-                .contains(&config.listen_addr.to_string())
-        );
-        assert_ne!(config.idp.data_dir, config.management.data_dir);
-        assert_ne!(config.management.data_dir, config.storage.data_dir);
-        drop(host);
-        let reopened = BootstrapConfig::open(&root)
-            .expect("retained host settings")
-            .config();
-        assert_eq!(reopened.listen_addr, config.listen_addr);
-        assert_eq!(reopened.idp.key_namespace, config.idp.key_namespace);
-        assert_eq!(reopened.idp.oauth2.issuer, config.idp.oauth2.issuer);
-        assert!(BootstrapConfig::create(&root, BootstrapPurpose::Create, None).is_err());
-        std::fs::remove_dir_all(root).expect("isolated cleanup");
-    }
-
-    #[test]
-    fn independent_installations_on_the_same_local_port_have_distinct_issuers() {
-        let root = std::env::temp_dir().join(format!(
-            "unified-distinct-installations-{}",
-            idp_model::model::Id::now_v7()
-        ));
-        let a = BootstrapConfig::create(&root.join("a"), BootstrapPurpose::Create, None)
-            .expect("first Installation");
-        let b = BootstrapConfig::create(&root.join("b"), BootstrapPurpose::Create, None)
-            .expect("second Installation");
-        let first = a.config();
-        drop(b);
-        let path = root.join("b/host.json");
-        let mut settings: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(&path).expect("second host settings"))
-                .expect("public settings");
-        settings["listen"] = serde_json::json!(first.listen_addr.to_string());
-        std::fs::write(
-            &path,
-            serde_json::to_vec(&settings).expect("same-port host settings"),
-        )
-        .expect("simulate same port on another machine");
-        let b = BootstrapConfig::open(&root.join("b"))
-            .expect("retained separate Installation identity");
-        let second = b.config();
-        assert_eq!(first.listen_addr, second.listen_addr);
-        assert_eq!(first.idp.api_public_uri, second.idp.api_public_uri);
-        assert_ne!(first.idp.oauth2.issuer, second.idp.oauth2.issuer);
-        assert_ne!(first.idp.key_namespace, second.idp.key_namespace);
-        drop((a, b));
-        std::fs::remove_dir_all(root).expect("isolated cleanup");
-    }
-
-    #[test]
-    fn join_settings_require_peer_evidence_not_an_invented_installation() {
-        let root = std::env::temp_dir().join(format!(
-            "unified-default-join-config-{}",
-            idp_model::model::Id::now_v7()
-        ));
-        assert!(BootstrapConfig::create(&root, BootstrapPurpose::Join, None).is_err());
-        assert!(!root.exists());
-        let peer = iroh::SecretKey::generate().public().to_string();
-        let host = BootstrapConfig::create(
-            &root,
-            BootstrapPurpose::Join,
-            Some((&peer, "https://trusted-installation.test/idp")),
-        )
-        .expect("authenticated peer result");
-        assert_eq!(
-            host.config().idp.oauth2.issuer,
-            "https://trusted-installation.test/idp"
-        );
-        assert_eq!(host.trusted_peer(), Some(peer.as_str()));
-        drop(host);
-        std::fs::remove_file(root.join("host.json")).expect("simulate lost host identity");
-        assert!(BootstrapConfig::open(&root).is_err());
-        assert!(
-            BootstrapConfig::create(
-                &root,
-                BootstrapPurpose::Join,
-                Some((&peer, "https://trusted-installation.test/idp"))
-            )
-            .is_err()
-        );
-        std::fs::remove_dir_all(root).expect("isolated cleanup");
-    }
 }

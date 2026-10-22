@@ -2,6 +2,7 @@ use std::{
     fs::{self, File, OpenOptions},
     future::Future,
     io::{self, Read, Write},
+    ops::{Deref, DerefMut},
     path::{Component, Path, PathBuf},
     pin::Pin,
     sync::Arc,
@@ -14,11 +15,13 @@ use idp_model::{
     },
     model::Id,
 };
-use idp_server::OwnerProvisioner;
 use idp_service::{encrypt_password, oauth2::NodeSignerBinding};
 use serde::{Deserialize, Serialize};
 
-use crate::{UnifiedConfig, UnifiedEndpoint, UnifiedRuntime};
+use crate::{
+    BootstrapSettings, OwnerProvisioner,
+    bootstrap_host::{BootstrapEndpoint, BootstrapHost, BootstrapOwners, BootstrapRuntime},
+};
 
 const INITIAL_ACTIONS: [IdentityAction; 25] = [
     IdentityAction::InfrastructureClientsRead,
@@ -50,7 +53,7 @@ const INITIAL_ACTIONS: [IdentityAction; 25] = [
 
 #[derive(Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Intent {
+pub struct Intent {
     issuer: String,
     key_namespace: String,
     roots: [PathBuf; 4],
@@ -90,28 +93,26 @@ struct Journal {
 /// Restricted operator-local setup. Keep this guard alive until the runtime is shut down.
 /// Paths require stable operator-controlled ancestry; this is not a hostile-path race defense.
 /// Only Unix owner-only files are supported by this local command.
-pub struct LocalProvisioner {
-    config: UnifiedConfig,
+pub struct LocalProvisioner<H: BootstrapHost> {
+    config: H::Config,
     directory: PathBuf,
     _operation: File,
 }
 
-impl LocalProvisioner {
+impl<H: BootstrapHost> LocalProvisioner<H> {
     /// CLI existing-only startup decision; a present local journal is authoritative.
-    pub async fn open_runtime(config: UnifiedConfig) -> io::Result<(UnifiedRuntime, Option<Self>)> {
+    pub async fn open_runtime(config: H::Config) -> io::Result<(H::Runtime, Option<Self>)> {
         Self::open_runtime_for_transport(config, false).await
     }
 
-    pub async fn open_runtime_https(
-        config: UnifiedConfig,
-    ) -> io::Result<(UnifiedRuntime, Option<Self>)> {
+    pub async fn open_runtime_https(config: H::Config) -> io::Result<(H::Runtime, Option<Self>)> {
         Self::open_runtime_for_transport(config, true).await
     }
 
     async fn open_runtime_for_transport(
-        config: UnifiedConfig,
+        config: H::Config,
         https: bool,
-    ) -> io::Result<(UnifiedRuntime, Option<Self>)> {
+    ) -> io::Result<(H::Runtime, Option<Self>)> {
         match fs::symlink_metadata(config.local_provisioning_directory()) {
             Ok(_) => {
                 let local = Self::open(config)?;
@@ -119,7 +120,7 @@ impl LocalProvisioner {
                 Ok((runtime, Some(local)))
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                crate::runtime::validate_config(&config)?;
+                crate::bootstrap_settings::validate_config(&config)?;
                 let binding = config.idp.oauth2.local_signer.as_ref().ok_or_else(|| {
                     invalid("existing host requires an explicit retained Node signer binding")
                 })?;
@@ -138,7 +139,7 @@ impl LocalProvisioner {
                 )?;
                 require_file(&config.endpoint_data_dir.join("endpoint.key"), true)?;
                 require_storage(&config)?;
-                if UnifiedEndpoint::persisted_endpoint_id(&config.endpoint_data_dir)?.to_string()
+                if H::Endpoint::persisted_endpoint_id(&config.endpoint_data_dir)?.to_string()
                     != binding.endpoint_id
                 {
                     return Err(invalid(
@@ -147,9 +148,9 @@ impl LocalProvisioner {
                 }
 
                 let runtime = if https {
-                    UnifiedRuntime::build_https(config).await?
+                    H::Runtime::build_https(config).await?
                 } else {
-                    UnifiedRuntime::build(config).await?
+                    H::Runtime::build(config).await?
                 };
                 match runtime.node_public_ready().await {
                     Ok(true) => Ok((runtime, None)),
@@ -167,7 +168,7 @@ impl LocalProvisioner {
     /// Publishes a new exact intent, without creating endpoint or owner private material.
     /// All four context/endpoint roots and the adjacent provisioning directory must be absent.
     pub fn create(
-        config: UnifiedConfig,
+        config: H::Config,
         administrator: &str,
         node: &str,
         password_file: &Path,
@@ -178,7 +179,7 @@ impl LocalProvisioner {
     }
 
     pub fn create_with_password(
-        config: UnifiedConfig,
+        config: H::Config,
         administrator: &str,
         node: &str,
         password: &str,
@@ -242,7 +243,7 @@ impl LocalProvisioner {
     }
 
     /// Existing-only opening. Missing/invalid intent is never fresh authorization.
-    pub fn open(config: UnifiedConfig) -> io::Result<Self> {
+    pub fn open(config: H::Config) -> io::Result<Self> {
         let config = normalized_config(config)?;
         let directory = config.local_provisioning_directory();
         require_directory(&directory)?;
@@ -331,7 +332,7 @@ impl LocalProvisioner {
         self.mark_complete()
     }
 
-    pub(crate) fn validate_retry(
+    pub fn validate_retry(
         &self,
         administrator: &str,
         node: &str,
@@ -346,16 +347,16 @@ impl LocalProvisioner {
         verify(password, &journal.password_verifier)
     }
 
-    pub(crate) async fn prepare_hosted_runtime(
+    pub async fn prepare_hosted_runtime(
         &mut self,
         password: &str,
         https: bool,
         cancellation: &tokio_util::sync::CancellationToken,
-    ) -> io::Result<UnifiedRuntime> {
+    ) -> io::Result<H::Runtime> {
         Box::pin(self.prepare_runtime(password, https, true, cancellation)).await
     }
 
-    pub(crate) fn mark_complete(&self) -> io::Result<()> {
+    pub fn mark_complete(&self) -> io::Result<()> {
         let mut journal = self.read()?;
         journal.complete = true;
         self.write(&journal)
@@ -367,7 +368,7 @@ impl LocalProvisioner {
         https: bool,
         hosted: bool,
         cancellation: &tokio_util::sync::CancellationToken,
-    ) -> io::Result<UnifiedRuntime> {
+    ) -> io::Result<H::Runtime> {
         let started = std::time::Instant::now();
         validate_password(password)?;
         check_cancellation(cancellation)?;
@@ -398,14 +399,14 @@ impl LocalProvisioner {
             require_storage(&self.config)?;
         }
         let endpoint = if journal.endpoint_attempted {
-            UnifiedEndpoint::open(&self.config.endpoint_data_dir, &self.config.idp).await?
+            H::Endpoint::open(&self.config.endpoint_data_dir, &self.config.idp).await?
         } else {
             for root in &journal.intent.roots {
                 require_absent(root)?;
             }
             journal.endpoint_attempted = true;
             self.write(&journal)?;
-            UnifiedEndpoint::open_fresh(&self.config.endpoint_data_dir, &self.config.idp).await?
+            H::Endpoint::open_fresh(&self.config.endpoint_data_dir, &self.config.idp).await?
         };
         let endpoint = Arc::new(endpoint);
         let result = async {
@@ -564,11 +565,11 @@ impl LocalProvisioner {
             }
             let mut config = self.config.clone();
             config.idp.oauth2.local_signer = Some(binding);
-            let runtime = Box::pin(UnifiedRuntime::build_with_owners(
+            let runtime = Box::pin(H::Runtime::build_with_owners(
                 config,
                 listener,
                 api_base,
-                crate::runtime::RuntimeOwners {
+                BootstrapOwners {
                     endpoint: Arc::clone(&endpoint),
                     idp: idp_engine,
                     management: management_engine,
@@ -598,23 +599,19 @@ impl LocalProvisioner {
     }
 
     /// Requires explicit completion and current local evidence; never provisions at startup.
-    pub async fn build_runtime(&self) -> io::Result<UnifiedRuntime> {
+    pub async fn build_runtime(&self) -> io::Result<H::Runtime> {
         self.build_runtime_for_transport(false).await
     }
 
-    async fn build_runtime_for_transport(&self, https: bool) -> io::Result<UnifiedRuntime> {
+    async fn build_runtime_for_transport(&self, https: bool) -> io::Result<H::Runtime> {
         self.build_runtime_for_host(https, false).await
     }
 
-    pub(crate) async fn reopen_hosted_runtime(&self, https: bool) -> io::Result<UnifiedRuntime> {
+    pub async fn reopen_hosted_runtime(&self, https: bool) -> io::Result<H::Runtime> {
         self.build_runtime_for_host(https, true).await
     }
 
-    async fn build_runtime_for_host(
-        &self,
-        https: bool,
-        hosted: bool,
-    ) -> io::Result<UnifiedRuntime> {
+    async fn build_runtime_for_host(&self, https: bool, hosted: bool) -> io::Result<H::Runtime> {
         let journal = self.read()?;
         if !journal.complete {
             return Err(invalid(
@@ -635,7 +632,7 @@ impl LocalProvisioner {
         require_file(&self.config.endpoint_data_dir.join("endpoint.key"), true)?;
         require_storage(&self.config)?;
         let binding = binding(&journal)?;
-        if UnifiedEndpoint::persisted_endpoint_id(&self.config.endpoint_data_dir)?.to_string()
+        if H::Endpoint::persisted_endpoint_id(&self.config.endpoint_data_dir)?.to_string()
             != binding.endpoint_id
         {
             return Err(invalid(
@@ -644,7 +641,7 @@ impl LocalProvisioner {
         }
         let mut config = self.config.clone();
         config.idp.oauth2.local_signer = Some(binding.clone());
-        let owners = crate::runtime::RuntimeOwners::open(&config).await?;
+        let owners = H::open_owners(&config).await?;
         let result = async {
             let owner = OwnerProvisioner::from_database(&config.idp, Arc::clone(&owners.idp))?;
             if Some(owner.verify_node_signer(&binding).await?) != journal.public_signer {
@@ -669,11 +666,11 @@ impl LocalProvisioner {
             } else {
                 format!("http://{address}")
             };
-            Box::pin(UnifiedRuntime::build_with_owners(
+            Box::pin(H::Runtime::build_with_owners(
                 config,
                 listener,
                 api_base,
-                crate::runtime::RuntimeOwners {
+                BootstrapOwners {
                     endpoint: Arc::clone(&owners.endpoint),
                     idp: Arc::clone(&owners.idp),
                     management: Arc::clone(&owners.management),
@@ -714,7 +711,7 @@ impl LocalProvisioner {
         }
     }
 
-    pub(crate) fn reset_references(&self) -> io::Result<serde_json::Value> {
+    pub fn reset_references(&self) -> io::Result<serde_json::Value> {
         let journal = self.read()?;
         Ok(serde_json::json!({
             "member_id": journal.member,
@@ -795,7 +792,7 @@ impl LocalProvisioner {
 
 // Construct large owner futures outside the caller's poll frame as well as storing them on the heap.
 #[inline(never)]
-pub(crate) fn provisioning_stage<'a, T: 'a, F>(
+pub fn provisioning_stage<'a, T: 'a, F>(
     make: impl FnOnce() -> F,
 ) -> Pin<Box<dyn Future<Output = io::Result<T>> + Send + 'a>>
 where
@@ -815,8 +812,8 @@ fn check_cancellation(cancellation: &tokio_util::sync::CancellationToken) -> io:
     }
 }
 
-pub(crate) fn intent(config: &UnifiedConfig) -> io::Result<Intent> {
-    crate::runtime::validate_config(config)?;
+pub fn intent(config: &BootstrapSettings) -> io::Result<Intent> {
+    crate::bootstrap_settings::validate_config(config)?;
     crate::LocalTls::validate_ip(config.listen_addr.ip())?;
     if !config.listen_addr.ip().is_loopback() {
         return Err(invalid("local host must use a loopback listener"));
@@ -863,7 +860,7 @@ pub(crate) fn intent(config: &UnifiedConfig) -> io::Result<Intent> {
     })
 }
 
-pub(crate) fn login_registration(config: &UnifiedConfig, client_id: Id) -> ClientRegistration {
+pub fn login_registration(config: &BootstrapSettings, client_id: Id) -> ClientRegistration {
     ClientRegistration {
         application: ApplicationRegistration {
             name: Some("Local Node operator".into()),
@@ -928,7 +925,10 @@ fn same_binding(left: &NodeSignerBinding, right: &NodeSignerBinding) -> bool {
         && left.endpoint_id == right.endpoint_id
 }
 
-pub(crate) fn normalized_config(mut config: UnifiedConfig) -> io::Result<UnifiedConfig> {
+pub fn normalized_config<C>(mut config: C) -> io::Result<C>
+where
+    C: Deref<Target = BootstrapSettings> + DerefMut,
+{
     config.endpoint_data_dir = absolute(&config.endpoint_data_dir)?;
     config.idp.data_dir = absolute(Path::new(&config.idp.data_dir))?
         .to_string_lossy()
@@ -943,7 +943,7 @@ pub(crate) fn normalized_config(mut config: UnifiedConfig) -> io::Result<Unified
     Ok(config)
 }
 
-pub(crate) fn absolute(path: &Path) -> io::Result<PathBuf> {
+pub fn absolute(path: &Path) -> io::Result<PathBuf> {
     if path.as_os_str().is_empty()
         || path
             .components()
@@ -976,7 +976,7 @@ fn reject_symlinks(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-pub(crate) fn require_absent(path: &Path) -> io::Result<()> {
+pub fn require_absent(path: &Path) -> io::Result<()> {
     reject_symlinks(path)?;
     match fs::symlink_metadata(path) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -987,7 +987,7 @@ pub(crate) fn require_absent(path: &Path) -> io::Result<()> {
     }
 }
 
-pub(crate) fn require_retained_directory(path: &Path) -> io::Result<fs::Metadata> {
+pub fn require_retained_directory(path: &Path) -> io::Result<fs::Metadata> {
     reject_symlinks(path)?;
     let metadata = fs::symlink_metadata(path)?;
     if !metadata.is_dir() {
@@ -1000,7 +1000,7 @@ fn require_directory(path: &Path) -> io::Result<()> {
     private_permissions(&require_retained_directory(path)?)
 }
 
-pub(crate) fn require_file(path: &Path, private: bool) -> io::Result<File> {
+pub fn require_file(path: &Path, private: bool) -> io::Result<File> {
     reject_symlinks(path)?;
     if !fs::symlink_metadata(path)?.is_file() {
         return Err(invalid("input or retained state must be a regular file"));
@@ -1037,7 +1037,7 @@ fn private_permissions(metadata: &fs::Metadata) -> io::Result<()> {
     }
 }
 
-pub(crate) fn require_unix_bootstrap() -> io::Result<()> {
+pub fn require_unix_bootstrap() -> io::Result<()> {
     #[cfg(unix)]
     {
         Ok(())
@@ -1051,7 +1051,7 @@ pub(crate) fn require_unix_bootstrap() -> io::Result<()> {
     }
 }
 
-pub(crate) fn create_private_directory(path: &Path, recursive: bool) -> io::Result<()> {
+pub fn create_private_directory(path: &Path, recursive: bool) -> io::Result<()> {
     require_unix_bootstrap()?;
     reject_symlinks(path)?;
     let mut builder = fs::DirBuilder::new();
@@ -1064,7 +1064,7 @@ pub(crate) fn create_private_directory(path: &Path, recursive: bool) -> io::Resu
     sync_ancestry(path)
 }
 
-pub(crate) fn require_storage(config: &UnifiedConfig) -> io::Result<()> {
+pub fn require_storage(config: &BootstrapSettings) -> io::Result<()> {
     let root = Path::new(&config.storage.data_dir);
     require_retained_directory(root)?;
     for name in ["databases", "filesystems"] {
@@ -1079,7 +1079,7 @@ pub(crate) fn require_storage(config: &UnifiedConfig) -> io::Result<()> {
     Ok(())
 }
 
-pub(crate) fn private_options(create_new: bool) -> OpenOptions {
+pub fn private_options(create_new: bool) -> OpenOptions {
     let mut options = OpenOptions::new();
     options.read(true).write(true).create_new(create_new);
     #[cfg(unix)]
@@ -1090,7 +1090,7 @@ pub(crate) fn private_options(create_new: bool) -> OpenOptions {
     options
 }
 
-pub(crate) fn lock(directory: &Path, fresh: bool) -> io::Result<File> {
+pub fn lock(directory: &Path, fresh: bool) -> io::Result<File> {
     require_directory(directory)?;
     let path = directory.join("operation.lock");
     if !fresh {
@@ -1109,14 +1109,14 @@ pub(crate) fn lock(directory: &Path, fresh: bool) -> io::Result<File> {
     Ok(file)
 }
 
-pub(crate) fn read_private(path: &Path) -> io::Result<Vec<u8>> {
+pub fn read_private(path: &Path) -> io::Result<Vec<u8>> {
     let mut file = require_file(path, true)?;
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)?;
     Ok(bytes)
 }
 
-pub(crate) fn read_password(path: &Path) -> io::Result<String> {
+pub fn read_password(path: &Path) -> io::Result<String> {
     let mut password = String::from_utf8(read_private(path)?)
         .map_err(|_| invalid("password input must be UTF-8"))?;
     if password.ends_with('\n') {
@@ -1129,7 +1129,7 @@ pub(crate) fn read_password(path: &Path) -> io::Result<String> {
     Ok(password)
 }
 
-pub(crate) fn validate_password(password: &str) -> io::Result<()> {
+pub fn validate_password(password: &str) -> io::Result<()> {
     if password.trim().is_empty() || password.contains(['\r', '\n']) {
         return Err(invalid("password input must contain one nonempty line"));
     }
@@ -1147,7 +1147,7 @@ fn verify(secret: &str, verifier: &str) -> io::Result<()> {
     Ok(())
 }
 
-pub(crate) fn sync_ancestry(directory: &Path) -> io::Result<()> {
+pub fn sync_ancestry(directory: &Path) -> io::Result<()> {
     for ancestor in directory.ancestors() {
         File::open(ancestor)?.sync_all()?;
     }

@@ -6,6 +6,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use idp_server::local_provisioning::provisioning_stage;
+
 use idp_model::model::Id;
 use idp_service::repo::PrivateKeyKeyringRepo;
 
@@ -13,9 +15,7 @@ use model::contract::TokenResponse;
 use tokio::task::JoinHandle;
 
 use super::{Fixture, full_nodes::NodeStores};
-use crate::{
-    LocalJoin, LocalProvisioner, LocalTls, UnifiedRuntime, local_provisioning::provisioning_stage,
-};
+use crate::{LocalJoin, LocalProvisioner, LocalTls, UnifiedRuntime};
 
 #[path = "api_join_tests.rs"]
 mod api_join_tests;

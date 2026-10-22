@@ -32,38 +32,50 @@ of-management-client = { path = "../management-client", default-features = false
 dotenvy = { version = "0.15", default-features = false, features = [
 ], optional = true }
 clap = { version = "4.6", default-features = false, features = [
-  "std",
-  "derive",
-  "help",
+    "std",
+    "derive",
+    "help",
 ], optional = true }
-clap_complete = { version = "4.5", default-features = false, features = [], optional = true }
+clap_complete = { version = "4.5", default-features = false, features = [
+], optional = true }
 cli = { path = "../cli", default-features = false, features = [
 ], optional = true }
 
+# Credentials
+rust-argon2 = { version = "3.0", default-features = false }
+
 # Internal
-key = { path = "../key", default-features = false, features = ["std"] }
 api = { path = "../api", default-features = false, features = [] }
 db = { package = "idp-db", path = "../db", default-features = false, features = [
-  "replica",
-] }
-
-
-model = { path = "../model", default-features = false, features = [
-  "std",
-  "utoipa",
-  "axum",
+    "replica",
 ] }
 idp-model = { path = "../idp-model", default-features = false, features = [
-  "std",
-  "utoipa",
-  "axum",
-  "replica",
+    "std",
+    "utoipa",
+    "axum",
+    "replica",
 ] }
-idp-service = { path = "../idp-service", default-features = false, features = ["replica", "std"] }
-
-management-service = { path = "../management-service", default-features = false, features = ["replica", "std", "utoipa"] }
-
-iroh-chain = { path = "../../../ofnet/crates/iroh-chain", default-features = false, features = [] }
+idp-service = { path = "../idp-service", default-features = false, features = [
+    "replica",
+    "std",
+] }
+iroh-chain = { path = "../../../ofnet/crates/iroh-chain", default-features = false, features = [
+] }
+key = { path = "../key", default-features = false, features = ["std"] }
+management-server = { path = "../management-server", default-features = false }
+management-service = { path = "../management-service", default-features = false, features = [
+    "replica",
+    "std",
+    "utoipa",
+] }
+model = { path = "../model", default-features = false, features = [
+    "std",
+    "utoipa",
+    "axum",
+] }
+storage-server = { path = "../storage-server", default-features = false, features = [
+    "network",
+] }
 
 # Iroh
 iroh = { version = "1.1", default-features = false, features = ["tls-ring"] }
@@ -72,15 +84,15 @@ iroh = { version = "1.1", default-features = false, features = ["tls-ring"] }
 
 ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = [
 
-  "redb",
-  "sync",
+    "redb",
+    "sync",
 ] }
 
 # Serialization
 base64 = { version = "0.22", default-features = false, features = ["std"] }
 serde = { version = "1.0", default-features = false, features = [
-  "derive",
-  "std",
+    "derive",
+    "std",
 ] }
 serde_json = { version = "1.0", default-features = false, features = ["std"] }
 serde_qs = { version = "1.1", default-features = false, features = ["axum"] }
@@ -91,34 +103,38 @@ config = { version = "0.15", features = ["yaml"], default-features = false }
 
 # Web
 axum = { version = "0.8", default-features = false, features = [
-  "http1",
-  "http2",
-  "form",
-  "query",
-  "json",
-  "tokio",
-  "macros"
+    "http1",
+    "http2",
+    "form",
+    "query",
+    "json",
+    "tokio",
+    "macros",
 ] }
 tower-http = { version = "0.7", features = [
-  "cors",
-  "trace",
-  "compression-gzip",
+    "cors",
+    "trace",
+    "compression-gzip",
 ], default-features = false }
 http = { version = "1.4", default-features = false }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls-native-roots",
+] }
 tower = { version = "0.5", default-features = false, features = ["util"] }
 utoipa = { version = "5.5", default-features = false, features = ["macros"] }
 utoipa-axum = { version = "0.2", default-features = false, features = [] }
-utoipa-swagger-ui = { version = "9.0", default-features = false, features = ["axum"], optional = true }
+utoipa-swagger-ui = { version = "9.0", default-features = false, features = [
+    "axum",
+], optional = true }
 
 # Async
 tokio = { version = "1.52", default-features = false, features = [
-  "macros",
-  "rt-multi-thread",
-  "time",
+    "macros",
+    "rt-multi-thread",
+    "time",
 ] }
-tokio-util = { version = "0.7", default-features = false, features = [
-] }
+tokio-util = { version = "0.7", default-features = false, features = [] }
 
 # Logging
 log = { version = "0.4", default-features = false, features = ["std"] }
@@ -128,4 +144,3 @@ env_logger = { version = "0.10", default-features = false, features = [] }
 
 # Keyring
 keyring-core = { version = "1.0", default-features = false, features = [] }
-

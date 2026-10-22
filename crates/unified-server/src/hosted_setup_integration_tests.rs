@@ -75,7 +75,7 @@ async fn retired_join_reopen_refuses_mismatched_or_missing_intent_without_owner_
         ))
         .expect("known canonical Join intent");
         if fault != "missing_checkpoint" {
-            crate::local_provisioning::private_options(true)
+            idp_server::local_provisioning::private_options(true)
                 .open(root.join("join-admission.json"))
                 .expect("protected exact host checkpoint")
                 .write_all(canonical.as_bytes())
@@ -83,7 +83,7 @@ async fn retired_join_reopen_refuses_mismatched_or_missing_intent_without_owner_
         }
         if fault != "missing_history" {
             for stage in ["credentials", "owner"] {
-                crate::local_provisioning::private_options(true)
+                idp_server::local_provisioning::private_options(true)
                     .open(root.join(format!("join-{stage}.attempted")))
                     .expect("protected completed production history")
                     .write_all(b"attempted\n")
@@ -116,7 +116,7 @@ async fn retired_join_reopen_refuses_mismatched_or_missing_intent_without_owner_
         let coordinator =
             crate::setup_runtime::setup_worker(host, tls, admission, shutdown.clone());
         let router = coordinator.router().expect("production setup API");
-        let owner = tokio::spawn(crate::local_provisioning::provisioning_stage(|| {
+        let owner = tokio::spawn(idp_server::local_provisioning::provisioning_stage(|| {
             coordinator.run()
         }));
         tokio::time::timeout(Duration::from_secs(5), async {
@@ -234,7 +234,7 @@ async fn partial_credentials_reopen_preserves_recovery_for_create_and_join() {
                     issuer,
                 ))
                 .expect("Join intent");
-                crate::local_provisioning::private_options(true)
+                idp_server::local_provisioning::private_options(true)
                     .open(root.join("join-admission.json"))
                     .expect("Join checkpoint")
                     .write_all(canonical.as_bytes())
@@ -243,7 +243,7 @@ async fn partial_credentials_reopen_preserves_recovery_for_create_and_join() {
                     ("credentials", b"attempted\n".as_slice()),
                     ("owner", b"unattempted\n".as_slice()),
                 ] {
-                    crate::local_provisioning::private_options(true)
+                    idp_server::local_provisioning::private_options(true)
                         .open(root.join(format!("join-{stage}.attempted")))
                         .expect("production history")
                         .write_all(state)
@@ -291,7 +291,7 @@ async fn partial_credentials_reopen_preserves_recovery_for_create_and_join() {
                     .expect("isolated attempted credential-root loss"),
                 "missing_owner" => fs::write(root.join("join-owner.attempted"), b"attempted\n")
                     .expect("isolated missing attempted owner root"),
-                "unexpected_owner" => crate::local_provisioning::create_private_directory(
+                "unexpected_owner" => idp_server::local_provisioning::create_private_directory(
                     &config.local_provisioning_directory(),
                     false,
                 )

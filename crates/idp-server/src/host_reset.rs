@@ -8,19 +8,21 @@ use crate::{
     local_provisioning::{read_private, require_absent, require_file},
 };
 
-impl BootstrapConfig {
+impl<H: crate::bootstrap_host::BootstrapHost> BootstrapConfig<H> {
     /// Nonsecret, exact protected-key references for an explicit stopped native reset.
     /// Missing/corrupt owner journals are not evidence that key production never started.
     pub fn local_reset_references(&self) -> io::Result<Value> {
         let mut config = self.config();
         if present(&config.credential_bootstrap_directory())? {
-            config = CredentialBootstrap::open(config)?.load()?;
+            config = CredentialBootstrap::<H>::open(config)?.load()?;
         }
         let provisioning = config.local_provisioning_directory();
         let keys = if present(&provisioning)? {
             match self.purpose() {
-                BootstrapPurpose::Create => LocalProvisioner::open(config)?.reset_references()?,
-                BootstrapPurpose::Join => LocalJoin::open(config)?.reset_references()?,
+                BootstrapPurpose::Create => {
+                    LocalProvisioner::<H>::open(config)?.reset_references()?
+                }
+                BootstrapPurpose::Join => LocalJoin::<H>::open(config)?.reset_references()?,
                 BootstrapPurpose::AwaitingChoice => {
                     return Err(io::Error::other("neutral host has unexpected owner state"));
                 }
@@ -63,13 +65,13 @@ impl BootstrapConfig {
         if keys.is_null() {
             return Ok(());
         }
-        let config = CredentialBootstrap::open(self.config())?.load()?;
+        let config = CredentialBootstrap::<H>::open(self.config())?.load()?;
         if keys["inventory_attempted"] == false {
             require_absent(Path::new(&config.idp.data_dir))?;
             return Ok(());
         }
         require_file(&Path::new(&config.idp.data_dir).join("idp.redb"), false)?;
-        let owner = idp_server::OwnerProvisioner::open(&config.idp).await?;
+        let owner = crate::OwnerProvisioner::open(&config.idp).await?;
         owner
             .delete_local_secrets(
                 serde_json::from_value(keys["member_id"].clone())?,

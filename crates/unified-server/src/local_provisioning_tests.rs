@@ -103,13 +103,14 @@ impl Fixture {
             api_public_uri: "https://storage.test".into(),
             ..Default::default()
         };
-        let config = UnifiedConfig {
+        let config: UnifiedConfig = idp_server::BootstrapSettings {
             listen_addr: "127.0.0.1:0".parse().expect("local ephemeral listener"),
             endpoint_data_dir: root.join("endpoint"),
             idp,
             management,
             storage,
-        };
+        }
+        .into();
         let fail_node_readback = Arc::new(AtomicBool::new(false));
         let store: Arc<keyring_core::CredentialStore> = Arc::new(SecretStore {
             store: keyring_core::mock::Store::new().expect("credential adapter"),
@@ -231,7 +232,7 @@ fn live_credential_guard_refuses_missing_or_changed_intent_before_provider_work(
         "absence cannot authorize replacement"
     );
     assert!(!path.exists(), "missing retained state stays missing");
-    crate::local_provisioning::private_options(true)
+    idp_server::local_provisioning::private_options(true)
         .open(&path)
         .expect("restore isolated checkpoint")
         .write_all(&retained)
@@ -313,7 +314,10 @@ fn old_one_two_and_four_relationship_create_and_join_intents_deny_unchanged() {
             old[field]["clients"] = serde_json::json!(
                 (0..old_count)
                     .map(|_| {
-                        crate::local_provisioning::login_registration(&fixture.config, Id::now_v7())
+                        idp_server::local_provisioning::login_registration(
+                            &fixture.config,
+                            Id::now_v7(),
+                        )
                     })
                     .collect::<Vec<_>>()
             );
@@ -519,7 +523,8 @@ async fn rotation_login_client(
     let owner = idp_server::OwnerProvisioner::open(&fixture.config.idp)
         .await
         .expect("stopped fixture IdP owner");
-    let mut request = crate::local_provisioning::login_registration(&fixture.config, Id::now_v7());
+    let mut request =
+        idp_server::local_provisioning::login_registration(&fixture.config, Id::now_v7());
     request.allowed_grant_types = grants;
     request.allowed_audiences = audiences;
     fixture_oauth2(&fixture.config.idp, owner.node_join_database())
