@@ -131,6 +131,7 @@ async fn run_separate_permission_acceptance(lifecycle_only: bool) {
         "/management",
         "storage-service",
         Arc::new(control_plane),
+        None,
     )
     .await
     .expect("build independent Management router");

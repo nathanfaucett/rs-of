@@ -547,6 +547,7 @@ async fn independent_transfer_https_child() {
             "/management",
             "storage-service",
             control,
+            None,
         )
         .await
         .expect("production Management router");

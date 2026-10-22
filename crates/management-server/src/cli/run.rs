@@ -167,6 +167,7 @@ pub async fn run() -> io::Result<()> {
         app_config.server.prefix(),
         &app_config.storage_audience,
         control_plane,
+        None,
     )
     .await
     .map_err(io::Error::other)?

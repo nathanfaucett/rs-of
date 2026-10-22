@@ -98,9 +98,10 @@ async fn node_join_anchor_verification_is_existing_only_and_does_not_write() {
         .prepare_node_join(&binding, "Read-only verification", peer.public())
         .expect("explicit preparation");
     let signature = peer.sign(
-        &crate::NodeJoinApproval::payload(&request, subject).expect("exact approval payload"),
+        &management_service::hosted_join::NodeJoinApproval::payload(&request, subject)
+            .expect("exact approval payload"),
     );
-    let approval = crate::NodeJoinApproval {
+    let approval = management_service::hosted_join::NodeJoinApproval {
         request,
         owner_subject: subject,
         signature: URL_SAFE_NO_PAD.encode(signature.to_bytes()),
@@ -265,7 +266,7 @@ async fn node_join_secure_store_loss_and_corrupt_journal_fail_closed() {
         "missing persisted key cannot be replaced"
     );
     assert_eq!(
-        serde_json::from_slice::<crate::NodeJoinRequest>(
+        serde_json::from_slice::<management_service::hosted_join::NodeJoinRequest>(
             &std::fs::read(root.join("node-join-request.json")).expect("preserved journal")
         )
         .expect("request"),
@@ -866,8 +867,11 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
     forged.signature = URL_SAFE_NO_PAD.encode(
         SecretKey::generate()
             .sign(
-                &crate::NodeJoinApproval::payload(&request, received.owner_subject)
-                    .expect("approval purpose payload"),
+                &management_service::hosted_join::NodeJoinApproval::payload(
+                    &request,
+                    received.owner_subject,
+                )
+                .expect("approval purpose payload"),
             )
             .to_bytes(),
     );

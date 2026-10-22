@@ -21,24 +21,7 @@ use crate::{
 
 #[cfg(unix)]
 pub(crate) fn allowed_origin(value: &str) -> io::Result<HeaderValue> {
-    let url = reqwest::Url::parse(value).map_err(io::Error::other)?;
-    if url.scheme() == "http"
-        && url.host_str().is_some_and(|host| {
-            host == "localhost"
-                || host
-                    .trim_matches(['[', ']'])
-                    .parse::<std::net::IpAddr>()
-                    .is_ok_and(|ip| ip.is_loopback())
-        })
-        && url.username().is_empty()
-        && url.password().is_none()
-        && url.path() == "/"
-        && url.query().is_none()
-        && url.fragment().is_none()
-    {
-        return HeaderValue::from_str(value.trim_end_matches('/')).map_err(io::Error::other);
-    }
-    api::setup_origin(value)
+    idp_server::hosted_setup::setup_origin(value, false)
 }
 
 fn roots(config: &UnifiedConfig) -> io::Result<[PathBuf; 7]> {
@@ -206,7 +189,7 @@ impl SetupHost {
     /// Transfer the lifecycle guard and owner worker to an external listener host.
     /// The caller must preserve the selected transport and cancel/join the worker on shutdown.
     pub fn into_worker(self, cancellation: CancellationToken) -> crate::ApiSetupHost {
-        crate::api_create::CreateHost::new(self.host, self.tls, self.admission, cancellation)
+        crate::setup_runtime::setup_worker(self.host, self.tls, self.admission, cancellation)
     }
 
     pub async fn serve(self, cancellation: CancellationToken) -> io::Result<()> {
@@ -215,7 +198,7 @@ impl SetupHost {
         let address = self.local_addr();
         let path = self.admission_path();
         let _cancel_on_drop = cancellation.clone().drop_guard();
-        let create = crate::api_create::CreateHost::new(
+        let create = crate::setup_runtime::setup_worker(
             self.host,
             self.tls,
             self.admission,
@@ -265,7 +248,7 @@ impl SetupHost {
         let address = self.local_addr();
         let path = self.admission_path();
         let _cancel_on_drop = cancellation.clone().drop_guard();
-        let create = crate::api_create::CreateHost::new(
+        let create = crate::setup_runtime::setup_worker(
             self.host,
             self.tls,
             self.admission,

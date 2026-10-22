@@ -105,6 +105,7 @@ impl Fixture {
             "/management",
             "storage",
             Arc::new(control),
+            None,
         )
         .await
         .expect("existing owner router");

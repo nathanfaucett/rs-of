@@ -110,6 +110,39 @@ pub fn openapi_document(api_base_uri: &str, prefix: &str) -> OpenApiDocument {
 
     let mut openapi_spec = spec_router.get_openapi().clone();
 
+    let mut joins = crate::node_join_openapi();
+    joins.paths.paths = joins
+        .paths
+        .paths
+        .into_iter()
+        .map(|(path, mut item)| {
+            for operation in [
+                &mut item.get,
+                &mut item.put,
+                &mut item.post,
+                &mut item.delete,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                operation.operation_id = Some(format!(
+                    "node_join_{}",
+                    operation
+                        .operation_id
+                        .as_deref()
+                        .expect("Node join operation ID")
+                ));
+                operation.tags = Some(vec!["node_join".into()]);
+            }
+            (
+                path.strip_prefix("/management")
+                    .expect("Management Node-join path")
+                    .to_owned(),
+                item,
+            )
+        })
+        .collect();
+    openapi_spec.merge(joins);
     openapi_spec.servers = Some(vec![Server::new(format!("{}{}", api_base_uri, prefix))]);
 
     if !prefix.is_empty() {
@@ -186,18 +219,28 @@ mod tests {
                 .collect::<Vec<_>>();
             assert_eq!(
                 operations.len(),
-                38,
+                43,
                 "complete Management operation inventory"
             );
-            assert_eq!(operations.iter().collect::<BTreeSet<_>>().len(), 38);
+            assert_eq!(operations.iter().collect::<BTreeSet<_>>().len(), 43);
             assert!(document["paths"]["/openapi.json"]["get"]["operationId"].is_string());
             let mut registered_paths = paths.clone();
             registered_paths.remove("/openapi.json");
+            registered_paths.retain(|path, _| !path.starts_with("/node-joins/"));
             assert_eq!(
                 serde_json::Value::Object(registered_paths),
                 expected["paths"]
             );
-            assert_eq!(document["components"], expected["components"]);
+            for (name, schema) in expected["components"]["schemas"]
+                .as_object()
+                .expect("registered schemas")
+            {
+                assert_eq!(&document["components"]["schemas"][name], schema);
+            }
+            assert_eq!(
+                document["components"]["securitySchemes"],
+                expected["components"]["securitySchemes"]
+            );
             assert_eq!(document["tags"], expected["tags"]);
             for schema in [
                 "SelectedResourcesResponse",

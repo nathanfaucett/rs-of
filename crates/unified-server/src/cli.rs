@@ -435,7 +435,7 @@ fn peer_input(peer: Option<&str>) -> io::Result<String> {
             .interact_text()
             .map_err(io::Error::other)?
     };
-    idp_server::NodeJoinRequest::validate_trusted_peer(&peer)?;
+    management_service::hosted_join::NodeJoinRequest::validate_trusted_peer(&peer)?;
     Ok(peer)
 }
 fn parse_port(value: &str) -> io::Result<u16> {

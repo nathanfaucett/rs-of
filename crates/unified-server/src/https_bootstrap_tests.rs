@@ -472,7 +472,7 @@ async fn production_https_bootstrap_child() {
         .await
         .expect("actual production HTTPS approval route");
     assert_eq!(response.status(), reqwest::StatusCode::OK);
-    let approval: idp_server::NodeJoinApproval =
+    let approval: management_service::hosted_join::NodeJoinApproval =
         response.json().await.expect("public signed approval");
     assert_eq!(approval.owner_subject, user);
     assert_eq!(approval.request.member_id, member);
@@ -923,7 +923,7 @@ struct HttpsHost {
     endpoint: iroh::EndpointId,
     server: iroh_chain::Server,
     management: Arc<db::Database>,
-    node_joins: Arc<crate::node_join_source::NodeJoinSource>,
+    node_joins: Arc<management_server::NodeJoinSource>,
     base: String,
 }
 impl HttpsHost {

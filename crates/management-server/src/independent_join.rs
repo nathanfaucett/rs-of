@@ -134,10 +134,17 @@ pub async fn build_independent_management(
     } else {
         Router::new().nest(config.server.prefix(), routes)
     };
-    let router = crate::build_router(engine, management, config.server.prefix(), storage, plane)
-        .await
-        .map_err(io::Error::other)?
-        .merge(routes);
+    let router = crate::build_router(
+        engine,
+        management,
+        config.server.prefix(),
+        storage,
+        plane,
+        None,
+    )
+    .await
+    .map_err(io::Error::other)?
+    .merge(routes);
     Ok(IndependentManagementRuntime {
         router,
         protocol,

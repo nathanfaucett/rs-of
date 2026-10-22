@@ -1,10 +1,6 @@
 #![forbid(unsafe_code)]
 #![recursion_limit = "256"]
 
-#[cfg(unix)]
-mod api_create;
-#[cfg(all(test, target_os = "linux"))]
-mod api_create_tests;
 mod bootstrap_config;
 mod bootstrap_verification;
 #[cfg(feature = "cli")]
@@ -13,6 +9,8 @@ mod config;
 mod credential_bootstrap;
 mod endpoint;
 mod host_reset;
+#[cfg(all(test, target_os = "linux"))]
+mod hosted_setup_integration_tests;
 #[cfg(all(test, unix))]
 mod http_server_tests;
 #[cfg(all(test, unix))]
@@ -29,7 +27,6 @@ mod native_api_tests;
 mod node_bootstrap_owner_tests;
 #[cfg(test)]
 mod node_join_bootstrap_tests;
-mod node_join_source;
 #[cfg(test)]
 mod permission_http_tests;
 mod protocol;
@@ -43,9 +40,9 @@ mod security_sync_tests;
 mod setup_host;
 #[cfg(all(test, unix))]
 mod setup_host_tests;
-
 #[cfg(unix)]
-pub use api_create::CreateHost as ApiSetupHost;
+mod setup_runtime;
+
 pub use bootstrap_config::{BootstrapConfig, BootstrapPurpose};
 #[cfg(feature = "cli")]
 pub use cli::run;
@@ -62,6 +59,8 @@ pub use runtime::{RuntimeOwners, UnifiedRuntime};
 pub use security_sync::{SecurityContext, SecurityProtocol};
 #[cfg(unix)]
 pub use setup_host::SetupHost;
+#[cfg(unix)]
+pub use setup_runtime::ApiSetupHost;
 
 #[cfg(all(test, target_os = "linux"))]
 mod independent_create_tests;
@@ -74,13 +73,10 @@ mod independent_reset_tests;
 #[cfg(all(test, target_os = "linux"))]
 mod independent_transfer_tests;
 
-#[cfg(unix)]
-pub use node_join_source::node_join_openapi;
-
-#[cfg(unix)]
-pub use api_create::setup_openapi;
-
 #[cfg(test)]
 mod generated_transport_tests;
 
 mod owner_health;
+
+#[cfg(all(test, unix))]
+mod setup_runtime_tests;

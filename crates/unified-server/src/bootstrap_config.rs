@@ -6,6 +6,7 @@ use std::{
 };
 
 use idp_model::model::Id;
+use management_service::issuer_discovery::validate_issuer;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -117,7 +118,7 @@ impl BootstrapConfig {
             ));
         }
         if let Some((peer, issuer)) = peer_issuer {
-            idp_server::NodeJoinRequest::validate_trusted_peer(peer)?;
+            management_service::hosted_join::NodeJoinRequest::validate_trusted_peer(peer)?;
             validate_issuer(issuer)?;
         }
         let listener = if http.is_none() {
@@ -216,7 +217,7 @@ impl BootstrapConfig {
             ));
         }
         if let Some(peer) = &host.trusted_peer {
-            idp_server::NodeJoinRequest::validate_trusted_peer(peer)?;
+            management_service::hosted_join::NodeJoinRequest::validate_trusted_peer(peer)?;
         }
         Ok(Self {
             host,
@@ -278,7 +279,7 @@ impl BootstrapConfig {
     }
 
     pub(crate) fn select_join(&mut self, peer: &str, issuer: &str) -> io::Result<()> {
-        idp_server::NodeJoinRequest::validate_trusted_peer(peer)?;
+        management_service::hosted_join::NodeJoinRequest::validate_trusted_peer(peer)?;
         validate_issuer(issuer)?;
         if self.host.purpose == BootstrapPurpose::Join
             && self.setup_attempted()
@@ -463,22 +464,6 @@ pub(crate) fn present(path: &Path) -> io::Result<bool> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
         Err(error) => Err(error),
     }
-}
-pub(crate) fn validate_issuer(issuer: &str) -> io::Result<()> {
-    let url = reqwest::Url::parse(issuer)
-        .map_err(|_| invalid("peer supplied an invalid Canonical Issuer"))?;
-    if url.scheme() != "https"
-        || url.host_str().is_none()
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.query().is_some()
-        || url.fragment().is_some()
-    {
-        return Err(invalid(
-            "Canonical Issuer must be an HTTPS URI without credentials, query or fragment",
-        ));
-    }
-    Ok(())
 }
 fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)

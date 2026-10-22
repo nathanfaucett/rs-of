@@ -1,11 +1,11 @@
 use std::{fs, io, io::Write, path::Path};
 
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use idp_model::{contract::JwkPublic, model::Id};
+use idp_model::model::Id;
 use idp_service::{oauth2::NodeSignerBinding, repo::PrivateKeyRepo};
-use iroh::{EndpointAddr, EndpointId, Signature};
-use iroh_chain::Server;
-use serde::{Deserialize, Serialize};
+use iroh::EndpointId;
+use serde::Serialize;
+
+use management_service::hosted_join::{NodeJoinApproval, NodeJoinRequest};
 
 use crate::OwnerProvisioner;
 
@@ -15,116 +15,6 @@ pub use bootstrap_state::NodeJoinStage;
 #[path = "node_join_transport.rs"]
 mod transport;
 pub use transport::bind_node_join_endpoint;
-
-const PURPOSE: &str = "of.equal-node-join.v1";
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(deny_unknown_fields)]
-pub struct NodeJoinRequest {
-    purpose: String,
-    pub installation: String,
-    #[schema(value_type = String, format = "uuid")]
-    pub member_id: Id,
-    pub endpoint_id: String,
-    pub name: String,
-    pub public_signer: JwkPublic,
-    pub approving_peer: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(deny_unknown_fields)]
-pub struct NodeJoinApproval {
-    pub request: NodeJoinRequest,
-    #[schema(value_type = String, format = "uuid")]
-    pub owner_subject: Id,
-    pub signature: String,
-}
-
-impl NodeJoinRequest {
-    pub fn validate_trusted_peer(peer: &str) -> io::Result<()> {
-        let endpoint: EndpointId = peer.parse().map_err(io::Error::other)?;
-        if endpoint.to_string() != peer {
-            return Err(invalid("trusted peer endpoint ID must be canonical"));
-        }
-        Ok(())
-    }
-
-    pub fn validate(&self) -> io::Result<()> {
-        let endpoint: EndpointId = self.endpoint_id.parse().map_err(io::Error::other)?;
-        let peer: EndpointId = self.approving_peer.parse().map_err(io::Error::other)?;
-        let key_id: Id = self.public_signer.kid.parse().map_err(io::Error::other)?;
-        if self.purpose != PURPOSE
-            || self.installation.trim().is_empty()
-            || self.member_id.get_version_num() != 7
-            || key_id.get_version_num() != 7
-            || self.name.trim().is_empty()
-            || self.name.len() > 256
-            || endpoint.to_string() != self.endpoint_id
-            || peer.to_string() != self.approving_peer
-            || endpoint == peer
-        {
-            return Err(invalid("invalid equal-Node join binding"));
-        }
-
-        Ok(())
-    }
-
-    pub async fn send(&self, server: &Server, peer: EndpointAddr) -> io::Result<NodeJoinApproval> {
-        self.validate()?;
-        if server.endpoint().id().to_string() != self.endpoint_id
-            || peer.id.to_string() != self.approving_peer
-        {
-            return Err(invalid(
-                "join endpoint or pinned peer does not match request",
-            ));
-        }
-        let reply = server
-            .send_pairing_offer(peer, &serde_json::to_vec(self)?)
-            .await?;
-        let approval: NodeJoinApproval = serde_json::from_slice(&reply)?;
-        approval.verify(self)?;
-        Ok(approval)
-    }
-}
-
-impl NodeJoinApproval {
-    pub(crate) fn signed_by(
-        identity: &management_service::DeviceIdentity,
-        request: NodeJoinRequest,
-        owner_subject: Id,
-    ) -> io::Result<Self> {
-        let payload = Self::payload(&request, owner_subject)?;
-        Ok(Self {
-            request,
-            owner_subject,
-            signature: URL_SAFE_NO_PAD.encode(identity.sign(&payload).to_bytes()),
-        })
-    }
-
-    pub(crate) fn payload(request: &NodeJoinRequest, owner: Id) -> io::Result<Vec<u8>> {
-        Ok(serde_json::to_vec(&(
-            "of.equal-node-join-approval.v1",
-            request,
-            owner,
-        ))?)
-    }
-
-    pub fn verify(&self, expected: &NodeJoinRequest) -> io::Result<()> {
-        expected.validate()?;
-        if self.request != *expected || self.owner_subject.is_nil() {
-            return Err(invalid(
-                "approval does not bind the exact persisted join request and owner",
-            ));
-        }
-        let peer: EndpointId = expected.approving_peer.parse().map_err(io::Error::other)?;
-        let signature = URL_SAFE_NO_PAD
-            .decode(&self.signature)
-            .map_err(io::Error::other)?;
-        let signature = Signature::try_from(signature.as_slice()).map_err(io::Error::other)?;
-        peer.verify(&Self::payload(expected, self.owner_subject)?, &signature)
-            .map_err(io::Error::other)
-    }
-}
 
 impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
     /// The peer must be explicitly trusted by the local setup operator, never taken from discovery.
@@ -155,7 +45,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             }
         }
         let request = NodeJoinRequest {
-            purpose: PURPOSE.into(),
+            purpose: "of.equal-node-join.v1".into(),
             installation: self.oauth2.oauth_config.issuer.clone(),
             member_id: binding.member_id,
             endpoint_id: binding.endpoint_id.clone(),
@@ -271,25 +161,6 @@ fn persist_exact<T: Serialize + serde::de::DeserializeOwned + PartialEq>(
     })();
     let cleanup = fs::remove_file(&temporary);
     result.and(cleanup)
-}
-
-#[cfg(test)]
-mod setup_peer_tests {
-    use super::NodeJoinRequest;
-
-    #[test]
-    fn trusted_peer_input_requires_a_canonical_endpoint_identity() {
-        let peer = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
-        NodeJoinRequest::validate_trusted_peer(peer).expect("known Ed25519 endpoint identity");
-        for invalid in [
-            "",
-            "discovered-peer",
-            "https://peer.test",
-            &peer.to_uppercase(),
-        ] {
-            assert!(NodeJoinRequest::validate_trusted_peer(invalid).is_err());
-        }
-    }
 }
 
 pub(crate) fn invalid(message: &str) -> io::Error {

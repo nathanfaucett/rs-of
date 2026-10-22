@@ -12,7 +12,8 @@ use iroh_chain::{MAX_PAIRING_PAYLOAD_LENGTH, PairingOffer};
 use management_service::DeviceRepo;
 
 use super::middleware::require_identity_permission_for_audience;
-use crate::{NodeJoinApproval, NodeJoinRequest, RouterState, authorize_bearer, node_join::invalid};
+use crate::{RouterState, authorize_bearer, node_join::invalid};
+use management_service::hosted_join::{NodeJoinApproval, NodeJoinRequest};
 
 impl RouterState {
     /// Approves only an authenticated pairing offer using a locally authenticated User session.

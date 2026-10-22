@@ -7,7 +7,7 @@ use idp_model::{
     },
     model::Id,
 };
-use idp_server::{NodeJoinApproval, NodeJoinStage, OwnerProvisioner};
+use idp_server::{NodeJoinStage, OwnerProvisioner};
 use idp_service::{
     PasswordConfig,
     oauth2::NodeSignerBinding,
@@ -15,6 +15,7 @@ use idp_service::{
     repo::{PrivateKeyRepo, UserRepo},
 };
 use iroh::endpoint::{Connection, RecvStream, SendStream};
+use management_service::hosted_join::NodeJoinApproval;
 use management_service::{
     DeviceRepo, LocalPermissions, PUBLIC_POLICY_TABLES, replica::DbDeviceRepo,
 };

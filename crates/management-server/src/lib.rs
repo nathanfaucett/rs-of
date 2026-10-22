@@ -34,3 +34,6 @@ pub use independent_join::{IndependentManagementRuntime, build_independent_manag
 
 #[cfg(unix)]
 pub use independent_join::independent_join_openapi;
+
+mod node_join_source;
+pub use node_join_source::{NodeJoinReadiness, NodeJoinSource, node_join_openapi};

@@ -47,7 +47,7 @@ pub(crate) fn absolute(path: &Path) -> io::Result<PathBuf> {
     Ok(path)
 }
 
-pub(crate) fn present(path: &Path) -> io::Result<bool> {
+pub fn present(path: &Path) -> io::Result<bool> {
     let path = absolute(path)?;
     match fs::symlink_metadata(path) {
         Ok(_) => Ok(true),
@@ -56,7 +56,7 @@ pub(crate) fn present(path: &Path) -> io::Result<bool> {
     }
 }
 
-pub(crate) fn require_absent(path: &Path) -> io::Result<()> {
+pub fn require_absent(path: &Path) -> io::Result<()> {
     if present(path)? {
         Err(io::Error::other(
             "fresh setup requires absent roots; exact recovery required",
@@ -66,7 +66,7 @@ pub(crate) fn require_absent(path: &Path) -> io::Result<()> {
     }
 }
 
-pub(crate) fn create_private_directory(path: &Path, recursive: bool) -> io::Result<()> {
+pub fn create_private_directory(path: &Path, recursive: bool) -> io::Result<()> {
     require_unix_bootstrap()?;
     let path = absolute(path)?;
     let mut builder = fs::DirBuilder::new();
@@ -79,14 +79,14 @@ pub(crate) fn create_private_directory(path: &Path, recursive: bool) -> io::Resu
     sync_ancestry(&path)
 }
 
-pub(crate) fn sync_ancestry(path: &Path) -> io::Result<()> {
+pub fn sync_ancestry(path: &Path) -> io::Result<()> {
     for ancestor in absolute(path)?.ancestors() {
         File::open(ancestor)?.sync_all()?;
     }
     Ok(())
 }
 
-pub(crate) fn private_options(create_new: bool) -> OpenOptions {
+pub fn private_options(create_new: bool) -> OpenOptions {
     let mut options = OpenOptions::new();
     options.read(true).write(true).create_new(create_new);
     #[cfg(unix)]
@@ -118,7 +118,7 @@ pub(crate) fn require_private(path: &Path, directory: bool) -> io::Result<()> {
     Ok(())
 }
 
-pub(crate) fn read_private(path: &Path) -> io::Result<Vec<u8>> {
+pub fn read_private(path: &Path) -> io::Result<Vec<u8>> {
     require_private(path, false)?;
     let mut options = OpenOptions::new();
     options.read(true);

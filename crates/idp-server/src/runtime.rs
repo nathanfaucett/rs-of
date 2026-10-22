@@ -82,7 +82,7 @@ impl IdpRuntime {
         &self,
         offer: &iroh_chain::PairingOffer,
         bearer: &str,
-    ) -> io::Result<crate::NodeJoinApproval> {
+    ) -> io::Result<management_service::hosted_join::NodeJoinApproval> {
         self.join_state.approve_node_join(offer, bearer).await
     }
 
@@ -90,13 +90,13 @@ impl IdpRuntime {
         &self,
         offer: &iroh_chain::PairingOffer,
         bearer: &str,
-    ) -> io::Result<crate::NodeJoinApproval> {
+    ) -> io::Result<management_service::hosted_join::NodeJoinApproval> {
         self.join_state.enroll_node_join_offer(offer, bearer).await
     }
 
     pub async fn verify_node_join_enrollment(
         &self,
-        approval: &crate::NodeJoinApproval,
+        approval: &management_service::hosted_join::NodeJoinApproval,
     ) -> io::Result<()> {
         self.join_state.verify_node_join_enrollment(approval).await
     }
@@ -105,7 +105,7 @@ impl IdpRuntime {
         &self,
         offer: &iroh_chain::PairingOffer,
         bearer: &str,
-        approval: &crate::NodeJoinApproval,
+        approval: &management_service::hosted_join::NodeJoinApproval,
     ) -> io::Result<()> {
         self.join_state
             .reply_node_join(offer, bearer, approval)
@@ -272,6 +272,46 @@ pub(crate) fn runtime_from_state(config: &AppConfig, router_state: RouterState) 
         router,
         bootstrap_protocol,
         join_state: router_state,
+    }
+}
+
+impl management_service::hosted_join::NodeJoinIdentity for IdpRuntime {
+    fn accepting<'a>(
+        &'a self,
+        bearer: &'a str,
+        accepting: Option<bool>,
+    ) -> management_service::hosted_join::JoinFuture<'a, bool> {
+        Box::pin(self.node_join_accepting(bearer, accepting))
+    }
+    fn authorize<'a>(
+        &'a self,
+        bearer: &'a str,
+    ) -> management_service::hosted_join::JoinFuture<'a, ()> {
+        Box::pin(async move { self.authorize_node_join_approver(bearer).await.map(|_| ()) })
+    }
+    fn enroll<'a>(
+        &'a self,
+        offer: &'a iroh_chain::PairingOffer,
+        bearer: &'a str,
+    ) -> management_service::hosted_join::JoinFuture<
+        'a,
+        management_service::hosted_join::NodeJoinApproval,
+    > {
+        Box::pin(self.enroll_node_join_offer(offer, bearer))
+    }
+    fn verify<'a>(
+        &'a self,
+        approval: &'a management_service::hosted_join::NodeJoinApproval,
+    ) -> management_service::hosted_join::JoinFuture<'a, ()> {
+        Box::pin(self.verify_node_join_enrollment(approval))
+    }
+    fn reply<'a>(
+        &'a self,
+        offer: &'a iroh_chain::PairingOffer,
+        bearer: &'a str,
+        approval: &'a management_service::hosted_join::NodeJoinApproval,
+    ) -> management_service::hosted_join::JoinFuture<'a, ()> {
+        Box::pin(self.reply_node_join(offer, bearer, approval))
     }
 }
 

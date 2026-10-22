@@ -8,8 +8,10 @@ use axum::{
 };
 use db::Database;
 use idp_model::model::Id;
-use idp_server::{IdpRuntime, NodeJoinApproval, NodeJoinRequest, OwnerProvisioner};
-use iroh_chain::PairingOffer;
+use iroh_chain::{PairingOffer, Server};
+use management_service::hosted_join::{
+    JoinFuture, NodeJoinApproval, NodeJoinIdentity, NodeJoinRequest,
+};
 use management_service::{DeviceRepo, HostedControlPlane, replica::DbDeviceRepo};
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -18,7 +20,7 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::{SecurityProtocol, UnifiedEndpoint};
+pub type NodeJoinReadiness = Arc<dyn Fn() -> JoinFuture<'static, bool> + Send + Sync>;
 
 struct QueuedOffer {
     offer: PairingOffer,
@@ -71,12 +73,11 @@ impl Pending {
     }
 }
 
-pub(crate) struct NodeJoinSource {
-    endpoint: Arc<UnifiedEndpoint>,
-    idp: Arc<IdpRuntime>,
+pub struct NodeJoinSource {
+    server: Server,
+    idp: Arc<dyn NodeJoinIdentity>,
     control_plane: Arc<HostedControlPlane>,
-    owner: Arc<OwnerProvisioner>,
-    security: SecurityProtocol,
+    readiness: NodeJoinReadiness,
     management: Arc<Database>,
     installation: String,
     cancellation: CancellationToken,
@@ -85,23 +86,21 @@ pub(crate) struct NodeJoinSource {
 }
 
 impl NodeJoinSource {
-    pub(crate) fn new(
-        endpoint: Arc<UnifiedEndpoint>,
-        idp: Arc<IdpRuntime>,
+    pub fn new(
+        server: Server,
+        idp: Arc<dyn NodeJoinIdentity>,
         control_plane: Arc<HostedControlPlane>,
-        owner: Arc<OwnerProvisioner>,
-        security: SecurityProtocol,
+        readiness: NodeJoinReadiness,
         management: Arc<Database>,
         installation: String,
         cancellation: CancellationToken,
     ) -> Self {
-        let receiver = endpoint.server().subscribe_pairing_offers();
+        let receiver = server.subscribe_pairing_offers();
         Self {
-            endpoint,
+            server,
             idp,
             control_plane,
-            owner,
-            security,
+            readiness,
             management,
             installation,
             cancellation,
@@ -113,16 +112,9 @@ impl NodeJoinSource {
         }
     }
 
-    pub(crate) fn router(self: &Arc<Self>) -> Router {
-        node_join_routes()
-            .with_state(self.clone())
-            .split_for_parts()
-            .0
-    }
-
-    pub(crate) async fn run(&self) -> io::Result<()> {
+    pub async fn run(&self) -> io::Result<()> {
         let mut receiver = self.receiver.lock().await;
-        let mut acceptance = self.endpoint.server().subscribe_pairing_acceptance();
+        let mut acceptance = self.server.subscribe_pairing_acceptance();
         let mut lifetimes = JoinSet::new();
         loop {
             let offer = tokio::select! {
@@ -151,7 +143,7 @@ impl NodeJoinSource {
             };
             match result {
                 Ok(Some((id, queued))) => {
-                    let acceptance = self.endpoint.server().subscribe_pairing_acceptance();
+                    let acceptance = self.server.subscribe_pairing_acceptance();
                     lifetimes.spawn(async move {
                         queued.released(acceptance).await;
                         id
@@ -173,7 +165,7 @@ impl NodeJoinSource {
         let request: NodeJoinRequest = serde_json::from_slice(&offer.payload)?;
         request.validate()?;
         if request.installation != self.installation
-            || request.approving_peer != self.endpoint.endpoint_id().to_string()
+            || request.approving_peer != self.server.endpoint().id().to_string()
             || request.endpoint_id != offer.remote_id.to_string()
         {
             return Err(denied(
@@ -184,23 +176,16 @@ impl NodeJoinSource {
     }
 
     async fn ready(&self) -> io::Result<bool> {
-        self.security
-            .local_node_public_ready(self.owner.as_ref())
-            .await
+        (self.readiness)().await
     }
 
     fn active(&self) -> bool {
-        self.endpoint
-            .server()
-            .pairing_acceptance_generation()
-            .is_some()
-            && !self.cancellation.is_cancelled()
+        self.server.pairing_acceptance_generation().is_some() && !self.cancellation.is_cancelled()
     }
 
     fn active_offer(&self, offer: &PairingOffer) -> bool {
         self.active()
-            && self.endpoint.server().pairing_acceptance_generation()
-                == Some(offer.acceptance_generation)
+            && self.server.pairing_acceptance_generation() == Some(offer.acceptance_generation)
             && !offer.is_closed()
     }
 
@@ -219,7 +204,7 @@ impl NodeJoinSource {
         if !self.active_offer(&offer) {
             return Ok(None);
         }
-        let discovery = crate::issuer_discovery::is_issuer_discovery(&offer);
+        let discovery = management_service::issuer_discovery::is_issuer_discovery(&offer);
         if !discovery && self.display(&offer).is_err() {
             return Ok(None);
         }
@@ -235,9 +220,9 @@ impl NodeJoinSource {
             invalidated: tokio::sync::Notify::new(),
         });
         if discovery {
-            crate::issuer_discovery::answer_issuer_discovery(
+            management_service::issuer_discovery::answer_issuer_discovery(
                 &offer,
-                &self.endpoint.endpoint_id().to_string(),
+                &self.server.endpoint().id().to_string(),
                 &self.installation,
             )
             .await?;
@@ -254,21 +239,17 @@ impl NodeJoinSource {
         Ok(Some((id, queued)))
     }
 
-    pub(crate) async fn accepting(
-        &self,
-        bearer: &str,
-        accepting: Option<bool>,
-    ) -> io::Result<bool> {
+    pub async fn accepting(&self, bearer: &str, accepting: Option<bool>) -> io::Result<bool> {
         if self.cancellation.is_cancelled() {
             return Err(denied("runtime is shutting down"));
         }
-        let accepting = self.idp.node_join_accepting(bearer, accepting).await?;
+        let accepting = self.idp.accepting(bearer, accepting).await?;
         self.prune().await;
         Ok(accepting)
     }
 
-    pub(crate) async fn pending(&self, bearer: &str) -> io::Result<serde_json::Value> {
-        self.idp.authorize_node_join_approver(bearer).await?;
+    pub async fn pending(&self, bearer: &str) -> io::Result<serde_json::Value> {
+        self.idp.authorize(bearer).await?;
         self.prune().await;
         let pending = self.pending.lock().await;
         let mut display = Vec::new();
@@ -278,13 +259,13 @@ impl NodeJoinSource {
         Ok(serde_json::json!(display))
     }
 
-    pub(crate) async fn approve(&self, bearer: &str, id: Id) -> io::Result<NodeJoinApproval> {
+    pub async fn approve(&self, bearer: &str, id: Id) -> io::Result<NodeJoinApproval> {
         #[cfg(test)]
         let started = std::time::Instant::now();
         let queued = match self.queued_offer(id).await {
             Ok(queued) => queued,
             Err(error) => {
-                self.idp.authorize_node_join_approver(bearer).await?;
+                self.idp.authorize(bearer).await?;
                 return Err(error);
             }
         };
@@ -297,14 +278,14 @@ impl NodeJoinSource {
             "node join approval stage=enrollment_begin elapsed={:?}",
             started.elapsed()
         );
-        let approval = self.idp.enroll_node_join_offer(offer, bearer).await?;
+        let approval = self.idp.enroll(offer, bearer).await?;
         #[cfg(test)]
         eprintln!(
             "node join approval stage=enrollment_verified elapsed={:?}",
             started.elapsed()
         );
         self.require_current_offer(id, &queued).await?;
-        self.idp.verify_node_join_enrollment(&approval).await?;
+        self.idp.verify(&approval).await?;
         let identity = DbDeviceRepo::new(self.management.clone())
             .find_approved_by_public_key(&offer.remote_id.to_string())
             .await
@@ -337,11 +318,18 @@ impl NodeJoinSource {
                 .await
                 .map_err(io::Error::other)?;
         }
-        self.endpoint
-            .refresh_approved_peers(&self.control_plane)
-            .await?;
+        let mut peers = self
+            .control_plane
+            .approved_device_endpoints()
+            .await
+            .map_err(io::Error::other)?
+            .into_iter()
+            .map(|peer| peer.parse::<iroh::EndpointId>().map_err(io::Error::other))
+            .collect::<io::Result<Vec<_>>>()?;
+        peers.push(self.server.endpoint().id());
+        self.server.peers().replace(peers);
         self.require_current_offer(id, &queued).await?;
-        self.idp.reply_node_join(offer, bearer, &approval).await?;
+        self.idp.reply(offer, bearer, &approval).await?;
         self.finish_offer(id, &queued).await;
         #[cfg(test)]
         eprintln!(
@@ -351,16 +339,16 @@ impl NodeJoinSource {
         Ok(approval)
     }
 
-    pub(crate) async fn reject(&self, bearer: &str, id: Id) -> io::Result<()> {
+    pub async fn reject(&self, bearer: &str, id: Id) -> io::Result<()> {
         let queued = match self.queued_offer(id).await {
             Ok(queued) => queued,
             Err(error) => {
-                self.idp.authorize_node_join_approver(bearer).await?;
+                self.idp.authorize(bearer).await?;
                 return Err(error);
             }
         };
         let _operation = queued.operation.lock().await;
-        self.idp.authorize_node_join_approver(bearer).await?;
+        self.idp.authorize(bearer).await?;
         self.require_current_offer(id, &queued).await?;
         let result = queued.offer.reply(b"").await;
         self.finish_offer(id, &queued).await;
@@ -406,16 +394,141 @@ impl NodeJoinSource {
             .finish_reply(id, queued, self.cancellation.is_cancelled());
     }
 
-    #[cfg(test)]
-    pub(crate) async fn retained_offer_count(&self) -> usize {
+    pub async fn retained_offer_count(&self) -> usize {
         let pending = self.pending.lock().await;
         pending.offers.len() + pending.answered.len()
     }
 
-    pub(crate) async fn clear(&self) {
+    pub async fn clear(&self) {
         let mut pending = self.pending.lock().await;
         pending.offers.clear();
         pending.answered.clear();
+    }
+}
+
+#[derive(Deserialize, Serialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+struct Acceptance {
+    accepting: bool,
+}
+
+type HttpError = (StatusCode, Json<serde_json::Value>);
+fn bearer(headers: &HeaderMap) -> Result<&str, HttpError> {
+    headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({"error": "bearer_required"})),
+            )
+        })
+}
+fn http_error(error: io::Error) -> HttpError {
+    let status = match error.kind() {
+        io::ErrorKind::PermissionDenied => StatusCode::FORBIDDEN,
+        io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
+        io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData => StatusCode::CONFLICT,
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    };
+    (
+        status,
+        Json(serde_json::json!({"error": "node_join_request_denied"})),
+    )
+}
+#[utoipa::path(get, path = "/node-joins/acceptance", operation_id = "acceptance", security(("authorization" = [])), responses((status = 200, body = Acceptance, description = "Current locally authorized Node-join operation"), (status = 401, description = "Bearer required"), (status = 403, description = "Permission denied"), (status = 404, description = "Offer not found"), (status = 409, description = "Offer changed"), (status = 503, description = "Unavailable")))]
+async fn acceptance(
+    State(source): State<Option<Arc<NodeJoinSource>>>,
+    headers: HeaderMap,
+) -> Result<Json<Acceptance>, HttpError> {
+    let bearer = bearer(&headers)?;
+    let source =
+        source.ok_or_else(|| http_error(io::Error::other("hosted join is unavailable")))?;
+    Ok(Json(Acceptance {
+        accepting: source.accepting(bearer, None).await.map_err(http_error)?,
+    }))
+}
+#[utoipa::path(put, path = "/node-joins/acceptance", operation_id = "set_acceptance", security(("authorization" = [])), request_body = Acceptance, responses((status = 200, body = Acceptance, description = "Current locally authorized Node-join operation"), (status = 401, description = "Bearer required"), (status = 403, description = "Permission denied"), (status = 404, description = "Offer not found"), (status = 409, description = "Offer changed"), (status = 503, description = "Unavailable")))]
+async fn set_acceptance(
+    State(source): State<Option<Arc<NodeJoinSource>>>,
+    headers: HeaderMap,
+    Json(input): Json<Acceptance>,
+) -> Result<Json<Acceptance>, HttpError> {
+    let bearer = bearer(&headers)?;
+    let source =
+        source.ok_or_else(|| http_error(io::Error::other("hosted join is unavailable")))?;
+    Ok(Json(Acceptance {
+        accepting: source
+            .accepting(bearer, Some(input.accepting))
+            .await
+            .map_err(http_error)?,
+    }))
+}
+#[utoipa::path(get, path = "/node-joins/pending", operation_id = "pending", security(("authorization" = [])), responses((status = 200, body = serde_json::Value, description = "Current locally authorized Node-join operation"), (status = 401, description = "Bearer required"), (status = 403, description = "Permission denied"), (status = 404, description = "Offer not found"), (status = 409, description = "Offer changed"), (status = 503, description = "Unavailable")))]
+async fn pending(
+    State(source): State<Option<Arc<NodeJoinSource>>>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, HttpError> {
+    let bearer = bearer(&headers)?;
+    let source =
+        source.ok_or_else(|| http_error(io::Error::other("hosted join is unavailable")))?;
+    Ok(Json(source.pending(bearer).await.map_err(http_error)?))
+}
+#[utoipa::path(post, path = "/node-joins/{id}/approve", operation_id = "approve", security(("authorization" = [])), params(("id" = String, Path, description = "Pending offer UUID")), responses((status = 200, body = NodeJoinApproval, description = "Current locally authorized Node-join operation"), (status = 401, description = "Bearer required"), (status = 403, description = "Permission denied"), (status = 404, description = "Offer not found"), (status = 409, description = "Offer changed"), (status = 503, description = "Unavailable")))]
+async fn approve(
+    State(source): State<Option<Arc<NodeJoinSource>>>,
+    Path(id): Path<Id>,
+    headers: HeaderMap,
+) -> Result<Json<NodeJoinApproval>, HttpError> {
+    let bearer = bearer(&headers)?;
+    let source =
+        source.ok_or_else(|| http_error(io::Error::other("hosted join is unavailable")))?;
+    Ok(Json(source.approve(bearer, id).await.map_err(http_error)?))
+}
+#[utoipa::path(post, path = "/node-joins/{id}/reject", operation_id = "reject", security(("authorization" = [])), params(("id" = String, Path, description = "Pending offer UUID")), responses((status = 204, description = "Current locally authorized Node-join operation"), (status = 401, description = "Bearer required"), (status = 403, description = "Permission denied"), (status = 404, description = "Offer not found"), (status = 409, description = "Offer changed"), (status = 503, description = "Unavailable")))]
+async fn reject(
+    State(source): State<Option<Arc<NodeJoinSource>>>,
+    Path(id): Path<Id>,
+    headers: HeaderMap,
+) -> Result<StatusCode, HttpError> {
+    let bearer = bearer(&headers)?;
+    let source =
+        source.ok_or_else(|| http_error(io::Error::other("hosted join is unavailable")))?;
+    source.reject(bearer, id).await.map_err(http_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+fn denied(message: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::PermissionDenied, message)
+}
+
+fn node_join_routes() -> utoipa_axum::router::OpenApiRouter<Option<Arc<NodeJoinSource>>> {
+    utoipa_axum::router::OpenApiRouter::new()
+        .routes(utoipa_axum::routes!(acceptance, set_acceptance))
+        .routes(utoipa_axum::routes!(pending))
+        .routes(utoipa_axum::routes!(approve))
+        .routes(utoipa_axum::routes!(reject))
+}
+
+pub fn node_join_openapi() -> utoipa::openapi::OpenApi {
+    let mut document = node_join_routes().get_openapi().clone();
+    document.paths.paths = document
+        .paths
+        .paths
+        .into_iter()
+        .map(|(path, item)| (format!("/management{path}"), item))
+        .collect();
+    utoipa::Modify::modify(&SecurityAddon, &mut document);
+    document
+}
+
+pub(crate) fn node_join_router(source: Option<Arc<NodeJoinSource>>, prefix: &str) -> Router {
+    let router = node_join_routes().with_state(source).split_for_parts().0;
+    if prefix.is_empty() || prefix == "/" {
+        router
+    } else {
+        Router::new().nest(prefix, router)
     }
 }
 
@@ -443,10 +556,10 @@ mod tests {
     #[tokio::test]
     async fn acceptance_invalidation_during_reply_retains_until_transport_closes() {
         tokio::time::timeout(Duration::from_secs(15), async {
-            let source = Server::bind(crate::endpoint::TestPreset, EndpointIdStore::default())
+            let source = Server::bind(iroh::endpoint::presets::Minimal, EndpointIdStore::default())
                 .await
                 .expect("isolated source transport");
-            let peer = Server::bind(crate::endpoint::TestPreset, EndpointIdStore::default())
+            let peer = Server::bind(iroh::endpoint::presets::Minimal, EndpointIdStore::default())
                 .await
                 .expect("isolated peer transport");
             let router = source.router(UnusedDataProtocol);
@@ -542,116 +655,4 @@ mod tests {
         .await
         .expect("bounded deterministic reply lifecycle regression");
     }
-}
-
-#[derive(Deserialize, Serialize, utoipa::ToSchema)]
-#[serde(deny_unknown_fields)]
-struct Acceptance {
-    accepting: bool,
-}
-
-type HttpError = (StatusCode, Json<serde_json::Value>);
-fn bearer(headers: &HeaderMap) -> Result<&str, HttpError> {
-    headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({"error": "bearer_required"})),
-            )
-        })
-}
-fn http_error(error: io::Error) -> HttpError {
-    let status = match error.kind() {
-        io::ErrorKind::PermissionDenied => StatusCode::FORBIDDEN,
-        io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
-        io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData => StatusCode::CONFLICT,
-        _ => StatusCode::SERVICE_UNAVAILABLE,
-    };
-    (
-        status,
-        Json(serde_json::json!({"error": "node_join_request_denied"})),
-    )
-}
-#[utoipa::path(get, path = "/management/node-joins/acceptance", operation_id = "acceptance", security(("authorization" = [])), responses((status = 200, body = Acceptance, description = "Current locally authorized Node-join operation"), (status = 401, description = "Bearer required"), (status = 403, description = "Permission denied"), (status = 404, description = "Offer not found"), (status = 409, description = "Offer changed"), (status = 503, description = "Unavailable")))]
-async fn acceptance(
-    State(source): State<Arc<NodeJoinSource>>,
-    headers: HeaderMap,
-) -> Result<Json<Acceptance>, HttpError> {
-    Ok(Json(Acceptance {
-        accepting: source
-            .accepting(bearer(&headers)?, None)
-            .await
-            .map_err(http_error)?,
-    }))
-}
-#[utoipa::path(put, path = "/management/node-joins/acceptance", operation_id = "set_acceptance", security(("authorization" = [])), request_body = Acceptance, responses((status = 200, body = Acceptance, description = "Current locally authorized Node-join operation"), (status = 401, description = "Bearer required"), (status = 403, description = "Permission denied"), (status = 404, description = "Offer not found"), (status = 409, description = "Offer changed"), (status = 503, description = "Unavailable")))]
-async fn set_acceptance(
-    State(source): State<Arc<NodeJoinSource>>,
-    headers: HeaderMap,
-    Json(input): Json<Acceptance>,
-) -> Result<Json<Acceptance>, HttpError> {
-    Ok(Json(Acceptance {
-        accepting: source
-            .accepting(bearer(&headers)?, Some(input.accepting))
-            .await
-            .map_err(http_error)?,
-    }))
-}
-#[utoipa::path(get, path = "/management/node-joins/pending", operation_id = "pending", security(("authorization" = [])), responses((status = 200, body = serde_json::Value, description = "Current locally authorized Node-join operation"), (status = 401, description = "Bearer required"), (status = 403, description = "Permission denied"), (status = 404, description = "Offer not found"), (status = 409, description = "Offer changed"), (status = 503, description = "Unavailable")))]
-async fn pending(
-    State(source): State<Arc<NodeJoinSource>>,
-    headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, HttpError> {
-    Ok(Json(
-        source
-            .pending(bearer(&headers)?)
-            .await
-            .map_err(http_error)?,
-    ))
-}
-#[utoipa::path(post, path = "/management/node-joins/{id}/approve", operation_id = "approve", security(("authorization" = [])), params(("id" = String, Path, description = "Pending offer UUID")), responses((status = 200, body = NodeJoinApproval, description = "Current locally authorized Node-join operation"), (status = 401, description = "Bearer required"), (status = 403, description = "Permission denied"), (status = 404, description = "Offer not found"), (status = 409, description = "Offer changed"), (status = 503, description = "Unavailable")))]
-async fn approve(
-    State(source): State<Arc<NodeJoinSource>>,
-    Path(id): Path<Id>,
-    headers: HeaderMap,
-) -> Result<Json<NodeJoinApproval>, HttpError> {
-    Ok(Json(
-        source
-            .approve(bearer(&headers)?, id)
-            .await
-            .map_err(http_error)?,
-    ))
-}
-#[utoipa::path(post, path = "/management/node-joins/{id}/reject", operation_id = "reject", security(("authorization" = [])), params(("id" = String, Path, description = "Pending offer UUID")), responses((status = 204, description = "Current locally authorized Node-join operation"), (status = 401, description = "Bearer required"), (status = 403, description = "Permission denied"), (status = 404, description = "Offer not found"), (status = 409, description = "Offer changed"), (status = 503, description = "Unavailable")))]
-async fn reject(
-    State(source): State<Arc<NodeJoinSource>>,
-    Path(id): Path<Id>,
-    headers: HeaderMap,
-) -> Result<StatusCode, HttpError> {
-    source
-        .reject(bearer(&headers)?, id)
-        .await
-        .map_err(http_error)?;
-    Ok(StatusCode::NO_CONTENT)
-}
-fn denied(message: &str) -> io::Error {
-    io::Error::new(io::ErrorKind::PermissionDenied, message)
-}
-
-fn node_join_routes() -> utoipa_axum::router::OpenApiRouter<Arc<NodeJoinSource>> {
-    utoipa_axum::router::OpenApiRouter::new()
-        .routes(utoipa_axum::routes!(acceptance, set_acceptance))
-        .routes(utoipa_axum::routes!(pending))
-        .routes(utoipa_axum::routes!(approve))
-        .routes(utoipa_axum::routes!(reject))
-}
-
-pub fn node_join_openapi() -> utoipa::openapi::OpenApi {
-    let mut document = node_join_routes().get_openapi().clone();
-    utoipa::Modify::modify(&SecurityAddon, &mut document);
-    document
 }

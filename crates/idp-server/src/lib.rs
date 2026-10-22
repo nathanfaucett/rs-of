@@ -41,7 +41,7 @@ pub use config::{AppConfig, ManagementPermissionConfig, PairingConfig};
 pub use management_owner::{active_management_user, authorize_management_bearer};
 pub use management_permission_client::ManagementPermissionClient;
 
-pub use node_join::{NodeJoinApproval, NodeJoinRequest, NodeJoinStage, bind_node_join_endpoint};
+pub use node_join::{NodeJoinStage, bind_node_join_endpoint};
 pub use provisioning::OwnerProvisioner;
 pub use router::{
     RouterState, authorize_bearer, openapi_document, openapi_router, public_metadata_router,
@@ -60,3 +60,11 @@ pub use independent_join::build_independent_idp;
 
 #[cfg(unix)]
 pub use independent_join::independent_join_openapi;
+
+#[cfg(unix)]
+pub mod hosted_setup;
+#[cfg(unix)]
+pub use hosted_setup::{
+    HostedSetup, HostedSetupControl, HostedSetupOwners, HostedSetupReady, HostedSetupSettings,
+    SetupCommand, SetupOperation, SetupPurpose, build_setup_router, setup_openapi,
+};

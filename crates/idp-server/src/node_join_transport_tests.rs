@@ -9,7 +9,9 @@ use idp_service::{
 use iroh::{Endpoint, SecretKey, endpoint::presets::Minimal};
 use iroh_chain::{DATA_ALPN, EndpointIdStore, MESH_ALPN, PAIRING_ALPN, Server};
 
-use crate::{AppConfig, BOOTSTRAP_ALPN, NodeJoinApproval, NodeJoinRequest, OwnerProvisioner};
+use management_service::hosted_join::{NodeJoinApproval, NodeJoinRequest};
+
+use crate::{AppConfig, BOOTSTRAP_ALPN, OwnerProvisioner};
 
 use super::bind_node_join_endpoint;
 

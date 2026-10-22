@@ -273,6 +273,7 @@ async fn independent_permission_management_https_child() {
             "/management",
             "storage-service",
             Arc::new(control_plane),
+            None,
         )
         .await
         .expect("production Management router");

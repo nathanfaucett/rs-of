@@ -29,67 +29,6 @@ pub(crate) fn fixture_config(
 }
 
 #[tokio::test]
-async fn retained_intent_route_rejects_invalid_tuples_without_disclosure_or_repair() {
-    use axum::{
-        body::{Body, to_bytes},
-        http::{Request, StatusCode},
-    };
-    use tower::ServiceExt;
-
-    let root = std::env::temp_dir().join(format!("intent-readback-{}", Id::now_v7()));
-    let host = BootstrapConfig::create(&root, crate::BootstrapPurpose::AwaitingChoice, None)
-        .expect("isolated neutral host");
-    let tls = LocalTls::create(&host.config()).expect("isolated neutral TLS");
-    let admission = std::sync::Arc::new(
-        api::SetupAdmission::open(&root.join("setup-admission")).expect("private admission"),
-    );
-    let state = root.join("setup-admission/state");
-    let initial = fs::read_to_string(&state).expect("protected retrieval");
-    let code = initial.lines().nth(1).expect("host code");
-    let host = crate::api_create::CreateHost::new(host, tls, admission, CancellationToken::new());
-    let router = host.router().expect("production setup router");
-    for retained in [
-        "not-json",
-        r#"["join",["idp","management","storage"],"0123456789abcdef0123456789abcdef","operator","Test Node"]"#,
-        r#"["create",["idp","storage","management"],"0123456789abcdef0123456789abcdef","operator","Test Node"]"#,
-        r#"["create",["idp"],"0123456789abcdef0123456789abcdef","operator","Test Node"]"#,
-        r#"["create",["idp","management","storage"],"invalid-nonce","operator","Test Node"]"#,
-        r#"["create",["idp","management","storage"],"0123456789abcdef0123456789abcdef"," operator","Test Node"]"#,
-        r#"["create", ["idp","management","storage"],"0123456789abcdef0123456789abcdef","operator","Test Node"]"#,
-        r#"["create",["idp","management","storage"],"0123456789abcdef0123456789abcdef","operator","Test Node","password"]"#,
-    ] {
-        let injected = format!("setup-admission-v1\n{code}\n{retained}");
-        fs::write(&state, &injected).expect("inject invalid retained tuple");
-        let response = router
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/idp/setup/intent")
-                    .header("Authorization", format!("Setup {code}"))
-                    .body(Body::empty())
-                    .expect("body-free lookup"),
-            )
-            .await
-            .expect("infallible setup router");
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert!(
-            to_bytes(response.into_body(), 1024)
-                .await
-                .expect("safe error body")
-                .is_empty()
-        );
-        assert_eq!(
-            fs::read_to_string(&state).expect("retained fault unchanged"),
-            injected
-        );
-    }
-    drop(router);
-    drop(host);
-    fs::remove_dir_all(root).expect("isolated cleanup");
-}
-
-#[tokio::test]
 async fn retired_join_reopen_refuses_mismatched_or_missing_intent_without_owner_mutation() {
     use std::{io::Write, sync::Arc};
 
@@ -175,7 +114,7 @@ async fn retired_join_reopen_refuses_mismatched_or_missing_intent_without_owner_
         let retained = fs::read(&state).expect("retired bytes");
         let shutdown = CancellationToken::new();
         let coordinator =
-            crate::api_create::CreateHost::new(host, tls, admission, shutdown.clone());
+            crate::setup_runtime::setup_worker(host, tls, admission, shutdown.clone());
         let router = coordinator.router().expect("production setup API");
         let owner = tokio::spawn(crate::local_provisioning::provisioning_stage(|| {
             coordinator.run()
@@ -361,7 +300,7 @@ async fn partial_credentials_reopen_preserves_recovery_for_create_and_join() {
             }
             let shutdown = CancellationToken::new();
             let mut coordinator =
-                crate::api_create::CreateHost::new(host, tls, admission, shutdown.clone());
+                crate::setup_runtime::setup_worker(host, tls, admission, shutdown.clone());
             let router = coordinator.router().expect("production setup API");
             tokio::time::timeout(Duration::from_secs(5), coordinator.initialize())
                 .await
@@ -468,7 +407,7 @@ fn production_api_create_authentication_and_offline_reopen() {
     let mut child = Command::new(std::env::current_exe().expect("test executable"))
         .args([
             "--exact",
-            "api_create_tests::api_create_child",
+            "hosted_setup_integration_tests::api_create_child",
             "--ignored",
             "--nocapture",
         ])
@@ -501,7 +440,7 @@ impl log::Log for SetupTimingLog {
     fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
         metadata.level() == log::Level::Info
             && (metadata.target() == "unified_server::local_provisioning"
-                || metadata.target() == "unified_server::api_create")
+                || metadata.target() == "idp_server::hosted_setup")
             || metadata.level() == log::Level::Debug
                 && [
                     "idp_server::independent",

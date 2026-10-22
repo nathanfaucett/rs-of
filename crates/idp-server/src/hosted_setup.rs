@@ -1,21 +1,24 @@
-use std::{
-    fs,
-    io::{self, Write},
-    sync::{Arc, Mutex},
+use api::{
+    SetupAdmission, SetupAdmissionError,
+    setup_files::{present, private_options, read_private, require_absent, sync_ancestry},
 };
-
-use api::{SetupAdmission, SetupAdmissionError};
-
 use axum::{
     Json, Router,
     extract::{Request, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode},
     middleware,
     response::{IntoResponse, Response},
     routing::{MethodFilter, get, on, post},
 };
-use idp_server::OwnerProvisioner;
 use serde::{Deserialize, Serialize};
+use std::{
+    fs,
+    future::Future,
+    io::{self, Write},
+    path::PathBuf,
+    pin::Pin,
+    sync::{Arc, Mutex},
+};
 use tokio::sync::{RwLock, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
@@ -23,15 +26,6 @@ use tower_http::cors::CorsLayer;
 use utoipa::{
     Modify, OpenApi,
     openapi::security::{ApiKey, ApiKeyValue, SecurityScheme},
-};
-
-use crate::{
-    BootstrapConfig, BootstrapPurpose, CredentialBootstrap, LocalJoin, LocalProvisioner, LocalTls,
-    SecurityProtocol, UnifiedRuntime,
-    bootstrap_config::present,
-    local_provisioning::{
-        private_options, provisioning_stage, read_private, require_absent, sync_ancestry,
-    },
 };
 
 #[derive(Deserialize, Serialize, utoipa::ToSchema)]
@@ -53,7 +47,7 @@ pub struct CreateIntent {
 }
 
 impl CreateIntent {
-    fn canonical(&self) -> Result<String, StatusCode> {
+    pub fn canonical(&self) -> Result<String, StatusCode> {
         validate_human_intent(&self.operation_nonce, &[&self.administrator, &self.node])?;
         serde_json::to_string(&(
             "create",
@@ -67,7 +61,7 @@ impl CreateIntent {
 }
 
 impl CreateRequest {
-    fn intent(&self) -> CreateIntent {
+    pub fn intent(&self) -> CreateIntent {
         CreateIntent {
             operation_nonce: self.operation_nonce.clone(),
             administrator: self.administrator.clone(),
@@ -93,7 +87,7 @@ pub struct LoginClient {
 }
 
 impl CreateResult {
-    fn unfinished(state: &str) -> Self {
+    pub fn unfinished(state: &str) -> Self {
         Self {
             stage: "installation".into(),
             state: state.into(),
@@ -122,7 +116,7 @@ pub struct JoinIntent {
 }
 
 impl JoinRequest {
-    fn validate(&self) -> Result<(), StatusCode> {
+    pub fn validate(&self) -> Result<(), StatusCode> {
         validate_human_intent(&self.operation_nonce, &[&self.node])?;
         let peer = self
             .peer
@@ -131,13 +125,13 @@ impl JoinRequest {
         if peer.to_string() != self.peer {
             return Err(StatusCode::BAD_REQUEST);
         }
-        idp_server::NodeJoinRequest::validate_trusted_peer(&self.peer)
+        management_service::hosted_join::NodeJoinRequest::validate_trusted_peer(&self.peer)
             .map_err(|_| StatusCode::BAD_REQUEST)
     }
 }
 
 impl JoinIntent {
-    fn request(&self) -> JoinRequest {
+    pub fn request(&self) -> JoinRequest {
         JoinRequest {
             operation_nonce: self.operation_nonce.clone(),
             node: self.node.clone(),
@@ -145,15 +139,15 @@ impl JoinIntent {
         }
     }
 
-    fn matches(&self, request: &JoinRequest) -> bool {
+    pub fn matches(&self, request: &JoinRequest) -> bool {
         self.operation_nonce == request.operation_nonce
             && self.node == request.node
             && self.peer == request.peer
     }
 
-    fn canonical(&self) -> Result<String, StatusCode> {
+    pub fn canonical(&self) -> Result<String, StatusCode> {
         self.request().validate()?;
-        crate::bootstrap_config::validate_issuer(&self.issuer)
+        management_service::issuer_discovery::validate_issuer(&self.issuer)
             .map_err(|_| StatusCode::BAD_REQUEST)?;
         serde_json::to_string(&(
             "join",
@@ -175,14 +169,14 @@ pub enum SetupIntent {
 }
 
 impl SetupIntent {
-    fn canonical(&self) -> Result<String, StatusCode> {
+    pub fn canonical(&self) -> Result<String, StatusCode> {
         match self {
             Self::Create(intent) => intent.canonical(),
             Self::Join(intent) => intent.canonical(),
         }
     }
 
-    fn decode(retained: &str) -> Result<Self, StatusCode> {
+    pub fn decode(retained: &str) -> Result<Self, StatusCode> {
         let value: serde_json::Value =
             serde_json::from_str(retained).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
         let intent = match value.get(0).and_then(serde_json::Value::as_str) {
@@ -244,28 +238,17 @@ fn validate_human_intent(nonce: &str, names: &[&str]) -> Result<(), StatusCode> 
     Ok(())
 }
 
-enum Operation {
+pub enum SetupOperation {
     Create(CreateRequest),
     Join(JoinRequest),
 }
 
-struct Command {
-    request: Operation,
-    intent: String,
+pub struct SetupCommand {
+    pub request: SetupOperation,
+    pub intent: String,
     headers: HeaderMap,
-    cancellation: CancellationToken,
+    pub cancellation: CancellationToken,
     reply: Option<oneshot::Sender<Result<CreateResult, StatusCode>>>,
-}
-
-pub struct CreateHost {
-    host: BootstrapConfig,
-    tls: Option<LocalTls>,
-    shared: Arc<Shared>,
-    commands: mpsc::Receiver<Command>,
-    runtime: Option<UnifiedRuntime>,
-    local: Option<LocalProvisioner>,
-    joining: Option<LocalJoin>,
-    credentials: Option<CredentialBootstrap>,
 }
 
 struct Active {
@@ -276,11 +259,11 @@ struct Active {
 
 struct Shared {
     admission: Arc<SetupAdmission>,
-    commands: mpsc::Sender<Command>,
+    commands: mpsc::Sender<SetupCommand>,
     view: Arc<RwLock<CreateResult>>,
     normal: RwLock<Option<Router>>,
     unavailable: Router,
-    readiness: RwLock<Option<(SecurityProtocol, Arc<OwnerProvisioner>)>>,
+    readiness: RwLock<Option<SetupReadiness>>,
     active: Mutex<Option<Active>>,
     shutdown: CancellationToken,
 }
@@ -303,84 +286,196 @@ impl Shared {
     }
 }
 
-impl CreateHost {
-    pub(crate) fn new(
-        host: BootstrapConfig,
-        tls: impl Into<Option<LocalTls>>,
+pub type SetupReadiness =
+    Arc<dyn Fn() -> Pin<Box<dyn Future<Output = io::Result<bool>> + Send>> + Send + Sync>;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SetupPurpose {
+    AwaitingChoice,
+    Create,
+    Join,
+}
+
+pub struct HostedSetupSettings {
+    pub directory: PathBuf,
+    pub ui_origin: String,
+    pub https: bool,
+    pub authentication_base: String,
+    pub contracts: Vec<(String, utoipa::openapi::OpenApi)>,
+}
+
+pub struct HostedSetupReady {
+    pub router: Router,
+    pub readiness: SetupReadiness,
+    pub login_client: LoginClient,
+}
+
+/// Opens and coordinates concrete owner runtimes without owning setup admission.
+/// Prepared owners must be served through `control` before completion checks that use HTTP.
+/// The worker alone admits operations and retires their capability after verified completion.
+pub trait HostedSetupOwners: Send + 'static {
+    fn settings(&self) -> HostedSetupSettings;
+    fn purpose(&self) -> SetupPurpose;
+    fn trusted_peer(&self) -> Option<&str>;
+    fn issuer(&self) -> String;
+    fn service_router(&self, control: HostedSetupControl) -> Router;
+    fn verification_client(&self) -> io::Result<reqwest::Client>;
+    fn discover<'a>(
+        &'a self,
+        peer: &'a str,
+        cancellation: &'a CancellationToken,
+    ) -> impl Future<Output = io::Result<String>> + Send + 'a;
+    fn reopen(
+        &mut self,
+        retired: bool,
+        intent: Option<JoinIntent>,
+        control: HostedSetupControl,
+    ) -> impl Future<Output = io::Result<Option<HostedSetupReady>>> + Send;
+    fn provision(
+        &mut self,
+        command: &SetupCommand,
+        control: HostedSetupControl,
+    ) -> impl Future<Output = Result<HostedSetupReady, StatusCode>> + Send;
+    fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> + Send;
+}
+
+#[derive(Clone)]
+pub struct HostedSetupControl(Arc<Shared>);
+
+pub struct HostedSetup<B: HostedSetupOwners> {
+    owners: B,
+    settings: HostedSetupSettings,
+    shared: Arc<Shared>,
+    commands: mpsc::Receiver<SetupCommand>,
+}
+
+impl HostedSetupControl {
+    pub fn new(
         admission: Arc<SetupAdmission>,
+        state: &str,
+        contracts: Vec<(String, utoipa::openapi::OpenApi)>,
         shutdown: CancellationToken,
-    ) -> Self {
-        let (sender, commands) = mpsc::channel(1);
-        let state = match host.purpose() {
-            BootstrapPurpose::AwaitingChoice => "awaiting_choice",
-            BootstrapPurpose::Create => "creating",
-            BootstrapPurpose::Join => "joining",
-        };
+    ) -> (Self, mpsc::Receiver<SetupCommand>) {
+        let (commands, receiver) = mpsc::channel(1);
         let view = Arc::new(RwLock::new(CreateResult::unfinished(state)));
-        let unavailable = owner_routes(&host.config()).with_state(view.clone());
-        Self {
-            host,
-            tls: tls.into(),
-            commands,
-            shared: Arc::new(Shared {
+        let unavailable = owner_routes(contracts).with_state(view.clone());
+        (
+            Self(Arc::new(Shared {
                 admission,
-                commands: sender,
+                commands,
                 view,
                 normal: RwLock::new(None),
                 unavailable,
                 readiness: RwLock::new(None),
                 active: Mutex::new(None),
                 shutdown,
-            }),
-            runtime: None,
-            local: None,
-            joining: None,
-            credentials: None,
+            })),
+            receiver,
+        )
+    }
+    pub fn router(&self, services: Router) -> Router {
+        services.fallback_service(Router::new().fallback(normal).with_state(self.0.clone()))
+    }
+    pub async fn serve(&self, router: Router, readiness: SetupReadiness) {
+        *self.0.normal.write().await = Some(router);
+        *self.0.readiness.write().await = Some(readiness);
+    }
+    pub async fn publish(&self, ready: HostedSetupReady) {
+        self.serve(ready.router, ready.readiness).await;
+        let mut result = CreateResult::unfinished("ready");
+        result.ready = true;
+        result.login_client = Some(ready.login_client);
+        *self.0.view.write().await = result;
+    }
+    pub async fn withdraw(&self) {
+        *self.0.normal.write().await = None;
+        *self.0.readiness.write().await = None;
+    }
+}
+
+/// Builds the IdP-owned setup API before domain owners are initialized.
+pub fn build_setup_router(control: HostedSetupControl, api_base: &str, prefix: &str) -> Router {
+    let routes = Router::new()
+        .route("/setup/status", get(status))
+        .route("/setup/create", post(create))
+        .route("/setup/join", post(join))
+        .route("/setup/cancel", post(cancel))
+        .route("/setup/admission", post(admission))
+        .route("/setup/intent", post(intent))
+        .with_state(control.0);
+    let routes = if prefix.is_empty() || prefix == "/" {
+        routes
+    } else {
+        Router::new().nest(prefix, routes)
+    };
+    routes.merge(crate::public_metadata_router(api_base, prefix))
+}
+
+pub fn setup_origin(value: &str, https: bool) -> io::Result<HeaderValue> {
+    if !https {
+        let url = reqwest::Url::parse(value).map_err(io::Error::other)?;
+        if url.scheme() == "http"
+            && url.host_str().is_some_and(|host| {
+                host == "localhost"
+                    || host
+                        .trim_matches(['[', ']'])
+                        .parse::<std::net::IpAddr>()
+                        .is_ok_and(|ip| ip.is_loopback())
+            })
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.path() == "/"
+            && url.query().is_none()
+            && url.fragment().is_none()
+        {
+            return HeaderValue::from_str(value.trim_end_matches('/')).map_err(io::Error::other);
         }
     }
+    api::setup_origin(value)
+}
 
-    pub fn router(&self) -> io::Result<Router> {
-        let value = self.host.config().idp.ui_public_uri;
-        let origin = if self.tls.is_some() {
-            api::setup_origin(&value)?
-        } else {
-            crate::setup_host::allowed_origin(&value)?
+impl<B: HostedSetupOwners> HostedSetup<B> {
+    pub fn new(owners: B, admission: Arc<SetupAdmission>, shutdown: CancellationToken) -> Self {
+        let mut settings = owners.settings();
+        let state = match owners.purpose() {
+            SetupPurpose::AwaitingChoice => "awaiting_choice",
+            SetupPurpose::Create => "creating",
+            SetupPurpose::Join => "joining",
         };
-        self.router_for_origin(origin)
-    }
-
-    /// Host-selected UI origin, including a bundled native WebView's exact origin.
-    /// This is not request-controlled and does not replace setup admission.
-    pub fn router_for_origin(&self, origin: axum::http::HeaderValue) -> io::Result<Router> {
-        if origin != "tauri://localhost" && origin != "http://tauri.localhost" {
-            let value = origin.to_str().map_err(io::Error::other)?;
-            if self.tls.is_some() {
-                api::setup_origin(value)?;
-            } else {
-                crate::setup_host::allowed_origin(value)?;
-            }
+        let (control, commands) = HostedSetupControl::new(
+            admission,
+            state,
+            std::mem::take(&mut settings.contracts),
+            shutdown,
+        );
+        Self {
+            owners,
+            settings,
+            shared: control.0,
+            commands,
         }
-        let config = self.host.config();
-        let owners = idp_server::public_metadata_router(&config.idp.api_public_uri, "/idp")
-            .merge(management_server::public_metadata_router(
-                &config.management.api_public_uri,
-                "/management",
-            ))
-            .merge(storage_server::public_metadata_router(
-                &config.storage.api_public_uri,
-                "/storage",
-            ))
-            .with_state(());
-        let setup = Router::new()
-            .merge(owners)
-            .route("/idp/setup/status", get(status))
-            .route("/idp/setup/create", post(create))
-            .route("/idp/setup/join", post(join))
-            .route("/idp/setup/cancel", post(cancel))
-            .route("/idp/setup/admission", post(admission))
-            .route("/idp/setup/intent", post(intent))
-            .fallback(normal)
-            .with_state(self.shared.clone())
+    }
+    pub fn control(&self) -> HostedSetupControl {
+        HostedSetupControl(self.shared.clone())
+    }
+    pub fn router(&self) -> io::Result<Router> {
+        self.router_for_origin(setup_origin(&self.settings.ui_origin, self.settings.https)?)
+    }
+    pub fn router_for_origin(&self, origin: HeaderValue) -> io::Result<Router> {
+        if origin != "tauri://localhost" && origin != "http://tauri.localhost" {
+            setup_origin(
+                origin.to_str().map_err(io::Error::other)?,
+                self.settings.https,
+            )?;
+        }
+        Ok(self
+            .owners
+            .service_router(HostedSetupControl(self.shared.clone()))
+            .fallback_service(
+                Router::new()
+                    .fallback(normal)
+                    .with_state(self.shared.clone()),
+            )
             .layer(
                 CorsLayer::new()
                     .allow_origin(origin.clone())
@@ -402,11 +497,9 @@ impl CreateHost {
             .layer(middleware::from_fn_with_state(
                 origin,
                 api::setup_origin_guard,
-            ));
-        Ok(setup)
+            )))
     }
-
-    pub(crate) async fn initialize(&mut self) {
+    pub async fn initialize(&mut self) {
         let reopen = Box::pin(self.reopen()).await;
         if let Err(error) = reopen {
             if let Err(cleanup) = self.unpublish().await {
@@ -414,7 +507,7 @@ impl CreateHost {
             }
             log::info!("Node reopen failed kind={:?}", error.kind());
             *self.shared.view.write().await = CreateResult::unfinished("unavailable");
-        } else if self.host.purpose() != BootstrapPurpose::AwaitingChoice {
+        } else if self.owners.purpose() != SetupPurpose::AwaitingChoice {
             let mut view = self.shared.view.write().await;
             if !view.ready {
                 *view = CreateResult::unfinished("unfinished");
@@ -441,65 +534,72 @@ impl CreateHost {
     }
 
     async fn reopen(&mut self) -> io::Result<()> {
-        let started = std::time::Instant::now();
-        if self.host.purpose() == BootstrapPurpose::Join {
-            return Box::pin(self.reopen_join()).await;
-        }
-        if self.host.purpose() != BootstrapPurpose::Create {
+        if self.owners.purpose() == SetupPurpose::AwaitingChoice {
             return Ok(());
         }
-        let config = self.host.config();
-        if !present(&config.credential_bootstrap_directory())? {
-            return Ok(());
-        }
-        let owner_root = config.local_provisioning_directory();
-        self.credentials = Some(CredentialBootstrap::open(config)?);
-        if !present(&owner_root)? {
-            return Ok(());
-        }
-        let config = self
-            .credentials
-            .as_ref()
-            .expect("retained credential references")
-            .load()?;
-        let local = LocalProvisioner::open(config)?;
-        log::info!(
-            "Node reopen stage=credentials elapsed_ms={}",
-            started.elapsed().as_millis()
-        );
-        let started = std::time::Instant::now();
-        let admission = self.shared.admission.clone();
-        let retired = tokio::task::spawn_blocking(move || admission.is_retired())
-            .await
-            .map_err(io::Error::other)?
-            .map_err(io::Error::other)?;
-        if local.is_complete()? && retired {
-            let runtime = local.reopen_hosted_runtime(self.tls.is_some()).await?;
-            log::info!(
-                "Node reopen stage=runtime elapsed_ms={}",
-                started.elapsed().as_millis()
-            );
-            self.local = Some(local);
-            self.publish(runtime).await?;
-            *self.shared.view.write().await = self.ready_result()?;
-            log::info!(
-                "Node reopen ready elapsed_ms={}",
-                started.elapsed().as_millis()
-            );
+        let intent = if self.owners.purpose() == SetupPurpose::Join {
+            Some(self.retained_join_intent()?)
         } else {
-            self.local = Some(local);
+            None
+        };
+        let admission = self.shared.admission.clone();
+        let canonical = intent
+            .as_ref()
+            .map(JoinIntent::canonical)
+            .transpose()
+            .map_err(|_| io::Error::other("invalid retained Join admission"))?;
+        let retired = tokio::task::spawn_blocking(move || {
+            let retired = admission.is_retired().map_err(io::Error::other)?;
+            if let Some(intent) = canonical.as_ref()
+                && retired
+                && !admission
+                    .retired_matches(intent)
+                    .map_err(io::Error::other)?
+            {
+                return Err(io::Error::other(
+                    "retired admission differs from completed Join intent",
+                ));
+            }
+            Ok::<_, io::Error>(retired)
+        })
+        .await
+        .map_err(io::Error::other)??;
+        if let Some(ready) = self.owners.reopen(retired, intent, self.control()).await? {
+            HostedSetupControl(self.shared.clone()).publish(ready).await;
         }
         Ok(())
     }
-
-    async fn execute(&mut self, command: &mut Command) -> Result<CreateResult, StatusCode> {
+    async fn unpublish(&mut self) -> io::Result<()> {
+        HostedSetupControl(self.shared.clone()).withdraw().await;
+        self.owners.shutdown().await
+    }
+    async fn retire(
+        &self,
+        command: &SetupCommand,
+        login: LoginClient,
+    ) -> Result<CreateResult, StatusCode> {
+        self.shared.begin_retirement(&command.intent)?;
+        let admission = self.shared.admission.clone();
+        let headers = command.headers.clone();
+        let intent = command.intent.clone();
+        tokio::task::spawn_blocking(move || admission.retire(&headers, &intent))
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+            .map_err(admission_status)?;
+        let mut result = CreateResult::unfinished("ready");
+        result.ready = true;
+        result.login_client = Some(login);
+        *self.shared.view.write().await = result.clone();
+        Ok(result)
+    }
+    async fn execute(&mut self, command: &mut SetupCommand) -> Result<CreateResult, StatusCode> {
         if command.cancellation.is_cancelled() {
             return Err(StatusCode::CONFLICT);
         }
-        if self.runtime.is_some() && self.shared.view.read().await.ready {
+        if self.shared.view.read().await.ready {
             return self.completed_retry(command).await;
         }
-        if let Operation::Join(request) = &command.request {
+        if let SetupOperation::Join(request) = &command.request {
             let admission = self.shared.admission.clone();
             let headers = command.headers.clone();
             let retained = tokio::task::spawn_blocking(move || admission.bound_intent(&headers))
@@ -512,12 +612,11 @@ impl CreateHost {
                     _ => return Err(StatusCode::CONFLICT),
                 }
             } else {
-                let issuer = crate::issuer_discovery::discover_with_cancellation(
-                    &request.peer,
-                    &command.cancellation,
-                )
-                .await
-                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+                let issuer = self
+                    .owners
+                    .discover(&request.peer, &command.cancellation)
+                    .await
+                    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
                 JoinIntent {
                     operation_nonce: request.operation_nonce.clone(),
                     node: request.node.clone(),
@@ -537,7 +636,7 @@ impl CreateHost {
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
             .map_err(admission_status)?;
-        if matches!(&command.request, Operation::Join(_)) {
+        if matches!(&command.request, SetupOperation::Join(_)) {
             self.retain_join_intent(&command.intent)
                 .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
         }
@@ -547,17 +646,21 @@ impl CreateHost {
             cancellable: true,
         });
         let accepted = CreateResult::unfinished(match &command.request {
-            Operation::Create(_) => "creating",
-            Operation::Join(_) => "joining",
+            SetupOperation::Create(_) => "creating",
+            SetupOperation::Join(_) => "joining",
         });
         *self.shared.view.write().await = accepted.clone();
         if let Some(reply) = command.reply.take() {
             let _ = reply.send(Ok(accepted));
         }
         let started = std::time::Instant::now();
-        let result = match &command.request {
-            Operation::Create(request) => Box::pin(self.provision(command, request)).await,
-            Operation::Join(request) => Box::pin(self.provision_join(command, request)).await,
+        let result = match self.owners.provision(command, self.control()).await {
+            Ok(ready) => {
+                *self.shared.normal.write().await = Some(ready.router);
+                *self.shared.readiness.write().await = Some(ready.readiness);
+                self.retire(command, ready.login_client).await
+            }
+            Err(error) => Err(error),
         };
         log::info!(
             "Node setup elapsed_ms={} succeeded={}",
@@ -575,74 +678,17 @@ impl CreateHost {
         result
     }
 
-    async fn provision(
-        &mut self,
-        command: &Command,
-        request: &CreateRequest,
-    ) -> Result<CreateResult, StatusCode> {
-        self.host
-            .select_create()
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        self.open_credentials()
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        let credentials = self.credentials.take().expect("retained credentials guard");
-        let administrator = request.administrator.clone();
-        let node = request.node.clone();
-        let password = request.password.clone();
-        let local = self.local.take();
-        let prepared = tokio::task::spawn_blocking(move || {
-            let result = (|| {
-                let config = credentials.load()?;
-                let local = match local {
-                    Some(local) => local,
-                    None if present(&config.local_provisioning_directory())? => {
-                        LocalProvisioner::open(config)?
-                    }
-                    None => LocalProvisioner::create_with_password(
-                        config,
-                        &administrator,
-                        &node,
-                        &password,
-                    )?,
-                };
-                local.validate_retry(&administrator, &node, &password)?;
-                Ok::<_, io::Error>(local)
-            })();
-            (credentials, result)
-        })
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        self.credentials = Some(prepared.0);
-        self.local = Some(prepared.1.map_err(|_| StatusCode::CONFLICT)?);
-        let local = self.local.as_mut().expect("retained owner journal");
-        let runtime = Box::pin(local.prepare_hosted_runtime(
-            &request.password,
-            self.tls.is_some(),
-            &command.cancellation,
-        ))
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        if let Err(error) = self.publish(runtime).await {
-            return Err(if error.kind() == io::ErrorKind::Interrupted {
-                StatusCode::CONFLICT
-            } else {
-                StatusCode::SERVICE_UNAVAILABLE
-            });
-        }
-        if command.cancellation.is_cancelled() {
-            return Err(StatusCode::CONFLICT);
-        }
-        self.local
-            .as_ref()
-            .expect("verified owner journal")
-            .mark_complete()
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        self.retire(command).await
-    }
-
     fn retain_join_intent(&self, canonical: &str) -> io::Result<()> {
-        let path = self.host.directory().join("join-admission.json");
-        let pending = self.host.directory().join("join-admission.pending");
+        let path = self
+            .settings
+            .directory
+            .as_path()
+            .join("join-admission.json");
+        let pending = self
+            .settings
+            .directory
+            .as_path()
+            .join("join-admission.pending");
         require_absent(&pending)?;
         if present(&path)? {
             if read_private(&path)? != canonical.as_bytes() {
@@ -652,7 +698,7 @@ impl CreateHost {
             }
             return self.initialize_join_history();
         }
-        if self.host.purpose() != BootstrapPurpose::AwaitingChoice {
+        if self.owners.purpose() != SetupPurpose::AwaitingChoice {
             return Err(io::Error::other(
                 "selected Join is missing its retained admission intent",
             ));
@@ -661,7 +707,7 @@ impl CreateHost {
         file.write_all(canonical.as_bytes())?;
         file.sync_all()?;
         fs::rename(pending, &path)?;
-        sync_ancestry(self.host.directory())?;
+        sync_ancestry(self.settings.directory.as_path())?;
         if read_private(&path)? != canonical.as_bytes() {
             return Err(io::Error::other("Join admission durable readback mismatch"));
         }
@@ -671,11 +717,11 @@ impl CreateHost {
     fn initialize_join_history(&self) -> io::Result<()> {
         for stage in ["credentials", "owner"] {
             let path = self
-                .host
-                .directory()
+                .settings
+                .directory
                 .join(format!("join-{stage}.attempted"));
             if !present(&path)? {
-                if self.host.purpose() != BootstrapPurpose::AwaitingChoice {
+                if self.owners.purpose() != SetupPurpose::AwaitingChoice {
                     return Err(io::Error::other(
                         "selected Join is missing production history",
                     ));
@@ -683,56 +729,35 @@ impl CreateHost {
                 let mut file = private_options(true).open(&path)?;
                 file.write_all(b"unattempted\n")?;
                 file.sync_all()?;
-                sync_ancestry(self.host.directory())?;
+                sync_ancestry(self.settings.directory.as_path())?;
             }
-            Self::join_attempted(self.host.directory(), stage)?;
+            join_attempted(self.settings.directory.as_path(), stage)?;
         }
         Ok(())
     }
 
-    fn join_attempted(directory: &std::path::Path, stage: &str) -> io::Result<bool> {
-        require_absent(&directory.join(format!("join-{stage}.pending")))?;
-        match read_private(&directory.join(format!("join-{stage}.attempted")))?.as_slice() {
-            b"unattempted\n" => Ok(false),
-            b"attempted\n" => Ok(true),
-            _ => Err(io::Error::other("invalid retained Join production history")),
-        }
-    }
-
-    fn begin_join_attempt(
-        directory: &std::path::Path,
-        stage: &str,
-        root: &std::path::Path,
-    ) -> io::Result<bool> {
-        if Self::join_attempted(directory, stage)? {
-            return Ok(false);
-        }
-        require_absent(root)?;
-        let path = directory.join(format!("join-{stage}.attempted"));
-        let pending = directory.join(format!("join-{stage}.pending"));
-        let mut file = private_options(true).open(&pending)?;
-        file.write_all(b"attempted\n")?;
-        file.sync_all()?;
-        fs::rename(pending, path)?;
-        sync_ancestry(directory)?;
-        if !Self::join_attempted(directory, stage)? {
-            return Err(io::Error::other(
-                "Join production history readback mismatch",
-            ));
-        }
-        Ok(true)
-    }
-
     fn retained_join_intent(&self) -> io::Result<JoinIntent> {
-        require_absent(&self.host.directory().join("join-admission.pending"))?;
-        let bytes = read_private(&self.host.directory().join("join-admission.json"))?;
+        require_absent(
+            &self
+                .settings
+                .directory
+                .as_path()
+                .join("join-admission.pending"),
+        )?;
+        let bytes = read_private(
+            &self
+                .settings
+                .directory
+                .as_path()
+                .join("join-admission.json"),
+        )?;
         let canonical = std::str::from_utf8(&bytes).map_err(io::Error::other)?;
         match SetupIntent::decode(canonical)
             .map_err(|_| io::Error::other("invalid retained Join admission"))?
         {
             SetupIntent::Join(intent)
-                if Some(intent.peer.as_str()) == self.host.trusted_peer()
-                    && intent.issuer == self.host.config().idp.oauth2.issuer =>
+                if Some(intent.peer.as_str()) == self.owners.trusted_peer()
+                    && intent.issuer == self.owners.issuer() =>
             {
                 Ok(intent)
             }
@@ -742,280 +767,11 @@ impl CreateHost {
         }
     }
 
-    async fn reopen_join(&mut self) -> io::Result<()> {
-        #[cfg(test)]
-        eprintln!("Node Join reopen stage=intent");
-        let intent = self.retained_join_intent()?;
-        let canonical = intent
-            .canonical()
-            .map_err(|_| io::Error::other("invalid retained Join admission"))?;
-        let admission = self.shared.admission.clone();
-        let retired = tokio::task::spawn_blocking(move || {
-            let retired = admission.is_retired().map_err(io::Error::other)?;
-            if retired
-                && !admission
-                    .retired_matches(&canonical)
-                    .map_err(io::Error::other)?
-            {
-                return Err(io::Error::other(
-                    "retired admission differs from completed Join intent",
-                ));
-            }
-            Ok::<_, io::Error>(retired)
-        })
-        .await
-        .map_err(io::Error::other)??;
-        #[cfg(test)]
-        eprintln!("Node Join reopen stage=history");
-        let config = self.host.config();
-        let credentials_attempted = Self::join_attempted(self.host.directory(), "credentials")?;
-        let owner_attempted = Self::join_attempted(self.host.directory(), "owner")?;
-        if owner_attempted && !credentials_attempted
-            || retired && !(credentials_attempted && owner_attempted)
-        {
-            return Err(io::Error::other(
-                "retired or conflicting Join production history",
-            ));
-        }
-        if !credentials_attempted {
-            require_absent(&config.credential_bootstrap_directory())?;
-            require_absent(&config.local_provisioning_directory())?;
-            return Ok(());
-        }
-        if !present(&config.credential_bootstrap_directory())? {
-            return Err(io::Error::other(
-                "attempted Join is missing retained credentials",
-            ));
-        }
-        let owner_root = config.local_provisioning_directory();
-        #[cfg(test)]
-        eprintln!("Node Join reopen stage=credentials");
-        self.credentials = Some(CredentialBootstrap::open(config)?);
-        if !owner_attempted {
-            require_absent(&owner_root)?;
-            return Ok(());
-        }
-        let config = self
-            .credentials
-            .as_ref()
-            .expect("retained credential references")
-            .load()?;
-        if !present(&config.local_provisioning_directory())? {
-            return Err(io::Error::other(
-                "attempted Join is missing retained owner state",
-            ));
-        }
-        #[cfg(test)]
-        eprintln!("Node Join reopen stage=owner");
-        let joining = LocalJoin::open(config)?;
-        let complete = joining.is_complete()?;
-        joining.validate_retry(&intent.peer, &intent.node)?;
-        if Some(joining.trusted_peer()) != self.host.trusted_peer() {
-            return Err(io::Error::other(
-                "retained Join peer conflicts with host selection",
-            ));
-        }
-        self.joining = Some(joining);
-        if complete && retired {
-            #[cfg(test)]
-            eprintln!("Node Join reopen stage=runtime");
-            let runtime = self
-                .joining
-                .as_ref()
-                .expect("retained Join")
-                .reopen_hosted_runtime(self.tls.is_some())
-                .await?;
-            #[cfg(test)]
-            eprintln!("Node Join reopen stage=publish");
-            self.publish(runtime).await?;
-            *self.shared.view.write().await = self.ready_result()?;
-        } else if retired {
-            return Err(io::Error::other(
-                "retired admission requires completed Join",
-            ));
-        }
-        Ok(())
-    }
-
-    fn open_credentials(&mut self) -> io::Result<()> {
-        if self.credentials.is_some()
-            && self.host.purpose() == BootstrapPurpose::Join
-            && !Self::join_attempted(self.host.directory(), "credentials")?
-        {
-            return Err(io::Error::other(
-                "retained Join is missing credential production history",
-            ));
-        }
-        if self.credentials.is_none() {
-            let config = self.host.config();
-            self.credentials = Some(if self.host.purpose() == BootstrapPurpose::Join {
-                if Self::begin_join_attempt(
-                    self.host.directory(),
-                    "credentials",
-                    &config.credential_bootstrap_directory(),
-                )? {
-                    match &self.tls {
-                        Some(tls) => CredentialBootstrap::adopt_host_tls(config, tls)?,
-                        None => CredentialBootstrap::create(config)?,
-                    }
-                } else {
-                    CredentialBootstrap::open(config)?
-                }
-            } else if present(&config.credential_bootstrap_directory())? {
-                CredentialBootstrap::open(config)?
-            } else {
-                match &self.tls {
-                    Some(tls) => CredentialBootstrap::adopt_host_tls(config, tls)?,
-                    None => CredentialBootstrap::create(config)?,
-                }
-            });
-        }
-        Ok(())
-    }
-
-    async fn provision_join(
+    async fn completed_retry(
         &mut self,
-        command: &Command,
-        request: &JoinRequest,
+        command: &SetupCommand,
     ) -> Result<CreateResult, StatusCode> {
-        let SetupIntent::Join(intent) = SetupIntent::decode(&command.intent)? else {
-            return Err(StatusCode::CONFLICT);
-        };
-        self.host
-            .select_join(&intent.peer, &intent.issuer)
-            .map_err(|_| StatusCode::CONFLICT)?;
-        self.open_credentials()
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        let directory = self.host.directory().to_path_buf();
-        let credentials = self.credentials.take().expect("retained credential guard");
-        let joining = self.joining.take();
-        let request = request.clone();
-        let prepared = tokio::task::spawn_blocking(move || {
-            let result = (|| {
-                let config = credentials.load()?;
-                let joining = match joining {
-                    Some(joining) => {
-                        if !Self::join_attempted(&directory, "owner")? {
-                            return Err(io::Error::other(
-                                "retained Join is missing owner production history",
-                            ));
-                        }
-                        joining
-                    }
-                    None if Self::begin_join_attempt(
-                        &directory,
-                        "owner",
-                        &config.local_provisioning_directory(),
-                    )? =>
-                    {
-                        LocalJoin::create(config, &request.peer, &request.node)?
-                    }
-                    None => LocalJoin::open(config)?,
-                };
-                joining.validate_retry(&request.peer, &request.node)?;
-                Ok::<_, io::Error>(joining)
-            })();
-            (credentials, result)
-        })
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        self.credentials = Some(prepared.0);
-        self.joining = Some(prepared.1.map_err(|_| StatusCode::CONFLICT)?);
-        let joining = self.joining.as_mut().expect("retained Join");
-        let runtime = provisioning_stage(|| {
-            joining.prepare_hosted_runtime(self.tls.is_some(), &command.cancellation)
-        })
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        #[cfg(test)]
-        let publish_started = std::time::Instant::now();
-        self.publish(runtime)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        #[cfg(test)]
-        eprintln!(
-            "Node Join stage=publish elapsed_ms={}",
-            publish_started.elapsed().as_millis()
-        );
-        #[cfg(test)]
-        let completion_started = std::time::Instant::now();
-        self.joining
-            .as_mut()
-            .expect("verified Join")
-            .complete_hosted(
-                self.runtime.as_ref().expect("published runtime"),
-                &command.cancellation,
-            )
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        #[cfg(test)]
-        eprintln!(
-            "Node Join stage=completion elapsed_ms={}",
-            completion_started.elapsed().as_millis()
-        );
-        self.retire(command).await
-    }
-
-    async fn retire(&self, command: &Command) -> Result<CreateResult, StatusCode> {
-        self.shared.begin_retirement(&command.intent)?;
-        let admission = self.shared.admission.clone();
-        let headers = command.headers.clone();
-        let intent = command.intent.clone();
-        tokio::task::spawn_blocking(move || admission.retire(&headers, &intent))
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-            .map_err(admission_status)?;
-        let result = self
-            .ready_result()
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        *self.shared.view.write().await = result.clone();
-        Ok(result)
-    }
-
-    async fn publish(&mut self, mut runtime: UnifiedRuntime) -> io::Result<()> {
-        #[cfg(test)]
-        runtime.trace_bootstrap_http_stages();
-        if let Err(error) = runtime.start_background_tasks().await {
-            runtime.shutdown().await?;
-            return Err(error);
-        }
-        *self.shared.readiness.write().await = Some(runtime.readiness());
-        *self.shared.normal.write().await = Some(runtime.router());
-        self.runtime = Some(runtime);
-        Ok(())
-    }
-
-    async fn unpublish(&mut self) -> io::Result<()> {
-        *self.shared.readiness.write().await = None;
-        *self.shared.normal.write().await = None;
-        if let Some(runtime) = self.runtime.take() {
-            runtime.shutdown().await?;
-        }
-        Ok(())
-    }
-
-    fn ready_result(&self) -> io::Result<CreateResult> {
-        let login = match self.joining.as_ref() {
-            Some(joining) => joining.login_client(),
-            None => self
-                .local
-                .as_ref()
-                .expect("ready owner journal")
-                .login_client()?,
-        };
-        let mut result = CreateResult::unfinished("ready");
-        result.ready = true;
-        result.login_client = Some(LoginClient {
-            client_id: login
-                .client_id
-                .ok_or_else(|| io::Error::other("missing public login Client"))?,
-            scopes: login.allowed_scopes,
-        });
-        Ok(result)
-    }
-
-    async fn completed_retry(&mut self, command: &Command) -> Result<CreateResult, StatusCode> {
-        let Operation::Create(request) = &command.request else {
+        let SetupOperation::Create(request) = &command.request else {
             return Err(StatusCode::UNAUTHORIZED);
         };
         let admission = self.shared.admission.clone();
@@ -1027,21 +783,18 @@ impl CreateHost {
         {
             return Err(StatusCode::CONFLICT);
         }
-        let result = self
-            .ready_result()
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        let result = self.shared.view.read().await.clone();
         let client_id = &result
             .login_client
             .as_ref()
             .expect("ready public login Client")
             .client_id;
-        let http = LocalTls::verification_client().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        let http = self
+            .owners
+            .verification_client()
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
         let configuration = of_idp_client::apis::configuration::Configuration {
-            base_path: format!(
-                "{}://{}/idp",
-                if self.tls.is_some() { "https" } else { "http" },
-                self.host.config().listen_addr
-            ),
+            base_path: self.settings.authentication_base.clone(),
             client: http,
             ..Default::default()
         };
@@ -1066,11 +819,14 @@ impl CreateHost {
         if token.access_token.0.is_empty() {
             return Err(StatusCode::UNAUTHORIZED);
         }
-        if !self
-            .runtime
-            .as_ref()
-            .expect("completed runtime")
-            .node_public_ready()
+        let readiness = self
+            .shared
+            .readiness
+            .read()
+            .await
+            .clone()
+            .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+        if !readiness()
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
         {
@@ -1079,7 +835,6 @@ impl CreateHost {
         Ok(result)
     }
 }
-
 fn admission_status(error: SetupAdmissionError) -> StatusCode {
     match error {
         SetupAdmissionError::Denied => StatusCode::UNAUTHORIZED,
@@ -1162,10 +917,7 @@ async fn status(State(shared): State<Arc<Shared>>) -> Response {
     if result.ready {
         let readiness = shared.readiness.read().await.clone();
         let current = match readiness {
-            Some((protocol, owner)) => matches!(
-                protocol.local_node_public_ready(owner.as_ref()).await,
-                Ok(true)
-            ),
+            Some(readiness) => matches!(readiness().await, Ok(true)),
             None => false,
         };
         if !current || shared.shutdown.is_cancelled() {
@@ -1219,7 +971,7 @@ async fn create(
     {
         return StatusCode::BAD_REQUEST.into_response();
     }
-    submit(shared, headers, Operation::Create(request), intent).await
+    submit(shared, headers, SetupOperation::Create(request), intent).await
 }
 
 #[utoipa::path(
@@ -1246,16 +998,22 @@ async fn join(
     if let Err(status) = request.validate() {
         return status.into_response();
     }
-    submit(shared, headers, Operation::Join(request), String::new()).await
+    submit(
+        shared,
+        headers,
+        SetupOperation::Join(request),
+        String::new(),
+    )
+    .await
 }
 
 async fn submit(
     shared: Arc<Shared>,
     headers: HeaderMap,
-    request: Operation,
+    request: SetupOperation,
     intent: String,
 ) -> Response {
-    let joining = matches!(&request, Operation::Join(_));
+    let joining = matches!(&request, SetupOperation::Join(_));
     if joining || !shared.view.read().await.ready {
         let admission = shared.admission.clone();
         let supplied = headers.clone();
@@ -1272,8 +1030,8 @@ async fn submit(
                 return StatusCode::CONFLICT.into_response();
             }
             let matches = match &request {
-                Operation::Create(_) => active.intent == intent,
-                Operation::Join(request) => {
+                SetupOperation::Create(_) => active.intent == intent,
+                SetupOperation::Join(request) => {
                     matches!(SetupIntent::decode(&active.intent), Ok(SetupIntent::Join(intent)) if intent.matches(request))
                 }
             };
@@ -1293,7 +1051,7 @@ async fn submit(
         }
         let cancellation = shared.shutdown.child_token();
         let (reply, response) = oneshot::channel();
-        let command = Command {
+        let command = SetupCommand {
             request,
             intent,
             headers,
@@ -1388,22 +1146,11 @@ async fn unavailable(State(view): State<Arc<RwLock<CreateResult>>>) -> Response 
         .into_response()
 }
 
-fn owner_routes(config: &crate::UnifiedConfig) -> Router<Arc<RwLock<CreateResult>>> {
+fn owner_routes(
+    contracts: Vec<(String, utoipa::openapi::OpenApi)>,
+) -> Router<Arc<RwLock<CreateResult>>> {
     let mut router = Router::new();
-    for (prefix, document) in [
-        (
-            "/idp",
-            idp_server::openapi_document(&config.idp.api_public_uri, ""),
-        ),
-        (
-            "/management",
-            management_server::openapi_document(&config.management.api_public_uri, ""),
-        ),
-        (
-            "/storage",
-            storage_server::openapi_document(&config.storage.api_public_uri, "/storage"),
-        ),
-    ] {
+    for (prefix, document) in contracts {
         for (path, item) in document.paths.paths {
             if matches!(path.as_str(), "/version" | "/openapi.json") {
                 continue;
@@ -1430,13 +1177,6 @@ fn owner_routes(config: &crate::UnifiedConfig) -> Router<Arc<RwLock<CreateResult
         }
     }
     router
-        .route(
-            "/management/node-joins/acceptance",
-            get(unavailable).put(unavailable),
-        )
-        .route("/management/node-joins/pending", get(unavailable))
-        .route("/management/node-joins/{id}/approve", post(unavailable))
-        .route("/management/node-joins/{id}/reject", post(unavailable))
 }
 
 #[derive(OpenApi)]
@@ -1467,296 +1207,71 @@ impl Modify for SetupSecurity {
 }
 
 #[cfg(test)]
-#[path = "api_create_openapi_tests.rs"]
+#[path = "hosted_setup_openapi_tests.rs"]
 mod openapi_tests;
 
-#[cfg(all(test, unix))]
-pub(crate) mod tests {
-    use std::{fs, os::unix::fs::PermissionsExt};
+pub fn join_attempted(directory: &std::path::Path, stage: &str) -> io::Result<bool> {
+    require_absent(&directory.join(format!("join-{stage}.pending")))?;
+    match read_private(&directory.join(format!("join-{stage}.attempted")))?.as_slice() {
+        b"unattempted\n" => Ok(false),
+        b"attempted\n" => Ok(true),
+        _ => Err(io::Error::other("invalid retained Join production history")),
+    }
+}
 
-    use std::sync::{Arc, Mutex};
+pub fn begin_join_attempt(
+    directory: &std::path::Path,
+    stage: &str,
+    root: &std::path::Path,
+) -> io::Result<bool> {
+    if join_attempted(directory, stage)? {
+        return Ok(false);
+    }
+    require_absent(root)?;
+    let path = directory.join(format!("join-{stage}.attempted"));
+    let pending = directory.join(format!("join-{stage}.pending"));
+    let mut file = private_options(true).open(&pending)?;
+    file.write_all(b"attempted\n")?;
+    file.sync_all()?;
+    fs::rename(pending, path)?;
+    sync_ancestry(directory)?;
+    if !join_attempted(directory, stage)? {
+        return Err(io::Error::other(
+            "Join production history readback mismatch",
+        ));
+    }
+    Ok(true)
+}
 
+pub fn setup_openapi() -> utoipa::openapi::OpenApi {
+    CreateDoc::openapi()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        Active, CreateIntent, CreateRequest, CreateResult, SetupIntent, Shared, cancel, create,
+    };
     use api::SetupAdmission;
     use axum::{
         Json,
         extract::State,
         http::{HeaderMap, StatusCode},
     };
+    use std::{
+        fs,
+        os::unix::fs::PermissionsExt,
+        sync::{Arc, Mutex},
+    };
     use tokio::sync::{RwLock, mpsc};
     use tokio_util::sync::CancellationToken;
-
-    use super::{
-        Active, CreateIntent, CreateRequest, CreateResult, SetupIntent, Shared, cancel, create,
-    };
-
-    #[tokio::test]
-    async fn owner_routes_stay_mounted_when_runtime_becomes_available_or_unavailable() {
-        use axum::{
-            Router,
-            body::Body,
-            extract::Path,
-            http::Request,
-            routing::{delete, get},
-        };
-        use idp_model::model::Id;
-        use tower::ServiceExt;
-
-        let root = std::env::temp_dir().join(format!(
-            "stable-owner-routes-{}",
-            idp_model::model::Id::now_v7()
-        ));
-        let host = crate::BootstrapConfig::create_http(
-            &root,
-            crate::BootstrapPurpose::AwaitingChoice,
-            None,
-            "127.0.0.1:3000".parse().expect("HTTP backend"),
-            "https://unified.localhost:1355".into(),
-        )
-        .expect("neutral host");
-        let worker = crate::SetupHost::create_http(host)
-            .expect("HTTP setup")
-            .into_worker(CancellationToken::new());
-        let router = worker.router().expect("stable router");
-        let owner = Router::new()
-            .route(
-                "/idp/.well-known/openid-configuration",
-                get(|| async { "discovery" }),
-            )
-            .route(
-                "/idp/users/{user_id}",
-                get(|Path(_id): Path<Id>| async { StatusCode::UNAUTHORIZED }),
-            )
-            .route(
-                "/idp/users/{user_id}/consents/{consent_id}",
-                delete(|Path((_user, _consent)): Path<(Id, Id)>| async { StatusCode::NO_CONTENT }),
-            )
-            .route("/storage", get(|| async { StatusCode::OK }));
-        let user = Id::now_v7();
-        let consent = Id::now_v7();
-        for available in [false, true, false] {
-            *worker.shared.normal.write().await = available.then(|| owner.clone());
-            for (method, path, ready_status) in [
-                (
-                    "GET",
-                    "/idp/.well-known/openid-configuration".to_owned(),
-                    StatusCode::OK,
-                ),
-                (
-                    "GET",
-                    format!("/idp/users/{user}"),
-                    StatusCode::UNAUTHORIZED,
-                ),
-                (
-                    "DELETE",
-                    format!("/idp/users/{user}/consents/{consent}"),
-                    StatusCode::NO_CONTENT,
-                ),
-                ("GET", "/storage".to_owned(), StatusCode::OK),
-            ] {
-                let response = router
-                    .clone()
-                    .oneshot(
-                        Request::builder()
-                            .method(method)
-                            .uri(path)
-                            .body(Body::empty())
-                            .expect("owner request"),
-                    )
-                    .await
-                    .expect("owner response");
-                assert_eq!(
-                    response.status(),
-                    if available {
-                        ready_status
-                    } else {
-                        StatusCode::SERVICE_UNAVAILABLE
-                    }
-                );
-            }
-            for path in [
-                "/idp/version",
-                "/management/openapi.json",
-                "/storage/openapi.json",
-            ] {
-                let response = router
-                    .clone()
-                    .oneshot(
-                        Request::get(path)
-                            .body(Body::empty())
-                            .expect("metadata request"),
-                    )
-                    .await
-                    .expect("metadata response");
-                assert_eq!(response.status(), StatusCode::OK);
-            }
-            for path in ["/idp/nonexistent", "/storage/"] {
-                let response = router
-                    .clone()
-                    .oneshot(
-                        Request::get(path)
-                            .body(Body::empty())
-                            .expect("unknown request"),
-                    )
-                    .await
-                    .expect("unknown response");
-                assert_eq!(response.status(), StatusCode::NOT_FOUND);
-            }
-        }
-        drop(worker);
-        std::fs::remove_dir_all(root).expect("isolated cleanup");
-    }
-
-    pub(crate) async fn status_tracks_revocation_in_existing_runtime(
-        runtime: crate::UnifiedRuntime,
-        local: crate::LocalProvisioner,
-        tls: &crate::LocalTls,
-        root: &std::path::Path,
-        role: idp_model::model::Id,
-    ) {
-        use axum::{
-            body::{Body, to_bytes},
-            http::Request,
-        };
-        use tower::ServiceExt;
-
-        async fn observe(
-            router: &axum::Router,
-            expected: StatusCode,
-            ready: bool,
-        ) -> serde_json::Value {
-            let response = router
-                .clone()
-                .oneshot(
-                    Request::builder()
-                        .uri("/idp/setup/status")
-                        .body(Body::empty())
-                        .expect("status request"),
-                )
-                .await
-                .expect("production status router");
-            assert_eq!(response.status(), expected);
-            let body: serde_json::Value = serde_json::from_slice(
-                &to_bytes(response.into_body(), 2048)
-                    .await
-                    .expect("status body"),
-            )
-            .expect("status JSON");
-            assert_eq!(body["ready"], ready);
-            if !ready {
-                assert!(
-                    body.get("login_client").is_none(),
-                    "unready status must not advertise login readiness"
-                );
-            }
-            body
-        }
-
-        let policy = runtime.full_node_test_management();
-        let service = management_service::ManagementService::new(
-            management_service::replica::DbPermissionRepo::new(policy.clone()),
-            management_service::replica::DbRoleRepo::new(policy),
-        );
-        let application = idp_model::contract::INSTALLATION_POLICY_ID;
-        let permission = service
-            .list_permissions(application, 0, 128)
-            .await
-            .expect("real public permission inventory")
-            .into_iter()
-            .find(|permission| {
-                permission.name == idp_model::contract::IdentityAction::IdpSecuritySync.permission()
-            })
-            .expect("required IdP context grant")
-            .id;
-        let mut host =
-            crate::BootstrapConfig::create(root, crate::BootstrapPurpose::AwaitingChoice, None)
-                .expect("isolated status host metadata");
-        host.begin_setup().expect("host setup history");
-        let admission = Arc::new(
-            SetupAdmission::open(&root.join("setup-admission")).expect("protected admission"),
-        );
-        let retained =
-            fs::read_to_string(root.join("setup-admission/state")).expect("protected retrieval");
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "Authorization",
-            format!("Setup {}", retained.lines().nth(1).expect("code"))
-                .parse()
-                .expect("setup header"),
-        );
-        let intent = CreateIntent {
-            operation_nonce: "0123456789abcdef0123456789abcdef".into(),
-            administrator: "operator".into(),
-            node: "HTTPS source".into(),
-        }
-        .canonical()
-        .expect("completed result intent");
-        admission
-            .bind(&headers, &intent)
-            .expect("retained exact setup result");
-        admission
-            .retire(&headers, &intent)
-            .expect("retired setup admission");
-        let mut coordinator =
-            super::CreateHost::new(host, tls.clone(), admission, CancellationToken::new());
-        let router = coordinator.router().expect("production setup router");
-        coordinator
-            .publish(runtime)
-            .await
-            .expect("publish only currently ready real owners");
-        local.mark_complete().expect("real source owner completion");
-        coordinator.local = Some(local);
-        *coordinator.shared.view.write().await = coordinator
-            .ready_result()
-            .expect("verified public login result");
-        let completed = observe(&router, StatusCode::OK, true).await;
-
-        service
-            .remove_permission_from_role(application, role, permission)
-            .await
-            .expect("learn local context-grant revocation through owner facade");
-        observe(&router, StatusCode::SERVICE_UNAVAILABLE, false).await;
-        let normal = router
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/management/replication/devices/untrusted/selections")
-                    .body(Body::empty())
-                    .expect("normal protected request"),
-            )
-            .await
-            .expect("normal owner router");
-        assert_eq!(
-            normal.status(),
-            StatusCode::UNAUTHORIZED,
-            "readiness failure is not a blanket route gate"
-        );
-        service
-            .add_permission_to_role(application, role, permission)
-            .await
-            .expect("authorized local grant restoration");
-        let restored = observe(&router, StatusCode::OK, true).await;
-        assert_eq!(
-            restored["login_client"], completed["login_client"],
-            "status recomputes readiness without replacing the completed identity"
-        );
-        coordinator
-            .unpublish()
-            .await
-            .expect("coordinated real owner cleanup");
-        observe(&router, StatusCode::SERVICE_UNAVAILABLE, false).await;
-        drop(router);
-        drop(coordinator);
-        fs::remove_dir_all(root).expect("isolated status metadata cleanup");
-    }
-
     #[tokio::test]
     async fn cancellation_and_retirement_have_one_winner_and_finalizing_rejects_submissions() {
         let root = std::env::temp_dir().join(format!(
             "setup-finalization-{}",
             idp_model::model::Id::now_v7()
         ));
-        crate::local_provisioning::create_private_directory(&root, false)
-            .expect("isolated private parent");
+        api::setup_files::create_private_directory(&root, false).expect("isolated private parent");
         let admission =
             Arc::new(SetupAdmission::open(&root.join("admission")).expect("protected admission"));
         let retained =
@@ -1967,8 +1482,4 @@ pub(crate) mod tests {
         drop(shared);
         fs::remove_dir_all(root).expect("isolated cleanup");
     }
-}
-
-pub fn setup_openapi() -> utoipa::openapi::OpenApi {
-    CreateDoc::openapi()
 }

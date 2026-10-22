@@ -36,7 +36,7 @@ mod independent_setup;
 mod independent_setup_tests;
 mod local_tls;
 mod openapi;
-mod setup_files;
+pub mod setup_files;
 #[cfg(unix)]
 mod setup_install;
 #[cfg(all(test, target_os = "linux"))]

@@ -9,11 +9,9 @@ use api::serve_listener;
 use axum::Router;
 use db::Database;
 use idp_model::model::Id;
-use idp_server::{
-    IdpRuntime, NodeJoinApproval, OwnerProvisioner, build_runtime as build_idp_runtime,
-};
+use idp_server::{IdpRuntime, OwnerProvisioner, build_runtime as build_idp_runtime};
 use iroh::protocol::Router as IrohRouter;
-use management_service::{HostedControlPlane, LocalPermissions};
+use management_service::{HostedControlPlane, LocalPermissions, hosted_join::NodeJoinApproval};
 use storage_server::{
     DeviceReplicationPolicy, IdpClient, LocalReplicationAuthorizer,
     RouterState as StorageRouterState, StorageRuntime, build_runtime as build_storage_runtime,
@@ -191,7 +189,7 @@ pub struct UnifiedRuntime {
     peer_changes: ofdb_sql::ChangeSubscription,
     security_protocol: SecurityProtocol,
     owner: Arc<OwnerProvisioner>,
-    node_joins: Arc<crate::node_join_source::NodeJoinSource>,
+    node_joins: Arc<management_server::NodeJoinSource>,
     join_processing: Option<JoinHandle<io::Result<()>>>,
     _managed_copies: Arc<OnceLock<storage_server::StorageCopyRetirement>>,
     #[cfg(test)]
@@ -317,16 +315,6 @@ impl UnifiedRuntime {
 
                 let mut management_config = config.management;
                 management_config.server.prefix = Some(MANAGEMENT_PREFIX.to_owned());
-                let management_router = management_server::build_router(
-                    Arc::clone(&management_engine),
-                    &management_config.api_public_uri,
-                    MANAGEMENT_PREFIX,
-                    &management_config.storage_audience,
-                    Arc::clone(&management_control_plane),
-                )
-                .await
-                .map_err(io::Error::other)?;
-
                 let mut storage_config = config.storage;
                 storage_config.server.prefix = Some(STORAGE_PREFIX.to_owned());
                 let copies = Arc::new(OnceLock::new());
@@ -381,22 +369,44 @@ impl UnifiedRuntime {
                         "Storage replication handler is unavailable in unified mode",
                     ));
                 }
-                let node_joins = Arc::new(crate::node_join_source::NodeJoinSource::new(
-                    endpoint.clone(),
+                let readiness = {
+                    let security = security_protocol.clone();
+                    let owner = owner.clone();
+                    Arc::new(
+                        move || -> management_service::hosted_join::JoinFuture<'static, bool> {
+                            let security = security.clone();
+                            let owner = owner.clone();
+                            Box::pin(async move {
+                                security.local_node_public_ready(owner.as_ref()).await
+                            })
+                        },
+                    )
+                };
+                let node_joins = Arc::new(management_server::NodeJoinSource::new(
+                    server.clone(),
                     idp_runtime.clone(),
                     management_control_plane.clone(),
-                    owner.clone(),
-                    security_protocol.clone(),
+                    readiness,
                     management_engine.clone(),
                     idp_config.oauth2.issuer.clone(),
                     cancellation_token.clone(),
                 ));
+                let management_router = management_server::build_router(
+                    Arc::clone(&management_engine),
+                    &management_config.api_public_uri,
+                    MANAGEMENT_PREFIX,
+                    &management_config.storage_audience,
+                    Arc::clone(&management_control_plane),
+                    Some(node_joins.clone()),
+                )
+                .await
+                .map_err(io::Error::other)?;
+
                 let router = compose_router(
                     idp_runtime.router(),
                     management_router,
                     storage_runtime.router(),
                 )
-                .merge(node_joins.router())
                 .layer(CorsLayer::very_permissive().allow_private_network(true))
                 .layer(TraceLayer::new_for_http())
                 .layer(CompressionLayer::new().gzip(idp_config.server.gzip));
@@ -594,7 +604,7 @@ impl UnifiedRuntime {
     }
 
     #[cfg(test)]
-    pub(crate) fn node_join_source_for_test(&self) -> Arc<crate::node_join_source::NodeJoinSource> {
+    pub(crate) fn node_join_source_for_test(&self) -> Arc<management_server::NodeJoinSource> {
         self.node_joins.clone()
     }
 

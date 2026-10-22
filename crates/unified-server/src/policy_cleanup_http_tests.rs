@@ -215,6 +215,7 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
             "",
             "storage-service",
             control.clone(),
+            None,
         )
         .await
         .expect("Management routes"),

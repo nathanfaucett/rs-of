@@ -363,7 +363,7 @@ pub(super) async fn normal_use(
 #[ignore = "parent supplies isolated native roots, mock trust command and mock secure provider"]
 async fn independent_create_child() {
     let root = PathBuf::from(std::env::var_os("OF_INDEPENDENT_CREATE_ROOT").expect("parent roots"));
-    crate::api_create_tests::capture_setup_timings();
+    crate::hosted_setup_integration_tests::capture_setup_timings();
     let reset_provider = crate::independent_reset_tests::Provider::install();
     let fail_node_readback = reset_provider.fail_node_readback.clone();
     let addresses: Vec<SocketAddr> =

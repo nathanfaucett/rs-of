@@ -56,7 +56,7 @@ pub(super) async fn from_source(
             .expect("initial role")
             .parse()
             .expect("role ID");
-        crate::api_create::tests::status_tracks_revocation_in_existing_runtime(
+        crate::setup_runtime_tests::status_tracks_revocation_in_existing_runtime(
             runtime,
             local,
             tls,
@@ -213,7 +213,7 @@ pub(super) async fn run(
     let expected_issuer = fixture.config.idp.oauth2.issuer.clone();
     let address = fixture.config.listen_addr;
     let base = format!("https://{address}");
-    let mut config = crate::api_create_tests::fixture_config(&fixture.root, address);
+    let mut config = crate::hosted_setup_integration_tests::fixture_config(&fixture.root, address);
     config.idp.key_namespace = fixture.config.idp.key_namespace.clone();
     config.idp.oauth2.issuer = expected_issuer.clone();
     config.idp.service_audience = Some(config.idp.api_public_uri.clone());

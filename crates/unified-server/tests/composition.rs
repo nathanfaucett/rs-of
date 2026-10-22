@@ -67,3 +67,86 @@ async fn composition_exposes_only_routes_supplied_by_the_three_services() {
     )
     .await;
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn owner_service_builders_supply_hosted_features_to_composition() {
+    use std::sync::Arc;
+
+    let root = std::env::temp_dir().join(format!(
+        "service-composition-{}",
+        idp_model::model::Id::now_v7()
+    ));
+    api::setup_files::create_private_directory(&root, false).expect("private setup fixture");
+    let admission =
+        Arc::new(api::SetupAdmission::open(&root.join("admission")).expect("protected admission"));
+    let (setup, _commands) = idp_server::HostedSetupControl::new(
+        admission,
+        "awaiting_choice",
+        vec![],
+        tokio_util::sync::CancellationToken::new(),
+    );
+    let management = Arc::new(db::Database::in_memory());
+    management_service::replica::up(&management)
+        .await
+        .expect("Management schema");
+    let control = Arc::new(
+        management_service::HostedControlPlane::new_with_services(
+            "https://idp.example",
+            "https://storage.example",
+            "https://installation.example",
+        )
+        .expect("owner interfaces"),
+    );
+    let router = compose_router(
+        idp_server::build_setup_router(setup, "https://idp.example/idp", "/idp"),
+        management_server::build_router(
+            management,
+            "https://management.example",
+            "/management",
+            "storage",
+            control,
+            None,
+        )
+        .await
+        .expect("Management router"),
+        storage_server::public_metadata_router("https://storage.example/storage", "/storage"),
+    );
+    for path in [
+        "/idp/version",
+        "/management/health",
+        "/storage/version",
+        "/idp/setup/status",
+    ] {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::get(path)
+                    .body(Body::empty())
+                    .expect("owner request"),
+            )
+            .await
+            .expect("composed owner response");
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+    }
+    let response = router
+        .clone()
+        .oneshot(
+            Request::get("/management/node-joins/acceptance")
+                .body(Body::empty())
+                .expect("join request"),
+        )
+        .await
+        .expect("composed Management route");
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    for path in [
+        "/idp/nonexistent",
+        "/management/nonexistent",
+        "/storage/nonexistent",
+        "/idp/idp/setup/status",
+    ] {
+        assert_response(&router, path, StatusCode::NOT_FOUND, "").await;
+    }
+    drop(router);
+    std::fs::remove_dir_all(root).expect("isolated cleanup");
+}

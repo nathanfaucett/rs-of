@@ -31,7 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     merge(
         documents.get_mut("idp").expect("IdP"),
-        unified_server::setup_openapi(),
+        idp_server::setup_openapi(),
         "setup",
         Some("/idp"),
     );
@@ -40,12 +40,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         idp_server::independent_join_openapi(),
         "independent_join",
         None,
-    );
-    merge(
-        documents.get_mut("management").expect("Management"),
-        unified_server::node_join_openapi(),
-        "node_join",
-        Some("/management"),
     );
     merge(
         documents.get_mut("management").expect("Management"),

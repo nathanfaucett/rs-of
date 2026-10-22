@@ -68,3 +68,8 @@ pub mod join_history;
 pub mod security_candidates;
 mod security_sync;
 pub use security_sync::{PUBLIC_POLICY_TABLES, permits_policy_table, public_policy_columns};
+
+#[cfg(feature = "std")]
+pub mod hosted_join;
+#[cfg(feature = "replica")]
+pub mod issuer_discovery;

@@ -528,7 +528,7 @@ async fn use_joined(
 #[ignore = "parent isolates native roots and secure provider"]
 async fn independent_join_child() {
     let root = PathBuf::from(std::env::var_os("OF_INDEPENDENT_JOIN_ROOT").expect("fixture roots"));
-    crate::api_create_tests::capture_setup_timings();
+    crate::hosted_setup_integration_tests::capture_setup_timings();
     let reset_provider = crate::independent_reset_tests::Provider::install();
     let addresses: Vec<SocketAddr> =
         serde_json::from_slice(&fs::read(root.join("addresses.json")).expect("addresses"))
