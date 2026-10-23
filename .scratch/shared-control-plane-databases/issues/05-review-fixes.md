@@ -51,14 +51,14 @@ git --no-pager diff --check
 
 All passed. IdP public projection tests: **5 passed**. Test compilation and execution were bounded separately. Final executable was `/home/nathan/code/rust/aicacia/of/target/debug/deps/unified_server-3151668e4144c159`, with `RUST_MIN_STACK=67108864` for each invocation:
 
-| Filter (use `--exact` except the outbound module) | Result |
-| --- | --- |
-| `owner_composition_tests::create::production_independent_create_and_offline_reopen` | pass, **102.18s** final |
-| `owner_composition_tests::join::production_independent_join_and_source_offline_reopen` | pass, **73.31s** final |
-| `owner_composition_tests::remote_setup::remote_create_join_reopen_and_device_reset_preserve_shared_installation` | pass, **55.13s** final |
-| `security_sync::outbound_tests --test-threads=1` | **5 passed**, **147.23s** final |
-| `node_join_bootstrap_tests::owner_cutover_node_bootstrap_reopens_offline` | pass, **84.35s** |
-| `security_sync_tests::authenticated_equal_peers_exchange_scoped_history_without_local_verifiers` | pass, **102.46s** |
+| Filter (use `--exact` except the outbound module)                                                                | Result                          |
+| ---------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `owner_composition_tests::create::production_independent_create_and_offline_reopen`                              | pass, **102.18s** final         |
+| `owner_composition_tests::join::production_independent_join_and_source_offline_reopen`                           | pass, **73.31s** final          |
+| `owner_composition_tests::remote_setup::remote_create_join_reopen_and_device_reset_preserve_shared_installation` | pass, **55.13s** final          |
+| `security_sync::outbound_tests --test-threads=1`                                                                 | **5 passed**, **147.23s** final |
+| `node_join_bootstrap_tests::owner_cutover_node_bootstrap_reopens_offline`                                        | pass, **84.35s**                |
+| `security_sync_tests::authenticated_equal_peers_exchange_scoped_history_without_local_verifiers`                 | pass, **102.46s**               |
 
 Required broad validation was attempted after implementation:
 
@@ -87,3 +87,55 @@ git --no-pager rev-parse integration/shared-control-plane-databases
 ```
 
 Observed **Already up to date**, clean `implement/shared-control-plane-review`; integration is still **`6f9a4cf2abe7ef161fab5b7c813722d24121636c`**, an ancestor. This documentation-only follow-up records that evidence. The merge will be repeated after this handoff commit; no original-checkout merge is performed. The merger should integrate the review branch, which contains both commits. Original untracked review/notes and sibling repositories remain untouched.
+
+### Follow-up investigation at merged tip `76e8b9aac`
+
+Called `tdd`; the user authorized the existing independent HTTPS Join/Storage/source-offline-reopen and bootstrap interruption seams. Used this same review worktree/branch, serial Cargo runs and the shared target. Risk/complexity: low, tests/qualification only; production authorization, current-state rechecks, admission, socket lifecycle and deadlines are unchanged.
+
+**Storage timeout isolation.** Ordinary diagnostic runs completed the fresh and reopened catalog requests in 4.50–4.68s, uncomfortably close to `LocalTls::verification_client`'s five-second total request deadline. Pinning the test to CPU 0 alongside a bounded 50%-duty CPU competitor reproduced the reported `/storage/databases` `TimedOut` at **5,001ms**, after successful IdP administration, service-token issuance/introspection and the first current Device-policy check. With only this test request's budget set to 15s, the identical contention experiment returned **HTTP 200 in 6,192/6,182ms**, and a second run returned **6,173/6,220ms** (fresh/offline reopened). Thus the former deadline cuts off a progressing multi-owner request; this is not evidence of a stuck socket, worker-pool exhaustion, reentrancy cycle, or authorization rejection. No production fix for those hypotheses is justified by these observations. No request retries or authorization bypass were added.
+
+**Precise preexisting path, not a claimed base executable pass.** Compared with actual pre-feature `016807be8`:
+
+- `crates/api/src/local_tls.rs` (the 5s total deadline) and `crates/storage-server/src/router/resources.rs` (initial authorization plus `authorize_response` before returning the catalog) are byte-for-byte unchanged.
+- Production `storage-server/src/idp_client.rs` is unchanged; its diff is a test-only import rename. Introspection concurrently queries IdP identity and current local Device ownership, twice for a catalog response.
+- `storage-server/src/local_replication_authorizer.rs` differs only by the Management → Device import. The local cleanup fence, current selections lookup and owner checks are retained.
+- Former `storage-server/src/management_client.rs` → `device_client.rs` retains the service-token/selections HTTP flow and 10s downstream deadlines; production differences are names/imports/route ownership/error wording.
+- Former `management-server/src/router/routes/replication.rs` → `device-server/.../replication.rs` retains `selected_resources` and `authorize_storage` unchanged except imports. Former `management-service/src/hosted_control_plane.rs` → `device-service/.../hosted_control_plane.rs` differs only in three unavailable-owner error strings: current actor introspection, approved endpoint lookup and active-User HTTP recheck are unchanged.
+
+These catalog/authority paths do not evaluate identity permissions through the new Unix SQL socket. The measured inherited multi-hop path and five-second test budget explain the reproduced cutoff; this is a test-budget correction, **not a latency optimization or end-to-end SLA**. The previous implementer's pass does not invalidate the merger/reviewer's failures. A base lifecycle executable was not run: pre-fix local Join has the already reviewed setup/policy defects. Initial shared-target builds here additionally failed earlier with source-approval 403; recompiling IdP/Device while instrumenting them removed that symptom. Stale cross-worktree artifacts are suspected for that earlier failure, not established as the cause of the reported Storage timeout. Temporary production diagnostics were removed; the test logger now exposes warnings/errors, and catalog timings/status remain visible without tokens/secrets.
+
+**Bootstrap assertions only.** The receipt-only DATA denial now applies only before the full driver has completed imports; the completed branch positively verifies public readiness. At `IdpImported`, the durable test positively checks the retained private signer and non-readiness and requires exact Device trust to remain absent; later checkpoints still require exact approved Device trust. No production admission/readiness checks were loosened. All four durable checkpoints now execute, rather than stopping at the first stale assertion.
+
+Final focused results (the same rebuilt executable, explicit 64 MiB stacks):
+
+| Test                                                                                 | Result                                                                                    |
+| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| independent Join/source-offline reopen, normal ×3                                    | pass, 71.15s / 71.83s / 72.24s; six catalog responses 4.38–4.62s                          |
+| same test, controlled CPU contention ×2                                              | pass, 101.92s / 101.27s; four catalog responses 6.17–6.22s                                |
+| `bootstrap_current_boundaries_preserve_admitted_import_and_native_retry`             | pass, 51.41s                                                                              |
+| `desktop_bootstrap_orchestration_completes_both_public_contexts_and_retries_offline` | pass, 70.34s                                                                              |
+| `production_durable_transitions_preserve_imports_and_verified_readiness_on_reopen`   | pass, 87.19s; IdpImported → ManagementImported → ReadinessVerified → PublicReadyPublished |
+| `node_join_bootstrap_tests::owner_cutover_node_bootstrap_reopens_offline`            | pass, 71.30s                                                                              |
+
+Exact working commands, run from `/home/nathan/code/rust/aicacia/of/.scratch/shared-control-plane-databases/worktrees/review` (no concurrent Cargo tests):
+
+```sh
+cargo fmt --all -- --check
+env CARGO_TARGET_DIR=/home/nathan/code/rust/aicacia/of/target CARGO_INCREMENTAL=0 RUST_MIN_STACK=67108864 cargo test -p unified-server --no-default-features --lib --no-run --message-format short
+env CARGO_TARGET_DIR=/home/nathan/code/rust/aicacia/of/target CARGO_INCREMENTAL=0 RUST_MIN_STACK=67108864 cargo clippy -p unified-server --no-default-features --lib --no-deps -- -D warnings
+# Repeat this exact Join invocation three times, serially:
+timeout 200s env RUST_MIN_STACK=67108864 /home/nathan/code/rust/aicacia/of/target/debug/deps/unified_server-3151668e4144c159 owner_composition_tests::join::production_independent_join_and_source_offline_reopen --exact --nocapture
+# Controlled contention: run twice; wait also bounds/reaps the CPU competitor.
+timeout 170s taskset -c 0 python3 -c 'import time; end=time.monotonic()+165; exec("while time.monotonic()<end:\n stop=time.monotonic()+0.01\n while time.monotonic()<stop: pass\n time.sleep(0.01)")' >/tmp/of-review-cpu-load.log 2>&1 &
+timeout 200s taskset -c 0 env RUST_MIN_STACK=67108864 /home/nathan/code/rust/aicacia/of/target/debug/deps/unified_server-3151668e4144c159 owner_composition_tests::join::production_independent_join_and_source_offline_reopen --exact --nocapture
+wait
+timeout 360s env RUST_MIN_STACK=67108864 /home/nathan/code/rust/aicacia/of/target/debug/deps/unified_server-3151668e4144c159 security_sync::bootstrap::interruption_tests::bootstrap_current_boundaries_preserve_admitted_import_and_native_retry --exact --nocapture
+timeout 360s env RUST_MIN_STACK=67108864 /home/nathan/code/rust/aicacia/of/target/debug/deps/unified_server-3151668e4144c159 security_sync::bootstrap::interruption_tests::desktop_bootstrap_orchestration_completes_both_public_contexts_and_retries_offline --exact --nocapture
+timeout 360s env RUST_MIN_STACK=67108864 /home/nathan/code/rust/aicacia/of/target/debug/deps/unified_server-3151668e4144c159 security_sync::bootstrap::interruption_tests::production_durable_transitions_preserve_imports_and_verified_readiness_on_reopen --exact --nocapture
+timeout 200s env RUST_MIN_STACK=67108864 /home/nathan/code/rust/aicacia/of/target/debug/deps/unified_server-3151668e4144c159 node_join_bootstrap_tests::owner_cutover_node_bootstrap_reopens_offline --exact --nocapture
+timeout 180s env CARGO_TARGET_DIR=/home/nathan/code/rust/aicacia/of/target CARGO_INCREMENTAL=0 RUST_MIN_STACK=67108864 cargo hack test --feature-powerset --workspace --all-targets
+timeout 180s env CARGO_TARGET_DIR=/home/nathan/code/rust/aicacia/of/target CARGO_INCREMENTAL=0 RUST_MIN_STACK=67108864 just crap
+git --no-pager diff --check
+```
+
+Compilation, formatting, strict library Clippy and whitespace passed. Final powerset again fails at CLI **17/177**, Clap requires `std` (101); CRAP again exits **124** during coverage compilation, no score. Existing deployment/provider/full-workspace limits remain. Only the existing regression fixture and its two interruption assertions changed; source/offline authorization and bootstrap are qualified at these seams, not all deployment/performance behavior. Handoff merges integration `76e8b9aac` into this branch after committing; the original integration checkout and all worktrees remain untouched.

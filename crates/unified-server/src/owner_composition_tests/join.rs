@@ -541,12 +541,19 @@ async fn use_joined(
         2,
         "only actual source and joining Management Devices"
     );
+    let started = Instant::now();
     let response = http
         .get(format!("{}/databases", intent.storage))
         .bearer_auth(storage)
+        .timeout(Duration::from_secs(15))
         .send()
-        .await
-        .expect("normal joined Storage");
+        .await;
+    eprintln!(
+        "Independent Join Storage elapsed_ms={} status={:?}",
+        started.elapsed().as_millis(),
+        response.as_ref().map(|response| response.status())
+    );
+    let response = response.expect("normal joined Storage within end-to-end request budget");
     assert_eq!(response.status(), StatusCode::OK);
     let catalog: serde_json::Value = response
         .json()

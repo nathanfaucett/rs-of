@@ -415,16 +415,24 @@ async fn interruption_boundary(
             provisioner.verify_node_signer(&binding).await.is_err(),
             "receipt is not local signer trust"
         );
+        diagnostic_stage(phase, "ordinary DATA admission denial");
+        assert!(
+            joining
+                .endpoint()
+                .connect(source.endpoint().addr(), DATA_ALPN)
+                .await
+                .is_err(),
+            "receipt/pairing cannot allow ordinary DATA"
+        );
+    } else {
+        assert!(
+            protocol
+                .node_join_public_ready(&provisioner)
+                .await
+                .expect("completed bootstrap readiness"),
+            "the complete driver imported both contexts before returning"
+        );
     }
-    diagnostic_stage(phase, "ordinary DATA admission denial");
-    assert!(
-        joining
-            .endpoint()
-            .connect(source.endpoint().addr(), DATA_ALPN)
-            .await
-            .is_err(),
-        "receipt/pairing cannot allow ordinary DATA"
-    );
     diagnostic_stage(phase, "approved bootstrap connection");
     let connection = joining
         .endpoint()
@@ -518,10 +526,17 @@ async fn interruption_boundary(
                     .expect("stable receipt and key reference"),
                 received
             );
-            protocol
-                .check_exact_join_trust(&received)
-                .await
-                .expect("actual imported trust survives without its journal");
+            if transition == Transition::IdpImported {
+                assert!(
+                    protocol.check_exact_join_trust(&received).await.is_err(),
+                    "identity import alone cannot establish approved Device trust"
+                );
+            } else {
+                protocol
+                    .check_exact_join_trust(&received)
+                    .await
+                    .expect("actual imported trust survives without its journal");
+            }
             assert_eq!(
                 provisioner
                     .verify_node_signer(&binding)

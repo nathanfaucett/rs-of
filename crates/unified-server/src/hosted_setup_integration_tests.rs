@@ -438,9 +438,10 @@ struct SetupTimingLog;
 
 impl log::Log for SetupTimingLog {
     fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
-        metadata.level() == log::Level::Info
-            && (metadata.target() == "unified_server::local_provisioning"
-                || metadata.target() == "idp_server::hosted_setup")
+        metadata.level() <= log::Level::Warn
+            || metadata.level() == log::Level::Info
+                && (metadata.target() == "unified_server::local_provisioning"
+                    || metadata.target() == "idp_server::hosted_setup")
             || metadata.level() == log::Level::Debug
                 && [
                     "idp_server::independent",
