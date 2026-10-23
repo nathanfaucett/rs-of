@@ -3,7 +3,7 @@ use iroh::{
     protocol::{AcceptError, ProtocolHandler},
 };
 
-pub const BOOTSTRAP_ALPN: &[u8] = b"idp-bootstrap/1";
+pub use device_service::security_protocol::BOOTSTRAP_ALPN;
 
 #[derive(Clone, Debug, Default)]
 pub struct BootstrapProtocolHandler;

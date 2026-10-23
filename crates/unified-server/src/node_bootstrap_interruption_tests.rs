@@ -21,12 +21,18 @@ use tokio_util::sync::CancellationToken;
 
 use crate::permission_http_tests::{seed_idp, seed_permissions, user_token};
 
-use super::{
-    BOOTSTRAP_STREAM_KIND, BootstrapRequest, PURPOSE, ReceiverTransport, SecurityContext,
-    SecurityProtocol,
-};
+const BOOTSTRAP_STREAM_KIND: u8 = 4;
+const PURPOSE: &str = "of.equal-node-public-bootstrap.v1";
+#[derive(serde::Deserialize, serde::Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+struct BootstrapRequest {
+    purpose: String,
+    context: SecurityContext,
+    approval: device_service::hosted_join::NodeJoinApproval,
+}
 use crate::security_sync_tests::sql;
-use ofdb_sql::{SyncDirection, SyncMessage, SyncTransport};
+use crate::{SecurityContext, SecurityProtocol};
+use ofdb_sql::{SyncMessage, SyncTransport};
 use storage_server::DatabaseTransport;
 
 #[tokio::test]
@@ -47,36 +53,6 @@ async fn desktop_bootstrap_orchestration_completes_both_public_contexts_and_retr
     )
     .await
     .expect("production orchestration, offline retry and learned-revocation denial complete");
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) enum Transition {
-    IdpImported,
-    ManagementImported,
-    ReadinessVerified,
-    PublicReadyPublished,
-}
-
-tokio::task_local! {
-    static INTERRUPT_AT: Cell<Option<Transition>>;
-}
-
-pub(super) fn interrupt(transition: Transition) -> io::Result<()> {
-    if INTERRUPT_AT
-        .try_with(|point| {
-            if point.get() == Some(transition) {
-                point.set(None);
-                true
-            } else {
-                false
-            }
-        })
-        .unwrap_or(false)
-    {
-        eprintln!("durable transition checkpoint reached: {transition:?}");
-        return Err(io::Error::other(format!("interrupted at {transition:?}")));
-    }
-    Ok(())
 }
 
 #[tokio::test]
@@ -462,30 +438,37 @@ async fn interruption_boundary(
                     }
                 },
             );
-            let error = INTERRUPT_AT
-                .scope(Cell::new(Some(transition)), async {
-                    match transition {
-                        Transition::IdpImported => protocol
-                            .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Idp)
+            let interrupted_owner = InterruptingOwner {
+                inner: &provisioner,
+                transition,
+            };
+            let error = async {
+                match transition {
+                    Transition::IdpImported => protocol
+                        .receive_node_bootstrap(
+                            &connection,
+                            &interrupted_owner,
+                            SecurityContext::Idp,
+                        )
+                        .await
+                        .map(|_| ()),
+                    Transition::ManagementImported => protocol
+                        .receive_node_bootstrap(
+                            &connection,
+                            &interrupted_owner,
+                            SecurityContext::Device,
+                        )
+                        .await
+                        .map(|_| ()),
+                    _ => {
+                        protocol
+                            .complete_node_join_public_bootstrap(&interrupted_owner)
                             .await
-                            .map(|_| ()),
-                        Transition::ManagementImported => protocol
-                            .receive_node_bootstrap(
-                                &connection,
-                                &provisioner,
-                                SecurityContext::Device,
-                            )
-                            .await
-                            .map(|_| ()),
-                        _ => {
-                            protocol
-                                .complete_node_join_public_bootstrap(&provisioner)
-                                .await
-                        }
                     }
-                })
-                .await
-                .expect_err("production transition reaches selected interruption");
+                }
+            }
+            .await
+            .expect_err("production transition reaches selected interruption");
             assert_eq!(error.to_string(), format!("interrupted at {transition:?}"));
             diagnostic_stage(phase, "transition native owner and policy reopen");
             drop(protocol);
@@ -764,19 +747,13 @@ async fn interruption_boundary(
         learned: false,
         application_frames_after_denial: 0,
     };
-    let mut receiver = ReceiverTransport {
-        inner: &mut gated,
-        protocol: &protocol,
-        connection: &connection,
-        owner: &provisioner,
-        approval: &received,
-    };
     let denied = protocol
-        .node_bootstrap_session(
+        .receive_bootstrap_history(
+            &connection,
+            &provisioner,
             &received,
             SecurityContext::Idp,
-            SyncDirection::ReceiveOnly,
-            &mut receiver,
+            &mut gated,
             || async {
                 protocol
                     .check_bootstrap_receiver(&connection, &provisioner, &received)
@@ -785,7 +762,6 @@ async fn interruption_boundary(
             },
         )
         .await;
-    drop(receiver);
     assert!(
         denied.is_err(),
         "learned source grant removal interrupts the existing stream"
@@ -835,30 +811,24 @@ async fn interruption_boundary(
     }
 
     let mut transport = begin(&protocol, &connection, &provisioner).await;
-    let mut receiver = ReceiverTransport {
-        inner: &mut transport,
-        protocol: &protocol,
-        connection: &connection,
-        owner: &provisioner,
-        approval: &received,
-    };
     let source_users = sql(&source_idp, "SELECT id FROM users ORDER BY id").await[0]
         .rows
         .clone();
     let calls = AtomicUsize::new(0);
     let interrupted = protocol
-        .node_bootstrap_session(
+        .receive_bootstrap_history(
+            &connection,
+            &provisioner,
             &received,
             SecurityContext::Idp,
-            SyncDirection::ReceiveOnly,
-            &mut receiver,
+            &mut transport,
             || async {
                 protocol
                     .check_bootstrap_receiver(&connection, &provisioner, &received)
                     .await
                     .map_err(|error| error.to_string())?;
                 if calls.fetch_add(1, Ordering::SeqCst) == 1 {
-                    protocol.cancellation.cancel();
+                    protocol.cancel();
                 }
                 Ok(())
             },
@@ -916,7 +886,6 @@ async fn interruption_boundary(
             .await
             .is_err()
     );
-    drop(receiver);
     drop(transport);
     drop(protocol);
     drop(provisioner);
@@ -1120,5 +1089,82 @@ impl SyncTransport for RevokeAfterHello<'_> {
             self.learned = true;
         }
         Ok(frame)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Transition {
+    IdpImported,
+    ManagementImported,
+    ReadinessVerified,
+    PublicReadyPublished,
+}
+
+struct InterruptingOwner<'a> {
+    inner: &'a OwnerProvisioner,
+    transition: Transition,
+}
+impl device_service::node_join_owner::NodeJoinOwner for InterruptingOwner<'_> {
+    fn node_join_database(&self) -> io::Result<Arc<Database>> {
+        self.inner.node_join_database()
+    }
+    fn prepare_node_join(
+        &self,
+        binding: &NodeSignerBinding,
+        name: &str,
+        peer: iroh::EndpointId,
+    ) -> io::Result<device_service::hosted_join::NodeJoinRequest> {
+        self.inner.prepare_node_join(binding, name, peer)
+    }
+    fn record_node_join_approval(
+        &self,
+        approval: &device_service::hosted_join::NodeJoinApproval,
+    ) -> io::Result<()> {
+        self.inner.record_node_join_approval(approval)
+    }
+    fn node_join_request(
+        &self,
+    ) -> io::Result<Option<device_service::hosted_join::NodeJoinRequest>> {
+        self.inner.node_join_request()
+    }
+    fn node_join_approval(
+        &self,
+    ) -> io::Result<Option<device_service::hosted_join::NodeJoinApproval>> {
+        self.inner.node_join_approval()
+    }
+    fn node_join_anchor(&self) -> io::Result<device_service::hosted_join::NodeJoinApproval> {
+        self.inner.node_join_anchor()
+    }
+    fn node_join_stage_recorded(&self, stage: NodeJoinStage) -> io::Result<bool> {
+        self.inner.node_join_stage_recorded(stage)
+    }
+    fn record_node_join_stage(&self, stage: NodeJoinStage) -> io::Result<()> {
+        let interrupt = matches!(
+            (self.transition, stage),
+            (Transition::IdpImported, NodeJoinStage::Idp)
+                | (Transition::ManagementImported, NodeJoinStage::Management)
+                | (Transition::ReadinessVerified, NodeJoinStage::PublicReady)
+                | (Transition::PublicReadyPublished, NodeJoinStage::PublicReady)
+        );
+        if !interrupt || self.transition == Transition::PublicReadyPublished {
+            self.inner.record_node_join_stage(stage)?;
+        }
+        if interrupt {
+            Err(io::Error::other(format!(
+                "interrupted at {:?}",
+                self.transition
+            )))
+        } else {
+            Ok(())
+        }
+    }
+    async fn check_node_join_local_binding(&self) -> io::Result<()> {
+        self.inner.check_node_join_local_binding().await
+    }
+    async fn verify_node_signer(
+        &self,
+        binding: &NodeSignerBinding,
+    ) -> io::Result<idp_model::contract::JwkPublic> {
+        self.inner.verify_node_signer(binding).await
     }
 }

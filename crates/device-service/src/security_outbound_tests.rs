@@ -1,6 +1,7 @@
 use std::{io, path::PathBuf, sync::Arc, time::Duration};
 
 use db::Database;
+use db::DatabaseTransport;
 use idp_model::{contract::IdentityAction, model::Id};
 use idp_service::oauth2::NodeSignerBinding;
 use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets};
@@ -9,14 +10,13 @@ use management_service::ManagementService;
 use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
 use ofdb_sql::{SessionConfig, SyncMessage, SyncRole, SyncTransport};
-use storage_server::DatabaseTransport;
 use tokio_util::sync::CancellationToken;
 
+use super::test_fixtures::{enroll, sql};
 use super::{
     AuthorizedSecurityTransport, Handshake, Response, SECURITY_STREAM_KIND, SecurityContext,
     SecurityProtocol,
 };
-use crate::security_sync_tests::{enroll, sql};
 
 const INSTALLATION: &str = "https://installation.example";
 
@@ -67,7 +67,7 @@ impl Fixture {
             let management = Arc::new(
                 Database::open(root.join("source-management.redb")).expect("native Management"),
             );
-            device_service::replica::up(&management)
+            crate::replica::up(&management)
                 .await
                 .expect("Management schema");
             for (member, key, endpoint) in [
@@ -353,7 +353,7 @@ async fn peer_exchange(
             let database = match context {
                 SecurityContext::Idp => &fixture.peer_idp,
                 SecurityContext::Device
-                    if name == device_service::security_policy::SecurityHistory::IdentityPolicy =>
+                    if name == crate::security_policy::SecurityHistory::IdentityPolicy =>
                 {
                     &fixture.peer_idp
                 }

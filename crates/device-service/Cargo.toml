@@ -17,6 +17,7 @@ default = []
 utoipa = ["std", "dep:utoipa", "idp-model/utoipa"]
 
 replica = [
+    "dep:log",
     "dep:management-service",
     "management-service/replica",
     "dep:of-idp-client",
@@ -62,6 +63,7 @@ of-device-client = { path = "../device-client", default-features = false, option
 of-storage-client = { path = "../storage-client", default-features = false, optional = true }
 api = { path = "../api", default-features = false, optional = true }
 db = { package = "idp-db", path = "../db", default-features = false, features = [
+    "network",
 ], optional = true }
 idp-model = { path = "../idp-model", default-features = false, features = [] }
 idp-service = { path = "../idp-service", default-features = false, features = [
@@ -73,6 +75,9 @@ model = { path = "../model", default-features = false, features = [] }
 storage-model = { path = "../storage-model", default-features = false, features = [
 ] }
 uuid = { version = "1.23", default-features = false, features = ["v5"] }
+
+# Protocol diagnostics
+log = { version = "0.4", default-features = false, features = ["std"], optional = true }
 
 # Error Handling
 thiserror = { version = "2.0", default-features = false, features = [] }
@@ -124,6 +129,8 @@ tokio = { version = "1.52", default-features = false, features = [
     "macros",
     "net",
     "sync",
+    "rt-multi-thread",
+    "time",
 ], optional = true }
 tokio-tungstenite = { version = "0.29", default-features = false, features = [
     "connect",
@@ -143,3 +150,7 @@ tokio = { version = "1.4", default-features = false, features = [
     "macros",
     "rt",
 ] }
+
+
+# Security wire assertions
+postcard = { version = "1.1", default-features = false, features = ["alloc"] }

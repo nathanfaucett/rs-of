@@ -69,3 +69,6 @@ mod owner_composition_tests;
 
 #[cfg(test)]
 mod device_authority_tests;
+
+#[cfg(test)]
+mod node_bootstrap_interruption_tests;

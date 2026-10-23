@@ -12,3 +12,8 @@ pub use ofdb_sql::{
     QueryUpdate, QueryUpdateAssignment, Row, SqlTranslator, Statement, Transaction, Uuid, Value,
     ValueType, decode, value,
 };
+
+#[cfg(feature = "network")]
+mod database_transport;
+#[cfg(feature = "network")]
+pub use database_transport::DatabaseTransport;

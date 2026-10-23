@@ -25,6 +25,8 @@ completions = ["cli?/completions"]
 swagger-ui = ["utoipa-swagger-ui"]
 
 [dependencies]
+# Shared SQL stream framing
+idp-db = { path = "../db", default-features = false, features = ["network"] }
 device-service = { path = "../device-service", default-features = false, features = ["replica", "std", "utoipa"] }
 # CLI
 dotenvy = { version = "0.15", default-features = false, features = [

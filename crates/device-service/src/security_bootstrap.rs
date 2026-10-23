@@ -1,19 +1,15 @@
-use std::{future::Future, io, path::Path, sync::Arc};
+use std::{future::Future, io, pin::Pin, sync::Arc};
 
-use device_service::DeviceRepo;
-use device_service::hosted_join::NodeJoinApproval;
-use device_service::replica::DbDeviceRepo;
-use device_service::security_candidates::{JoinCandidate, PeerBinding};
+use db::DatabaseTransport;
 use idp_model::{
     contract::{IdpSignerRecord, ReplicaMembership},
     model::Id,
 };
-use idp_server::{NodeJoinStage, OwnerProvisioner};
 use idp_service::{
     PasswordConfig,
     oauth2::NodeSignerBinding,
     replica::{DbReplicaSignerRepo, DbUserRepo},
-    repo::{PrivateKeyRepo, UserRepo},
+    repo::UserRepo,
 };
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use ofdb_sql::{
@@ -21,17 +17,18 @@ use ofdb_sql::{
     SyncValidationDirection,
 };
 use serde::{Deserialize, Serialize};
-use storage_server::DatabaseTransport;
 
-use idp_server::local_provisioning::provisioning_stage;
+use crate::DeviceRepo;
+use crate::hosted_join::NodeJoinApproval;
+use crate::node_join_owner::{NodeJoinOwner, NodeJoinStage};
+use crate::replica::DbDeviceRepo;
+use crate::security_candidates::{JoinCandidate, PeerBinding};
 
 use super::{SecurityContext, SecurityProtocol, denied, now};
 
-#[cfg(test)]
-#[path = "node_bootstrap_interruption_tests.rs"]
-mod interruption_tests;
+pub const BOOTSTRAP_ALPN: &[u8] = b"idp-bootstrap/1";
 
-pub(super) const BOOTSTRAP_STREAM_KIND: u8 = 4;
+const BOOTSTRAP_STREAM_KIND: u8 = 4;
 const PURPOSE: &str = "of.equal-node-public-bootstrap.v1";
 
 #[derive(Serialize, Deserialize, PartialEq)]
@@ -43,54 +40,10 @@ struct BootstrapRequest {
 }
 
 impl SecurityProtocol {
-    pub fn into_runtime_owners(
-        self,
-        endpoint: Arc<crate::UnifiedEndpoint>,
-    ) -> crate::runtime::RuntimeOwners {
-        crate::runtime::RuntimeOwners {
-            endpoint,
-            idp: self.idp,
-            devices: self.management,
-        }
-    }
-
-    pub async fn open_node_bootstrap(
-        endpoint: &crate::UnifiedEndpoint,
-        config: &idp_server::AppConfig,
-        management_directory: &Path,
-        binding: NodeSignerBinding,
-    ) -> io::Result<(Self, OwnerProvisioner)> {
-        if binding.endpoint_id != endpoint.endpoint_id().to_string() {
-            return Err(denied(
-                "bootstrap signer must bind the shared local endpoint",
-            ));
-        }
-        let owner = OwnerProvisioner::open(config).await?;
-        std::fs::create_dir_all(management_directory)?;
-        let management = Arc::new(
-            db::Database::open(management_directory.join("devices.redb"))
-                .map_err(io::Error::other)?,
-        );
-        device_service::replica::up(&management)
-            .await
-            .map_err(io::Error::other)?;
-        let protocol = Self::new(
-            endpoint.server().clone(),
-            owner.node_join_database()?,
-            management,
-            owner.node_join_database()?,
-            config.oauth2.issuer.clone(),
-            Some(binding),
-            management_directory.join("node-bootstrap-staging"),
-            tokio_util::sync::CancellationToken::new(),
-        );
-        Ok((protocol, owner))
-    }
-
     /// Drives only purpose-bound public bootstrap; the host must verify all local services separately.
     pub async fn join_from_trusted_peer(
         &self,
-        owner: &OwnerProvisioner,
+        owner: &impl NodeJoinOwner,
         name: &str,
         peer: &str,
     ) -> io::Result<NodeJoinApproval> {
@@ -105,7 +58,7 @@ impl SecurityProtocol {
             owner.record_node_join_approval(&approval)?;
         }
         let approval = owner.node_join_anchor()?;
-        provisioning_stage(|| self.check_join_local_binding(owner)).await?;
+        bootstrap_stage(|| self.check_join_local_binding(owner)).await?;
         if owner.node_join_stage_recorded(NodeJoinStage::Idp)? {
             self.check_join_identity(&approval).await?;
         }
@@ -119,16 +72,14 @@ impl SecurityProtocol {
         }
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
         loop {
-            provisioning_stage(|| self.check_join_local_binding(owner)).await?;
+            bootstrap_stage(|| self.check_join_local_binding(owner)).await?;
             if owner.node_join_anchor()? != approval {
                 return Err(denied("join anchor changed during admission refresh"));
             }
             let attempt = async {
                 let connection = tokio::time::timeout(
                     std::time::Duration::from_secs(10),
-                    self.server
-                        .endpoint()
-                        .connect(peer, idp_server::BOOTSTRAP_ALPN),
+                    self.server.endpoint().connect(peer, BOOTSTRAP_ALPN),
                 )
                 .await
                 .map_err(|_| {
@@ -141,7 +92,7 @@ impl SecurityProtocol {
                 let result = async {
                     for context in [SecurityContext::Idp, SecurityContext::Device] {
                         if !owner.node_join_stage_recorded(stage(context))? {
-                            provisioning_stage(|| {
+                            bootstrap_stage(|| {
                                 self.receive_node_bootstrap(&connection, owner, context)
                             })
                             .await
@@ -151,7 +102,7 @@ impl SecurityProtocol {
                             })?;
                         }
                     }
-                    provisioning_stage(|| self.complete_node_join_public_bootstrap(owner))
+                    bootstrap_stage(|| self.complete_node_join_public_bootstrap(owner))
                         .await
                         .inspect_err(|_error| {
                             #[cfg(test)]
@@ -184,10 +135,7 @@ impl SecurityProtocol {
         }
     }
 
-    async fn check_join_local_binding<P: PrivateKeyRepo + Send + Sync>(
-        &self,
-        owner: &OwnerProvisioner<P>,
-    ) -> io::Result<()> {
+    async fn check_join_local_binding(&self, owner: &impl NodeJoinOwner) -> io::Result<()> {
         owner.check_node_join_local_binding().await?;
         let approval = owner.node_join_anchor()?;
         DbDeviceRepo::new(self.management.clone().client())
@@ -241,16 +189,16 @@ impl SecurityProtocol {
         }
     }
 
-    pub async fn receive_node_bootstrap<P: PrivateKeyRepo + Send + Sync>(
+    pub async fn receive_node_bootstrap(
         &self,
         connection: &Connection,
-        owner: &OwnerProvisioner<P>,
+        owner: &impl NodeJoinOwner,
         context: SecurityContext,
     ) -> io::Result<SyncResult> {
         #[cfg(test)]
         let started = std::time::Instant::now();
         let approval = owner.node_join_anchor()?;
-        provisioning_stage(|| self.check_bootstrap_receiver(connection, owner, &approval)).await?;
+        bootstrap_stage(|| self.check_bootstrap_receiver(connection, owner, &approval)).await?;
         if context == SecurityContext::Device
             && !owner.node_join_stage_recorded(NodeJoinStage::Idp)?
         {
@@ -268,12 +216,12 @@ impl SecurityProtocol {
             approval: approval.clone(),
         };
         let (mut send, recv) = connection.open_bi().await.map_err(io::Error::other)?;
-        provisioning_stage(|| self.check_bootstrap_receiver(connection, owner, &approval)).await?;
+        bootstrap_stage(|| self.check_bootstrap_receiver(connection, owner, &approval)).await?;
         send.write_all(&[BOOTSTRAP_STREAM_KIND])
             .await
             .map_err(io::Error::other)?;
         let mut transport = DatabaseTransport::new(send, recv);
-        provisioning_stage(|| self.check_bootstrap_receiver(connection, owner, &approval)).await?;
+        bootstrap_stage(|| self.check_bootstrap_receiver(connection, owner, &approval)).await?;
         transport.send(serde_json::to_vec(&request)?).await?;
         let reply = tokio::time::timeout(std::time::Duration::from_secs(10), transport.receive())
             .await
@@ -287,43 +235,18 @@ impl SecurityProtocol {
         if accepted != request {
             return Err(denied("bootstrap context/anchor reply mismatch"));
         }
-        let mut transport = ReceiverTransport {
-            inner: &mut transport,
-            protocol: self,
-            connection,
-            owner,
-            approval: &approval,
-        };
-        let result = provisioning_stage(|| {
-            self.node_bootstrap_session(
+        let result = bootstrap_stage(|| {
+            self.receive_bootstrap_history(
+                connection,
+                owner,
                 &approval,
                 context,
-                SyncDirection::ReceiveOnly,
                 &mut transport,
-                || async {
-                    #[cfg(test)]
-                    let check_started = std::time::Instant::now();
-                    let result = provisioning_stage(|| {
-                        self.check_bootstrap_receiver(connection, owner, &approval)
-                    })
-                    .await
-                    .map_err(|_| "bootstrap receiver no longer authorized".into());
-                    #[cfg(test)]
-                    eprintln!(
-                        "bootstrap receiver stage=pre_apply context={context:?} elapsed_ms={}",
-                        check_started.elapsed().as_millis()
-                    );
-                    result
-                },
+                || async { Ok(()) },
             )
         })
         .await?;
-        provisioning_stage(|| self.check_bootstrap_receiver(connection, owner, &approval)).await?;
-        #[cfg(test)]
-        interruption_tests::interrupt(match context {
-            SecurityContext::Idp => interruption_tests::Transition::IdpImported,
-            SecurityContext::Device => interruption_tests::Transition::ManagementImported,
-        })?;
+        bootstrap_stage(|| self.check_bootstrap_receiver(connection, owner, &approval)).await?;
         #[cfg(test)]
         eprintln!(
             "bootstrap receiver stage=imported context={context:?} elapsed_ms={}",
@@ -373,7 +296,7 @@ impl SecurityProtocol {
             #[cfg(test)]
             last_send: std::time::Instant::now(),
         };
-        provisioning_stage(|| {
+        bootstrap_stage(|| {
             self.node_bootstrap_session(
                 &request.approval,
                 request.context,
@@ -403,7 +326,7 @@ impl SecurityProtocol {
         approval: &NodeJoinApproval,
         context: SecurityContext,
     ) -> io::Result<()> {
-        if connection.alpn() != idp_server::BOOTSTRAP_ALPN {
+        if connection.alpn() != BOOTSTRAP_ALPN {
             return Err(denied("bootstrap requires its purpose-specific ALPN"));
         }
         approval.verify(&approval.request).map_err(denied)?;
@@ -481,7 +404,7 @@ impl SecurityProtocol {
         Ok(trusted)
     }
 
-    async fn check_exact_join_trust(
+    pub async fn check_exact_join_trust(
         &self,
         approval: &NodeJoinApproval,
     ) -> io::Result<Vec<(ReplicaMembership, IdpSignerRecord)>> {
@@ -504,13 +427,13 @@ impl SecurityProtocol {
         Ok(trusted)
     }
 
-    async fn check_bootstrap_receiver<P: PrivateKeyRepo + Send + Sync>(
+    pub async fn check_bootstrap_receiver(
         &self,
         connection: &Connection,
-        owner: &OwnerProvisioner<P>,
+        owner: &impl NodeJoinOwner,
         approval: &NodeJoinApproval,
     ) -> io::Result<()> {
-        if connection.alpn() != idp_server::BOOTSTRAP_ALPN
+        if connection.alpn() != BOOTSTRAP_ALPN
             || self.cancellation.is_cancelled()
             || !Arc::ptr_eq(&self.idp, &owner.node_join_database()?)
             || owner.node_join_anchor()? != *approval
@@ -522,7 +445,7 @@ impl SecurityProtocol {
                 "bootstrap receiver requires persisted exact local anchor and pinned connection",
             ));
         }
-        provisioning_stage(|| self.check_join_local_binding(owner))
+        bootstrap_stage(|| self.check_join_local_binding(owner))
             .await
             .map_err(denied)?;
         if owner.node_join_stage_recorded(NodeJoinStage::Idp)? {
@@ -536,6 +459,55 @@ impl SecurityProtocol {
             return Err(denied("bootstrap is shutting down"));
         }
         Ok(())
+    }
+
+    /// Receives only public bootstrap history, checking current admission per send and apply.
+    /// The additional apply check can deny an admitted batch, never grant admission.
+    pub async fn receive_bootstrap_history<T, Q, U>(
+        &self,
+        connection: &Connection,
+        owner: &impl NodeJoinOwner,
+        approval: &NodeJoinApproval,
+        context: SecurityContext,
+        transport: &mut T,
+        mut check: Q,
+    ) -> io::Result<SyncResult>
+    where
+        T: SyncTransport<Error = io::Error>,
+        Q: FnMut() -> U + Send,
+        U: Future<Output = Result<(), String>> + Send,
+    {
+        self.check_bootstrap_receiver(connection, owner, approval)
+            .await?;
+        if context == SecurityContext::Device
+            && !owner.node_join_stage_recorded(NodeJoinStage::Idp)?
+        {
+            return Err(denied("Management bootstrap requires the IdP import first"));
+        }
+        self.validate_local_schema(context).await?;
+        let mut transport = ReceiverTransport {
+            inner: transport,
+            protocol: self,
+            connection,
+            owner,
+            approval,
+        };
+        self.node_bootstrap_session(
+            approval,
+            context,
+            SyncDirection::ReceiveOnly,
+            &mut transport,
+            || {
+                let additional = check();
+                async move {
+                    bootstrap_stage(|| self.check_bootstrap_receiver(connection, owner, approval))
+                        .await
+                        .map_err(|_| "bootstrap receiver no longer authorized".to_owned())?;
+                    additional.await
+                }
+            },
+        )
+        .await
     }
 
     async fn node_bootstrap_session<T, Q, U>(
@@ -615,9 +587,9 @@ impl SecurityProtocol {
         Ok(total)
     }
 
-    async fn verify_node_join_public_readiness<P: PrivateKeyRepo + Send + Sync>(
+    async fn verify_node_join_public_readiness(
         &self,
-        owner: &OwnerProvisioner<P>,
+        owner: &impl NodeJoinOwner,
     ) -> io::Result<()> {
         let approval = owner.node_join_anchor()?;
         if self.cancellation.is_cancelled()
@@ -629,7 +601,7 @@ impl SecurityProtocol {
         {
             return Err(denied("both durable public context imports are required"));
         }
-        provisioning_stage(|| self.check_join_local_binding(owner))
+        bootstrap_stage(|| self.check_join_local_binding(owner))
             .await
             .map_err(denied)?;
         self.check_exact_join_trust(&approval).await?;
@@ -648,7 +620,7 @@ impl SecurityProtocol {
         self.check_join_context_grants(&approval).await
     }
 
-    async fn check_join_context_grants(&self, approval: &NodeJoinApproval) -> io::Result<()> {
+    pub async fn check_join_context_grants(&self, approval: &NodeJoinApproval) -> io::Result<()> {
         self.check_public_context_grants(approval.owner_subject)
             .await
     }
@@ -661,23 +633,16 @@ impl SecurityProtocol {
     }
 
     /// Completes public IdP/Management bootstrap, not Storage readiness or resource authorization.
-    pub async fn complete_node_join_public_bootstrap<P: PrivateKeyRepo + Send + Sync>(
+    pub async fn complete_node_join_public_bootstrap(
         &self,
-        owner: &OwnerProvisioner<P>,
+        owner: &impl NodeJoinOwner,
     ) -> io::Result<()> {
         self.verify_node_join_public_readiness(owner).await?;
-        #[cfg(test)]
-        interruption_tests::interrupt(interruption_tests::Transition::ReadinessVerified)?;
         owner.record_node_join_stage(NodeJoinStage::PublicReady)?;
-        #[cfg(test)]
-        interruption_tests::interrupt(interruption_tests::Transition::PublicReadyPublished)?;
         Ok(())
     }
 
-    pub async fn local_node_public_ready<P: PrivateKeyRepo + Send + Sync>(
-        &self,
-        owner: &OwnerProvisioner<P>,
-    ) -> io::Result<bool> {
+    pub async fn local_node_public_ready(&self, owner: &impl NodeJoinOwner) -> io::Result<bool> {
         if owner.node_join_request()?.is_some() || owner.node_join_approval()?.is_some() {
             return self.node_join_public_ready(owner).await;
         }
@@ -720,10 +685,7 @@ impl SecurityProtocol {
         Ok(check.is_ok())
     }
 
-    pub async fn node_join_public_ready<P: PrivateKeyRepo + Send + Sync>(
-        &self,
-        owner: &OwnerProvisioner<P>,
-    ) -> io::Result<bool> {
+    pub async fn node_join_public_ready(&self, owner: &impl NodeJoinOwner) -> io::Result<bool> {
         if owner.node_join_approval()?.is_none()
             || !owner.node_join_stage_recorded(NodeJoinStage::PublicReady)?
         {
@@ -766,7 +728,7 @@ impl iroh::protocol::ProtocolHandler for NodeBootstrapHandler {
                         let mut kind = [0u8; 1];
                         recv.read_exact(&mut kind).await.map_err(io::Error::other)?;
                         if kind[0] != BOOTSTRAP_STREAM_KIND { return Err(denied("only purpose-specific bootstrap streams are allowed")); }
-                        provisioning_stage(|| protocol.accept_node_bootstrap(connection, send, recv)).await
+                        bootstrap_stage(|| protocol.accept_node_bootstrap(connection, send, recv)).await
                     });
                 }
             }
@@ -819,19 +781,19 @@ impl<T: SyncTransport<Error = io::Error>> SyncTransport for SourceTransport<'_, 
     }
 }
 
-struct ReceiverTransport<'a, T, P: PrivateKeyRepo + Send + Sync> {
+struct ReceiverTransport<'a, T, O: NodeJoinOwner> {
     inner: &'a mut T,
     protocol: &'a SecurityProtocol,
     connection: &'a Connection,
-    owner: &'a OwnerProvisioner<P>,
+    owner: &'a O,
     approval: &'a NodeJoinApproval,
 }
-impl<T: SyncTransport<Error = io::Error>, P: PrivateKeyRepo + Send + Sync> SyncTransport
-    for ReceiverTransport<'_, T, P>
+impl<T: SyncTransport<Error = io::Error>, O: NodeJoinOwner> SyncTransport
+    for ReceiverTransport<'_, T, O>
 {
     type Error = io::Error;
     async fn send(&mut self, frame: Vec<u8>) -> io::Result<()> {
-        provisioning_stage(|| {
+        bootstrap_stage(|| {
             self.protocol
                 .check_bootstrap_receiver(self.connection, self.owner, self.approval)
         })
@@ -841,4 +803,14 @@ impl<T: SyncTransport<Error = io::Error>, P: PrivateKeyRepo + Send + Sync> SyncT
     async fn receive(&mut self) -> io::Result<Vec<u8>> {
         self.inner.receive().await
     }
+}
+
+#[inline(never)]
+fn bootstrap_stage<'a, T: 'a, F>(
+    make: impl FnOnce() -> F,
+) -> Pin<Box<dyn Future<Output = io::Result<T>> + Send + 'a>>
+where
+    F: Future<Output = io::Result<T>> + Send + 'a,
+{
+    Box::pin(make())
 }

@@ -7,20 +7,13 @@ use idp_service::{oauth2::NodeSignerBinding, repo::PrivateKeyRepo};
 use super::{NodeJoinApproval, invalid, persist_exact, read_optional};
 use crate::OwnerProvisioner;
 
-#[derive(Clone, Copy)]
-pub enum NodeJoinStage {
-    Idp,
-    Management,
-    PublicReady,
-}
+pub use device_service::node_join_owner::NodeJoinStage;
 
-impl NodeJoinStage {
-    fn file(self) -> &'static str {
-        match self {
-            Self::Idp => "node-join-idp-import.json",
-            Self::Management => "node-join-policy-import.json",
-            Self::PublicReady => "node-join-public-ready.json",
-        }
+fn stage_file(stage: NodeJoinStage) -> &'static str {
+    match stage {
+        NodeJoinStage::Idp => "node-join-idp-import.json",
+        NodeJoinStage::Management => "node-join-policy-import.json",
+        NodeJoinStage::PublicReady => "node-join-public-ready.json",
     }
 }
 
@@ -61,12 +54,13 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
     /// Owner-local import journal only; this is not permission or a readiness decision.
     pub fn record_node_join_stage(&self, stage: NodeJoinStage) -> io::Result<()> {
         let anchor = self.node_join_anchor()?;
-        persist_exact(&self.data_dir.join(stage.file()), &anchor)
+        persist_exact(&self.data_dir.join(stage_file(stage)), &anchor)
     }
 
     pub fn node_join_stage_recorded(&self, stage: NodeJoinStage) -> io::Result<bool> {
         let anchor = self.node_join_anchor()?;
-        let previous: Option<NodeJoinApproval> = read_optional(&self.data_dir.join(stage.file()))?;
+        let previous: Option<NodeJoinApproval> =
+            read_optional(&self.data_dir.join(stage_file(stage)))?;
         match previous {
             Some(previous) if previous != anchor => Err(invalid(
                 "join import journal conflicts with persisted anchor",
@@ -130,5 +124,47 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
         }.await;
         transaction.rollback().await.map_err(io::Error::other)?;
         result
+    }
+}
+
+impl<P: PrivateKeyRepo + Send + Sync> device_service::node_join_owner::NodeJoinOwner
+    for OwnerProvisioner<P>
+{
+    fn node_join_database(&self) -> io::Result<Arc<Database>> {
+        OwnerProvisioner::node_join_database(self)
+    }
+    fn prepare_node_join(
+        &self,
+        binding: &NodeSignerBinding,
+        name: &str,
+        peer: iroh::EndpointId,
+    ) -> io::Result<device_service::hosted_join::NodeJoinRequest> {
+        OwnerProvisioner::prepare_node_join(self, binding, name, peer)
+    }
+    fn record_node_join_approval(&self, approval: &NodeJoinApproval) -> io::Result<()> {
+        OwnerProvisioner::record_node_join_approval(self, approval)
+    }
+    fn node_join_request(
+        &self,
+    ) -> io::Result<Option<device_service::hosted_join::NodeJoinRequest>> {
+        OwnerProvisioner::node_join_request(self)
+    }
+    fn node_join_approval(&self) -> io::Result<Option<NodeJoinApproval>> {
+        OwnerProvisioner::node_join_approval(self)
+    }
+    fn node_join_anchor(&self) -> io::Result<NodeJoinApproval> {
+        OwnerProvisioner::node_join_anchor(self)
+    }
+    fn record_node_join_stage(&self, stage: NodeJoinStage) -> io::Result<()> {
+        OwnerProvisioner::record_node_join_stage(self, stage)
+    }
+    fn node_join_stage_recorded(&self, stage: NodeJoinStage) -> io::Result<bool> {
+        OwnerProvisioner::node_join_stage_recorded(self, stage)
+    }
+    async fn check_node_join_local_binding(&self) -> io::Result<()> {
+        OwnerProvisioner::check_node_join_local_binding(self).await
+    }
+    async fn verify_node_signer(&self, binding: &NodeSignerBinding) -> io::Result<JwkPublic> {
+        OwnerProvisioner::verify_node_signer(self, binding).await
     }
 }

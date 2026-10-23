@@ -43,7 +43,7 @@ Native reopen tests cover durable resource identity, SQL and KV availability, su
 
 ## Direct protocol streams
 
-`storage-server/src/data_protocol.rs` multiplexes database marker 1, filesystem marker 2, and the Unified host's security marker 3 on the existing `iroh-chain::DATA_ALPN` handler. The host supplies its `Server`; `Server::router` composes the existing mesh and one DATA handler, with the host's optional bootstrap handler where applicable. The new adapters do not bind endpoints, implement admission hooks, or own mesh/pairing/routing machinery. The existing standalone Storage endpoint is not duplicated by these adapters.
+`storage-server/src/data_protocol.rs` multiplexes database marker 1, filesystem marker 2, and the Device owner's security marker 3 on the existing `iroh-chain::DATA_ALPN` handler. The host supplies its `Server`; `Server::router` composes the existing mesh and one DATA handler, with the host's optional bootstrap handler where applicable. The new adapters do not bind endpoints, implement admission hooks, or own mesh/pairing/routing machinery. The existing standalone Storage endpoint is not duplicated by these adapters.
 
 - `database_transport.rs` supplies length-prefixed byte exchange on existing streams through the public SQL `SyncTransport` seam. SQL and KV payload codecs remain in `ofdb`.
 - `filesystem_transport.rs` owns the domain resource descriptor, handshake/envelope, authenticated connection peer, metadata/session multiplexing and concrete `FileHandle` implementation. Generic filesystem codecs and persistence remain in `offs`; no `file-system/iroh` dependency remains in `of`.
@@ -60,7 +60,7 @@ Historical-value confidentiality is enforced independently of current policy aut
 
 The unused `idp_server::validate_public_security_record` preflight interface has been removed. Matching caller-supplied Installation strings cannot establish authenticated provenance. Production exchange uses the authenticated connection, current approved Device and active User, exact local context permissions, and historical/candidate validation below; projected-record shape validation alone is not import authorization.
 
-`unified-server/src/security_sync.rs` now performs actual bidirectional history exchange, not projected inserts. `SecurityProtocol::attach` adds security marker 3 to the existing DATA dispatcher; `compose_protocol_router` wires it alongside Storage and IdP bootstrap on the host's one persisted endpoint. `SecurityProtocol::synchronize` and `UnifiedRuntime::synchronize_security(connection, context)` are the outbound entry points on an existing authenticated connection. No new endpoint, reconnect timer, forwarding protocol, payload codec, stage or recovery layer is introduced. Connection/reconnect scheduling stays with the host caller.
+`device-service/src/security_protocol.rs` implements bidirectional security history exchange; `device-service/src/security_bootstrap.rs` implements purpose-bound public bootstrap and admission/readiness checks. `unified-server/src/security_sync.rs` constructs the owner and mounts its handlers; it contains no replication protocol or domain state machine. The existing host-facing facade preserves construction, shared-router attachment and runtime handle transfer. Bounded `DatabaseTransport` framing is provided by `db` and re-exported by Storage, avoiding a Device-to-Storage-server dependency. The IdP provisioner implements Device’s `NodeJoinOwner` contract for retained signer/approval/import journal operations without a server-to-server dependency. `SecurityProtocol::attach` adds security marker 3 to the existing DATA dispatcher; `compose_protocol_router` wires it alongside Storage and IdP bootstrap on the host's one persisted endpoint. `SecurityProtocol::synchronize` and `UnifiedRuntime::synchronize_security(connection, context)` are the outbound entry points on an existing authenticated connection. No new endpoint, reconnect timer, forwarding protocol, payload codec, stage or recovery layer is introduced. Connection/reconnect scheduling stays with the host caller.
 
 A versioned, strictly decoded handshake binds the configured Installation/issuer, context, and member to `Connection::remote_id`. Before admission/export and every owner atomic incoming apply, both roles require current unique, conflict-clear, approved and nonrevoked Device trust and a conflict-clear local User identified by the Device's persisted `owner_subject`. Transport admission does not require an IdP signer for either endpoint; IdP independently verifies signing trust where token issuance or exact full-Node Join enrollment requires it. Both contexts verify their local table columns against reviewed domain allowlists through public SQL metadata before exporting history; widened local layouts reject even when using the standalone adapter. Owner scoped validation additionally rejects incompatible/hidden historical layouts. No actor comes from the wire or endpoint ID. Local Management evaluates the exact Installation permissions `idp.security.sync` / `management.security.sync` with matching `IdpSecurity` / `ManagementSecurity` resources. Missing local evidence denies. These explicit grants must be provisioned locally before reconciliation; pairing/discovery does not grant them. Admission and local owner `PreApply` denial are `PermissionDenied`; integrity/storage/transport failures remain separate.
 
@@ -135,14 +135,16 @@ its marker-3 candidate, historical-value, current outbound and incoming checks.
 
 ### Purpose-specific admission and exchange
 
-The Unified host registers `SecurityProtocol::node_bootstrap_handler` on the existing
+The Unified host registers the Device owner’s `SecurityProtocol::node_bootstrap_handler` on the existing
 shared endpoint's `idp-bootstrap/1` ALPN. It accepts only bootstrap stream kind4 and
 handles streams independently with connection/cancellation cleanup. It does not route
 Storage, ordinary marker3 or mesh operations through this ALPN. Standalone IdP without
 the host's two-context bootstrap handler remains denial-only.
 
-`bind_node_join_endpoint` delegates ordinary admission/pairing to the existing
-`iroh-chain` hook. Its only additional admission is the exact persisted approving peer
+`device_service::join_admission::bind_node_join_endpoint` owns purpose-specific
+ALPN admission and delegates ordinary admission/pairing to the existing `iroh-chain`
+hook. IdP supplies retained request/receipt/private-signer verification through
+`RetainedJoinAdmission`; the existing IdP bind function only composes that provider. Its only additional admission is the exact persisted approving peer
 on the bootstrap ALPN, after rereading/verifying request/receipt and retained local key
 presence. It does not insert that peer in the general allowlist or use an expiry lease.
 `UnifiedEndpoint::open` receives the actual IdP configuration and uses this hook; normal

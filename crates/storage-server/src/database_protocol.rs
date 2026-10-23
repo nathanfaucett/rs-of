@@ -13,10 +13,7 @@ use storage_model::StorageNamespace;
 use storage_service::{DatabaseId, DatabaseRuntime};
 use tokio_util::sync::CancellationToken;
 
-use crate::{
-    LocalReplicationAuthorizer, data_protocol::DATABASE_STREAM_KIND,
-    database_transport::DatabaseTransport,
-};
+use crate::{DatabaseTransport, LocalReplicationAuthorizer, data_protocol::DATABASE_STREAM_KIND};
 
 type FrameAuthorizer = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
 const MAX_HANDSHAKE_BYTES: usize = 4096;

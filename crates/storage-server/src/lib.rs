@@ -20,7 +20,6 @@ mod database_protocol;
 #[cfg(feature = "network")]
 mod database_sessions;
 #[cfg(feature = "network")]
-mod database_transport;
 mod device_client;
 #[cfg(all(test, feature = "network"))]
 mod execution_test_support;
@@ -47,7 +46,7 @@ pub use copy_retirement::StorageCopyRetirement;
 #[cfg(feature = "network")]
 pub use data_protocol::DataProtocolHandler;
 #[cfg(feature = "network")]
-pub use database_transport::DatabaseTransport;
+pub use db::DatabaseTransport;
 pub use device_client::DeviceClient;
 pub use idp_client::{IdpClient, IdpIntrospectionError};
 #[cfg(feature = "network")]

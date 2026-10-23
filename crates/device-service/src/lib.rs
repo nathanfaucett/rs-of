@@ -62,3 +62,15 @@ pub use security_sync::{PUBLIC_DEVICE_TABLES, permits_device_table, public_devic
 pub mod hosted_join;
 #[cfg(feature = "replica")]
 pub mod issuer_discovery;
+
+#[cfg(all(test, feature = "replica"))]
+mod security_protocol_contract_tests;
+
+#[cfg(feature = "replica")]
+pub mod security_protocol;
+
+#[cfg(feature = "replica")]
+pub mod node_join_owner;
+
+#[cfg(feature = "replica")]
+pub mod join_admission;
