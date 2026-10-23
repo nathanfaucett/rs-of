@@ -43,7 +43,7 @@ Implemented on `implement/shared-control-plane-01`. Remote stories 2, 3, and 5 a
 
 The Unified Host now injects its single identity database handle into IdP authorization and Management role/permission repositories. Device repositories and Storage admission retain the separate Device handle. Initial administrator provisioning writes policy into the identity database. Identity-owned policy migrations are shared by standalone Management initialization; Device-only migrations do not create identity policy tables.
 
-Security synchronization and join bootstrap split Management history into identity-policy and Device sessions, preserving grants across offline reopen. The security handshake and bootstrap purpose advance to v2; mixed v1/v2 peers are not supported. Standalone Management still initializes its local combined database pending tickets 02 and 03. No remote adapter or separate-process acceptance is claimed here.
+Security synchronization and join bootstrap split Management history into identity-policy and Device sessions, preserving grants across offline reopen. The security handshake and bootstrap purpose remain v1; this unreleased framing is updated in place without compatibility adapters. Standalone Management still initializes its local combined database pending tickets 02 and 03. No remote adapter or separate-process acceptance is claimed here.
 
 Focused validation passed on 2026-10-23:
 
@@ -59,7 +59,6 @@ The HTTP acceptance covers initial denial, Management role creation/permission a
 The worktree used the prior agent's temporary `python3 .scratch/validate.py` prefix to rebase sibling dependency paths for Cargo; that helper and its four temporary check logs were removed after validation. The logs identify Cargo test executables and test filters, but do not preserve complete shell commands or environment. The join test initially overflowed the default test-thread stack; the explicit 16 MiB stack rerun passed. Changed Rust files were formatted and `git diff --check` passed.
 
 Qualification remains focused: earlier agent logs reported failures in broader provisioning/security suites (create 8/10, outbound 3/4, security 14/24); those suites were not rerun or certified by this completion pass. Full feature-powerset, clippy, and CRAP validation were not run. Remote configuration/query behavior and separate-process testing remain deferred to ticket 03.
-
 
 ### Review-fix addendum
 

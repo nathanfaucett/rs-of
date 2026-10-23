@@ -300,7 +300,7 @@ async fn peer_exchange(
         };
         let mut transport = DatabaseTransport::new(send, recv);
         let hello = Handshake {
-            version: 2,
+            version: 1,
             installation: INSTALLATION.into(),
             member: fixture.peer_member,
             context,
@@ -309,6 +309,7 @@ async fn peer_exchange(
             let remote: Handshake =
                 serde_json::from_slice(&transport.receive().await.expect("source handshake"))
                     .expect("source handshake JSON");
+            assert_eq!(remote.version, 1);
             assert_eq!(
                 remote.member,
                 fixture

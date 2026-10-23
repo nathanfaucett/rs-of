@@ -35,7 +35,7 @@ use super::{SecurityContext, SecurityProtocol, candidates, denied, now};
 mod interruption_tests;
 
 pub(super) const BOOTSTRAP_STREAM_KIND: u8 = 4;
-const PURPOSE: &str = "of.equal-node-public-bootstrap.v2";
+const PURPOSE: &str = "of.equal-node-public-bootstrap.v1";
 
 #[derive(Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]

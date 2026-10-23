@@ -321,7 +321,7 @@ impl SecurityProtocol {
     }
 
     fn validate_handshake(&self, remote: &Handshake, context: SecurityContext) -> io::Result<()> {
-        if remote.version != 2
+        if remote.version != 1
             || remote.installation != self.installation
             || remote.context != context
             || remote.member.is_nil()
@@ -356,7 +356,7 @@ impl SecurityProtocol {
             ));
         }
         Ok(Handshake {
-            version: 2,
+            version: 1,
             installation: self.installation.clone(),
             member: device.id,
             context,
