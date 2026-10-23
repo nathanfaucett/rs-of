@@ -206,7 +206,7 @@ impl DomainNode {
         sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{owner}' AS UUID), 'owner', 'Owner', 1, 1)")).await;
         for ((device, endpoint), signer) in devices.into_iter().zip(endpoints).zip(signers) {
             sql(&management, &format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{owner}', 'node', '{endpoint}', 'local', 1, 1, 1, 1)")).await;
-            DbReplicaSignerRepo::new(idp.clone())
+            DbReplicaSignerRepo::new(idp.client())
                 .enroll(
                     &ReplicaMembership {
                         installation_id: INSTALLATION.into(),
@@ -266,7 +266,7 @@ impl DomainNode {
     }
     pub async fn revoke_signer(&self, device: usize) {
         assert!(
-            DbReplicaSignerRepo::new(self.idp.clone())
+            DbReplicaSignerRepo::new(self.idp.client())
                 .revoke(self.devices[device], INSTALLATION, 2)
                 .await
                 .expect("persist signer/member revocation")
@@ -294,7 +294,7 @@ impl DomainNode {
                     .ok_or("unknown or unapproved Device")?;
 
                 let owner_id = device.owner_subject.parse().map_err(|_| "invalid owner")?;
-                let owner_active = DbUserRepo::new(idp, PasswordConfig::default())
+                let owner_active = DbUserRepo::new(idp.client(), PasswordConfig::default())
                     .find_user_by_id(owner_id)
                     .await
                     .map_err(|error| error.to_string())?

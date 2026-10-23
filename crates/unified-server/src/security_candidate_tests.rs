@@ -145,7 +145,7 @@ async fn approved_endpoints_without_idp_signers_exchange_and_device_revocation_d
             )
             .await;
             assert!(
-                idp_service::replica::DbReplicaSignerRepo::new(database.clone())
+                idp_service::replica::DbReplicaSignerRepo::new(database.client())
                     .trusted_signers(super::INSTALLATION, 10)
                     .await
                     .expect("no token-signing trust")
@@ -174,7 +174,7 @@ async fn approved_endpoints_without_idp_signers_exchange_and_device_revocation_d
         )
         .await;
         assert!(
-            idp_service::replica::DbReplicaSignerRepo::new(pair.idp_b.clone())
+            idp_service::replica::DbReplicaSignerRepo::new(pair.idp_b.client())
                 .trusted_signers(super::INSTALLATION, 10)
                 .await
                 .expect("IdP signing trust is independent of revoked Device")
@@ -268,7 +268,7 @@ async fn marker3_persists_pending_conflicts_and_tombstones_without_trust() {
         assert!(sql(&pair.management_b, &format!("SELECT * FROM devices WHERE id = CAST('{pending}' AS UUID)")).await[0].rows.is_empty(), "tombstone retained");
         pair.protocol_a.synchronize(&connection, SecurityContext::Idp).await.expect("revoked IdP history persists independently");
         assert_eq!(sql(&pair.idp_b, &format!("SELECT revoked_at FROM idp_replica_signers WHERE id = CAST('{}' AS UUID)", revoked_signer.signer)).await[0].rows[0].values[0], Value::Integer(2));
-        assert!(!idp_service::replica::DbReplicaSignerRepo::new(pair.idp_b.clone()).trusted_signers(super::INSTALLATION, 10).await.expect("current signer trust").iter().any(|(member, _)| member.member_id == revoked_signer.member));
+        assert!(!idp_service::replica::DbReplicaSignerRepo::new(pair.idp_b.client()).trusted_signers(super::INSTALLATION, 10).await.expect("current signer trust").iter().any(|(member, _)| member.member_id == revoked_signer.member));
         drop(fork);
         pair.close().await;
     }).await.expect("bounded genuine Management conflict/tombstone exchange");

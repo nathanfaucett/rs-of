@@ -320,12 +320,12 @@ impl Fixture {
             Database::open(directory.0.join("idp/idp.redb")).expect("reopen native IdP owner"),
         );
         let keys = Arc::new(KeyService::new(
-            DbKeyRepo::new(idp.clone()),
+            DbKeyRepo::new(idp.client()),
             PrivateKeyKeyringRepo::new(&config.oauth2.issuer).expect("retained local private keys"),
             config.key_namespace.clone(),
         ));
 
-        let clients = DbClientRepo::new(idp.clone(), Arc::clone(&keys));
+        let clients = DbClientRepo::new(idp.client(), Arc::clone(&keys));
         let human = clients
             .create_client(registration(
                 "human",
@@ -357,14 +357,14 @@ impl Fixture {
             .expect("Management-owned initial Device");
         let runtime = idp_server::build_runtime(
             &config,
-            idp.clone(),
+            idp.client(),
             Some(devices.clone()),
             Arc::new(
                 device_service::device_identity_from_server(&identity, secret)
                     .expect("injected endpoint identity"),
             ),
             identity.clone(),
-            Some(LocalPermissions::new(management.clone())),
+            Some(LocalPermissions::new(management.client())),
         )
         .await
         .expect("integrated owner-local IdP runtime");
@@ -562,7 +562,7 @@ impl Fixture {
             .expect("public local resource observation")
     }
     async fn revoke_user(&self) {
-        DbUserRepo::new(self.idp.clone(), Default::default())
+        DbUserRepo::new(self.idp.client(), Default::default())
             .delete_user_by_id(self.owner)
             .await
             .expect("learn native User revocation");

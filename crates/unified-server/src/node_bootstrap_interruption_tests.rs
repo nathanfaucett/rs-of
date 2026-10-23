@@ -126,8 +126,8 @@ async fn interruption_boundary(
     let source_policy =
         Arc::new(Database::open(source_root.join("device/devices.redb")).expect("source policy"));
     let policy = ManagementService::new(
-        DbPermissionRepo::new(source_policy.clone()),
-        DbRoleRepo::new(source_policy.clone()),
+        DbPermissionRepo::new(source_policy.client()),
+        DbRoleRepo::new(source_policy.client()),
     );
     let role = policy
         .create_role(
@@ -250,7 +250,7 @@ async fn interruption_boundary(
     source_config.server.prefix = Some("/idp".into());
     let runtime = idp_server::build_runtime(
         &source_config,
-        source_idp.clone(),
+        source_idp.client(),
         Some(Arc::new(device_service::replica::DbDeviceRepo::new(
             source_policy.clone(),
         ))),
@@ -260,7 +260,7 @@ async fn interruption_boundary(
         ),
         source.clone(),
         Some(management_service::LocalPermissions::new(
-            source_policy.clone(),
+            source_policy.client(),
         )),
     )
     .await
@@ -309,7 +309,9 @@ async fn interruption_boundary(
     let request = provisioner
         .prepare_node_join(&binding, "Joining Node", source.endpoint().id())
         .expect("durable independent private signer");
-    let mut joining_idp = provisioner.node_join_database();
+    let mut joining_idp = provisioner
+        .node_join_database()
+        .expect("local identity owner");
     let mut joining_policy =
         Arc::new(Database::open(joining_root.join("devices.redb")).expect("joining policy owner"));
     device_service::replica::up(&joining_policy)
@@ -485,7 +487,9 @@ async fn interruption_boundary(
             provisioner = OwnerProvisioner::open(&config)
                 .await
                 .expect("reopen durable import and retained independent signer");
-            joining_idp = provisioner.node_join_database();
+            joining_idp = provisioner
+                .node_join_database()
+                .expect("local identity owner");
             joining_policy = Arc::new(
                 Database::open(joining_root.join("devices.redb"))
                     .expect("reopen actual policy owner"),
@@ -672,7 +676,9 @@ async fn interruption_boundary(
         );
         let protocol = SecurityProtocol::new(
             joining.clone(),
-            provisioner.node_join_database(),
+            provisioner
+                .node_join_database()
+                .expect("local identity owner"),
             policy_store.clone(),
             policy_store.clone(),
             issuer.clone(),
@@ -695,10 +701,15 @@ async fn interruption_boundary(
             approved
         );
         diagnostic_stage(phase, "learned local revocation and readiness denial");
-        DbReplicaSignerRepo::new(provisioner.node_join_database())
-            .revoke(binding.member_id, &issuer, 11)
-            .await
-            .expect("learn local revocation");
+        DbReplicaSignerRepo::new(
+            provisioner
+                .node_join_database()
+                .expect("local identity owner")
+                .client(),
+        )
+        .revoke(binding.member_id, &issuer, 11)
+        .await
+        .expect("learn local revocation");
         assert!(
             !protocol
                 .node_join_public_ready(&provisioner)
@@ -899,7 +910,14 @@ async fn interruption_boundary(
         .await
         .expect("native partial-import reopen");
     assert_eq!(
-        sql(&provisioner.node_join_database(), "SELECT id FROM users").await[0].rows,
+        sql(
+            &provisioner
+                .node_join_database()
+                .expect("local identity owner"),
+            "SELECT id FROM users"
+        )
+        .await[0]
+            .rows,
         retained,
         "native progress survives incomplete import"
     );
@@ -917,9 +935,13 @@ async fn interruption_boundary(
     );
     let protocol = SecurityProtocol::new(
         joining.clone(),
-        provisioner.node_join_database(),
+        provisioner
+            .node_join_database()
+            .expect("local identity owner"),
         joining_policy.clone(),
-        provisioner.node_join_database(),
+        provisioner
+            .node_join_database()
+            .expect("local identity owner"),
         issuer.clone(),
         Some(binding.clone()),
         joining_root.join("security-staging"),
@@ -947,7 +969,9 @@ async fn interruption_boundary(
     );
     assert_eq!(
         sql(
-            &provisioner.node_join_database(),
+            &provisioner
+                .node_join_database()
+                .expect("local identity owner"),
             &format!(
                 "SELECT id FROM idp_replica_members WHERE member_id = CAST('{}' AS UUID)",
                 binding.member_id
@@ -959,10 +983,15 @@ async fn interruption_boundary(
         1,
         "retry does not duplicate membership"
     );
-    DbReplicaSignerRepo::new(provisioner.node_join_database())
-        .revoke(binding.member_id, &issuer, 11)
-        .await
-        .expect("receiver learns membership revocation");
+    DbReplicaSignerRepo::new(
+        provisioner
+            .node_join_database()
+            .expect("local identity owner")
+            .client(),
+    )
+    .revoke(binding.member_id, &issuer, 11)
+    .await
+    .expect("receiver learns membership revocation");
     assert!(
         protocol
             .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Idp)

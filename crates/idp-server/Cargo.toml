@@ -17,6 +17,11 @@ name = "idp-server"
 path = "src/main.rs"
 required-features = ["cli"]
 
+[[bin]]
+name = "identity-database"
+path = "src/identity_database_main.rs"
+required-features = ["cli"]
+
 [features]
 default = ["cli", "completions", "swagger-ui"]
 cli = ["dep:dotenvy", "dep:clap", "dep:cli"]
@@ -50,6 +55,8 @@ rust-argon2 = { version = "3.0", default-features = false }
 api = { path = "../api", default-features = false, features = [] }
 db = { package = "idp-db", path = "../db", default-features = false, features = [
     "replica",
+    "remote",
+    "server",
 ] }
 idp-model = { path = "../idp-model", default-features = false, features = [
     "std",

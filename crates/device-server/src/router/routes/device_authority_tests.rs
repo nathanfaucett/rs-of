@@ -179,8 +179,8 @@ impl Fixture {
 
     async fn grant(&self, action: IdentityAction) {
         let service = ManagementService::new(
-            DbPermissionRepo::new(self.identity.clone()),
-            DbRoleRepo::new(self.identity.clone()),
+            DbPermissionRepo::new(self.identity.client()),
+            DbRoleRepo::new(self.identity.client()),
         );
         let role = service
             .create_role(Id::nil(), action.permission(), None)

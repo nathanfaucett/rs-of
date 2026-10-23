@@ -1,3 +1,7 @@
+#[cfg(unix)]
+#[path = "remote_identity_process_tests.rs"]
+mod remote_identity_process_tests;
+
 use db::Database;
 use device_service::DeviceRepo;
 use device_service::replica::DbDeviceRepo;
@@ -100,16 +104,16 @@ async fn run_separate_permission_acceptance(lifecycle_only: bool) {
     );
     let runtime = idp_server::build_runtime(
         &config,
-        Arc::clone(&idp_engine),
+        idp_engine.client(),
         None,
         Arc::new(
             device_service::device_identity_from_server(&server, secret.clone())
                 .expect("create local identity"),
         ),
         server.clone(),
-        Some(management_service::LocalPermissions::new(Arc::clone(
-            &idp_engine,
-        ))),
+        Some(management_service::LocalPermissions::new(
+            idp_engine.client(),
+        )),
     )
     .await
     .expect("build independent IdP runtime");
@@ -127,7 +131,7 @@ async fn run_separate_permission_acceptance(lifecycle_only: bool) {
     .with_pairing_acceptance(runtime.pairing_acceptance());
     let control_plane = Arc::new(control_plane);
     let router = management_server::build_router(
-        idp_engine.clone(),
+        idp_engine.client(),
         &management_base,
         "/management",
         control_plane.clone(),
@@ -167,7 +171,7 @@ async fn run_separate_permission_acceptance(lifecycle_only: bool) {
         let actor = user_token(&client, &idp_base, "administrator", "idp-services").await;
         let unconfigured = idp_server::build_runtime(
             &config,
-            Arc::clone(&idp_engine),
+            idp_engine.client(),
             None,
             Arc::new(
                 device_service::device_identity_from_server(&server, secret)
@@ -297,6 +301,7 @@ async fn run_separate_permission_acceptance(lifecycle_only: bool) {
     std::fs::remove_dir_all(root).expect("remove HTTP fixture data");
 }
 
+#[derive(serde::Deserialize, serde::Serialize)]
 pub(crate) struct PermissionFixture {
     pub(crate) local_signer: idp_service::oauth2::NodeSignerBinding,
     application_id: idp_model::model::Id,
@@ -319,6 +324,16 @@ pub(crate) async fn seed_idp(
         ..Default::default()
     };
     config.oauth2.issuer = issuer.into();
+    seed_idp_with_config(root, &config, endpoint_id, approved_peer_id).await
+}
+
+async fn seed_idp_with_config(
+    root: &std::path::Path,
+    config: &idp_server::AppConfig,
+    endpoint_id: &str,
+    approved_peer_id: &str,
+) -> PermissionFixture {
+    let issuer = config.oauth2.issuer.as_str();
     let owner = idp_server::OwnerProvisioner::open_with_private_keys(
         &config,
         PrivateKeyKeyringRepo::new_with_store(issuer, test_keyring_store()),
@@ -334,8 +349,14 @@ pub(crate) async fn seed_idp(
         .prepare_setup_client_slots(&[])
         .await
         .expect("complete fixture inventory before private production");
-    let engine = owner.node_join_database();
-    let applications = DbApplicationRepo::new(Arc::clone(&engine));
+    let engine = match &config.identity_database {
+        Some(remote) => remote.connect().await.expect("fixture SQL client"),
+        None => owner
+            .node_join_database()
+            .expect("local identity owner")
+            .client(),
+    };
+    let applications = DbApplicationRepo::new(engine.clone());
     let application = applications
         .create_application(
             "Unified test application".to_owned(),
@@ -345,11 +366,11 @@ pub(crate) async fn seed_idp(
         .await
         .expect("create canonical application");
     let key_service = Arc::new(KeyService::new(
-        DbKeyRepo::new(Arc::clone(&engine)),
+        DbKeyRepo::new(engine.clone()),
         PrivateKeyKeyringRepo::new_with_store(issuer, test_keyring_store()),
         "lidp".to_owned(),
     ));
-    let clients = DbClientRepo::new(Arc::clone(&engine), Arc::clone(&key_service));
+    let clients = DbClientRepo::new(engine.clone(), Arc::clone(&key_service));
     for (client_id, secret, audiences, scopes) in [
         (
             "management-idp",
@@ -458,7 +479,7 @@ pub(crate) async fn seed_idp(
         .create_client(other_client)
         .await
         .expect("create cross-application client");
-    let users = DbUserRepo::new(Arc::clone(&engine), PasswordConfig::default());
+    let users = DbUserRepo::new(engine.clone(), PasswordConfig::default());
     let mut user_ids = Vec::new();
     for name in ["administrator", "app-administrator", "unassigned"] {
         if name == "administrator" {
@@ -498,7 +519,7 @@ pub(crate) async fn seed_idp(
             .expect("create user signing key");
         user_ids.push(user.id);
     }
-    let consent = DbOAuth2UserConsentRepo::new(Arc::clone(&engine))
+    let consent = DbOAuth2UserConsentRepo::new(engine.clone())
         .upsert_user_consent(
             user_ids[0],
             "human-client",
@@ -551,7 +572,7 @@ pub(crate) async fn seed_idp(
         revoked_at: None,
         expires_at: None,
     };
-    idp_service::replica::DbReplicaSignerRepo::new(engine)
+    idp_service::replica::DbReplicaSignerRepo::new(engine.clone())
         .enroll(&member, &signer)
         .await
         .expect("approve local Node signer");
@@ -592,17 +613,22 @@ pub(crate) async fn seed_permissions(root: &std::path::Path, fixture: &mut Permi
 }
 
 pub(crate) async fn seed_permissions_at(path: &std::path::Path, fixture: &mut PermissionFixture) {
-    use management_service::ManagementService;
-    use management_service::replica::DbPermissionRepo;
-    use management_service::replica::DbRoleRepo;
     fs::create_dir_all(path.parent().expect("database directory"))
         .expect("create Management data directory");
     let engine = Arc::new(Database::open(path).expect("open Management fixture"));
     idp_model::replica::up_policy(&engine)
         .await
         .expect("initialize Management schema");
+    seed_permissions_on(engine.client(), fixture).await;
+}
+
+async fn seed_permissions_on(engine: db::Client, fixture: &mut PermissionFixture) {
+    use management_service::{
+        ManagementService,
+        replica::{DbPermissionRepo, DbRoleRepo},
+    };
     let service = ManagementService::new(
-        DbPermissionRepo::new(Arc::clone(&engine)),
+        DbPermissionRepo::new(engine.clone()),
         DbRoleRepo::new(engine),
     );
     let role = service
@@ -1712,8 +1738,11 @@ async fn shared_identity_acceptance() {
     let base = format!("http://{}", runtime.local_addr());
     let listener = runtime.take_listener().expect("single HTTP listener");
     let router = runtime.router();
+    let stop_http = tokio_util::sync::CancellationToken::new();
+    let stopped = stop_http.clone();
     let task = tokio::spawn(async move {
         axum::serve(listener, router)
+            .with_graceful_shutdown(stopped.cancelled_owned())
             .await
             .expect("serve shared host");
     });
@@ -1821,8 +1850,8 @@ async fn shared_identity_acceptance() {
         http::StatusCode::OK,
     )
     .await;
-    task.abort();
-    let _ = task.await;
+    stop_http.cancel();
+    task.await.expect("release shared HTTP connections");
     let mut reopened = crate::UnifiedRuntime::build(config)
         .await
         .expect("reopen shared host");

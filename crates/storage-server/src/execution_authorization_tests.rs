@@ -70,7 +70,7 @@ async fn queued_write_fixture(in_flight: bool) {
         let role = Id::now_v7();
         sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{actor}' AS UUID), 'owner', 'Owner', 1, 1)")).await;
         sql(&management, &format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{member}' AS UUID), '{actor}', 'peer', '{}', 'local', 1, 1, 1, 1)", incoming.remote_id())).await;
-        let service = ManagementService::new(DbPermissionRepo::new(management.clone()), DbRoleRepo::new(management.clone()));
+        let service = ManagementService::new(DbPermissionRepo::new(management.client()), DbRoleRepo::new(management.client()));
         service.provision_initial_administrator(actor, role, &[(Id::now_v7(), IdentityAction::DevicePairingRead), (Id::now_v7(), IdentityAction::DevicePairingUpdate), (Id::now_v7(), IdentityAction::IdpSecuritySync)]).await.expect("explicit actor grant");
         let request = PermissionEvaluationRequest { request_id: Id::now_v7(), subject: PermissionSubject::User { id: actor }, action: IdentityAction::IdpSecuritySync, target: PermissionTarget::Installation { resource: IdentityResource::IdpSecurity } };
         for forged in [
@@ -78,7 +78,7 @@ async fn queued_write_fixture(in_flight: bool) {
             PermissionEvaluationRequest { action: IdentityAction::ManagementSecuritySync, target: PermissionTarget::Installation { resource: IdentityResource::ManagementSecurity }, ..request.clone() },
             PermissionEvaluationRequest { target: PermissionTarget::Application { application_id: Id::now_v7(), resource: IdentityResource::IdpSecurity }, ..request.clone() },
         ] {
-            assert!(!LocalPermissions::new(management.clone()).evaluate(&forged).await.expect("exact local actor/action/target evaluation"));
+            assert!(!LocalPermissions::new(management.client()).evaluate(&forged).await.expect("exact local actor/action/target evaluation"));
         }
         let remote = incoming.remote_id();
         let admitted = Arc::new(tokio::sync::Notify::new());
@@ -96,9 +96,9 @@ async fn queued_write_fixture(in_flight: bool) {
                 let admitted = admitted.clone(); let resume = resume.clone(); let checks = checks.clone();
                 Box::pin(async move {
                     let Ok(Some(device)) = DbDeviceRepo::new(management.clone()).find_approved_by_public_key(&remote.to_string()).await else { return false; };
-                    let owner_active = DbUserRepo::new(idp, PasswordConfig::default()).find_user_by_id(actor).await.is_ok_and(|owner| owner.is_some());
+                    let owner_active = DbUserRepo::new(idp.client(), PasswordConfig::default()).find_user_by_id(actor).await.is_ok_and(|owner| owner.is_some());
                     let allowed = owner_active && device.owner_subject == actor.to_string()
-                        && LocalPermissions::new(management).evaluate(&request).await.unwrap_or(false);
+                        && LocalPermissions::new(management.client()).evaluate(&request).await.unwrap_or(false);
                     if in_flight && checks.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 2 {
                         assert!(allowed, "first socket write has current local permission");
                         admitted.notify_one();
@@ -113,7 +113,7 @@ async fn queued_write_fixture(in_flight: bool) {
         let (sessions, _) = broadcast::channel(1);
         let inner = Arc::new(Inner { peer: remote, authorize_frame: Some(authorize), outgoing: StdMutex::new(Some(queued)), metadata: StdMutex::new(Some(metadata)), sessions: StdMutex::new(Some(sessions)), sessions_ready: watch::channel(false).0, pending: Mutex::new(BTreeMap::new()),  next_id: AtomicU64::new(1), transport_handles: AtomicUsize::new(1), shutdown: watch::channel(false).0 });
         send_response(&inner, 1, FileResponse::ReadChunk(bytes::Bytes::from_static(b"must-not-disclose"))).await.expect("enqueue while locally granted");
-        assert!(LocalPermissions::new(management.clone()).evaluate(&request).await.expect("grant read"));
+        assert!(LocalPermissions::new(management.client()).evaluate(&request).await.expect("grant read"));
         let writer = if in_flight {
             send_response(&inner, 2, FileResponse::ReadChunk(bytes::Bytes::from_static(b"denied-next-write"))).await.expect("enqueue second response");
             let inner = inner.clone();
@@ -129,7 +129,7 @@ async fn queued_write_fixture(in_flight: bool) {
             })
         };
         service.remove_role_from_user(idp_model::contract::INSTALLATION_POLICY_ID, actor, role).await.expect("learn local denial while queued");
-        assert!(!LocalPermissions::new(management.clone()).evaluate(&request).await.expect("current local denial"));
+        assert!(!LocalPermissions::new(management.client()).evaluate(&request).await.expect("current local denial"));
         inner.outgoing.lock().expect("queue lock").take();
         resume.notify_one();
         writer.await.expect("writer completes after learned denial");
@@ -145,7 +145,7 @@ async fn queued_write_fixture(in_flight: bool) {
         a.close().await; b.close().await;
         drop(service); drop(idp); drop(management); drop(inner);
         let reopened = Arc::new(Database::open(root.join("management.redb")).expect("offline policy reopen"));
-        assert!(!LocalPermissions::new(reopened.clone()).evaluate(&request).await.expect("persisted learned denial survives restart"));
+        assert!(!LocalPermissions::new(reopened.client()).evaluate(&request).await.expect("persisted learned denial survives restart"));
         drop(reopened);
         std::fs::remove_dir_all(root).expect("cleanup isolated stores");
     })).await.expect("test completes without delivery sleeps");

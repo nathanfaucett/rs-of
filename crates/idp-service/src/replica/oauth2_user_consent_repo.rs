@@ -1,10 +1,7 @@
-use std::sync::Arc;
-
 use chrono::{DateTime, Timelike, Utc};
 use db::{
-    Database, FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue,
-    QueryFrom, QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid,
-    Value,
+    FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue, QueryFrom,
+    QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid, Value,
 };
 use idp_model::{
     model::{Id, OAuth2UserConsent},
@@ -25,19 +22,18 @@ const COLUMNS: [&str; 7] = [
 ];
 
 pub struct DbOAuth2UserConsentRepo {
-    engine: Arc<Database>,
+    engine: db::Client,
 }
 
 impl DbOAuth2UserConsentRepo {
     #[must_use]
-    pub const fn new(engine: Arc<Database>) -> Self {
+    pub const fn new(engine: db::Client) -> Self {
         Self { engine }
     }
 
     async fn rows(&self, query: Query) -> RepoResult<Vec<ConsentRow>> {
         let mut results = self
             .engine
-            .client()
             .execute(vec![Statement::Query(query)])
             .await
             .map_err(db_error)?;
@@ -127,7 +123,6 @@ impl OAuth2UserConsentRepo for DbOAuth2UserConsentRepo {
             })
         };
         self.engine
-            .client()
             .execute(vec![Statement::Query(statement)])
             .await
             .map_err(db_error)?;
@@ -179,7 +174,6 @@ impl OAuth2UserConsentRepo for DbOAuth2UserConsentRepo {
     async fn delete_user_consent_by_id(&self, consent_id: Id) -> RepoResult<()> {
         self.ensure_clear(consent_id).await?;
         self.engine
-            .client()
             .execute(vec![Statement::Query(Query::Delete(QueryDelete {
                 from: from(),
                 predicate: Some(equals("id", Value::Uuid(consent_id))),
@@ -329,7 +323,7 @@ mod tests {
     async fn upserts_and_deletes_uuid_consents() {
         let engine = Arc::new(db::Database::in_memory());
         up(&engine).await.unwrap();
-        let repo = DbOAuth2UserConsentRepo::new(engine);
+        let repo = DbOAuth2UserConsentRepo::new(engine.client());
         let user_id = Id::now_v7();
         let consent = repo
             .upsert_user_consent(user_id, "client", "https://app.example/callback", "openid")

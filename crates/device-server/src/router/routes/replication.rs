@@ -436,8 +436,8 @@ mod tests {
         let state = RouterState::new(
             "http://device.example",
             Arc::new(ManagementService::new(
-                DbPermissionRepo::new(engine.clone()),
-                DbRoleRepo::new(engine.clone()),
+                DbPermissionRepo::new(engine.client()),
+                DbRoleRepo::new(engine.client()),
             )),
             policies.clone(),
             Arc::new(
@@ -757,8 +757,8 @@ mod tests {
         let state = RouterState::new(
             "http://device.example",
             Arc::new(ManagementService::new(
-                DbPermissionRepo::new(Arc::clone(&engine)),
-                DbRoleRepo::new(Arc::clone(&engine)),
+                DbPermissionRepo::new(engine.client()),
+                DbRoleRepo::new(engine.client()),
             )),
             Arc::new(DbSelectionPolicyRepo::new(Arc::clone(&engine))),
             control_plane,
@@ -897,8 +897,8 @@ mod tests {
         let state = RouterState::new(
             "http://device.example",
             Arc::new(ManagementService::new(
-                DbPermissionRepo::new(Arc::clone(&engine)),
-                DbRoleRepo::new(Arc::clone(&engine)),
+                DbPermissionRepo::new(engine.client()),
+                DbRoleRepo::new(engine.client()),
             )),
             Arc::new(DbSelectionPolicyRepo::new(Arc::clone(&engine))),
             control_plane,

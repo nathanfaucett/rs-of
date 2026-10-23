@@ -77,17 +77,17 @@ async fn setup() -> (Arc<TestEngine>, TestService, Client, UserPrincipal) {
     let engine = Arc::new(db::Database::in_memory());
     up(&engine).await.expect("initialize IdP schema");
     let keys = Arc::new(KeyService::new(
-        DbKeyRepo::new(Arc::clone(&engine)),
+        DbKeyRepo::new(engine.client()),
         TestPrivateKeyRepo::default(),
         "refresh-test",
     ));
     let mut service = OAuth2Service::new(
-        DbApplicationRepo::new(Arc::clone(&engine)),
-        DbClientRepo::new(Arc::clone(&engine), Arc::clone(&keys)),
-        DbOAuth2AuthorizationCodeRepo::new(Arc::clone(&engine)),
-        DbOAuth2RefreshTokenRepo::new(Arc::clone(&engine)),
-        DbUserRepo::new(Arc::clone(&engine), PasswordConfig::default()),
-        DbOAuth2UserConsentRepo::new(Arc::clone(&engine)),
+        DbApplicationRepo::new(engine.client()),
+        DbClientRepo::new(engine.client(), Arc::clone(&keys)),
+        DbOAuth2AuthorizationCodeRepo::new(engine.client()),
+        DbOAuth2RefreshTokenRepo::new(engine.client()),
+        DbUserRepo::new(engine.client(), PasswordConfig::default()),
+        DbOAuth2UserConsentRepo::new(engine.client()),
         keys,
         OAuth2Config::default(),
     );
@@ -118,7 +118,7 @@ async fn setup() -> (Arc<TestEngine>, TestService, Client, UserPrincipal) {
         revoked_at: None,
         expires_at: None,
     };
-    crate::replica::DbReplicaSignerRepo::new(Arc::clone(&engine))
+    crate::replica::DbReplicaSignerRepo::new(engine.client())
         .enroll(&member, &signer)
         .await
         .expect("approve local node signer");
@@ -343,12 +343,12 @@ async fn states(engine: &TestEngine) -> Vec<db::Row> {
 
 fn reopened_service(engine: &Arc<TestEngine>, authority: &TestService) -> TestService {
     OAuth2Service::new(
-        DbApplicationRepo::new(Arc::clone(engine)),
-        DbClientRepo::new(Arc::clone(engine), Arc::clone(&authority.key_service)),
-        DbOAuth2AuthorizationCodeRepo::new(Arc::clone(engine)),
-        DbOAuth2RefreshTokenRepo::new(Arc::clone(engine)),
-        DbUserRepo::new(Arc::clone(engine), PasswordConfig::default()),
-        DbOAuth2UserConsentRepo::new(Arc::clone(engine)),
+        DbApplicationRepo::new(engine.client()),
+        DbClientRepo::new(engine.client(), Arc::clone(&authority.key_service)),
+        DbOAuth2AuthorizationCodeRepo::new(engine.client()),
+        DbOAuth2RefreshTokenRepo::new(engine.client()),
+        DbUserRepo::new(engine.client(), PasswordConfig::default()),
+        DbOAuth2UserConsentRepo::new(engine.client()),
         Arc::clone(&authority.key_service),
         OAuth2Config {
             ..authority.oauth_config.clone()
@@ -768,7 +768,7 @@ async fn persisted_node_binding_reopens_for_real_offline_issuance_and_rotation()
             .as_ref()
             .expect("binding survives reopen");
         assert_eq!(binding.key_id, expected_signer);
-        let peers = crate::replica::DbReplicaSignerRepo::new(Arc::clone(&engine));
+        let peers = crate::replica::DbReplicaSignerRepo::new(engine.client());
         let signers = peers
             .trusted_signers(&config.issuer, chrono::Utc::now().timestamp())
             .await
@@ -777,7 +777,7 @@ async fn persisted_node_binding_reopens_for_real_offline_issuance_and_rotation()
             member.member_id == binding.member_id && signer.key_id == binding.key_id
         }));
         let keys = Arc::new(KeyService::new(
-            DbKeyRepo::new(Arc::clone(&engine)),
+            DbKeyRepo::new(engine.client()),
             private_store.clone(),
             "refresh-test",
         ));
@@ -792,7 +792,7 @@ async fn persisted_node_binding_reopens_for_real_offline_issuance_and_rotation()
             idp_model::contract::JwkPublic::from(signing)
         );
         let missing_secret = KeyService::new(
-            DbKeyRepo::new(Arc::clone(&engine)),
+            DbKeyRepo::new(engine.client()),
             TestPrivateKeyRepo::default(),
             "refresh-test",
         );
@@ -816,12 +816,12 @@ async fn persisted_node_binding_reopens_for_real_offline_issuance_and_rotation()
             "persisted endpoint binding is still enforced"
         );
         let reopened = OAuth2Service::new(
-            DbApplicationRepo::new(Arc::clone(&engine)),
-            DbClientRepo::new(Arc::clone(&engine), Arc::clone(&keys)),
-            DbOAuth2AuthorizationCodeRepo::new(Arc::clone(&engine)),
-            DbOAuth2RefreshTokenRepo::new(Arc::clone(&engine)),
-            DbUserRepo::new(Arc::clone(&engine), PasswordConfig::default()),
-            DbOAuth2UserConsentRepo::new(Arc::clone(&engine)),
+            DbApplicationRepo::new(engine.client()),
+            DbClientRepo::new(engine.client(), Arc::clone(&keys)),
+            DbOAuth2AuthorizationCodeRepo::new(engine.client()),
+            DbOAuth2RefreshTokenRepo::new(engine.client()),
+            DbUserRepo::new(engine.client(), PasswordConfig::default()),
+            DbOAuth2UserConsentRepo::new(engine.client()),
             keys,
             config,
         );

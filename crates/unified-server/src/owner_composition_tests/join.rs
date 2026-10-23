@@ -327,7 +327,7 @@ impl ExistingSource {
         .expect("existing source Management serving");
         let idp_runtime = idp_server::build_independent_idp(
             &config,
-            owner.node_join_database(),
+            owner.node_join_database().expect("local identity owner"),
             CancellationToken::new(),
         )
         .await

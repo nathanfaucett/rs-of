@@ -387,8 +387,8 @@ async fn local_permission_http_remains_offline_and_does_not_fallback() {
             StatusCode::FORBIDDEN
         );
         let policy = ManagementService::new(
-            DbPermissionRepo::new(fixture.management.clone()),
-            DbRoleRepo::new(fixture.management.clone()),
+            DbPermissionRepo::new(fixture.management.client()),
+            DbRoleRepo::new(fixture.management.client()),
         );
         let role = policy
             .create_role(Id::nil(), "application reader", None)
@@ -476,7 +476,7 @@ async fn permission_runtime_rejects_remote_database_configuration_before_opening
     configuration.oauth2.local_signer = Some(NodeSignerBinding {
         member_id: Id::now_v7(), key_id: Id::now_v7(), endpoint_id: "deliberately-mismatched-local-endpoint".into(),
     });
-    let error = crate::build_runtime(&configuration, fixture.state.engine.clone(), None, fixture.state.transport_identity().expect("fixture transport").clone(), fixture.server.clone(), Some(management_service::LocalPermissions::new(fixture.management.clone())))
+    let error = crate::build_runtime(&configuration, fixture.state.engine.clone(), None, fixture.state.transport_identity().expect("fixture transport").clone(), fixture.server.clone(), Some(management_service::LocalPermissions::new(fixture.management.client())))
         .await.err().expect("local runtime validates the actual signer without validating unused remote configuration");
     assert_eq!(error.to_string(), "invalid input: local node signer is not approved and active");
     assert!(!directory.exists());

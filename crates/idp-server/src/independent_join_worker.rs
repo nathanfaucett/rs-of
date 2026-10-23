@@ -190,7 +190,7 @@ pub(super) async fn provision(
             .await?;
 
         import_join_history(
-            opened.node_join_database(),
+            opened.node_join_database()?,
             JoinHistoryContext::Idp,
             &approval,
             challenge["capability"]
@@ -250,7 +250,7 @@ pub(super) async fn provision(
         *runtime = Some(
             crate::build_independent_idp(
                 &runtime_config(config, control, intent, record)?,
-                opened.node_join_database(),
+                opened.node_join_database()?,
                 control.shutdown_token(),
             )
             .await?,

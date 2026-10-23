@@ -9,6 +9,7 @@ use serde::Deserialize;
 pub struct AppConfig {
     pub server: ServerConfig,
     pub data_dir: String,
+    pub identity_database: Option<db::RemoteDatabaseConfig>,
 
     pub log_level: String,
     pub api_public_uri: String,
@@ -24,6 +25,7 @@ impl Default for AppConfig {
         Self {
             server: ServerConfig::default(),
             data_dir: "data".to_string(),
+            identity_database: None,
 
             log_level: "info".to_string(),
             api_public_uri: "https://management-api.localhost:1355".to_string(),

@@ -79,9 +79,9 @@ impl SecurityProtocol {
             .map_err(io::Error::other)?;
         let protocol = Self::new(
             endpoint.server().clone(),
-            owner.node_join_database(),
+            owner.node_join_database()?,
             management,
-            owner.node_join_database(),
+            owner.node_join_database()?,
             config.oauth2.issuer.clone(),
             Some(binding),
             management_directory.join("node-bootstrap-staging"),
@@ -206,7 +206,7 @@ impl SecurityProtocol {
 
     async fn refresh_learned_membership(&self) -> io::Result<()> {
         let devices = DbDeviceRepo::new(self.management.clone());
-        let users = DbUserRepo::new(self.idp.clone(), PasswordConfig::default());
+        let users = DbUserRepo::new(self.idp.client(), PasswordConfig::default());
         let mut peers = Vec::new();
         for device in devices.list().await.map_err(denied)? {
             if devices
@@ -442,7 +442,7 @@ impl SecurityProtocol {
             .ok_or_else(|| denied("bootstrap source has no approved Device"))?;
         let (action, resource) = context.permission();
         if approval.owner_subject.is_nil()
-            || !LocalPermissions::new(self.policy.clone())
+            || !LocalPermissions::new(self.policy.client())
                 .evaluate(&PermissionEvaluationRequest {
                     request_id: Id::now_v7(),
                     subject: PermissionSubject::User {
@@ -462,7 +462,7 @@ impl SecurityProtocol {
         let owner: Id = device.owner_subject.parse().map_err(denied)?;
         if device.id != local.member_id
             || owner.is_nil()
-            || DbUserRepo::new(self.idp.clone(), PasswordConfig::default())
+            || DbUserRepo::new(self.idp.client(), PasswordConfig::default())
                 .find_user_by_id(owner)
                 .await
                 .map_err(denied)?
@@ -484,7 +484,7 @@ impl SecurityProtocol {
     ) -> io::Result<Vec<(ReplicaMembership, IdpSignerRecord)>> {
         let request = &approval.request;
         let key: Id = request.public_signer.kid.parse().map_err(denied)?;
-        let trusted = DbReplicaSignerRepo::new(self.idp.clone())
+        let trusted = DbReplicaSignerRepo::new(self.idp.client())
             .trusted_signers(&self.installation, now()?)
             .await
             .map_err(denied)?;
@@ -502,7 +502,7 @@ impl SecurityProtocol {
                 "bootstrap requires exact current enrolled member and independent signer",
             ));
         }
-        if DbUserRepo::new(self.idp.clone(), PasswordConfig::default())
+        if DbUserRepo::new(self.idp.client(), PasswordConfig::default())
             .find_user_by_id(approval.owner_subject)
             .await
             .map_err(denied)?
@@ -546,7 +546,7 @@ impl SecurityProtocol {
     ) -> io::Result<()> {
         if connection.alpn() != idp_server::BOOTSTRAP_ALPN
             || self.cancellation.is_cancelled()
-            || !Arc::ptr_eq(&self.idp, &owner.node_join_database())
+            || !Arc::ptr_eq(&self.idp, &owner.node_join_database()?)
             || owner.node_join_anchor()? != *approval
             || approval.request.installation != self.installation
             || approval.request.endpoint_id != self.server.endpoint().id().to_string()
@@ -668,7 +668,7 @@ impl SecurityProtocol {
     ) -> io::Result<()> {
         let approval = owner.node_join_anchor()?;
         if self.cancellation.is_cancelled()
-            || !Arc::ptr_eq(&self.idp, &owner.node_join_database())
+            || !Arc::ptr_eq(&self.idp, &owner.node_join_database()?)
             || approval.request.installation != self.installation
             || approval.request.endpoint_id != self.server.endpoint().id().to_string()
             || !owner.node_join_stage_recorded(NodeJoinStage::Idp)?
@@ -703,7 +703,7 @@ impl SecurityProtocol {
     async fn check_public_context_grants(&self, owner: Id) -> io::Result<()> {
         for context in [SecurityContext::Idp, SecurityContext::Device] {
             let (action, resource) = context.permission();
-            if !LocalPermissions::new(self.policy.clone())
+            if !LocalPermissions::new(self.policy.client())
                 .evaluate(&PermissionEvaluationRequest {
                     request_id: Id::now_v7(),
                     subject: PermissionSubject::User { id: owner },
@@ -742,7 +742,7 @@ impl SecurityProtocol {
         }
         let check = async {
             if self.cancellation.is_cancelled()
-                || !Arc::ptr_eq(&self.idp, &owner.node_join_database())
+                || !Arc::ptr_eq(&self.idp, &owner.node_join_database()?)
             {
                 return Err(denied("current shared owner runtime is required"));
             }
@@ -765,7 +765,7 @@ impl SecurityProtocol {
             let subject: Id = device.owner_subject.parse().map_err(denied)?;
             if device.id != binding.member_id
                 || subject.is_nil()
-                || DbUserRepo::new(self.idp.clone(), PasswordConfig::default())
+                || DbUserRepo::new(self.idp.client(), PasswordConfig::default())
                     .find_user_by_id(subject)
                     .await
                     .map_err(denied)?

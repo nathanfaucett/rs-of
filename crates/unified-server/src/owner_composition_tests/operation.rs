@@ -157,7 +157,7 @@ async fn operation_child() {
     let idp_worker = fs::read(root.join("idp.setup-host/worker.json")).expect("retained signer");
     {
         let engine = Arc::new(db::Database::open(root.join("idp/idp.redb")).expect("stopped IdP"));
-        let signers = idp_service::replica::DbReplicaSignerRepo::new(engine)
+        let signers = idp_service::replica::DbReplicaSignerRepo::new(engine.client())
             .trusted_signers(
                 &intent.issuer,
                 std::time::SystemTime::now()

@@ -1,9 +1,7 @@
-use std::sync::Arc;
-
 use chrono::{DateTime, Timelike, Utc};
 use db::{
-    Database, FromRow, FromRowError, Query, QueryColumn, QueryExpr, QueryExprValue, QueryFrom,
-    QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid, Value,
+    FromRow, FromRowError, Query, QueryColumn, QueryExpr, QueryExprValue, QueryFrom, QueryInsert,
+    QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid, Value,
 };
 use idp_model::{
     contract::CodeChallengeMethod,
@@ -36,12 +34,12 @@ const COLUMNS: [&str; 14] = [
 ];
 
 pub struct DbOAuth2AuthorizationCodeRepo {
-    engine: Arc<Database>,
+    engine: db::Client,
 }
 
 impl DbOAuth2AuthorizationCodeRepo {
     #[must_use]
-    pub const fn new(engine: Arc<Database>) -> Self {
+    pub const fn new(engine: db::Client) -> Self {
         Self { engine }
     }
 
@@ -68,7 +66,6 @@ impl DbOAuth2AuthorizationCodeRepo {
     async fn rows(&self, query: Query) -> RepoResult<Vec<AuthorizationCodeRow>> {
         let mut results = self
             .engine
-            .client()
             .execute(vec![Statement::Query(query)])
             .await
             .map_err(db_error)?;
@@ -129,7 +126,6 @@ impl OAuth2AuthorizationCodeRepo for DbOAuth2AuthorizationCodeRepo {
             updated_at: now,
         };
         self.engine
-            .client()
             .execute(vec![Statement::Query(Query::Insert(QueryInsert {
                 table: TABLE.into(),
                 row: AuthorizationCodeRow::from(&code).into(),
@@ -167,7 +163,6 @@ impl OAuth2AuthorizationCodeRepo for DbOAuth2AuthorizationCodeRepo {
         }
         let mut results = self
             .engine
-            .client()
             .execute(vec![Statement::Query(Query::Update(QueryUpdate {
                 from: from(),
                 assignments: vec![
@@ -392,7 +387,7 @@ mod tests {
     async fn concurrent_consumers_have_one_winner() {
         let engine = Arc::new(db::Database::in_memory());
         up(&engine).await.unwrap();
-        let repo = DbOAuth2AuthorizationCodeRepo::new(engine);
+        let repo = DbOAuth2AuthorizationCodeRepo::new(engine.client());
         let code = repo
             .create_authorization_code(
                 "client".into(),
@@ -433,7 +428,7 @@ mod tests {
         let code = {
             let engine = Arc::new(db::Database::open(&path).expect("open code store"));
             up(&engine).await.expect("initialize local code store");
-            let repo = DbOAuth2AuthorizationCodeRepo::new(engine);
+            let repo = DbOAuth2AuthorizationCodeRepo::new(engine.client());
             let code = repo
                 .create_authorization_code(
                     "client".into(),
@@ -455,7 +450,7 @@ mod tests {
         };
         {
             let engine = Arc::new(db::Database::open(&path).expect("reopen local code store"));
-            let repo = DbOAuth2AuthorizationCodeRepo::new(engine);
+            let repo = DbOAuth2AuthorizationCodeRepo::new(engine.client());
             assert!(
                 repo.find_authorization_code_by_code(&code.code)
                     .await

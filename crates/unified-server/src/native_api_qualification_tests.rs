@@ -111,7 +111,7 @@ async fn bundled_storage_direct_idp_checks_current_bearer_registration_and_signe
             .introspect(&token)
             .await
             .expect("current registration restored");
-        idp_service::replica::DbReplicaSignerRepo::new(fixture.idp.clone())
+        idp_service::replica::DbReplicaSignerRepo::new(fixture.idp.client())
             .revoke(fixture.binding.member_id, &fixture.issuer, now)
             .await
             .expect("learn signer revocation");

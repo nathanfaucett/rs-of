@@ -78,8 +78,8 @@ impl Fixture {
                 enroll(idp.clone(), member, endpoint, key).await;
             }
             ManagementService::new(
-                DbPermissionRepo::new(management.clone()),
-                DbRoleRepo::new(management.clone()),
+                DbPermissionRepo::new(management.client()),
+                DbRoleRepo::new(management.client()),
             )
             .provision_initial_administrator(
                 actor,

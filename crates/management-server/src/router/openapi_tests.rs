@@ -6,9 +6,14 @@ async fn management_serves_only_permission_contract() {
     let identity = Arc::new(db::Database::in_memory());
     let control =
         Arc::new(device_service::HostedControlPlane::new("https://idp.example").expect("control"));
-    let router = crate::build_router(identity, "https://node.example", "/management", control)
-        .await
-        .expect("router");
+    let router = crate::build_router(
+        identity.client(),
+        "https://node.example",
+        "/management",
+        control,
+    )
+    .await
+    .expect("router");
     let response = router
         .oneshot(
             Request::get("/management/openapi.json")

@@ -29,6 +29,16 @@ pub fn prepare_setup(
     config: &AppConfig,
     address: SocketAddr,
 ) -> io::Result<Option<IndependentSetupHost>> {
+    if let Some(remote) = &config.identity_database {
+        remote.validate()?;
+        if Path::new(&config.data_dir).join("idp.redb").try_exists()? {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "remote identity consumer cannot also own idp.redb",
+            ));
+        }
+        return Ok(None);
+    }
     IndependentSetupHost::prepare(
         "idp",
         Path::new(&config.data_dir),

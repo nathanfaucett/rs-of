@@ -44,13 +44,20 @@ type NativeOAuth2Service<P> = OAuth2Service<
 
 pub struct OwnerProvisioner<P: PrivateKeyRepo + Send + Sync = PrivateKeyKeyringRepo> {
     pub(crate) oauth2: NativeOAuth2Service<P>,
-    pub(crate) engine: Arc<Database>,
+    pub(crate) engine: db::Client,
+    pub(crate) database: Option<Arc<Database>>,
     pub(crate) key_namespace: String,
     pub(crate) data_dir: PathBuf,
 }
 
 impl OwnerProvisioner {
     pub fn from_database(config: &AppConfig, engine: Arc<Database>) -> io::Result<Self> {
+        if config.identity_database.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "injected identity owner and remote SQL are mutually exclusive",
+            ));
+        }
         Ok(Self::with_database(
             config,
             engine,
@@ -69,6 +76,11 @@ impl OwnerProvisioner {
 
 impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
     pub async fn open_with_private_keys(config: &AppConfig, private_keys: P) -> io::Result<Self> {
+        if config.identity_database.is_some() {
+            let client = crate::identity_client(config).await?;
+            fs::create_dir_all(&config.data_dir)?;
+            return Ok(Self::with_client(config, client, None, private_keys));
+        }
         let data_dir = Path::new(&config.data_dir);
         fs::create_dir_all(data_dir)?;
         let engine = Arc::new(Database::open(data_dir.join("idp.redb")).map_err(io::Error::other)?);
@@ -79,24 +91,34 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
     }
 
     fn with_database(config: &AppConfig, engine: Arc<Database>, private_keys: P) -> Self {
+        Self::with_client(config, engine.client(), Some(engine), private_keys)
+    }
+
+    fn with_client(
+        config: &AppConfig,
+        engine: db::Client,
+        database: Option<Arc<Database>>,
+        private_keys: P,
+    ) -> Self {
         let keys = Arc::new(KeyService::new(
-            DbKeyRepo::new(Arc::clone(&engine)),
+            DbKeyRepo::new(engine.clone()),
             private_keys,
             config.key_namespace.clone(),
         ));
         let oauth2 = OAuth2Service::new(
-            DbApplicationRepo::new(Arc::clone(&engine)),
-            DbClientRepo::new(Arc::clone(&engine), Arc::clone(&keys)),
-            DbOAuth2AuthorizationCodeRepo::new(Arc::clone(&engine)),
-            DbOAuth2RefreshTokenRepo::new(Arc::clone(&engine)),
-            DbUserRepo::new(Arc::clone(&engine), config.password.clone()),
-            DbOAuth2UserConsentRepo::new(Arc::clone(&engine)),
+            DbApplicationRepo::new(engine.clone()),
+            DbClientRepo::new(engine.clone(), Arc::clone(&keys)),
+            DbOAuth2AuthorizationCodeRepo::new(engine.clone()),
+            DbOAuth2RefreshTokenRepo::new(engine.clone()),
+            DbUserRepo::new(engine.clone(), config.password.clone()),
+            DbOAuth2UserConsentRepo::new(engine.clone()),
             keys,
             config.oauth2.clone(),
         );
         Self {
             oauth2,
             engine,
+            database,
             key_namespace: config.key_namespace.clone(),
             data_dir: PathBuf::from(&config.data_dir),
         }

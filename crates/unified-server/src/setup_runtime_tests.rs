@@ -181,8 +181,8 @@ pub(crate) async fn status_tracks_revocation_in_existing_runtime(
 
     let policy = runtime.full_node_test_management();
     let service = management_service::ManagementService::new(
-        management_service::replica::DbPermissionRepo::new(policy.clone()),
-        management_service::replica::DbRoleRepo::new(policy),
+        management_service::replica::DbPermissionRepo::new(policy.client()),
+        management_service::replica::DbRoleRepo::new(policy.client()),
     );
     let application = idp_model::contract::INSTALLATION_POLICY_ID;
     let permission = service

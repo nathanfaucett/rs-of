@@ -52,17 +52,17 @@ async fn public_verifier(source: &TestEngine) -> (Arc<TestEngine>, TestService) 
         }
     }
     let keys = Arc::new(KeyService::new(
-        DbKeyRepo::new(Arc::clone(&engine)),
+        DbKeyRepo::new(engine.client()),
         TestPrivateKeyRepo::default(),
         "independent-node",
     ));
     let service = OAuth2Service::new(
-        DbApplicationRepo::new(Arc::clone(&engine)),
-        DbClientRepo::new(Arc::clone(&engine), Arc::clone(&keys)),
-        DbOAuth2AuthorizationCodeRepo::new(Arc::clone(&engine)),
-        DbOAuth2RefreshTokenRepo::new(Arc::clone(&engine)),
-        DbUserRepo::new(Arc::clone(&engine), PasswordConfig::default()),
-        DbOAuth2UserConsentRepo::new(Arc::clone(&engine)),
+        DbApplicationRepo::new(engine.client()),
+        DbClientRepo::new(engine.client(), Arc::clone(&keys)),
+        DbOAuth2AuthorizationCodeRepo::new(engine.client()),
+        DbOAuth2RefreshTokenRepo::new(engine.client()),
+        DbUserRepo::new(engine.client(), PasswordConfig::default()),
+        DbOAuth2UserConsentRepo::new(engine.client()),
         keys,
         OAuth2Config::default(),
     );
@@ -142,7 +142,7 @@ async fn approve_independent_signer(engine: &Arc<TestEngine>, service: &mut Test
         revoked_at: None,
         expires_at: None,
     };
-    crate::replica::DbReplicaSignerRepo::new(Arc::clone(engine))
+    crate::replica::DbReplicaSignerRepo::new(engine.client())
         .enroll(&member, &signer)
         .await
         .expect("approve public signer fixture");
@@ -431,7 +431,7 @@ async fn public_keys_survive_native_reopen_without_secret_store() {
         let engine = Arc::new(db::Database::open(&path).expect("open temporary database"));
         up(&engine).await.expect("initialize current schema");
         let keys = KeyService::new(
-            DbKeyRepo::new(engine),
+            DbKeyRepo::new(engine.client()),
             TestPrivateKeyRepo::default(),
             "native-signer",
         );
@@ -458,7 +458,7 @@ async fn public_keys_survive_native_reopen_without_secret_store() {
     {
         let engine =
             Arc::new(db::Database::open(&path).expect("reopen database without private store"));
-        let repo = DbKeyRepo::new(engine);
+        let repo = DbKeyRepo::new(engine.client());
         let key = repo
             .find_by_id(id)
             .await

@@ -320,7 +320,7 @@ async fn permission(engine: &Arc<Database>, owner: Id, action: IdentityAction) -
         action,
         target: PermissionTarget::Installation { resource },
     };
-    if LocalPermissions::new(engine.clone())
+    if LocalPermissions::new(engine.client())
         .evaluate(&request)
         .await
         .map_err(|_| denied())?

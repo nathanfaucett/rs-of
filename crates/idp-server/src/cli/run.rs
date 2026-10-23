@@ -13,7 +13,7 @@ use clap::Parser;
 #[cfg(feature = "completions")]
 use cli::Shell;
 use cli::{CliArgs, shutdown_signal};
-use db::Database;
+
 use env_logger::Env;
 
 use tokio::{select, spawn, time::sleep};
@@ -100,13 +100,8 @@ pub async fn run() -> io::Result<()> {
     #[cfg(unix)]
     let app_config = Arc::new(crate::startup::load_config(Path::new(&args.config))?);
     #[cfg(not(unix))]
-    let app_config = Arc::new(match AppConfig::try_from(Path::new(&args.config)) {
-        Ok(app_config) => app_config,
-        Err(error) => {
-            eprintln!("failed to load config {:?}: {error}", args.config);
-            AppConfig::default()
-        }
-    });
+    let app_config =
+        Arc::new(AppConfig::try_from(Path::new(&args.config)).map_err(io::Error::other)?);
     env_logger::Builder::from_env(
         Env::default().default_filter_or(format!("{},automerge=warn", app_config.log_level)),
     )
@@ -142,14 +137,7 @@ pub async fn run() -> io::Result<()> {
         }
     }
 
-    std::fs::create_dir_all(&app_config.data_dir)?;
-    let engine = Arc::new(
-        Database::open(Path::new(&app_config.data_dir).join("idp.redb"))
-            .map_err(io::Error::other)?,
-    );
-    idp_model::replica::up(&engine)
-        .await
-        .map_err(io::Error::other)?;
+    let engine = crate::runtime::identity_client(&app_config).await?;
     let runtime = build_oauth_runtime(&app_config, engine).await?;
 
     let router = runtime

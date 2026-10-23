@@ -470,7 +470,7 @@ async fn independent_transfer_https_child() {
         )
         .await;
         let idp_engine = Arc::new(Database::open(owners.join("idp/idp.redb")).expect("IdP owner"));
-        let users = DbUserRepo::new(idp_engine.clone(), PasswordConfig::default());
+        let users = DbUserRepo::new(idp_engine.client(), PasswordConfig::default());
         let next = users
             .find_user_by_username_or_email("app-administrator")
             .await
@@ -528,7 +528,7 @@ async fn independent_transfer_https_child() {
         config.server.prefix = Some("/idp".into());
         let idp_runtime = idp_server::build_runtime(
             &config,
-            idp_engine.clone(),
+            idp_engine.client(),
             None,
             Arc::new(
                 device_service::device_identity_from_server(&server, secret)

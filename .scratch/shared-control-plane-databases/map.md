@@ -7,16 +7,25 @@ The goal is to split the control-plane into two distinct domains: Identity (IdP 
 ## Decisions-so-far
 
 - Split the control-plane into two databases: `Identity` (Users, Credentials, Roles, Permissions) and `Device` (Devices, Approvals, Policies).
-- Use in-process injection of `Arc<Database>` (router state) for the Unified Host to avoid gRPC overhead.
+- Keep `Arc<Database>` with local owners for migration/sync/lifecycle; inject its cloneable `db::Client` into identity repositories and query state. The Unified Host still shares one local identity owner without a gRPC hop.
 - Use `ofdb-sql` gRPC as the adapter for out-of-process operation.
 - Management becomes a stateless API for roles and permissions over the shared identity database.
 - A new `Device` server becomes the authority for device lifecycle and replication policy.
 - [Ticket 01](issues/01-shared-identity-database.md) resolved for in-process identity sharing: Unified IdP and Management use one identity handle, Device migrations stay isolated, and bootstrap transfers identity policy separately from Device history (security/bootstrap protocol v2).
 - Focused acceptance passed: HTTP role assignment → IdP allow → reopen → revoke → deny, identity migration isolation, and joined Node offline reopen. The feature-enabled Device migration rerun timed out compiling; broader historical suite failures remain unqualified. See ticket 01 Answer.
-- Remote identity configuration, query adaptation, and separate-process acceptance are deferred to [ticket 03](issues/03-remote-identity-database.md); ticket 01 does not claim remote support. Device-server extraction remains ticket 02.
-
+- [Ticket 03](issues/03-remote-identity-database.md) resolved: existing identity repositories accept `db::Client` locally/remotely; validated standalone startup attaches to shared SQL, and the `identity-database` owner binary runs domain migrations. Required remote conflict/transaction parity is committed separately in `ofdb` on `integration/shared-control-plane-databases` at `59ac5a5`.
+- Ticket03 external-process HTTP acceptance passed: Management assignment → IdP allow → consumer reset/restart with rows preserved → revocation → deny, and SQL-owner outage fails closed. In-process Unified regression, all 11 db feature combinations, 12 SQL remote/conflict tests, focused compilation and affected-library Clippy passed. See the ticket Answer for exact commands, merge-sensitive files and limits.
+- Remote consumers attach to an initialized Installation and retain IdP-local signing material. Remote independent Create/Join wizard, remote Device implementation, default-stack/native-provider deployment, and full workspace/CRAP qualification are not claimed.
 - [Ticket 02](issues/02-device-server-with-its-own-database.md) resolved on `implement/shared-control-plane-02`: extracted `device-service`/`device-server` and Device SDKs, isolated Device schema/history, reduced Management HTTP to identity policy administration, and composed `/device` with a shared Device authority for Storage admission. Device HTTP approval/restriction → Storage trust → revocation denial and identity-schema isolation passed, as did offline learned-revocation admission and the shared identity regression.
 - Ticket02 focused validation includes 56 Device-service tests, 33 Device/Management server tests, 15 Storage authority/client tests, Unified acceptance/composition, native Tauri compilation, 43 generated SDK/generator tests, and 106 frontend tests. The Device feature matrix stopped on an incomplete-catalog conflict-import fixture, CRAP compilation timed out, and full app type-checking lacks generated/workspace artifacts; see its Answer for exact commands and limits. Remote Device SQL startup remains ticket04.
+
+## Integration of tickets 02 and 03
+
+- Merged `implement/shared-control-plane-02` (`6b6bdc692`) then `implement/shared-control-plane-03` (`25a0f0f5a`) onto the original integration checkout; sibling `ofdb` remains at `59ac5a5`.
+- Management takes the identity `db::Client` and has no Device routes, migrations, database opener, or Create/Join wizard. Standalone serving requires remote identity configuration. Its stateless consumer reset does not contact or delete shared databases and refuses retained owner data rather than interpreting old Device inventories. Device retains its separate local authority/database; ticket04 is untouched.
+- Merge fixes adapt renamed Device identity-policy queries, retain fallible local-owner access, remove the obsolete Management setup/Device fixture from remote acceptance, and drain shared-identity test HTTP connections before database reopen.
+- Passed: four-server library/binary compile; Unified shared identity HTTP acceptance (58.64s), Device authority/isolation/revocation acceptance (3.91s), remote SQL/IdP/Management process acceptance including consumer restart/reset and owner-outage denial (67.66s); two composition tests; 22 Device unit tests and two hosted-join tests; Management unit suites including standalone no-fallback, stateless reset preservation and CLI coverage; strict no-deps Management/Device library Clippy; Rust formatting and whitespace checks. Cargo used `CARGO_INCREMENTAL=0`, `RUST_MIN_STACK=67108864`; the first 180s Unified compilation timed out, and the longer retry passed.
+- Preexisting ticket02 failures remain: IdP `tests/bootstrap_settings.rs` uses removed `ManagementBootstrapSettings`/`management`; dependency-rule check rejects `device-server -> management-server`; Unified strict Clippy flags the nested admission `if` at `runtime.rs:82`. Full workspace/powerset/CRAP and native deployment qualification were not run for this merge. No broader completion is claimed.
 
 ## Fog
 

@@ -25,7 +25,7 @@ fn token(value: &str, client_id: Id, user_id: Id) -> OAuth2RefreshToken {
 async fn concurrent_refresh_rotations_have_one_winner() {
     let engine = Arc::new(db::Database::in_memory());
     up(&engine).await.expect("initialize IdP schema");
-    let repo = DbOAuth2RefreshTokenRepo::new(Arc::clone(&engine));
+    let repo = DbOAuth2RefreshTokenRepo::new(engine.client());
     let client = Id::now_v7();
     let user = Id::now_v7();
     repo.issue_refresh_token(token("old", client, user), None)
@@ -63,7 +63,7 @@ async fn concurrent_refresh_rotations_have_one_winner() {
 async fn refresh_rotation_rejects_expired_revoked_and_wrong_bindings() {
     let engine = Arc::new(db::Database::in_memory());
     up(&engine).await.expect("initialize IdP schema");
-    let repo = DbOAuth2RefreshTokenRepo::new(Arc::clone(&engine));
+    let repo = DbOAuth2RefreshTokenRepo::new(engine.client());
     let client = Id::now_v7();
     let user = Id::now_v7();
     repo.issue_refresh_token(token("valid", client, user), None)
@@ -125,7 +125,7 @@ async fn refresh_rotation_rejects_expired_revoked_and_wrong_bindings() {
 async fn failed_refresh_replacement_rolls_back_consumption() {
     let engine = Arc::new(db::Database::in_memory());
     up(&engine).await.expect("initialize IdP schema");
-    let repo = DbOAuth2RefreshTokenRepo::new(Arc::clone(&engine));
+    let repo = DbOAuth2RefreshTokenRepo::new(engine.client());
     let client = Id::now_v7();
     let user = Id::now_v7();
     repo.issue_refresh_token(token("old", client, user), None)
@@ -152,7 +152,7 @@ async fn refresh_rotation_and_revocation_survive_database_reopen() {
     {
         let engine = Arc::new(Database::open(&path).expect("open temporary database"));
         up(&engine).await.expect("initialize IdP schema");
-        let repo = DbOAuth2RefreshTokenRepo::new(Arc::clone(&engine));
+        let repo = DbOAuth2RefreshTokenRepo::new(engine.client());
         repo.issue_refresh_token(token("old", client, user), None)
             .await
             .expect("persist original");
@@ -168,7 +168,7 @@ async fn refresh_rotation_and_revocation_survive_database_reopen() {
     }
     {
         let engine = Arc::new(Database::open(&path).expect("reopen database"));
-        let repo = DbOAuth2RefreshTokenRepo::new(Arc::clone(&engine));
+        let repo = DbOAuth2RefreshTokenRepo::new(engine.client());
         assert!(
             repo.issue_refresh_token(token("reuse", client, user), Some("old"))
                 .await

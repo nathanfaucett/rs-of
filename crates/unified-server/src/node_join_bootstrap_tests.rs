@@ -82,14 +82,17 @@ async fn issue_local_token(
     issuing.server.prefix = Some("/idp".into());
     let runtime = idp_server::build_runtime(
         &issuing,
-        owner.node_join_database(),
+        owner
+            .node_join_database()
+            .expect("local identity owner")
+            .client(),
         Some(Arc::new(DbDeviceRepo::new(policy.clone()))),
         Arc::new(
             device_service::device_identity_from_server(server, secret.clone())
                 .expect("retained local endpoint identity"),
         ),
         server.clone(),
-        Some(management_service::LocalPermissions::new(policy)),
+        Some(management_service::LocalPermissions::new(policy.client())),
     )
     .await
     .expect("production independent local issuance runtime");
@@ -143,8 +146,8 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
     let source_policy =
         Arc::new(Database::open(source_root.join("device/devices.redb")).expect("source policy"));
     let policy = ManagementService::new(
-        DbPermissionRepo::new(source_policy.clone()),
-        DbRoleRepo::new(source_policy.clone()),
+        DbPermissionRepo::new(source_policy.client()),
+        DbRoleRepo::new(source_policy.client()),
     );
     let role = policy
         .create_role(
@@ -264,7 +267,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
     source_config.server.prefix = Some("/idp".into());
     let runtime = idp_server::build_runtime(
         &source_config,
-        source_idp.clone(),
+        source_idp.client(),
         Some(Arc::new(DbDeviceRepo::new(source_policy.clone()))),
         Arc::new(
             device_service::device_identity_from_server(&source, source_secret)
@@ -272,7 +275,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
         ),
         source.clone(),
         Some(management_service::LocalPermissions::new(
-            source_policy.clone(),
+            source_policy.client(),
         )),
     )
     .await
@@ -382,7 +385,9 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
         provisioner.verify_node_signer(&binding).await.is_err(),
         "receipt is not local signer trust"
     );
-    let joining_idp = provisioner.node_join_database();
+    let joining_idp = provisioner
+        .node_join_database()
+        .expect("local identity owner");
     let joining_policy =
         Arc::new(Database::open(joining_root.join("devices.redb")).expect("joining policy owner"));
     device_service::replica::up(&joining_policy)
@@ -426,7 +431,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
         );
     }
     assert!(
-        DbReplicaSignerRepo::new(joining_idp.clone())
+        DbReplicaSignerRepo::new(joining_idp.client())
             .trusted_signers(&issuer, i64::MAX)
             .await
             .expect("local trust remains empty")
@@ -510,7 +515,9 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
         .prepare_setup_client_slots(&[local_client])
         .await
         .expect("partial restart retains exact preparation");
-    let joining_idp = provisioner.node_join_database();
+    let joining_idp = provisioner
+        .node_join_database()
+        .expect("local identity owner");
     let protocol = SecurityProtocol::new(
         joining.clone(),
         joining_idp.clone(),
@@ -652,7 +659,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
             .expect("source changes approved Device name")
             .expect("current Device");
         assert!(
-            DbReplicaSignerRepo::new(source_idp.clone())
+            DbReplicaSignerRepo::new(source_idp.client())
                 .trusted_signers(&issuer, i64::MAX)
                 .await
                 .expect("unchanged exact signing trust")
@@ -673,7 +680,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
             .await
             .expect("restore exact approved Device name")
             .expect("current Device");
-        DbReplicaSignerRepo::new(source_idp.clone())
+        DbReplicaSignerRepo::new(source_idp.client())
             .revoke(binding.member_id, &issuer, 10)
             .await
             .expect("source learns joined membership revocation");
@@ -734,9 +741,13 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
         Arc::new(Database::open(joining_root.join("devices.redb")).expect("offline policy reopen"));
     let offline = SecurityProtocol::new(
         restarted.clone(),
-        provisioner.node_join_database(),
+        provisioner
+            .node_join_database()
+            .expect("local identity owner"),
         reopened_policy.clone(),
-        provisioner.node_join_database(),
+        provisioner
+            .node_join_database()
+            .expect("local identity owner"),
         issuer.clone(),
         Some(binding.clone()),
         joining_root.join("security-staging"),
@@ -775,10 +786,15 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
             .expect("imported trust and retained private signer work offline"),
         request.public_signer
     );
-    DbReplicaSignerRepo::new(provisioner.node_join_database())
-        .revoke(binding.member_id, &issuer, 11)
-        .await
-        .expect("locally learned signer/member revocation");
+    DbReplicaSignerRepo::new(
+        provisioner
+            .node_join_database()
+            .expect("local identity owner")
+            .client(),
+    )
+    .revoke(binding.member_id, &issuer, 11)
+    .await
+    .expect("locally learned signer/member revocation");
     eprintln!(
         "bootstrap offline issuance and local revocation: {:?}",
         started.elapsed()

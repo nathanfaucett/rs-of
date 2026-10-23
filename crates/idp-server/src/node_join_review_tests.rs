@@ -22,8 +22,8 @@ use crate::{
 
 async fn authorize_join(fixture: &ApprovalFixture) -> String {
     let service = ManagementService::new(
-        DbPermissionRepo::new(fixture.management.clone()),
-        DbRoleRepo::new(fixture.management.clone()),
+        DbPermissionRepo::new(fixture.management.client()),
+        DbRoleRepo::new(fixture.management.client()),
     );
     let role = service
         .create_role(INSTALLATION_POLICY_ID, "Join review approver", None)
@@ -115,7 +115,7 @@ async fn node_join_oversized_signed_reply_rejects_before_any_enrollment_mutation
             > limit,
         "signed reply exceeds that same pairing limit"
     );
-    fixture.state.engine.client().translate_and_execute(
+    fixture.state.engine.translate_and_execute(
         "CREATE TABLE IF NOT EXISTS local_node_join_intents (id UUID PRIMARY KEY, binding TEXT NOT NULL)", &SqlTranslator,
     ).await.expect("empty local intent fixture");
     let bearer = authorize_join(&fixture).await;
@@ -138,7 +138,7 @@ async fn node_join_oversized_signed_reply_rejects_before_any_enrollment_mutation
         .await
         .expect_err("oversized prospective reply must reject");
     assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
-    let results = fixture.state.engine.client().translate_and_execute(&format!(
+    let results = fixture.state.engine.translate_and_execute(&format!(
         "SELECT id FROM local_node_join_intents; SELECT id FROM idp_replica_members WHERE member_id = CAST('{}' AS UUID); SELECT id FROM idp_replica_signers WHERE key_id = CAST('{}' AS UUID)",
         request.member_id, request.public_signer.kid,
     ), &SqlTranslator).await.expect("public owner persistence evidence");
@@ -321,7 +321,7 @@ async fn node_join_owner_interleaving_rejection_has_no_active_trust_after_reopen
     let engine =
         Arc::new(Database::open(root.join("idp.redb")).expect("offline native owner reopen"));
     assert!(
-        !DbReplicaSignerRepo::new(engine.clone())
+        !DbReplicaSignerRepo::new(engine.client())
             .trusted_signers(&issuer, i64::MAX)
             .await
             .expect("persisted trust")

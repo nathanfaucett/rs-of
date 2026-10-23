@@ -64,8 +64,8 @@ async fn probe() {
                 .expect("stopped native Management owner"),
         );
         let service = ManagementService::new(
-            DbPermissionRepo::new(engine.clone()),
-            DbRoleRepo::new(engine),
+            DbPermissionRepo::new(engine.client()),
+            DbRoleRepo::new(engine.client()),
         );
         for action in [
             IdentityAction::DeviceRestrictionsRead,

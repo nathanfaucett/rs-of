@@ -177,11 +177,11 @@ async fn independent_permission_management_https_child() {
         let idp_engine =
             Arc::new(Database::open(owners.join("idp/idp.redb")).expect("IdP owner store"));
         let keys = Arc::new(KeyService::new(
-            DbKeyRepo::new(idp_engine.clone()),
+            DbKeyRepo::new(idp_engine.client()),
             PrivateKeyKeyringRepo::new(&issuer).expect("existing isolated fixture provider"),
             "lidp".to_owned(),
         ));
-        let clients = DbClientRepo::new(idp_engine.clone(), keys);
+        let clients = DbClientRepo::new(idp_engine.client(), keys);
         for client_id in ["idp-evaluator", "untrusted-evaluator"] {
             let mut registration = clients
                 .find_client_by_client_id(client_id)
@@ -200,7 +200,7 @@ async fn independent_permission_management_https_child() {
             .expect("evaluator subject lookup")
             .expect("evaluator Client")
             .id;
-        let applications = DbApplicationRepo::new(idp_engine.clone());
+        let applications = DbApplicationRepo::new(idp_engine.client());
         let application = applications
             .find_by_uri("https://example.test/unified")
             .await
@@ -246,7 +246,7 @@ async fn independent_permission_management_https_child() {
         config.server.prefix = Some("/idp".into());
         let runtime = idp_server::build_runtime(
             &config,
-            idp_engine.clone(),
+            idp_engine.client(),
             None,
             Arc::new(
                 device_service::device_identity_from_server(&server, secret)
@@ -324,8 +324,8 @@ async fn independent_permission_management_https_child() {
             StatusCode::FORBIDDEN
         );
         let policy = ManagementService::new(
-            DbPermissionRepo::new(device_engine.clone()),
-            DbRoleRepo::new(device_engine.clone()),
+            DbPermissionRepo::new(device_engine.client()),
+            DbRoleRepo::new(device_engine.client()),
         );
         let role = policy
             .create_role(Id::nil(), "independent application reader", None)

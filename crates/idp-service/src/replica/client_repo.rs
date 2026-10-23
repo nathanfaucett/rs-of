@@ -2,9 +2,8 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Timelike, Utc};
 use db::{
-    Database, FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue,
-    QueryFrom, QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid,
-    Value,
+    FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue, QueryFrom,
+    QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid, Value,
 };
 use idp_model::{
     contract::{
@@ -53,7 +52,7 @@ pub struct DbClientRepo<P = crate::repo::PrivateKeyKeyringRepo>
 where
     P: PrivateKeyRepo + Send + Sync,
 {
-    engine: Arc<Database>,
+    engine: db::Client,
     key_service: Arc<KeyService<DbKeyRepo, P>>,
 }
 
@@ -62,7 +61,7 @@ where
     P: PrivateKeyRepo + Send + Sync,
 {
     #[must_use]
-    pub const fn new(engine: Arc<Database>, key_service: Arc<KeyService<DbKeyRepo, P>>) -> Self {
+    pub const fn new(engine: db::Client, key_service: Arc<KeyService<DbKeyRepo, P>>) -> Self {
         Self {
             engine,
             key_service,
@@ -138,7 +137,7 @@ where
         let revision = Id::now_v7();
         let mut metadata = ClientRow::from(&client);
         metadata.credential_id = Some(revision);
-        let mut transaction = self.engine.client().transaction().await.map_err(db_error)?;
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         transaction
             .execute(vec![
                 Statement::Query(Query::Insert(QueryInsert {
@@ -183,7 +182,6 @@ where
         });
         let mut results = self
             .engine
-            .client()
             .execute(vec![Statement::Query(select(predicate))])
             .await
             .map_err(db_error)?;
@@ -207,7 +205,6 @@ where
             let key = Row::new(vec![Value::Uuid(client.id)]);
             if !self
                 .engine
-                .client()
                 .row_conflicts("local_client_credentials", &key)
                 .await
                 .map_err(db_error)?
@@ -217,7 +214,7 @@ where
                     "conflicted local client credential".into(),
                 ));
             }
-            let result = self.engine.client().translate_and_execute(
+            let result = self.engine.translate_and_execute(
                 &format!("SELECT secret_hash, credential_id FROM local_client_credentials WHERE client_id = CAST('{}' AS UUID)", client.id),
                 &db::SqlTranslator,
             ).await.map_err(db_error)?;
@@ -247,7 +244,6 @@ where
     async fn application_id(&self, registration: &ClientRegistration) -> RepoResult<Id> {
         let mut results = self
             .engine
-            .client()
             .execute(vec![Statement::Query(Query::Select(QuerySelect {
                 from: QueryFrom {
                     table: "applications".into(),
@@ -284,7 +280,6 @@ where
             .expect("zero nanoseconds is valid");
         let id = Id::now_v7();
         self.engine
-            .client()
             .execute(vec![Statement::Query(Query::Insert(QueryInsert {
                 table: "applications".into(),
                 row: Row::new(vec![
@@ -379,7 +374,7 @@ where
         let updated_at = Utc::now()
             .with_nanosecond(0)
             .expect("zero nanoseconds is valid");
-        let mut transaction = self.engine.client().transaction().await.map_err(db_error)?;
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         for table in [TABLE, "local_client_credentials"] {
             if !transaction
                 .row_conflicts(table, &Row::new(vec![Value::Uuid(client.id)]))
@@ -476,7 +471,7 @@ where
             .find_client_by_client_id(client_id)
             .await?
             .ok_or_else(|| RepoError::InvalidInput("client not found".into()))?;
-        let mut transaction = self.engine.client().transaction().await.map_err(db_error)?;
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         transaction
             .execute(vec![
                 Statement::Query(Query::Delete(QueryDelete {
@@ -899,6 +894,9 @@ fn select(predicate: Option<QueryExpr>) -> Query {
 }
 
 #[cfg(test)]
+use db::Database;
+
+#[cfg(test)]
 mod tests {
     use std::{
         collections::HashMap,
@@ -995,11 +993,11 @@ mod tests {
             let database = Arc::new(Database::open(&path).expect("open local identity"));
             up(&database).await.expect("initialize fresh schema");
             let keys = Arc::new(KeyService::new(
-                DbKeyRepo::new(Arc::clone(&database)),
+                DbKeyRepo::new(database.client()),
                 TestPrivateKeyRepo::default(),
                 "local-client",
             ));
-            let repo = DbClientRepo::new(database, keys);
+            let repo = DbClientRepo::new(database.client(), keys);
             id = repo
                 .create_client(registration(ClientType::Confidential, Some("local-secret")))
                 .await
@@ -1009,11 +1007,11 @@ mod tests {
         {
             let database = Arc::new(Database::open(&path).expect("reopen identity offline"));
             let keys = Arc::new(KeyService::new(
-                DbKeyRepo::new(Arc::clone(&database)),
+                DbKeyRepo::new(database.client()),
                 TestPrivateKeyRepo::default(),
                 "local-client",
             ));
-            let repo = DbClientRepo::new(Arc::clone(&database), keys);
+            let repo = DbClientRepo::new(database.client(), keys);
             let client = repo
                 .find_client_by_id(id)
                 .await
@@ -1072,11 +1070,11 @@ mod tests {
             .await
             .expect("make local credential storage unavailable");
         let keys = Arc::new(KeyService::new(
-            DbKeyRepo::new(Arc::clone(&database)),
+            DbKeyRepo::new(database.client()),
             TestPrivateKeyRepo::default(),
             "local-client",
         ));
-        let repo = DbClientRepo::new(Arc::clone(&database), keys);
+        let repo = DbClientRepo::new(database.client(), keys);
         assert!(
             repo.create_client(registration(ClientType::Confidential, Some("local-secret")))
                 .await
@@ -1095,17 +1093,17 @@ mod tests {
         let engine = Arc::new(db::Database::in_memory());
         up(&engine).await.expect("initialize current IdP schema");
         let key_service = Arc::new(KeyService::new(
-            DbKeyRepo::new(Arc::clone(&engine)),
+            DbKeyRepo::new(engine.client()),
             TestPrivateKeyRepo::default(),
             "test",
         ));
         let service = OAuth2Service::new(
-            DbApplicationRepo::new(Arc::clone(&engine)),
-            DbClientRepo::new(Arc::clone(&engine), Arc::clone(&key_service)),
-            DbOAuth2AuthorizationCodeRepo::new(Arc::clone(&engine)),
-            DbOAuth2RefreshTokenRepo::new(Arc::clone(&engine)),
-            DbUserRepo::new(Arc::clone(&engine), PasswordConfig::default()),
-            DbOAuth2UserConsentRepo::new(Arc::clone(&engine)),
+            DbApplicationRepo::new(engine.client()),
+            DbClientRepo::new(engine.client(), Arc::clone(&key_service)),
+            DbOAuth2AuthorizationCodeRepo::new(engine.client()),
+            DbOAuth2RefreshTokenRepo::new(engine.client()),
+            DbUserRepo::new(engine.client(), PasswordConfig::default()),
+            DbOAuth2UserConsentRepo::new(engine.client()),
             key_service,
             OAuth2Config::default(),
         );
@@ -1208,11 +1206,11 @@ mod tests {
         let engine = Arc::new(Database::in_memory());
         up(&engine).await.expect("fresh schema");
         let keys = Arc::new(KeyService::new(
-            DbKeyRepo::new(Arc::clone(&engine)),
+            DbKeyRepo::new(engine.client()),
             TestPrivateKeyRepo::default(),
             "capture-test",
         ));
-        let repo = DbClientRepo::new(engine, Arc::clone(&keys));
+        let repo = DbClientRepo::new(engine.client(), Arc::clone(&keys));
         for (client_type, secret) in [
             (ClientType::Public, None),
             (ClientType::Confidential, Some("secret")),
@@ -1262,11 +1260,11 @@ mod tests {
         let engine = Arc::new(db::Database::in_memory());
         up(&engine).await.unwrap();
         let key_service = Arc::new(KeyService::new(
-            DbKeyRepo::new(Arc::clone(&engine)),
+            DbKeyRepo::new(engine.client()),
             TestPrivateKeyRepo::default(),
             "test",
         ));
-        let repo = DbClientRepo::new(engine, Arc::clone(&key_service));
+        let repo = DbClientRepo::new(engine.client(), Arc::clone(&key_service));
         for (client_type, secret) in [
             (ClientType::Public, None),
             (ClientType::Confidential, Some("secret")),

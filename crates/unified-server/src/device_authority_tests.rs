@@ -77,7 +77,7 @@ async fn device_http_and_storage_share_isolated_authority_and_recheck_revocation
     let router = crate::compose_router(
         axum::Router::new(),
         management_server::build_router(
-            identity.clone(),
+            identity.client(),
             "https://node.example",
             "/management",
             control.clone(),

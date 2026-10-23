@@ -12,15 +12,38 @@ description = "Management role, permission, and assignment API"
 [lib]
 name = "management_server"
 
+[[bin]]
+name = "management-server"
+path = "src/main.rs"
+required-features = ["cli"]
+
 [features]
-default = ["swagger-ui"]
+default = ["cli", "swagger-ui"]
+cli = ["dep:clap", "dep:cli", "dep:dotenvy", "dep:tokio-util"]
 swagger-ui = ["dep:utoipa-swagger-ui"]
 
 [dependencies]
+# Async
+tokio = { version = "1.52", default-features = false, features = [
+    "macros",
+    "rt-multi-thread",
+] }
+tokio-util = { version = "0.7", default-features = false, optional = true }
+
+# CLI
+clap = { version = "4.6", default-features = false, features = [
+    "std",
+    "derive",
+    "help",
+], optional = true }
+cli = { path = "../cli", default-features = false, optional = true }
+dotenvy = { version = "0.15", default-features = false, optional = true }
+
 # Internal
 api = { path = "../api", default-features = false }
 db = { package = "idp-db", path = "../db", default-features = false, features = [
     "replica",
+    "remote",
 ] }
 device-service = { path = "../device-service", default-features = false, features = [
     "replica",

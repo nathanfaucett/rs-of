@@ -1,7 +1,5 @@
-use std::sync::Arc;
-
 use db::{
-    Database, Query, QueryColumn, QueryExpr, QueryExprValue, QueryFrom, QueryInsert, QuerySelect,
+    Query, QueryColumn, QueryExpr, QueryExprValue, QueryFrom, QueryInsert, QuerySelect,
     QueryUpdate, QueryUpdateAssignment, Row, Statement, Value,
 };
 use idp_model::{
@@ -15,12 +13,12 @@ use crate::repo::{OAuth2RefreshToken, OAuth2RefreshTokenRepo, RepoError, RepoRes
 const TABLE: &str = "oauth2_refresh_tokens";
 
 pub struct DbOAuth2RefreshTokenRepo {
-    engine: Arc<Database>,
+    engine: db::Client,
 }
 
 impl DbOAuth2RefreshTokenRepo {
     #[must_use]
-    pub const fn new(engine: Arc<Database>) -> Self {
+    pub const fn new(engine: db::Client) -> Self {
         Self { engine }
     }
 
@@ -48,7 +46,6 @@ impl OAuth2RefreshTokenRepo for DbOAuth2RefreshTokenRepo {
         let previous_id = if let Some(previous) = previous {
             let results = self
                 .engine
-                .client()
                 .execute(vec![select(
                     &["id"],
                     Some(equals("token_hash", Value::Text(token_hash(previous)))),
@@ -83,7 +80,7 @@ impl OAuth2RefreshTokenRepo for DbOAuth2RefreshTokenRepo {
             Value::Integer(token.created_at),
             Value::Integer(token.created_at),
         ]);
-        let mut transaction = self.engine.client().transaction().await.map_err(db_error)?;
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         if let Some(id) = previous_id {
             let predicate = and(
                 and(
@@ -141,7 +138,6 @@ impl OAuth2RefreshTokenRepo for DbOAuth2RefreshTokenRepo {
         revoked_at: i64,
     ) -> RepoResult<()> {
         self.engine
-            .client()
             .execute(vec![update(
                 "revoked_at",
                 revoked_at,

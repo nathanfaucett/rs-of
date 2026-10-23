@@ -11,6 +11,7 @@ use super::{ManagementPermissionConfig, PairingConfig};
 pub struct AppConfig {
     pub server: ServerConfig,
     pub data_dir: String,
+    pub identity_database: Option<db::RemoteDatabaseConfig>,
     pub oauth2: OAuth2Config,
     pub password: PasswordConfig,
     pub pairing: PairingConfig,
@@ -33,6 +34,7 @@ impl Default for AppConfig {
         Self {
             server: ServerConfig::default(),
             data_dir: "data".to_string(),
+            identity_database: None,
             oauth2: OAuth2Config::default(),
             password: PasswordConfig::default(),
             pairing: PairingConfig::default(),

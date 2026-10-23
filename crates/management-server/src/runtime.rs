@@ -1,6 +1,6 @@
 use crate::{RouterState, router::openapi_router};
 use axum::Router;
-use db::Database;
+use db::Client;
 use device_service::HostedControlPlane;
 use management_service::{
     ManagementService,
@@ -8,13 +8,13 @@ use management_service::{
 };
 use std::sync::Arc;
 pub async fn build_router(
-    identity: Arc<Database>,
+    identity: Client,
     api_base_uri: &str,
     prefix: &str,
     control_plane: Arc<HostedControlPlane>,
 ) -> Result<Router, db::QueryError> {
     let service = Arc::new(ManagementService::new(
-        DbPermissionRepo::new(Arc::clone(&identity)),
+        DbPermissionRepo::new(identity.clone()),
         DbRoleRepo::new(identity),
     ));
     Ok(openapi_router(

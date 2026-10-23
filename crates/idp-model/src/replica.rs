@@ -19,10 +19,13 @@ pub async fn up(engine: &Database) -> Result<(), db::QueryError> {
                 .await?;
         }
     }
+    validate_credential_history(&engine.client()).await
+}
+
+async fn validate_credential_history(client: &db::Client) -> Result<(), db::QueryError> {
     for table in ["clients", "credentials"] {
-        let results = engine
-            .client()
-            .translate_and_execute(&format!("SELECT * FROM {table}"), &SqlTranslator)
+        let results = client
+            .translate_and_execute(&format!("SELECT * FROM {table} LIMIT 0"), &SqlTranslator)
             .await?;
         if results[0].columns.iter().any(|column| {
             matches!(
@@ -41,6 +44,39 @@ pub async fn up(engine: &Database) -> Result<(), db::QueryError> {
         }
     }
     Ok(())
+}
+
+pub async fn validate_identity(client: &db::Client) -> Result<(), db::QueryError> {
+    validate_credential_history(client).await?;
+    for table in [
+        "users",
+        "applications",
+        "clients",
+        "credentials",
+        "keys",
+        "oauth2_authorization_codes",
+        "oauth2_refresh_tokens",
+        "oauth2_user_consents",
+        "idp_replica_members",
+        "idp_replica_signers",
+        "permissions",
+        "roles",
+        "role_permissions",
+        "application_user_roles",
+    ] {
+        client
+            .execute_sql(&format!("SELECT id FROM {table} LIMIT 0"), None)
+            .await?;
+    }
+    let key = Row::new(vec![Value::Uuid(Uuid::nil())]);
+    client
+        .row_conflicts_batch("credentials", core::slice::from_ref(&key))
+        .await?;
+    client.row_conflict_values("credentials", &key).await?;
+    let transaction = client.transaction().await?;
+    transaction.row_conflicts("credentials", &key).await?;
+    transaction.row_conflict_values("credentials", &key).await?;
+    transaction.rollback().await
 }
 
 pub async fn up_policy(engine: &Database) -> Result<(), db::QueryError> {
@@ -130,7 +166,7 @@ pub struct ResolutionAudit {
 }
 
 pub async fn allows_authentication(
-    engine: &Database,
+    engine: &db::Client,
     credentials: &[Uuid],
     keys: &[Uuid],
 ) -> Result<bool, db::QueryError> {
@@ -150,7 +186,7 @@ pub async fn allows_authentication(
 }
 
 pub async fn allows_authorization(
-    engine: &Database,
+    engine: &db::Client,
     rows: &[SecurityRow],
 ) -> Result<bool, db::QueryError> {
     clear(engine, rows).await
@@ -159,7 +195,7 @@ pub async fn allows_authorization(
 /// Inspect candidate (signer row ID, member row ID) pairs without combining their decisions.
 /// Clearance proves only conflict absence; callers must validate the current trust records.
 pub async fn allows_signer_trust_batch(
-    engine: &Database,
+    engine: &db::Client,
     pairs: &[(Uuid, Uuid)],
 ) -> Result<Vec<bool>, db::QueryError> {
     if pairs.is_empty() {
@@ -174,11 +210,9 @@ pub async fn allows_signer_trust_batch(
         .map(|(_, member)| Row::new(vec![Value::Uuid(*member)]))
         .collect::<Vec<_>>();
     let signer_conflicts = engine
-        .client()
         .row_conflicts_batch(SecurityTable::ReplicaSigner.name(), &signers)
         .await?;
     let member_conflicts = engine
-        .client()
         .row_conflicts_batch(SecurityTable::ReplicaMember.name(), &members)
         .await?;
     Ok(signer_conflicts
@@ -189,23 +223,20 @@ pub async fn allows_signer_trust_batch(
 }
 
 pub async fn allows_token_issuance(
-    engine: &Database,
+    engine: &db::Client,
     rows: &[SecurityRow],
 ) -> Result<bool, db::QueryError> {
     clear(engine, rows).await
 }
 
 pub async fn resolve(
-    engine: &Database,
+    engine: &db::Client,
     administrator_id: Uuid,
     row: SecurityRow,
     values: Vec<(String, Value)>,
     created_at: i64,
 ) -> Result<Option<ResolutionAudit>, db::QueryError> {
-    let conflicts = engine
-        .client()
-        .row_conflicts(row.table.name(), &row.key())
-        .await?;
+    let conflicts = engine.row_conflicts(row.table.name(), &row.key()).await?;
     let unsafe_lifecycle = ["revoked_at", "consumed_at"].iter().any(|column| {
         let monotonic = *column == "revoked_at" || row.table.is_token_state();
         monotonic
@@ -230,21 +261,18 @@ pub async fn resolve(
         created_at,
     };
     engine
-        .client()
         .resolve_row(row.table.name(), &row.key(), values)
         .await?;
     engine
-        .client()
         .translate_and_execute(&resolution_insert(&audit), &SqlTranslator)
         .await?;
     Ok(Some(audit))
 }
 
-async fn clear(engine: &Database, rows: &[SecurityRow]) -> Result<bool, db::QueryError> {
+async fn clear(engine: &db::Client, rows: &[SecurityRow]) -> Result<bool, db::QueryError> {
     for group in rows.chunk_by(|left, right| left.table == right.table) {
         let keys = group.iter().map(|row| row.key()).collect::<Vec<_>>();
         if engine
-            .client()
             .row_conflicts_batch(group[0].table.name(), &keys)
             .await?
             .iter()
@@ -363,37 +391,32 @@ mod tests {
                 assert_eq!(result.columns[0].name, "id");
             }
 
-            engine.client()
-                .translate_and_execute(
+            engine.client().translate_and_execute(
                     "INSERT INTO devices (id, public_key) VALUES (CAST('00000000-0000-7000-8000-000000000001' AS UUID), 'key')",
                     &db::SqlTranslator,
                 )
                 .await
                 .unwrap();
-            assert!(engine.client()
-                .translate_and_execute(
+            assert!(engine.client().translate_and_execute(
                     "INSERT INTO devices (id, public_key) VALUES (CAST('00000000-0000-7000-8000-000000000002' AS UUID), 'key')",
                     &db::SqlTranslator,
                 )
                 .await
                 .is_err());
 
-            engine.client()
-                .translate_and_execute(
+            engine.client().translate_and_execute(
                     "INSERT INTO idp_replica_members (id, installation_id, member_id, endpoint_id, issuer, approved_at) VALUES (CAST('00000000-0000-7000-8000-000000000010' AS UUID), 'installation-a', CAST('00000000-0000-7000-8000-000000000011' AS UUID), 'endpoint-a', 'https://issuer.example', 1)",
                     &db::SqlTranslator,
                 )
                 .await
                 .expect("insert first replica membership");
-            assert!(engine.client()
-                .translate_and_execute(
+            assert!(engine.client().translate_and_execute(
                     "INSERT INTO idp_replica_members (id, installation_id, member_id, endpoint_id, issuer, approved_at) VALUES (CAST('00000000-0000-7000-8000-000000000012' AS UUID), 'installation-a', CAST('00000000-0000-7000-8000-000000000011' AS UUID), 'endpoint-b', 'https://issuer.example', 1)",
                     &db::SqlTranslator,
                 )
                 .await
                 .is_err());
-            assert!(engine.client()
-                .translate_and_execute(
+            assert!(engine.client().translate_and_execute(
                     "INSERT INTO idp_replica_members (id, installation_id, member_id, endpoint_id, issuer, approved_at) VALUES (CAST('00000000-0000-7000-8000-000000000013' AS UUID), 'installation-a', CAST('00000000-0000-7000-8000-000000000014' AS UUID), 'endpoint-a', 'https://issuer.example', 1)",
                     &db::SqlTranslator,
                 )
@@ -423,13 +446,13 @@ mod tests {
             synchronize(&destination, &source).await;
             let grant = SecurityRow::new(SecurityTable::OAuthRefreshToken, uuid(REFRESH));
             assert!(
-                !allows_token_issuance(&source, &[grant])
+                !allows_token_issuance(&source.client(), &[grant])
                     .await
                     .expect("conflicting grants deny")
             );
             assert!(
                 resolve(
-                    &source,
+                    &source.client(),
                     uuid(ADMIN),
                     grant,
                     vec![("revoked_at".into(), db::Value::Null)],
@@ -441,7 +464,7 @@ mod tests {
             );
             assert!(
                 resolve(
-                    &source,
+                    &source.client(),
                     uuid(ADMIN),
                     grant,
                     vec![("revoked_at".into(), db::Value::Integer(1))],
@@ -476,13 +499,13 @@ mod tests {
                     (uuid(101), uuid(101)),
                 ];
                 assert!(
-                    super::allows_signer_trust_batch(&source, &[])
+                    super::allows_signer_trust_batch(&source.client(), &[])
                         .await
                         .expect("empty batch")
                         .is_empty()
                 );
                 assert_eq!(
-                    super::allows_signer_trust_batch(&source, &pairs)
+                    super::allows_signer_trust_batch(&source.client(), &pairs)
                         .await
                         .expect("clear pairs"),
                     vec![true, true, true]
@@ -492,7 +515,7 @@ mod tests {
                 update(&destination, table, 101, "approved_at", "3").await;
                 synchronize(&destination, &source).await;
                 assert_eq!(
-                    super::allows_signer_trust_batch(&source, &pairs)
+                    super::allows_signer_trust_batch(&source.client(), &pairs)
                         .await
                         .expect("pair-local conflicts"),
                     vec![false, true, false],
@@ -504,7 +527,7 @@ mod tests {
                     SecurityTable::ReplicaSigner
                 };
                 resolve(
-                    &source,
+                    &source.client(),
                     uuid(ADMIN),
                     SecurityRow::new(table, uuid(101)),
                     vec![("approved_at".into(), db::Value::Integer(4))],
@@ -514,7 +537,7 @@ mod tests {
                 .expect("resolve trust conflict")
                 .expect("conflict was present");
                 assert_eq!(
-                    super::allows_signer_trust_batch(&source, &pairs)
+                    super::allows_signer_trust_batch(&source.client(), &pairs)
                         .await
                         .expect("fresh evidence"),
                     vec![true, true, true]
@@ -553,7 +576,7 @@ mod tests {
             ];
             for selected in [&roles[..], &mixed[..]] {
                 assert!(
-                    allows_authorization(&source, selected)
+                    allows_authorization(&source.client(), selected)
                         .await
                         .expect("inspect clear authorization state")
                 );
@@ -565,7 +588,7 @@ mod tests {
             synchronize(&destination, &source).await;
             for selected in [&roles[..], &mixed[..]] {
                 assert!(
-                    !allows_authorization(&source, selected)
+                    !allows_authorization(&source.client(), selected)
                         .await
                         .expect("inspect conflicted authorization state")
                 );
@@ -573,7 +596,7 @@ mod tests {
 
             assert!(
                 resolve(
-                    &source,
+                    &source.client(),
                     uuid(ADMIN),
                     roles[1],
                     vec![("name".to_owned(), db::Value::Text("resolved".to_owned()))],
@@ -585,7 +608,7 @@ mod tests {
             );
             for selected in [&roles[..], &mixed[..]] {
                 assert!(
-                    allows_authorization(&source, selected)
+                    allows_authorization(&source.client(), selected)
                         .await
                         .expect("inspect freshly resolved authorization state")
                 );
@@ -619,7 +642,7 @@ mod tests {
 
             assert!(
                 !allows_authorization(
-                    &source,
+                    &source.client(),
                     &[SecurityRow::new(SecurityTable::Device, uuid(DEVICE))],
                 )
                 .await
@@ -627,7 +650,7 @@ mod tests {
             );
             assert!(
                 !allows_token_issuance(
-                    &source,
+                    &source.client(),
                     &[SecurityRow::new(SecurityTable::Client, uuid(CLIENT))],
                 )
                 .await
@@ -635,20 +658,20 @@ mod tests {
             );
             assert!(
                 !allows_authorization(
-                    &source,
+                    &source.client(),
                     &[SecurityRow::new(SecurityTable::Role, uuid(ROLE))],
                 )
                 .await
                 .unwrap()
             );
             assert!(
-                !allows_authentication(&source, &[uuid(CREDENTIAL)], &[uuid(KEY)])
+                !allows_authentication(&source.client(), &[uuid(CREDENTIAL)], &[uuid(KEY)])
                     .await
                     .unwrap()
             );
             assert!(
                 !allows_token_issuance(
-                    &source,
+                    &source.client(),
                     &[
                         SecurityRow::new(SecurityTable::OAuthAuthorizationCode, uuid(CODE)),
                         SecurityRow::new(SecurityTable::OAuthRefreshToken, uuid(REFRESH)),
@@ -661,7 +684,7 @@ mod tests {
             let code = SecurityRow::new(SecurityTable::OAuthAuthorizationCode, uuid(CODE));
             assert!(
                 resolve(
-                    &source,
+                    &source.client(),
                     uuid(ADMIN),
                     code,
                     vec![("consumed_at".to_owned(), db::Value::Null)],
@@ -672,7 +695,7 @@ mod tests {
                 .is_none()
             );
             let audit = resolve(
-                &source,
+                &source.client(),
                 uuid(ADMIN),
                 code,
                 vec![("consumed_at".to_owned(), db::Value::Integer(1))],
@@ -695,7 +718,11 @@ mod tests {
                     .len(),
                 1
             );
-            assert!(allows_token_issuance(&source, &[code]).await.unwrap());
+            assert!(
+                allows_token_issuance(&source.client(), &[code])
+                    .await
+                    .unwrap()
+            );
         });
     }
 

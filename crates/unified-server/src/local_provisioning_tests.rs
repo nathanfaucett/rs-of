@@ -404,7 +404,10 @@ async fn bundled_management_direct_idp_rechecks_registration_and_device_owner_wi
         key_id: serde_json::from_value(journal["key"].clone()).expect("retained signer ID"),
         endpoint_id: runtime.endpoint_id().to_string(),
     });
-    let oauth2 = fixture_oauth2(&config, owner.node_join_database());
+    let oauth2 = fixture_oauth2(
+        &config,
+        owner.node_join_database().expect("local identity owner"),
+    );
     let session = oauth2
         .token(
             TokenRequest::Password(PasswordGrantRequest {
@@ -505,17 +508,17 @@ fn fixture_oauth2(
     PrivateKeyKeyringRepo,
 > {
     let keys = Arc::new(KeyService::new(
-        DbKeyRepo::new(Arc::clone(&engine)),
+        DbKeyRepo::new(engine.client()),
         PrivateKeyKeyringRepo::new(&config.oauth2.issuer).expect("retained fixture private keys"),
         config.key_namespace.clone(),
     ));
     OAuth2Service::new(
-        DbApplicationRepo::new(Arc::clone(&engine)),
-        DbClientRepo::new(Arc::clone(&engine), Arc::clone(&keys)),
-        DbOAuth2AuthorizationCodeRepo::new(Arc::clone(&engine)),
-        DbOAuth2RefreshTokenRepo::new(Arc::clone(&engine)),
-        DbUserRepo::new(Arc::clone(&engine), config.password.clone()),
-        DbOAuth2UserConsentRepo::new(engine),
+        DbApplicationRepo::new(engine.client()),
+        DbClientRepo::new(engine.client(), Arc::clone(&keys)),
+        DbOAuth2AuthorizationCodeRepo::new(engine.client()),
+        DbOAuth2RefreshTokenRepo::new(engine.client()),
+        DbUserRepo::new(engine.client(), config.password.clone()),
+        DbOAuth2UserConsentRepo::new(engine.client()),
         keys,
         config.oauth2.clone(),
     )
@@ -535,15 +538,23 @@ async fn rotation_login_client(
     );
     request.allowed_grant_types = grants;
     request.allowed_audiences = audiences;
-    fixture_oauth2(&fixture.config.idp, owner.node_join_database())
-        .register_client(request)
-        .await
-        .expect("independent public login fixture")
+    fixture_oauth2(
+        &fixture.config.idp,
+        owner.node_join_database().expect("local identity owner"),
+    )
+    .register_client(request)
+    .await
+    .expect("independent public login fixture")
 }
 
 async fn exercise_running_host(runtime: crate::UnifiedRuntime, user: Id) {
-    let permissions =
-        management_service::LocalPermissions::new(runtime.join_owner().node_join_database());
+    let permissions = management_service::LocalPermissions::new(
+        runtime
+            .join_owner()
+            .node_join_database()
+            .expect("local identity owner")
+            .client(),
+    );
     use idp_model::contract::{
         IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
         PermissionTarget,
