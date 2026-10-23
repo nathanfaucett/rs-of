@@ -446,16 +446,37 @@ async fn join_host(
     let sender = tokio::spawn({
         let server = endpoint.server().clone();
         let address = source.runtime().full_node_test_server().endpoint().addr();
+        let request = request.clone();
         async move { request.send(&server, address).await }
     });
     let offered = offers.recv().await.expect("authenticated pairing delivery");
     assert_eq!(offered.remote_id, endpoint.endpoint_id());
-    let pending = source
-        .runtime()
-        .pending_node_joins(approving)
-        .await
-        .expect("authorized host pending offer API");
-    let offer: Id = pending[0]["offer_id"]
+    let pending = tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            let pending = source
+                .runtime()
+                .pending_node_joins(approving)
+                .await
+                .expect("authorized host pending offer API");
+            if let Some(offer) = pending
+                .as_array()
+                .expect("Device pending offer array")
+                .iter()
+                .find(|offer| offer["request"]["member_id"] == binding.member_id.to_string())
+            {
+                return offer.clone();
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("authenticated pairing offer becomes visible through the Device owner");
+    assert_eq!(pending["authenticated_endpoint"], binding.endpoint_id);
+    assert_eq!(
+        pending["request"],
+        serde_json::to_value(&request).expect("exact purpose-bound joining request")
+    );
+    let offer: Id = pending["offer_id"]
         .as_str()
         .expect("purpose-bound offer ID")
         .parse()
