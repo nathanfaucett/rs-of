@@ -62,7 +62,7 @@ impl BootstrapHost for UnifiedBootstrapHost {
     }
 
     async fn open_management(config: &UnifiedConfig) -> io::Result<Arc<db::Database>> {
-        management_server::open_database(&config.management).await
+        management_server::open_device_database(&config.management).await
     }
 
     async fn provision_administrator(

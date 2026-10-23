@@ -162,7 +162,7 @@ impl RuntimeOwners {
             idp_model::replica::up(&idp)
                 .await
                 .map_err(io::Error::other)?;
-            let management = management_server::open_database(&config.management).await?;
+            let management = management_server::open_device_database(&config.management).await?;
             Ok(Self {
                 endpoint: Arc::clone(&endpoint),
                 idp,
@@ -281,7 +281,7 @@ impl UnifiedRuntime {
         let result: io::Result<Self> =
             async {
                 let server = endpoint.server().clone();
-                let local_permissions = LocalPermissions::new(Arc::clone(&management_engine));
+                let local_permissions = LocalPermissions::new(Arc::clone(&idp_engine));
                 let devices = Arc::new(management_service::replica::DbDeviceRepo::new(Arc::clone(
                     &management_engine,
                 )));
@@ -355,8 +355,9 @@ impl UnifiedRuntime {
                     .merge(management_engine.sync_changes()?);
                 let security_protocol = SecurityProtocol::new(
                     server.clone(),
-                    idp_engine,
+                    Arc::clone(&idp_engine),
                     Arc::clone(&management_engine),
+                    Arc::clone(&idp_engine),
                     idp_config.oauth2.issuer.clone(),
                     idp_config.oauth2.local_signer.clone(),
                     Path::new(&config.endpoint_data_dir).join("security-sync-staging"),
@@ -394,6 +395,7 @@ impl UnifiedRuntime {
                     cancellation_token.clone(),
                 ));
                 let management_router = management_server::build_router(
+                    Arc::clone(&idp_engine),
                     Arc::clone(&management_engine),
                     &management_config.api_public_uri,
                     MANAGEMENT_PREFIX,
@@ -911,7 +913,7 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use crate::permission_http_tests::{run_permission_http_checks, seed_idp, seed_permissions};
+    use crate::permission_http_tests::{run_permission_http_checks, seed_idp};
     use axum::{body::Body, http::Request};
     use tokio::net::TcpListener;
     use tower::ServiceExt;
@@ -1345,7 +1347,8 @@ mod tests {
         )
         .await;
         config.idp.oauth2.local_signer = Some(fixture.local_signer.clone());
-        seed_permissions(&root, &mut fixture).await;
+        crate::permission_http_tests::seed_permissions_at(&root.join("idp/idp.redb"), &mut fixture)
+            .await;
         let device_only_peer = iroh::SecretKey::generate().public();
         let peer_binding =
             approve_test_peer(&root, &config.idp, approved_peer_id, device_only_peer).await;
@@ -1365,6 +1368,8 @@ mod tests {
                 })
                 .await
                 .expect("explicit initial local Device policy");
+            let policy = super::open_service_engine(&config.idp.data_dir, "idp.redb")
+                .expect("shared identity policy");
             let service = management_service::ManagementService::new(
                 management_service::replica::DbPermissionRepo::new(policy.clone()),
                 management_service::replica::DbRoleRepo::new(policy),
@@ -1505,7 +1510,7 @@ mod tests {
             .expect("call normal Management route");
         assert_eq!(response.status(), http::StatusCode::UNAUTHORIZED);
 
-        let policy = runtime.management_engine.clone();
+        let policy = runtime.owner.node_join_database();
         let service = management_service::ManagementService::new(
             management_service::replica::DbPermissionRepo::new(policy.clone()),
             management_service::replica::DbRoleRepo::new(policy),
@@ -1924,7 +1929,7 @@ mod tests {
             format!("{issuer}/oauth2/token")
         );
 
-        let policy = runtime.management_engine.clone();
+        let policy = runtime.owner.node_join_database();
         let service = management_service::ManagementService::new(
             management_service::replica::DbPermissionRepo::new(policy.clone()),
             management_service::replica::DbRoleRepo::new(policy),

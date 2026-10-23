@@ -246,6 +246,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
         source.clone(),
         source_idp.clone(),
         source_policy.clone(),
+        source_policy.clone(),
         issuer.clone(),
         Some(fixture.local_signer.clone()),
         source_root.join("security-staging"),
@@ -392,6 +393,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
         joining.clone(),
         joining_idp.clone(),
         joining_policy.clone(),
+        joining_idp.clone(),
         issuer.clone(),
         Some(binding.clone()),
         joining_root.join("security-staging"),
@@ -434,8 +436,8 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
     for (database, table) in [
         (&joining_idp, "users"),
         (&joining_policy, "devices"),
-        (&joining_policy, "roles"),
-        (&joining_policy, "permissions"),
+        (&joining_idp, "roles"),
+        (&joining_idp, "permissions"),
     ] {
         let rows = database
             .client()
@@ -514,6 +516,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
         joining.clone(),
         joining_idp.clone(),
         joining_policy.clone(),
+        joining_idp.clone(),
         issuer.clone(),
         Some(binding.clone()),
         joining_root.join("security-staging"),
@@ -735,6 +738,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
         restarted.clone(),
         provisioner.node_join_database(),
         reopened_policy.clone(),
+        provisioner.node_join_database(),
         issuer.clone(),
         Some(binding.clone()),
         joining_root.join("security-staging"),

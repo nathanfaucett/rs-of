@@ -16,9 +16,7 @@ use idp_service::{
 };
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use management_service::hosted_join::NodeJoinApproval;
-use management_service::{
-    DeviceRepo, LocalPermissions, PUBLIC_POLICY_TABLES, replica::DbDeviceRepo,
-};
+use management_service::{DeviceRepo, LocalPermissions, replica::DbDeviceRepo};
 use ofdb_sql::{
     SessionConfig, SyncDirection, SyncError, SyncResult, SyncRole, SyncTransport,
     SyncValidationDirection,
@@ -35,7 +33,7 @@ use super::{SecurityContext, SecurityProtocol, candidates, denied, now};
 mod interruption_tests;
 
 pub(super) const BOOTSTRAP_STREAM_KIND: u8 = 4;
-const PURPOSE: &str = "of.equal-node-public-bootstrap.v1";
+const PURPOSE: &str = "of.equal-node-public-bootstrap.v2";
 
 #[derive(Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -74,13 +72,14 @@ impl SecurityProtocol {
             db::Database::open(management_directory.join("management.redb"))
                 .map_err(io::Error::other)?,
         );
-        management_service::replica::up(&management)
+        management_service::replica::up_devices(&management)
             .await
             .map_err(io::Error::other)?;
         let protocol = Self::new(
             endpoint.server().clone(),
             owner.node_join_database(),
             management,
+            owner.node_join_database(),
             config.oauth2.issuer.clone(),
             Some(binding),
             management_directory.join("node-bootstrap-staging"),
@@ -441,7 +440,7 @@ impl SecurityProtocol {
             .ok_or_else(|| denied("bootstrap source has no approved Device"))?;
         let (action, resource) = context.permission();
         if approval.owner_subject.is_nil()
-            || !LocalPermissions::new(self.management.clone())
+            || !LocalPermissions::new(self.policy.clone())
                 .evaluate(&PermissionEvaluationRequest {
                     request_id: Id::now_v7(),
                     subject: PermissionSubject::User {
@@ -577,7 +576,7 @@ impl SecurityProtocol {
         context: SecurityContext,
         direction: SyncDirection,
         transport: &mut T,
-        check: Q,
+        mut check: Q,
     ) -> io::Result<SyncResult>
     where
         T: SyncTransport<Error = io::Error>,
@@ -592,80 +591,73 @@ impl SecurityProtocol {
             public_signer: &approval.request.public_signer,
             name: &approval.request.name,
         };
-        let (database, directory, tables) = match context {
-            SecurityContext::Idp => (
-                &self.idp,
-                self.staging_directory.join("bootstrap-idp"),
-                idp_service::security_sync::public_security_tables()
-                    .into_iter()
-                    .map(|table| table.name())
-                    .collect::<Vec<_>>(),
-            ),
-            SecurityContext::Management => (
-                &self.management,
-                self.staging_directory.join("bootstrap-policy"),
-                PUBLIC_POLICY_TABLES.to_vec(),
-            ),
-        };
-        database
-            .synchronize_tables_with_stage_directory_candidate_validated_checked(
-                transport,
-                &SessionConfig {
-                    direction,
-                    ..SessionConfig::default()
-                },
-                if direction == SyncDirection::ReceiveOnly {
-                    SyncRole::Initiator
-                } else {
-                    SyncRole::Responder
-                },
-                directory,
-                &tables,
-                |table, column, value| {
-                    context.validate_value(table, column, value)?;
-                    if context == SecurityContext::Idp
-                        && !candidates::permits_installation(
-                            table,
-                            column,
-                            value,
-                            &self.installation,
-                        )
-                    {
-                        return Err("invalid public security historical value".into());
-                    }
-                    Ok(())
-                },
-                |view| {
-                    if (direction == SyncDirection::ReceiveOnly
-                        && view.direction == SyncValidationDirection::Outgoing)
-                        || (direction == SyncDirection::SendOnly
-                            && view.direction == SyncValidationDirection::Incoming)
-                    {
-                        return Err("bootstrap reverse application history is prohibited".into());
-                    }
-                    match context {
-                        SecurityContext::Idp => {
-                            candidates::validate_node_join(view, &self.installation, &candidate)
+        let mut total = SyncResult::default();
+        for (database, name, tables) in self.sessions(context) {
+            let directory = self.staging_directory.join(format!("bootstrap-{name}"));
+            let result = database
+                .synchronize_tables_with_stage_directory_candidate_validated_checked(
+                    transport,
+                    &SessionConfig {
+                        direction,
+                        ..SessionConfig::default()
+                    },
+                    if direction == SyncDirection::ReceiveOnly {
+                        SyncRole::Initiator
+                    } else {
+                        SyncRole::Responder
+                    },
+                    directory,
+                    &tables,
+                    |table, column, value| {
+                        context.validate_value(table, column, value)?;
+                        if context == SecurityContext::Idp
+                            && !candidates::permits_installation(
+                                table,
+                                column,
+                                value,
+                                &self.installation,
+                            )
+                        {
+                            return Err("invalid public security historical value".into());
                         }
-                        SecurityContext::Management => candidates::validate_management(
-                            view,
-                            &[candidates::PeerBinding {
-                                member: approval.request.member_id,
-                                endpoint: approval.request.endpoint_id.clone(),
-                                owner: approval.owner_subject,
-                            }],
-                            Some(&candidate),
-                        ),
-                    }
-                },
-                check,
-            )
-            .await
-            .map_err(|error| match error {
-                SyncError::PreApply(reason) => denied(reason),
-                SyncError::Transport(error) => error,
-                error => io::Error::other(error.to_string()),
-            })
+                        Ok(())
+                    },
+                    |view| {
+                        if (direction == SyncDirection::ReceiveOnly
+                            && view.direction == SyncValidationDirection::Outgoing)
+                            || (direction == SyncDirection::SendOnly
+                                && view.direction == SyncValidationDirection::Incoming)
+                        {
+                            return Err(
+                                "bootstrap reverse application history is prohibited".into()
+                            );
+                        }
+                        match context {
+                            SecurityContext::Idp => {
+                                candidates::validate_node_join(view, &self.installation, &candidate)
+                            }
+                            SecurityContext::Management => candidates::validate_management(
+                                view,
+                                &[candidates::PeerBinding {
+                                    member: approval.request.member_id,
+                                    endpoint: approval.request.endpoint_id.clone(),
+                                    owner: approval.owner_subject,
+                                }],
+                                Some(&candidate),
+                            ),
+                        }
+                    },
+                    &mut check,
+                )
+                .await
+                .map_err(|error| match error {
+                    SyncError::PreApply(reason) => denied(reason),
+                    SyncError::Transport(error) => error,
+                    error => io::Error::other(error.to_string()),
+                })?;
+            super::accumulate(&mut total, result);
+        }
+        Ok(total)
     }
 
     async fn verify_node_join_public_readiness<P: PrivateKeyRepo + Send + Sync>(
@@ -709,7 +701,7 @@ impl SecurityProtocol {
     async fn check_public_context_grants(&self, owner: Id) -> io::Result<()> {
         for context in [SecurityContext::Idp, SecurityContext::Management] {
             let (action, resource) = context.permission();
-            if !LocalPermissions::new(self.management.clone())
+            if !LocalPermissions::new(self.policy.clone())
                 .evaluate(&PermissionEvaluationRequest {
                     request_id: Id::now_v7(),
                     subject: PermissionSubject::User { id: owner },

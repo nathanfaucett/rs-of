@@ -211,6 +211,7 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
     let mut management = Listener::start(
         management_server::build_router(
             fixture.management.clone(),
+            fixture.management.clone(),
             "https://management.test",
             "",
             "storage-service",

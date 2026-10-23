@@ -269,6 +269,7 @@ async fn independent_permission_management_https_child() {
             .with_pairing_acceptance(runtime.pairing_acceptance());
         let management_router = management_server::build_router(
             management_engine.clone(),
+            management_engine.clone(),
             &management_base,
             "/management",
             "storage-service",

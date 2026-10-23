@@ -102,6 +102,7 @@ pub struct SecurityProtocol {
     server: Server,
     idp: Arc<Database>,
     management: Arc<Database>,
+    policy: Arc<Database>,
     installation: String,
     binding: Option<NodeSignerBinding>,
     staging_directory: PathBuf,
@@ -113,6 +114,7 @@ impl SecurityProtocol {
         server: Server,
         idp: Arc<Database>,
         management: Arc<Database>,
+        policy: Arc<Database>,
         installation: String,
         binding: Option<NodeSignerBinding>,
         staging_directory: PathBuf,
@@ -122,10 +124,47 @@ impl SecurityProtocol {
             server,
             idp,
             management,
+            policy,
             installation,
             binding,
             staging_directory,
             cancellation,
+        }
+    }
+
+    fn sessions(
+        &self,
+        context: SecurityContext,
+    ) -> Vec<(&Arc<Database>, &'static str, Vec<&'static str>)> {
+        match context {
+            SecurityContext::Idp => vec![(
+                &self.idp,
+                "idp",
+                public_security_tables()
+                    .into_iter()
+                    .map(|table| table.name())
+                    .collect(),
+            )],
+            SecurityContext::Management => vec![
+                (
+                    &self.policy,
+                    "policy-identity",
+                    PUBLIC_POLICY_TABLES
+                        .iter()
+                        .copied()
+                        .filter(|table| identity_policy_table(table))
+                        .collect(),
+                ),
+                (
+                    &self.management,
+                    "policy-devices",
+                    PUBLIC_POLICY_TABLES
+                        .iter()
+                        .copied()
+                        .filter(|table| !identity_policy_table(table))
+                        .collect(),
+                ),
+            ],
         }
     }
 
@@ -227,62 +266,59 @@ impl SecurityProtocol {
     }
 
     async fn validate_local_schema(&self, context: SecurityContext) -> io::Result<()> {
-        let (database, tables) = match context {
-            SecurityContext::Idp => (
-                &self.idp,
-                public_security_tables()
-                    .into_iter()
-                    .map(|table| (table.name(), table.columns()))
-                    .collect::<Vec<_>>(),
-            ),
-            SecurityContext::Management => (
-                &self.management,
-                PUBLIC_POLICY_TABLES
-                    .iter()
-                    .map(|table| {
-                        (
-                            *table,
-                            management_service::public_policy_columns(table)
-                                .expect("reviewed public policy table"),
-                        )
-                    })
-                    .collect::<Vec<_>>(),
-            ),
-        };
-        let query = tables
-            .iter()
-            .map(|(table, _)| format!("SELECT * FROM {table} LIMIT 0"))
-            .collect::<Vec<_>>()
-            .join("; ");
-        let results = database
-            .client()
-            .translate_and_execute(&query, &db::SqlTranslator)
-            .await
-            .map_err(io::Error::other)?;
-        if results.len() != tables.len() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "missing public schema result",
-            ));
-        }
-        for ((table, expected), result) in tables.into_iter().zip(results) {
-            let columns = &result.columns;
-            if columns.len() != expected.len()
-                || columns
-                    .iter()
-                    .any(|column| !expected.contains(&column.name.as_str()))
-            {
+        for (database, _, names) in self.sessions(context) {
+            let tables = names
+                .into_iter()
+                .map(|name| {
+                    let columns = match context {
+                        SecurityContext::Idp => public_security_tables()
+                            .into_iter()
+                            .find(|table| table.name() == name)
+                            .expect("public identity table")
+                            .columns(),
+                        SecurityContext::Management => {
+                            management_service::public_policy_columns(name)
+                                .expect("public policy table")
+                        }
+                    };
+                    (name, columns)
+                })
+                .collect::<Vec<_>>();
+            let query = tables
+                .iter()
+                .map(|(table, _)| format!("SELECT * FROM {table} LIMIT 0"))
+                .collect::<Vec<_>>()
+                .join("; ");
+            let results = database
+                .client()
+                .translate_and_execute(&query, &db::SqlTranslator)
+                .await
+                .map_err(io::Error::other)?;
+            if results.len() != tables.len() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!("unreviewed public security schema: {table}"),
+                    "missing public schema result",
                 ));
+            }
+            for ((table, expected), result) in tables.into_iter().zip(results) {
+                let columns = &result.columns;
+                if columns.len() != expected.len()
+                    || columns
+                        .iter()
+                        .any(|column| !expected.contains(&column.name.as_str()))
+                {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("unreviewed public security schema: {table}"),
+                    ));
+                }
             }
         }
         Ok(())
     }
 
     fn validate_handshake(&self, remote: &Handshake, context: SecurityContext) -> io::Result<()> {
-        if remote.version != 1
+        if remote.version != 2
             || remote.installation != self.installation
             || remote.context != context
             || remote.member.is_nil()
@@ -317,7 +353,7 @@ impl SecurityProtocol {
             ));
         }
         Ok(Handshake {
-            version: 1,
+            version: 2,
             installation: self.installation.clone(),
             member: device.id,
             context,
@@ -353,7 +389,7 @@ impl SecurityProtocol {
             ));
         }
         let (action, resource) = context.permission();
-        if !LocalPermissions::new(self.management.clone())
+        if !LocalPermissions::new(self.policy.clone())
             .evaluate(&PermissionEvaluationRequest {
                 request_id: Id::now_v7(),
                 subject: PermissionSubject::User { id: actor },
@@ -383,21 +419,6 @@ impl SecurityProtocol {
     ) -> io::Result<SyncResult> {
         self.authorize(connection, member, context).await?;
         log::debug!("starting scoped security session: {context:?} {role:?}");
-        let (database, directory, tables) = match context {
-            SecurityContext::Idp => (
-                &self.idp,
-                self.staging_directory.join("idp"),
-                public_security_tables()
-                    .into_iter()
-                    .map(|table| table.name())
-                    .collect::<Vec<_>>(),
-            ),
-            SecurityContext::Management => (
-                &self.management,
-                self.staging_directory.join("management"),
-                PUBLIC_POLICY_TABLES.to_vec(),
-            ),
-        };
         let mut bindings = Vec::new();
         {
             let local = self.local_handshake(context).await?;
@@ -433,55 +454,61 @@ impl SecurityProtocol {
                 });
             }
         }
-        let mut transport = AuthorizedSecurityTransport {
-            transport,
-            protocol: self,
-            connection,
-            member,
-            context,
-        };
-        database
-            .synchronize_tables_with_stage_directory_candidate_validated_checked(
-                &mut transport,
-                &SessionConfig::default(),
-                role,
-                directory,
-                &tables,
-                |table, column, value| {
-                    context.validate_value(table, column, value)?;
-                    if context == SecurityContext::Idp
-                        && !candidates::permits_installation(
-                            table,
-                            column,
-                            value,
-                            &self.installation,
-                        )
-                    {
-                        return Err("invalid public security historical value".into());
-                    }
-                    Ok(())
-                },
-                |view| match context {
-                    SecurityContext::Idp => {
-                        candidates::validate(view, &self.installation, &bindings)
-                    }
-                    SecurityContext::Management => {
-                        candidates::validate_management(view, &bindings, None)
-                    }
-                },
-                || async {
-                    log::debug!("checking scoped security apply: {context:?} {role:?}");
-                    self.authorize(connection, member, context)
-                        .await
-                        .map_err(|error| error.to_string())
-                },
-            )
-            .await
-            .map_err(|error| match error {
-                SyncError::PreApply(reason) => denied(reason),
-                SyncError::Transport(error) => error,
-                error => io::Error::other(error.to_string()),
-            })
+        let mut total = SyncResult::default();
+        for (database, name, tables) in self.sessions(context) {
+            let directory = self.staging_directory.join(name);
+            let mut transport = AuthorizedSecurityTransport {
+                transport: &mut *transport,
+                protocol: self,
+                connection,
+                member,
+                context,
+            };
+            let result = database
+                .synchronize_tables_with_stage_directory_candidate_validated_checked(
+                    &mut transport,
+                    &SessionConfig::default(),
+                    role,
+                    directory,
+                    &tables,
+                    |table, column, value| {
+                        context.validate_value(table, column, value)?;
+                        if context == SecurityContext::Idp
+                            && !candidates::permits_installation(
+                                table,
+                                column,
+                                value,
+                                &self.installation,
+                            )
+                        {
+                            return Err("invalid public security historical value".into());
+                        }
+                        Ok(())
+                    },
+                    |view| match context {
+                        SecurityContext::Idp => {
+                            candidates::validate(view, &self.installation, &bindings)
+                        }
+                        SecurityContext::Management => {
+                            candidates::validate_management(view, &bindings, None)
+                        }
+                    },
+                    || async {
+                        log::debug!("checking scoped security apply: {context:?} {role:?}");
+                        self.authorize(connection, member, context)
+                            .await
+                            .map_err(|error| error.to_string())
+                    },
+                )
+                .await
+                .map_err(|error| match error {
+                    SyncError::PreApply(reason) => denied(reason),
+                    SyncError::Transport(error) => error,
+                    error => io::Error::other(error.to_string()),
+                })?;
+            accumulate(&mut total, result);
+        }
+        Ok(total)
     }
 }
 
@@ -519,4 +546,20 @@ fn now() -> io::Result<i64> {
         .as_secs()
         .try_into()
         .map_err(io::Error::other)
+}
+
+fn identity_policy_table(table: &str) -> bool {
+    matches!(
+        table,
+        "roles" | "permissions" | "role_permissions" | "application_user_roles"
+    )
+}
+
+fn accumulate(total: &mut SyncResult, result: SyncResult) {
+    total.received_units += result.received_units;
+    total.sent_units += result.sent_units;
+    total.received_changes += result.received_changes;
+    total.sent_changes += result.sent_changes;
+    total.received_snapshots += result.received_snapshots;
+    total.sent_snapshots += result.sent_snapshots;
 }

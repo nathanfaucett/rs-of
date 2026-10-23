@@ -13,11 +13,19 @@ use management_service::{
 use crate::AppConfig;
 
 pub async fn open_database(config: &AppConfig) -> io::Result<Arc<Database>> {
+    let engine = open_device_database(config).await?;
+    idp_model::replica::up_policy(&engine)
+        .await
+        .map_err(io::Error::other)?;
+    Ok(engine)
+}
+
+pub async fn open_device_database(config: &AppConfig) -> io::Result<Arc<Database>> {
     let directory = Path::new(&config.data_dir);
     fs::create_dir_all(directory)?;
     let engine =
         Arc::new(Database::open(directory.join("management.redb")).map_err(io::Error::other)?);
-    management_service::replica::up(&engine)
+    management_service::replica::up_devices(&engine)
         .await
         .map_err(io::Error::other)?;
     Ok(engine)

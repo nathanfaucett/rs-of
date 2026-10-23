@@ -2,11 +2,11 @@ use std::{io, path::PathBuf, sync::Arc, time::Duration};
 
 use db::Database;
 use idp_model::{contract::IdentityAction, model::Id};
-use idp_service::{oauth2::NodeSignerBinding, security_sync::public_security_tables};
+use idp_service::oauth2::NodeSignerBinding;
 use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets};
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
 use management_service::{
-    ManagementService, PUBLIC_POLICY_TABLES,
+    ManagementService,
     replica::{DbPermissionRepo, DbRoleRepo},
 };
 use ofdb_sql::{SessionConfig, SyncMessage, SyncRole, SyncTransport};
@@ -115,6 +115,7 @@ impl Fixture {
         let source = SecurityProtocol::new(
             source,
             idp,
+            management.clone(),
             management,
             INSTALLATION.into(),
             Some(NodeSignerBinding {
@@ -305,7 +306,7 @@ async fn peer_exchange(
         };
         let mut transport = DatabaseTransport::new(send, recv);
         let hello = Handshake {
-            version: 1,
+            version: 2,
             installation: INSTALLATION.into(),
             member: fixture.peer_member,
             context,
@@ -347,32 +348,30 @@ async fn peer_exchange(
             learned: false,
             after_denial: Vec::new(),
         };
-        let (database, tables) = match context {
-            SecurityContext::Idp => (
-                &fixture.peer_idp,
-                public_security_tables()
-                    .into_iter()
-                    .map(|table| table.name())
-                    .collect::<Vec<_>>(),
-            ),
-            SecurityContext::Management => {
-                (&fixture.peer_management, PUBLIC_POLICY_TABLES.to_vec())
-            }
-        };
         let peer_role = if matches!(role, SyncRole::Initiator) {
             SyncRole::Responder
         } else {
             SyncRole::Initiator
         };
-        let peer_result = database
-            .synchronize_tables_checked(
-                &mut transport,
-                &SessionConfig::default(),
-                peer_role,
-                &tables,
-                || async { Ok(()) },
-            )
-            .await;
+        let mut peer_result = Ok(ofdb_sql::SyncResult::default());
+        for (_, _, tables) in fixture.source.sessions(context) {
+            let database = match context {
+                SecurityContext::Idp => &fixture.peer_idp,
+                SecurityContext::Management => &fixture.peer_management,
+            };
+            peer_result = database
+                .synchronize_tables_checked(
+                    &mut transport,
+                    &SessionConfig::default(),
+                    peer_role,
+                    &tables,
+                    || async { Ok(()) },
+                )
+                .await;
+            if peer_result.is_err() {
+                break;
+            }
+        }
         eprintln!("peer finished: {peer_result:?}");
         (transport.learned, transport.after_denial)
     };

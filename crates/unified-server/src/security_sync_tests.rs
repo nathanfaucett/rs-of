@@ -212,6 +212,7 @@ async fn exchange_history() {
         server_a.clone(),
         idp_a.clone(),
         management_a.clone(),
+        management_a.clone(),
         INSTALLATION.into(),
         Some(NodeSignerBinding {
             member_id: member_a,
@@ -224,6 +225,7 @@ async fn exchange_history() {
     let protocol_b = SecurityProtocol::new(
         server_b.clone(),
         idp_b.clone(),
+        management_b.clone(),
         management_b.clone(),
         INSTALLATION.into(),
         Some(NodeSignerBinding {
@@ -373,6 +375,7 @@ async fn exchange_history() {
         server_a.clone(),
         idp_a.clone(),
         management_a.clone(),
+        management_a.clone(),
         INSTALLATION.into(),
         None,
         root.join("unsigned-stage"),
@@ -393,9 +396,9 @@ async fn exchange_history() {
         started.elapsed()
     );
     for request in [
-        serde_json::json!({"version": 1, "installation": "https://foreign.example", "member": member_a, "context": "idp"}),
-        serde_json::json!({"version": 1, "installation": INSTALLATION, "member": member_b, "context": "idp"}),
-        serde_json::json!({"version": 2, "installation": INSTALLATION, "member": member_a, "context": "management"}),
+        serde_json::json!({"version": 2, "installation": "https://foreign.example", "member": member_a, "context": "idp"}),
+        serde_json::json!({"version": 2, "installation": INSTALLATION, "member": member_b, "context": "idp"}),
+        serde_json::json!({"version": 3, "installation": INSTALLATION, "member": member_a, "context": "management"}),
     ] {
         use ofdb_sql::SyncTransport;
         let before = security_manifests(&idp_a, &idp_b, &management_a, &management_b).await;
@@ -756,7 +759,7 @@ async fn assert_admission_closed(
         .expect("fresh stream on same connection");
     send.write_all(&[3]).await.expect("security marker");
     let mut transport = storage_server::DatabaseTransport::new(send, recv);
-    transport.send(serde_json::to_vec(&serde_json::json!({"version": 1, "installation": INSTALLATION, "member": member, "context": context})).expect("authenticated claim")).await.expect("send admission probe");
+    transport.send(serde_json::to_vec(&serde_json::json!({"version": 2, "installation": INSTALLATION, "member": member, "context": context})).expect("authenticated claim")).await.expect("send admission probe");
     assert!(
         transport.receive().await.is_err(),
         "denied receiver discloses no response/history frame"

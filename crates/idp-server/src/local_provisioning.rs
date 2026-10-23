@@ -524,7 +524,7 @@ impl<H: BootstrapHost> LocalProvisioner<H> {
                     .collect::<Vec<_>>();
                 provisioning_stage(|| {
                     H::provision_administrator(
-                        Arc::clone(&management_engine),
+                        Arc::clone(&idp_engine),
                         journal.user,
                         journal.role,
                         &permissions,

@@ -43,6 +43,20 @@ pub async fn up(engine: &Database) -> Result<(), db::QueryError> {
     Ok(())
 }
 
+pub async fn up_policy(engine: &Database) -> Result<(), db::QueryError> {
+    for statement in include_str!("../replica_migrations/policy.up.sql")
+        .split(';')
+        .map(str::trim)
+        .filter(|statement| !statement.is_empty())
+    {
+        engine
+            .client()
+            .translate_and_execute(statement, &SqlTranslator)
+            .await?;
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SecurityTable {
     User,
@@ -762,5 +776,53 @@ mod tests {
 
     fn uuid(value: u128) -> db::Uuid {
         db::Uuid::from_u128(0x00000000000070008000000000000000 | value)
+    }
+}
+
+#[cfg(test)]
+mod shared_identity_tests {
+    #[test]
+    fn identity_owner_migrates_roles_without_device_schema() {
+        futures::executor::block_on(async {
+            let database = db::Database::in_memory();
+            super::up(&database).await.expect("identity migration");
+            super::up(&database)
+                .await
+                .expect("idempotent identity migration");
+            for table in [
+                "users",
+                "clients",
+                "roles",
+                "permissions",
+                "role_permissions",
+                "application_user_roles",
+            ] {
+                database
+                    .client()
+                    .translate_and_execute(
+                        &format!("SELECT * FROM {table} LIMIT 0"),
+                        &db::SqlTranslator,
+                    )
+                    .await
+                    .expect("identity table");
+            }
+            for table in [
+                "devices",
+                "local_device_enrollments",
+                "device_selection_policies",
+            ] {
+                assert!(
+                    database
+                        .client()
+                        .translate_and_execute(
+                            &format!("SELECT * FROM {table} LIMIT 0"),
+                            &db::SqlTranslator
+                        )
+                        .await
+                        .is_err(),
+                    "Device schema must stay separate"
+                );
+            }
+        });
     }
 }

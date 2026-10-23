@@ -162,6 +162,7 @@ pub async fn run() -> io::Result<()> {
 
     let engine = crate::open_database(&app_config).await?;
     let router = build_router(
+        Arc::clone(&engine),
         engine,
         &app_config.api_public_uri,
         app_config.server.prefix(),

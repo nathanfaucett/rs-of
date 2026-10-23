@@ -261,6 +261,7 @@ impl Pair {
             a.clone(),
             idp_a.clone(),
             management_a.clone(),
+            management_a.clone(),
             INSTALLATION.into(),
             Some(NodeSignerBinding {
                 member_id: member_a,
@@ -273,6 +274,7 @@ impl Pair {
         let protocol_b = SecurityProtocol::new(
             b.clone(),
             idp_b.clone(),
+            management_b.clone(),
             management_b.clone(),
             INSTALLATION.into(),
             Some(NodeSignerBinding {
@@ -349,7 +351,7 @@ impl Pair {
                     let mut inner = DatabaseTransport::new(send, recv);
                     let handshake: serde_json::Value = serde_json::from_slice(&inner.receive().await?).map_err(io::Error::other)?;
                     assert_eq!(handshake["member"], serde_json::json!(expected_member));
-                    inner.send(serde_json::to_vec(&serde_json::json!({"Accepted": {"version": 1, "installation": INSTALLATION, "member": member, "context": handshake["context"]}})).map_err(io::Error::other)?).await?;
+                    inner.send(serde_json::to_vec(&serde_json::json!({"Accepted": {"version": 2, "installation": INSTALLATION, "member": member, "context": handshake["context"]}})).map_err(io::Error::other)?).await?;
                     let mut transport = RecordedTransport { inner, received, recovery };
                     let (database, tables) = if handshake["context"] == "management" {
                         (management, management_service::PUBLIC_POLICY_TABLES.to_vec())
@@ -537,7 +539,7 @@ async fn unvalidated_initiate_context(
     let (mut send, recv) = connection.open_bi().await.map_err(io::Error::other)?;
     send.write_all(&[3]).await.map_err(io::Error::other)?;
     let mut inner = DatabaseTransport::new(send, recv);
-    inner.send(serde_json::to_vec(&serde_json::json!({"version": 1, "installation": INSTALLATION, "member": pair.member_a, "context": context})).map_err(io::Error::other)?).await?;
+    inner.send(serde_json::to_vec(&serde_json::json!({"version": 2, "installation": INSTALLATION, "member": pair.member_a, "context": context})).map_err(io::Error::other)?).await?;
     let response: serde_json::Value =
         serde_json::from_slice(&inner.receive().await?).map_err(io::Error::other)?;
     assert_eq!(

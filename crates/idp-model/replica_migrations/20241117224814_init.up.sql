@@ -119,49 +119,6 @@ CREATE TABLE IF NOT EXISTS local_client_credentials (
     secret_hash TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS roles (
-    id UUID PRIMARY KEY,
-    application_id UUID,
-    name TEXT,
-    description TEXT,
-    revoked_at INTEGER,
-    created_at INTEGER,
-    updated_at INTEGER
-);
-CREATE UNIQUE INDEX IF NOT EXISTS roles_application_name ON roles (application_id, name);
-
-CREATE TABLE IF NOT EXISTS permissions (
-    id UUID PRIMARY KEY,
-    application_id UUID,
-    name TEXT,
-    description TEXT,
-    revoked_at INTEGER,
-    created_at INTEGER,
-    updated_at INTEGER
-);
-CREATE UNIQUE INDEX IF NOT EXISTS permissions_application_name ON permissions (application_id, name);
-
-CREATE TABLE IF NOT EXISTS role_permissions (
-    id UUID PRIMARY KEY,
-    role_id UUID,
-    permission_id UUID,
-    revoked_at INTEGER,
-    created_at INTEGER,
-    updated_at INTEGER
-);
-CREATE UNIQUE INDEX IF NOT EXISTS role_permissions_role_permission ON role_permissions (role_id, permission_id);
-
-CREATE TABLE IF NOT EXISTS application_user_roles (
-    id UUID PRIMARY KEY,
-    user_id UUID,
-    application_id UUID,
-    role_id UUID,
-    revoked_at INTEGER,
-    created_at INTEGER,
-    updated_at INTEGER
-);
-CREATE UNIQUE INDEX IF NOT EXISTS application_user_roles_user_application_role ON application_user_roles (user_id, application_id, role_id);
-
 CREATE TABLE IF NOT EXISTS oauth2_authorization_codes (
     id UUID PRIMARY KEY,
     code_hash TEXT,
@@ -218,25 +175,6 @@ CREATE TABLE IF NOT EXISTS idp_conflict_resolutions (
     row_id UUID,
     columns TEXT,
     created_at INTEGER
-);
-
-CREATE TABLE IF NOT EXISTS device_selection_policies (
-    device_id UUID PRIMARY KEY,
-    owner_subject TEXT NOT NULL,
-    application_id UUID,
-    selected_kind TEXT,
-    selected_id UUID,
-    admin_allowed BOOLEAN NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS device_resource_selections (
-    id UUID PRIMARY KEY,
-    device_id UUID NOT NULL,
-    owner_subject TEXT NOT NULL,
-    application_id UUID NOT NULL,
-    selected_kind TEXT NOT NULL,
-    selected_id UUID NOT NULL,
-    selected BOOLEAN NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS idp_replica_members (

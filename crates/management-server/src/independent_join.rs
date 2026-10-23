@@ -135,6 +135,7 @@ pub async fn build_independent_management(
         Router::new().nest(config.server.prefix(), routes)
     };
     let router = crate::build_router(
+        Arc::clone(&engine),
         engine,
         management,
         config.server.prefix(),

@@ -537,7 +537,8 @@ async fn rotation_login_client(
 }
 
 async fn exercise_running_host(runtime: crate::UnifiedRuntime, user: Id) {
-    let permissions = management_service::LocalPermissions::new(runtime.management_engine.clone());
+    let permissions =
+        management_service::LocalPermissions::new(runtime.join_owner().node_join_database());
     use idp_model::contract::{
         IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
         PermissionTarget,

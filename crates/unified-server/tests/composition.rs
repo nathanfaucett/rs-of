@@ -101,6 +101,7 @@ async fn owner_service_builders_supply_hosted_features_to_composition() {
     let router = compose_router(
         idp_server::build_setup_router(setup, "https://idp.example/idp", "/idp"),
         management_server::build_router(
+            Arc::clone(&management),
             management,
             "https://management.example",
             "/management",

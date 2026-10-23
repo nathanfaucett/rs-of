@@ -126,6 +126,7 @@ async fn run_separate_permission_acceptance(lifecycle_only: bool) {
     .with_local_devices(Arc::new(DbDeviceRepo::new(management_engine.clone())))
     .with_pairing_acceptance(runtime.pairing_acceptance());
     let router = management_server::build_router(
+        Arc::clone(&management_engine),
         management_engine,
         &management_base,
         "/management",
@@ -576,15 +577,18 @@ pub(crate) async fn seed_idp(
 }
 
 pub(crate) async fn seed_permissions(root: &std::path::Path, fixture: &mut PermissionFixture) {
+    seed_permissions_at(&root.join("management/management.redb"), fixture).await;
+}
+
+pub(crate) async fn seed_permissions_at(path: &std::path::Path, fixture: &mut PermissionFixture) {
     use management_service::{
         ManagementService,
         replica::{DbPermissionRepo, DbRoleRepo},
     };
-    fs::create_dir_all(root.join("management")).expect("create Management data directory");
-    let engine = Arc::new(
-        Database::open(root.join("management/management.redb")).expect("open Management fixture"),
-    );
-    management_service::replica::up(&engine)
+    fs::create_dir_all(path.parent().expect("database directory"))
+        .expect("create Management data directory");
+    let engine = Arc::new(Database::open(path).expect("open Management fixture"));
+    idp_model::replica::up_policy(&engine)
         .await
         .expect("initialize Management schema");
     let service = ManagementService::new(
@@ -598,6 +602,8 @@ pub(crate) async fn seed_permissions(root: &std::path::Path, fixture: &mut Permi
     fixture.application_role = role.id;
     for name in [
         "roles.write",
+        "permissions.read",
+        "permissions.write",
         "idp.clients.read",
         "idp.clients.create",
         "idp.clients.update",
@@ -1635,4 +1641,224 @@ fn test_keyring_store() -> Arc<keyring_core::CredentialStore> {
     Arc::new(ModifierTolerantTestStore {
         inner: keyring_core::mock::Store::new().expect("create test keyring"),
     })
+}
+
+#[test]
+fn shared_identity_management_writes_change_idp_authorization() {
+    std::thread::Builder::new()
+        .stack_size(16 * 1024 * 1024)
+        .spawn(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .thread_stack_size(16 * 1024 * 1024)
+                .enable_all()
+                .build()
+                .expect("shared identity runtime")
+                .block_on(shared_identity_acceptance());
+        })
+        .expect("shared identity thread")
+        .join()
+        .expect("shared identity acceptance");
+}
+
+async fn shared_identity_acceptance() {
+    let root = std::env::temp_dir().join(format!(
+        "shared-identity-{}",
+        idp_model::model::Id::now_v7()
+    ));
+    let mut config = crate::UnifiedConfig {
+        listen_addr: "127.0.0.1:0".parse().expect("loopback"),
+        endpoint_data_dir: root.join("endpoint"),
+        idp: idp_server::AppConfig::default(),
+        management: management_server::AppConfig::default(),
+        storage: storage_server::AppConfig::default(),
+    };
+    config.idp.data_dir = root.join("idp").to_string_lossy().into_owned();
+    config.management.data_dir = root.join("management").to_string_lossy().into_owned();
+    config.storage.data_dir = root.join("storage").to_string_lossy().into_owned();
+    config.idp.oauth2.issuer = format!(
+        "https://shared-{}.example/idp",
+        idp_model::model::Id::now_v7()
+    );
+    config.idp.service_audience = Some("idp-services".into());
+    config.management.storage_audience = "storage-service".into();
+    let endpoint = crate::UnifiedEndpoint::open_fresh(&config.endpoint_data_dir, &config.idp)
+        .await
+        .expect("fresh endpoint");
+    let mut fixture = seed_idp(
+        &root,
+        &config.idp.oauth2.issuer,
+        &endpoint.endpoint_id().to_string(),
+        &iroh::SecretKey::generate().public().to_string(),
+    )
+    .await;
+    config.idp.oauth2.local_signer = Some(fixture.local_signer.clone());
+    seed_permissions_at(&root.join("idp/idp.redb"), &mut fixture).await;
+    endpoint.close().await;
+    let mut runtime = crate::UnifiedRuntime::build(config.clone())
+        .await
+        .expect("shared host");
+    let base = format!("http://{}", runtime.local_addr());
+    let listener = runtime.take_listener().expect("single HTTP listener");
+    let router = runtime.router();
+    let task = tokio::spawn(async move {
+        axum::serve(listener, router)
+            .await
+            .expect("serve shared host");
+    });
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .expect("HTTP client");
+    let actor = user_token(
+        &client,
+        &base,
+        "administrator",
+        management_service::MANAGEMENT_APPLICATION_URI,
+    )
+    .await;
+    let subject = user_token(&client, &base, "unassigned", "idp-services").await;
+    let registration = format!("{base}/idp/oauth2/register/human-client");
+    expect_status(
+        client
+            .get(&registration)
+            .bearer_auth(&subject)
+            .send()
+            .await
+            .expect("unassigned request"),
+        http::StatusCode::FORBIDDEN,
+    )
+    .await;
+    let application = format!("{base}/management/applications/{}", fixture.application_id);
+    let permissions = expect_status(
+        client
+            .get(format!("{application}/permissions"))
+            .bearer_auth(&actor)
+            .send()
+            .await
+            .expect("list permissions"),
+        http::StatusCode::OK,
+    )
+    .await;
+    let permission = permissions
+        .as_array()
+        .expect("permissions")
+        .iter()
+        .find(|permission| permission["name"] == "idp.clients.read")
+        .expect("client read permission")["id"]
+        .as_str()
+        .expect("permission ID");
+    let role = expect_status(
+        client
+            .post(format!("{application}/roles"))
+            .bearer_auth(&actor)
+            .json(&serde_json::json!({"name": "Shared identity reader"}))
+            .send()
+            .await
+            .expect("create shared role"),
+        http::StatusCode::OK,
+    )
+    .await;
+    let role = role["id"].as_str().expect("role ID");
+    expect_status(
+        client
+            .post(format!(
+                "{application}/roles/{role}/permissions/{permission}"
+            ))
+            .bearer_auth(&actor)
+            .send()
+            .await
+            .expect("assign permission"),
+        http::StatusCode::OK,
+    )
+    .await;
+    let assignment = format!(
+        "{application}/users/{}/roles/{role}",
+        fixture.unassigned_user
+    );
+    expect_status(
+        client
+            .post(&assignment)
+            .bearer_auth(&actor)
+            .send()
+            .await
+            .expect("assign shared role"),
+        http::StatusCode::OK,
+    )
+    .await;
+    expect_status(
+        client
+            .get(&registration)
+            .bearer_auth(&subject)
+            .send()
+            .await
+            .expect("IdP sees Management grant immediately"),
+        http::StatusCode::OK,
+    )
+    .await;
+    runtime
+        .shutdown()
+        .await
+        .expect("release host without deleting shared rows");
+    expect_status(
+        client
+            .get(&registration)
+            .bearer_auth(&subject)
+            .send()
+            .await
+            .expect("retained router still serves shared identity"),
+        http::StatusCode::OK,
+    )
+    .await;
+    task.abort();
+    let _ = task.await;
+    let mut reopened = crate::UnifiedRuntime::build(config)
+        .await
+        .expect("reopen shared host");
+    let base = format!("http://{}", reopened.local_addr());
+    let listener = reopened.take_listener().expect("reopened listener");
+    let router = reopened.router();
+    let task = tokio::spawn(async move {
+        axum::serve(listener, router)
+            .await
+            .expect("serve reopened host");
+    });
+    let registration = format!("{base}/idp/oauth2/register/human-client");
+    expect_status(
+        client
+            .get(&registration)
+            .bearer_auth(&subject)
+            .send()
+            .await
+            .expect("shared grant survives reopen"),
+        http::StatusCode::OK,
+    )
+    .await;
+    expect_status(
+        client
+            .delete(format!(
+                "{base}/management/applications/{}/users/{}/roles/{role}",
+                fixture.application_id, fixture.unassigned_user
+            ))
+            .bearer_auth(&actor)
+            .send()
+            .await
+            .expect("revoke shared grant"),
+        http::StatusCode::OK,
+    )
+    .await;
+    expect_status(
+        client
+            .get(&registration)
+            .bearer_auth(&subject)
+            .send()
+            .await
+            .expect("IdP sees Management revocation immediately"),
+        http::StatusCode::FORBIDDEN,
+    )
+    .await;
+    task.abort();
+    let _ = task.await;
+    reopened.shutdown().await.expect("release reopened owners");
+    fs::remove_dir_all(root).expect("shared identity cleanup");
 }

@@ -543,6 +543,7 @@ async fn independent_transfer_https_child() {
         );
         let management_router = management_server::build_router(
             management.clone(),
+            management.clone(),
             &management_base,
             "/management",
             "storage-service",
