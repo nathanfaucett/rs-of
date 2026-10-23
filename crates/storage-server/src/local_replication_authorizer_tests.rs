@@ -38,7 +38,7 @@ async fn native_selection_fixture(select: bool) {
     idp.client().translate_and_execute(&format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{owner}' AS UUID), 'owner', 'Owner', 1, 1)"), &SqlTranslator).await.expect("persist owner");
     for (device, endpoint) in devices.into_iter().zip([local, remote]) {
         management.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{owner}', 'node', '{endpoint}', 'local', 1, 1, 1, 1)"), &SqlTranslator).await.expect("persist approved Device");
-        DbSelectionPolicyRepo::new(management.clone())
+        DbSelectionPolicyRepo::new(management.clone().client())
             .set_prevalidated(SelectionPolicy {
                 device_id: device,
                 owner_subject: owner.to_string(),
@@ -57,7 +57,7 @@ async fn native_selection_fixture(select: bool) {
             let idp = idp.clone();
             let management = management.clone();
             async move {
-                let device = DbDeviceRepo::new(management.clone())
+                let device = DbDeviceRepo::new(management.clone().client())
                     .find_approved_by_public_key(&endpoint.to_string())
                     .await
                     .map_err(|error| error.to_string())?
@@ -68,7 +68,7 @@ async fn native_selection_fixture(select: bool) {
                     .await
                     .map_err(|error| error.to_string())?
                     .is_some();
-                let policies = DbSelectionPolicyRepo::new(management);
+                let policies = DbSelectionPolicyRepo::new(management.client());
                 let policy = policies
                     .get(device.id, &device.owner_subject, Id::nil())
                     .await
@@ -114,7 +114,7 @@ async fn native_selection_fixture(select: bool) {
             continue;
         }
         for device_id in devices {
-            DbSelectionPolicyRepo::new(management.clone())
+            DbSelectionPolicyRepo::new(management.clone().client())
                 .set_prevalidated(SelectionPolicy {
                     device_id,
                     owner_subject: owner.to_string(),
@@ -130,7 +130,7 @@ async fn native_selection_fixture(select: bool) {
             authorizer.authorize(local, remote, &resource).await,
             "real persisted matching selections authorize offline"
         );
-        DbSelectionPolicyRepo::new(management.clone())
+        DbSelectionPolicyRepo::new(management.clone().client())
             .set_admin_allowed_prevalidated(devices[1], &owner.to_string(), false)
             .await
             .expect("learn remote restriction");
@@ -138,7 +138,7 @@ async fn native_selection_fixture(select: bool) {
             !authorizer.authorize(local, remote, &resource).await,
             "next operation uses learned restriction"
         );
-        DbSelectionPolicyRepo::new(management.clone())
+        DbSelectionPolicyRepo::new(management.clone().client())
             .set_admin_allowed_prevalidated(devices[1], &owner.to_string(), true)
             .await
             .expect("restore permission");

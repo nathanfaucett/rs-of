@@ -376,7 +376,7 @@ mod tests {
         let engine = Arc::new(db::Database::open(&root).expect("open policy"));
         up(&engine).await.expect("initialize policy");
         engine.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{owner}', 'test', '{endpoint}', '', 1, 1, NULL, 1, 1)"), &db::SqlTranslator).await.expect("Management Device");
-        let policies = Arc::new(DbSelectionPolicyRepo::new(engine.clone()));
+        let policies = Arc::new(DbSelectionPolicyRepo::new(engine.clone().client()));
 
         let owner_active = Arc::new(AtomicBool::new(true));
         let active = owner_active.clone();
@@ -446,7 +446,7 @@ mod tests {
                     .with_idp_service_client("device-client", "device-secret", "idp-api")
                     .expect("authenticated IdP relationship")
                     .with_local_devices(Arc::new(device_service::replica::DbDeviceRepo::new(
-                        engine.clone(),
+                        engine.clone().client(),
                     ))),
             ),
             "storage-api",
@@ -760,7 +760,7 @@ mod tests {
                 DbPermissionRepo::new(engine.client()),
                 DbRoleRepo::new(engine.client()),
             )),
-            Arc::new(DbSelectionPolicyRepo::new(Arc::clone(&engine))),
+            Arc::new(DbSelectionPolicyRepo::new(Arc::clone(&engine).client())),
             control_plane,
             "storage-api",
         );
@@ -900,7 +900,7 @@ mod tests {
                 DbPermissionRepo::new(engine.client()),
                 DbRoleRepo::new(engine.client()),
             )),
-            Arc::new(DbSelectionPolicyRepo::new(Arc::clone(&engine))),
+            Arc::new(DbSelectionPolicyRepo::new(Arc::clone(&engine).client())),
             control_plane,
             "storage-api",
         );

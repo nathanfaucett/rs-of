@@ -335,7 +335,7 @@ async fn node_join_owner_interleaving_rejection_has_no_active_trust_after_reopen
         Database::open(root.join("management/management.redb"))
             .expect("offline Management owner reopen"),
     );
-    let reopened = device_service::replica::DbDeviceRepo::new(management.clone())
+    let reopened = device_service::replica::DbDeviceRepo::new(management.clone().client())
         .find_approved_by_public_key(&request.endpoint_id)
         .await
         .expect("reopened Device admission")

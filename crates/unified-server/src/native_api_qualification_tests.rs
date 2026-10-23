@@ -327,7 +327,7 @@ async fn catalog_count(fixture: &Fixture, kind: &str, scope: &super::StorageName
 
 async fn set_device_allowed(fixture: &Fixture, allowed: bool) {
     assert!(
-        DbSelectionPolicyRepo::new(fixture.management.clone())
+        DbSelectionPolicyRepo::new(fixture.management.clone().client())
             .set_admin_allowed_prevalidated(
                 fixture.device.device_id,
                 &fixture.device.owner_subject,

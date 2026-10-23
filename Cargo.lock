@@ -1681,7 +1681,6 @@ dependencies = [
  "iroh",
  "iroh-chain",
  "log",
- "management-server",
  "management-service",
  "model",
  "of-idp-client",

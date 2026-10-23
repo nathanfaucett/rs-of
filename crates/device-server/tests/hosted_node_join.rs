@@ -34,8 +34,8 @@ async fn service_builder_mounts_hosted_join_routes_at_its_configured_prefix() {
     );
     for prefix in ["", "/device", "/custom/device"] {
         let router = device_server::build_router(
-            engine.clone(),
-            engine.clone(),
+            engine.clone().client(),
+            engine.clone().client(),
             "https://device.example",
             prefix,
             "storage",

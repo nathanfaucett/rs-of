@@ -27,8 +27,8 @@ pub(super) async fn qualify(
     {
         let engine = Arc::new(db::Database::open(&path).expect("stopped Management owner"));
 
-        let devices = DbDeviceRepo::new(engine.clone());
-        let policies = DbSelectionPolicyRepo::new(engine);
+        let devices = DbDeviceRepo::new(engine.clone().client());
+        let policies = DbSelectionPolicyRepo::new(engine.client());
         let next = Id::now_v7().to_string();
         assert!(
             devices
@@ -204,7 +204,7 @@ pub(super) async fn qualify(
         }
     }
     let engine = Arc::new(db::Database::open(&path).expect("stopped recovered reopen"));
-    let policies = DbSelectionPolicyRepo::new(engine);
+    let policies = DbSelectionPolicyRepo::new(engine.client());
     assert!(
         !policies
             .local_cleanup_pending(device)

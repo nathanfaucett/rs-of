@@ -92,6 +92,28 @@ impl IndependentJoinApproval {
         Ok(approval)
     }
 
+    pub async fn verify_current(&self, context: &str) -> io::Result<()> {
+        self.verify()?;
+        if !matches!(context, "device" | "idp") {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid shared Join context",
+            ));
+        }
+        api::LocalTls::verification_client()?
+            .post(format!(
+                "{}/independent/node-joins/verify",
+                self.request.source.device
+            ))
+            .json(&serde_json::json!({"approval": self, "context": context}))
+            .send()
+            .await
+            .map_err(io::Error::other)?
+            .error_for_status()
+            .map_err(io::Error::other)?;
+        Ok(())
+    }
+
     pub fn verify(&self) -> io::Result<()> {
         self.request.validate()?;
         if self.owner_subject.is_nil() {

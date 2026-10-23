@@ -6,6 +6,8 @@ mod join;
 mod operation;
 mod permissions;
 #[cfg(target_os = "linux")]
+mod remote_setup;
+#[cfg(target_os = "linux")]
 mod reset;
 #[cfg(target_os = "linux")]
 mod transfer;

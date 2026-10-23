@@ -34,6 +34,65 @@ pub async fn up(engine: &Database) -> Result<(), db::QueryError> {
     Ok(())
 }
 
+pub async fn validate_device(client: &db::Client) -> Result<(), db::QueryError> {
+    for (table, columns) in [
+        (
+            "devices",
+            "id, owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at",
+        ),
+        (
+            "local_device_enrollments",
+            "device_id, enrollment_code_hash, enrollment_expires_at, pairing_accepting_public_key",
+        ),
+        (
+            "local_device_copy_cleanup",
+            "device_id, cleanup_id, completed",
+        ),
+        (
+            "device_selection_policies",
+            "device_id, owner_subject, application_id, selected_kind, selected_id, admin_allowed",
+        ),
+        (
+            "device_resource_selections",
+            "id, device_id, owner_subject, application_id, selected_kind, selected_id, selected",
+        ),
+    ] {
+        client
+            .translate_and_execute(
+                &format!("SELECT {columns} FROM {table} LIMIT 0"),
+                &SqlTranslator,
+            )
+            .await?;
+    }
+    let devices = client
+        .translate_and_execute("SELECT * FROM devices LIMIT 0", &SqlTranslator)
+        .await?;
+    if devices[0].columns.iter().any(|column| {
+        matches!(
+            column.name.as_str(),
+            "enrollment_code_hash" | "enrollment_expires_at" | "pairing_accepting_public_key"
+        )
+    }) {
+        return Err(db::QueryError::new(
+            db::QueryErrorKind::Rejected,
+            "mixed Device enrollment history is unsupported",
+        ));
+    }
+    let key = db::Row::new(vec![db::Value::Uuid(db::Uuid::nil())]);
+    client
+        .row_conflicts_batch("devices", core::slice::from_ref(&key))
+        .await?;
+    client
+        .row_conflict_values("device_selection_policies", &key)
+        .await?;
+    let transaction = client.transaction().await?;
+    transaction.row_conflicts("devices", &key).await?;
+    transaction
+        .row_conflict_values("device_selection_policies", &key)
+        .await?;
+    transaction.rollback().await
+}
+
 #[cfg(test)]
 mod tests {
 

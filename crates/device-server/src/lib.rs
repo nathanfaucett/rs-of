@@ -40,3 +40,6 @@ pub use node_join_source::{NodeJoinReadiness, NodeJoinSource, node_join_openapi}
 
 mod authority;
 pub use authority::DeviceAuthority;
+
+mod database_client;
+pub use database_client::{device_client, identity_client};

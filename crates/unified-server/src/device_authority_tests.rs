@@ -1,3 +1,7 @@
+#[cfg(unix)]
+#[path = "remote_device_process_tests.rs"]
+mod remote;
+
 use std::sync::{Arc, OnceLock};
 
 use axum::{
@@ -85,8 +89,8 @@ async fn device_http_and_storage_share_isolated_authority_and_recheck_revocation
         .await
         .expect("Management router"),
         device_server::build_router(
-            identity.clone(),
-            devices.clone(),
+            identity.clone().client(),
+            devices.clone().client(),
             "https://node.example",
             "/device",
             "storage",
@@ -196,7 +200,7 @@ async fn device_http_and_storage_share_isolated_authority_and_recheck_revocation
     }
     // Keep another approved member: revoking the last approved Device is forbidden.
     use device_service::DeviceRepo;
-    let peers = device_service::replica::DbDeviceRepo::new(devices);
+    let peers = device_service::replica::DbDeviceRepo::new(devices.client());
     let peer = peers
         .create(
             owner.to_string(),

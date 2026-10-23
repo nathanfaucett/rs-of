@@ -191,7 +191,7 @@ impl SecurityProtocol {
         self.validate_local_schema(context).await?;
         let handshake = self.local_handshake(context).await?;
 
-        let remote_member = DbDeviceRepo::new(self.management.clone())
+        let remote_member = DbDeviceRepo::new(self.management.clone().client())
             .find_approved_by_public_key(&connection.remote_id().to_string())
             .await
             .map_err(denied)?
@@ -331,7 +331,7 @@ impl SecurityProtocol {
         if self.cancellation.is_cancelled() {
             return Err(denied("security synchronization is shutting down"));
         }
-        let device = DbDeviceRepo::new(self.management.clone())
+        let device = DbDeviceRepo::new(self.management.clone().client())
             .find_approved_by_public_key(&self.server.endpoint().id().to_string())
             .await
             .map_err(denied)?
@@ -365,7 +365,7 @@ impl SecurityProtocol {
     ) -> io::Result<()> {
         self.local_handshake(context).await?;
         let endpoint = connection.remote_id().to_string();
-        let device = DbDeviceRepo::new(self.management.clone())
+        let device = DbDeviceRepo::new(self.management.clone().client())
             .find_approved_by_public_key(&endpoint)
             .await
             .map_err(denied)?
@@ -423,7 +423,7 @@ impl SecurityProtocol {
                 (local.member, self.server.endpoint().id().to_string()),
                 (member, connection.remote_id().to_string()),
             ] {
-                let device = DbDeviceRepo::new(self.management.clone())
+                let device = DbDeviceRepo::new(self.management.clone().client())
                     .find_approved_by_public_key(&endpoint)
                     .await
                     .map_err(denied)?

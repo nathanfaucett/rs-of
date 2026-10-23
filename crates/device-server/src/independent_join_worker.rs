@@ -2,7 +2,6 @@ use super::{Record, build, observe, open_existing, public, verify};
 use std::{io, path::Path, sync::Arc, time::Instant};
 
 use api::{IndependentCreateCommand, IndependentCreateControl, IndependentPeer};
-use db::Database;
 use device_service::DeviceIdentity;
 use device_service::independent_join::IndependentJoinApproval;
 use device_service::independent_join::IndependentJoinRequest;
@@ -11,14 +10,14 @@ use device_service::join_history::import_join_history;
 use idp_model::model::Id;
 use iroh_chain::{EndpointIdStore, Server};
 
-use crate::{AppConfig, IndependentDeviceRuntime};
+use crate::{AppConfig, IndependentDeviceRuntime, database_client::DeviceStore};
 
 pub(super) async fn provision(
     config: &AppConfig,
     control: &IndependentCreateControl,
     command: &IndependentCreateCommand,
     record: &mut Record,
-    engine: &mut Option<Arc<Database>>,
+    engine: &mut Option<DeviceStore>,
     identity: Arc<DeviceIdentity>,
     runtime: &mut Option<IndependentDeviceRuntime>,
 ) -> io::Result<()> {
@@ -104,7 +103,7 @@ pub(super) async fn provision(
             }
             record.domain_attempted = true;
             control.write_record(record)?;
-            *engine = Some(crate::open_device_database(config).await?);
+            *engine = Some(DeviceStore::open(config).await?);
         } else {
             *engine = Some(open_existing(config).await?);
         }
@@ -117,24 +116,32 @@ pub(super) async fn provision(
     let import_at = Instant::now();
 
     if !record.imported {
-        let challenge = control
-            .request_history(
-                &approval.request.source.device,
-                serde_json::to_value(&approval)?,
+        if config.device_database.is_some() {
+            approval.verify_current("device").await?;
+        } else {
+            let challenge = control
+                .request_history(
+                    &approval.request.source.device,
+                    serde_json::to_value(&approval)?,
+                    &command.cancellation,
+                )
+                .await?;
+            import_join_history(
+                opened
+                    .owner
+                    .as_ref()
+                    .expect("local Device history owner")
+                    .clone(),
+                JoinHistoryContext::Device,
+                &approval,
+                challenge["capability"]
+                    .as_str()
+                    .ok_or_else(|| io::Error::other("history capability missing"))?,
+                control.directory().join("join-history"),
                 &command.cancellation,
             )
             .await?;
-        import_join_history(
-            opened.clone(),
-            JoinHistoryContext::Device,
-            &approval,
-            challenge["capability"]
-                .as_str()
-                .ok_or_else(|| io::Error::other("history capability missing"))?,
-            control.directory().join("join-history"),
-            &command.cancellation,
-        )
-        .await?;
+        }
         verify(opened, record).await?;
         record.imported = true;
         control.write_record(record)?;

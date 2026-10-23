@@ -128,6 +128,13 @@ pub(super) async fn start(
         ..Default::default()
     };
     storage.server.prefix = Some("/storage".into());
+    if let Ok(bytes) = fs::read(root.join("shared-sql.json")) {
+        let (identity, devices): (db::RemoteDatabaseConfig, db::RemoteDatabaseConfig) =
+            serde_json::from_slice(&bytes).expect("remote setup endpoints");
+        idp.identity_database = Some(identity.clone());
+        device.identity_database = Some(identity);
+        device.device_database = Some(devices);
+    }
     vec![
         tokio::spawn({
             let task = idp_server::serve_independent_create(
@@ -1001,8 +1008,8 @@ pub(super) async fn seed_endpoint_negatives(root: &Path) -> Vec<(String, StatusC
             .await
             .expect("ordinary fixture administrator grant");
     }
-    let devices = DbDeviceRepo::new(engine.clone());
-    let policies = DbSelectionPolicyRepo::new(engine.clone());
+    let devices = DbDeviceRepo::new(engine.clone().client());
+    let policies = DbSelectionPolicyRepo::new(engine.clone().client());
     let mut cases = Vec::new();
     for case in [
         "approved-no-signer",

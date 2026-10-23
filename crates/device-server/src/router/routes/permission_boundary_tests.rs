@@ -27,7 +27,7 @@ fn state(engine: Arc<db::Database>) -> RouterState {
             DbPermissionRepo::new(engine.client()),
             DbRoleRepo::new(engine.client()),
         )),
-        Arc::new(DbSelectionPolicyRepo::new(engine)),
+        Arc::new(DbSelectionPolicyRepo::new(engine.client())),
         Arc::new(
             HostedControlPlane::new_with_services(
                 "http://127.0.0.1",
@@ -75,7 +75,7 @@ async fn restriction_api_updates_exact_device_with_separate_read_and_update_gran
             .with_idp_service_client("lookup", "secret", "idp-services")
             .expect("scoped lookup")
             .with_local_devices(Arc::new(device_service::replica::DbDeviceRepo::new(
-                engine.clone(),
+                engine.clone().client(),
             ))),
     );
     state

@@ -28,7 +28,7 @@ async fn document() -> Value {
             DbPermissionRepo::new(engine.client()),
             DbRoleRepo::new(engine.client()),
         )),
-        Arc::new(DbSelectionPolicyRepo::new(Arc::clone(&engine))),
+        Arc::new(DbSelectionPolicyRepo::new(Arc::clone(&engine).client())),
         Arc::new(
             HostedControlPlane::new_with_services(
                 "http://127.0.0.1",

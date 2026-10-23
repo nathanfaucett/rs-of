@@ -146,7 +146,7 @@ async fn operation_child() {
         let engine = Arc::new(
             db::Database::open(root.join("device/devices.redb")).expect("stopped Management"),
         );
-        DbDeviceRepo::new(engine)
+        DbDeviceRepo::new(engine.client())
             .find_approved_by_public_key(endpoint)
             .await
             .expect("lookup")

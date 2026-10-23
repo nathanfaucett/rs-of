@@ -160,9 +160,9 @@ pub async fn run() -> io::Result<()> {
     )
     .init();
 
-    let engine = crate::open_device_database(&app_config).await?;
+    let engine = crate::device_client(&app_config).await?;
     let router = build_router(
-        crate::provisioning::open_identity_database(&app_config)?,
+        crate::identity_client(&app_config).await?,
         engine,
         &app_config.api_public_uri,
         app_config.server.prefix(),

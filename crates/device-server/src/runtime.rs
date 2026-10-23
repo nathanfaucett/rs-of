@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::Router;
-use db::Database;
+use db::Client;
 use device_service::DeviceEndpointIdentity;
 use device_service::HostedControlPlane;
 use device_service::replica::DbDeviceRepo;
@@ -62,8 +62,8 @@ pub(crate) fn replication_policy_from_observation(
 
 /// Composes serving from an already initialized owner database.
 pub async fn build_router(
-    identity: Arc<Database>,
-    devices: Arc<Database>,
+    identity: Client,
+    devices: Client,
     api_base_uri: &str,
     prefix: &str,
     storage_audience: &str,
@@ -74,11 +74,11 @@ pub async fn build_router(
         control_plane
             .as_ref()
             .clone()
-            .with_local_devices(Arc::new(DbDeviceRepo::new(Arc::clone(&devices)))),
+            .with_local_devices(Arc::new(DbDeviceRepo::new(devices.clone()))),
     );
     let management_service = Arc::new(ManagementService::new(
-        DbPermissionRepo::new(identity.client()),
-        DbRoleRepo::new(identity.client()),
+        DbPermissionRepo::new(identity.clone()),
+        DbRoleRepo::new(identity.clone()),
     ));
     let router_state = RouterState::new(
         api_base_uri,
@@ -110,7 +110,7 @@ mod tests {
         engine: Arc<Database>,
         device: &DeviceEndpointIdentity,
     ) -> Result<(bool, Vec<SelectedResource>), String> {
-        replication_policy_from_repo(&DbSelectionPolicyRepo::new(engine), device).await
+        replication_policy_from_repo(&DbSelectionPolicyRepo::new(engine.client()), device).await
     }
 
     #[tokio::test]
@@ -132,7 +132,7 @@ mod tests {
                     .is_err(),
                 "missing policy cannot fall back to remote approval"
             );
-            let policies = DbSelectionPolicyRepo::new(Arc::clone(&engine));
+            let policies = DbSelectionPolicyRepo::new(Arc::clone(&engine).client());
             policies
                 .set_prevalidated(SelectionPolicy {
                     device_id: device.device_id,

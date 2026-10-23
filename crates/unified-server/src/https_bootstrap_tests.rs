@@ -379,7 +379,7 @@ async fn production_https_bootstrap_child() {
         assert_eq!(join_journal(&b), retained);
         assert_eq!(retained["complete"], false);
         assert!(
-            device_service::replica::DbSelectionPolicyRepo::new(source.management.clone())
+            device_service::replica::DbSelectionPolicyRepo::new(source.management.clone().client())
                 .get(member, &user.to_string(), Id::nil())
                 .await
                 .expect("cancelled membership policy")
@@ -459,7 +459,7 @@ async fn production_https_bootstrap_child() {
         reqwest::StatusCode::FORBIDDEN
     );
     assert!(
-        device_service::replica::DbSelectionPolicyRepo::new(source.management.clone())
+        device_service::replica::DbSelectionPolicyRepo::new(source.management.clone().client())
             .get(member, &user.to_string(), Id::nil())
             .await
             .expect("policy lookup after forged approval")
@@ -476,11 +476,12 @@ async fn production_https_bootstrap_child() {
         response.json().await.expect("public signed approval");
     assert_eq!(approval.owner_subject, user);
     assert_eq!(approval.request.member_id, member);
-    let policy = device_service::replica::DbSelectionPolicyRepo::new(source.management.clone())
-        .get(member, &user.to_string(), Id::nil())
-        .await
-        .expect("approved policy lookup")
-        .expect("post-enrollment default policy");
+    let policy =
+        device_service::replica::DbSelectionPolicyRepo::new(source.management.clone().client())
+            .get(member, &user.to_string(), Id::nil())
+            .await
+            .expect("approved policy lookup")
+            .expect("post-enrollment default policy");
     assert!(policy.admin_allowed);
     assert!(
         policy.application_id.is_none()
@@ -717,7 +718,8 @@ async fn rejected_enrollment_keeps_policy_absent(
         reqwest::StatusCode::CONFLICT,
         "IdP exact signer validation rejects before Management mutation"
     );
-    let policies = device_service::replica::DbSelectionPolicyRepo::new(source.management.clone());
+    let policies =
+        device_service::replica::DbSelectionPolicyRepo::new(source.management.clone().client());
     assert!(
         policies
             .get(member, &owner.to_string(), Id::nil())

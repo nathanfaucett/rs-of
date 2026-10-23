@@ -292,7 +292,7 @@ impl ExistingSource {
         .await
         .expect("explicit existing source grants");
         device_server::provision_initial_device(
-            device_engine.clone(),
+            device_engine.clone().client(),
             Id::now_v7(),
             user,
             &identity.endpoint_id().to_string(),
@@ -314,7 +314,8 @@ impl ExistingSource {
             .with_device_identity(identity.clone());
         let management_runtime = device_server::build_independent_device(
             &management_config,
-            device_engine,
+            device_engine.client(),
+            Some(device_engine),
             Arc::new(plane),
             identity.clone(),
             &issuer,
@@ -327,7 +328,11 @@ impl ExistingSource {
         .expect("existing source Management serving");
         let idp_runtime = idp_server::build_independent_idp(
             &config,
-            owner.node_join_database().expect("local identity owner"),
+            owner
+                .node_join_database()
+                .expect("local identity owner")
+                .client(),
+            Some(owner.node_join_database().expect("local identity owner")),
             CancellationToken::new(),
         )
         .await

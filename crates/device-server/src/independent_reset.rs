@@ -37,6 +37,30 @@ struct References {
 }
 
 pub async fn reset_independent(config: &AppConfig, remove_os_trust: bool) -> io::Result<()> {
+    if let Some(remote) = &config.device_database {
+        remote.validate()?;
+        let domain = Path::new(&config.data_dir);
+        let mut retained = false;
+        for path in [
+            domain.to_path_buf(),
+            domain.with_extension("setup-host"),
+            domain.with_extension("setup-reset"),
+            domain.with_extension("setup-reset.json"),
+        ] {
+            retained |= path.is_symlink() || path.try_exists()?;
+        }
+        if !retained {
+            return Ok(());
+        }
+        if domain.is_symlink()
+            || (domain.try_exists()? && std::fs::read_dir(domain)?.next().is_some())
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "remote Device consumer root must be empty; preserve unexpected owner data",
+            ));
+        }
+    }
     let mut reset = IndependentReset::open("device", Path::new(&config.data_dir), remove_os_trust)?;
     if reset.secrets_pending() {
         if let Some(worker) = reset.worker() {

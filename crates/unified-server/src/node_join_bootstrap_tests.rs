@@ -86,7 +86,7 @@ async fn issue_local_token(
             .node_join_database()
             .expect("local identity owner")
             .client(),
-        Some(Arc::new(DbDeviceRepo::new(policy.clone()))),
+        Some(Arc::new(DbDeviceRepo::new(policy.clone().client()))),
         Arc::new(
             device_service::device_identity_from_server(server, secret.clone())
                 .expect("retained local endpoint identity"),
@@ -268,7 +268,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
     let runtime = idp_server::build_runtime(
         &source_config,
         source_idp.client(),
-        Some(Arc::new(DbDeviceRepo::new(source_policy.clone()))),
+        Some(Arc::new(DbDeviceRepo::new(source_policy.clone().client()))),
         Arc::new(
             device_service::device_identity_from_server(&source, source_secret)
                 .expect("source identity"),
@@ -358,7 +358,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
         crate::runtime::build_control_plane(
             Arc::new(runtime),
             Arc::new(device_service::replica::DbDeviceRepo::new(
-                source_policy.clone(),
+                source_policy.clone().client(),
             )),
             "http://127.0.0.1:1",
             "http://127.0.0.1:1",
@@ -648,7 +648,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
                 .is_err(),
             "existing connection cannot reuse receipt after source grant revocation"
         );
-        let devices = DbDeviceRepo::new(source_policy.clone());
+        let devices = DbDeviceRepo::new(source_policy.clone().client());
         devices
             .rename(
                 &received.owner_subject.to_string(),

@@ -144,12 +144,6 @@ pub async fn serve_independent_create(
     setup: IndependentSetupHost,
     shutdown: CancellationToken,
 ) -> io::Result<()> {
-    if config.identity_database.is_some() {
-        return Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "remote identity consumers attach to an initialized Installation; independent Create/Join requires a local database owner",
-        ));
-    }
     setup.require_owner("idp", Path::new(&config.data_dir))?;
     let (host, commands) = setup.into_create(shutdown.clone())?;
     let control = host.control();
@@ -203,7 +197,8 @@ async fn run(
             runtime = Some(
                 crate::build_independent_idp(
                     &runtime_config(&config, &control, &intent, &record)?,
-                    opened.node_join_database()?,
+                    opened.engine.clone(),
+                    opened.database.clone(),
                     control.shutdown_token(),
                 )
                 .await?,
@@ -254,12 +249,16 @@ fn runtime_config(
     config.oauth2.local_signer = Some(binding(record)?);
     config.service_audience = Some(intent.idp.clone());
     config.management_data_dir = None;
-    config.control_plane_uri = None;
-    config.management_permissions = Some(ManagementPermissionConfig {
-        api_base_uri: intent.device.clone(),
-        client_id: record.client.to_string(),
-        client_secret: load_setup_secret(&service(control), &record.client.to_string())?,
-    });
+    config.control_plane_uri = Some(intent.device.clone());
+    config.management_permissions = if config.identity_database.is_some() {
+        None
+    } else {
+        Some(ManagementPermissionConfig {
+            api_base_uri: intent.device.clone(),
+            client_id: record.client.to_string(),
+            client_secret: load_setup_secret(&service(control), &record.client.to_string())?,
+        })
+    };
     Ok(config)
 }
 async fn open(
@@ -270,7 +269,9 @@ async fn open(
     opened: &mut Option<Arc<OwnerProvisioner>>,
 ) -> io::Result<()> {
     if opened.is_none() {
-        if !Path::new(&config.data_dir).join("idp.redb").is_file() {
+        if config.identity_database.is_none()
+            && !Path::new(&config.data_dir).join("idp.redb").is_file()
+        {
             return Err(io::Error::other("attempted IdP store is missing"));
         }
         *opened = Some(Arc::new(
@@ -565,7 +566,8 @@ async fn provision(
         *runtime = Some(
             crate::build_independent_idp(
                 &runtime_config(config, control, intent, &record)?,
-                owner.node_join_database()?,
+                owner.engine.clone(),
+                owner.database.clone(),
                 control.shutdown_token(),
             )
             .await?,

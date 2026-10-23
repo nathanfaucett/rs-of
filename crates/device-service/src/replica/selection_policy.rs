@@ -1,8 +1,6 @@
-use std::sync::Arc;
-
 use crate::DeviceState;
 use db::{
-    Database, FromRow, FromRowError, Query, QueryColumn, QueryExpr, QueryExprValue, QueryFrom,
+    Client, FromRow, FromRowError, Query, QueryColumn, QueryExpr, QueryExprValue, QueryFrom,
     QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid, Value,
 };
 
@@ -98,18 +96,17 @@ impl FromRow for SelectionPolicy {
 }
 
 pub struct DbSelectionPolicyRepo {
-    engine: Arc<Database>,
+    engine: Client,
 }
 
 impl DbSelectionPolicyRepo {
-    pub const fn new(engine: Arc<Database>) -> Self {
+    pub const fn new(engine: Client) -> Self {
         Self { engine }
     }
 
     async fn clear(&self, device_id: Uuid) -> DeviceResult<()> {
         if self
             .engine
-            .client()
             .row_conflicts(TABLE, &key(device_id))
             .await
             .map_err(db_error)?
@@ -132,7 +129,6 @@ impl DbSelectionPolicyRepo {
     async fn resolve_convergent_conflicts(&self, device_id: Uuid) -> DeviceResult<()> {
         let conflicts = self
             .engine
-            .client()
             .row_conflict_values(TABLE, &key(device_id))
             .await
             .map_err(db_error)?;
@@ -151,7 +147,6 @@ impl DbSelectionPolicyRepo {
         }
         if !resolutions.is_empty() {
             self.engine
-                .client()
                 .resolve_row(TABLE, &key(device_id), resolutions)
                 .await
                 .map_err(db_error)?;
@@ -170,7 +165,6 @@ impl DbSelectionPolicyRepo {
         let id = resource_selection_id(device_id, owner_subject, application_id, kind, resource_id);
         let conflicts = self
             .engine
-            .client()
             .row_conflict_values(RESOURCE_TABLE, &key(id))
             .await
             .map_err(db_error)?;
@@ -183,14 +177,12 @@ impl DbSelectionPolicyRepo {
                 resolutions.push((column, Value::Bool(false)));
             }
             self.engine
-                .client()
                 .resolve_row(RESOURCE_TABLE, &key(id), resolutions)
                 .await
                 .map_err(db_error)?;
         }
         let mut results = self
             .engine
-            .client()
             .execute(vec![Statement::Query(Query::Select(QuerySelect {
                 from: resource_from(),
                 projection: [
@@ -262,7 +254,6 @@ impl DbSelectionPolicyRepo {
         );
         let exists = !self
             .engine
-            .client()
             .row_conflicts(RESOURCE_TABLE, &key(id))
             .await
             .map_err(db_error)?
@@ -295,7 +286,6 @@ impl DbSelectionPolicyRepo {
             })
         };
         self.engine
-            .client()
             .execute(vec![Statement::Query(query)])
             .await
             .map_err(db_error)?;
@@ -305,7 +295,6 @@ impl DbSelectionPolicyRepo {
     async fn resource_selection_exists(&self, id: Uuid) -> DeviceResult<bool> {
         let mut results = self
             .engine
-            .client()
             .execute(vec![Statement::Query(Query::Select(QuerySelect {
                 from: resource_from(),
                 projection: [
@@ -342,7 +331,6 @@ impl DbSelectionPolicyRepo {
     async fn raw_record(&self, device_id: Uuid) -> DeviceResult<Option<SelectionPolicy>> {
         let mut results = self
             .engine
-            .client()
             .execute(vec![Statement::Query(Query::Select(QuerySelect {
                 from: from(),
                 projection: COLUMNS.into_iter().map(column).collect(),
@@ -372,7 +360,6 @@ impl DbSelectionPolicyRepo {
     ) -> DeviceResult<Vec<SelectedResource>> {
         let mut results = self
             .engine
-            .client()
             .execute(vec![Statement::Query(resource_query(device_id))])
             .await
             .map_err(db_error)?;
@@ -476,7 +463,7 @@ impl DbSelectionPolicyRepo {
             return Err(invalid("invalid Device owner binding"));
         }
         self.resolve_convergent_conflicts(device_id).await?;
-        let mut transaction = self.engine.client().transaction().await.map_err(db_error)?;
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         if !transaction
             .row_conflicts(TABLE, &key(device_id))
             .await
@@ -653,7 +640,6 @@ impl DbSelectionPolicyRepo {
     pub async fn local_cleanup_pending(&self, device_id: Uuid) -> DeviceResult<bool> {
         Ok(self
             .engine
-            .client()
             .execute(vec![Statement::Query(cleanup_query(device_id, true))])
             .await
             .map_err(db_error)?
@@ -664,7 +650,6 @@ impl DbSelectionPolicyRepo {
     pub async fn pending_cleanup_id(&self, device_id: Uuid) -> DeviceResult<Option<Uuid>> {
         if !self
             .engine
-            .client()
             .row_conflicts("local_device_copy_cleanup", &key(device_id))
             .await
             .map_err(db_error)?
@@ -674,7 +659,6 @@ impl DbSelectionPolicyRepo {
         }
         let results = self
             .engine
-            .client()
             .execute(vec![Statement::Query(cleanup_query(device_id, true))])
             .await
             .map_err(db_error)?;
@@ -755,7 +739,7 @@ impl DbSelectionPolicyRepo {
         {
             return Ok(false);
         }
-        let mut transaction = self.engine.client().transaction().await.map_err(db_error)?;
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         if let Some((endpoint, _)) = endpoint {
             for table in ["devices", "local_device_enrollments"] {
                 if !transaction
@@ -989,7 +973,6 @@ impl DbSelectionPolicyRepo {
         };
         if let Some(query) = query {
             self.engine
-                .client()
                 .execute(vec![Statement::Query(query)])
                 .await
                 .map_err(db_error)?;
@@ -997,7 +980,6 @@ impl DbSelectionPolicyRepo {
         self.clear(policy.device_id).await?;
         if policy.selected_id.is_none() {
             self.engine
-                .client()
                 .execute(vec![Statement::Query(Query::Update(QueryUpdate {
                     from: resource_from(),
                     assignments: vec![assignment_for(
@@ -1045,7 +1027,6 @@ impl DbSelectionPolicyRepo {
             return Ok(true);
         }
         self.engine
-            .client()
             .execute(vec![Statement::Query(Query::Update(QueryUpdate {
                 from: from(),
                 assignments: vec![assignment("admin_allowed", Value::Bool(admin_allowed))],
@@ -1080,7 +1061,6 @@ impl DbSelectionPolicyRepo {
         }
         let id = resource_selection_id(device_id, owner_subject, application_id, kind, resource_id);
         self.engine
-            .client()
             .execute(vec![Statement::Query(Query::Update(QueryUpdate {
                 from: resource_from(),
                 assignments: vec![assignment_for(
@@ -1099,7 +1079,6 @@ impl DbSelectionPolicyRepo {
     pub async fn deselect_owned(&self, device_id: Uuid, owner_subject: &str) -> DeviceResult<bool> {
         let conflicts = self
             .engine
-            .client()
             .row_conflict_values(TABLE, &key(device_id))
             .await
             .map_err(db_error)?;
@@ -1121,7 +1100,6 @@ impl DbSelectionPolicyRepo {
         }
         if !conflicts.is_empty() {
             self.engine
-                .client()
                 .resolve_row(
                     TABLE,
                     &key(device_id),
@@ -1139,7 +1117,6 @@ impl DbSelectionPolicyRepo {
             .ok_or_else(|| invalid("selection policy not found"))?;
 
         self.engine
-            .client()
             .execute(vec![
                 Statement::Query(Query::Update(QueryUpdate {
                     from: resource_from(),
@@ -1282,7 +1259,7 @@ mod tests {
             crate::replica::up(&engine)
                 .await
                 .expect("Management schema");
-            let repo = DbSelectionPolicyRepo::new(engine);
+            let repo = DbSelectionPolicyRepo::new(engine.client());
             for (kind, resource) in [("database", database), ("filesystem", filesystem)] {
                 repo.set_prevalidated(SelectionPolicy {
                     device_id: device,
@@ -1353,7 +1330,7 @@ mod tests {
         }
         {
             let engine = Arc::new(Database::open(&path).expect("offline owner reopen"));
-            let repo = DbSelectionPolicyRepo::new(engine);
+            let repo = DbSelectionPolicyRepo::new(engine.client());
             assert_eq!(
                 repo.observe_owner_prevalidated(device, &owner)
                     .await
@@ -1392,7 +1369,7 @@ mod tests {
         let first = Arc::new(Database::in_memory());
         let second = Database::in_memory();
         crate::replica::up(&first).await.expect("Management schema");
-        let repo = DbSelectionPolicyRepo::new(first.clone());
+        let repo = DbSelectionPolicyRepo::new(first.clone().client());
         let device = Uuid::now_v7();
         repo.set_prevalidated(SelectionPolicy {
             device_id: device,
@@ -1499,7 +1476,7 @@ mod tests {
             crate::replica::up(&first)
                 .await
                 .expect("initialize management only");
-            let repo = DbSelectionPolicyRepo::new(Arc::clone(&first));
+            let repo = DbSelectionPolicyRepo::new(Arc::clone(&first).client());
             for device_id in [restricted, ambiguous] {
                 repo.set_prevalidated(SelectionPolicy {
                     device_id,
@@ -1557,7 +1534,7 @@ mod tests {
         }
         {
             let database = Arc::new(Database::open(&path).expect("reopen offline management"));
-            let repo = DbSelectionPolicyRepo::new(database);
+            let repo = DbSelectionPolicyRepo::new(database.client());
             assert!(repo.get(ambiguous, "alice", namespace).await.is_err());
             assert!(
                 !repo
@@ -1577,8 +1554,8 @@ mod tests {
         crate::replica::up(&engine)
             .await
             .expect("initialize replica");
-        let devices = DbDeviceRepo::new(Arc::clone(&engine));
-        let policies = DbSelectionPolicyRepo::new(engine);
+        let devices = DbDeviceRepo::new(Arc::clone(&engine).client());
+        let policies = DbSelectionPolicyRepo::new(engine.client());
         let local = devices
             .create(
                 "owner".into(),
@@ -1760,8 +1737,8 @@ mod tests {
             .await
             .expect("initialize source replica");
 
-        let devices = DbDeviceRepo::new(Arc::clone(&source));
-        let policies = DbSelectionPolicyRepo::new(Arc::clone(&source));
+        let devices = DbDeviceRepo::new(Arc::clone(&source).client());
+        let policies = DbSelectionPolicyRepo::new(Arc::clone(&source).client());
         let local = devices
             .create(
                 "owner".into(),
@@ -1807,8 +1784,8 @@ mod tests {
         }
         sync_replica(&source, &destination).await;
 
-        let destination_devices = DbDeviceRepo::new(Arc::clone(&destination));
-        let destination_policies = DbSelectionPolicyRepo::new(Arc::clone(&destination));
+        let destination_devices = DbDeviceRepo::new(Arc::clone(&destination).client());
+        let destination_policies = DbSelectionPolicyRepo::new(Arc::clone(&destination).client());
         assert!(
             destination_policies
                 .peers_selected_for_sync(
@@ -1867,8 +1844,8 @@ mod tests {
         crate::replica::up(&first)
             .await
             .expect("initialize replica");
-        let first_repo = DbSelectionPolicyRepo::new(Arc::clone(&first));
-        let second_repo = DbSelectionPolicyRepo::new(Arc::clone(&second));
+        let first_repo = DbSelectionPolicyRepo::new(Arc::clone(&first).client());
+        let second_repo = DbSelectionPolicyRepo::new(Arc::clone(&second).client());
         let device_id = db::Uuid::now_v7();
         let application_id = db::Uuid::now_v7();
         let mut stale = SelectionPolicy {
@@ -1957,7 +1934,7 @@ mod tests {
         {
             let engine = Arc::new(Database::open(&path).expect("open database"));
             crate::replica::up(&engine).await.expect("create schema");
-            let repo = DbSelectionPolicyRepo::new(engine);
+            let repo = DbSelectionPolicyRepo::new(engine.client());
             assert!(
                 repo.set_admin_allowed_prevalidated(device_id, "owner", false)
                     .await
@@ -1974,7 +1951,7 @@ mod tests {
         }
         {
             let engine = Arc::new(Database::open(&path).expect("reopen database"));
-            let repo = DbSelectionPolicyRepo::new(engine);
+            let repo = DbSelectionPolicyRepo::new(engine.client());
             assert!(
                 !repo
                     .get(device_id, "owner", application_id)
@@ -2022,7 +1999,7 @@ mod tests {
         {
             let engine = std::sync::Arc::new(db::Database::open(&root).expect("open policy"));
             super::super::up(&engine).await.expect("initialize policy");
-            let repo = super::DbSelectionPolicyRepo::new(engine);
+            let repo = super::DbSelectionPolicyRepo::new(engine.client());
             repo.set_prevalidated(super::SelectionPolicy {
                 device_id,
                 owner_subject: old.clone(),
@@ -2061,7 +2038,7 @@ mod tests {
         }
         {
             let engine = std::sync::Arc::new(db::Database::open(&root).expect("reopen policy"));
-            let repo = super::DbSelectionPolicyRepo::new(engine);
+            let repo = super::DbSelectionPolicyRepo::new(engine.client());
             assert!(repo.get(device_id, &new, app).await.is_err());
             assert!(
                 !repo
@@ -2089,7 +2066,7 @@ mod tests {
     async fn completed_local_transfer_rebinds_empty_policy_without_lifting_restriction() {
         let engine = Arc::new(db::Database::in_memory());
         super::super::up(&engine).await.expect("schema");
-        let repo = super::DbSelectionPolicyRepo::new(engine);
+        let repo = super::DbSelectionPolicyRepo::new(engine.client());
         let device = db::Uuid::now_v7();
         let old = db::Uuid::now_v7().to_string();
         let new = db::Uuid::now_v7().to_string();
@@ -2167,8 +2144,8 @@ mod tests {
         crate::replica::up(&first)
             .await
             .expect("initialize first replica");
-        let first_devices = DbDeviceRepo::new(Arc::clone(&first));
-        let second_devices = DbDeviceRepo::new(Arc::clone(&second));
+        let first_devices = DbDeviceRepo::new(Arc::clone(&first).client());
+        let second_devices = DbDeviceRepo::new(Arc::clone(&second).client());
         let local = first_devices
             .create(
                 "owner".into(),
@@ -2194,8 +2171,8 @@ mod tests {
             .await
             .expect("approve peer")
             .expect("paired peer exists");
-        let first_repo = DbSelectionPolicyRepo::new(Arc::clone(&first));
-        let second_repo = DbSelectionPolicyRepo::new(Arc::clone(&second));
+        let first_repo = DbSelectionPolicyRepo::new(Arc::clone(&first).client());
+        let second_repo = DbSelectionPolicyRepo::new(Arc::clone(&second).client());
         let device_id = remote.id;
         let application_id = db::Uuid::now_v7();
         let mut selected = SelectionPolicy {
@@ -2328,8 +2305,8 @@ mod tests {
         crate::replica::up(&first)
             .await
             .expect("initialize replica");
-        let first_repo = DbSelectionPolicyRepo::new(Arc::clone(&first));
-        let second_repo = DbSelectionPolicyRepo::new(Arc::clone(&second));
+        let first_repo = DbSelectionPolicyRepo::new(Arc::clone(&first).client());
+        let second_repo = DbSelectionPolicyRepo::new(Arc::clone(&second).client());
         let device_id = db::Uuid::now_v7();
         let application_id = db::Uuid::now_v7();
         let selected = SelectionPolicy {
@@ -2445,14 +2422,14 @@ mod tests {
         {
             let engine: Arc<Database> = Arc::new(Database::open(&path).expect("open database"));
             crate::replica::up(&engine).await.expect("migrate database");
-            DbSelectionPolicyRepo::new(engine)
+            DbSelectionPolicyRepo::new(engine.client())
                 .set_prevalidated(policy.clone())
                 .await
                 .expect("write validated selection");
         }
         {
             let engine: Arc<Database> = Arc::new(Database::open(&path).expect("reopen database"));
-            let repo = DbSelectionPolicyRepo::new(engine);
+            let repo = DbSelectionPolicyRepo::new(engine.client());
             assert_eq!(
                 repo.get(device_id, "owner", application_id)
                     .await
@@ -2470,7 +2447,7 @@ mod tests {
         crate::replica::up(&engine)
             .await
             .expect("initialize replica schema");
-        let repo = DbSelectionPolicyRepo::new(engine);
+        let repo = DbSelectionPolicyRepo::new(engine.client());
         let device_id = db::Uuid::now_v7();
         let application_id = db::Uuid::now_v7();
         let mut policy = SelectionPolicy {
@@ -2529,7 +2506,7 @@ mod tests {
         crate::replica::up(&engine)
             .await
             .expect("initialize replica schema");
-        let repo = DbSelectionPolicyRepo::new(engine);
+        let repo = DbSelectionPolicyRepo::new(engine.client());
         let device_id = db::Uuid::now_v7();
         let app_a = db::Uuid::now_v7();
         let app_b = db::Uuid::now_v7();

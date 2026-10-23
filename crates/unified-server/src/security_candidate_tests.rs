@@ -226,7 +226,7 @@ async fn approved_devices_reject_conflicted_public_device_bindings() {
             for (column, member) in &bindings {
                 assert!(database.client().row_conflicts("devices", &Row::new(vec![Value::Uuid(*member)])).await.expect("actual public Device conflict").contains(&column.to_string()));
             }
-            let devices = DbDeviceRepo::new(Arc::new(database.clone()));
+            let devices = DbDeviceRepo::new(Arc::new(database.clone()).client());
             assert!(devices.find_approved_by_public_key(&pair.a.endpoint().id().to_string()).await.expect("unrelated conflict-clear Device").is_some());
             for (_, member) in &bindings {
                 let Value::Text(endpoint) = &sql(database, &format!("SELECT public_key FROM devices WHERE id = CAST('{member}' AS UUID)")).await[0].rows[0].values[0] else {
@@ -264,7 +264,7 @@ async fn marker3_persists_pending_conflicts_and_tombstones_without_trust() {
         let Value::Text(endpoint) = &sql(&pair.management_b, &format!("SELECT public_key FROM devices WHERE id = CAST('{conflicted}' AS UUID)")).await[0].rows[0].values[0] else {
             panic!("fixture endpoint")
         };
-        assert!(DbDeviceRepo::new(pair.management_b.clone()).find_approved_by_public_key(endpoint).await.is_err(), "persisted Device conflict cannot grant transport trust");
+        assert!(DbDeviceRepo::new(pair.management_b.clone().client()).find_approved_by_public_key(endpoint).await.is_err(), "persisted Device conflict cannot grant transport trust");
         assert!(sql(&pair.management_b, &format!("SELECT * FROM devices WHERE id = CAST('{pending}' AS UUID)")).await[0].rows.is_empty(), "tombstone retained");
         pair.protocol_a.synchronize(&connection, SecurityContext::Idp).await.expect("revoked IdP history persists independently");
         assert_eq!(sql(&pair.idp_b, &format!("SELECT revoked_at FROM idp_replica_signers WHERE id = CAST('{}' AS UUID)", revoked_signer.signer)).await[0].rows[0].values[0], Value::Integer(2));

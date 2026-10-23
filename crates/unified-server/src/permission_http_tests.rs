@@ -127,7 +127,7 @@ async fn run_separate_permission_acceptance(lifecycle_only: bool) {
     .expect("configure introspection relationship")
     .with_permission_evaluator("idp-evaluator")
     .expect("pin distinct assertion client")
-    .with_local_devices(Arc::new(DbDeviceRepo::new(device_engine.clone())))
+    .with_local_devices(Arc::new(DbDeviceRepo::new(device_engine.clone().client())))
     .with_pairing_acceptance(runtime.pairing_acceptance());
     let control_plane = Arc::new(control_plane);
     let router = management_server::build_router(
@@ -140,8 +140,8 @@ async fn run_separate_permission_acceptance(lifecycle_only: bool) {
     .expect("Management role router")
     .merge(
         device_server::build_router(
-            idp_engine.clone(),
-            device_engine,
+            idp_engine.clone().client(),
+            device_engine.client(),
             &management_base,
             "/device",
             "storage-service",
@@ -535,7 +535,7 @@ async fn seed_idp_with_config(
     device_service::replica::up(&management)
         .await
         .expect("Management fixture schema");
-    let devices = DbDeviceRepo::new(management);
+    let devices = DbDeviceRepo::new(management.client());
     let local_device = devices
         .create(
             administrator.to_string(),

@@ -418,7 +418,7 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
     device_service::replica::up(&management)
         .await
         .expect("policy schema");
-    device_service::replica::DbDeviceRepo::new(management.clone())
+    device_service::replica::DbDeviceRepo::new(management.clone().client())
         .enroll_approved_exact(
             peer_binding.member_id,
             owner,
@@ -443,7 +443,7 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
         engine.clone(),
         Arc::new(provisioner.oauth2),
         Some(Arc::new(device_service::replica::DbDeviceRepo::new(
-            management.clone(),
+            management.clone().client(),
         ))),
         Arc::new(
             device_service::device_identity_from_server(&server, secret).expect("peer identity"),

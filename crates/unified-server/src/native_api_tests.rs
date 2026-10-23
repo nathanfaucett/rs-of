@@ -343,7 +343,7 @@ impl Fixture {
             .await
             .expect("native policy schema");
         let devices = Arc::new(device_service::replica::DbDeviceRepo::new(
-            management.clone(),
+            management.clone().client(),
         ));
         devices
             .enroll_approved_exact(

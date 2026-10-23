@@ -23,16 +23,21 @@ use crate::{AppConfig, IdpRuntime, RouterState};
 
 pub async fn build_independent_idp(
     config: &AppConfig,
-    engine: Arc<Database>,
+    engine: db::Client,
+    owner: Option<Arc<Database>>,
     cancellation: CancellationToken,
 ) -> io::Result<IdpRuntime> {
-    if config.identity_database.is_some() {
+    if config.identity_database.is_some() && owner.is_some() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "injected identity owner and remote SQL are mutually exclusive",
         ));
     }
-    let state = crate::runtime::build_state(config, engine.client(), None, None, None).await?;
+    let permissions = config
+        .identity_database
+        .as_ref()
+        .map(|_| management_service::LocalPermissions::new(engine.clone()));
+    let state = crate::runtime::build_state(config, engine, None, None, permissions).await?;
     let endpoint = config
         .oauth2
         .local_signer
@@ -41,11 +46,15 @@ pub async fn build_independent_idp(
         .endpoint_id
         .clone();
     let device = config
-        .management_permissions
-        .as_ref()
-        .ok_or_else(|| io::Error::other("independent Management binding missing"))?
-        .api_base_uri
-        .clone();
+        .control_plane_uri
+        .clone()
+        .or_else(|| {
+            config
+                .management_permissions
+                .as_ref()
+                .map(|permissions| permissions.api_base_uri.clone())
+        })
+        .ok_or_else(|| io::Error::other("independent Device binding missing"))?;
     let source = Arc::new(Source {
         state: state.clone(),
         endpoint,
@@ -56,18 +65,17 @@ pub async fn build_independent_idp(
         let checked = checked.clone();
         Box::pin(async move { checked.verify(&approval).await })
     });
-    let history = JoinHistorySource::new(
-        engine,
-        JoinHistoryContext::Idp,
-        Path::new(&config.data_dir).join("join-source-history"),
-        check,
-        cancellation,
-    );
-    let routes = join_routes()
-        .with_state(source)
-        .split_for_parts()
-        .0
-        .merge(history.router());
+    let mut routes = join_routes().with_state(source).split_for_parts().0;
+    if let Some(owner) = owner {
+        let history = JoinHistorySource::new(
+            owner,
+            JoinHistoryContext::Idp,
+            Path::new(&config.data_dir).join("join-source-history"),
+            check,
+            cancellation,
+        );
+        routes = routes.merge(history.router());
+    }
     let routes = if config.server.prefix().is_empty() {
         routes
     } else {

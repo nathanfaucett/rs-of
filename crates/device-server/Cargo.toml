@@ -17,6 +17,11 @@ name = "device-server"
 path = "src/main.rs"
 required-features = ["cli"]
 
+[[bin]]
+name = "device-database"
+path = "src/device_database_main.rs"
+required-features = ["cli"]
+
 [features]
 default = ["cli", "completions", "swagger-ui"]
 cli = ["dep:dotenvy", "dep:clap", "dep:cli"]
@@ -24,7 +29,6 @@ completions = ["cli?/completions"]
 swagger-ui = ["utoipa-swagger-ui"]
 
 [dependencies]
-management-server = { path = "../management-server", default-features = false }
 management-service = { path = "../management-service", default-features = false, features = ["replica", "std", "utoipa"] }
 device-service = { path = "../device-service", default-features = false, features = ["replica", "std", "utoipa"] }
 of-idp-client = { path = "../idp-client", default-features = false }
@@ -43,7 +47,7 @@ cli = { path = "../cli", default-features = false, features = [
 
 # Internal
 api = { path = "../api", default-features = false, features = [] }
-db = { package = "idp-db", path = "../db", default-features = false, features = ["replica"] }
+db = { package = "idp-db", path = "../db", default-features = false, features = ["replica", "remote", "server"] }
 model = { path = "../model", default-features = false, features = [
   "std",
   "utoipa",

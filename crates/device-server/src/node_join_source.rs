@@ -289,7 +289,7 @@ impl NodeJoinSource {
         );
         self.require_current_offer(id, &queued).await?;
         self.idp.verify(&approval).await?;
-        let identity = DbDeviceRepo::new(self.device.clone())
+        let identity = DbDeviceRepo::new(self.device.clone().client())
             .find_approved_by_public_key(&offer.remote_id.to_string())
             .await
             .map_err(io::Error::other)?
@@ -301,7 +301,8 @@ impl NodeJoinSource {
                 "enrolled Device owner/binding differs from approval",
             ));
         }
-        let policies = device_service::replica::DbSelectionPolicyRepo::new(self.device.clone());
+        let policies =
+            device_service::replica::DbSelectionPolicyRepo::new(self.device.clone().client());
         if policies
             .get(identity.id, &identity.owner_subject, Id::nil())
             .await

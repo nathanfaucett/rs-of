@@ -231,7 +231,7 @@ impl DomainNode {
     }
     pub async fn select(&self, resource: &SelectedResource) {
         for device_id in self.devices {
-            DbSelectionPolicyRepo::new(self.management.clone())
+            DbSelectionPolicyRepo::new(self.management.clone().client())
                 .set_prevalidated(SelectionPolicy {
                     device_id,
                     owner_subject: self.owner.to_string(),
@@ -246,7 +246,7 @@ impl DomainNode {
     }
     pub async fn restrict(&self, device: usize, allowed: bool) {
         assert!(
-            DbSelectionPolicyRepo::new(self.management.clone())
+            DbSelectionPolicyRepo::new(self.management.clone().client())
                 .set_admin_allowed_prevalidated(
                     self.devices[device],
                     &self.owner.to_string(),
@@ -258,7 +258,7 @@ impl DomainNode {
     }
     pub async fn revoke(&self, device: usize) {
         assert!(
-            DbDeviceRepo::new(self.management.clone())
+            DbDeviceRepo::new(self.management.clone().client())
                 .revoke(&self.owner.to_string(), self.devices[device], "")
                 .await
                 .expect("learn Device revocation")
@@ -287,7 +287,7 @@ impl DomainNode {
             let retained = retained.clone();
             async move {
                 let _retained = retained;
-                let device = DbDeviceRepo::new(management.clone())
+                let device = DbDeviceRepo::new(management.clone().client())
                     .find_approved_by_public_key(&endpoint.to_string())
                     .await
                     .map_err(|error| error.to_string())?
@@ -299,7 +299,7 @@ impl DomainNode {
                     .await
                     .map_err(|error| error.to_string())?
                     .is_some();
-                let policies = DbSelectionPolicyRepo::new(management);
+                let policies = DbSelectionPolicyRepo::new(management.client());
                 let policy = policies
                     .get(device.id, &device.owner_subject, Id::nil())
                     .await

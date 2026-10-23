@@ -1,8 +1,6 @@
-use std::sync::Arc;
-
 use chrono::{DateTime, Timelike, Utc};
 use db::{
-    Database, FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue,
+    Client, FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue,
     QueryFrom, QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid,
     Value,
 };
@@ -25,12 +23,12 @@ const COLUMNS: [&str; 10] = [
 ];
 
 pub struct DbDeviceRepo {
-    engine: Arc<Database>,
+    engine: Client,
 }
 
 impl DbDeviceRepo {
     #[must_use]
-    pub const fn new(engine: Arc<Database>) -> Self {
+    pub const fn new(engine: Client) -> Self {
         Self { engine }
     }
 
@@ -58,7 +56,7 @@ impl DbDeviceRepo {
                 "invalid approved Device binding".into(),
             ));
         }
-        let mut transaction = self.engine.client().transaction().await.map_err(db_error)?;
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         let result = async {
             let Query::Select(mut query) = select() else {
                 unreachable!("Device query is a Select")
@@ -163,7 +161,7 @@ impl DbDeviceRepo {
                 "invalid pending Device binding".into(),
             ));
         }
-        let mut transaction = self.engine.client().transaction().await.map_err(db_error)?;
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         let result = async {
             let Query::Select(mut query) = select() else {
                 unreachable!("Device query is a Select")
@@ -243,7 +241,7 @@ impl DbDeviceRepo {
         {
             return Ok(false);
         }
-        let mut transaction = self.engine.client().transaction().await.map_err(db_error)?;
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         for table in [TABLE, "local_device_enrollments"] {
             if !transaction
                 .row_conflicts(table, &Row::new(vec![Value::Uuid(device_id)]))
@@ -293,7 +291,6 @@ impl DbDeviceRepo {
     async fn records(&self) -> DeviceResult<Vec<DeviceRow>> {
         let mut results = self
             .engine
-            .client()
             .execute(vec![Statement::Query(select())])
             .await
             .map_err(db_error)?;
@@ -303,7 +300,7 @@ impl DbDeviceRepo {
             .rows_as::<DeviceRow>()
             .map_err(row_error)?;
         for row in &mut rows {
-            let results = self.engine.client().translate_and_execute(
+            let results = self.engine.translate_and_execute(
                 &format!("SELECT enrollment_code_hash, enrollment_expires_at, pairing_accepting_public_key FROM local_device_enrollments WHERE device_id = CAST('{}' AS UUID)", row.id),
                 &db::SqlTranslator,
             ).await.map_err(db_error)?;
@@ -332,14 +329,12 @@ impl DbDeviceRepo {
     async fn ensure_clear(&self, id: Id) -> DeviceResult<()> {
         if self
             .engine
-            .client()
             .row_conflicts(TABLE, &Row::new(vec![Value::Uuid(id)]))
             .await
             .map_err(db_error)?
             .is_empty()
             && self
                 .engine
-                .client()
                 .row_conflicts("local_device_enrollments", &Row::new(vec![Value::Uuid(id)]))
                 .await
                 .map_err(db_error)?
@@ -359,7 +354,7 @@ impl DbDeviceRepo {
                     QueryExprValue::Value(Value::Integer(1 | 2))
                 )
         });
-        let mut transaction = self.engine.client().transaction().await.map_err(db_error)?;
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         transaction
             .execute(vec![Statement::Query(Query::Update(QueryUpdate {
                 from: from(),
@@ -414,7 +409,7 @@ impl DeviceRepo for DbDeviceRepo {
             created_at: now.timestamp(),
             updated_at: now.timestamp(),
         };
-        let mut transaction = self.engine.client().transaction().await.map_err(db_error)?;
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         transaction
             .execute(vec![Statement::Query(Query::Insert(QueryInsert {
                 table: TABLE.into(),
@@ -467,7 +462,7 @@ impl DeviceRepo for DbDeviceRepo {
             created_at: now.timestamp(),
             updated_at: now.timestamp(),
         };
-        let mut transaction = self.engine.client().transaction().await.map_err(db_error)?;
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         transaction
             .execute(vec![Statement::Query(Query::Insert(QueryInsert {
                 table: TABLE.into(),
@@ -542,7 +537,6 @@ impl DeviceRepo for DbDeviceRepo {
     async fn find_approved_by_public_key(&self, public_key: &str) -> DeviceResult<Option<Device>> {
         let mut results = self
             .engine
-            .client()
             .execute(vec![Statement::Query(select())])
             .await
             .map_err(db_error)?;
@@ -568,7 +562,6 @@ impl DeviceRepo for DbDeviceRepo {
         }
         if !self
             .engine
-            .client()
             .row_conflicts(TABLE, &Row::new(vec![Value::Uuid(row.id)]))
             .await
             .map_err(db_error)?
@@ -962,7 +955,7 @@ mod tests {
         crate::replica::up(&engine)
             .await
             .expect("initialize replica schema");
-        DbDeviceRepo::new(engine)
+        DbDeviceRepo::new(engine.client())
     }
 
     #[tokio::test]
@@ -1025,7 +1018,7 @@ mod tests {
             crate::replica::up(&database)
                 .await
                 .expect("initialize new schema");
-            let repo = DbDeviceRepo::new(Arc::clone(&database));
+            let repo = DbDeviceRepo::new(Arc::clone(&database).client());
             repo.create(
                 "owner".into(),
                 "primary".into(),
@@ -1075,7 +1068,7 @@ mod tests {
         }
         {
             let database = Arc::new(Database::open(&path).expect("reopen identity offline"));
-            let repo = DbDeviceRepo::new(Arc::clone(&database));
+            let repo = DbDeviceRepo::new(Arc::clone(&database).client());
             assert!(
                 repo.approve(pending, &[0; 32])
                     .await
@@ -1215,7 +1208,6 @@ mod tests {
             .await
             .expect("create approved Device");
         repo.engine
-            .client()
             .translate_and_execute(
                 &format!(
                     "UPDATE devices SET revoked_at = 1 WHERE id = CAST('{}' AS UUID)",
@@ -1352,7 +1344,11 @@ mod tests {
 
     #[tokio::test]
     async fn approved_identity_requires_no_local_enrollment_workflow() {
-        let source = repo().await;
+        let source_owner = Database::in_memory();
+        crate::replica::up(&source_owner)
+            .await
+            .expect("source schema");
+        let source = DbDeviceRepo::new(source_owner.client());
         let approved = source
             .create(
                 "owner".into(),
@@ -1384,8 +1380,8 @@ mod tests {
             .translate_and_execute("DROP TABLE local_device_enrollments", &db::SqlTranslator)
             .await
             .expect("exclude local workflow from public-only fixture");
-        sync_devices(&source.engine, &public).await;
-        let public_repo = DbDeviceRepo::new(public);
+        sync_devices(&source_owner, &public).await;
+        let public_repo = DbDeviceRepo::new(public.client());
         assert_eq!(
             public_repo
                 .find_approved_by_public_key("approved-key")
@@ -1422,7 +1418,6 @@ mod tests {
             .await
             .expect("create approved Device");
             repo.engine
-                .client()
                 .translate_and_execute("DROP INDEX devices_public_key", &db::SqlTranslator)
                 .await
                 .expect("allow ambiguous endpoint fixture");
@@ -1458,7 +1453,11 @@ mod tests {
 
     #[tokio::test]
     async fn approved_identity_requires_current_conflict_clear_owner() {
-        let first = repo().await;
+        let first_owner = Database::in_memory();
+        crate::replica::up(&first_owner)
+            .await
+            .expect("first schema");
+        let first = DbDeviceRepo::new(first_owner.client());
         let device = first
             .create(
                 "owner".into(),
@@ -1485,11 +1484,14 @@ mod tests {
                 .owner_subject,
             "new-owner"
         );
-        let second = repo().await;
-        sync_devices(&first.engine, &second.engine).await;
+        let second_owner = Database::in_memory();
+        crate::replica::up(&second_owner)
+            .await
+            .expect("second schema");
+        let second = DbDeviceRepo::new(second_owner.client());
+        sync_devices(&first_owner, &second_owner).await;
         for (repo, owner) in [(&first, "owner-a"), (&second, "owner-b")] {
             repo.engine
-                .client()
                 .translate_and_execute(
                     &format!(
                         "UPDATE devices SET owner_subject = '{owner}' WHERE id = CAST('{}' AS UUID)",
@@ -1500,7 +1502,7 @@ mod tests {
                 .await
                 .expect("concurrent public Device owner change");
         }
-        sync_devices(&first.engine, &second.engine).await;
+        sync_devices(&first_owner, &second_owner).await;
         for repo in [&first, &second] {
             assert!(matches!(
                 repo.find_approved_by_public_key("transport-key").await,
@@ -1602,7 +1604,7 @@ mod tests {
             crate::replica::up(&engine)
                 .await
                 .expect("initialize replica schema");
-            let repo = DbDeviceRepo::new(engine);
+            let repo = DbDeviceRepo::new(engine.client());
             let enrolled = repo
                 .create(
                     "subject-a".into(),
@@ -1634,7 +1636,7 @@ mod tests {
         {
             let engine: Arc<Database> =
                 Arc::new(Database::open(&path).expect("reopen durable test database"));
-            let repo = DbDeviceRepo::new(engine);
+            let repo = DbDeviceRepo::new(engine.client());
             let devices = repo.list().await.expect("load devices after reopen");
             let enrolled = devices
                 .iter()

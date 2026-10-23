@@ -20,9 +20,9 @@ impl DeviceAuthority {
                 control
                     .as_ref()
                     .clone()
-                    .with_local_devices(Arc::new(DbDeviceRepo::new(Arc::clone(&devices)))),
+                    .with_local_devices(Arc::new(DbDeviceRepo::new(Arc::clone(&devices).client()))),
             ),
-            policies: Arc::new(DbSelectionPolicyRepo::new(devices)),
+            policies: Arc::new(DbSelectionPolicyRepo::new(devices.client())),
         }
     }
 

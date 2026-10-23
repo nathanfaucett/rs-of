@@ -9,12 +9,12 @@ pub(crate) fn load_config(path: &Path) -> io::Result<AppConfig> {
         .add_source(config::File::from(path).required(false))
         .add_source(config::Environment::with_prefix("SERVER"))
         .build()
-        .map_err(|_| io::Error::other("invalid Management configuration"))?;
+        .map_err(|_| io::Error::other("invalid Device configuration"))?;
     let explicit_data = raw.get_string("data_dir").is_ok();
     let explicit_port = raw.get_int("server.port").is_ok() || std::env::var_os("PORT").is_some();
     let mut config: AppConfig = raw
         .try_deserialize()
-        .map_err(|_| io::Error::other("invalid Management configuration"))?;
+        .map_err(|_| io::Error::other("invalid Device configuration"))?;
     if !explicit_data
         && !Path::new("data").is_symlink()
         && !Path::new("data").try_exists()?
@@ -36,6 +36,21 @@ pub fn prepare_setup(
     config: &AppConfig,
     address: SocketAddr,
 ) -> io::Result<Option<IndependentSetupHost>> {
+    if let Some(remote) = &config.device_database {
+        remote.validate()?;
+        if Path::new(&config.data_dir)
+            .join("devices.redb")
+            .try_exists()?
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "remote Device consumer cannot also own devices.redb",
+            ));
+        }
+        if std::env::var_os("SERVER_IDP_OAUTH_CLIENT_ID").is_some() {
+            return Ok(None);
+        }
+    }
     IndependentSetupHost::prepare(
         "device",
         Path::new(&config.data_dir),

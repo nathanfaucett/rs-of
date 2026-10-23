@@ -95,7 +95,7 @@ async fn approved_enrollment_preserves_exact_identity_and_denies_replacement_or_
     device_service::replica::up(&engine)
         .await
         .expect("Management schema");
-    let repo = DbDeviceRepo::new(engine.clone());
+    let repo = DbDeviceRepo::new(engine.clone().client());
     let id = Id::now_v7();
     let owner = Id::now_v7();
     let endpoint = iroh::SecretKey::generate().public().to_string();
@@ -161,7 +161,7 @@ async fn approved_enrollment_denies_tombstones_pending_and_timestamp_only_revoca
     device_service::replica::up(&engine)
         .await
         .expect("Management schema");
-    let repo = DbDeviceRepo::new(engine.clone());
+    let repo = DbDeviceRepo::new(engine.clone().client());
     let owner = Id::now_v7();
     let endpoint = iroh::SecretKey::generate().public().to_string();
     let id = Id::now_v7();
@@ -206,7 +206,7 @@ async fn approved_enrollment_denies_unresolved_owner_conflicts_even_with_exact_v
     device_service::replica::up(&left)
         .await
         .expect("Management schema");
-    let repo = DbDeviceRepo::new(left.clone());
+    let repo = DbDeviceRepo::new(left.clone().client());
     let id = Id::now_v7();
     let owner = Id::now_v7();
     let endpoint = iroh::SecretKey::generate().public().to_string();

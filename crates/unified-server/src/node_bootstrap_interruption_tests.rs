@@ -252,7 +252,7 @@ async fn interruption_boundary(
         &source_config,
         source_idp.client(),
         Some(Arc::new(device_service::replica::DbDeviceRepo::new(
-            source_policy.clone(),
+            source_policy.clone().client(),
         ))),
         Arc::new(
             device_service::device_identity_from_server(&source, source_secret)
@@ -378,7 +378,7 @@ async fn interruption_boundary(
             crate::runtime::build_control_plane(
                 runtime.clone(),
                 Arc::new(device_service::replica::DbDeviceRepo::new(
-                    source_policy.clone(),
+                    source_policy.clone().client(),
                 )),
                 "http://127.0.0.1:1",
                 "http://127.0.0.1:1",

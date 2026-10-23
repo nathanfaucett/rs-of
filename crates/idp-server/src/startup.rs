@@ -37,7 +37,9 @@ pub fn prepare_setup(
                 "remote identity consumer cannot also own idp.redb",
             ));
         }
-        return Ok(None);
+        if config.oauth2.local_signer.is_some() {
+            return Ok(None);
+        }
     }
     IndependentSetupHost::prepare(
         "idp",

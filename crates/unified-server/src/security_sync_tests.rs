@@ -449,8 +449,10 @@ async fn exchange_history() {
     );
     let restricted = Id::now_v7();
     let ambiguous = Id::now_v7();
-    let selection_a = device_service::replica::DbSelectionPolicyRepo::new(management_a.clone());
-    let selection_b = device_service::replica::DbSelectionPolicyRepo::new(management_b.clone());
+    let selection_a =
+        device_service::replica::DbSelectionPolicyRepo::new(management_a.clone().client());
+    let selection_b =
+        device_service::replica::DbSelectionPolicyRepo::new(management_b.clone().client());
     for device_id in [restricted, ambiguous] {
         selection_a
             .set_prevalidated(device_service::replica::SelectionPolicy {
@@ -471,7 +473,7 @@ async fn exchange_history() {
         .await
         .expect("separate policy exchange");
     assert!(
-        DbDeviceRepo::new(management_b.clone())
+        DbDeviceRepo::new(management_b.clone().client())
             .find_approved_by_public_key(&learned_endpoint.to_string())
             .await
             .expect("learn approved public Device history")
@@ -691,7 +693,7 @@ async fn exchange_history() {
     let reopened_management =
         Arc::new(Database::open(root.join("b-management.redb")).expect("native Management reopen"));
     let reopened_selection =
-        device_service::replica::DbSelectionPolicyRepo::new(reopened_management.clone());
+        device_service::replica::DbSelectionPolicyRepo::new(reopened_management.clone().client());
     assert!(
         !reopened_selection
             .get(restricted, &actor.to_string(), actor)

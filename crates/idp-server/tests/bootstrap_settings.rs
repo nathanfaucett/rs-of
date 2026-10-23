@@ -2,7 +2,7 @@ use std::path::Path;
 
 use idp_server::{
     AppConfig, BootstrapSettings,
-    bootstrap_settings::{ManagementBootstrapSettings, StorageBootstrapSettings},
+    bootstrap_settings::{DeviceBootstrapSettings, StorageBootstrapSettings},
     local_provisioning::{intent, normalized_config},
 };
 
@@ -22,9 +22,9 @@ fn minimal_owner_settings_preserve_the_durable_intent_when_normalized() {
             },
             ..Default::default()
         },
-        management: ManagementBootstrapSettings {
-            data_dir: "bootstrap-settings/management".into(),
-            api_public_uri: "https://control.test/management".into(),
+        device: DeviceBootstrapSettings {
+            data_dir: "bootstrap-settings/device".into(),
+            api_public_uri: "https://control.test/device".into(),
             storage_audience: "storage-service".into(),
         },
         storage: StorageBootstrapSettings {
@@ -44,20 +44,20 @@ fn minimal_owner_settings_preserve_the_durable_intent_when_normalized() {
         retained["applications"],
         serde_json::json!([
             "https://identity.test/idp",
-            "https://control.test/management",
+            "https://control.test/device",
             "https://resources.test/storage"
         ])
     );
     let directory = std::env::current_dir().expect("current directory");
     retained["roots"] = serde_json::json!([
         directory.join("bootstrap-settings/idp"),
-        directory.join("bootstrap-settings/management"),
+        directory.join("bootstrap-settings/device"),
         directory.join("bootstrap-settings/storage"),
         directory.join("bootstrap-settings/endpoint"),
     ]);
     let normalized = normalized_config(config).expect("normalize minimal settings");
     assert!(normalized.endpoint_data_dir.is_absolute());
-    assert!(Path::new(&normalized.management.data_dir).is_absolute());
+    assert!(Path::new(&normalized.device.data_dir).is_absolute());
     assert!(Path::new(&normalized.storage.data_dir).is_absolute());
     assert_eq!(
         serde_json::to_value(intent(&normalized).expect("normalized intent")).expect("intent JSON"),

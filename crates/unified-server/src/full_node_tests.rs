@@ -489,7 +489,8 @@ async fn join_host(
     assert_eq!(approval.owner_subject, owner);
     assert_eq!(approval.request.member_id, binding.member_id);
     assert_eq!(approval.request.endpoint_id, binding.endpoint_id);
-    let policies = DbSelectionPolicyRepo::new(source.runtime().full_node_test_management());
+    let policies =
+        DbSelectionPolicyRepo::new(source.runtime().full_node_test_management().client());
     let policy = policies
         .get(binding.member_id, &owner.to_string(), Id::nil())
         .await

@@ -92,7 +92,7 @@ async fn require_success(response: reqwest::Response) {
 #[tokio::test]
 async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_transfer() {
     let mut fixture = Fixture::new(Gate::default()).await;
-    let policies = DbSelectionPolicyRepo::new(Arc::clone(&fixture.management));
+    let policies = DbSelectionPolicyRepo::new(Arc::clone(&fixture.management).client());
     policies
         .set_prevalidated(SelectionPolicy {
             device_id: fixture.device.device_id,
@@ -206,13 +206,13 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
     )
     .expect("scoped introspection")
     .with_local_devices(Arc::new(device_service::replica::DbDeviceRepo::new(
-        fixture.management.clone(),
+        fixture.management.clone().client(),
     )));
     let control = Arc::new(control);
     let mut management = Listener::start(
         device_server::build_router(
-            fixture.management.clone(),
-            fixture.management.clone(),
+            fixture.management.clone().client(),
+            fixture.management.clone().client(),
             "https://management.test",
             "",
             "storage-service",

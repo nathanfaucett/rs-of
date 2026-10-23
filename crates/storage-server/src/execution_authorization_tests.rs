@@ -95,7 +95,7 @@ async fn queued_write_fixture(in_flight: bool) {
                 let idp = idp.clone(); let management = management.clone(); let request = request.clone();
                 let admitted = admitted.clone(); let resume = resume.clone(); let checks = checks.clone();
                 Box::pin(async move {
-                    let Ok(Some(device)) = DbDeviceRepo::new(management.clone()).find_approved_by_public_key(&remote.to_string()).await else { return false; };
+                    let Ok(Some(device)) = DbDeviceRepo::new(management.clone().client()).find_approved_by_public_key(&remote.to_string()).await else { return false; };
                     let owner_active = DbUserRepo::new(idp.client(), PasswordConfig::default()).find_user_by_id(actor).await.is_ok_and(|owner| owner.is_some());
                     let allowed = owner_active && device.owner_subject == actor.to_string()
                         && LocalPermissions::new(management.client()).evaluate(&request).await.unwrap_or(false);

@@ -181,25 +181,29 @@ pub(super) async fn provision(
 
     let import_at = Instant::now();
     if !record.imported {
-        let challenge = control
-            .request_history(
-                &approval.request.source.idp,
-                serde_json::to_value(&approval)?,
+        if config.identity_database.is_some() {
+            approval.verify_current("idp").await?;
+        } else {
+            let challenge = control
+                .request_history(
+                    &approval.request.source.idp,
+                    serde_json::to_value(&approval)?,
+                    &command.cancellation,
+                )
+                .await?;
+
+            import_join_history(
+                opened.node_join_database()?,
+                JoinHistoryContext::Idp,
+                &approval,
+                challenge["capability"]
+                    .as_str()
+                    .ok_or_else(|| io::Error::other("history capability missing"))?,
+                control.directory().join("join-history"),
                 &command.cancellation,
             )
             .await?;
-
-        import_join_history(
-            opened.node_join_database()?,
-            JoinHistoryContext::Idp,
-            &approval,
-            challenge["capability"]
-                .as_str()
-                .ok_or_else(|| io::Error::other("history capability missing"))?,
-            control.directory().join("join-history"),
-            &command.cancellation,
-        )
-        .await?;
+        }
         opened.verify_node_signer(&binding(record)?).await?;
         record.imported = true;
         record.user = approval.owner_subject;
@@ -250,7 +254,8 @@ pub(super) async fn provision(
         *runtime = Some(
             crate::build_independent_idp(
                 &runtime_config(config, control, intent, record)?,
-                opened.node_join_database()?,
+                opened.engine.clone(),
+                opened.database.clone(),
                 control.shutdown_token(),
             )
             .await?,

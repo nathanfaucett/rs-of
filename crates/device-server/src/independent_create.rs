@@ -4,7 +4,6 @@ use api::{
     IndependentCreateCommand, IndependentCreateControl, IndependentCreateIntent,
     IndependentOwnerPublic, IndependentSetupHost,
 };
-use db::Database;
 use device_service::DeviceIdentity;
 use device_service::DeviceRepo;
 use device_service::HostedControlPlane;
@@ -16,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::{AppConfig, IndependentDeviceRuntime};
+use crate::{AppConfig, IndependentDeviceRuntime, database_client::DeviceStore};
 
 #[path = "independent_join_worker.rs"]
 mod join;
@@ -285,13 +284,15 @@ async fn open_identity(
         .map_err(io::Error::other)?;
     Ok(Arc::new(DeviceIdentity::new(endpoint, secret)?))
 }
-async fn open_existing(config: &AppConfig) -> io::Result<Arc<Database>> {
-    if !Path::new(&config.data_dir).join("devices.redb").is_file() {
+async fn open_existing(config: &AppConfig) -> io::Result<DeviceStore> {
+    if config.device_database.is_none()
+        && !Path::new(&config.data_dir).join("devices.redb").is_file()
+    {
         return Err(io::Error::other("attempted Management store missing"));
     }
-    crate::open_device_database(config).await
+    DeviceStore::open(config).await
 }
-async fn verify_identity(engine: &Arc<Database>, record: &Record) -> io::Result<String> {
+async fn verify_identity(engine: &DeviceStore, record: &Record) -> io::Result<String> {
     let endpoint = record
         .endpoint
         .as_deref()
@@ -299,7 +300,7 @@ async fn verify_identity(engine: &Arc<Database>, record: &Record) -> io::Result<
     let user = record
         .user
         .ok_or_else(|| io::Error::other("retained owner missing"))?;
-    let device = DbDeviceRepo::new(engine.clone())
+    let device = DbDeviceRepo::new(engine.client.clone())
         .find_approved_by_public_key(endpoint)
         .await
         .map_err(io::Error::other)?
@@ -319,9 +320,9 @@ async fn verify_identity(engine: &Arc<Database>, record: &Record) -> io::Result<
     }
     Ok(device.owner_subject)
 }
-async fn verify(engine: &Arc<Database>, record: &Record) -> io::Result<()> {
+async fn verify(engine: &DeviceStore, record: &Record) -> io::Result<()> {
     let owner_subject = verify_identity(engine, record).await?;
-    let policies = DbSelectionPolicyRepo::new(engine.clone());
+    let policies = DbSelectionPolicyRepo::new(engine.client.clone());
     if policies
         .local_cleanup_pending(record.device)
         .await
@@ -338,7 +339,7 @@ async fn verify(engine: &Arc<Database>, record: &Record) -> io::Result<()> {
 }
 fn observe(
     control: &IndependentCreateControl,
-    engine: Arc<Database>,
+    engine: DeviceStore,
     intent: &IndependentCreateIntent,
     record: &Record,
 ) -> io::Result<()> {
@@ -411,7 +412,7 @@ async fn build(
     control: &IndependentCreateControl,
     intent: &IndependentCreateIntent,
     record: &Record,
-    engine: Arc<Database>,
+    engine: DeviceStore,
     identity: Arc<DeviceIdentity>,
 ) -> io::Result<IndependentDeviceRuntime> {
     let plane = HostedControlPlane::new_with_services(&intent.idp, &intent.storage, &intent.issuer)
@@ -435,7 +436,8 @@ async fn build(
         .with_device_identity(identity.clone());
     crate::build_independent_device(
         config,
-        engine,
+        engine.client,
+        engine.owner,
         Arc::new(plane),
         identity,
         &intent.issuer,
@@ -450,7 +452,7 @@ async fn provision(
     config: &AppConfig,
     control: &IndependentCreateControl,
     command: &IndependentCreateCommand,
-    engine: &mut Option<Arc<Database>>,
+    engine: &mut Option<DeviceStore>,
     identity: &mut Option<Arc<DeviceIdentity>>,
     router: &mut Option<IndependentDeviceRuntime>,
 ) -> io::Result<()> {
@@ -548,7 +550,7 @@ async fn provision(
             }
             record.domain_attempted = true;
             control.write_record(&record)?;
-            *engine = Some(crate::open_device_database(config).await?);
+            *engine = Some(DeviceStore::open(config).await?);
         } else {
             *engine = Some(open_existing(config).await?);
         }
@@ -572,15 +574,16 @@ async fn provision(
         .copied()
         .zip(ACTIONS)
         .collect::<Vec<_>>();
-    management_server::provision_initial_administrator(
-        crate::provisioning::open_identity_database(config)?,
-        user,
-        seed.role,
-        &permissions,
+    let identity_client = crate::identity_client(config).await?;
+    management_service::ManagementService::new(
+        management_service::replica::DbPermissionRepo::new(identity_client.clone()),
+        management_service::replica::DbRoleRepo::new(identity_client),
     )
-    .await?;
+    .provision_initial_administrator(user, seed.role, &permissions)
+    .await
+    .map_err(io::Error::other)?;
     crate::provision_initial_device(
-        opened.clone(),
+        opened.client.clone(),
         record.device,
         user,
         record.endpoint.as_deref().expect("endpoint"),

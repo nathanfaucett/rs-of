@@ -193,7 +193,7 @@ impl SecurityProtocol {
     ) -> io::Result<()> {
         owner.check_node_join_local_binding().await?;
         let approval = owner.node_join_anchor()?;
-        DbDeviceRepo::new(self.management.clone())
+        DbDeviceRepo::new(self.management.clone().client())
             .check_pending_approved_binding(
                 approval.request.member_id,
                 approval.owner_subject,
@@ -205,7 +205,7 @@ impl SecurityProtocol {
     }
 
     async fn refresh_learned_membership(&self) -> io::Result<()> {
-        let devices = DbDeviceRepo::new(self.management.clone());
+        let devices = DbDeviceRepo::new(self.management.clone().client());
         let users = DbUserRepo::new(self.idp.client(), PasswordConfig::default());
         let mut peers = Vec::new();
         for device in devices.list().await.map_err(denied)? {
@@ -435,7 +435,7 @@ impl SecurityProtocol {
         }) {
             return Err(denied("local node signer/member is not currently trusted"));
         }
-        let device = DbDeviceRepo::new(self.management.clone())
+        let device = DbDeviceRepo::new(self.management.clone().client())
             .find_approved_by_public_key(&endpoint)
             .await
             .map_err(denied)?
@@ -521,7 +521,7 @@ impl SecurityProtocol {
     ) -> io::Result<Vec<(ReplicaMembership, IdpSignerRecord)>> {
         let trusted = self.check_join_identity(approval).await?;
         let request = &approval.request;
-        let device = DbDeviceRepo::new(self.management.clone())
+        let device = DbDeviceRepo::new(self.management.clone().client())
             .find_approved_by_public_key(&request.endpoint_id)
             .await
             .map_err(denied)?
@@ -757,7 +757,7 @@ impl SecurityProtocol {
                     return Err(denied("local member binding changed"));
                 }
             }
-            let device = DbDeviceRepo::new(self.management.clone())
+            let device = DbDeviceRepo::new(self.management.clone().client())
                 .find_approved_by_public_key(&self.server.endpoint().id().to_string())
                 .await
                 .map_err(denied)?

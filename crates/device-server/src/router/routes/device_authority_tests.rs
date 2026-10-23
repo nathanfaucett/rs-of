@@ -108,10 +108,10 @@ impl Fixture {
                 }
             },
         );
-        let devices = Arc::new(DbDeviceRepo::new(database.clone()));
+        let devices = Arc::new(DbDeviceRepo::new(database.clone().client()));
         let router = crate::build_router(
-            identity.clone(),
-            database.clone(),
+            identity.client(),
+            database.client(),
             "https://device.example",
             "/device",
             "storage",
@@ -296,7 +296,7 @@ async fn device_endpoint_enumeration_requires_exact_service_authority_and_curren
 async fn device_transfer_requires_exact_permission_active_new_owner_and_preserves_cleanup_fence() {
     let fixture = Fixture::new().await;
     let device = fixture.approved().await;
-    let policies = DbSelectionPolicyRepo::new(fixture.database.clone());
+    let policies = DbSelectionPolicyRepo::new(fixture.database.clone().client());
     policies
         .set_prevalidated(SelectionPolicy {
             device_id: device.id,

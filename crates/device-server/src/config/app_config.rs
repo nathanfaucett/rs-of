@@ -10,6 +10,8 @@ pub struct AppConfig {
     pub server: ServerConfig,
     pub data_dir: String,
     pub identity_database_path: Option<String>,
+    pub identity_database: Option<db::RemoteDatabaseConfig>,
+    pub device_database: Option<db::RemoteDatabaseConfig>,
 
     pub log_level: String,
     pub api_public_uri: String,
@@ -26,6 +28,8 @@ impl Default for AppConfig {
             server: ServerConfig::default(),
             data_dir: "data/device".to_string(),
             identity_database_path: None,
+            identity_database: None,
+            device_database: None,
 
             log_level: "info".to_string(),
             api_public_uri: "https://device-api.localhost:1355".to_string(),

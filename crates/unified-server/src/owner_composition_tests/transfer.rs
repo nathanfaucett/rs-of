@@ -33,7 +33,7 @@ async fn stale_cleanup_cannot_clear_current_binding_and_exact_retry_stays_restri
         let engine = Arc::new(Database::open(&path).expect("Management owner"));
         up(&engine).await.expect("Management schema");
         engine.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{next}', 'transfer', '{endpoint}', '', 1, 1, NULL, 1, 1)"), &db::SqlTranslator).await.expect("current Management binding");
-        let policies = DbSelectionPolicyRepo::new(engine.clone());
+        let policies = DbSelectionPolicyRepo::new(engine.clone().client());
         policies
             .set_prevalidated(SelectionPolicy {
                 device_id: device,
@@ -84,7 +84,7 @@ async fn stale_cleanup_cannot_clear_current_binding_and_exact_retry_stays_restri
     }
     {
         let engine = Arc::new(Database::open(&path).expect("stopped offline Management reopen"));
-        let policies = DbSelectionPolicyRepo::new(engine);
+        let policies = DbSelectionPolicyRepo::new(engine.client());
         assert_eq!(
             policies
                 .pending_cleanup_owner(device)
@@ -129,7 +129,7 @@ async fn stale_cleanup_cannot_clear_current_binding_and_exact_retry_stays_restri
     }
     {
         let engine = Arc::new(Database::open(&path).expect("owner-cycle reopen"));
-        let policies = DbSelectionPolicyRepo::new(engine.clone());
+        let policies = DbSelectionPolicyRepo::new(engine.clone().client());
         for owner in [&old, &third] {
             engine.client().translate_and_execute(&format!("UPDATE devices SET owner_subject = '{owner}' WHERE id = CAST('{device}' AS UUID)"), &db::SqlTranslator).await.expect("later owner cycle");
             assert!(
@@ -187,7 +187,7 @@ async fn original_owner_return_keeps_retirement_pending_after_stopped_reopen() {
         let engine = Arc::new(Database::open(&path).expect("Management owner"));
         up(&engine).await.expect("schema");
         engine.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{next}', 'cycle', '{endpoint}', '', 1, 1, 1, 1)"), &db::SqlTranslator).await.expect("current endpoint");
-        let policies = DbSelectionPolicyRepo::new(engine.clone());
+        let policies = DbSelectionPolicyRepo::new(engine.clone().client());
         policies
             .set_prevalidated(SelectionPolicy {
                 device_id: device,
@@ -229,7 +229,7 @@ async fn original_owner_return_keeps_retirement_pending_after_stopped_reopen() {
     }
     {
         let engine = Arc::new(Database::open(&path).expect("stopped pending reopen"));
-        let policies = DbSelectionPolicyRepo::new(engine.clone());
+        let policies = DbSelectionPolicyRepo::new(engine.clone().client());
         assert_eq!(
             policies
                 .pending_cleanup_id(device)
@@ -319,7 +319,7 @@ async fn original_owner_return_keeps_retirement_pending_after_stopped_reopen() {
     }
     {
         let engine = Arc::new(Database::open(&path).expect("stopped completed reopen"));
-        let policies = DbSelectionPolicyRepo::new(engine);
+        let policies = DbSelectionPolicyRepo::new(engine.client());
         assert!(
             !policies
                 .local_cleanup_pending(device)
@@ -488,13 +488,13 @@ async fn independent_transfer_https_child() {
         let old = fixture.administrator.to_string();
         let management_path = owners.join("device/devices.redb");
         let device_engine = Arc::new(Database::open(&management_path).expect("Management owner"));
-        let devices = DbDeviceRepo::new(device_engine.clone());
+        let devices = DbDeviceRepo::new(device_engine.clone().client());
         let device = devices
             .find_approved_by_public_key(&local.to_string())
             .await
             .expect("Management lookup")
             .expect("approved endpoint without its own signer");
-        let policies = Arc::new(DbSelectionPolicyRepo::new(device_engine.clone()));
+        let policies = Arc::new(DbSelectionPolicyRepo::new(device_engine.clone().client()));
         policies
             .set_prevalidated(SelectionPolicy {
                 device_id: device.id,
@@ -546,8 +546,8 @@ async fn independent_transfer_https_child() {
                 .expect("existing introspection/active-User relationship"),
         );
         let management_router = device_server::build_router(
-            idp_engine.clone(),
-            device_engine.clone(),
+            idp_engine.clone().client(),
+            device_engine.clone().client(),
             &management_base,
             "/device",
             "storage-service",
@@ -1013,7 +1013,7 @@ async fn independent_transfer_https_child() {
         drop(idp_engine);
         let device_engine =
             Arc::new(Database::open(&management_path).expect("stopped offline Management reopen"));
-        let policies = DbSelectionPolicyRepo::new(device_engine);
+        let policies = DbSelectionPolicyRepo::new(device_engine.client());
         assert!(
             !policies
                 .local_cleanup_pending(device.id)

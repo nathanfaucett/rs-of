@@ -264,12 +264,12 @@ async fn independent_permission_management_https_child() {
             .with_permission_evaluator("idp-evaluator")
             .expect("exact evaluator binding")
             .with_local_devices(Arc::new(device_service::replica::DbDeviceRepo::new(
-                device_engine.clone(),
+                device_engine.clone().client(),
             )))
             .with_pairing_acceptance(runtime.pairing_acceptance());
         let management_router = device_server::build_router(
-            device_engine.clone(),
-            device_engine.clone(),
+            device_engine.clone().client(),
+            device_engine.clone().client(),
             &management_base,
             "/device",
             "storage-service",

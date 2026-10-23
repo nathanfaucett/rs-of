@@ -83,7 +83,8 @@ impl BootstrapHost for UnifiedBootstrapHost {
         endpoint: &str,
         name: &str,
     ) -> io::Result<()> {
-        device_server::provision_initial_device(database, member, user, endpoint, name).await
+        device_server::provision_initial_device(database.client(), member, user, endpoint, name)
+            .await
     }
 
     async fn open_owners(config: &UnifiedConfig) -> io::Result<BootstrapOwners<UnifiedEndpoint>> {

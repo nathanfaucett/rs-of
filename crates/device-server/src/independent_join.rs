@@ -59,7 +59,8 @@ impl IndependentDeviceRuntime {
 
 pub async fn build_independent_device(
     config: &crate::AppConfig,
-    engine: Arc<Database>,
+    engine: db::Client,
+    owner: Option<Arc<Database>>,
     plane: Arc<HostedControlPlane>,
     identity: Arc<DeviceIdentity>,
     issuer: &str,
@@ -68,6 +69,12 @@ pub async fn build_independent_device(
     storage: &str,
     cancellation: CancellationToken,
 ) -> io::Result<IndependentDeviceRuntime> {
+    if config.device_database.is_some() && owner.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "injected Device owner and remote SQL are mutually exclusive",
+        ));
+    }
     let origin = config
         .server
         .setup_ui_origin
@@ -95,7 +102,7 @@ pub async fn build_independent_device(
     );
     let server = Server::new(identity.endpoint(), EndpointIdStore::default());
     let (approve_sender, approval_jobs) = tokio::sync::mpsc::channel(1);
-    let identity_engine = crate::provisioning::open_identity_database(config)?;
+    let identity_engine = crate::identity_client(config).await?;
     let source = Arc::new(IndependentJoinSource {
         identity_engine: identity_engine.clone(),
         engine: engine.clone(),
@@ -124,19 +131,18 @@ pub async fn build_independent_device(
                 .await
         })
     });
-    let history = JoinHistorySource::new(
-        engine.clone(),
-        JoinHistoryContext::Device,
-        std::path::Path::new(&config.data_dir).join("join-source-history"),
-        check,
-        source.cancellation.child_token(),
-    );
-    let routes = join_routes()
-        .with_state(source.clone())
-        .split_for_parts()
-        .0
-        .merge(history.router())
-        .layer(cors);
+    let mut routes = join_routes().with_state(source.clone()).split_for_parts().0;
+    if let Some(owner) = owner {
+        let history = JoinHistorySource::new(
+            owner,
+            JoinHistoryContext::Device,
+            std::path::Path::new(&config.data_dir).join("join-source-history"),
+            check,
+            source.cancellation.child_token(),
+        );
+        routes = routes.merge(history.router());
+    }
+    let routes = routes.layer(cors);
     let routes = if config.server.prefix().is_empty() {
         routes
     } else {
@@ -182,8 +188,8 @@ struct ApprovalWork {
     headers: HeaderMap,
 }
 struct IndependentJoinSource {
-    identity_engine: Arc<Database>,
-    engine: Arc<Database>,
+    identity_engine: db::Client,
+    engine: db::Client,
     plane: Arc<HostedControlPlane>,
     identity: Arc<DeviceIdentity>,
     issuer: String,
@@ -307,7 +313,7 @@ impl IndependentJoinSource {
         permission(&self.identity_engine, approval.owner_subject, action).await
     }
 }
-async fn permission(engine: &Arc<Database>, owner: Id, action: IdentityAction) -> io::Result<()> {
+async fn permission(engine: &db::Client, owner: Id, action: IdentityAction) -> io::Result<()> {
     let resource = match action {
         IdentityAction::ReplicaSignersEnroll => IdentityResource::ReplicaSigner { member_id: None },
         IdentityAction::IdpSecuritySync => IdentityResource::IdpSecurity,
@@ -320,7 +326,7 @@ async fn permission(engine: &Arc<Database>, owner: Id, action: IdentityAction) -
         action,
         target: PermissionTarget::Installation { resource },
     };
-    if LocalPermissions::new(engine.client())
+    if LocalPermissions::new(engine.clone())
         .evaluate(&request)
         .await
         .map_err(|_| denied())?

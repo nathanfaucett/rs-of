@@ -465,7 +465,7 @@ async fn real_production_database_admission_checks_identity_both_selections_and_
             }
             for device in 0..2 {
                 let node = &fixture.nodes[receiver];
-                assert!(device_service::replica::DbSelectionPolicyRepo::new(node.management.clone()).deselect_resource_owned(node.devices[device], &fixture.resource.owner_subject, fixture.resource.application_id.parse().expect("Application"), "database", fixture.resource.resource_id.parse().expect("database ID")).await.expect("real local deselection"));
+                assert!(device_service::replica::DbSelectionPolicyRepo::new(node.management.clone().client()).deselect_resource_owned(node.devices[device], &fixture.resource.owner_subject, fixture.resource.application_id.parse().expect("Application"), "database", fixture.resource.resource_id.parse().expect("database ID")).await.expect("real local deselection"));
                 assert!(production_session_claim(&fixture, source, &fixture.resource).await.is_err(), "allowlisted authenticated peer requires BOTH current selections");
                 node.select(&fixture.resource).await;
                 node.restrict(device, false).await;

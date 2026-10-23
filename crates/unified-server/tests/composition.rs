@@ -121,8 +121,8 @@ async fn owner_service_builders_supply_hosted_features_to_composition() {
         .await
         .expect("Management router"),
         device_server::build_router(
-            identity,
-            devices,
+            identity.client(),
+            devices.client(),
             "https://device.example",
             "/device",
             "storage",

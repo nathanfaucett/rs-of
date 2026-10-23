@@ -4,6 +4,12 @@ use device_service::replica::{DbSelectionPolicyRepo, SelectionPolicy};
 use idp_model::model::Id;
 use std::{fs, io, path::Path, sync::Arc};
 pub async fn open_device_database(config: &AppConfig) -> io::Result<Arc<Database>> {
+    if config.device_database.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "local Device owner and remote SQL are mutually exclusive",
+        ));
+    }
     let directory = Path::new(&config.data_dir);
     fs::create_dir_all(directory)?;
     let engine =
@@ -15,7 +21,7 @@ pub async fn open_device_database(config: &AppConfig) -> io::Result<Arc<Database
 }
 
 pub async fn provision_initial_device(
-    engine: Arc<Database>,
+    engine: db::Client,
     device_id: Id,
     owner: Id,
     endpoint_id: &str,
@@ -35,11 +41,7 @@ pub async fn provision_initial_device(
             "initial Device requires stable owner, Device ID, canonical endpoint and name",
         ));
     }
-    let mut transaction = engine
-        .client()
-        .transaction()
-        .await
-        .map_err(io::Error::other)?;
+    let mut transaction = engine.transaction().await.map_err(io::Error::other)?;
     for table in ["devices", "local_device_enrollments"] {
         if !transaction
             .row_conflicts(table, &Row::new(vec![Value::Uuid(device_id)]))
@@ -89,7 +91,7 @@ pub async fn provision_initial_device(
 
     transaction.commit().await.map_err(io::Error::other)?;
 
-    let policies = DbSelectionPolicyRepo::new(Arc::clone(&engine));
+    let policies = DbSelectionPolicyRepo::new(engine.clone());
     let expected = SelectionPolicy {
         device_id,
         owner_subject: owner.to_string(),
@@ -121,6 +123,34 @@ pub async fn provision_initial_device(
         .set_prevalidated(expected)
         .await
         .map_err(io::Error::other)
+}
+
+#[cfg(test)]
+mod tests {
+    #[tokio::test]
+    async fn remote_device_startup_never_falls_back_to_a_private_database() {
+        let root = std::env::temp_dir().join(format!(
+            "remote-device-startup-{}",
+            idp_model::model::Id::now_v7()
+        ));
+        let config: crate::AppConfig = serde_json::from_value(serde_json::json!({
+            "data_dir": root,
+            "device_database": {"endpoint": "http://127.0.0.1:1", "deadline_ms": 100}
+        }))
+        .expect("remote startup configuration");
+        assert!(
+            super::open_device_database(&config).await.is_err(),
+            "remote configuration cannot open a local owner"
+        );
+        assert!(
+            crate::device_client(&config).await.is_err(),
+            "unavailable remote owner must fail startup"
+        );
+        assert!(
+            !root.exists(),
+            "failed remote startup must leave no private database"
+        );
+    }
 }
 
 pub(crate) fn open_identity_database(config: &AppConfig) -> io::Result<Arc<Database>> {
