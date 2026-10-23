@@ -775,9 +775,7 @@ pub fn intent(config: &UnifiedConfig) -> io::Result<Intent> {
             ));
         }
     }
-    if config.idp.oauth2.issuer.trim().is_empty() || config.idp.key_namespace.trim().is_empty() {
-        return Err(invalid("Canonical Issuer and key namespace are required"));
-    }
+    config.idp.validate_installation_settings()?;
     Ok(Intent {
         issuer: config.idp.oauth2.issuer.clone(),
         key_namespace: config.idp.key_namespace.clone(),

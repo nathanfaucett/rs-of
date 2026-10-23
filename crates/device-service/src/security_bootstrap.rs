@@ -5,12 +5,7 @@ use idp_model::{
     contract::{IdpSignerRecord, ReplicaMembership},
     model::Id,
 };
-use idp_service::{
-    PasswordConfig,
-    oauth2::NodeSignerBinding,
-    replica::{DbReplicaSignerRepo, DbUserRepo},
-    repo::UserRepo,
-};
+use idp_service::replica::LocalIdentity;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use ofdb_sql::{
     SessionConfig, SyncDirection, SyncError, SyncResult, SyncRole, SyncTransport,
@@ -151,7 +146,7 @@ impl SecurityProtocol {
 
     async fn refresh_learned_membership(&self) -> io::Result<()> {
         let devices = DbDeviceRepo::new(self.management.clone().client());
-        let users = DbUserRepo::new(self.idp.client(), PasswordConfig::default());
+        let identity = LocalIdentity::new(self.idp.client());
         let mut peers = Vec::new();
         for device in devices.list().await.map_err(denied)? {
             if devices
@@ -163,13 +158,7 @@ impl SecurityProtocol {
                 continue;
             }
             let owner: Id = device.owner_subject.parse().map_err(denied)?;
-            if owner.is_nil()
-                || users
-                    .find_user_by_id(owner)
-                    .await
-                    .map_err(denied)?
-                    .is_none()
-            {
+            if !identity.is_active_user(owner).await? {
                 continue;
             }
             peers.push(
@@ -339,7 +328,7 @@ impl SecurityProtocol {
                 "bootstrap Installation or authenticated endpoint mismatch",
             ));
         }
-        let trusted = self.check_exact_join_trust(approval).await?;
+        self.check_exact_join_trust(approval).await?;
         let local = self
             .binding
             .as_ref()
@@ -348,13 +337,9 @@ impl SecurityProtocol {
         if local.endpoint_id != endpoint {
             return Err(denied("local node signer/member is not currently trusted"));
         }
-        if !trusted.iter().any(|(member, signer)| {
-            member.member_id == local.member_id
-                && member.endpoint_id == endpoint
-                && signer.key_id == local.key_id
-        }) {
-            return Err(denied("local node signer/member is not currently trusted"));
-        }
+        LocalIdentity::new(self.idp.client())
+            .check_signer_binding(&self.installation, local, now()?)
+            .await?;
         self.owner()
             .check_permission(approval.owner_subject, context)
             .await?;
@@ -372,36 +357,16 @@ impl SecurityProtocol {
         approval: &NodeJoinApproval,
     ) -> io::Result<Vec<(ReplicaMembership, IdpSignerRecord)>> {
         let request = &approval.request;
-        let key: Id = request.public_signer.kid.parse().map_err(denied)?;
-        let trusted = DbReplicaSignerRepo::new(self.idp.client())
-            .trusted_signers(&self.installation, now()?)
+        LocalIdentity::new(self.idp.client())
+            .check_join_identity(
+                &self.installation,
+                request.member_id,
+                &request.endpoint_id,
+                &request.public_signer,
+                approval.owner_subject,
+                now()?,
+            )
             .await
-            .map_err(denied)?;
-        let mut matching = trusted.iter().filter(|(member, signer)| {
-            member.member_id == request.member_id
-                && member.endpoint_id == request.endpoint_id
-                && signer.key_id == key
-                && signer.public_jwk == request.public_signer
-        });
-        matching.next().ok_or_else(|| {
-            denied("bootstrap requires exact current enrolled member and independent signer")
-        })?;
-        if matching.next().is_some() {
-            return Err(denied(
-                "bootstrap requires exact current enrolled member and independent signer",
-            ));
-        }
-        if DbUserRepo::new(self.idp.client(), PasswordConfig::default())
-            .find_user_by_id(approval.owner_subject)
-            .await
-            .map_err(denied)?
-            .is_none()
-        {
-            return Err(denied(
-                "bootstrap owner is not a current conflict-clear User",
-            ));
-        }
-        Ok(trusted)
     }
 
     pub async fn check_exact_join_trust(
@@ -605,18 +570,12 @@ impl SecurityProtocol {
             .await
             .map_err(denied)?;
         self.check_exact_join_trust(&approval).await?;
-        let binding = NodeSignerBinding {
-            member_id: approval.request.member_id,
-            key_id: approval.request.public_signer.kid.parse().map_err(denied)?,
-            endpoint_id: approval.request.endpoint_id.clone(),
-        };
-        if !self.binding.as_ref().is_some_and(|configured| {
-            configured.member_id == binding.member_id
-                && configured.key_id == binding.key_id
-                && configured.endpoint_id == binding.endpoint_id
-        }) {
-            return Err(denied("local independent signing capability is not ready"));
-        }
+        LocalIdentity::check_configured_join_signer(
+            self.binding.as_ref(),
+            approval.request.member_id,
+            &approval.request.endpoint_id,
+            &approval.request.public_signer,
+        )?;
         self.check_join_context_grants(&approval).await
     }
 
@@ -670,12 +629,9 @@ impl SecurityProtocol {
                 .ok_or_else(|| denied("local Device is not approved"))?;
             let subject: Id = device.owner_subject.parse().map_err(denied)?;
             if device.id != binding.member_id
-                || subject.is_nil()
-                || DbUserRepo::new(self.idp.client(), PasswordConfig::default())
-                    .find_user_by_id(subject)
-                    .await
-                    .map_err(denied)?
-                    .is_none()
+                || !LocalIdentity::new(self.idp.client())
+                    .is_active_user(subject)
+                    .await?
             {
                 return Err(denied("local Device requires its active owner"));
             }

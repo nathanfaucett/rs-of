@@ -3,6 +3,7 @@ use std::{io::ErrorKind, sync::Arc, time::Duration};
 use db::Database;
 use device_service::DeviceRepo;
 use device_service::replica::DbDeviceRepo;
+use device_service::security_protocol::{SecurityContext, SecurityProtocol};
 use idp_model::{contract::IdentityAction, model::Id};
 use idp_server::{AppConfig, OwnerProvisioner};
 use idp_service::{oauth2::NodeSignerBinding, replica::DbReplicaSignerRepo};
@@ -13,10 +14,7 @@ use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
 use tokio_util::sync::CancellationToken;
 
-use crate::{
-    SecurityContext, SecurityProtocol,
-    permission_http_tests::{seed_idp, seed_permissions, user_token},
-};
+use crate::permission_http_tests::{seed_idp, seed_permissions, user_token};
 
 #[tokio::test]
 async fn authorized_node_bootstrap_imports_both_contexts_and_reopens_offline() {
@@ -247,7 +245,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
         cancellation.clone(),
     )
     .expect("existing DATA dispatcher; no resource access authorized");
-    let source_security = SecurityProtocol::new(
+    let source_security = crate::SecurityProtocol::new(
         source.clone(),
         source_idp.clone(),
         source_policy.clone(),
@@ -428,7 +426,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
         assert!(
             error
                 .to_string()
-                .contains("local endpoint has no approved Device"),
+                .contains("endpoint has no approved local Device"),
             "{context:?}: {error}"
         );
     }
@@ -613,10 +611,39 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
                 .is_empty(),
             "joining local client is never published to source"
         );
-        protocol
+        let source_before_retry = source_idp
+            .sync_manifest()
+            .await
+            .expect("source before exact retry");
+        let joined_before_retry = joining_idp
+            .sync_manifest()
+            .await
+            .expect("joined history before exact retry");
+        let unchanged = protocol
             .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Idp)
             .await
             .expect("exact unchanged retry");
+        assert_eq!(
+            (unchanged.sent_units, unchanged.sent_changes),
+            (0, 0),
+            "Device bootstrap retry never reverse-publishes history"
+        );
+        assert_eq!(
+            source_idp
+                .sync_manifest()
+                .await
+                .expect("source after exact retry"),
+            source_before_retry,
+            "retry must not mutate source history"
+        );
+        assert_eq!(
+            joining_idp
+                .sync_manifest()
+                .await
+                .expect("joined history after exact retry"),
+            joined_before_retry,
+            "unchanged retry retains exact imported progress"
+        );
         eprintln!(
             "bootstrap source update and exact retry: {:?}",
             started.elapsed()

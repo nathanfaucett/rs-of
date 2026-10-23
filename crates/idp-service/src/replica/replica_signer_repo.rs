@@ -520,6 +520,166 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn local_identity_requires_exact_enrollment_active_user_and_current_trust() {
+        use crate::replica::LocalIdentity;
+        let (engine, member, signer) = public_trust_fixture().await;
+        let identity = LocalIdentity::new(engine.client());
+        let owner = Id::now_v7();
+        let check = || {
+            identity.check_join_identity(
+                &member.issuer,
+                member.member_id,
+                &member.endpoint_id,
+                &signer.public_jwk,
+                owner,
+                10,
+            )
+        };
+        assert!(!identity.is_active_user(owner).await.expect("missing User"));
+        let error = check()
+            .await
+            .expect_err("signer trust alone cannot establish the owner User");
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+        assert_eq!(
+            error.to_string(),
+            "bootstrap owner is not a current conflict-clear User"
+        );
+        execute(&engine, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{owner}' AS UUID), 'owner', 'Owner', 1, 1)")).await;
+        assert!(
+            identity
+                .is_active_user(owner)
+                .await
+                .expect("current active User")
+        );
+        assert!(
+            !identity
+                .is_active_user(Id::nil())
+                .await
+                .expect("nil is not a User")
+        );
+        assert_eq!(
+            check().await.expect("exact current enrollment"),
+            vec![(member.clone(), signer.clone())]
+        );
+        let binding = crate::oauth2::NodeSignerBinding {
+            member_id: member.member_id,
+            key_id: signer.key_id,
+            endpoint_id: member.endpoint_id.clone(),
+        };
+        identity
+            .check_signer_binding(&member.issuer, &binding, 10)
+            .await
+            .expect("current local signer");
+        LocalIdentity::check_configured_join_signer(
+            Some(&binding),
+            member.member_id,
+            &member.endpoint_id,
+            &signer.public_jwk,
+        )
+        .expect("exact configured signer");
+        assert_eq!(
+            LocalIdentity::check_configured_join_signer(
+                None,
+                member.member_id,
+                &member.endpoint_id,
+                &signer.public_jwk
+            )
+            .expect_err("missing configured signer")
+            .to_string(),
+            "local independent signing capability is not ready"
+        );
+        for changed in [
+            crate::oauth2::NodeSignerBinding {
+                member_id: Id::now_v7(),
+                ..binding.clone()
+            },
+            crate::oauth2::NodeSignerBinding {
+                key_id: Id::now_v7(),
+                ..binding.clone()
+            },
+            crate::oauth2::NodeSignerBinding {
+                endpoint_id: "other-endpoint".into(),
+                ..binding.clone()
+            },
+        ] {
+            assert_eq!(
+                identity
+                    .check_signer_binding(&member.issuer, &changed, 10)
+                    .await
+                    .expect_err("changed local signer")
+                    .to_string(),
+                "local node signer/member is not currently trusted"
+            );
+            assert_eq!(
+                LocalIdentity::check_configured_join_signer(
+                    Some(&changed),
+                    member.member_id,
+                    &member.endpoint_id,
+                    &signer.public_jwk
+                )
+                .expect_err("configured signer changed")
+                .to_string(),
+                "local independent signing capability is not ready"
+            );
+        }
+        for (member_id, endpoint, public) in [
+            (
+                Id::now_v7(),
+                member.endpoint_id.clone(),
+                signer.public_jwk.clone(),
+            ),
+            (
+                member.member_id,
+                "other-endpoint".into(),
+                signer.public_jwk.clone(),
+            ),
+            (member.member_id, member.endpoint_id.clone(), {
+                let mut public = signer.public_jwk.clone();
+                public.kid = Id::now_v7().to_string();
+                public
+            }),
+        ] {
+            let error = identity
+                .check_join_identity(&member.issuer, member_id, &endpoint, &public, owner, 10)
+                .await
+                .expect_err("changed exact binding denies");
+            assert_eq!(
+                error.to_string(),
+                "bootstrap requires exact current enrolled member and independent signer"
+            );
+        }
+        execute(&engine, "DELETE FROM users").await;
+        assert!(
+            !identity
+                .is_active_user(owner)
+                .await
+                .expect("learned User deletion")
+        );
+        assert!(
+            check().await.is_err(),
+            "existing owner facade rechecks current User state"
+        );
+        DbReplicaSignerRepo::new(engine.client())
+            .revoke(member.member_id, &member.issuer, 10)
+            .await
+            .expect("learned member revocation");
+        assert_eq!(
+            check()
+                .await
+                .expect_err("revocation denies before missing User")
+                .to_string(),
+            "bootstrap requires exact current enrolled member and independent signer"
+        );
+        assert!(
+            identity
+                .check_signer_binding(&member.issuer, &binding, 10)
+                .await
+                .is_err(),
+            "local signer authorization also rechecks revocation"
+        );
+    }
+
+    #[tokio::test]
     async fn trusted_signers_without_devices_and_key_repo_preserve_pairs() {
         use crate::{replica::DbKeyRepo, repo::KeyRepo};
 
@@ -870,7 +1030,7 @@ mod tests {
                 "member_id, active_member_id, key_id, issuer, public_jwk, approved_at, revoked_at, expires_at",
             ),
         ] {
-            let (engine, member, _) = public_trust_fixture().await;
+            let (engine, member, signer) = public_trust_fixture().await;
             execute(&engine, indexes).await;
             let mut row = engine
                 .client()
@@ -901,6 +1061,23 @@ mod tests {
                     .await
                     .is_err(),
                 "{table} ambiguity must deny"
+            );
+            let error = crate::replica::LocalIdentity::new(engine.client())
+                .check_join_identity(
+                    &member.issuer,
+                    member.member_id,
+                    &member.endpoint_id,
+                    &signer.public_jwk,
+                    Id::now_v7(),
+                    10,
+                )
+                .await
+                .expect_err(
+                    "identity owner rejects ambiguous enrollment before considering the User",
+                );
+            assert!(
+                error.to_string().contains("ambiguous node trust bindings"),
+                "{error}"
             );
         }
     }

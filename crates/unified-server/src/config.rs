@@ -460,11 +460,5 @@ pub fn require_fresh_roots(
 }
 
 pub fn validate_config(config: &UnifiedConfig) -> io::Result<()> {
-    if config.idp_audience().trim().is_empty() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "IdP service audience must not be empty",
-        ));
-    }
-    Ok(())
+    config.idp.validate_service_audience()
 }

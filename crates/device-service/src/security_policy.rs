@@ -9,9 +9,7 @@ use idp_model::{
     model::Id,
 };
 use idp_service::{
-    PasswordConfig,
-    replica::DbUserRepo,
-    repo::UserRepo,
+    replica::LocalIdentity,
     security_sync::{PUBLIC_IDENTITY_POLICY_TABLES, public_security_tables},
 };
 use management_service::LocalPermissions;
@@ -223,12 +221,9 @@ impl<'a> SecuritySync<'a> {
             return Err(denied("Device and security handshake identity differ"));
         }
         let owner: Id = device.owner_subject.parse().map_err(denied)?;
-        if owner.is_nil()
-            || DbUserRepo::new(self.idp.client(), PasswordConfig::default())
-                .find_user_by_id(owner)
-                .await
-                .map_err(denied)?
-                .is_none()
+        if !LocalIdentity::new(self.idp.client())
+            .is_active_user(owner)
+            .await?
         {
             return Err(denied(
                 "Device owner is not a current conflict-clear local User",

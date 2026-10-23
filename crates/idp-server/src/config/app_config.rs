@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{io, path::Path};
 
 use api::{Environment, ServerConfig};
 use idp_service::{PasswordConfig, oauth2::OAuth2Config};
@@ -27,6 +27,34 @@ pub struct AppConfig {
     pub management_permissions: Option<ManagementPermissionConfig>,
 
     pub env: Environment,
+}
+
+impl AppConfig {
+    pub fn validate_installation_settings(&self) -> io::Result<()> {
+        if self.oauth2.issuer.trim().is_empty() || self.key_namespace.trim().is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Canonical Issuer and key namespace are required",
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn validate_service_audience(&self) -> io::Result<()> {
+        if self
+            .service_audience
+            .as_deref()
+            .unwrap_or(&self.api_public_uri)
+            .trim()
+            .is_empty()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "IdP service audience must not be empty",
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl Default for AppConfig {
@@ -62,5 +90,51 @@ impl TryFrom<&Path> for AppConfig {
             .add_source(config::Environment::with_prefix("LIDP"))
             .build()?
             .try_deserialize()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppConfig;
+
+    #[test]
+    fn identity_settings_validation_preserves_errors_and_audience_fallback() {
+        let mut config = AppConfig::default();
+        config
+            .validate_installation_settings()
+            .expect("default identity settings");
+        config
+            .validate_service_audience()
+            .expect("public URI is the default audience");
+        config.api_public_uri = " ".into();
+        let error = config
+            .validate_service_audience()
+            .expect_err("empty fallback audience");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(error.to_string(), "IdP service audience must not be empty");
+        config.service_audience = Some("explicit-service".into());
+        config
+            .validate_service_audience()
+            .expect("explicit audience takes precedence");
+        config.service_audience = Some("\t".into());
+        assert_eq!(
+            config
+                .validate_service_audience()
+                .expect_err("explicit whitespace is not a fallback")
+                .kind(),
+            std::io::ErrorKind::InvalidInput
+        );
+        for (issuer, namespace) in [(" ", "namespace"), ("https://issuer.test", "\t"), ("", "")] {
+            config.oauth2.issuer = issuer.into();
+            config.key_namespace = namespace.into();
+            let error = config
+                .validate_installation_settings()
+                .expect_err("identity settings are required");
+            assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+            assert_eq!(
+                error.to_string(),
+                "Canonical Issuer and key namespace are required"
+            );
+        }
     }
 }

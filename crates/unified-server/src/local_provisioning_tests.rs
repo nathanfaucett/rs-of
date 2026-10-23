@@ -162,6 +162,53 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn identity_settings_errors_preserve_host_validation_order_without_writing_intent() {
+    let fixture = Fixture::new();
+    let mut config = fixture.config.clone();
+    config.idp.oauth2.issuer.clear();
+    config.idp.key_namespace.clear();
+    config.idp.service_audience = Some(" ".into());
+    config.device.data_dir = config.idp.data_dir.clone();
+    let rejected = |config| {
+        LocalProvisioner::create_with_password(
+            config,
+            "operator",
+            "Node",
+            "fixture-initial-password",
+        )
+        .err()
+        .expect("invalid host settings deny")
+    };
+    let error = rejected(config.clone());
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    assert_eq!(error.to_string(), "IdP service audience must not be empty");
+    config.idp.service_audience = fixture.config.idp.service_audience.clone();
+    let error = rejected(config.clone());
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert_eq!(
+        error.to_string(),
+        "context, endpoint and provisioning roots must not overlap"
+    );
+    config.device.data_dir = fixture.config.device.data_dir.clone();
+    let error = rejected(config);
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert_eq!(
+        error.to_string(),
+        "Canonical Issuer and key namespace are required"
+    );
+    for path in [
+        &fixture.config.endpoint_data_dir,
+        &fixture.config.local_provisioning_directory(),
+        Path::new(&fixture.config.idp.data_dir),
+    ] {
+        assert!(
+            !path.exists(),
+            "rejected settings cannot create owner or host state"
+        );
+    }
+}
+
+#[test]
 fn in_memory_password_create_retains_only_its_verifier() {
     let fixture = Fixture::new();
     let password = "hidden-terminal-initial-password";
