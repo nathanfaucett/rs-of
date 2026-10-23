@@ -82,4 +82,4 @@ Limits and unsuccessful broader checks:
 - `pnpm --dir apps/app run check` reports 28 errors from unavailable workspace package build outputs (`svelte-headless`, `oidc-client`, `native-fetch`) and generated Paraglide modules in this worktree. Full Svelte app qualification is not claimed; the focused suites and component checks passed.
 - The broader historical independent-host/default-stack/native-provider suites were not qualified. Remote identity is ticket03; SQL gRPC Device startup and remote Device acceptance are ticket04.
 
-Integration: the branch will merge the current `integration/shared-control-plane-databases` tip before handoff; the final commit and merged tip are reported with the delivery.
+Integration: implementation commit `37a2d51e5` was followed by `GIT_EDITOR=true git merge integration/shared-control-plane-databases` in worktree `02`. Git reported `Already up to date`; the checked integration tip was `9e7360378b36cdd0385d6559afa53ae74034c005`, already an ancestor. No merge was performed into the main working tree.
