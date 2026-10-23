@@ -262,14 +262,14 @@ async fn production_https_bootstrap_child() {
     )
     .await;
     assert_eq!(
-        http.get(format!("{}/management/node-joins/pending", source.base))
+        http.get(format!("{}/device/node-joins/pending", source.base))
             .send()
             .await
             .expect("pending requires authentication")
             .status(),
         reqwest::StatusCode::UNAUTHORIZED
     );
-    let acceptance_url = format!("{}/management/node-joins/acceptance", source.base);
+    let acceptance_url = format!("{}/device/node-joins/acceptance", source.base);
     assert_eq!(
         http.get(&acceptance_url)
             .send()
@@ -379,7 +379,7 @@ async fn production_https_bootstrap_child() {
         assert_eq!(join_journal(&b), retained);
         assert_eq!(retained["complete"], false);
         assert!(
-            device_service::replica::DbSelectionPolicyRepo::new(source.management.clone().client())
+            device_service::replica::DbSelectionPolicyRepo::new(source.devices.clone().client())
                 .get(member, &user.to_string(), Id::nil())
                 .await
                 .expect("cancelled membership policy")
@@ -389,7 +389,7 @@ async fn production_https_bootstrap_child() {
         source.assert_offers_released().await;
         assert_eq!(
             http.post(format!(
-                "{}/management/node-joins/{}/approve",
+                "{}/device/node-joins/{}/approve",
                 source.base,
                 pending["offer_id"].as_str().expect("offer ID")
             ))
@@ -448,7 +448,7 @@ async fn production_https_bootstrap_child() {
         false,
         "an offer alone is not completed bootstrap"
     );
-    let approve_url = format!("{}/management/node-joins/{offer}/approve", source.base);
+    let approve_url = format!("{}/device/node-joins/{offer}/approve", source.base);
     assert_eq!(
         http.post(&approve_url)
             .bearer_auth("forged-bearer")
@@ -459,7 +459,7 @@ async fn production_https_bootstrap_child() {
         reqwest::StatusCode::FORBIDDEN
     );
     assert!(
-        device_service::replica::DbSelectionPolicyRepo::new(source.management.clone().client())
+        device_service::replica::DbSelectionPolicyRepo::new(source.devices.clone().client())
             .get(member, &user.to_string(), Id::nil())
             .await
             .expect("policy lookup after forged approval")
@@ -477,7 +477,7 @@ async fn production_https_bootstrap_child() {
     assert_eq!(approval.owner_subject, user);
     assert_eq!(approval.request.member_id, member);
     let policy =
-        device_service::replica::DbSelectionPolicyRepo::new(source.management.clone().client())
+        device_service::replica::DbSelectionPolicyRepo::new(source.devices.clone().client())
             .get(member, &user.to_string(), Id::nil())
             .await
             .expect("approved policy lookup")
@@ -625,7 +625,7 @@ async fn production_https_bootstrap_child() {
 
 async fn pending_http(http: &reqwest::Client, base: &str, bearer: &str) -> serde_json::Value {
     let response = http
-        .get(format!("{base}/management/node-joins/pending"))
+        .get(format!("{base}/device/node-joins/pending"))
         .bearer_auth(bearer)
         .send()
         .await
@@ -705,10 +705,7 @@ async fn rejected_enrollment_keeps_policy_absent(
     let pending = pending_for_member(http, &source.base, bearer, member).await;
     let offer = pending["offer_id"].as_str().expect("rejected offer ID");
     let response = http
-        .post(format!(
-            "{}/management/node-joins/{offer}/approve",
-            source.base
-        ))
+        .post(format!("{}/device/node-joins/{offer}/approve", source.base))
         .bearer_auth(bearer)
         .send()
         .await
@@ -719,7 +716,7 @@ async fn rejected_enrollment_keeps_policy_absent(
         "IdP exact signer validation rejects before Management mutation"
     );
     let policies =
-        device_service::replica::DbSelectionPolicyRepo::new(source.management.clone().client());
+        device_service::replica::DbSelectionPolicyRepo::new(source.devices.clone().client());
     assert!(
         policies
             .get(member, &owner.to_string(), Id::nil())
@@ -732,15 +729,12 @@ async fn rejected_enrollment_keeps_policy_absent(
         "rejected enrollment must not gain transport admission"
     );
     assert_eq!(
-        http.post(format!(
-            "{}/management/node-joins/{offer}/reject",
-            source.base
-        ))
-        .bearer_auth(bearer)
-        .send()
-        .await
-        .expect("authenticated rejection route")
-        .status(),
+        http.post(format!("{}/device/node-joins/{offer}/reject", source.base))
+            .bearer_auth(bearer)
+            .send()
+            .await
+            .expect("authenticated rejection route")
+            .status(),
         reqwest::StatusCode::NO_CONTENT
     );
     assert!(
@@ -788,7 +782,7 @@ async fn rejected_enrollment_keeps_policy_absent(
         });
         let pending = pending_for_member(http, &source.base, bearer, member).await;
         let stale = pending["offer_id"].as_str().expect("stale offer ID");
-        let legacy = format!("{}/management/devices/pairing-accepting", source.base);
+        let legacy = format!("{}/device/devices/pairing-accepting", source.base);
         if expire {
             let mut acceptance = source.server.subscribe_pairing_acceptance();
 
@@ -803,7 +797,7 @@ async fn rejected_enrollment_keeps_policy_absent(
                     .json(&serde_json::json!({"accepting": false}))
                     .send()
                     .await
-                    .expect("authenticated Management acceptance disable")
+                    .expect("authenticated Device acceptance disable")
                     .status(),
                 reqwest::StatusCode::OK
             );
@@ -814,7 +808,7 @@ async fn rejected_enrollment_keeps_policy_absent(
                 .json(&serde_json::json!({"accepting": true}))
                 .send()
                 .await
-                .expect("authenticated Management acceptance re-enable")
+                .expect("authenticated Device acceptance re-enable")
                 .status(),
             reqwest::StatusCode::OK
         );
@@ -827,15 +821,12 @@ async fn rejected_enrollment_keeps_policy_absent(
             "disable/re-enable and expiry cannot resurrect an earlier acceptance offer"
         );
         assert_eq!(
-            http.post(format!(
-                "{}/management/node-joins/{stale}/approve",
-                source.base
-            ))
-            .bearer_auth(bearer)
-            .send()
-            .await
-            .expect("stale approval route")
-            .status(),
+            http.post(format!("{}/device/node-joins/{stale}/approve", source.base))
+                .bearer_auth(bearer)
+                .send()
+                .await
+                .expect("stale approval route")
+                .status(),
             reqwest::StatusCode::NOT_FOUND
         );
         assert!(
@@ -923,7 +914,7 @@ struct HttpsHost {
     listener: Option<JoinHandle<io::Result<()>>>,
     endpoint: iroh::EndpointId,
     server: iroh_chain::Server,
-    management: Arc<db::Database>,
+    devices: Arc<db::Database>,
     node_joins: Arc<device_server::NodeJoinSource>,
     base: String,
 }
@@ -946,7 +937,7 @@ impl HttpsHost {
         let cancellation = runtime.cancellation_token();
         let endpoint = runtime.endpoint_id();
         let server = runtime.full_node_test_server().clone();
-        let management = runtime.full_node_test_management();
+        let devices = runtime.full_node_test_devices();
         let node_joins = runtime.node_join_source_for_test();
         let tls = tls.clone();
         let task = if let Some(listener) = listener {
@@ -975,7 +966,7 @@ impl HttpsHost {
             listener: Some(task),
             endpoint,
             server,
-            management,
+            devices,
             node_joins,
             base,
         };

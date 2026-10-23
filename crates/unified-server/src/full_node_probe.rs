@@ -60,7 +60,7 @@ async fn probe() {
     let client = login.client_id.expect("public login Client ID");
     {
         let engine = Arc::new(
-            db::Database::open(fixture.root.join("device/devices.redb"))
+            db::Database::open(fixture.root.join("idp/idp.redb"))
                 .expect("stopped native Management owner"),
         );
         let service = ManagementService::new(
@@ -172,10 +172,7 @@ async fn probe() {
     .await;
     let put_started = Instant::now();
     let result = http
-        .put(format!(
-            "{}/management/devices/{member}/restriction",
-            host.base
-        ))
+        .put(format!("{}/device/devices/{member}/restriction", host.base))
         .bearer_auth(actor)
         .json(&serde_json::json!({"adminAllowed": false}))
         .send()
@@ -197,7 +194,7 @@ async fn probe() {
         replay_returned,
         "refresh replay must return an invalid_grant response, not timeout"
     );
-    let response = result.expect("real composed Management restriction PUT");
+    let response = result.expect("real composed Device restriction PUT");
     assert_eq!(response.status(), reqwest::StatusCode::NO_CONTENT);
     eprintln!(
         "08 probe: managed shutdown complete at {:?}",

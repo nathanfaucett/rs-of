@@ -284,18 +284,15 @@ async fn local_winner(http: &reqwest::Client, host: &Host, client: &str, grant: 
 
 async fn restriction(http: &reqwest::Client, host: &Host, actor: &str, device: Id, allowed: bool) {
     let response = http
-        .put(format!(
-            "{}/management/devices/{device}/restriction",
-            host.base
-        ))
+        .put(format!("{}/device/devices/{device}/restriction", host.base))
         .bearer_auth(actor)
         .json(&serde_json::json!({"adminAllowed": allowed}))
         .send()
         .await
-        .expect("real Management policy mutation");
+        .expect("real Device policy mutation");
     assert!(
         response.status() == reqwest::StatusCode::NO_CONTENT,
-        "Management restriction mutation must return no content"
+        "Device restriction mutation must return no content"
     );
 }
 
@@ -307,14 +304,11 @@ async fn assert_restriction(
     allowed: bool,
 ) {
     let body = json(
-        http.get(format!(
-            "{}/management/devices/{device}/restriction",
-            host.base
-        ))
-        .bearer_auth(actor)
-        .send()
-        .await
-        .expect("local policy read"),
+        http.get(format!("{}/device/devices/{device}/restriction", host.base))
+            .bearer_auth(actor)
+            .send()
+            .await
+            .expect("local policy read"),
         reqwest::StatusCode::OK,
     )
     .await;
@@ -489,8 +483,7 @@ async fn join_host(
     assert_eq!(approval.owner_subject, owner);
     assert_eq!(approval.request.member_id, binding.member_id);
     assert_eq!(approval.request.endpoint_id, binding.endpoint_id);
-    let policies =
-        DbSelectionPolicyRepo::new(source.runtime().full_node_test_management().client());
+    let policies = DbSelectionPolicyRepo::new(source.runtime().full_node_test_devices().client());
     let policy = policies
         .get(binding.member_id, &owner.to_string(), Id::nil())
         .await
@@ -687,7 +680,7 @@ impl Pair {
         let login_id = login.client_id.expect("public login Client");
         if slice != Slice::Grants {
             let management = Arc::new(
-                db::Database::open(a.root.join("device/devices.redb"))
+                db::Database::open(a.root.join("idp/idp.redb"))
                     .expect("public Management fixture owner"),
             );
             let policy = ManagementService::new(

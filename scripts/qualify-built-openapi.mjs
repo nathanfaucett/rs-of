@@ -63,7 +63,7 @@ const filesystem = await consumer.createFileSystem("Generated consumer");
 assert.equal(filesystem.name, "Generated consumer");
 const socket = await consumer.openSocket(filesystem.id);
 socket.close();
-for (const owner of ["idp", "management", "storage"]) {
+for (const owner of ["idp", "management", "device", "storage"]) {
     const require = createRequire(
         path.join(root, `packages/${owner}-client/package.json`),
     );
@@ -72,9 +72,20 @@ for (const owner of ["idp", "management", "storage"]) {
             `@aicacia/${owner}-client${owner === "storage" ? "/generated" : ""}`,
         )
     );
-    assert.ok(sdk.IndependentSetupApi);
-    assert.ok(sdk.IndependentJoinApi);
-    assert.ok(sdk.OwnerSetupApi);
+    if (owner === "management") {
+        assert.ok(sdk.DefaultApi);
+        assert.equal(sdk.IndependentSetupApi, undefined);
+        assert.equal(sdk.IndependentJoinApi, undefined);
+        assert.equal(sdk.OwnerSetupApi, undefined);
+        assert.equal(sdk.NodeJoinApi, undefined);
+    } else {
+        assert.ok(sdk.IndependentSetupApi);
+        assert.ok(sdk.IndependentJoinApi);
+        assert.ok(sdk.OwnerSetupApi);
+        if (owner === "device") {
+            assert.ok(sdk.NodeJoinApi);
+        }
+    }
 }
 console.log(
     "Built package exports and generated operations qualified against actual owner routers",

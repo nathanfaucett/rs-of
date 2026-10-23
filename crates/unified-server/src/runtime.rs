@@ -1459,13 +1459,13 @@ mod tests {
             .router()
             .oneshot(
                 Request::builder()
-                    .uri("/management/replication/devices/untrusted/selections")
+                    .uri("/device/replication/devices/untrusted/selections")
                     .header("x-internal-service", "untrusted")
                     .body(Body::empty())
                     .expect("build normal route request"),
             )
             .await
-            .expect("call normal Management route");
+            .expect("call normal Device route");
         assert_eq!(response.status(), http::StatusCode::UNAUTHORIZED);
 
         let policy = runtime
@@ -1554,12 +1554,12 @@ mod tests {
         }
         let response = client
             .get(format!(
-                "http://{server_address}/management/replication/devices/untrusted/selections"
+                "http://{server_address}/device/replication/devices/untrusted/selections"
             ))
             .header("x-internal-service", "untrusted")
             .send()
             .await
-            .expect("request live Management route with legacy header only");
+            .expect("request live Device route with legacy header only");
         assert_eq!(response.status(), http::StatusCode::UNAUTHORIZED);
 
         let bearer = crate::permission_http_tests::user_token(
@@ -1850,12 +1850,12 @@ mod tests {
 
         let response = client
             .get(format!(
-                "http://{server_address}/management/replication/devices/{endpoint_id}/selections"
+                "http://{server_address}/device/replication/devices/{endpoint_id}/selections"
             ))
             .bearer_auth(&storage_token)
             .send()
             .await
-            .expect("call authenticated Management API through unified listener");
+            .expect("call authenticated Device API through unified listener");
         let selection_status = response.status();
         let selection_body = response.text().await.expect("read selection response");
         assert_eq!(selection_status, http::StatusCode::OK, "{selection_body}");

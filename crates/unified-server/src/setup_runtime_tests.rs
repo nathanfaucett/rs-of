@@ -179,7 +179,7 @@ pub(crate) async fn status_tracks_revocation_in_existing_runtime(
         body
     }
 
-    let policy = runtime.full_node_test_management();
+    let policy = runtime.full_node_test_identity();
     let service = management_service::ManagementService::new(
         management_service::replica::DbPermissionRepo::new(policy.client()),
         management_service::replica::DbRoleRepo::new(policy.client()),
@@ -267,7 +267,7 @@ pub(crate) async fn status_tracks_revocation_in_existing_runtime(
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/management/replication/devices/untrusted/selections")
+                .uri("/device/replication/devices/untrusted/selections")
                 .body(Body::empty())
                 .expect("normal protected request"),
         )

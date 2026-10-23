@@ -364,7 +364,7 @@ impl Fixture {
                     .expect("injected endpoint identity"),
             ),
             identity.clone(),
-            Some(LocalPermissions::new(management.client())),
+            Some(LocalPermissions::new(idp.client())),
         )
         .await
         .expect("integrated owner-local IdP runtime");

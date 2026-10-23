@@ -105,7 +105,7 @@ pub(super) async fn from_source(
     )
     .await;
     assert_eq!(
-        http.put(format!("{}/management/node-joins/acceptance", source.base))
+        http.put(format!("{}/device/node-joins/acceptance", source.base))
             .bearer_auth(&idp_only)
             .json(&json!({"accepting": true}))
             .send()
@@ -133,7 +133,7 @@ pub(super) async fn from_source(
     )
     .await;
     assert_eq!(
-        http.put(format!("{}/management/node-joins/acceptance", source.base))
+        http.put(format!("{}/device/node-joins/acceptance", source.base))
             .bearer_auth(&approving)
             .json(&json!({"accepting": true}))
             .send()
@@ -357,15 +357,12 @@ pub(super) async fn run(
         source.assert_offers_released().await;
         let stale = first["offer_id"].as_str().expect("first offer ID");
         assert_eq!(
-            http.post(format!(
-                "{}/management/node-joins/{stale}/approve",
-                source.base
-            ))
-            .bearer_auth(approving)
-            .send()
-            .await
-            .expect("cancelled source offer")
-            .status(),
+            http.post(format!("{}/device/node-joins/{stale}/approve", source.base))
+                .bearer_auth(approving)
+                .send()
+                .await
+                .expect("cancelled source offer")
+                .status(),
             StatusCode::NOT_FOUND
         );
         cancellation.cancel();
@@ -404,7 +401,7 @@ pub(super) async fn run(
         let rejected = pending["offer_id"].as_str().expect("rejected offer ID");
         assert_eq!(
             http.post(format!(
-                "{}/management/node-joins/{rejected}/reject",
+                "{}/device/node-joins/{rejected}/reject",
                 source.base
             ))
             .bearer_auth(approving)
@@ -436,7 +433,7 @@ pub(super) async fn run(
         first
     };
     let offer = pending["offer_id"].as_str().expect("new exact offer ID");
-    let approval = format!("{}/management/node-joins/{offer}/approve", source.base);
+    let approval = format!("{}/device/node-joins/{offer}/approve", source.base);
     assert_eq!(
         http.post(&approval)
             .header("Authorization", format!("Setup {code}"))

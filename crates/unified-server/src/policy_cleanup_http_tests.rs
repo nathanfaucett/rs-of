@@ -160,8 +160,8 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
         .await
         .expect("actor audiences");
     let service = ManagementService::new(
-        DbPermissionRepo::new(fixture.management.client()),
-        DbRoleRepo::new(fixture.management.client()),
+        DbPermissionRepo::new(fixture.idp.client()),
+        DbRoleRepo::new(fixture.idp.client()),
     );
     for (app, actions) in [
         (fixture.scope.application_id, vec!["devices.select"]),
@@ -211,7 +211,7 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
     let control = Arc::new(control);
     let mut management = Listener::start(
         device_server::build_router(
-            fixture.management.clone().client(),
+            fixture.idp.clone().client(),
             fixture.management.clone().client(),
             "https://management.test",
             "",
