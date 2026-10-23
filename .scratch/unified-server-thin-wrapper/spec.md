@@ -1,4 +1,4 @@
-# Status: ready-for-agent
+# Status: resolved
 
 ## Problem Statement
 
@@ -20,11 +20,11 @@ Refactor `unified-server` into a truly thin wrapper by extracting all "Independe
 ## Implementation Decisions
 
 - **Logic Relocation**: Move the following modules and their associated logic from `unified-server` to `idp-server` (or relevant service crates):
-    - `local_join.rs` (and its logic) $\rightarrow$ `idp-server`
-    - `local_provisioning.rs` $\rightarrow$ `idp-server`
-    - `bootstrap_config.rs`, `bootstrap_verification.rs`, `credential_bootstrap.rs` $\rightarrow$ `idp-server`
-    - `issuer_discovery.rs` $\rightarrow$ `idp-server`
-    - `local_tls.rs` $\rightarrow$ `idp-server`
+  - `local_join.rs` (and its logic) $\rightarrow$ `idp-server`
+  - `local_provisioning.rs` $\rightarrow$ `idp-server`
+  - `bootstrap_config.rs`, `bootstrap_verification.rs`, `credential_bootstrap.rs` $\rightarrow$ `idp-server`
+  - `issuer_discovery.rs` $\rightarrow$ `idp-server`
+  - `local_tls.rs` $\rightarrow$ `idp-server`
 - **Module Cleanup**: Remove all `independent_...` test modules and associated logic from `unified-server`.
 - **CLI Refactor**: Update `unified-server/src/cli.rs` to use the relocated logic via the service crates (or a shared internal library), ensuring the CLI remains functional.
 - **Adapter Preservation**: Keep `setup_runtime.rs` and `security_sync.rs` in `unified-server` as they serve as wrapper-level coordination/adapter logic for the hosted environment.
