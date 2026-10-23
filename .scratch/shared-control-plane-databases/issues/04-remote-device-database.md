@@ -129,4 +129,15 @@ timeout 180s env CARGO_TARGET_DIR=/home/nathan/code/rust/aicacia/of/target CARGO
 
 ### Integration handoff
 
-Commit on this implementation branch, then run `GIT_EDITOR=true git merge integration/shared-control-plane-databases` here before reporting. Do not merge into or modify the original integration checkout's source. The merger owns that handoff. Current integration tip before commit is still `ba45e15f5`; final merge/status evidence follows in the completion note.
+Implementation commit: **`808212aa8` — Serve remote Device SQL and provision shared control-plane consumers**.
+
+After committing, ran these exact commands in worktree `04`:
+
+```sh
+GIT_EDITOR=true git merge integration/shared-control-plane-databases
+git --no-optional-locks status --short --branch
+git --no-pager log -2 --oneline
+git --no-pager rev-parse integration/shared-control-plane-databases
+```
+
+Observed: **Already up to date**, clean `implement/shared-control-plane-04`, integration tip **`ba45e15f52fb19b2519b602cbd733684d8691377`** already an ancestor. This completion evidence is a documentation-only follow-up commit, with the merge repeated afterward. No merge into the original checkout was performed; the merger owns that handoff. No new ofdb changes or commits were made.
