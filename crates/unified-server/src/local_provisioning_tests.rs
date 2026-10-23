@@ -1480,12 +1480,10 @@ async fn local_provisioning_lost_management_after_late_failure_denies_without_re
         !database.exists(),
         "retry must not reconstruct grants or Device policy"
     );
-    fs::remove_dir_all(fixture.root.join("management")).expect("lose Management root too");
+    let root = database.parent().expect("retained Device database root");
+    fs::remove_dir_all(root).expect("lose acknowledged Device root too");
     assert!(host.provision(&fixture.password).await.is_err());
-    assert!(
-        !fixture.root.join("management").exists(),
-        "no replacement root"
-    );
+    assert!(!root.exists(), "no replacement root");
     assert!(
         retained == fixture.journal(),
         "retain exact incomplete evidence"
@@ -1856,4 +1854,85 @@ fn concrete_host_settings_preserve_the_durable_intent_when_normalized() {
         .expect("intent JSON"),
         retained,
     );
+}
+
+#[test]
+fn retained_create_journal_keeps_its_flat_schema_and_exact_retry_checks() {
+    let fixture = Fixture::new();
+    let host = LocalProvisioner::create(
+        fixture.config.clone(),
+        "operator",
+        "Local Node",
+        &fixture.password,
+    )
+    .expect("fresh retained intent");
+    let path = fixture
+        .config
+        .local_provisioning_directory()
+        .join("intent.json");
+    let bytes = fs::read(&path).expect("original journal");
+    let original = fixture.journal();
+    let mut expected_fields = vec![
+        "version",
+        "intent",
+        "installation",
+        "user",
+        "credential",
+        "login_client",
+        "member",
+        "key",
+        "role",
+        "permissions",
+        "administrator",
+        "node",
+        "password_verifier",
+        "endpoint_attempted",
+        "endpoint",
+        "inventory_attempted",
+        "node_attempted",
+        "public_signer",
+        "management_attempted",
+        "management_complete",
+        "storage_attempted",
+        "storage_initialized",
+        "complete",
+    ];
+    expected_fields.sort();
+    let mut actual_fields = original
+        .as_object()
+        .expect("journal object")
+        .keys()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    actual_fields.sort();
+    assert_eq!(
+        actual_fields, expected_fields,
+        "owner intent must preserve retained field names"
+    );
+    assert!(original["password_verifier"].is_string());
+    assert!(original["permissions"].is_array());
+    drop(host);
+    let host =
+        LocalProvisioner::open(fixture.config.clone()).expect("reopen original journal schema");
+    host.validate_retry("operator", "Local Node", "fixture-initial-password")
+        .expect("exact credentials");
+    assert!(
+        host.validate_retry("operator", "Local Node", "wrong-password")
+            .is_err()
+    );
+    assert_eq!(fs::read(&path).expect("unchanged retained journal"), bytes);
+    drop(host);
+    for (field, value) in [
+        ("permissions", serde_json::json!([])),
+        ("role", original["user"].clone()),
+        ("unrecognized_request_field", serde_json::json!(true)),
+    ] {
+        let mut malformed = original.clone();
+        malformed[field] = value;
+        let bytes = serde_json::to_vec(&malformed).expect("malformed retained journal");
+        fs::write(&path, &bytes).expect("inject malformed journal");
+        assert!(LocalProvisioner::open(fixture.config.clone()).is_err());
+        assert_eq!(fs::read(&path).expect("no recovery rewrite"), bytes);
+    }
+    secret_files_absent(&fixture.root);
 }

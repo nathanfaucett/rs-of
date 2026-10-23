@@ -770,6 +770,44 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
         self.write_client_reference(slot, &record)
     }
 
+    /// A durable host attempt is an existing-only fence, never fresh signer authority.
+    pub fn prepare_retained_node_signer(
+        &self,
+        binding: &NodeSignerBinding,
+        attempted: bool,
+        expected: Option<&JwkPublic>,
+    ) -> io::Result<JwkPublic> {
+        if !attempted && expected.is_some() {
+            return Err(invalid(
+                "retained signer contradicts an unattempted preparation",
+            ));
+        }
+        let public = if attempted {
+            self.verify_prepared_node_signer(binding)?
+        } else {
+            self.prepare_node_signer(binding)?
+        };
+        if expected.is_some_and(|expected| expected != &public) {
+            return Err(invalid(
+                "prepared Node signer changed; exact recovery required",
+            ));
+        }
+        Ok(public)
+    }
+
+    pub async fn verify_retained_node_signer(
+        &self,
+        binding: &NodeSignerBinding,
+        expected: Option<&JwkPublic>,
+    ) -> io::Result<()> {
+        if Some(&self.verify_node_signer(binding).await?) != expected {
+            return Err(invalid(
+                "current Node signing capability does not match completed intent",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn prepare_node_signer(&self, binding: &NodeSignerBinding) -> io::Result<JwkPublic> {
         let _operation = self.setup_operation()?;
         self.prepare_node_signer_locked(binding)
@@ -1310,4 +1348,71 @@ fn now() -> io::Result<i64> {
         .as_secs()
         .try_into()
         .map_err(io::Error::other)
+}
+
+impl crate::AppConfig {
+    pub fn retained_node_signer_binding(
+        &self,
+        member: Id,
+        key: Id,
+        endpoint: Option<&str>,
+    ) -> io::Result<NodeSignerBinding> {
+        let binding = NodeSignerBinding {
+            member_id: member,
+            key_id: key,
+            endpoint_id: endpoint
+                .ok_or_else(|| invalid("retained endpoint identity is required"))?
+                .to_owned(),
+        };
+        validate_binding(&binding)?;
+        if self.oauth2.local_signer.as_ref().is_some_and(|configured| {
+            configured.member_id != binding.member_id
+                || configured.key_id != binding.key_id
+                || configured.endpoint_id != binding.endpoint_id
+        }) {
+            return Err(invalid(
+                "configured Node signer conflicts with retained binding",
+            ));
+        }
+        Ok(binding)
+    }
+
+    pub fn operator_login_registration(
+        &self,
+        client_id: Id,
+        audiences: Vec<String>,
+    ) -> ClientRegistration {
+        ClientRegistration {
+            application: ApplicationRegistration {
+                name: Some("Local Node operator".into()),
+                uri: format!("{}/operator", self.api_public_uri.trim_end_matches('/')),
+                description: None,
+            },
+            client_id: Some(client_id.to_string()),
+            client_secret: None,
+            client_id_issued_at: None,
+            client_secret_expires_at: None,
+            client_name: "Local Node operator".into(),
+            client_uri: None,
+            logo_uri: None,
+            contacts: Vec::new(),
+            terms_of_service_uri: None,
+            policy_uri: None,
+            client_type: ClientType::Public,
+            profile: ClientProfile::Native,
+            redirect_uris: Vec::new(),
+            allowed_grant_types: vec![
+                GrantType::Password,
+                GrantType::RefreshToken,
+                GrantType::TokenExchange,
+            ],
+            response_types: Vec::new(),
+            allowed_scopes: vec!["openid".into(), "profile".into(), "email".into()],
+            allowed_audiences: audiences,
+            token_endpoint_auth_method: TokenEndpointAuthMethod::None,
+            software_statement: None,
+            software_id: None,
+            software_version: None,
+        }
+    }
 }

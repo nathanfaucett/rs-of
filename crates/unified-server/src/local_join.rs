@@ -15,7 +15,7 @@ use idp_server::local_provisioning::{
     require_absent, require_file, require_retained_directory, sync_ancestry,
 };
 
-use crate::local_provisioning::{Intent, intent, require_storage};
+use crate::local_provisioning::{Intent, intent};
 use crate::{RuntimeOwners, SecurityProtocol, UnifiedConfig, UnifiedEndpoint, UnifiedRuntime};
 
 #[derive(Serialize, Deserialize, PartialEq)]
@@ -132,14 +132,12 @@ impl LocalJoin {
                 "invalid or conflicting join intent; exact recovery required",
             ));
         }
-        if let Some(configured) = &config.idp.oauth2.local_signer
-            && (configured.member_id != journal.member
-                || configured.key_id != journal.key
-                || Some(&configured.endpoint_id) != journal.endpoint.as_ref())
-        {
-            return Err(invalid(
-                "configured signer conflicts with retained join binding",
-            ));
+        if config.idp.oauth2.local_signer.is_some() {
+            config.idp.retained_node_signer_binding(
+                journal.member,
+                journal.key,
+                journal.endpoint.as_deref(),
+            )?;
         }
         Ok(Self {
             config,
@@ -270,7 +268,7 @@ impl LocalJoin {
                     "unacknowledged Storage initialization requires recovery",
                 ));
             }
-            require_storage(&self.config)?;
+            self.config.storage.require_provisioned_storage()?;
         }
         let endpoint = if self.journal.endpoint_attempted {
             UnifiedEndpoint::open(&self.config.endpoint_data_dir, &self.config.idp).await?
@@ -355,10 +353,7 @@ impl LocalJoin {
             create_private_directory(Path::new(&self.config.idp.data_dir), false)?;
             create_private_directory(Path::new(&self.config.device.data_dir), false)?;
         } else {
-            require_file(
-                &Path::new(&self.config.idp.data_dir).join("idp.redb"),
-                false,
-            )?;
+            self.config.idp.require_provisioned_identity()?;
             require_file(
                 &Path::new(&self.config.device.data_dir).join("devices.redb"),
                 false,
@@ -430,15 +425,12 @@ impl LocalJoin {
         ] {
             require_retained_directory(root)?;
         }
-        require_file(
-            &Path::new(&self.config.idp.data_dir).join("idp.redb"),
-            false,
-        )?;
+        self.config.idp.require_provisioned_identity()?;
         require_file(
             &Path::new(&self.config.device.data_dir).join("devices.redb"),
             false,
         )?;
-        require_storage(&self.config)?;
+        self.config.storage.require_provisioned_storage()?;
         if UnifiedEndpoint::persisted_endpoint_id(&self.config.endpoint_data_dir)?.to_string()
             != self.binding()?.endpoint_id
         {
@@ -477,15 +469,11 @@ impl LocalJoin {
     }
 
     fn binding(&self) -> io::Result<NodeSignerBinding> {
-        Ok(NodeSignerBinding {
-            member_id: self.journal.member,
-            key_id: self.journal.key,
-            endpoint_id: self
-                .journal
-                .endpoint
-                .clone()
-                .ok_or_else(|| invalid("missing joining endpoint"))?,
-        })
+        self.config.idp.retained_node_signer_binding(
+            self.journal.member,
+            self.journal.key,
+            self.journal.endpoint.as_deref(),
+        )
     }
     fn bound_config(&self) -> io::Result<UnifiedConfig> {
         let mut config = self.config.clone();

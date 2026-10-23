@@ -1,6 +1,6 @@
 # Provisioning and Join owner interfaces
 
-Status: open
+Status: claimed
 Triage: ready-for-agent
 Type: task
 Blocked by: none
