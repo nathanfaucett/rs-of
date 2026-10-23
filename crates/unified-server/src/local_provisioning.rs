@@ -6,20 +6,17 @@ use std::{
 };
 
 use idp_model::{
-    contract::{
-        ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, GrantType,
-        JwkPublic, TokenEndpointAuthMethod,
-    },
+    contract::{ClientRegistration, JwkPublic},
     model::Id,
 };
 use idp_server::OwnerProvisioner;
 use idp_server::local_provisioning::{
-    absolute, create_private_directory, lock, private_options, provisioning_stage, read_password,
-    read_private, reject_symlinks, require_absent, require_directory, require_file,
-    require_retained_directory, require_unix_bootstrap, sync_ancestry, validate_password,
+    LocalPasswordVerifier, absolute, create_private_directory, lock, private_options,
+    provisioning_stage, read_password, read_private, reject_symlinks, require_absent,
+    require_directory, require_file, require_retained_directory, require_unix_bootstrap,
+    sync_ancestry, validate_password,
 };
-use idp_service::{encrypt_password, oauth2::NodeSignerBinding};
-use management_service::INITIAL_ADMINISTRATOR_ACTIONS;
+use management_server::InitialAdministratorGrant;
 use serde::{Deserialize, Serialize};
 
 use crate::{RuntimeOwners, UnifiedConfig, UnifiedEndpoint, UnifiedRuntime};
@@ -46,11 +43,11 @@ struct Journal {
     login_client: Id,
     member: Id,
     key: Id,
-    role: Id,
-    permissions: Vec<Id>,
+    #[serde(flatten)]
+    administrator_grant: InitialAdministratorGrant,
     administrator: String,
     node: String,
-    password_verifier: String,
+    password_verifier: LocalPasswordVerifier,
     endpoint_attempted: bool,
     endpoint: Option<String>,
     inventory_attempted: bool,
@@ -107,13 +104,13 @@ impl LocalProvisioner {
                 ] {
                     require_retained_directory(root)?;
                 }
-                require_file(&Path::new(&config.idp.data_dir).join("idp.redb"), false)?;
+                config.idp.require_provisioned_identity()?;
                 require_file(
                     &Path::new(&config.device.data_dir).join("devices.redb"),
                     false,
                 )?;
                 require_file(&config.endpoint_data_dir.join("endpoint.key"), true)?;
-                require_storage(&config)?;
+                config.storage.require_provisioned_storage()?;
                 if UnifiedEndpoint::persisted_endpoint_id(&config.endpoint_data_dir)?.to_string()
                     != binding.endpoint_id
                 {
@@ -185,15 +182,10 @@ impl LocalProvisioner {
             login_client: Id::now_v7(),
             member: Id::now_v7(),
             key: Id::now_v7(),
-            role: Id::now_v7(),
-            permissions: INITIAL_ADMINISTRATOR_ACTIONS
-                .iter()
-                .map(|_| Id::now_v7())
-                .collect(),
+            administrator_grant: InitialAdministratorGrant::fresh(),
             administrator: administrator.to_owned(),
             node: node.to_owned(),
-            password_verifier: encrypt_password(&config.idp.password, password)
-                .map_err(io::Error::other)?,
+            password_verifier: LocalPasswordVerifier::capture(&config.idp.password, password)?,
             endpoint_attempted: false,
             endpoint: None,
             inventory_attempted: false,
@@ -322,7 +314,7 @@ impl LocalProvisioner {
                 "human Create intent conflicts with retained owner state",
             ));
         }
-        verify(password, &journal.password_verifier)
+        journal.password_verifier.verify(password)
     }
 
     pub async fn prepare_hosted_runtime(
@@ -351,7 +343,7 @@ impl LocalProvisioner {
         validate_password(password)?;
         check_cancellation(cancellation)?;
         let mut journal = self.read()?;
-        verify(password, &journal.password_verifier)?;
+        journal.password_verifier.verify(password)?;
         if journal.complete {
             return Box::pin(self.build_runtime_for_host(https, hosted)).await;
         }
@@ -374,7 +366,7 @@ impl LocalProvisioner {
                 ));
             }
             require_directory(Path::new(&self.config.storage.data_dir))?;
-            require_storage(&self.config)?;
+            self.config.storage.require_provisioned_storage()?;
         }
         let endpoint = if journal.endpoint_attempted {
             UnifiedEndpoint::open(&self.config.endpoint_data_dir, &self.config.idp).await?
@@ -413,10 +405,7 @@ impl LocalProvisioner {
                 self.write(&journal)?;
                 create_private_directory(Path::new(&self.config.idp.data_dir), false)?;
             } else {
-                require_file(
-                    &Path::new(&self.config.idp.data_dir).join("idp.redb"),
-                    false,
-                )?;
+                self.config.idp.require_provisioned_identity()?;
             }
             let owner = OwnerProvisioner::open(&self.config.idp).await?;
             let clients = [journal.login_client];
@@ -437,34 +426,29 @@ impl LocalProvisioner {
             })
             .await?;
             provisioning_stage(|| owner.ensure_initial_user_root(journal.user)).await?;
-            let binding = binding(&journal)?;
-            let public = if journal.node_attempted {
-                owner.verify_prepared_node_signer(&binding)?
-            } else {
+            let binding = self.config.idp.retained_node_signer_binding(
+                journal.member,
+                journal.key,
+                journal.endpoint.as_deref(),
+            )?;
+            let attempted = journal.node_attempted;
+            if !attempted {
                 journal.node_attempted = true;
                 self.write(&journal)?;
-                owner.prepare_node_signer(&binding)?
-            };
-            if journal
-                .public_signer
-                .as_ref()
-                .is_some_and(|retained| retained != &public)
-            {
-                return Err(invalid(
-                    "prepared Node signer changed; exact recovery required",
-                ));
             }
+            let public = owner.prepare_retained_node_signer(
+                &binding,
+                attempted,
+                journal.public_signer.as_ref(),
+            )?;
             journal.public_signer = Some(public);
             self.write(&journal)?;
             provisioning_stage(|| owner.ensure_initial_node(&binding, journal.user, &journal.node))
                 .await?;
-            if Some(provisioning_stage(|| owner.verify_node_signer(&binding)).await?)
-                != journal.public_signer
-            {
-                return Err(invalid(
-                    "approved Node signer differs from retained preparation",
-                ));
-            }
+            provisioning_stage(|| {
+                owner.verify_retained_node_signer(&binding, journal.public_signer.as_ref())
+            })
+            .await?;
             provisioning_stage(|| {
                 owner.ensure_setup_public_login_client(login_registration(
                     &self.config,
@@ -488,19 +472,10 @@ impl LocalProvisioner {
             let management_engine =
                 device_server::open_device_database(&self.config.device).await?;
             if !journal.management_complete {
-                let permissions = journal
-                    .permissions
-                    .iter()
-                    .copied()
-                    .zip(INITIAL_ADMINISTRATOR_ACTIONS)
-                    .collect::<Vec<_>>();
                 provisioning_stage(|| {
-                    management_server::provision_initial_administrator(
-                        Arc::clone(&idp_engine),
-                        journal.user,
-                        journal.role,
-                        &permissions,
-                    )
+                    journal
+                        .administrator_grant
+                        .provision(Arc::clone(&idp_engine), journal.user)
                 })
                 .await?;
                 let endpoint_id = binding.endpoint_id.clone();
@@ -603,17 +578,18 @@ impl LocalProvisioner {
         for root in &journal.intent.roots {
             require_directory(root)?;
         }
-        require_file(
-            &Path::new(&self.config.idp.data_dir).join("idp.redb"),
-            false,
-        )?;
+        self.config.idp.require_provisioned_identity()?;
         require_file(
             &Path::new(&self.config.device.data_dir).join("devices.redb"),
             false,
         )?;
         require_file(&self.config.endpoint_data_dir.join("endpoint.key"), true)?;
-        require_storage(&self.config)?;
-        let binding = binding(&journal)?;
+        self.config.storage.require_provisioned_storage()?;
+        let binding = self.config.idp.retained_node_signer_binding(
+            journal.member,
+            journal.key,
+            journal.endpoint.as_deref(),
+        )?;
         if UnifiedEndpoint::persisted_endpoint_id(&self.config.endpoint_data_dir)?.to_string()
             != binding.endpoint_id
         {
@@ -626,11 +602,9 @@ impl LocalProvisioner {
         let owners = RuntimeOwners::open(&config).await?;
         let result = async {
             let owner = OwnerProvisioner::from_database(&config.idp, Arc::clone(&owners.idp))?;
-            if Some(owner.verify_node_signer(&binding).await?) != journal.public_signer {
-                return Err(invalid(
-                    "current Node signing capability does not match completed intent",
-                ));
-            }
+            owner
+                .verify_retained_node_signer(&binding, journal.public_signer.as_ref())
+                .await?;
             owner
                 .verify_public_login_client(login_registration(&self.config, journal.login_client))
                 .await?;
@@ -713,7 +687,6 @@ impl LocalProvisioner {
             || journal.intent != intent(&self.config)?
             || journal.administrator.trim().is_empty()
             || journal.node.trim().is_empty()
-            || journal.permissions.len() != INITIAL_ADMINISTRATOR_ACTIONS.len()
             || journal.endpoint.is_some() && !journal.endpoint_attempted
             || journal.inventory_attempted && journal.endpoint.is_none()
             || journal.node_attempted && !journal.inventory_attempted
@@ -734,9 +707,9 @@ impl LocalProvisioner {
             journal.credential,
             journal.member,
             journal.key,
-            journal.role,
         ];
-        identities.extend(&journal.permissions);
+        journal.administrator_grant.validate()?;
+        identities.extend(journal.administrator_grant.identities());
         identities.push(journal.login_client);
         let count = identities.len();
         identities.sort();
@@ -747,12 +720,12 @@ impl LocalProvisioner {
             ));
         }
 
-        if let Some(configured) = &self.config.idp.oauth2.local_signer
-            && !same_binding(configured, &binding(&journal)?)
-        {
-            return Err(invalid(
-                "configured Node signer conflicts with local intent",
-            ));
+        if self.config.idp.oauth2.local_signer.is_some() {
+            self.config.idp.retained_node_signer_binding(
+                journal.member,
+                journal.key,
+                journal.endpoint.as_deref(),
+            )?;
         }
         Ok(journal)
     }
@@ -832,68 +805,16 @@ pub fn intent(config: &UnifiedConfig) -> io::Result<Intent> {
 }
 
 pub fn login_registration(config: &UnifiedConfig, client_id: Id) -> ClientRegistration {
-    ClientRegistration {
-        application: ApplicationRegistration {
-            name: Some("Local Node operator".into()),
-            uri: format!(
-                "{}/operator",
-                config.idp.api_public_uri.trim_end_matches('/')
-            ),
-            description: None,
-        },
-        client_id: Some(client_id.to_string()),
-        client_secret: None,
-        client_id_issued_at: None,
-        client_secret_expires_at: None,
-        client_name: "Local Node operator".into(),
-        client_uri: None,
-        logo_uri: None,
-        contacts: Vec::new(),
-        terms_of_service_uri: None,
-        policy_uri: None,
-        client_type: ClientType::Public,
-        profile: ClientProfile::Native,
-        redirect_uris: Vec::new(),
-        allowed_grant_types: vec![
-            GrantType::Password,
-            GrantType::RefreshToken,
-            GrantType::TokenExchange,
-        ],
-        response_types: Vec::new(),
-        allowed_scopes: vec!["openid".into(), "profile".into(), "email".into()],
-        allowed_audiences: vec![
+    config.idp.operator_login_registration(
+        client_id,
+        vec![
             config.idp_audience().to_owned(),
-            management_service::MANAGEMENT_APPLICATION_URI.into(),
+            management_server::MANAGEMENT_APPLICATION_URI.into(),
             config.device.storage_audience.clone(),
             "storage:databases".into(),
             "storage:filesystems".into(),
         ],
-        token_endpoint_auth_method: TokenEndpointAuthMethod::None,
-        software_statement: None,
-        software_id: None,
-        software_version: None,
-    }
-}
-
-fn binding(journal: &Journal) -> io::Result<NodeSignerBinding> {
-    let endpoint = journal
-        .endpoint
-        .clone()
-        .ok_or_else(|| invalid("retained endpoint identity is required"))?;
-    endpoint
-        .parse::<iroh::EndpointId>()
-        .map_err(|_| invalid("invalid retained endpoint identity"))?;
-    Ok(NodeSignerBinding {
-        member_id: journal.member,
-        key_id: journal.key,
-        endpoint_id: endpoint,
-    })
-}
-
-fn same_binding(left: &NodeSignerBinding, right: &NodeSignerBinding) -> bool {
-    left.member_id == right.member_id
-        && left.key_id == right.key_id
-        && left.endpoint_id == right.endpoint_id
+    )
 }
 
 pub fn normalized_config(mut config: UnifiedConfig) -> io::Result<UnifiedConfig> {
@@ -909,32 +830,6 @@ pub fn normalized_config(mut config: UnifiedConfig) -> io::Result<UnifiedConfig>
         .into_owned();
     intent(&config)?;
     Ok(config)
-}
-
-pub fn require_storage(config: &UnifiedConfig) -> io::Result<()> {
-    let root = Path::new(&config.storage.data_dir);
-    require_retained_directory(root)?;
-    for name in ["databases", "filesystems"] {
-        let path = root.join(name);
-        reject_symlinks(&path)?;
-        if !fs::symlink_metadata(path)?.is_dir() {
-            return Err(invalid(
-                "acknowledged Storage runtime roots require exact recovery",
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn verify(secret: &str, verifier: &str) -> io::Result<()> {
-    if !argon2::verify_encoded(verifier, secret.as_bytes())
-        .map_err(|_| invalid("invalid retained secret verifier"))?
-    {
-        return Err(invalid(
-            "input credential differs from retained local intent",
-        ));
-    }
-    Ok(())
 }
 
 fn invalid(message: &str) -> io::Error {

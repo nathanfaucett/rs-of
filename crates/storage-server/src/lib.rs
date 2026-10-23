@@ -28,6 +28,7 @@ mod filesystem_transport;
 mod idp_client;
 #[cfg(feature = "network")]
 mod local_replication_authorizer;
+mod provisioning;
 #[cfg(feature = "network")]
 mod replication_admission;
 #[cfg(feature = "network")]

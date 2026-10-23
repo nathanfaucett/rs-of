@@ -2927,3 +2927,219 @@ async fn native_initial_node_retries_and_reopens_with_independent_signing_capabi
     drop(missing);
     std::fs::remove_dir_all(root).expect("remove isolated owner store");
 }
+
+#[tokio::test]
+async fn operator_login_registration_retries_exactly_without_private_signer_material() {
+    let root = std::env::temp_dir().join(format!("operator-login-{}", Id::now_v7()));
+    let config = AppConfig {
+        data_dir: root.to_string_lossy().into_owned(),
+        api_public_uri: "https://identity.test/".into(),
+        ..AppConfig::default()
+    };
+    let secrets = Secrets::default();
+    let owner = OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
+        .await
+        .expect("open owner");
+    let user = Id::now_v7();
+    let client = Id::now_v7();
+    owner
+        .prepare_fresh_setup_secret_inventory(user, &[client])
+        .await
+        .expect("fresh inventory");
+    owner
+        .prepare_setup_client_slots(&[client])
+        .await
+        .expect("client slot");
+    let registration =
+        config.operator_login_registration(client, vec!["https://storage.test".into()]);
+    assert_eq!(
+        registration.application.uri,
+        "https://identity.test/operator"
+    );
+    assert_eq!(registration.client_type, ClientType::Public);
+    assert_eq!(
+        registration.token_endpoint_auth_method,
+        TokenEndpointAuthMethod::None
+    );
+    assert_eq!(
+        registration.allowed_grant_types,
+        vec![
+            GrantType::Password,
+            GrantType::RefreshToken,
+            GrantType::TokenExchange
+        ]
+    );
+    assert_eq!(
+        registration.allowed_scopes,
+        vec!["openid", "profile", "email"]
+    );
+    assert_eq!(registration.allowed_audiences, vec!["https://storage.test"]);
+    assert!(registration.client_secret.is_none());
+    owner
+        .ensure_setup_public_login_client(registration.clone())
+        .await
+        .expect("register operator");
+    owner
+        .ensure_setup_public_login_client(registration.clone())
+        .await
+        .expect("exact retry");
+    owner
+        .verify_public_login_client(registration.clone())
+        .await
+        .expect("existing-only verification");
+    let mut conflicting = registration;
+    conflicting
+        .allowed_audiences
+        .push("https://other.test".into());
+    assert!(
+        owner
+            .ensure_setup_public_login_client(conflicting)
+            .await
+            .is_err()
+    );
+    assert!(secrets.values.lock().expect("secret map").is_empty());
+    drop(owner);
+    std::fs::remove_dir_all(root).expect("remove owner fixture");
+}
+
+#[tokio::test]
+async fn retained_signer_checks_both_host_acknowledgement_and_owner_preparation() {
+    let root = std::env::temp_dir().join(format!("retained-signer-{}", Id::now_v7()));
+    let config = AppConfig {
+        data_dir: root.to_string_lossy().into_owned(),
+        ..AppConfig::default()
+    };
+    let secrets = Secrets::default();
+    let owner = OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
+        .await
+        .expect("open owner");
+    let user = Id::now_v7();
+    let binding = NodeSignerBinding {
+        member_id: Id::now_v7(),
+        key_id: Id::now_v7(),
+        endpoint_id: iroh::SecretKey::generate().public().to_string(),
+    };
+    owner
+        .prepare_fresh_setup_secret_inventory(user, &[])
+        .await
+        .expect("fresh inventory");
+    owner
+        .prepare_setup_client_slots(&[])
+        .await
+        .expect("ready inventory");
+    assert!(
+        owner
+            .prepare_retained_node_signer(&binding, true, None)
+            .is_err()
+    );
+    assert_eq!(
+        secrets.store_calls.load(Ordering::SeqCst),
+        0,
+        "host attempt cannot authorize missing preparation"
+    );
+    let public = owner
+        .prepare_retained_node_signer(&binding, false, None)
+        .expect("fresh signer");
+    assert_eq!(
+        owner
+            .prepare_retained_node_signer(&binding, true, Some(&public))
+            .expect("exact retry"),
+        public
+    );
+    let mut substituted = public.clone();
+    substituted.kid = Id::now_v7().to_string();
+    assert!(
+        owner
+            .prepare_retained_node_signer(&binding, true, Some(&substituted))
+            .is_err()
+    );
+    assert!(
+        owner
+            .prepare_retained_node_signer(&binding, false, Some(&public))
+            .is_err()
+    );
+    owner
+        .ensure_initial_user(user, Id::now_v7(), "admin", "initial-password")
+        .await
+        .expect("initial user");
+    owner
+        .ensure_initial_node(&binding, user, "Local Node")
+        .await
+        .expect("enroll signer");
+    owner
+        .verify_retained_node_signer(&binding, Some(&public))
+        .await
+        .expect("exact approved signer");
+    assert!(
+        owner
+            .verify_retained_node_signer(&binding, Some(&substituted))
+            .await
+            .is_err()
+    );
+    assert!(
+        owner
+            .verify_retained_node_signer(&binding, None)
+            .await
+            .is_err()
+    );
+    assert_eq!(secrets.store_calls.load(Ordering::SeqCst), 1);
+    drop(owner);
+    std::fs::remove_dir_all(root).expect("remove owner fixture");
+}
+
+#[test]
+fn retained_binding_rejects_configuration_and_endpoint_substitution() {
+    let binding = NodeSignerBinding {
+        member_id: Id::now_v7(),
+        key_id: Id::now_v7(),
+        endpoint_id: iroh::SecretKey::generate().public().to_string(),
+    };
+    let mut config = AppConfig::default();
+    config.oauth2.local_signer = Some(binding.clone());
+    let exact = config
+        .retained_node_signer_binding(
+            binding.member_id,
+            binding.key_id,
+            Some(&binding.endpoint_id),
+        )
+        .expect("exact retained binding");
+    assert_eq!(
+        serde_json::to_value(&exact).expect("binding"),
+        serde_json::to_value(&binding).expect("expected binding")
+    );
+    assert!(
+        config
+            .retained_node_signer_binding(binding.member_id, binding.key_id, None)
+            .is_err()
+    );
+    assert!(
+        config
+            .retained_node_signer_binding(
+                binding.member_id,
+                Id::now_v7(),
+                Some(&binding.endpoint_id)
+            )
+            .is_err()
+    );
+    let other = iroh::SecretKey::generate().public().to_string();
+    assert!(
+        config
+            .retained_node_signer_binding(binding.member_id, binding.key_id, Some(&other))
+            .is_err()
+    );
+    config.oauth2.local_signer = None;
+    assert!(
+        config
+            .retained_node_signer_binding(
+                binding.member_id,
+                binding.key_id,
+                Some("invalid-endpoint")
+            )
+            .is_err()
+    );
+    assert!(
+        config
+            .retained_node_signer_binding(Id::nil(), binding.key_id, Some(&binding.endpoint_id))
+            .is_err()
+    );
+}

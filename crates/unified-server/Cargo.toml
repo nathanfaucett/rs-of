@@ -59,9 +59,6 @@ dialoguer = { version = "0.12", default-features = false, features = [
 # Configuration
 config = { version = "0.15", default-features = false, features = ["yaml"] }
 
-# Credentials
-rust-argon2 = { version = "3.0", default-features = false }
-
 # Internal
 api = { path = "../api", default-features = false, features = [] }
 db = { package = "idp-db", path = "../db", default-features = false, features = [

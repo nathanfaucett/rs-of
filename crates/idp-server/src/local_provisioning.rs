@@ -6,6 +6,37 @@ use std::{
     pin::Pin,
 };
 
+impl crate::AppConfig {
+    pub fn require_provisioned_identity(&self) -> io::Result<()> {
+        require_file(&Path::new(&self.data_dir).join("idp.redb"), false)?;
+        Ok(())
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(transparent)]
+pub struct LocalPasswordVerifier(String);
+
+impl LocalPasswordVerifier {
+    pub fn capture(config: &idp_service::PasswordConfig, password: &str) -> io::Result<Self> {
+        validate_password(password)?;
+        idp_service::encrypt_password(config, password)
+            .map(Self)
+            .map_err(io::Error::other)
+    }
+
+    pub fn verify(&self, password: &str) -> io::Result<()> {
+        if !argon2::verify_encoded(&self.0, password.as_bytes())
+            .map_err(|_| invalid("invalid retained secret verifier"))?
+        {
+            return Err(invalid(
+                "input credential differs from retained local intent",
+            ));
+        }
+        Ok(())
+    }
+}
+
 // Construct large owner futures outside the caller's poll frame as well as storing them on the heap.
 #[inline(never)]
 pub fn provisioning_stage<'a, T: 'a, F>(
@@ -204,4 +235,62 @@ pub fn sync_ancestry(directory: &Path) -> io::Result<()> {
 
 fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LocalPasswordVerifier;
+
+    #[test]
+    fn retained_identity_requires_existing_database_without_initialization() {
+        let root = std::env::temp_dir().join(format!(
+            "identity-retained-{}",
+            idp_model::model::Id::now_v7()
+        ));
+        let config = crate::AppConfig {
+            data_dir: root.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        assert!(config.require_provisioned_identity().is_err());
+        assert!(!root.exists());
+        std::fs::create_dir(&root).expect("owner root");
+        assert!(config.require_provisioned_identity().is_err());
+        assert!(!root.join("idp.redb").exists());
+        std::fs::write(root.join("idp.redb"), []).expect("retained owner file");
+        config
+            .require_provisioned_identity()
+            .expect("existing file preflight");
+        std::fs::remove_dir_all(root).expect("remove owner fixture");
+    }
+
+    #[test]
+    fn retained_password_verifier_rejects_different_and_malformed_credentials() {
+        let mut config = crate::AppConfig::default();
+        config.password.memory_mib = 1;
+        config.password.iterations = 1;
+        let verifier = LocalPasswordVerifier::capture(&config.password, "initial-password")
+            .expect("capture password");
+        let retained = serde_json::to_value(&verifier).expect("serialized verifier");
+        assert!(
+            retained
+                .as_str()
+                .expect("original string format")
+                .starts_with("$argon2")
+        );
+        assert!(!retained.to_string().contains("initial-password"));
+        let reopened: LocalPasswordVerifier =
+            serde_json::from_value(retained.clone()).expect("retained verifier");
+        reopened
+            .verify("initial-password")
+            .expect("exact credential retry");
+        assert!(reopened.verify("changed-password").is_err());
+        assert_eq!(
+            serde_json::to_value(&reopened).expect("unchanged verifier"),
+            retained
+        );
+        let corrupt: LocalPasswordVerifier =
+            serde_json::from_value(serde_json::json!("not-a-verifier"))
+                .expect("malformed retained string");
+        assert!(corrupt.verify("initial-password").is_err());
+    }
 }
