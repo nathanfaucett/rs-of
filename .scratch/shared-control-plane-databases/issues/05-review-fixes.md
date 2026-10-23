@@ -75,4 +75,15 @@ timeout 180s env CARGO_TARGET_DIR=/home/nathan/code/rust/aicacia/of/target CARGO
 
 ### Merger handoff
 
-Implementation and integration-merge evidence will be appended after committing. Do not merge the original checkout from this worktree; the merger owns that operation.
+Implementation commit: **`ac446c190` — Fix shared identity policy sync and independent lifecycle boundaries**.
+
+After committing in the review worktree:
+
+```sh
+GIT_EDITOR=true git merge integration/shared-control-plane-databases
+git --no-pager log -2 --oneline
+git --no-optional-locks status --short --branch
+git --no-pager rev-parse integration/shared-control-plane-databases
+```
+
+Observed **Already up to date**, clean `implement/shared-control-plane-review`; integration is still **`6f9a4cf2abe7ef161fab5b7c813722d24121636c`**, an ancestor. This documentation-only follow-up records that evidence. The merge will be repeated after this handoff commit; no original-checkout merge is performed. The merger should integrate the review branch, which contains both commits. Original untracked review/notes and sibling repositories remain untouched.
