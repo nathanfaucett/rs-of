@@ -105,10 +105,7 @@ impl LocalProvisioner {
                     require_retained_directory(root)?;
                 }
                 config.idp.require_provisioned_identity()?;
-                require_file(
-                    &Path::new(&config.device.data_dir).join("devices.redb"),
-                    false,
-                )?;
+                config.device.require_provisioned_device()?;
                 require_file(&config.endpoint_data_dir.join("endpoint.key"), true)?;
                 config.storage.require_provisioned_storage()?;
                 if UnifiedEndpoint::persisted_endpoint_id(&config.endpoint_data_dir)?.to_string()
@@ -349,10 +346,7 @@ impl LocalProvisioner {
         }
         if journal.management_attempted {
             require_directory(Path::new(&self.config.device.data_dir))?;
-            require_file(
-                &Path::new(&self.config.device.data_dir).join("devices.redb"),
-                false,
-            )?;
+            self.config.device.require_provisioned_device()?;
             if !journal.management_complete {
                 return Err(invalid(
                     "unacknowledged Management initialization requires explicit recovery",
@@ -579,10 +573,7 @@ impl LocalProvisioner {
             require_directory(root)?;
         }
         self.config.idp.require_provisioned_identity()?;
-        require_file(
-            &Path::new(&self.config.device.data_dir).join("devices.redb"),
-            false,
-        )?;
+        self.config.device.require_provisioned_device()?;
         require_file(&self.config.endpoint_data_dir.join("endpoint.key"), true)?;
         self.config.storage.require_provisioned_storage()?;
         let binding = self.config.idp.retained_node_signer_binding(

@@ -1,8 +1,65 @@
-use crate::AppConfig;
+use std::{
+    fs, io,
+    path::{Component, Path},
+    sync::Arc,
+};
+
 use db::{Database, Row, SqlTranslator, Value};
 use device_service::replica::{DbSelectionPolicyRepo, SelectionPolicy};
 use idp_model::model::Id;
-use std::{fs, io, path::Path, sync::Arc};
+
+use crate::AppConfig;
+
+impl AppConfig {
+    pub fn require_provisioned_device(&self) -> io::Result<()> {
+        let path = Path::new(&self.data_dir).join("devices.redb");
+        if path
+            .components()
+            .any(|part| matches!(part, Component::ParentDir))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "empty paths and parent components are not allowed",
+            ));
+        }
+        let absolute = if path.is_absolute() {
+            path.clone()
+        } else {
+            std::env::current_dir()?.join(&path)
+        };
+        let absolute = absolute
+            .components()
+            .filter(|part| !matches!(part, Component::CurDir))
+            .collect::<std::path::PathBuf>();
+        for ancestor in absolute.ancestors() {
+            match fs::symlink_metadata(ancestor) {
+                Ok(metadata) if metadata.file_type().is_symlink() => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "symlink ancestry is not allowed",
+                    ));
+                }
+                Ok(_) => (),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => (),
+                Err(error) => return Err(error),
+            }
+        }
+        if !fs::symlink_metadata(&path)?.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "input or retained state must be a regular file",
+            ));
+        }
+        if !fs::File::open(path)?.metadata()?.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "input or retained state must be a regular file",
+            ));
+        }
+        Ok(())
+    }
+}
+
 pub async fn open_device_database(config: &AppConfig) -> io::Result<Arc<Database>> {
     if config.device_database.is_some() {
         return Err(io::Error::new(
@@ -10,7 +67,11 @@ pub async fn open_device_database(config: &AppConfig) -> io::Result<Arc<Database
             "local Device owner and remote SQL are mutually exclusive",
         ));
     }
-    let directory = Path::new(&config.data_dir);
+    open_local_device_database(Path::new(&config.data_dir)).await
+}
+
+/// Opens and migrates local state; retained-state callers must preflight before this creating open.
+pub async fn open_local_device_database(directory: &Path) -> io::Result<Arc<Database>> {
     fs::create_dir_all(directory)?;
     let engine =
         Arc::new(Database::open(directory.join("devices.redb")).map_err(io::Error::other)?);
@@ -127,6 +188,135 @@ pub async fn provision_initial_device(
 
 #[cfg(test)]
 mod tests {
+    use std::{fs, io};
+
+    use idp_model::model::Id;
+
+    use crate::AppConfig;
+
+    #[test]
+    fn retained_device_preflight_refuses_missing_roots_without_replacement() {
+        let root = std::env::temp_dir().join(format!("device-retained-{}", Id::now_v7()));
+        let config = AppConfig {
+            data_dir: root.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        assert_eq!(
+            config
+                .require_provisioned_device()
+                .expect_err("missing root")
+                .kind(),
+            io::ErrorKind::NotFound
+        );
+        assert!(!root.exists());
+        fs::create_dir(&root).expect("retained root");
+        let path = root.join("devices.redb");
+        assert_eq!(
+            config
+                .require_provisioned_device()
+                .expect_err("missing database")
+                .kind(),
+            io::ErrorKind::NotFound
+        );
+        assert!(!path.exists());
+        fs::create_dir(&path).expect("non-file retained database");
+        let error = config
+            .require_provisioned_device()
+            .expect_err("not a regular file");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(
+            error.to_string(),
+            "input or retained state must be a regular file"
+        );
+        fs::remove_dir(&path).expect("remove malformed fixture");
+        fs::write(&path, b"retained bytes").expect("retained file");
+        config
+            .require_provisioned_device()
+            .expect("existing-only preflight does not migrate");
+        assert_eq!(
+            fs::read(&path).expect("unchanged retained file"),
+            b"retained bytes"
+        );
+        #[cfg(unix)]
+        {
+            let linked = root.with_extension("link");
+            std::os::unix::fs::symlink(&root, &linked).expect("symlink root");
+            let linked_config = AppConfig {
+                data_dir: linked.to_string_lossy().into_owned(),
+                ..Default::default()
+            };
+            let error = linked_config
+                .require_provisioned_device()
+                .expect_err("symlink ancestry");
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+            assert_eq!(error.to_string(), "symlink ancestry is not allowed");
+            fs::remove_file(linked).expect("remove symlink fixture");
+        }
+        let parent_config = AppConfig {
+            data_dir: root
+                .join("..")
+                .join("other-device")
+                .to_string_lossy()
+                .into_owned(),
+            ..Default::default()
+        };
+        let error = parent_config
+            .require_provisioned_device()
+            .expect_err("parent components refused before file access");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(
+            error.to_string(),
+            "empty paths and parent components are not allowed"
+        );
+        fs::remove_dir_all(root).expect("remove retained fixture");
+    }
+
+    #[tokio::test]
+    async fn local_device_open_initializes_schema_and_reopens_through_owner() {
+        use device_service::{DeviceRepo, replica::DbDeviceRepo};
+
+        let root = std::env::temp_dir().join(format!("device-open-{}", Id::now_v7()));
+        let config = AppConfig {
+            data_dir: root.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        {
+            let database = super::open_local_device_database(&root)
+                .await
+                .expect("initialize local Device owner");
+            assert!(
+                !DbDeviceRepo::new(database.client())
+                    .has_any()
+                    .await
+                    .expect("initialized Device schema")
+            );
+        }
+        config
+            .require_provisioned_device()
+            .expect("retained Device store");
+        {
+            let database = super::open_device_database(&config)
+                .await
+                .expect("reopen configured Device owner");
+            assert!(
+                !DbDeviceRepo::new(database.client())
+                    .has_any()
+                    .await
+                    .expect("existing Device schema")
+            );
+        }
+        fs::remove_file(root.join("devices.redb")).expect("lose retained database");
+        assert_eq!(
+            config
+                .require_provisioned_device()
+                .expect_err("no replacement")
+                .kind(),
+            io::ErrorKind::NotFound
+        );
+        assert!(!root.join("devices.redb").exists());
+        fs::remove_dir_all(root).expect("remove Device fixture");
+    }
+
     #[tokio::test]
     async fn remote_device_startup_never_falls_back_to_a_private_database() {
         let root = std::env::temp_dir().join(format!(

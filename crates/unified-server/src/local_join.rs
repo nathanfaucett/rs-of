@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 
 use idp_server::local_provisioning::{
     absolute, create_private_directory, lock, private_options, provisioning_stage, read_private,
-    require_absent, require_file, require_retained_directory, sync_ancestry,
+    require_absent, require_retained_directory, sync_ancestry,
 };
 
 use crate::local_provisioning::{Intent, intent};
@@ -354,10 +354,7 @@ impl LocalJoin {
             create_private_directory(Path::new(&self.config.device.data_dir), false)?;
         } else {
             self.config.idp.require_provisioned_identity()?;
-            require_file(
-                &Path::new(&self.config.device.data_dir).join("devices.redb"),
-                false,
-            )?;
+            self.config.device.require_provisioned_device()?;
         }
         let binding = self.binding()?;
         let (protocol, owner) = SecurityProtocol::open_node_bootstrap(
@@ -426,10 +423,7 @@ impl LocalJoin {
             require_retained_directory(root)?;
         }
         self.config.idp.require_provisioned_identity()?;
-        require_file(
-            &Path::new(&self.config.device.data_dir).join("devices.redb"),
-            false,
-        )?;
+        self.config.device.require_provisioned_device()?;
         self.config.storage.require_provisioned_storage()?;
         if UnifiedEndpoint::persisted_endpoint_id(&self.config.endpoint_data_dir)?.to_string()
             != self.binding()?.endpoint_id

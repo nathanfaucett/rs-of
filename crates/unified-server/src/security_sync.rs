@@ -79,13 +79,7 @@ impl SecurityProtocol {
             &binding,
         )?;
         let owner = OwnerProvisioner::open(config).await?;
-        std::fs::create_dir_all(management_directory)?;
-        let management = Arc::new(
-            Database::open(management_directory.join("devices.redb")).map_err(io::Error::other)?,
-        );
-        device_service::replica::up(&management)
-            .await
-            .map_err(io::Error::other)?;
+        let management = device_server::open_local_device_database(management_directory).await?;
         let protocol = Self::new(
             endpoint.server().clone(),
             owner.node_join_database()?,

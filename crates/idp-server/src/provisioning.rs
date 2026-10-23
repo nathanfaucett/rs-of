@@ -23,6 +23,16 @@ use idp_service::{
 
 use crate::AppConfig;
 
+/// Opens and migrates local state; retained-state callers must preflight before this creating open.
+pub async fn open_local_identity_database(directory: &Path) -> io::Result<Arc<Database>> {
+    fs::create_dir_all(directory)?;
+    let engine = Arc::new(Database::open(directory.join("idp.redb")).map_err(io::Error::other)?);
+    idp_model::replica::up(&engine)
+        .await
+        .map_err(io::Error::other)?;
+    Ok(engine)
+}
+
 fn to_io_error(error: ErrorResponse) -> io::Error {
     io::Error::other(
         error
@@ -81,12 +91,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             fs::create_dir_all(&config.data_dir)?;
             return Ok(Self::with_client(config, client, None, private_keys));
         }
-        let data_dir = Path::new(&config.data_dir);
-        fs::create_dir_all(data_dir)?;
-        let engine = Arc::new(Database::open(data_dir.join("idp.redb")).map_err(io::Error::other)?);
-        idp_model::replica::up(&engine)
-            .await
-            .map_err(io::Error::other)?;
+        let engine = open_local_identity_database(Path::new(&config.data_dir)).await?;
         Ok(Self::with_database(config, engine, private_keys))
     }
 
@@ -231,5 +236,61 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             .ensure_infrastructure_client(request)
             .await
             .map_err(to_io_error)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{fs, io};
+
+    use idp_model::model::Id;
+
+    use crate::AppConfig;
+
+    #[tokio::test]
+    async fn local_identity_open_initializes_schema_and_reset_preflight_never_replaces_it() {
+        let root = std::env::temp_dir().join(format!("identity-open-{}", Id::now_v7()));
+        let config = AppConfig {
+            data_dir: root.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        assert_eq!(
+            config
+                .require_provisioned_identity()
+                .expect_err("reset requires retained root")
+                .kind(),
+            io::ErrorKind::NotFound
+        );
+        assert!(!root.exists());
+        fs::create_dir(&root).expect("retained empty root");
+        assert_eq!(
+            config
+                .require_provisioned_identity()
+                .expect_err("reset requires retained database")
+                .kind(),
+            io::ErrorKind::NotFound
+        );
+        assert!(!root.join("idp.redb").exists());
+        for _ in 0..2 {
+            let database = super::open_local_identity_database(&root)
+                .await
+                .expect("initialize or reopen identity owner");
+            idp_model::replica::validate_identity(&database.client())
+                .await
+                .expect("initialized identity schema");
+        }
+        config
+            .require_provisioned_identity()
+            .expect("retained identity file");
+        fs::remove_file(root.join("idp.redb")).expect("lose retained identity database");
+        assert_eq!(
+            config
+                .require_provisioned_identity()
+                .expect_err("reset must not replace lost store")
+                .kind(),
+            io::ErrorKind::NotFound
+        );
+        assert!(!root.join("idp.redb").exists());
+        fs::remove_dir_all(root).expect("remove identity fixture");
     }
 }

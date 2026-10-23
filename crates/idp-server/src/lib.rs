@@ -42,7 +42,7 @@ pub use management_owner::{active_management_user, authorize_management_bearer};
 pub use management_permission_client::ManagementPermissionClient;
 
 pub use node_join::{NodeJoinStage, bind_node_join_endpoint};
-pub use provisioning::OwnerProvisioner;
+pub use provisioning::{OwnerProvisioner, open_local_identity_database};
 pub use router::{
     RouterState, authorize_bearer, openapi_document, openapi_router, public_metadata_router,
 };

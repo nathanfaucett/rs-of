@@ -105,10 +105,8 @@ impl RuntimeOwners {
         let endpoint =
             Arc::new(UnifiedEndpoint::open(&config.endpoint_data_dir, &config.idp).await?);
         let result = async {
-            let idp = open_service_engine(&config.idp.data_dir, "idp.redb")?;
-            idp_model::replica::up(&idp)
-                .await
-                .map_err(io::Error::other)?;
+            let idp =
+                idp_server::open_local_identity_database(Path::new(&config.idp.data_dir)).await?;
             let management = device_server::open_device_database(&config.device).await?;
             Ok(Self {
                 endpoint: Arc::clone(&endpoint),
@@ -716,12 +714,6 @@ fn validate_data_dirs(config: &UnifiedConfig) -> io::Result<()> {
     Ok(())
 }
 
-fn open_service_engine(data_dir: &str, file_name: &str) -> io::Result<Arc<Database>> {
-    fs::create_dir_all(data_dir)?;
-    let engine = Database::open(Path::new(data_dir).join(file_name)).map_err(io::Error::other)?;
-    Ok(Arc::new(engine))
-}
-
 pub(crate) fn build_control_plane(
     idp: Arc<IdpRuntime>,
     devices: Arc<device_service::replica::DbDeviceRepo>,
@@ -920,17 +912,19 @@ mod tests {
         use idp_service::repo::UserRepo;
 
         let issuer = &config.oauth2.issuer;
-        let engine = super::open_service_engine(&config.data_dir, "idp.redb")
-            .expect("open native trust fixture");
+        let engine =
+            idp_server::open_local_identity_database(std::path::Path::new(&config.data_dir))
+                .await
+                .expect("open native trust fixture");
         let users = idp_service::replica::DbUserRepo::new(engine.client(), config.password.clone());
         let owner = users
             .find_user_by_username_or_email("administrator")
             .await
             .expect("local owner lookup")
             .expect("fixture active owner");
-        let management =
-            super::open_service_engine(&root.join("device").to_string_lossy(), "devices.redb")
-                .expect("Management Device fixture");
+        let management = device_server::open_local_device_database(&root.join("device"))
+            .await
+            .expect("Management Device fixture");
         let devices = device_service::replica::DbDeviceRepo::new(management.client());
         let approved = devices
             .find_approved_by_public_key(&approved_peer_id.to_string())
@@ -1036,11 +1030,13 @@ mod tests {
                     .expect("offline endpoint reopen"),
             );
             assert_eq!(endpoint.endpoint_id(), local);
-            let engine = super::open_service_engine(&config.data_dir, "idp.redb")
-                .expect("native trust reopen");
-            let management =
-                super::open_service_engine(&root.join("device").to_string_lossy(), "devices.redb")
-                    .expect("reopen Management Device owner");
+            let engine =
+                idp_server::open_local_identity_database(std::path::Path::new(&config.data_dir))
+                    .await
+                    .expect("native trust reopen");
+            let management = device_server::open_local_device_database(&root.join("device"))
+                .await
+                .expect("reopen Management Device owner");
             let devices = std::sync::Arc::new(device_service::replica::DbDeviceRepo::new(
                 management.clone().client(),
             ));
@@ -1311,8 +1307,11 @@ mod tests {
         let persisted_idp_config = config.idp.clone();
         let mut public_context_grant = None;
         {
-            let policy = super::open_service_engine(&config.device.data_dir, "devices.redb")
-                .expect("policy fixture");
+            let policy = device_server::open_local_device_database(std::path::Path::new(
+                &config.device.data_dir,
+            ))
+            .await
+            .expect("policy fixture");
             device_service::replica::DbSelectionPolicyRepo::new(policy.clone().client())
                 .set_prevalidated(device_service::replica::SelectionPolicy {
                     device_id: fixture.local_signer.member_id,
@@ -1324,8 +1323,11 @@ mod tests {
                 })
                 .await
                 .expect("explicit initial local Device policy");
-            let policy = super::open_service_engine(&config.idp.data_dir, "idp.redb")
-                .expect("shared identity policy");
+            let policy = idp_server::open_local_identity_database(std::path::Path::new(
+                &config.idp.data_dir,
+            ))
+            .await
+            .expect("shared identity policy");
             let service = management_service::ManagementService::new(
                 management_service::replica::DbPermissionRepo::new(policy.client()),
                 management_service::replica::DbRoleRepo::new(policy.client()),
@@ -1952,12 +1954,14 @@ mod tests {
                 .await
                 .expect("reopen unified endpoint after shutdown");
         assert_eq!(restored_endpoint.endpoint_id(), endpoint_id);
-        let reopened_engine =
-            super::open_service_engine(&persisted_idp_config.data_dir, "idp.redb")
-                .expect("reopen persisted IdP without peer contact");
-        let reopened_management =
-            super::open_service_engine(&root.join("device").to_string_lossy(), "devices.redb")
-                .expect("reopen Management offline");
+        let reopened_engine = idp_server::open_local_identity_database(std::path::Path::new(
+            &persisted_idp_config.data_dir,
+        ))
+        .await
+        .expect("reopen persisted IdP without peer contact");
+        let reopened_management = device_server::open_local_device_database(&root.join("device"))
+            .await
+            .expect("reopen Management offline");
         let devices = std::sync::Arc::new(device_service::replica::DbDeviceRepo::new(
             reopened_management.clone().client(),
         ));

@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use idp_server::local_provisioning::{
     absolute, create_private_directory, lock, private_options, read_private, require_absent,
-    require_file, require_unix_bootstrap, sync_ancestry,
+    require_unix_bootstrap, sync_ancestry,
 };
 
 use crate::{CredentialBootstrap, LocalJoin, LocalProvisioner, UnifiedConfig};
@@ -532,7 +532,7 @@ impl BootstrapConfig {
             require_absent(Path::new(&config.idp.data_dir))?;
             return Ok(());
         }
-        require_file(&Path::new(&config.idp.data_dir).join("idp.redb"), false)?;
+        config.idp.require_provisioned_identity()?;
         let owner = idp_server::OwnerProvisioner::open(&config.idp).await?;
         owner
             .delete_local_secrets(
