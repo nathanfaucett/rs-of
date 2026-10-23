@@ -27,6 +27,65 @@ impl BootstrapHost for UnifiedBootstrapHost {
     type Runtime = UnifiedRuntime;
     type Protocol = SecurityProtocol;
 
+    fn settings(config: &UnifiedConfig) -> idp_server::BootstrapSettings {
+        idp_server::BootstrapSettings {
+            listen_addr: config.listen_addr,
+            endpoint_data_dir: config.endpoint_data_dir.clone(),
+            idp: config.idp.clone(),
+            management: idp_server::bootstrap_settings::ManagementBootstrapSettings {
+                data_dir: config.management.data_dir.clone(),
+                api_public_uri: config.management.api_public_uri.clone(),
+                storage_audience: config.management.storage_audience.clone(),
+            },
+            storage: idp_server::bootstrap_settings::StorageBootstrapSettings {
+                data_dir: config.storage.data_dir.clone(),
+                api_public_uri: config.storage.api_public_uri.clone(),
+            },
+        }
+    }
+
+    fn configure(config: &UnifiedConfig, settings: idp_server::BootstrapSettings) -> UnifiedConfig {
+        let mut config = config.clone();
+        config.listen_addr = settings.listen_addr;
+        config.endpoint_data_dir = settings.endpoint_data_dir;
+        config.idp = settings.idp;
+        config.management.data_dir = settings.management.data_dir;
+        config.management.api_public_uri = settings.management.api_public_uri;
+        config.management.storage_audience = settings.management.storage_audience;
+        config.storage.data_dir = settings.storage.data_dir;
+        config.storage.api_public_uri = settings.storage.api_public_uri;
+        config
+    }
+
+    fn from_settings(settings: idp_server::BootstrapSettings) -> UnifiedConfig {
+        settings.into()
+    }
+
+    async fn open_management(config: &UnifiedConfig) -> io::Result<Arc<db::Database>> {
+        management_server::open_database(&config.management).await
+    }
+
+    async fn provision_administrator(
+        database: Arc<db::Database>,
+        user: idp_model::model::Id,
+        role: idp_model::model::Id,
+        permissions: &[(idp_model::model::Id, idp_model::contract::IdentityAction)],
+    ) -> io::Result<()> {
+        management_server::provision_initial_administrator(database, user, role, permissions)
+            .await
+            .map(|_| ())
+    }
+
+    async fn provision_device(
+        database: Arc<db::Database>,
+        member: idp_model::model::Id,
+        user: idp_model::model::Id,
+        endpoint: &str,
+        name: &str,
+    ) -> io::Result<()> {
+        management_server::provision_initial_device(database, member, user, endpoint, name).await
+    }
+
     async fn open_owners(config: &UnifiedConfig) -> io::Result<BootstrapOwners<UnifiedEndpoint>> {
         let owners = RuntimeOwners::open(config).await?;
         Ok(BootstrapOwners {

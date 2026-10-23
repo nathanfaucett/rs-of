@@ -68,7 +68,7 @@ fn independent_permission_production_management_https() {
     let mut child = Command::new(std::env::current_exe().expect("test executable"))
         .args([
             "--exact",
-            "independent_permission_http_tests::independent_permission_management_https_child",
+            "owner_composition_tests::permissions::independent_permission_management_https_child",
             "--ignored",
             "--nocapture",
         ])

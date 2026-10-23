@@ -1,3 +1,5 @@
+use idp_server::bootstrap_host::BootstrapHost;
+
 #[cfg(unix)]
 use std::sync::Arc;
 use std::{io, path::PathBuf};
@@ -66,9 +68,16 @@ impl SetupHost {
         }
         let config = host.config();
         if host.purpose() == BootstrapPurpose::AwaitingChoice {
-            require_fresh_roots(&config, fresh, https)?;
+            require_fresh_roots(
+                &crate::UnifiedBootstrapHost::settings(&config),
+                fresh,
+                https,
+            )?;
         }
-        require_host_separation(&config, host.directory())?;
+        require_host_separation(
+            &crate::UnifiedBootstrapHost::settings(&config),
+            host.directory(),
+        )?;
         if https {
             api::setup_origin(&config.idp.ui_public_uri)?
         } else {

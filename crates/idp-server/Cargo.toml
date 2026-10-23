@@ -62,7 +62,6 @@ idp-service = { path = "../idp-service", default-features = false, features = [
 iroh-chain = { path = "../../../ofnet/crates/iroh-chain", default-features = false, features = [
 ] }
 key = { path = "../key", default-features = false, features = ["std"] }
-management-server = { path = "../management-server", default-features = false }
 management-service = { path = "../management-service", default-features = false, features = [
     "replica",
     "std",
@@ -72,9 +71,6 @@ model = { path = "../model", default-features = false, features = [
     "std",
     "utoipa",
     "axum",
-] }
-storage-server = { path = "../storage-server", default-features = false, features = [
-    "network",
 ] }
 
 # Iroh

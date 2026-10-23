@@ -30,7 +30,8 @@ struct References {
 /// Durable host references and consumed TLS production history; never contains raw secrets.
 /// Hold this guard through setup or serving to exclude cooperating CLI operations.
 pub struct CredentialBootstrap<H: BootstrapHost> {
-    config: H::Config,
+    config: BootstrapSettings,
+    host_config: H::Config,
     directory: PathBuf,
     references: References,
     _operation: File,
@@ -52,6 +53,8 @@ impl<H: BootstrapHost> CredentialBootstrap<H> {
     }
 
     fn create_inner(config: H::Config, retained_tls: bool) -> io::Result<Self> {
+        let host_config = config;
+        let config = H::settings(&host_config);
         crate::local_provisioning::require_unix_bootstrap()?;
         crate::LocalTls::validate_ip(config.listen_addr.ip())?;
         let mut references = references(&config)?;
@@ -88,6 +91,7 @@ impl<H: BootstrapHost> CredentialBootstrap<H> {
         let operation = lock(&directory, true)?;
         let bootstrap = Self {
             config,
+            host_config,
             directory,
             references,
             _operation: operation,
@@ -98,6 +102,8 @@ impl<H: BootstrapHost> CredentialBootstrap<H> {
 
     /// Opens exact public references only; missing or malformed state is never fresh authorization.
     pub fn open(config: H::Config) -> io::Result<Self> {
+        let host_config = config;
+        let config = H::settings(&host_config);
         let directory = absolute(&config.credential_bootstrap_directory())?;
         let operation = lock(&directory, false)?;
         let bytes = read_private(&directory.join("credentials.json"))?;
@@ -114,6 +120,7 @@ impl<H: BootstrapHost> CredentialBootstrap<H> {
         }
         Ok(Self {
             config,
+            host_config,
             directory,
             references: retained,
             _operation: operation,
@@ -138,7 +145,10 @@ impl<H: BootstrapHost> CredentialBootstrap<H> {
 
     pub fn load(&self) -> io::Result<H::Config> {
         self.check_retained()?;
-        crate::local_provisioning::normalized_config(self.config.clone())
+        Ok(H::configure(
+            &self.host_config,
+            crate::local_provisioning::normalized_config(self.config.clone())?,
+        ))
     }
 
     fn check_retained(&self) -> io::Result<()> {

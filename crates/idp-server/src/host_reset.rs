@@ -13,10 +13,11 @@ impl<H: crate::bootstrap_host::BootstrapHost> BootstrapConfig<H> {
     /// Missing/corrupt owner journals are not evidence that key production never started.
     pub fn local_reset_references(&self) -> io::Result<Value> {
         let mut config = self.config();
-        if present(&config.credential_bootstrap_directory())? {
+        if present(&H::settings(&config).credential_bootstrap_directory())? {
             config = CredentialBootstrap::<H>::open(config)?.load()?;
         }
-        let provisioning = config.local_provisioning_directory();
+        let settings = H::settings(&config);
+        let provisioning = settings.local_provisioning_directory();
         let keys = if present(&provisioning)? {
             match self.purpose() {
                 BootstrapPurpose::Create => {
@@ -29,10 +30,10 @@ impl<H: crate::bootstrap_host::BootstrapHost> BootstrapConfig<H> {
             }
         } else {
             for path in [
-                Path::new(&config.idp.data_dir),
-                Path::new(&config.management.data_dir),
-                Path::new(&config.storage.data_dir),
-                &config.endpoint_data_dir,
+                Path::new(&settings.idp.data_dir),
+                Path::new(&settings.management.data_dir),
+                Path::new(&settings.storage.data_dir),
+                &settings.endpoint_data_dir,
             ] {
                 require_absent(path)?;
             }
@@ -48,7 +49,7 @@ impl<H: crate::bootstrap_host::BootstrapHost> BootstrapConfig<H> {
         Ok(json!({
             "version": 1,
             "root": self.directory(),
-            "issuer": self.config().idp.oauth2.issuer,
+            "issuer": H::settings(&self.config()).idp.oauth2.issuer,
             "keys": keys,
         }))
     }
@@ -66,12 +67,13 @@ impl<H: crate::bootstrap_host::BootstrapHost> BootstrapConfig<H> {
             return Ok(());
         }
         let config = CredentialBootstrap::<H>::open(self.config())?.load()?;
+        let settings = H::settings(&config);
         if keys["inventory_attempted"] == false {
-            require_absent(Path::new(&config.idp.data_dir))?;
+            require_absent(Path::new(&settings.idp.data_dir))?;
             return Ok(());
         }
-        require_file(&Path::new(&config.idp.data_dir).join("idp.redb"), false)?;
-        let owner = crate::OwnerProvisioner::open(&config.idp).await?;
+        require_file(&Path::new(&settings.idp.data_dir).join("idp.redb"), false)?;
+        let owner = crate::OwnerProvisioner::open(&settings.idp).await?;
         owner
             .delete_local_secrets(
                 serde_json::from_value(keys["member_id"].clone())?,

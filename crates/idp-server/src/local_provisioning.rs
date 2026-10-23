@@ -2,7 +2,6 @@ use std::{
     fs::{self, File, OpenOptions},
     future::Future,
     io::{self, Read, Write},
-    ops::{Deref, DerefMut},
     path::{Component, Path, PathBuf},
     pin::Pin,
     sync::Arc,
@@ -94,7 +93,8 @@ struct Journal {
 /// Paths require stable operator-controlled ancestry; this is not a hostile-path race defense.
 /// Only Unix owner-only files are supported by this local command.
 pub struct LocalProvisioner<H: BootstrapHost> {
-    config: H::Config,
+    config: BootstrapSettings,
+    host_config: H::Config,
     directory: PathBuf,
     _operation: File,
 }
@@ -113,9 +113,11 @@ impl<H: BootstrapHost> LocalProvisioner<H> {
         config: H::Config,
         https: bool,
     ) -> io::Result<(H::Runtime, Option<Self>)> {
+        let host_config = config;
+        let config = H::settings(&host_config);
         match fs::symlink_metadata(config.local_provisioning_directory()) {
             Ok(_) => {
-                let local = Self::open(config)?;
+                let local = Self::open(host_config)?;
                 let runtime = local.build_runtime_for_transport(https).await?;
                 Ok((runtime, Some(local)))
             }
@@ -148,9 +150,9 @@ impl<H: BootstrapHost> LocalProvisioner<H> {
                 }
 
                 let runtime = if https {
-                    H::Runtime::build_https(config).await?
+                    H::Runtime::build_https(host_config).await?
                 } else {
-                    H::Runtime::build(config).await?
+                    H::Runtime::build(host_config).await?
                 };
                 match runtime.node_public_ready().await {
                     Ok(true) => Ok((runtime, None)),
@@ -186,7 +188,8 @@ impl<H: BootstrapHost> LocalProvisioner<H> {
     ) -> io::Result<Self> {
         require_unix_bootstrap()?;
         validate_password(password)?;
-        let config = normalized_config(config)?;
+        let host_config = config;
+        let config = normalized_config(H::settings(&host_config))?;
         if administrator.trim().is_empty()
             || node.trim().is_empty()
             || config.idp.oauth2.local_signer.is_some()
@@ -235,6 +238,7 @@ impl<H: BootstrapHost> LocalProvisioner<H> {
         let operation = lock(&directory, true)?;
         let host = Self {
             config,
+            host_config,
             directory,
             _operation: operation,
         };
@@ -244,13 +248,15 @@ impl<H: BootstrapHost> LocalProvisioner<H> {
 
     /// Existing-only opening. Missing/invalid intent is never fresh authorization.
     pub fn open(config: H::Config) -> io::Result<Self> {
-        let config = normalized_config(config)?;
+        let host_config = config;
+        let config = normalized_config(H::settings(&host_config))?;
         let directory = config.local_provisioning_directory();
         require_directory(&directory)?;
         let operation = lock(&directory, false)?;
         require_absent(&directory.join("join.json"))?;
         let host = Self {
             config,
+            host_config,
             directory,
             _operation: operation,
         };
@@ -508,7 +514,7 @@ impl<H: BootstrapHost> LocalProvisioner<H> {
                 create_private_directory(Path::new(&self.config.management.data_dir), false)?;
             }
             let management_engine =
-                management_server::open_database(&self.config.management).await?;
+                H::open_management(&H::configure(&self.host_config, self.config.clone())).await?;
             if !journal.management_complete {
                 let permissions = journal
                     .permissions
@@ -517,7 +523,7 @@ impl<H: BootstrapHost> LocalProvisioner<H> {
                     .zip(INITIAL_ACTIONS)
                     .collect::<Vec<_>>();
                 provisioning_stage(|| {
-                    management_server::provision_initial_administrator(
+                    H::provision_administrator(
                         Arc::clone(&management_engine),
                         journal.user,
                         journal.role,
@@ -528,7 +534,7 @@ impl<H: BootstrapHost> LocalProvisioner<H> {
                 let endpoint_id = binding.endpoint_id.clone();
                 let node_name = journal.node.clone();
                 provisioning_stage(|| {
-                    management_server::provision_initial_device(
+                    H::provision_device(
                         Arc::clone(&management_engine),
                         journal.member,
                         journal.user,
@@ -566,7 +572,7 @@ impl<H: BootstrapHost> LocalProvisioner<H> {
             let mut config = self.config.clone();
             config.idp.oauth2.local_signer = Some(binding);
             let runtime = Box::pin(H::Runtime::build_with_owners(
-                config,
+                H::configure(&self.host_config, config),
                 listener,
                 api_base,
                 BootstrapOwners {
@@ -641,7 +647,7 @@ impl<H: BootstrapHost> LocalProvisioner<H> {
         }
         let mut config = self.config.clone();
         config.idp.oauth2.local_signer = Some(binding.clone());
-        let owners = H::open_owners(&config).await?;
+        let owners = H::open_owners(&H::configure(&self.host_config, config.clone())).await?;
         let result = async {
             let owner = OwnerProvisioner::from_database(&config.idp, Arc::clone(&owners.idp))?;
             if Some(owner.verify_node_signer(&binding).await?) != journal.public_signer {
@@ -667,7 +673,7 @@ impl<H: BootstrapHost> LocalProvisioner<H> {
                 format!("http://{address}")
             };
             Box::pin(H::Runtime::build_with_owners(
-                config,
+                H::configure(&self.host_config, config),
                 listener,
                 api_base,
                 BootstrapOwners {
@@ -925,10 +931,7 @@ fn same_binding(left: &NodeSignerBinding, right: &NodeSignerBinding) -> bool {
         && left.endpoint_id == right.endpoint_id
 }
 
-pub fn normalized_config<C>(mut config: C) -> io::Result<C>
-where
-    C: Deref<Target = BootstrapSettings> + DerefMut,
-{
+pub fn normalized_config(mut config: BootstrapSettings) -> io::Result<BootstrapSettings> {
     config.endpoint_data_dir = absolute(&config.endpoint_data_dir)?;
     config.idp.data_dir = absolute(Path::new(&config.idp.data_dir))?
         .to_string_lossy()

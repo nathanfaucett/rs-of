@@ -41,7 +41,8 @@ struct JoinIntent {
 
 /// Restricted local joining through the existing authenticated, purpose-bound owner protocol.
 pub struct LocalJoin<H: BootstrapHost> {
-    config: H::Config,
+    config: crate::BootstrapSettings,
+    host_config: H::Config,
     directory: PathBuf,
     journal: JoinIntent,
     _operation: File,
@@ -50,7 +51,8 @@ pub struct LocalJoin<H: BootstrapHost> {
 impl<H: BootstrapHost> LocalJoin<H> {
     pub fn create(config: H::Config, peer: &str, name: &str) -> io::Result<Self> {
         crate::local_provisioning::require_unix_bootstrap()?;
-        let config = crate::local_provisioning::normalized_config(config)?;
+        let host_config = config;
+        let config = crate::local_provisioning::normalized_config(H::settings(&host_config))?;
         peer.parse::<iroh::EndpointId>().map_err(io::Error::other)?;
         if name.trim().is_empty() || config.idp.oauth2.local_signer.is_some() {
             return Err(invalid(
@@ -89,6 +91,7 @@ impl<H: BootstrapHost> LocalJoin<H> {
         let operation = lock(&directory, true)?;
         let local = Self {
             config,
+            host_config,
             directory,
             journal,
             _operation: operation,
@@ -98,7 +101,8 @@ impl<H: BootstrapHost> LocalJoin<H> {
     }
 
     pub fn open(config: H::Config) -> io::Result<Self> {
-        let config = crate::local_provisioning::normalized_config(config)?;
+        let host_config = config;
+        let config = crate::local_provisioning::normalized_config(H::settings(&host_config))?;
         let directory = absolute(&config.local_provisioning_directory())?;
         let operation = lock(&directory, false)?;
         require_absent(&directory.join("intent.json"))?;
@@ -145,6 +149,7 @@ impl<H: BootstrapHost> LocalJoin<H> {
         }
         Ok(Self {
             config,
+            host_config,
             directory,
             journal,
             _operation: operation,
@@ -303,7 +308,7 @@ impl<H: BootstrapHost> LocalJoin<H> {
         let config = self.bound_config()?;
         let address = match &listener {
             Some(listener) => listener.local_addr()?,
-            None => config.listen_addr,
+            None => H::settings(&config).listen_addr,
         };
         let base = if https {
             crate::LocalTls::api_base(address)?
@@ -492,7 +497,7 @@ impl<H: BootstrapHost> LocalJoin<H> {
     fn bound_config(&self) -> io::Result<H::Config> {
         let mut config = self.config.clone();
         config.idp.oauth2.local_signer = Some(self.binding()?);
-        Ok(config)
+        Ok(H::configure(&self.host_config, config))
     }
     fn check_retained(&self) -> io::Result<()> {
         if read_private(&self.directory.join("join.json"))? != serde_json::to_vec(&self.journal)? {

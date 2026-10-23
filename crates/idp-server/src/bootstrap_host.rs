@@ -1,10 +1,4 @@
-use std::{
-    future::Future,
-    io,
-    ops::{Deref, DerefMut},
-    path::Path,
-    sync::Arc,
-};
+use std::{future::Future, io, path::Path, sync::Arc};
 
 use api::{LocalTls, LocalTlsConfig};
 use db::Database;
@@ -22,16 +16,30 @@ pub struct BootstrapOwners<E> {
 
 /// Host capabilities only; retained setup decisions and journals belong to IdP.
 pub trait BootstrapHost: Send + Sync + 'static {
-    type Config: Clone
-        + Send
-        + Sync
-        + Deref<Target = BootstrapSettings>
-        + DerefMut
-        + From<BootstrapSettings>
-        + LocalTlsConfig;
+    type Config: Clone + Send + Sync + LocalTlsConfig;
     type Endpoint: BootstrapEndpoint;
     type Runtime: BootstrapRuntime<Self::Config, Self::Endpoint>;
     type Protocol: BootstrapProtocol<Self::Endpoint>;
+
+    fn settings(config: &Self::Config) -> BootstrapSettings;
+    fn configure(config: &Self::Config, settings: BootstrapSettings) -> Self::Config;
+    fn from_settings(settings: BootstrapSettings) -> Self::Config;
+    fn open_management(
+        config: &Self::Config,
+    ) -> impl Future<Output = io::Result<Arc<Database>>> + Send;
+    fn provision_administrator(
+        database: Arc<Database>,
+        user: idp_model::model::Id,
+        role: idp_model::model::Id,
+        permissions: &[(idp_model::model::Id, idp_model::contract::IdentityAction)],
+    ) -> impl Future<Output = io::Result<()>> + Send;
+    fn provision_device(
+        database: Arc<Database>,
+        member: idp_model::model::Id,
+        user: idp_model::model::Id,
+        endpoint: &str,
+        name: &str,
+    ) -> impl Future<Output = io::Result<()>> + Send;
 
     fn open_owners(
         config: &Self::Config,

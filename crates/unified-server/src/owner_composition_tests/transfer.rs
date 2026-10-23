@@ -382,7 +382,7 @@ fn independent_transfer_production_https() {
     let mut child = Command::new(std::env::current_exe().expect("test executable"))
         .args([
             "--exact",
-            "independent_transfer_tests::independent_transfer_https_child",
+            "owner_composition_tests::transfer::independent_transfer_https_child",
             "--ignored",
             "--nocapture",
         ])

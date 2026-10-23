@@ -18,7 +18,7 @@ use reqwest::{Client, StatusCode};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::independent_create_tests::{
+use crate::owner_composition_tests::create::{
     current_status, normal_use, seed_endpoint_negatives, setup, setup_code, start, wait,
 };
 
@@ -53,7 +53,7 @@ fn production_independent_signer_free_operation_and_delayed_authority_reopen() {
     let mut child = Command::new(std::env::current_exe().expect("test executable"))
         .args([
             "--exact",
-            "independent_operation_tests::operation_child",
+            "owner_composition_tests::operation::operation_child",
             "--ignored",
             "--nocapture",
         ])
@@ -89,7 +89,7 @@ fn production_independent_signer_free_operation_and_delayed_authority_reopen() {
 async fn operation_child() {
     let root = PathBuf::from(std::env::var_os("OF_OPERATION_ROOT").expect("parent roots"));
     crate::hosted_setup_integration_tests::capture_setup_timings();
-    let _provider = crate::independent_reset_tests::Provider::install();
+    let _provider = crate::owner_composition_tests::reset::Provider::install();
     let addresses: Vec<SocketAddr> =
         serde_json::from_slice(&fs::read(root.join("addresses.json")).expect("addresses"))
             .expect("JSON");

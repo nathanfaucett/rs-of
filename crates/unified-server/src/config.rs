@@ -3,22 +3,49 @@ use std::{net::SocketAddr, path::Path};
 use serde::Deserialize;
 
 #[derive(Clone)]
-pub struct UnifiedConfig(idp_server::BootstrapSettings);
+pub struct UnifiedConfig {
+    pub listen_addr: SocketAddr,
+    pub endpoint_data_dir: std::path::PathBuf,
+    pub idp: idp_server::AppConfig,
+    pub management: management_server::AppConfig,
+    pub storage: storage_server::AppConfig,
+}
+
+impl UnifiedConfig {
+    pub fn credential_bootstrap_directory(&self) -> std::path::PathBuf {
+        self.endpoint_data_dir.with_extension("credentials")
+    }
+
+    pub fn local_provisioning_directory(&self) -> std::path::PathBuf {
+        self.endpoint_data_dir.with_extension("provisioning")
+    }
+
+    pub fn idp_audience(&self) -> &str {
+        self.idp
+            .service_audience
+            .as_deref()
+            .unwrap_or(&self.idp.api_public_uri)
+    }
+}
 
 impl From<idp_server::BootstrapSettings> for UnifiedConfig {
     fn from(settings: idp_server::BootstrapSettings) -> Self {
-        Self(settings)
-    }
-}
-impl core::ops::Deref for UnifiedConfig {
-    type Target = idp_server::BootstrapSettings;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl core::ops::DerefMut for UnifiedConfig {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        Self {
+            listen_addr: settings.listen_addr,
+            endpoint_data_dir: settings.endpoint_data_dir,
+            idp: settings.idp,
+            management: management_server::AppConfig {
+                data_dir: settings.management.data_dir,
+                api_public_uri: settings.management.api_public_uri,
+                storage_audience: settings.management.storage_audience,
+                ..Default::default()
+            },
+            storage: storage_server::AppConfig {
+                data_dir: settings.storage.data_dir,
+                api_public_uri: settings.storage.api_public_uri,
+                ..Default::default()
+            },
+        }
     }
 }
 impl api::LocalTlsConfig for UnifiedConfig {
@@ -68,14 +95,13 @@ impl TryFrom<&Path> for UnifiedConfig {
         let listen_addr = file.listen_addr.parse().map_err(|error| {
             config::ConfigError::Message(format!("invalid listen_addr: {error}"))
         })?;
-        Ok(idp_server::BootstrapSettings {
+        Ok(Self {
             listen_addr,
             endpoint_data_dir: file.endpoint_data_dir.into(),
             idp: file.idp,
             management: file.management,
             storage: file.storage,
-        }
-        .into())
+        })
     }
 }
 
@@ -84,6 +110,79 @@ mod tests {
     use std::{fs, path::Path};
 
     use super::UnifiedConfig;
+
+    #[cfg(unix)]
+    #[test]
+    fn explicit_bootstrap_retains_concrete_server_options_and_public_references() {
+        let root = std::env::temp_dir().join(format!(
+            "unified-concrete-settings-{}",
+            idp_model::model::Id::now_v7()
+        ));
+        fs::create_dir(&root).expect("isolated config parent");
+        let path = root.join("config.yaml");
+        fs::write(&path, "management:\n  log_level: debug\n  idp_api_base: https://identity.test/idp\n  storage_api_base: https://resources.test/storage\n  storage_audience: https://resources.test/audience\n  server:\n    port: 4321\nstorage:\n  log_level: trace\n  idp_api_base_uri: https://identity.test/idp\n  management_api_base_uri: https://control.test/management\n  management_service_audience: https://control.test/audience\n  server:\n    port: 5432\n").expect("nondefault server configuration");
+        let mut config = UnifiedConfig::try_from(path.as_path()).expect("concrete YAML settings");
+        config.endpoint_data_dir = root.join("endpoint");
+        config.idp.data_dir = root.join("idp").to_string_lossy().into_owned();
+        config.management.data_dir = root.join("management").to_string_lossy().into_owned();
+        config.storage.data_dir = root.join("storage").to_string_lossy().into_owned();
+        let host = crate::BootstrapConfig::create_explicit_http(config.clone())
+            .expect("explicit neutral host");
+        let setup = crate::SetupHost::create_http(host).expect("neutral host prerequisites");
+        drop(setup);
+        let mut host = crate::BootstrapConfig::open_explicit(config.clone())
+            .expect("reopen exact configuration");
+        host.select_create().expect("select Create");
+        let selected = host.config();
+        assert!(!selected.idp.oauth2.issuer.is_empty());
+        let bootstrap = crate::CredentialBootstrap::create(selected.clone())
+            .expect("retain public bootstrap references");
+        let loaded = bootstrap
+            .load()
+            .expect("normalize without losing concrete options");
+        assert_eq!(loaded.management.log_level, "debug");
+        assert_eq!(loaded.management.server.port, 4321);
+        assert_eq!(loaded.management.idp_api_base, "https://identity.test/idp");
+        assert_eq!(
+            loaded.management.storage_api_base,
+            "https://resources.test/storage"
+        );
+        assert_eq!(
+            loaded.management.storage_audience,
+            "https://resources.test/audience"
+        );
+        assert_eq!(loaded.storage.log_level, "trace");
+        assert_eq!(loaded.storage.server.port, 5432);
+        assert_eq!(loaded.storage.idp_api_base_uri, "https://identity.test/idp");
+        assert_eq!(
+            loaded.storage.management_api_base_uri,
+            "https://control.test/management"
+        );
+        assert_eq!(
+            loaded.storage.management_service_audience.as_deref(),
+            Some("https://control.test/audience")
+        );
+        assert_eq!(loaded.idp.oauth2.issuer, selected.idp.oauth2.issuer);
+        let references: serde_json::Value = serde_json::from_slice(
+            &fs::read(
+                loaded
+                    .credential_bootstrap_directory()
+                    .join("credentials.json"),
+            )
+            .expect("retained journal"),
+        )
+        .expect("public journal JSON");
+        assert_eq!(
+            references["storage_audience"],
+            "https://resources.test/audience"
+        );
+        drop(bootstrap);
+        let mut conflicting = selected;
+        conflicting.management.storage_audience = "https://different.test".into();
+        assert!(crate::CredentialBootstrap::open(conflicting).is_err());
+        drop(host);
+        fs::remove_dir_all(root).expect("isolated cleanup");
+    }
 
     #[test]
     fn default_unified_config_loads_without_relationship_secrets() {
@@ -198,7 +297,7 @@ mod tests {
             idp_model::model::Id::now_v7()
         ));
         config.endpoint_data_dir = root.join(&config.endpoint_data_dir);
-        let settings = &mut config.0;
+        let settings = &mut config;
         for data_dir in [
             &mut settings.idp.data_dir,
             &mut settings.management.data_dir,
@@ -276,7 +375,7 @@ mod tests {
 
 #[cfg(test)]
 pub(crate) fn test_config(root: &Path) -> UnifiedConfig {
-    idp_server::BootstrapSettings {
+    UnifiedConfig {
         listen_addr: "127.0.0.1:3000".parse().expect("test loopback"),
         endpoint_data_dir: root.join("endpoint"),
         idp: idp_server::AppConfig {
@@ -292,5 +391,4 @@ pub(crate) fn test_config(root: &Path) -> UnifiedConfig {
             ..Default::default()
         },
     }
-    .into()
 }

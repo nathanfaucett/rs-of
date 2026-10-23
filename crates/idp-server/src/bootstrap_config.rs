@@ -325,7 +325,7 @@ impl<H: BootstrapHost> BootstrapConfig<H> {
     }
 
     pub fn explicit_directory(config: &H::Config) -> PathBuf {
-        config.endpoint_data_dir.with_extension("host")
+        H::settings(config).endpoint_data_dir.with_extension("host")
     }
 
     pub fn create_explicit(config: H::Config) -> io::Result<Self> {
@@ -336,10 +336,11 @@ impl<H: BootstrapHost> BootstrapConfig<H> {
         Self::create_explicit_host(config, false)
     }
 
-    fn create_explicit_host(mut config: H::Config, https: bool) -> io::Result<Self> {
+    fn create_explicit_host(host_config: H::Config, https: bool) -> io::Result<Self> {
         require_unix_bootstrap()?;
+        let mut config = H::settings(&host_config);
         crate::bootstrap_settings::require_fresh_roots(&config, true, https)?;
-        let root = absolute(&Self::explicit_directory(&config))?;
+        let root = absolute(&Self::explicit_directory(&host_config))?;
         crate::bootstrap_settings::require_host_separation(&config, &root)?;
         require_absent(&root)?;
         let explicit = explicit_identity(&config)?;
@@ -357,12 +358,13 @@ impl<H: BootstrapHost> BootstrapConfig<H> {
                 explicit: Some(explicit),
                 public_base: None,
             },
-            Some(config),
+            Some(H::configure(&host_config, config)),
         )
     }
 
-    pub fn open_explicit(mut config: H::Config) -> io::Result<Self> {
-        let mut host = Self::read(&Self::explicit_directory(&config))?;
+    pub fn open_explicit(host_config: H::Config) -> io::Result<Self> {
+        let mut config = H::settings(&host_config);
+        let mut host = Self::read(&Self::explicit_directory(&host_config))?;
         if host.host.explicit.as_ref() != Some(&explicit_identity(&config)?)
             || host.host.listen != config.listen_addr
         {
@@ -371,7 +373,7 @@ impl<H: BootstrapHost> BootstrapConfig<H> {
             ));
         }
         config.idp.oauth2.issuer.clear();
-        host.explicit_config = Some(config);
+        host.explicit_config = Some(H::configure(&host_config, config));
         Ok(host)
     }
 
@@ -387,9 +389,9 @@ impl<H: BootstrapHost> BootstrapConfig<H> {
 
     pub fn config(&self) -> H::Config {
         if let Some(config) = &self.explicit_config {
-            let mut config = config.clone();
-            config.idp.oauth2.issuer = self.host.issuer.clone();
-            return config;
+            let mut settings = H::settings(config);
+            settings.idp.oauth2.issuer = self.host.issuer.clone();
+            return H::configure(config, settings);
         }
         let root = &self.host.root;
         let base = self
@@ -411,25 +413,22 @@ impl<H: BootstrapHost> BootstrapConfig<H> {
             service_audience: Some(idp_uri),
             ..Default::default()
         };
-        let management = management_server::AppConfig {
+        let management = crate::bootstrap_settings::ManagementBootstrapSettings {
             data_dir: root.join("management").to_string_lossy().into_owned(),
             api_public_uri: format!("{base}/management"),
             storage_audience: storage_uri.clone(),
-            ..Default::default()
         };
-        let storage = storage_server::AppConfig {
+        let storage = crate::bootstrap_settings::StorageBootstrapSettings {
             data_dir: root.join("storage").to_string_lossy().into_owned(),
             api_public_uri: storage_uri,
-            ..Default::default()
         };
-        BootstrapSettings {
+        H::from_settings(BootstrapSettings {
             listen_addr: self.host.listen,
             endpoint_data_dir: root.join("endpoint"),
             idp,
             management,
             storage,
-        }
-        .into()
+        })
     }
 }
 

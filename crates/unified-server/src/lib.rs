@@ -11,8 +11,6 @@ mod hosted_setup_integration_tests;
 #[cfg(all(test, unix))]
 mod http_server_tests;
 #[cfg(all(test, unix))]
-mod independent_permission_http_tests;
-#[cfg(all(test, unix))]
 mod local_provisioning_tests;
 #[cfg(test)]
 mod native_api_tests;
@@ -49,17 +47,6 @@ pub use setup_host::SetupHost;
 #[cfg(unix)]
 pub use setup_runtime::ApiSetupHost;
 
-#[cfg(all(test, target_os = "linux"))]
-mod independent_create_tests;
-#[cfg(all(test, target_os = "linux"))]
-mod independent_join_tests;
-#[cfg(all(test, target_os = "linux"))]
-mod independent_operation_tests;
-#[cfg(all(test, target_os = "linux"))]
-mod independent_reset_tests;
-#[cfg(all(test, target_os = "linux"))]
-mod independent_transfer_tests;
-
 #[cfg(test)]
 mod generated_transport_tests;
 
@@ -79,3 +66,6 @@ pub use idp_server::BootstrapPurpose;
 mod bootstrap_config_tests;
 #[cfg(all(test, not(unix)))]
 mod unsupported_bootstrap_tests;
+
+#[cfg(all(test, unix))]
+mod owner_composition_tests;

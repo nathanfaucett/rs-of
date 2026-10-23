@@ -54,7 +54,7 @@ fn run_production_create(legacy_reset: bool) {
         drop(host);
         drop(port);
     }
-    bundle.extend(crate::independent_reset_tests::prepare_interrupted(
+    bundle.extend(crate::owner_composition_tests::reset::prepare_interrupted(
         &root,
         addresses[2],
     ));
@@ -72,11 +72,11 @@ fn run_production_create(legacy_reset: bool) {
         fs::Permissions::from_mode(0o700),
     )
     .expect("executable mock");
-    crate::independent_reset_tests::prepare_trust_removal(&root);
+    crate::owner_composition_tests::reset::prepare_trust_removal(&root);
     let mut child = Command::new(std::env::current_exe().expect("test executable"))
         .args([
             "--exact",
-            "independent_create_tests::independent_create_child",
+            "owner_composition_tests::create::independent_create_child",
             "--ignored",
             "--nocapture",
         ])
@@ -364,7 +364,7 @@ pub(super) async fn normal_use(
 async fn independent_create_child() {
     let root = PathBuf::from(std::env::var_os("OF_INDEPENDENT_CREATE_ROOT").expect("parent roots"));
     crate::hosted_setup_integration_tests::capture_setup_timings();
-    let reset_provider = crate::independent_reset_tests::Provider::install();
+    let reset_provider = crate::owner_composition_tests::reset::Provider::install();
     let fail_node_readback = reset_provider.fail_node_readback.clone();
     let addresses: Vec<SocketAddr> =
         serde_json::from_slice(&fs::read(root.join("addresses.json")).expect("addresses"))
@@ -951,8 +951,18 @@ async fn independent_create_child() {
             .expect("provider remains missing")
             .is_none()
     );
-    crate::independent_reset_tests::qualify_completed(&root, &reset_provider, &intent.issuer).await;
-    crate::independent_reset_tests::qualify_interrupted(&root, addresses[2], &reset_provider).await;
+    crate::owner_composition_tests::reset::qualify_completed(
+        &root,
+        &reset_provider,
+        &intent.issuer,
+    )
+    .await;
+    crate::owner_composition_tests::reset::qualify_interrupted(
+        &root,
+        addresses[2],
+        &reset_provider,
+    )
+    .await;
 }
 
 pub(super) async fn seed_endpoint_negatives(root: &Path) -> Vec<(String, StatusCode, bool)> {

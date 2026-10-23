@@ -21,7 +21,7 @@ use management_service::{DeviceIdentity, HostedControlPlane};
 use reqwest::{Client, StatusCode};
 use tokio_util::sync::CancellationToken;
 
-use crate::independent_create_tests::{setup, setup_code, start, wait, wait_public};
+use crate::owner_composition_tests::create::{setup, setup_code, start, wait, wait_public};
 
 #[test]
 fn production_independent_join_and_source_offline_reopen() {
@@ -77,11 +77,11 @@ fn run_production_join(legacy_reset: bool) {
         fs::Permissions::from_mode(0o700),
     )
     .expect("executable mock");
-    crate::independent_reset_tests::prepare_trust_removal(&root);
+    crate::owner_composition_tests::reset::prepare_trust_removal(&root);
     let mut child = Command::new(std::env::current_exe().expect("test binary"))
         .args([
             "--exact",
-            "independent_join_tests::independent_join_child",
+            "owner_composition_tests::join::independent_join_child",
             "--ignored",
             "--nocapture",
         ])
@@ -529,7 +529,7 @@ async fn use_joined(
 async fn independent_join_child() {
     let root = PathBuf::from(std::env::var_os("OF_INDEPENDENT_JOIN_ROOT").expect("fixture roots"));
     crate::hosted_setup_integration_tests::capture_setup_timings();
-    let reset_provider = crate::independent_reset_tests::Provider::install();
+    let reset_provider = crate::owner_composition_tests::reset::Provider::install();
     let addresses: Vec<SocketAddr> =
         serde_json::from_slice(&fs::read(root.join("addresses.json")).expect("addresses"))
             .expect("fixture metadata");
@@ -882,8 +882,12 @@ async fn independent_join_child() {
             .expect("reopen listener")
             .expect("source-offline target shutdown");
     }
-    crate::independent_reset_tests::qualify_completed(&target, &reset_provider, &intent.issuer)
-        .await;
+    crate::owner_composition_tests::reset::qualify_completed(
+        &target,
+        &reset_provider,
+        &intent.issuer,
+    )
+    .await;
     assert!(
         root.join("source/idp/idp.redb").exists(),
         "target reset preserves the source"

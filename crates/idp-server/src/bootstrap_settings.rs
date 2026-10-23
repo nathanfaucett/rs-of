@@ -16,8 +16,21 @@ pub struct BootstrapSettings {
     pub listen_addr: SocketAddr,
     pub endpoint_data_dir: std::path::PathBuf,
     pub idp: AppConfig,
-    pub management: management_server::AppConfig,
-    pub storage: storage_server::AppConfig,
+    pub management: ManagementBootstrapSettings,
+    pub storage: StorageBootstrapSettings,
+}
+
+#[derive(Clone)]
+pub struct ManagementBootstrapSettings {
+    pub data_dir: String,
+    pub api_public_uri: String,
+    pub storage_audience: String,
+}
+
+#[derive(Clone)]
+pub struct StorageBootstrapSettings {
+    pub data_dir: String,
+    pub api_public_uri: String,
 }
 
 impl BootstrapSettings {

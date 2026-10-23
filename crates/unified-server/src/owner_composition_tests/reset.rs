@@ -22,7 +22,7 @@ use serde_json::Value;
 use tokio::time::{Duration, Instant, sleep};
 use tokio_util::sync::CancellationToken;
 
-use crate::independent_create_tests::{setup, setup_code};
+use crate::owner_composition_tests::create::{setup, setup_code};
 
 pub(super) fn prepare_trust_removal(root: &Path) {
     let command = root.join("commands/pkexec");
@@ -518,7 +518,7 @@ async fn retain_legacy_cleanup_references(root: &Path) {
             .expect("retained listener")
             .parse()
             .expect("address");
-        let setup = crate::independent_create_tests::setup(root, owner, address);
+        let setup = crate::owner_composition_tests::create::setup(root, owner, address);
         let shutdown = tokio_util::sync::CancellationToken::new();
         let result = if owner == "idp" {
             let mut config = idp_server::AppConfig {

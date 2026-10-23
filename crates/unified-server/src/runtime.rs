@@ -1,3 +1,5 @@
+use idp_server::bootstrap_host::BootstrapHost;
+
 use std::{
     fs, io,
     path::Path,
@@ -725,7 +727,7 @@ impl UnifiedRuntime {
 }
 
 pub(crate) fn validate_config(config: &UnifiedConfig) -> io::Result<()> {
-    idp_server::bootstrap_settings::validate_config(config)
+    idp_server::bootstrap_settings::validate_config(&crate::UnifiedBootstrapHost::settings(config))
 }
 
 fn validate_data_dirs(config: &UnifiedConfig) -> io::Result<()> {
@@ -1319,14 +1321,13 @@ mod tests {
         let mut storage = storage_server::AppConfig::default();
         storage.data_dir = root.join("storage").to_string_lossy().into_owned();
         storage.api_public_uri = "https://storage.example".to_owned();
-        let mut config: UnifiedConfig = idp_server::BootstrapSettings {
+        let mut config = UnifiedConfig {
             listen_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
             endpoint_data_dir: root.join("endpoint"),
             idp,
             management,
             storage,
-        }
-        .into();
+        };
         let mut invalid = config.clone();
         invalid.idp.service_audience = Some(String::new());
         assert!(validate_config(&invalid).is_err());
