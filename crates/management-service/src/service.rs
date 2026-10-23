@@ -11,6 +11,34 @@ use crate::{ManagementError, PermissionRepo, RoleRepo};
 
 pub const MANAGEMENT_APPLICATION_URI: &str = "idp-management";
 
+pub const INITIAL_ADMINISTRATOR_ACTIONS: [IdentityAction; 25] = [
+    IdentityAction::InfrastructureClientsRead,
+    IdentityAction::InfrastructureClientsCreate,
+    IdentityAction::InfrastructureClientsUpdate,
+    IdentityAction::InfrastructureClientsDelete,
+    IdentityAction::ApplicationsRead,
+    IdentityAction::ApplicationsCreate,
+    IdentityAction::ApplicationsUpdate,
+    IdentityAction::ApplicationsDelete,
+    IdentityAction::UsersRead,
+    IdentityAction::UsersUpdate,
+    IdentityAction::UsersDelete,
+    IdentityAction::UsersResetPassword,
+    IdentityAction::ConsentsRead,
+    IdentityAction::ConsentsRevoke,
+    IdentityAction::KeysRead,
+    IdentityAction::KeysRotate,
+    IdentityAction::KeysRevoke,
+    IdentityAction::DevicesRead,
+    IdentityAction::DevicePairingRead,
+    IdentityAction::DevicePairingUpdate,
+    IdentityAction::ReplicaSignersEnroll,
+    IdentityAction::ReplicaSignersRotate,
+    IdentityAction::ReplicaSignersRevoke,
+    IdentityAction::IdpSecuritySync,
+    IdentityAction::ManagementSecuritySync,
+];
+
 pub struct ManagementService<P, R> {
     permission_repo: P,
     role_repo: R,

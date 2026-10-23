@@ -8,15 +8,14 @@ use std::{
 use device_service::issuer_discovery::validate_issuer;
 use idp_model::model::Id;
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 
-use crate::{
-    BootstrapSettings,
-    bootstrap_host::BootstrapHost,
-    local_provisioning::{
-        absolute, create_private_directory, lock, private_options, read_private, require_absent,
-        require_unix_bootstrap, sync_ancestry,
-    },
+use idp_server::local_provisioning::{
+    absolute, create_private_directory, lock, private_options, read_private, require_absent,
+    require_file, require_unix_bootstrap, sync_ancestry,
 };
+
+use crate::{CredentialBootstrap, LocalJoin, LocalProvisioner, UnifiedConfig};
 
 #[derive(Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -45,13 +44,13 @@ struct Host {
 }
 
 /// Public host identity/settings only. Retain the guard through setup and serving.
-pub struct BootstrapConfig<H: BootstrapHost> {
+pub struct BootstrapConfig {
     host: Host,
     _operation: File,
-    explicit_config: Option<H::Config>,
+    explicit_config: Option<UnifiedConfig>,
     fresh: bool,
 }
-impl<H: BootstrapHost> BootstrapConfig<H> {
+impl BootstrapConfig {
     pub fn default_directory() -> io::Result<PathBuf> {
         if let Some(path) = std::env::var_os("XDG_DATA_HOME").filter(|value| !value.is_empty()) {
             let path = PathBuf::from(path);
@@ -158,7 +157,7 @@ impl<H: BootstrapHost> BootstrapConfig<H> {
         Ok(retained)
     }
 
-    fn retain(host: Host, explicit_config: Option<H::Config>) -> io::Result<Self> {
+    fn retain(host: Host, explicit_config: Option<UnifiedConfig>) -> io::Result<Self> {
         let root = &host.root;
         create_private_directory(root, true)?;
         let operation = lock(root, true)?;
@@ -324,24 +323,23 @@ impl<H: BootstrapHost> BootstrapConfig<H> {
         &self.host.root
     }
 
-    pub fn explicit_directory(config: &H::Config) -> PathBuf {
-        H::settings(config).endpoint_data_dir.with_extension("host")
+    pub fn explicit_directory(config: &UnifiedConfig) -> PathBuf {
+        config.endpoint_data_dir.with_extension("host")
     }
 
-    pub fn create_explicit(config: H::Config) -> io::Result<Self> {
+    pub fn create_explicit(config: UnifiedConfig) -> io::Result<Self> {
         Self::create_explicit_host(config, true)
     }
 
-    pub fn create_explicit_http(config: H::Config) -> io::Result<Self> {
+    pub fn create_explicit_http(config: UnifiedConfig) -> io::Result<Self> {
         Self::create_explicit_host(config, false)
     }
 
-    fn create_explicit_host(host_config: H::Config, https: bool) -> io::Result<Self> {
+    fn create_explicit_host(mut config: UnifiedConfig, https: bool) -> io::Result<Self> {
         require_unix_bootstrap()?;
-        let mut config = H::settings(&host_config);
-        crate::bootstrap_settings::require_fresh_roots(&config, true, https)?;
-        let root = absolute(&Self::explicit_directory(&host_config))?;
-        crate::bootstrap_settings::require_host_separation(&config, &root)?;
+        crate::config::require_fresh_roots(&config, true, https)?;
+        let root = absolute(&Self::explicit_directory(&config))?;
+        crate::config::require_host_separation(&config, &root)?;
         require_absent(&root)?;
         let explicit = explicit_identity(&config)?;
         config.idp.oauth2.issuer.clear();
@@ -358,13 +356,12 @@ impl<H: BootstrapHost> BootstrapConfig<H> {
                 explicit: Some(explicit),
                 public_base: None,
             },
-            Some(H::configure(&host_config, config)),
+            Some(config),
         )
     }
 
-    pub fn open_explicit(host_config: H::Config) -> io::Result<Self> {
-        let mut config = H::settings(&host_config);
-        let mut host = Self::read(&Self::explicit_directory(&host_config))?;
+    pub fn open_explicit(mut config: UnifiedConfig) -> io::Result<Self> {
+        let mut host = Self::read(&Self::explicit_directory(&config))?;
         if host.host.explicit.as_ref() != Some(&explicit_identity(&config)?)
             || host.host.listen != config.listen_addr
         {
@@ -373,7 +370,7 @@ impl<H: BootstrapHost> BootstrapConfig<H> {
             ));
         }
         config.idp.oauth2.issuer.clear();
-        host.explicit_config = Some(H::configure(&host_config, config));
+        host.explicit_config = Some(config);
         Ok(host)
     }
 
@@ -383,15 +380,15 @@ impl<H: BootstrapHost> BootstrapConfig<H> {
     pub fn trusted_peer(&self) -> Option<&str> {
         self.host.trusted_peer.as_deref()
     }
-    pub fn set_runtime_config(&mut self, config: H::Config) {
+    pub fn set_runtime_config(&mut self, config: UnifiedConfig) {
         self.explicit_config = Some(config);
     }
 
-    pub fn config(&self) -> H::Config {
+    pub fn config(&self) -> UnifiedConfig {
         if let Some(config) = &self.explicit_config {
-            let mut settings = H::settings(config);
+            let mut settings = config.clone();
             settings.idp.oauth2.issuer = self.host.issuer.clone();
-            return H::configure(config, settings);
+            return settings;
         }
         let root = &self.host.root;
         let base = self
@@ -401,7 +398,7 @@ impl<H: BootstrapHost> BootstrapConfig<H> {
             .unwrap_or_else(|| format!("https://{}", self.host.listen));
         let idp_uri = format!("{base}/idp");
         let storage_uri = format!("{base}/storage");
-        let idp = crate::AppConfig {
+        let idp = idp_server::AppConfig {
             data_dir: root.join("idp").to_string_lossy().into_owned(),
             key_namespace: format!("unified-node:{}", self.host.key_namespace),
             api_public_uri: idp_uri.clone(),
@@ -413,26 +410,32 @@ impl<H: BootstrapHost> BootstrapConfig<H> {
             service_audience: Some(idp_uri),
             ..Default::default()
         };
-        let management = crate::bootstrap_settings::DeviceBootstrapSettings {
+        let device = device_server::AppConfig {
             data_dir: root.join("device").to_string_lossy().into_owned(),
             api_public_uri: format!("{base}/device"),
             storage_audience: storage_uri.clone(),
+            ..Default::default()
         };
-        let storage = crate::bootstrap_settings::StorageBootstrapSettings {
+        let storage = storage_server::AppConfig {
             data_dir: root.join("storage").to_string_lossy().into_owned(),
             api_public_uri: storage_uri,
+            ..Default::default()
         };
-        H::from_settings(BootstrapSettings {
+        UnifiedConfig {
             listen_addr: self.host.listen,
             endpoint_data_dir: root.join("endpoint"),
             idp,
-            device: management,
+            management: management_server::AppConfig {
+                api_public_uri: format!("{base}/management"),
+                ..Default::default()
+            },
+            device,
             storage,
-        })
+        }
     }
 }
 
-fn explicit_identity(config: &BootstrapSettings) -> io::Result<serde_json::Value> {
+fn explicit_identity(config: &UnifiedConfig) -> io::Result<serde_json::Value> {
     if config.idp.oauth2.local_signer.is_some() {
         return Err(invalid(
             "neutral startup requires no configured Node signer",
@@ -467,4 +470,77 @@ pub fn present(path: &Path) -> io::Result<bool> {
 }
 fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
+}
+
+impl BootstrapConfig {
+    /// Nonsecret, exact protected-key references for an explicit stopped native reset.
+    /// Missing/corrupt owner journals are not evidence that key production never started.
+    pub fn local_reset_references(&self) -> io::Result<Value> {
+        let mut config = self.config();
+        if present(&config.credential_bootstrap_directory())? {
+            config = CredentialBootstrap::open(config)?.load()?;
+        }
+        let provisioning = config.local_provisioning_directory();
+        let keys = if present(&provisioning)? {
+            match self.purpose() {
+                BootstrapPurpose::Create => LocalProvisioner::open(config)?.reset_references()?,
+                BootstrapPurpose::Join => LocalJoin::open(config)?.reset_references()?,
+                BootstrapPurpose::AwaitingChoice => {
+                    return Err(io::Error::other("neutral host has unexpected owner state"));
+                }
+            }
+        } else {
+            for path in [
+                Path::new(&config.idp.data_dir),
+                Path::new(&config.device.data_dir),
+                Path::new(&config.storage.data_dir),
+                &config.endpoint_data_dir,
+            ] {
+                require_absent(path)?;
+            }
+            if self.purpose() == BootstrapPurpose::Join
+                && read_private(&self.directory().join("join-owner.attempted"))? != b"unattempted\n"
+            {
+                return Err(io::Error::other(
+                    "lost attempted Join owner journal; explicit recovery required",
+                ));
+            }
+            Value::Null
+        };
+        Ok(json!({
+            "version": 1,
+            "root": self.directory(),
+            "issuer": self.config().idp.oauth2.issuer,
+            "keys": keys,
+        }))
+    }
+
+    /// Delete only the exact captured inventory, through its owner and protected provider.
+    /// The caller must durably retain references before this call and remove data only after success.
+    pub async fn delete_local_setup_secrets(&self, references: &Value) -> io::Result<()> {
+        if self.local_reset_references()? != *references {
+            return Err(io::Error::other(
+                "native reset references conflict with retained owner intent",
+            ));
+        }
+        let keys = &references["keys"];
+        if keys.is_null() {
+            return Ok(());
+        }
+        let config = CredentialBootstrap::open(self.config())?.load()?;
+        if keys["inventory_attempted"] == false {
+            require_absent(Path::new(&config.idp.data_dir))?;
+            return Ok(());
+        }
+        require_file(&Path::new(&config.idp.data_dir).join("idp.redb"), false)?;
+        let owner = idp_server::OwnerProvisioner::open(&config.idp).await?;
+        owner
+            .delete_local_secrets(
+                serde_json::from_value(keys["member_id"].clone())?,
+                serde_json::from_value(keys["signer_key_id"].clone())?,
+                serde_json::from_value(keys["owner_id"].clone())?,
+                &serde_json::from_value::<Vec<idp_model::model::Id>>(keys["clients"].clone())?,
+            )
+            .await
+    }
 }

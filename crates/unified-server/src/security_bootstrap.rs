@@ -3,11 +3,9 @@ use std::{future::Future, io, path::Path, sync::Arc};
 use device_service::DeviceRepo;
 use device_service::hosted_join::NodeJoinApproval;
 use device_service::replica::DbDeviceRepo;
+use device_service::security_candidates::{JoinCandidate, PeerBinding};
 use idp_model::{
-    contract::{
-        IdpSignerRecord, PermissionEvaluationRequest, PermissionSubject, PermissionTarget,
-        ReplicaMembership,
-    },
+    contract::{IdpSignerRecord, ReplicaMembership},
     model::Id,
 };
 use idp_server::{NodeJoinStage, OwnerProvisioner};
@@ -18,7 +16,6 @@ use idp_service::{
     repo::{PrivateKeyRepo, UserRepo},
 };
 use iroh::endpoint::{Connection, RecvStream, SendStream};
-use management_service::LocalPermissions;
 use ofdb_sql::{
     SessionConfig, SyncDirection, SyncError, SyncResult, SyncRole, SyncTransport,
     SyncValidationDirection,
@@ -28,7 +25,7 @@ use storage_server::DatabaseTransport;
 
 use idp_server::local_provisioning::provisioning_stage;
 
-use super::{SecurityContext, SecurityProtocol, candidates, denied, now};
+use super::{SecurityContext, SecurityProtocol, denied, now};
 
 #[cfg(test)]
 #[path = "node_bootstrap_interruption_tests.rs"]
@@ -435,43 +432,12 @@ impl SecurityProtocol {
         }) {
             return Err(denied("local node signer/member is not currently trusted"));
         }
-        let device = DbDeviceRepo::new(self.management.clone().client())
-            .find_approved_by_public_key(&endpoint)
-            .await
-            .map_err(denied)?
-            .ok_or_else(|| denied("bootstrap source has no approved Device"))?;
-        let (action, resource) = context.permission();
-        if approval.owner_subject.is_nil()
-            || !LocalPermissions::new(self.policy.client())
-                .evaluate(&PermissionEvaluationRequest {
-                    request_id: Id::now_v7(),
-                    subject: PermissionSubject::User {
-                        id: approval.owner_subject,
-                    },
-                    action,
-                    target: PermissionTarget::Installation { resource },
-                })
-                .await
-                .map_err(denied)?
-        {
-            return Err(denied(
-                "local actor lacks this context's security sync permission",
-            ));
-        }
-
-        let owner: Id = device.owner_subject.parse().map_err(denied)?;
-        if device.id != local.member_id
-            || owner.is_nil()
-            || DbUserRepo::new(self.idp.client(), PasswordConfig::default())
-                .find_user_by_id(owner)
-                .await
-                .map_err(denied)?
-                .is_none()
-        {
-            return Err(denied(
-                "bootstrap source has no active conflict-clear Device owner",
-            ));
-        }
+        self.owner()
+            .check_permission(approval.owner_subject, context)
+            .await?;
+        self.owner()
+            .binding(&endpoint, Some(local.member_id))
+            .await?;
         if self.cancellation.is_cancelled() {
             return Err(denied("bootstrap is shutting down"));
         }
@@ -585,7 +551,7 @@ impl SecurityProtocol {
         Q: FnMut() -> U + Send,
         U: Future<Output = Result<(), String>> + Send,
     {
-        let candidate = candidates::JoinCandidate {
+        let candidate = JoinCandidate {
             member_id: approval.request.member_id,
             device_id: approval.request.member_id,
             endpoint: &approval.request.endpoint_id,
@@ -594,8 +560,10 @@ impl SecurityProtocol {
             name: &approval.request.name,
         };
         let mut total = SyncResult::default();
-        for (database, name, tables) in self.sessions(context) {
-            let directory = self.staging_directory.join(format!("bootstrap-{name}"));
+        for (database, history, tables) in self.sessions(context) {
+            let directory = self
+                .staging_directory
+                .join(format!("bootstrap-{}", history.name()));
             let result = database
                 .synchronize_tables_with_stage_directory_candidate_validated_checked(
                     transport,
@@ -611,18 +579,7 @@ impl SecurityProtocol {
                     directory,
                     &tables,
                     |table, column, value| {
-                        context.validate_value(table, column, value)?;
-                        if context == SecurityContext::Idp
-                            && !candidates::permits_installation(
-                                table,
-                                column,
-                                value,
-                                &self.installation,
-                            )
-                        {
-                            return Err("invalid public security historical value".into());
-                        }
-                        Ok(())
+                        history.validate_value(table, column, value, &self.installation)
                     },
                     |view| {
                         if (direction == SyncDirection::ReceiveOnly
@@ -634,23 +591,16 @@ impl SecurityProtocol {
                                 "bootstrap reverse application history is prohibited".into()
                             );
                         }
-                        match context {
-                            SecurityContext::Idp => {
-                                candidates::validate_node_join(view, &self.installation, &candidate)
-                            }
-                            SecurityContext::Device if name == "policy-identity" => {
-                                candidates::validate(view, &self.installation, &[])
-                            }
-                            SecurityContext::Device => candidates::validate_device_history(
-                                view,
-                                &[candidates::PeerBinding {
-                                    member: approval.request.member_id,
-                                    endpoint: approval.request.endpoint_id.clone(),
-                                    owner: approval.owner_subject,
-                                }],
-                                Some(&candidate),
-                            ),
-                        }
+                        history.validate_candidate(
+                            view,
+                            &self.installation,
+                            &[PeerBinding {
+                                member: approval.request.member_id,
+                                endpoint: approval.request.endpoint_id.clone(),
+                                owner: approval.owner_subject,
+                            }],
+                            Some(&candidate),
+                        )
                     },
                     &mut check,
                 )
@@ -705,19 +655,7 @@ impl SecurityProtocol {
 
     async fn check_public_context_grants(&self, owner: Id) -> io::Result<()> {
         for context in [SecurityContext::Idp, SecurityContext::Device] {
-            let (action, resource) = context.permission();
-            if !LocalPermissions::new(self.policy.client())
-                .evaluate(&PermissionEvaluationRequest {
-                    request_id: Id::now_v7(),
-                    subject: PermissionSubject::User { id: owner },
-                    action,
-                    target: PermissionTarget::Installation { resource },
-                })
-                .await
-                .map_err(denied)?
-            {
-                return Err(denied("local owner lacks exact public context permission"));
-            }
+            self.owner().check_permission(owner, context).await?;
         }
         Ok(())
     }

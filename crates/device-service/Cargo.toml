@@ -16,39 +16,62 @@ name = "device_service"
 default = []
 utoipa = ["std", "dep:utoipa", "idp-model/utoipa"]
 
-replica = ["dep:of-idp-client", "dep:of-device-client", "std", "dep:db", "idp-model/replica", "idp-service/replica", "dep:api", "dep:axum", "dep:futures-util", "dep:getrandom", "dep:ofdb-sql", "dep:tokio", "dep:tokio-tungstenite", "dep:tokio-util"]
+replica = [
+    "dep:management-service",
+    "management-service/replica",
+    "dep:of-idp-client",
+    "dep:of-device-client",
+    "std",
+    "dep:db",
+    "idp-model/replica",
+    "idp-service/replica",
+    "dep:api",
+    "dep:axum",
+    "dep:futures-util",
+    "dep:getrandom",
+    "dep:ofdb-sql",
+    "dep:tokio",
+    "dep:tokio-tungstenite",
+    "dep:tokio-util",
+]
 
 std = [
-  "dep:of-idp-client",
-  "dep:of-storage-client",
-  "idp-model/std",
-  "idp-service/std",
-  "model/std",
-  "storage-model/std",
-  "dep:base64",
+    "dep:of-idp-client",
+    "dep:of-storage-client",
+    "idp-model/std",
+    "idp-service/std",
+    "model/std",
+    "storage-model/std",
+    "dep:base64",
 
-  "dep:iroh",
-  "dep:iroh-chain",
-  "dep:reqwest",
-  "serde/std",
+    "dep:iroh",
+    "dep:iroh-chain",
+    "dep:reqwest",
+    "serde/std",
 ]
 
 [dependencies]
 # API Schema
-utoipa = { version = "5.5", default-features = false, features = ["macros"], optional = true }
+utoipa = { version = "5.5", default-features = false, features = [
+    "macros",
+], optional = true }
 
 # Internal
 of-idp-client = { path = "../idp-client", default-features = false, optional = true }
 of-device-client = { path = "../device-client", default-features = false, optional = true }
 of-storage-client = { path = "../storage-client", default-features = false, optional = true }
 api = { path = "../api", default-features = false, optional = true }
-db = { package = "idp-db", path = "../db", default-features = false, features = [], optional = true }
+db = { package = "idp-db", path = "../db", default-features = false, features = [
+], optional = true }
 idp-model = { path = "../idp-model", default-features = false, features = [] }
-idp-service = { path = "../idp-service", default-features = false, features = [] }
-iroh-chain = { path = "../../../ofnet/crates/iroh-chain", default-features = false, features = [], optional = true }
-
+idp-service = { path = "../idp-service", default-features = false, features = [
+] }
+iroh-chain = { path = "../../../ofnet/crates/iroh-chain", default-features = false, features = [
+], optional = true }
+management-service = { path = "../management-service", default-features = false, optional = true }
 model = { path = "../model", default-features = false, features = [] }
-storage-model = { path = "../storage-model", default-features = false, features = [] }
+storage-model = { path = "../storage-model", default-features = false, features = [
+] }
 uuid = { version = "1.23", default-features = false, features = ["v5"] }
 
 # Error Handling
@@ -56,33 +79,67 @@ thiserror = { version = "2.0", default-features = false, features = [] }
 
 
 # Time
-chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+chrono = { version = "0.4", default-features = false, features = [
+    "clock",
+    "serde",
+] }
 
 # Serialization
 serde_json = { version = "1.0", default-features = false, features = ["std"] }
 
 # Cryptography
-base64 = { version = "0.22", default-features = false, features = ["alloc"], optional = true }
-iroh = { version = "1.1", default-features = false, features = ["tls-ring"], optional = true }
+base64 = { version = "0.22", default-features = false, features = [
+    "alloc",
+], optional = true }
+iroh = { version = "1.1", default-features = false, features = [
+    "tls-ring",
+], optional = true }
 
 
 # Serialization
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 
 # HTTP
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"], optional = true }
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls-native-roots",
+], optional = true }
 
 # Independent owner history transport
-axum = { version = "0.8", default-features = false, features = ["json", "tokio", "ws"], optional = true }
-futures-util = { version = "0.3", default-features = false, features = ["sink", "std"], optional = true }
+axum = { version = "0.8", default-features = false, features = [
+    "json",
+    "tokio",
+    "ws",
+], optional = true }
+futures-util = { version = "0.3", default-features = false, features = [
+    "sink",
+    "std",
+], optional = true }
 getrandom = { version = "0.3", default-features = false, optional = true }
-ofdb-sql = { path = "../../../ofdb/crates/sql", default-features = false, features = ["sync", "native-stage"], optional = true }
-tokio = { version = "1.52", default-features = false, features = ["macros", "net", "sync"], optional = true }
-tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "rustls-tls-native-roots"], optional = true }
+ofdb-sql = { path = "../../../ofdb/crates/sql", default-features = false, features = [
+    "sync",
+    "native-stage",
+], optional = true }
+tokio = { version = "1.52", default-features = false, features = [
+    "macros",
+    "net",
+    "sync",
+], optional = true }
+tokio-tungstenite = { version = "0.29", default-features = false, features = [
+    "connect",
+    "rustls-tls-native-roots",
+], optional = true }
 tokio-util = { version = "0.7", default-features = false, optional = true }
 
 
 [dev-dependencies]
-idp-model = { path = "../idp-model", default-features = false, features = ["std"] }
-ofdb-sql = { path = "../../../ofdb/crates/sql", default-features = false, features = ["sync"] }
-tokio = { version = "1.4", default-features = false, features = ["macros", "rt"] }
+idp-model = { path = "../idp-model", default-features = false, features = [
+    "std",
+] }
+ofdb-sql = { path = "../../../ofdb/crates/sql", default-features = false, features = [
+    "sync",
+] }
+tokio = { version = "1.4", default-features = false, features = [
+    "macros",
+    "rt",
+] }

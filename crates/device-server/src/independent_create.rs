@@ -9,8 +9,9 @@ use device_service::DeviceRepo;
 use device_service::HostedControlPlane;
 use device_service::replica::DbDeviceRepo;
 use device_service::replica::DbSelectionPolicyRepo;
-use idp_model::{contract::IdentityAction, model::Id};
+use idp_model::model::Id;
 use idp_service::setup_credentials::{SetupRelationship, create_setup_secret, load_setup_secret};
+use management_service::INITIAL_ADMINISTRATOR_ACTIONS;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -19,34 +20,6 @@ use crate::{AppConfig, IndependentDeviceRuntime, database_client::DeviceStore};
 
 #[path = "independent_join_worker.rs"]
 mod join;
-
-const ACTIONS: [IdentityAction; 25] = [
-    IdentityAction::InfrastructureClientsRead,
-    IdentityAction::InfrastructureClientsCreate,
-    IdentityAction::InfrastructureClientsUpdate,
-    IdentityAction::InfrastructureClientsDelete,
-    IdentityAction::ApplicationsRead,
-    IdentityAction::ApplicationsCreate,
-    IdentityAction::ApplicationsUpdate,
-    IdentityAction::ApplicationsDelete,
-    IdentityAction::UsersRead,
-    IdentityAction::UsersUpdate,
-    IdentityAction::UsersDelete,
-    IdentityAction::UsersResetPassword,
-    IdentityAction::ConsentsRead,
-    IdentityAction::ConsentsRevoke,
-    IdentityAction::KeysRead,
-    IdentityAction::KeysRotate,
-    IdentityAction::KeysRevoke,
-    IdentityAction::DevicesRead,
-    IdentityAction::DevicePairingRead,
-    IdentityAction::DevicePairingUpdate,
-    IdentityAction::ReplicaSignersEnroll,
-    IdentityAction::ReplicaSignersRotate,
-    IdentityAction::ReplicaSignersRevoke,
-    IdentityAction::IdpSecuritySync,
-    IdentityAction::ManagementSecuritySync,
-];
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -135,7 +108,10 @@ impl Record {
             device: Id::now_v7(),
             create: (purpose == "create").then(|| CreateSeed {
                 role: Id::now_v7(),
-                permissions: ACTIONS.iter().map(|_| Id::now_v7()).collect(),
+                permissions: INITIAL_ADMINISTRATOR_ACTIONS
+                    .iter()
+                    .map(|_| Id::now_v7())
+                    .collect(),
             }),
             user: None,
             evaluator: None,
@@ -152,7 +128,7 @@ impl Record {
     fn validate(&self) -> io::Result<()> {
         let mut ids = vec![self.client, self.device];
         if let Some(seed) = &self.create {
-            if seed.permissions.len() != ACTIONS.len() {
+            if seed.permissions.len() != INITIAL_ADMINISTRATOR_ACTIONS.len() {
                 return Err(io::Error::other("invalid retained administrator seed"));
             }
             ids.push(seed.role);
@@ -574,7 +550,7 @@ async fn provision(
         .permissions
         .iter()
         .copied()
-        .zip(ACTIONS)
+        .zip(INITIAL_ADMINISTRATOR_ACTIONS)
         .collect::<Vec<_>>();
     let identity_client = identity_client(config, control, &command.intent).await?;
     management_service::ManagementService::new(

@@ -30,7 +30,11 @@ swagger-ui = ["utoipa-swagger-ui"]
 
 [dependencies]
 of-device-client = { path = "../device-client", default-features = false }
-device-service = { path = "../device-service", default-features = false, features = ["replica", "std", "utoipa"] }
+device-service = { path = "../device-service", default-features = false, features = [
+    "replica",
+    "std",
+    "utoipa",
+] }
 # Generated HTTP operations
 of-idp-client = { path = "../idp-client", default-features = false }
 of-management-client = { path = "../management-client", default-features = false }
@@ -48,8 +52,6 @@ clap_complete = { version = "4.5", default-features = false, features = [
 cli = { path = "../cli", default-features = false, features = [
 ], optional = true }
 
-# Credentials
-rust-argon2 = { version = "3.0", default-features = false }
 
 # Internal
 api = { path = "../api", default-features = false, features = [] }

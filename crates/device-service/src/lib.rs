@@ -53,6 +53,8 @@ pub mod independent_join;
 pub mod join_history;
 #[cfg(feature = "replica")]
 pub mod security_candidates;
+#[cfg(feature = "replica")]
+pub mod security_policy;
 mod security_sync;
 pub use security_sync::{PUBLIC_DEVICE_TABLES, permits_device_table, public_device_columns};
 

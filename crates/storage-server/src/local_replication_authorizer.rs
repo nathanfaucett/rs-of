@@ -3,7 +3,7 @@ use std::{future::Future, pin::Pin, sync::Arc};
 use device_service::DeviceState;
 use idp_model::model::Id;
 use iroh::EndpointId;
-use model::contract::SelectedResource;
+use model::contract::{OwnerCopyCleanup, SelectedResource, SelectedResourcesResponse};
 
 /// Current evidence supplied by trusted IdP and Management services, not by a peer.
 #[derive(Clone, Debug)]
@@ -52,13 +52,55 @@ impl LocalReplicationAuthorizer {
             tokio_util::sync::CancellationToken,
         )>,
     ) -> Self {
+        let acknowledge = client.clone();
+        Self::from_callbacks(
+            move |endpoint| {
+                let client = client.clone();
+                async move { client.selected_resources(&endpoint.to_string()).await }
+            },
+            move |pending| {
+                let client = acknowledge.clone();
+                async move { client.acknowledge_owner_cleanup(&pending).await }
+            },
+            local
+                .as_ref()
+                .map(|(endpoint, _, cancellation)| (*endpoint, cancellation.clone())),
+            move || {
+                local
+                    .as_ref()
+                    .map(|(_, copies, _)| copies.clone())
+                    .ok_or_else(|| "Storage cleanup is not ready".into())
+            },
+        )
+    }
+
+    /// Uses the same current-policy and exact cleanup contracts as the Device HTTP API.
+    /// `copies` is resolved only for the local endpoint and may weakly reference a late-bound runtime.
+    pub fn from_callbacks<S, SF, A, AF, C>(
+        selected: S,
+        acknowledge: A,
+        local: Option<(EndpointId, tokio_util::sync::CancellationToken)>,
+        copies: C,
+    ) -> Self
+    where
+        S: Fn(EndpointId) -> SF + Send + Sync + 'static,
+        SF: Future<Output = Result<SelectedResourcesResponse, String>> + Send + 'static,
+        A: Fn(OwnerCopyCleanup) -> AF + Send + Sync + 'static,
+        AF: Future<Output = Result<(), String>> + Send + 'static,
+        C: Fn() -> Result<crate::StorageCopyRetirement, String> + Send + Sync + 'static,
+    {
+        let selected = Arc::new(selected);
+        let acknowledge = Arc::new(acknowledge);
+        let copies = Arc::new(copies);
         let cleanup = Arc::new(tokio::sync::Mutex::new(()));
         Self::new(move |endpoint| {
-            let client = client.clone();
+            let selected = selected.clone();
+            let acknowledge = acknowledge.clone();
+            let copies = copies.clone();
             let local = local.clone();
             let cleanup = cleanup.clone();
             async move {
-                let local = local.filter(|(local_endpoint, _, _)| *local_endpoint == endpoint);
+                let local = local.filter(|(local_endpoint, _)| *local_endpoint == endpoint);
                 let _guard = if local.is_some() {
                     Some(cleanup.lock().await)
                 } else {
@@ -66,13 +108,13 @@ impl LocalReplicationAuthorizer {
                 };
                 if local
                     .as_ref()
-                    .is_some_and(|(_, _, cancellation)| cancellation.is_cancelled())
+                    .is_some_and(|(_, cancellation)| cancellation.is_cancelled())
                 {
                     return Err("Storage runtime is stopping".into());
                 }
-                let mut response = client.selected_resources(&endpoint.to_string()).await?;
+                let mut response = selected(endpoint).await?;
                 if let Some(pending) = response.pending_cleanup.clone() {
-                    let (_, copies, cancellation) = local
+                    let (_, cancellation) = local
                         .as_ref()
                         .ok_or("remote Device requires owner cleanup")?;
                     if pending.device_id != response.device_id
@@ -90,11 +132,11 @@ impl LocalReplicationAuthorizer {
                     {
                         return Err("invalid Management owner cleanup binding".into());
                     }
-                    copies
+                    copies()?
                         .remove_owner_copies(&pending.old_owner_subject)
                         .await
                         .map_err(|error| error.to_string())?;
-                    let current = client.selected_resources(&endpoint.to_string()).await?;
+                    let current = selected(endpoint).await?;
                     if current.device_id != response.device_id
                         || current.endpoint_id != response.endpoint_id
                         || current.owner_subject != response.owner_subject
@@ -105,8 +147,8 @@ impl LocalReplicationAuthorizer {
                     if cancellation.is_cancelled() {
                         return Err("Storage runtime is stopping".into());
                     }
-                    client.acknowledge_owner_cleanup(&pending).await?;
-                    response = client.selected_resources(&endpoint.to_string()).await?;
+                    acknowledge(pending.clone()).await?;
+                    response = selected(endpoint).await?;
                     if response.device_id != pending.device_id
                         || response.endpoint_id != pending.endpoint_id
                         || response.owner_subject != pending.new_owner_subject
@@ -134,11 +176,11 @@ impl LocalReplicationAuthorizer {
                 {
                     return Err("invalid Management owner binding".into());
                 }
-                if let Some((_, copies, cancellation)) = local {
+                if let Some((_, cancellation)) = local {
                     if cancellation.is_cancelled() {
                         return Err("Storage runtime is stopping".into());
                     }
-                    copies
+                    copies()?
                         .activate_owner(&response.owner_subject)
                         .map_err(|error| error.to_string())?;
                 }

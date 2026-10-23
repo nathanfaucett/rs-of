@@ -1,5 +1,3 @@
-use idp_server::bootstrap_host::BootstrapHost;
-
 use std::{
     collections::HashMap,
     fs,
@@ -320,10 +318,7 @@ fn old_one_two_and_four_relationship_create_and_join_intents_deny_unchanged() {
             old[field]["clients"] = serde_json::json!(
                 (0..old_count)
                     .map(|_| {
-                        idp_server::local_provisioning::login_registration(
-                            &crate::UnifiedBootstrapHost::settings(&fixture.config),
-                            Id::now_v7(),
-                        )
+                        crate::local_provisioning::login_registration(&fixture.config, Id::now_v7())
                     })
                     .collect::<Vec<_>>()
             );
@@ -532,10 +527,7 @@ async fn rotation_login_client(
     let owner = idp_server::OwnerProvisioner::open(&fixture.config.idp)
         .await
         .expect("stopped fixture IdP owner");
-    let mut request = idp_server::local_provisioning::login_registration(
-        &crate::UnifiedBootstrapHost::settings(&fixture.config),
-        Id::now_v7(),
-    );
+    let mut request = crate::local_provisioning::login_registration(&fixture.config, Id::now_v7());
     request.allowed_grant_types = grants;
     request.allowed_audiences = audiences;
     fixture_oauth2(
@@ -1797,3 +1789,71 @@ fn local_provisioning_rejects_unprotected_input_and_missing_or_conflicting_inten
 
 #[path = "full_node_tests.rs"]
 mod full_nodes;
+
+#[test]
+fn concrete_host_settings_preserve_the_durable_intent_when_normalized() {
+    let config = UnifiedConfig {
+        listen_addr: "127.0.0.1:3000".parse().expect("loopback address"),
+        endpoint_data_dir: "bootstrap-settings/endpoint".into(),
+        idp: idp_server::AppConfig {
+            data_dir: "bootstrap-settings/idp".into(),
+            api_public_uri: "https://identity.test/idp".into(),
+            service_audience: Some("identity-service".into()),
+            key_namespace: "local-bootstrap".into(),
+            oauth2: idp_service::oauth2::OAuth2Config {
+                issuer: "https://installation.test/idp".into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        management: management_server::AppConfig::default(),
+        device: device_server::AppConfig {
+            data_dir: "bootstrap-settings/device".into(),
+            api_public_uri: "https://control.test/device".into(),
+            storage_audience: "storage-service".into(),
+            ..Default::default()
+        },
+        storage: storage_server::AppConfig {
+            data_dir: "bootstrap-settings/storage".into(),
+            api_public_uri: "https://resources.test/storage".into(),
+            ..Default::default()
+        },
+    };
+    let mut retained = serde_json::to_value(
+        crate::local_provisioning::intent(&config).expect("valid owner settings"),
+    )
+    .expect("durable intent");
+    assert_eq!(retained["issuer"], "https://installation.test/idp");
+    assert_eq!(retained["key_namespace"], "local-bootstrap");
+    assert_eq!(
+        retained["audiences"],
+        serde_json::json!(["identity-service", "storage-service"])
+    );
+    assert_eq!(
+        retained["applications"],
+        serde_json::json!([
+            "https://identity.test/idp",
+            "https://control.test/device",
+            "https://resources.test/storage"
+        ])
+    );
+    let directory = std::env::current_dir().expect("current directory");
+    retained["roots"] = serde_json::json!([
+        directory.join("bootstrap-settings/idp"),
+        directory.join("bootstrap-settings/device"),
+        directory.join("bootstrap-settings/storage"),
+        directory.join("bootstrap-settings/endpoint"),
+    ]);
+    let normalized =
+        crate::local_provisioning::normalized_config(config).expect("normalize minimal settings");
+    assert!(normalized.endpoint_data_dir.is_absolute());
+    assert!(Path::new(&normalized.device.data_dir).is_absolute());
+    assert!(Path::new(&normalized.storage.data_dir).is_absolute());
+    assert_eq!(
+        serde_json::to_value(
+            crate::local_provisioning::intent(&normalized).expect("normalized intent")
+        )
+        .expect("intent JSON"),
+        retained,
+    );
+}

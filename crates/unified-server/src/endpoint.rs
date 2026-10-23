@@ -705,3 +705,18 @@ mod tests {
         fs::remove_dir_all(data_dir).expect("remove endpoint test directory");
     }
 }
+
+pub(crate) async fn discover_with_cancellation(
+    peer: &str,
+    cancellation: &tokio_util::sync::CancellationToken,
+) -> io::Result<String> {
+    #[cfg(test)]
+    let preset = crate::endpoint::TestPreset;
+    #[cfg(not(test))]
+    let preset = iroh::endpoint::presets::N0;
+    idp_server::issuer_discovery::discover_with_preset(peer, cancellation, preset).await
+}
+
+pub async fn discover_installation_issuer(peer: &str) -> io::Result<String> {
+    discover_with_cancellation(peer, &tokio_util::sync::CancellationToken::new()).await
+}

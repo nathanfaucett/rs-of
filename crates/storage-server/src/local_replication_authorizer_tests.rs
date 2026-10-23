@@ -148,3 +148,148 @@ async fn native_selection_fixture(select: bool) {
     drop(management);
     std::fs::remove_dir_all(root).expect("cleanup isolated stores");
 }
+
+#[tokio::test]
+async fn callback_cleanup_preserves_exact_binding_cancellation_and_remote_denial() {
+    use std::sync::{
+        Mutex, OnceLock,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    use model::contract::{OwnerCopyCleanup, SelectedResourcesResponse};
+    use storage_service::{DatabaseRuntime, ScopedFileSystemRuntime};
+    use tokio_util::sync::CancellationToken;
+
+    for scenario in [
+        "transfer",
+        "cleanup-id",
+        "binding",
+        "after-ack",
+        "pending",
+        "cancel",
+        "stopped",
+        "remote",
+        "revoked",
+        "not-ready",
+    ] {
+        let root = std::env::temp_dir().join(format!("of-shared-cleanup-{}", Id::now_v7()));
+        let endpoint = iroh::SecretKey::generate().public();
+        let pending = OwnerCopyCleanup {
+            cleanup_id: Id::now_v7().to_string(),
+            device_id: Id::now_v7().to_string(),
+            endpoint_id: endpoint.to_string(),
+            old_owner_subject: Id::now_v7().to_string(),
+            new_owner_subject: Id::now_v7().to_string(),
+        };
+        let cancellation = CancellationToken::new();
+        let copies = Arc::new(OnceLock::new());
+        let weak = Arc::downgrade(&copies);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let acknowledgements = Arc::new(Mutex::new(Vec::new()));
+        let authorizer = LocalReplicationAuthorizer::from_callbacks(
+            {
+                let pending = pending.clone();
+                let calls = calls.clone();
+                let cancellation = cancellation.clone();
+                move |_| {
+                    let call = calls.fetch_add(1, Ordering::SeqCst);
+                    let mut current = pending.clone();
+                    let cancellation = cancellation.clone();
+                    async move {
+                        if scenario == "revoked" {
+                            return Err("Device revoked".into());
+                        }
+                        if call == 1 {
+                            if scenario == "cleanup-id" {
+                                current.cleanup_id = Id::now_v7().to_string();
+                            }
+                            if scenario == "binding" {
+                                current.new_owner_subject = Id::now_v7().to_string();
+                            }
+                            if scenario == "cancel" {
+                                cancellation.cancel();
+                            }
+                        }
+                        if call == 2 && scenario == "after-ack" {
+                            current.new_owner_subject = Id::now_v7().to_string();
+                        }
+                        Ok(SelectedResourcesResponse {
+                            device_id: current.device_id.clone(),
+                            endpoint_id: current.endpoint_id.clone(),
+                            owner_subject: current.new_owner_subject.clone(),
+                            pending_cleanup: (call < 2 || scenario == "pending").then_some(current),
+                            admin_allowed: true,
+                            resources: vec![],
+                        })
+                    }
+                }
+            },
+            {
+                let acknowledgements = acknowledgements.clone();
+                move |pending| {
+                    acknowledgements
+                        .lock()
+                        .expect("acknowledgements")
+                        .push(pending);
+                    async { Ok(()) }
+                }
+            },
+            Some((
+                if scenario == "remote" {
+                    iroh::SecretKey::generate().public()
+                } else {
+                    endpoint
+                },
+                cancellation.clone(),
+            )),
+            move || {
+                weak.upgrade()
+                    .ok_or("Storage runtime was released")?
+                    .get()
+                    .cloned()
+                    .ok_or_else(|| "Storage cleanup is not ready".into())
+            },
+        );
+        // The authorizer is built before the runtimes without retaining their owner.
+        if scenario != "not-ready" {
+            let retirement = crate::StorageCopyRetirement::new(
+                Arc::new(DatabaseRuntime::new(root.join("sql")).expect("database runtime")),
+                Arc::new(
+                    ScopedFileSystemRuntime::new(root.join("fs"), endpoint)
+                        .expect("filesystem runtime"),
+                ),
+            );
+            assert!(copies.set(retirement).is_ok());
+        }
+        if scenario == "stopped" {
+            cancellation.cancel();
+        }
+        let result = authorizer.local_owner(endpoint).await;
+        if scenario == "transfer" {
+            assert_eq!(
+                result.expect("shared local cleanup"),
+                pending.new_owner_subject
+            );
+            assert_eq!(
+                *acknowledgements.lock().expect("acknowledgements"),
+                vec![pending]
+            );
+            assert_eq!(calls.load(Ordering::SeqCst), 3);
+        } else {
+            assert!(result.is_err(), "{scenario}");
+            let expected = usize::from(matches!(scenario, "after-ack" | "pending"));
+            assert_eq!(
+                acknowledgements.lock().expect("acknowledgements").len(),
+                expected,
+                "{scenario}"
+            );
+        }
+        assert_eq!(Arc::strong_count(&copies), 1, "no runtime ownership cycle");
+        drop(copies);
+        assert!(authorizer.local_owner(endpoint).await.is_err());
+        drop(authorizer);
+        if root.exists() {
+            std::fs::remove_dir_all(root).expect("remove cleanup fixture");
+        }
+    }
+}

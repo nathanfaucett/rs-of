@@ -20,8 +20,6 @@ mod node_bootstrap_owner_tests;
 mod node_join_bootstrap_tests;
 #[cfg(test)]
 mod permission_http_tests;
-mod protocol;
-mod router;
 mod runtime;
 #[cfg(test)]
 mod security_history_tests;
@@ -38,9 +36,7 @@ mod setup_runtime;
 pub use cli::run;
 pub use config::UnifiedConfig;
 pub use endpoint::UnifiedEndpoint;
-pub use protocol::compose_protocol_router;
-pub use router::compose_router;
-pub use runtime::{RuntimeOwners, UnifiedRuntime};
+pub use runtime::{RuntimeOwners, UnifiedRuntime, compose_protocol_router, compose_router};
 pub use security_sync::{SecurityContext, SecurityProtocol};
 #[cfg(unix)]
 pub use setup_host::SetupHost;
@@ -50,18 +46,19 @@ pub use setup_runtime::ApiSetupHost;
 #[cfg(test)]
 mod generated_transport_tests;
 
-mod owner_health;
-
 #[cfg(all(test, unix))]
 mod setup_runtime_tests;
 
-mod bootstrap_adapter;
+mod bootstrap_config;
+mod credential_bootstrap;
+mod local_join;
+mod local_provisioning;
 pub use api::LocalTls;
-pub use bootstrap_adapter::discover_installation_issuer;
-pub use bootstrap_adapter::{
-    BootstrapConfig, CredentialBootstrap, LocalJoin, LocalProvisioner, UnifiedBootstrapHost,
-};
-pub use idp_server::BootstrapPurpose;
+pub use bootstrap_config::{BootstrapConfig, BootstrapPurpose};
+pub use credential_bootstrap::CredentialBootstrap;
+pub use endpoint::discover_installation_issuer;
+pub use local_join::LocalJoin;
+pub use local_provisioning::LocalProvisioner;
 #[cfg(test)]
 mod bootstrap_config_tests;
 #[cfg(all(test, not(unix)))]

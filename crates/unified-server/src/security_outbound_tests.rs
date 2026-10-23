@@ -352,7 +352,11 @@ async fn peer_exchange(
         for (_, name, tables) in fixture.source.sessions(context) {
             let database = match context {
                 SecurityContext::Idp => &fixture.peer_idp,
-                SecurityContext::Device if name == "policy-identity" => &fixture.peer_idp,
+                SecurityContext::Device
+                    if name == device_service::security_policy::SecurityHistory::IdentityPolicy =>
+                {
+                    &fixture.peer_idp
+                }
                 SecurityContext::Device => &fixture.peer_management,
             };
             peer_result = database

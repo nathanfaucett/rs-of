@@ -1,5 +1,3 @@
-use idp_server::bootstrap_host::BootstrapHost;
-
 use std::{
     fs, io,
     path::Path,
@@ -17,17 +15,14 @@ use idp_server::{IdpRuntime, OwnerProvisioner, build_runtime as build_idp_runtim
 use iroh::protocol::Router as IrohRouter;
 use management_service::LocalPermissions;
 use storage_server::{
-    DeviceReplicationPolicy, IdpClient, LocalReplicationAuthorizer,
-    RouterState as StorageRouterState, StorageRuntime, build_runtime as build_storage_runtime,
+    IdpClient, LocalReplicationAuthorizer, RouterState as StorageRouterState, StorageRuntime,
+    build_runtime as build_storage_runtime,
 };
-use tokio::{net::TcpListener, sync::Mutex, task::JoinHandle, time::sleep};
+use tokio::{net::TcpListener, task::JoinHandle, time::sleep};
 use tokio_util::sync::CancellationToken;
 use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
 
-use crate::{
-    SecurityContext, SecurityProtocol, UnifiedEndpoint, compose_protocol_router, compose_router,
-    config::UnifiedConfig,
-};
+use crate::{SecurityContext, SecurityProtocol, UnifiedEndpoint, config::UnifiedConfig};
 
 const IDP_PREFIX: &str = "/idp";
 const MANAGEMENT_PREFIX: &str = "/management";
@@ -65,61 +60,37 @@ pub(crate) fn owner_replication_authorizer(
     local_endpoint: iroh::EndpointId,
     copies: Arc<OnceLock<storage_server::StorageCopyRetirement>>,
 ) -> LocalReplicationAuthorizer {
-    let cleanup = Arc::new(Mutex::new(()));
+    let selected = authority.clone();
     let copies = Arc::downgrade(&copies);
-    LocalReplicationAuthorizer::new(move |endpoint| {
-        let authority = authority.clone();
-        let copies = copies.clone();
-        let cleanup = Arc::clone(&cleanup);
-        async move {
-            let _cleanup = if endpoint == local_endpoint {
-                Some(cleanup.lock().await)
-            } else {
-                None
-            };
-            let device = authority.endpoint_identity(&endpoint.to_string()).await?;
-
-            if endpoint == local_endpoint && !authority.reconcile_owner(&device).await? {
-                let old_owner = authority.pending_cleanup_owner(&device).await?;
-                copies
-                    .upgrade()
-                    .ok_or("Storage runtime was released")?
-                    .get()
-                    .ok_or("Storage cleanup is not ready")?
-                    .remove_owner_copies(&old_owner)
+    LocalReplicationAuthorizer::from_callbacks(
+        move |endpoint| {
+            let authority = selected.clone();
+            async move {
+                authority
+                    .selected_resources(&endpoint.to_string())
                     .await
-                    .map_err(|error| error.to_string())?;
-                if !authority
-                    .complete_owner_cleanup(&device, &old_owner)
-                    .await?
-                {
-                    return Err("Device owner changed during local cleanup".into());
-                }
+                    .map_err(|error| format!("{error:?}"))
             }
-
-            let (admin_allowed, resources) = authority.replication_policy(&device).await?;
-
-            if endpoint == local_endpoint {
-                copies
-                    .upgrade()
-                    .ok_or("Storage runtime was released")?
-                    .get()
-                    .ok_or("Storage cleanup is not ready")?
-                    .activate_owner(&device.owner_subject)
-                    .map_err(|error| error.to_string())?;
+        },
+        move |pending| {
+            let authority = authority.clone();
+            async move {
+                authority
+                    .acknowledge_owner_cleanup(&pending)
+                    .await
+                    .map_err(|error| format!("{error:?}"))
             }
-
-            Ok(DeviceReplicationPolicy {
-                device_id: device.device_id,
-                endpoint_id: endpoint,
-                owner_subject: device.owner_subject,
-                state: device_service::DeviceState::Approved,
-                owner_active: true,
-                admin_allowed,
-                resources,
-            })
-        }
-    })
+        },
+        Some((local_endpoint, CancellationToken::new())),
+        move || {
+            copies
+                .upgrade()
+                .ok_or("Storage runtime was released")?
+                .get()
+                .cloned()
+                .ok_or_else(|| "Storage cleanup is not ready".into())
+        },
+    )
 }
 
 /// Already initialized owners retained by a bundled host from provisioning into serving.
@@ -718,7 +689,7 @@ impl UnifiedRuntime {
 }
 
 pub(crate) fn validate_config(config: &UnifiedConfig) -> io::Result<()> {
-    idp_server::bootstrap_settings::validate_config(&crate::UnifiedBootstrapHost::settings(config))
+    crate::config::validate_config(config)
 }
 
 fn validate_data_dirs(config: &UnifiedConfig) -> io::Result<()> {
@@ -823,7 +794,7 @@ async fn wait_until_ready(
             () = cancellation_token.cancelled() => {
                 return Err(io::Error::new(io::ErrorKind::Interrupted, "unified startup was cancelled"));
             }
-            response = crate::owner_health::check(&owner_base, "idp", &client) => {
+            response = crate::bootstrap_verification::check_owner_health(&owner_base, "idp", &client) => {
                 if response.is_ok() {
                     return Ok(());
                 }
@@ -2110,3 +2081,21 @@ mod tests {
 #[cfg(all(test, unix))]
 #[path = "full_node_runtime_fixture.rs"]
 mod full_node_fixture;
+
+pub fn compose_router(idp: Router, management: Router, device: Router, storage: Router) -> Router {
+    idp.merge(management).merge(device).merge(storage)
+}
+
+pub fn compose_protocol_router(
+    server: &iroh_chain::Server,
+    storage: &StorageRuntime,
+    security: &SecurityProtocol,
+) -> Option<IrohRouter> {
+    storage.data_handler().map(|data_protocol| {
+        server.router_with_protocol(
+            security.attach(data_protocol),
+            idp_server::BOOTSTRAP_ALPN,
+            security.node_bootstrap_handler(),
+        )
+    })
+}

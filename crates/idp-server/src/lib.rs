@@ -70,18 +70,7 @@ pub use hosted_setup::{
     SetupCommand, SetupOperation, SetupPurpose, build_setup_router, setup_openapi,
 };
 
-pub mod bootstrap_config;
-pub mod bootstrap_host;
-pub mod bootstrap_settings;
-pub mod credential_bootstrap;
-mod host_reset;
 pub mod issuer_discovery;
-pub mod local_join;
 pub mod local_provisioning;
 pub use api::LocalTls;
-pub use bootstrap_config::{BootstrapConfig, BootstrapPurpose};
-pub use bootstrap_settings::BootstrapSettings;
-pub use credential_bootstrap::CredentialBootstrap;
 pub use issuer_discovery::discover_installation_issuer;
-pub use local_join::LocalJoin;
-pub use local_provisioning::LocalProvisioner;

@@ -3,7 +3,6 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, header::AUTHORIZATION},
 };
-use device_service::replica::OwnerPolicyObservation;
 use device_service::replica::SelectedResource as StoredSelectedResource;
 use idp_model::{
     contract::{ErrorCode, ErrorResponse},
@@ -33,78 +32,11 @@ pub(crate) async fn selected_resources(
     Path(endpoint_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<SelectedResourcesResponse>, ErrorResponse> {
-    let started = std::time::Instant::now();
-    let (authorized, identity) = tokio::join!(
-        authorize_storage(&state, &headers, MANAGEMENT_REPLICATION_READ_SCOPE),
-        async {
-            state
-                .control_plane
-                .get_storage_endpoint_identity(&endpoint_id)
-                .await
-                .map_err(|error| {
-                    log::warn!("Management endpoint identity lookup failed: {error}");
-                    unavailable()
-                })
-        }
-    );
-    authorized?;
-    let identity = identity?;
-    log::debug!(
-        "Management policy phase=authentication-identity elapsed_ms={}",
-        started.elapsed().as_millis()
-    );
-
-    let observation = state
-        .selection_policies
-        .observe_owner_prevalidated(identity.device_id, &identity.owner_subject)
+    authorize_storage(&state, &headers, MANAGEMENT_REPLICATION_READ_SCOPE).await?;
+    crate::DeviceAuthority::from_parts(state.control_plane, state.selection_policies)
+        .selected_resources(&endpoint_id)
         .await
-        .map_err(|_| unavailable())?;
-    let (pending_cleanup, admin_allowed, resources) = match observation {
-        OwnerPolicyObservation::PendingCleanup {
-            cleanup_id,
-            old_owner_subject,
-        } => (
-            Some(OwnerCopyCleanup {
-                cleanup_id: cleanup_id.to_string(),
-                device_id: identity.device_id.to_string(),
-                endpoint_id: identity.endpoint_id.clone(),
-                old_owner_subject,
-                new_owner_subject: identity.owner_subject.clone(),
-            }),
-            false,
-            vec![],
-        ),
-        ready => {
-            let (allowed, resources) = crate::runtime::replication_policy_from_observation(ready)
-                .map_err(|_| unavailable())?;
-            (None, allowed, resources)
-        }
-    };
-    log::debug!(
-        "Management policy phase=selection elapsed_ms={}",
-        started.elapsed().as_millis()
-    );
-    if state
-        .control_plane
-        .get_storage_endpoint_identity(&endpoint_id)
-        .await
-        .map_err(|_| unavailable())?
-        != identity
-    {
-        return Err(denied());
-    }
-    log::debug!(
-        "Management policy phase=recheck elapsed_ms={}",
-        started.elapsed().as_millis()
-    );
-    Ok(Json(SelectedResourcesResponse {
-        device_id: identity.device_id.to_string(),
-        endpoint_id: identity.endpoint_id,
-        owner_subject: identity.owner_subject,
-        pending_cleanup,
-        admin_allowed,
-        resources,
-    }))
+        .map(Json)
 }
 
 #[utoipa::path(
@@ -206,40 +138,9 @@ pub(crate) async fn owner_cleanup(
     Json(request): Json<OwnerCopyCleanup>,
 ) -> Result<axum::http::StatusCode, ErrorResponse> {
     authorize_storage(&state, &headers, MANAGEMENT_REPLICATION_ADMIT_SCOPE).await?;
-    let identity = state
-        .control_plane
-        .get_storage_endpoint_identity(&request.endpoint_id)
-        .await
-        .map_err(|_| unavailable())?;
-    if identity.device_id.to_string() != request.device_id
-        || identity.owner_subject != request.new_owner_subject
-        || !request
-            .old_owner_subject
-            .parse::<Id>()
-            .is_ok_and(|owner| !owner.is_nil())
-        || !state
-            .selection_policies
-            .complete_owner_cleanup_bound(
-                identity.device_id,
-                &request.old_owner_subject,
-                &request.new_owner_subject,
-                &request.endpoint_id,
-                request.cleanup_id.parse::<Id>().map_err(|_| denied())?,
-            )
-            .await
-            .map_err(|_| unavailable())?
-    {
-        return Err(denied());
-    }
-    if state
-        .control_plane
-        .get_storage_endpoint_identity(&request.endpoint_id)
-        .await
-        .map_err(|_| unavailable())?
-        != identity
-    {
-        return Err(denied());
-    }
+    crate::DeviceAuthority::from_parts(state.control_plane, state.selection_policies)
+        .acknowledge_owner_cleanup(&request)
+        .await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 

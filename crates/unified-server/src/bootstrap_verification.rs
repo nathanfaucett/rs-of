@@ -54,7 +54,7 @@ impl UnifiedRuntime {
             self.probe_bootstrap().await
         } else {
             async {
-                crate::owner_health::check(
+                crate::bootstrap_verification::check_owner_health(
                     &format!("{}/idp", self.api_base),
                     "idp",
                     &LocalTls::verification_client()?,
@@ -84,9 +84,13 @@ impl UnifiedRuntime {
         let http = LocalTls::verification_client()?;
         let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
         loop {
-            if crate::owner_health::check(&format!("{}/idp", self.api_base), "idp", &http)
-                .await
-                .is_ok()
+            if crate::bootstrap_verification::check_owner_health(
+                &format!("{}/idp", self.api_base),
+                "idp",
+                &http,
+            )
+            .await
+            .is_ok()
             {
                 break;
             }
@@ -98,8 +102,12 @@ impl UnifiedRuntime {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         for context in ["idp", "management", "storage"] {
-            crate::owner_health::check(&format!("{}/{context}", self.api_base), context, &http)
-                .await?;
+            crate::bootstrap_verification::check_owner_health(
+                &format!("{}/{context}", self.api_base),
+                context,
+                &http,
+            )
+            .await?;
         }
         if !self.node_public_ready().await? {
             return Err(failed("local Node public state is not ready"));
@@ -120,4 +128,47 @@ impl UnifiedRuntime {
 
 fn failed(message: &str) -> io::Error {
     io::Error::other(message)
+}
+
+pub(crate) async fn check_owner_health(
+    base: &str,
+    owner: &str,
+    client: &reqwest::Client,
+) -> io::Result<()> {
+    match owner {
+        "idp" => {
+            let configuration = of_idp_client::apis::configuration::Configuration {
+                base_path: base.to_owned(),
+                client: client.clone(),
+                ..Default::default()
+            };
+            of_idp_client::apis::default_api::health(&configuration)
+                .await
+                .map(|_| ())
+                .map_err(io::Error::other)
+        }
+        "management" => {
+            let configuration = of_management_client::apis::configuration::Configuration {
+                base_path: base.to_owned(),
+                client: client.clone(),
+                ..Default::default()
+            };
+            of_management_client::apis::default_api::health(&configuration)
+                .await
+                .map(|_| ())
+                .map_err(io::Error::other)
+        }
+        "storage" => {
+            let configuration = of_storage_client::apis::configuration::Configuration {
+                base_path: base.to_owned(),
+                client: client.clone(),
+                ..Default::default()
+            };
+            of_storage_client::apis::default_api::health(&configuration)
+                .await
+                .map(|_| ())
+                .map_err(io::Error::other)
+        }
+        _ => Err(io::Error::other("unknown owner health contract")),
+    }
 }

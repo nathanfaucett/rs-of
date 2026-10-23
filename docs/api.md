@@ -15,10 +15,10 @@ Paths below are owner-relative. Unified hosting mounts `/idp`, `/management`, `/
 | IdP        | User, Application and Client administration                                         | Verified User; exact audience, action and Application/Installation target                                                                                    |
 | IdP        | Active-User lookup                                                                  | Authenticated service Client with `idp.user.lookup`                                                                                                          |
 | IdP        | `POST /replica-signers`, `PUT`/`DELETE /replica-signers/{member_id}`                | Exact Installation signer enroll/rotate/revoke permissions; public approval supplies no private capability                                                   |
-| Device     | Device administration; `GET /devices/identities/{device_id}` and endpoint discovery | Current Device binding and active IdP User; service lookup/list require `management.device.lookup` / `management.device.list`                     |
+| Device     | Device administration; `GET /devices/identities/{device_id}` and endpoint discovery | Current Device binding and active IdP User; service lookup/list require `management.device.lookup` / `management.device.list`                                |
 | Device     | `PUT /devices/{device_id}/owner`                                                    | Exact Installation `management.devices.transfer`; active new User; 204 is mutation, not cleanup completion                                                   |
 | Management | `POST /permissions/evaluate`                                                        | Same verified User, or separately registered evaluator Client with `management.permission.evaluate`; `idp-management` audience and exact typed action/target |
-| Device     | Selection, resource-specific deselection and restriction read/update                | Distinct permissions plus current Device/owner binding; ownership is not administrator restriction authority                                      |
+| Device     | Selection, resource-specific deselection and restriction read/update                | Distinct permissions plus current Device/owner binding; ownership is not administrator restriction authority                                                 |
 | Storage    | Database/filesystem CRUD and filesystem Residency                                   | User/Application namespace, kind audience, exact read/write action and current owner/policy/cleanup gates                                                    |
 
 `/replica-signers` retains its historical spelling; it is not a privileged replica role. Endpoint possession proves transport identity, not permission. An approved endpoint needs no individual IdP token signer or full Node enrollment. Unknown/revoked endpoints deny even with valid OAuth evidence; token issuer/Principal/signer checks remain independently mandatory. Approval alone grants no resource access. See [Storage API](../crates/storage-service/docs/api.md).
@@ -121,13 +121,13 @@ Use ordinary `POST /idp/oauth2/token` form fields `grant_type=password`, actual 
 
 Append these owner-relative paths to the **selected source Device base**. Browser callers select the tagged module from checked IdP setup-scope evidence, not a URL suffix (independent owners may also mount at `/management`). Unified mounts them at `/device/node-joins/...`; independent sources mount the corresponding distinct operations at `/independent/node-joins/...` relative to their configured Device base. The `node_join` and `independent_join` modules use distinct operation IDs and response contracts; obsolete IdP paths are absent.
 
-| Method/path                     | Contract                                                                              |
-| ------------------------------- | ------------------------------------------------------------------------------------- |
-| `GET /node-joins/acceptance`    | `{"accepting":true/false}`                                                            |
-| `PUT /node-joins/acceptance`    | Unified returns state; independent `PUT /independent/node-joins/acceptance` returns 204 (read back)              |
-| `GET /node-joins/pending`       | Array of `offer_id`, `authenticated_endpoint`, exact public `request`                 |
+| Method/path                     | Contract                                                                                                              |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `GET /node-joins/acceptance`    | `{"accepting":true/false}`                                                                                            |
+| `PUT /node-joins/acceptance`    | Unified returns state; independent `PUT /independent/node-joins/acceptance` returns 204 (read back)                   |
+| `GET /node-joins/pending`       | Array of `offer_id`, `authenticated_endpoint`, exact public `request`                                                 |
 | `POST /node-joins/{id}/approve` | Unified 200 `NodeJoinApproval`; `POST /independent/node-joins/{id}/approve` returns 202 accepted work, not completion |
-| `POST /node-joins/{id}/reject`  | 204                                                                                   |
+| `POST /node-joins/{id}/reject`  | 204                                                                                                                   |
 
 Every route requires an ordinary authorized User bearer with **Management audience** (`idp-management`) and both exact Device pairing-update and separate signer-enrollment permissions. IdP-audience tokens or target Setup codes do not authorize source approval. Unified missing bearer is 401, permission denial 403, missing offer 404, conflict 409, other owner failure 503; independent missing/unauthorized User evidence denies with 403.
 
@@ -177,6 +177,6 @@ Storage exports resolve through `esm`/`types`. Build explicitly before publicati
 
 - Shared setup/admission/independent contracts: `crates/api/src/`, including `independent_openapi.rs`.
 - IdP and Management owner routers: `crates/idp-server/src/router/`, `crates/management-server/src/router/`.
-- Unified worker/runtime/source approval: `crates/unified-server/src/api_create.rs`, `runtime.rs`, `node_join_source.rs`.
+- Unified setup worker/runtime: `crates/unified-server/src/setup_runtime.rs`, `local_provisioning.rs`, `local_join.rs`, `runtime.rs`. Source approval belongs to `crates/device-server/src/node_join_source.rs`.
 - Native lifecycle boundary: [NATIVE-SETUP.md](../apps/app/src-tauri/NATIVE-SETUP.md).
 - Frontend setup transport: `apps/app/src/lib/common/state/setupApi.ts`, `independentSetupApi.ts`.

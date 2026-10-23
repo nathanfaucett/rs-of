@@ -6,26 +6,12 @@ use std::{
 };
 
 use db::Database;
-use device_service::DeviceRepo;
-use device_service::PUBLIC_DEVICE_TABLES;
-use device_service::replica::DbDeviceRepo;
-use idp_model::{
-    contract::{
-        IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
-        PermissionTarget,
-    },
-    model::Id,
-};
-use idp_service::{
-    PasswordConfig,
-    oauth2::NodeSignerBinding,
-    replica::DbUserRepo,
-    repo::UserRepo,
-    security_sync::{PUBLIC_IDENTITY_POLICY_TABLES, public_security_tables},
-};
+pub use device_service::security_policy::SecurityContext;
+use device_service::security_policy::{SecurityHistory, SecuritySync};
+use idp_model::model::Id;
+use idp_service::oauth2::NodeSignerBinding;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh_chain::Server;
-use management_service::LocalPermissions;
 use ofdb_sql::{SessionConfig, SyncError, SyncResult, SyncRole, SyncTransport};
 use serde::{Deserialize, Serialize};
 use storage_server::{DataProtocolHandler, DatabaseTransport};
@@ -34,60 +20,11 @@ use tokio_util::sync::CancellationToken;
 #[path = "security_bootstrap.rs"]
 mod bootstrap;
 
-#[path = "security_candidates.rs"]
-mod candidates;
-
 #[cfg(test)]
 #[path = "security_outbound_tests.rs"]
 mod outbound_tests;
 
 const SECURITY_STREAM_KIND: u8 = 3;
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SecurityContext {
-    Idp,
-    Device,
-}
-
-impl SecurityContext {
-    fn validate_value(self, table: &str, column: &str, value: &db::Value) -> Result<(), String> {
-        let permitted = match self {
-            Self::Idp => public_security_tables()
-                .into_iter()
-                .find(|public| public.name() == table)
-                .is_some_and(|public| public.permits_historical_value(column, value)),
-            Self::Device if identity_policy_table(table) => public_security_tables()
-                .into_iter()
-                .find(|public| public.name() == table)
-                .is_some_and(|public| public.permits_historical_value(column, value)),
-            Self::Device => device_service::public_device_columns(table).is_some_and(|columns| {
-                columns.contains(&column)
-                    && (table != "devices" || candidates::permits_device_value(column, value))
-            }),
-        };
-        if permitted {
-            Ok(())
-        } else {
-            Err(format!(
-                "invalid public security historical value: {table}.{column}"
-            ))
-        }
-    }
-
-    fn permission(self) -> (IdentityAction, IdentityResource) {
-        match self {
-            Self::Idp => (
-                IdentityAction::IdpSecuritySync,
-                IdentityResource::IdpSecurity,
-            ),
-            Self::Device => (
-                IdentityAction::ManagementSecuritySync,
-                IdentityResource::ManagementSecurity,
-            ),
-        }
-    }
-}
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -140,36 +77,26 @@ impl SecurityProtocol {
         }
     }
 
+    fn owner(&self) -> SecuritySync<'_> {
+        SecuritySync::new(&self.idp, &self.management, &self.policy)
+    }
+
     fn sessions(
         &self,
         context: SecurityContext,
-    ) -> Vec<(&Arc<Database>, &'static str, Vec<&'static str>)> {
-        match context {
-            SecurityContext::Idp => vec![(
-                &self.idp,
-                "idp",
-                public_security_tables()
-                    .into_iter()
-                    .map(|table| table.name())
-                    .filter(|table| !identity_policy_table(table))
-                    .collect(),
-            )],
-            SecurityContext::Device => vec![
-                (
-                    &self.policy,
-                    "policy-identity",
-                    PUBLIC_IDENTITY_POLICY_TABLES
-                        .iter()
-                        .map(|table| table.name())
-                        .collect(),
-                ),
-                (
-                    &self.management,
-                    "policy-devices",
-                    PUBLIC_DEVICE_TABLES.to_vec(),
-                ),
-            ],
-        }
+    ) -> Vec<(&Arc<Database>, SecurityHistory, Vec<&'static str>)> {
+        context
+            .histories()
+            .iter()
+            .map(|history| {
+                let database = match history {
+                    SecurityHistory::Idp => &self.idp,
+                    SecurityHistory::IdentityPolicy => &self.policy,
+                    SecurityHistory::Devices => &self.management,
+                };
+                (database, *history, history.tables())
+            })
+            .collect()
     }
 
     pub fn attach(&self, handler: DataProtocolHandler) -> DataProtocolHandler {
@@ -196,12 +123,11 @@ impl SecurityProtocol {
         self.validate_local_schema(context).await?;
         let handshake = self.local_handshake(context).await?;
 
-        let remote_member = DbDeviceRepo::new(self.management.clone().client())
-            .find_approved_by_public_key(&connection.remote_id().to_string())
-            .await
-            .map_err(denied)?
-            .ok_or_else(|| denied("remote endpoint has no approved local Device"))?
-            .id;
+        let remote_member = self
+            .owner()
+            .binding(&connection.remote_id().to_string(), None)
+            .await?
+            .member;
         self.authorize(connection, remote_member, context).await?;
 
         let (mut send, recv) = connection.open_bi().await.map_err(io::Error::other)?;
@@ -270,52 +196,8 @@ impl SecurityProtocol {
     }
 
     async fn validate_local_schema(&self, context: SecurityContext) -> io::Result<()> {
-        for (database, _, names) in self.sessions(context) {
-            let tables = names
-                .into_iter()
-                .map(|name| {
-                    let columns = if context == SecurityContext::Idp || identity_policy_table(name)
-                    {
-                        public_security_tables()
-                            .into_iter()
-                            .find(|table| table.name() == name)
-                            .expect("public identity table")
-                            .columns()
-                    } else {
-                        device_service::public_device_columns(name).expect("public Device table")
-                    };
-                    (name, columns)
-                })
-                .collect::<Vec<_>>();
-            let query = tables
-                .iter()
-                .map(|(table, _)| format!("SELECT * FROM {table} LIMIT 0"))
-                .collect::<Vec<_>>()
-                .join("; ");
-            let results = database
-                .client()
-                .translate_and_execute(&query, &db::SqlTranslator)
-                .await
-                .map_err(io::Error::other)?;
-            if results.len() != tables.len() {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "missing public schema result",
-                ));
-            }
-            for ((table, expected), result) in tables.into_iter().zip(results) {
-                let columns = &result.columns;
-                if columns.len() != expected.len()
-                    || columns
-                        .iter()
-                        .any(|column| !expected.contains(&column.name.as_str()))
-                {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!("unreviewed public security schema: {table}"),
-                    ));
-                }
-            }
+        for (database, history, _) in self.sessions(context) {
+            history.validate_schema(database).await?;
         }
         Ok(())
     }
@@ -337,28 +219,14 @@ impl SecurityProtocol {
         if self.cancellation.is_cancelled() {
             return Err(denied("security synchronization is shutting down"));
         }
-        let device = DbDeviceRepo::new(self.management.clone().client())
-            .find_approved_by_public_key(&self.server.endpoint().id().to_string())
-            .await
-            .map_err(denied)?
-            .ok_or_else(|| denied("local endpoint has no approved Device"))?;
-        let owner: Id = device.owner_subject.parse().map_err(denied)?;
-        if device.id.is_nil()
-            || owner.is_nil()
-            || DbUserRepo::new(self.idp.client(), PasswordConfig::default())
-                .find_user_by_id(owner)
-                .await
-                .map_err(denied)?
-                .is_none()
-        {
-            return Err(denied(
-                "local Device requires its active conflict-clear owner",
-            ));
-        }
+        let binding = self
+            .owner()
+            .binding(&self.server.endpoint().id().to_string(), None)
+            .await?;
         Ok(Handshake {
             version: 1,
             installation: self.installation.clone(),
-            member: device.id,
+            member: binding.member,
             context,
         })
     }
@@ -370,42 +238,9 @@ impl SecurityProtocol {
         context: SecurityContext,
     ) -> io::Result<()> {
         self.local_handshake(context).await?;
-        let endpoint = connection.remote_id().to_string();
-        let device = DbDeviceRepo::new(self.management.clone().client())
-            .find_approved_by_public_key(&endpoint)
-            .await
-            .map_err(denied)?
-            .ok_or_else(|| denied("remote endpoint has no approved local Device"))?;
-        if member.is_nil() || device.id != member {
-            return Err(denied("Device and security handshake identity differ"));
-        }
-        let actor: Id = device.owner_subject.parse().map_err(denied)?;
-        if actor.is_nil()
-            || DbUserRepo::new(self.idp.client(), PasswordConfig::default())
-                .find_user_by_id(actor)
-                .await
-                .map_err(denied)?
-                .is_none()
-        {
-            return Err(denied(
-                "Device owner is not a current conflict-clear local User",
-            ));
-        }
-        let (action, resource) = context.permission();
-        if !LocalPermissions::new(self.policy.client())
-            .evaluate(&PermissionEvaluationRequest {
-                request_id: Id::now_v7(),
-                subject: PermissionSubject::User { id: actor },
-                action,
-                target: PermissionTarget::Installation { resource },
-            })
-            .await
-            .map_err(denied)?
-        {
-            return Err(denied(
-                "local actor lacks this context's security sync permission",
-            ));
-        }
+        self.owner()
+            .authorize(&connection.remote_id().to_string(), member, context)
+            .await?;
         if self.cancellation.is_cancelled() {
             return Err(denied("security synchronization is shutting down"));
         }
@@ -429,37 +264,12 @@ impl SecurityProtocol {
                 (local.member, self.server.endpoint().id().to_string()),
                 (member, connection.remote_id().to_string()),
             ] {
-                let device = DbDeviceRepo::new(self.management.clone().client())
-                    .find_approved_by_public_key(&endpoint)
-                    .await
-                    .map_err(denied)?
-                    .ok_or_else(|| denied("missing current session Device binding"))?;
-                if device.id != member {
-                    return Err(denied("session Device and member differ"));
-                }
-                let owner: Id = device
-                    .owner_subject
-                    .parse()
-                    .map_err(|_| denied("invalid session owner"))?;
-                if owner.is_nil()
-                    || DbUserRepo::new(self.idp.client(), PasswordConfig::default())
-                        .find_user_by_id(owner)
-                        .await
-                        .map_err(denied)?
-                        .is_none()
-                {
-                    return Err(denied("missing current session owner"));
-                }
-                bindings.push(candidates::PeerBinding {
-                    member,
-                    endpoint,
-                    owner,
-                });
+                bindings.push(self.owner().binding(&endpoint, Some(member)).await?);
             }
         }
         let mut total = SyncResult::default();
-        for (database, name, tables) in self.sessions(context) {
-            let directory = self.staging_directory.join(name);
+        for (database, history, tables) in self.sessions(context) {
+            let directory = self.staging_directory.join(history.name());
             let mut transport = AuthorizedSecurityTransport {
                 transport: &mut *transport,
                 protocol: self,
@@ -475,30 +285,9 @@ impl SecurityProtocol {
                     directory,
                     &tables,
                     |table, column, value| {
-                        context.validate_value(table, column, value)?;
-                        if context == SecurityContext::Idp
-                            && !candidates::permits_installation(
-                                table,
-                                column,
-                                value,
-                                &self.installation,
-                            )
-                        {
-                            return Err("invalid public security historical value".into());
-                        }
-                        Ok(())
+                        history.validate_value(table, column, value, &self.installation)
                     },
-                    |view| match context {
-                        SecurityContext::Idp => {
-                            candidates::validate(view, &self.installation, &bindings)
-                        }
-                        SecurityContext::Device if name == "policy-identity" => {
-                            candidates::validate(view, &self.installation, &[])
-                        }
-                        SecurityContext::Device => {
-                            candidates::validate_device_history(view, &bindings, None)
-                        }
-                    },
+                    |view| history.validate_candidate(view, &self.installation, &bindings, None),
                     || async {
                         log::debug!("checking scoped security apply: {context:?} {role:?}");
                         self.authorize(connection, member, context)
@@ -552,12 +341,6 @@ fn now() -> io::Result<i64> {
         .as_secs()
         .try_into()
         .map_err(io::Error::other)
-}
-
-fn identity_policy_table(table: &str) -> bool {
-    PUBLIC_IDENTITY_POLICY_TABLES
-        .iter()
-        .any(|public| public.name() == table)
 }
 
 fn accumulate(total: &mut SyncResult, result: SyncResult) {

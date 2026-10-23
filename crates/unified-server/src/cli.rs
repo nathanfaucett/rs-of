@@ -7,12 +7,11 @@ use clap::{Parser, Subcommand};
 use cli::shutdown_signal;
 use dialoguer::{Input, Password};
 use env_logger::Env;
-use idp_server::{
-    BootstrapConfig, BootstrapPurpose, CredentialBootstrap, LocalJoin, LocalProvisioner,
-    bootstrap_config::present,
-};
 
-use crate::{UnifiedBootstrapHost, UnifiedConfig, discover_installation_issuer};
+use crate::{
+    BootstrapConfig, BootstrapPurpose, CredentialBootstrap, LocalJoin, LocalProvisioner,
+    UnifiedConfig, bootstrap_config::present, discover_installation_issuer,
+};
 
 #[derive(Parser, Debug)]
 #[command(version, about = "Create, join and serve an independently usable Node")]
@@ -95,29 +94,27 @@ pub async fn run() -> io::Result<()> {
     let mut host_guard = if args.config.is_none() {
         let root = match &args.data_dir {
             Some(root) => root.clone(),
-            None => BootstrapConfig::<UnifiedBootstrapHost>::default_directory()?,
+            None => BootstrapConfig::default_directory()?,
         };
         let host = if present(&root)? {
-            BootstrapConfig::<UnifiedBootstrapHost>::open(&root)?
+            BootstrapConfig::open(&root)?
         } else {
             fresh_host = true;
             match &args.command {
-                Some(UnifiedCommand::Create { .. }) => {
-                    BootstrapConfig::<UnifiedBootstrapHost>::create_http(
-                        &root,
-                        BootstrapPurpose::Create,
-                        None,
-                        listen,
-                        base.clone(),
-                    )?
-                }
+                Some(UnifiedCommand::Create { .. }) => BootstrapConfig::create_http(
+                    &root,
+                    BootstrapPurpose::Create,
+                    None,
+                    listen,
+                    base.clone(),
+                )?,
                 Some(UnifiedCommand::Join { peer, .. }) => {
                     let peer = peer_input(peer.as_deref())?;
                     println!(
                         "Learning Installation identity from the authenticated trusted peer; its authorized join interface must be open."
                     );
                     let issuer = discover_installation_issuer(&peer).await?;
-                    let host = BootstrapConfig::<UnifiedBootstrapHost>::create_http(
+                    let host = BootstrapConfig::create_http(
                         &root,
                         BootstrapPurpose::Join,
                         Some((&peer, &issuer)),
@@ -127,7 +124,7 @@ pub async fn run() -> io::Result<()> {
                     selected_peer = Some(peer);
                     host
                 }
-                _ => BootstrapConfig::<UnifiedBootstrapHost>::create_http(
+                _ => BootstrapConfig::create_http(
                     &root,
                     BootstrapPurpose::AwaitingChoice,
                     None,
@@ -257,9 +254,9 @@ pub async fn run() -> io::Result<()> {
         interactive_terminal()?;
     }
     let credential_guard = if present(&config.credential_bootstrap_directory())? {
-        CredentialBootstrap::<UnifiedBootstrapHost>::open(config.clone())?
+        CredentialBootstrap::open(config.clone())?
     } else if setup {
-        CredentialBootstrap::<UnifiedBootstrapHost>::create(config.clone())?
+        CredentialBootstrap::create(config.clone())?
     } else {
         return Err(invalid(
             "no retained host bootstrap; explicitly create or join first",
@@ -279,13 +276,13 @@ pub async fn run() -> io::Result<()> {
                 ));
             }
             let mut local = if retained_setup {
-                LocalProvisioner::<UnifiedBootstrapHost>::open(config)?
+                LocalProvisioner::open(config)?
             } else {
                 let password = match automation_password {
                     Some(password) => password,
                     None => password_input(true)?,
                 };
-                let mut local = LocalProvisioner::<UnifiedBootstrapHost>::create_with_password(
+                let mut local = LocalProvisioner::create_with_password(
                     config,
                     administrator.as_deref().unwrap_or("operator"),
                     node.as_deref().unwrap_or("Local Node"),
@@ -316,16 +313,12 @@ pub async fn run() -> io::Result<()> {
                 if node.is_some() {
                     return Err(invalid("continuation uses the retained Node name"));
                 }
-                LocalJoin::<UnifiedBootstrapHost>::open(config)?
+                LocalJoin::open(config)?
             } else {
                 let peer = selected_peer
                     .or(peer)
                     .ok_or_else(|| invalid("trusted peer evidence is required"))?;
-                LocalJoin::<UnifiedBootstrapHost>::create(
-                    config,
-                    &peer,
-                    node.as_deref().unwrap_or("Local Node"),
-                )?
+                LocalJoin::create(config, &peer, node.as_deref().unwrap_or("Local Node"))?
             };
             println!("Waiting for authorized Node approval and public context bootstrap.");
             local.join_http().await?;
@@ -343,11 +336,10 @@ pub async fn run() -> io::Result<()> {
     let management_audience = config.device.storage_audience.clone();
     let (runtime, create_guard, join_guard) =
         if present(&config.local_provisioning_directory().join("join.json"))? {
-            let local = LocalJoin::<UnifiedBootstrapHost>::open(config)?;
+            let local = LocalJoin::open(config)?;
             (local.build_runtime().await?, None, Some(local))
         } else {
-            let (runtime, local) =
-                LocalProvisioner::<UnifiedBootstrapHost>::open_runtime(config).await?;
+            let (runtime, local) = LocalProvisioner::open_runtime(config).await?;
             (runtime, local, None)
         };
     println!("Node endpoint: {}", runtime.endpoint_id());
@@ -382,23 +374,18 @@ pub async fn run() -> io::Result<()> {
 fn explicit_startup_host(
     config: &UnifiedConfig,
     setup: bool,
-) -> io::Result<(Option<BootstrapConfig<UnifiedBootstrapHost>>, bool)> {
-    let root = BootstrapConfig::<UnifiedBootstrapHost>::explicit_directory(config);
+) -> io::Result<(Option<BootstrapConfig>, bool)> {
+    let root = BootstrapConfig::explicit_directory(config);
     if present(&root)? {
         if setup {
             return Err(invalid(
                 "retained neutral host requires code-authorized purpose selection; not implemented in this slice",
             ));
         }
-        Ok((
-            Some(BootstrapConfig::<UnifiedBootstrapHost>::open_explicit(
-                config.clone(),
-            )?),
-            false,
-        ))
+        Ok((Some(BootstrapConfig::open_explicit(config.clone())?), false))
     } else if !setup && !present(&config.credential_bootstrap_directory())? {
         Ok((
-            Some(BootstrapConfig::<UnifiedBootstrapHost>::create_explicit_http(config.clone())?),
+            Some(BootstrapConfig::create_explicit_http(config.clone())?),
             true,
         ))
     } else {
