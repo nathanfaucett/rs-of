@@ -12,7 +12,24 @@ use management_service::{
 
 use crate::AppConfig;
 
+pub async fn identity_client(config: &AppConfig) -> io::Result<db::Client> {
+    if let Some(remote) = &config.identity_database {
+        let client = remote.connect().await?;
+        idp_model::replica::validate_identity(&client)
+            .await
+            .map_err(io::Error::other)?;
+        return Ok(client);
+    }
+    Ok(open_database(config).await?.client())
+}
+
 pub async fn open_database(config: &AppConfig) -> io::Result<Arc<Database>> {
+    if config.identity_database.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "remote identity consumers cannot open or migrate a private identity database",
+        ));
+    }
     let engine = open_device_database(config).await?;
     idp_model::replica::up_policy(&engine)
         .await
@@ -38,8 +55,8 @@ pub async fn provision_initial_administrator(
     permissions: &[(Id, IdentityAction)],
 ) -> io::Result<Role> {
     let service = ManagementService::new(
-        DbPermissionRepo::new(Arc::clone(&engine)),
-        DbRoleRepo::new(engine),
+        DbPermissionRepo::new(engine.client()),
+        DbRoleRepo::new(engine.client()),
     );
     service
         .provision_initial_administrator(user_id, role_id, permissions)

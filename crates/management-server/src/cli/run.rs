@@ -56,13 +56,8 @@ pub async fn run() -> io::Result<()> {
     #[cfg(unix)]
     let app_config = Arc::new(crate::startup::load_config(Path::new(&args.config))?);
     #[cfg(not(unix))]
-    let app_config = Arc::new(match AppConfig::try_from(Path::new(&args.config)) {
-        Ok(app_config) => app_config,
-        Err(error) => {
-            eprintln!("failed to load config {:?}: {error}", args.config);
-            AppConfig::default()
-        }
-    });
+    let app_config =
+        Arc::new(AppConfig::try_from(Path::new(&args.config)).map_err(io::Error::other)?);
 
     #[cfg(unix)]
     if let Some(ManagementCommand::ResetIndependent { remove_os_trust }) = args.command.as_ref() {
@@ -160,9 +155,15 @@ pub async fn run() -> io::Result<()> {
     )
     .init();
 
-    let engine = crate::open_database(&app_config).await?;
+    let (identity, engine) = if app_config.identity_database.is_some() {
+        let client = crate::identity_client(&app_config).await?;
+        (client, crate::open_device_database(&app_config).await?)
+    } else {
+        let engine = crate::open_database(&app_config).await?;
+        (engine.client(), engine)
+    };
     let router = build_router(
-        Arc::clone(&engine),
+        identity,
         engine,
         &app_config.api_public_uri,
         app_config.server.prefix(),

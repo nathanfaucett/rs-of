@@ -25,8 +25,13 @@ impl NodeJoinStage {
 }
 
 impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
-    pub fn node_join_database(&self) -> Arc<Database> {
-        self.engine.clone()
+    pub fn node_join_database(&self) -> io::Result<Arc<Database>> {
+        self.database.clone().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::Unsupported,
+                "remote identity consumers do not own sync history",
+            )
+        })
     }
 
     pub fn node_join_anchor(&self) -> io::Result<NodeJoinApproval> {
@@ -81,12 +86,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             .parse()
             .map_err(io::Error::other)?;
         let issuer = Value::Text(request.installation.clone());
-        let mut transaction = self
-            .engine
-            .client()
-            .transaction()
-            .await
-            .map_err(io::Error::other)?;
+        let mut transaction = self.engine.transaction().await.map_err(io::Error::other)?;
         let result = async {
             let bindings = [
                 ("idp_replica_members", format!("member_id = CAST('{member}' AS UUID) OR endpoint_id = '{}'", request.endpoint_id),

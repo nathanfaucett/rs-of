@@ -135,7 +135,7 @@ pub async fn build_independent_management(
         Router::new().nest(config.server.prefix(), routes)
     };
     let router = crate::build_router(
-        Arc::clone(&engine),
+        engine.client(),
         engine,
         management,
         config.server.prefix(),
@@ -311,7 +311,7 @@ async fn permission(engine: &Arc<Database>, owner: Id, action: IdentityAction) -
         action,
         target: PermissionTarget::Installation { resource },
     };
-    if LocalPermissions::new(engine.clone())
+    if LocalPermissions::new(engine.client())
         .evaluate(&request)
         .await
         .map_err(|_| denied())?

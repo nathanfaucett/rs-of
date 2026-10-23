@@ -64,6 +64,34 @@ The native reset peer-revocation consumer currently selects a composed peer by i
 
 The Management and IdP Device/identity clients are regenerated and built; Device methods/types are Management-owned, with no removed IdP compatibility routes. Receipt 41 exports and qualifies the current 38-operation Management contract, including generated owner-cleanup methods and pending-cleanup models. The independent SDK and bundled HTTPS frontend handoff are also delivered. OS CA trust installation and verified HTTPS remain prerequisites; certificate-warning bypass is never a setup step.
 
+## Remote shared identity SQL
+
+Standalone IdP and Management can attach to the same initialized identity database. Their identity repositories use the same `db::Client` query surface as an in-process Unified Host; only startup selects the connection. Unified composition still injects local clients without a SQL listener. Device state and user Storage replication do not use this identity connection.
+
+Run the application-aware database owner, not the generic SQL CLI (which does not install the identity schema):
+
+```sh
+cargo run -p idp-server --bin identity-database -- --database ./identity.redb --listen 127.0.0.1:50051
+```
+
+The owner runs IdP and authorization-policy migrations before serving with the existing ofdb-sql server. Remote HTTP consumers only validate schema and conflict-operation readiness; they never migrate or fall back to a private identity file. Mixed historical credential schemas and servers without conflict inspection fail startup. Local database-owner and remote modes are mutually exclusive.
+
+Add the same section to both standalone servers' YAML configurations:
+
+```yaml
+identity_database:
+  endpoint: http://127.0.0.1:50051
+  deadline_ms: 10000
+```
+
+Plaintext SQL is restricted to literal loopback IP addresses. For other deployments the owner requires `--certificate`, `--private-key`, and `--client-ca`, and consumers require an HTTPS endpoint plus `ca_certificate`, `client_certificate`, and `client_key` file paths. Use private listeners and identity-domain certificates. A trusted SQL client certificate grants the exposed SQL interface, not table-specific OAuth authorization. Never give Storage these identity SQL credentials.
+
+Keep each consumer's `data_dir` separate from the database owner's directory. IdP still needs its Installation issuer, local signer binding and locally provisioned OS-keyring private material; sharing SQL does not provision or transfer a signer. Do not combine remote identity SQL with IdP's separate `management_data_dir` or `management_permissions` source. Configured remote serving attaches to an initialized Installation instead of starting a fresh independent Create/Join wizard. Peer-history synchronization requires a local database owner and is not available through a query-only remote consumer.
+
+Stop the consumer before resetting its retained local setup state. Reset uses that runtime's local inventory and leaves the SQL owner's rows intact. IdP secret cleanup with a retained inventory currently needs the remote owner available to verify metadata; failure preserves reset evidence rather than deleting shared records. Timeouts are not evidence that a remote write or commit rolled back; do not blindly retry ambiguous writes.
+
+Focused acceptance starts the SQL owner, IdP and Management in separate OS processes and exercises authenticated HTTP deny → Management assignment → IdP allow → consumer reset/restart → revocation → deny, plus SQL-owner outage. The fixture uses isolated mock keyring and OS-trust tools and 16 MiB runtime stacks. It is not production OS-provider, mTLS-deployment, default-stack, remote Create/Join wizard, or remote Device qualification.
+
 ## Automatic unified CLI bootstrap
 
 With a built `unified-server` binary (Cargo package `unified-server`, feature `cli`):

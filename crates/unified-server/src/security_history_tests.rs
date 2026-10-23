@@ -222,8 +222,8 @@ impl Pair {
             }
             sql(&idp, &format!("INSERT INTO keys (id, derivation_index, public_jwk) VALUES (CAST('{row}' AS UUID), 0, '{}')", public_jwk("baseline"))).await;
             ManagementService::new(
-                DbPermissionRepo::new(management.clone()),
-                DbRoleRepo::new(management.clone()),
+                DbPermissionRepo::new(management.client()),
+                DbRoleRepo::new(management.client()),
             )
             .provision_initial_administrator(
                 actor,

@@ -1,9 +1,7 @@
-use std::sync::Arc;
-
 use chrono::{DateTime, Timelike, Utc};
 use db::{
-    Database, FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue,
-    QueryFrom, QueryInsert, QuerySelect, Row, Statement, Uuid, Value,
+    FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue, QueryFrom,
+    QueryInsert, QuerySelect, Row, Statement, Uuid, Value,
 };
 use idp_model::{
     model::{Id, Permission, Role},
@@ -46,19 +44,18 @@ const USER_ROLE_COLUMNS: [&str; 7] = [
 ];
 
 pub struct DbRoleRepo {
-    engine: Arc<Database>,
+    engine: db::Client,
 }
 
 impl DbRoleRepo {
     #[must_use]
-    pub const fn new(engine: Arc<Database>) -> Self {
+    pub const fn new(engine: db::Client) -> Self {
         Self { engine }
     }
 
     async fn rows<T: FromRow>(&self, table: &str, columns: &[&str]) -> ManagementResult<Vec<T>> {
         let mut results = self
             .engine
-            .client()
             .execute(vec![Statement::Query(select(table, columns))])
             .await
             .map_err(db_error)?;
@@ -199,7 +196,6 @@ impl RoleRepo for DbRoleRepo {
             updated_at: now,
         };
         self.engine
-            .client()
             .execute(vec![Statement::Query(Query::Insert(QueryInsert {
                 table: ROLES.into(),
                 row: RoleRow::from(&role).into(),
@@ -243,7 +239,6 @@ impl RoleRepo for DbRoleRepo {
         );
         self.ensure_clear(&relationships).await?;
         self.engine
-            .client()
             .execute(vec![Statement::Query(Query::Delete(QueryDelete {
                 from: from(ROLES),
                 predicate: Some(equals(ROLES, "id", Value::Uuid(role.id))),
@@ -272,7 +267,6 @@ impl RoleRepo for DbRoleRepo {
         }
         let now = now();
         self.engine
-            .client()
             .execute(vec![Statement::Query(Query::Insert(QueryInsert {
                 table: USER_ROLES.into(),
                 row: UserRoleRow {
@@ -306,7 +300,6 @@ impl RoleRepo for DbRoleRepo {
             .await?
             .ok_or_else(|| ManagementError::InvalidInput("user role not found".into()))?;
         self.engine
-            .client()
             .execute(vec![Statement::Query(Query::Delete(QueryDelete {
                 from: from(USER_ROLES),
                 predicate: Some(equals(USER_ROLES, "id", Value::Uuid(user_role.id))),

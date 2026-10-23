@@ -500,7 +500,7 @@ impl<H: BootstrapHost> LocalProvisioner<H> {
                 ))
             })
             .await?;
-            let idp_engine = owner.node_join_database();
+            let idp_engine = owner.node_join_database()?;
             log::info!(
                 "Node Create stage=idp elapsed_ms={}",
                 started.elapsed().as_millis()

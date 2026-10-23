@@ -1,10 +1,7 @@
-use std::sync::Arc;
-
 use chrono::{DateTime, Timelike, Utc};
 use db::{
-    Database, FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue,
-    QueryFrom, QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid,
-    Value,
+    FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue, QueryFrom,
+    QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid, Value,
 };
 use idp_model::{
     model::{Application, Id},
@@ -24,12 +21,12 @@ const COLUMNS: [&str; 6] = [
 ];
 
 pub struct DbApplicationRepo {
-    engine: Arc<Database>,
+    engine: db::Client,
 }
 
 impl DbApplicationRepo {
     #[must_use]
-    pub const fn new(engine: Arc<Database>) -> Self {
+    pub const fn new(engine: db::Client) -> Self {
         Self { engine }
     }
 
@@ -37,7 +34,6 @@ impl DbApplicationRepo {
         let query = select(Some(equals(column, value)));
         let mut rows = self
             .engine
-            .client()
             .execute(vec![Statement::Query(query)])
             .await
             .map_err(db_error)?;
@@ -84,7 +80,6 @@ impl ApplicationRepo for DbApplicationRepo {
     async fn list_applications(&self, offset: u32, limit: u32) -> RepoResult<Vec<Application>> {
         let mut rows = self
             .engine
-            .client()
             .execute(vec![Statement::Query(select(None))])
             .await
             .map_err(db_error)?;
@@ -122,7 +117,6 @@ impl ApplicationRepo for DbApplicationRepo {
             updated_at: now,
         };
         self.engine
-            .client()
             .execute(vec![Statement::Query(Query::Insert(QueryInsert {
                 table: TABLE.into(),
                 row: ApplicationRow::from(&application).into(),
@@ -139,7 +133,6 @@ impl ApplicationRepo for DbApplicationRepo {
             .with_nanosecond(0)
             .expect("zero nanoseconds is valid");
         self.engine
-            .client()
             .execute(vec![Statement::Query(Query::Update(QueryUpdate {
                 from: from(),
                 assignments: vec![
@@ -171,7 +164,6 @@ impl ApplicationRepo for DbApplicationRepo {
             return Err(RepoError::InvalidInput("application not found".into()));
         }
         self.engine
-            .client()
             .execute(vec![Statement::Query(Query::Delete(QueryDelete {
                 from: from(),
                 predicate: Some(equals("id", Value::Uuid(application_id))),
@@ -315,7 +307,7 @@ mod tests {
     async fn creates_updates_and_deletes_uuid_applications() {
         let engine = Arc::new(db::Database::in_memory());
         up(&engine).await.unwrap();
-        let repo = DbApplicationRepo::new(Arc::clone(&engine));
+        let repo = DbApplicationRepo::new(engine.client());
 
         let created = repo
             .create_application("App".into(), "https://app.example".into(), None)

@@ -1,3 +1,8 @@
+#[cfg(feature = "remote")]
+mod remote;
+#[cfg(feature = "remote")]
+pub use remote::RemoteDatabaseConfig;
+
 #[cfg(feature = "native")]
 pub use ofdb_sql::Database;
 #[cfg(feature = "replica")]

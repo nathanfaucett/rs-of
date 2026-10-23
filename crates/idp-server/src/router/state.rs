@@ -34,7 +34,7 @@ pub struct RouterState {
     pub ui_base_uri: String,
     pub api_base_uri: String,
     pub service_audience: String,
-    pub engine: Arc<db::Database>,
+    pub engine: db::Client,
     pub oauth2_service: Arc<NativeOAuth2Service>,
     pub devices: Option<Arc<NativeDeviceRepo>>,
     pub replica_signers: Arc<NativeReplicaSignerRepo>,
@@ -52,7 +52,7 @@ impl RouterState {
     pub fn new(
         ui_base_uri: impl Into<String>,
         api_base_uri: impl Into<String>,
-        engine: Arc<db::Database>,
+        engine: db::Client,
         oauth2_service: Arc<NativeOAuth2Service>,
         devices: Option<Arc<NativeDeviceRepo>>,
         device_identity: Arc<DeviceIdentity>,
@@ -66,11 +66,11 @@ impl RouterState {
     pub fn new_oauth(
         ui_base_uri: impl Into<String>,
         api_base_uri: impl Into<String>,
-        engine: Arc<db::Database>,
+        engine: db::Client,
         oauth2_service: Arc<NativeOAuth2Service>,
     ) -> Self {
         let api_base_uri = api_base_uri.into();
-        let replica_signers = Arc::new(DbReplicaSignerRepo::new(Arc::clone(&engine)));
+        let replica_signers = Arc::new(DbReplicaSignerRepo::new(engine.clone()));
         Self {
             ui_base_uri: ui_base_uri.into(),
             service_audience: api_base_uri.clone(),

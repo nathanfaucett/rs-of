@@ -26,7 +26,13 @@ pub async fn build_independent_idp(
     engine: Arc<Database>,
     cancellation: CancellationToken,
 ) -> io::Result<IdpRuntime> {
-    let state = crate::runtime::build_state(config, engine.clone(), None, None, None).await?;
+    if config.identity_database.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "injected identity owner and remote SQL are mutually exclusive",
+        ));
+    }
+    let state = crate::runtime::build_state(config, engine.client(), None, None, None).await?;
     let endpoint = config
         .oauth2
         .local_signer

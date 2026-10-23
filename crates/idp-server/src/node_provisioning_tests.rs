@@ -1119,7 +1119,6 @@ async fn metadata_root_retries_reject_corrupt_capture_and_missing_actual_root() 
         std::fs::write(&path, &retained).expect("restore exact capture");
         owner
             .engine
-            .client()
             .translate_and_execute(
                 &format!(
                     "UPDATE keys SET derivation_index = 4294967295 WHERE id = CAST('{}' AS UUID)",
@@ -1302,7 +1301,6 @@ async fn metadata_root_retry_validates_rotated_active_root_independently() {
             };
             owner
                 .engine
-                .client()
                 .translate_and_execute(
                     &format!(
                         "UPDATE keys SET {assignment} WHERE id = CAST('{}' AS UUID)",
@@ -1318,7 +1316,6 @@ async fn metadata_root_retry_validates_rotated_active_root_independently() {
             );
             let corrupted = owner
                 .engine
-                .client()
                 .translate_and_execute(&query, &db::SqlTranslator)
                 .await
                 .expect("fault fixture")
@@ -1349,7 +1346,6 @@ async fn metadata_root_retry_validates_rotated_active_root_independently() {
             assert_eq!(
                 owner
                     .engine
-                    .client()
                     .translate_and_execute(&query, &db::SqlTranslator)
                     .await
                     .expect("metadata unchanged")
@@ -1360,7 +1356,7 @@ async fn metadata_root_retry_validates_rotated_active_root_independently() {
             );
             assert_eq!(secrets.store_calls.load(Ordering::SeqCst), 0);
             assert_eq!(secrets.load_calls.load(Ordering::SeqCst), 0);
-            owner.engine.client().translate_and_execute(&format!("UPDATE keys SET hardened = 1, derivation_index = {}, derivation_path = '{}', public_jwk = NULL WHERE id = CAST('{}' AS UUID)", active.derivation_index, active.derivation_path.replace('\'', "''"), active.id), &db::SqlTranslator).await.expect("restore exact active metadata fixture");
+            owner.engine.translate_and_execute(&format!("UPDATE keys SET hardened = 1, derivation_index = {}, derivation_path = '{}', public_jwk = NULL WHERE id = CAST('{}' AS UUID)", active.derivation_index, active.derivation_path.replace('\'', "''"), active.id), &db::SqlTranslator).await.expect("restore exact active metadata fixture");
         }
         let valid = if entity == idp_model::contract::EntityType::User {
             owner.ensure_initial_user_root(user).await
@@ -1452,7 +1448,6 @@ async fn metadata_only_reset_refuses_uninventoried_cryptographic_material() {
                     .expect("extra metadata");
                 owner
                     .engine
-                    .client()
                     .translate_and_execute(
                         &format!(
                             "UPDATE keys SET revoked_at = 1 WHERE id = CAST('{}' AS UUID)",
@@ -1513,7 +1508,6 @@ async fn metadata_only_reset_refuses_uninventoried_cryptographic_material() {
                         };
                         owner
                             .engine
-                            .client()
                             .translate_and_execute(
                                 &format!(
                                     "UPDATE keys SET {column} = 1 WHERE id = CAST('{}' AS UUID)",
@@ -1539,7 +1533,6 @@ async fn metadata_only_reset_refuses_uninventoried_cryptographic_material() {
         let reference = std::fs::read(&reference_path).expect("capture");
         let metadata = owner
             .engine
-            .client()
             .translate_and_execute("SELECT * FROM keys", &db::SqlTranslator)
             .await
             .expect("retained metadata")
@@ -1571,7 +1564,6 @@ async fn metadata_only_reset_refuses_uninventoried_cryptographic_material() {
         assert_eq!(
             owner
                 .engine
-                .client()
                 .translate_and_execute("SELECT * FROM keys", &db::SqlTranslator)
                 .await
                 .expect("unchanged metadata")
@@ -1658,7 +1650,6 @@ async fn legacy_reset_verifies_inactive_unpublished_paths_before_discarding_meta
         assert!(extra.public_jwk.is_none());
         owner
             .engine
-            .client()
             .translate_and_execute(
                 &format!(
                     "UPDATE keys SET {column} = 1 WHERE id = CAST('{}' AS UUID)",
@@ -1686,7 +1677,6 @@ async fn legacy_reset_verifies_inactive_unpublished_paths_before_discarding_meta
         let reference = std::fs::read(&reference_path).expect("capture");
         let metadata = owner
             .engine
-            .client()
             .translate_and_execute("SELECT * FROM keys", &db::SqlTranslator)
             .await
             .expect("metadata")
@@ -1706,7 +1696,6 @@ async fn legacy_reset_verifies_inactive_unpublished_paths_before_discarding_meta
         assert_eq!(
             owner
                 .engine
-                .client()
                 .translate_and_execute("SELECT * FROM keys", &db::SqlTranslator)
                 .await
                 .expect("evidence remains")
@@ -1730,7 +1719,6 @@ async fn legacy_reset_verifies_inactive_unpublished_paths_before_discarding_meta
         assert!(
             owner
                 .engine
-                .client()
                 .translate_and_execute("SELECT * FROM keys", &db::SqlTranslator)
                 .await
                 .expect("metadata removed only after secrets")

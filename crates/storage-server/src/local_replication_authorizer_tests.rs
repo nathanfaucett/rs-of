@@ -63,7 +63,7 @@ async fn native_selection_fixture(select: bool) {
                     .map_err(|error| error.to_string())?
                     .ok_or("unknown or unapproved Device")?;
                 let owner_id = device.owner_subject.parse().map_err(|_| "invalid owner")?;
-                let owner_active = DbUserRepo::new(idp, PasswordConfig::default())
+                let owner_active = DbUserRepo::new(idp.client(), PasswordConfig::default())
                     .find_user_by_id(owner_id)
                     .await
                     .map_err(|error| error.to_string())?

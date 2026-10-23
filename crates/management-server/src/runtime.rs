@@ -68,7 +68,7 @@ pub(crate) fn replication_policy_from_observation(
 
 /// Composes serving from an already initialized owner database.
 pub async fn build_router(
-    identity: Arc<Database>,
+    identity: db::Client,
     devices: Arc<Database>,
     api_base_uri: &str,
     prefix: &str,
@@ -83,8 +83,8 @@ pub async fn build_router(
             .with_local_devices(Arc::new(DbDeviceRepo::new(Arc::clone(&devices)))),
     );
     let management_service = Arc::new(ManagementService::new(
-        DbPermissionRepo::new(Arc::clone(&identity)),
-        DbRoleRepo::new(Arc::clone(&identity)),
+        DbPermissionRepo::new(identity.clone()),
+        DbRoleRepo::new(identity),
     ));
     let router_state = RouterState::new(
         api_base_uri,

@@ -1,6 +1,4 @@
-use std::sync::Arc;
-
-use db::Database;
+use db::Client;
 use idp_model::contract::PermissionEvaluationRequest;
 
 use crate::{
@@ -10,19 +8,19 @@ use crate::{
 
 #[derive(Clone)]
 pub struct LocalPermissions {
-    engine: Arc<Database>,
+    engine: Client,
 }
 
 impl LocalPermissions {
     #[must_use]
-    pub fn new(engine: Arc<Database>) -> Self {
+    pub fn new(engine: Client) -> Self {
         Self { engine }
     }
 
     pub async fn evaluate(&self, request: &PermissionEvaluationRequest) -> ManagementResult<bool> {
         ManagementService::new(
-            DbPermissionRepo::new(Arc::clone(&self.engine)),
-            DbRoleRepo::new(Arc::clone(&self.engine)),
+            DbPermissionRepo::new(self.engine.clone()),
+            DbRoleRepo::new(self.engine.clone()),
         )
         .evaluate_permission(request)
         .await
@@ -61,11 +59,11 @@ mod tests {
         {
             let engine = Arc::new(Database::open(&path).expect("open local policy"));
             up(&engine).await.expect("initialize policy only");
-            let local = LocalPermissions::new(Arc::clone(&engine));
+            let local = LocalPermissions::new(engine.client());
             assert!(!local.evaluate(&request).await.expect("missing grants deny"));
             ManagementService::new(
-                DbPermissionRepo::new(Arc::clone(&engine)),
-                DbRoleRepo::new(Arc::clone(&engine)),
+                DbPermissionRepo::new(engine.client()),
+                DbRoleRepo::new(engine.client()),
             )
             .provision_initial_administrator(
                 user,
@@ -86,7 +84,7 @@ mod tests {
         }
         {
             let engine = Arc::new(Database::open(&path).expect("reopen offline policy"));
-            let local = LocalPermissions::new(engine);
+            let local = LocalPermissions::new(engine.client());
             assert!(
                 local
                     .evaluate(&request)

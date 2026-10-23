@@ -449,7 +449,6 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
     async fn current_client_entity(&self, external: &str) -> io::Result<Option<Id>> {
         let results = self
             .engine
-            .client()
             .translate_and_execute(
                 &format!(
                     "SELECT id FROM clients WHERE client_id = {}",
@@ -469,7 +468,6 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             };
             if !self
                 .engine
-                .client()
                 .row_conflicts("clients", &db::Row::new(vec![Value::Uuid(*id)]))
                 .await
                 .map_err(io::Error::other)?
@@ -941,7 +939,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
                     ));
                 }
                 if entity_type == EntityType::User {
-                    let retained = self.engine.client().translate_and_execute(
+                    let retained = self.engine.translate_and_execute(
                         &format!("SELECT id FROM keys WHERE entity_type = {} AND entity_id = CAST('{}' AS UUID)", entity_type as i64, owner),
                         &SqlTranslator,
                     ).await.map_err(io::Error::other)?;
@@ -975,7 +973,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             {
                 return Err(invalid("entity conflicts with captured inventory"));
             }
-            let retained = self.engine.client().translate_and_execute(
+            let retained = self.engine.translate_and_execute(
                 &format!("SELECT derivation_path FROM keys WHERE entity_type = {} AND entity_id = CAST('{}' AS UUID)", entity_type as i64, entity),
                 &SqlTranslator,
             ).await.map_err(io::Error::other)?;
@@ -1083,7 +1081,6 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
         }
         let rows = self
             .engine
-            .client()
             .translate_and_execute("SELECT id FROM users", &SqlTranslator)
             .await
             .map_err(io::Error::other)?;
@@ -1092,7 +1089,6 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
         }
         let enrolled = self
             .engine
-            .client()
             .translate_and_execute("SELECT member_id FROM idp_replica_members", &SqlTranslator)
             .await
             .map_err(io::Error::other)?;

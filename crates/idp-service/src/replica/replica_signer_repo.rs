@@ -1,12 +1,10 @@
-use std::sync::Arc;
-
-use db::{Database, QueryError, SqlTranslator, Transaction, Value};
+use db::{QueryError, SqlTranslator, Transaction, Value};
 use idp_model::contract::{IdpSignerRecord, JwsAlgorithm, KeyUse, ReplicaMembership};
 
 use crate::repo::{RepoError, RepoResult};
 
 pub struct DbReplicaSignerRepo {
-    engine: Arc<Database>,
+    engine: db::Client,
 }
 
 impl DbReplicaSignerRepo {
@@ -24,7 +22,7 @@ impl DbReplicaSignerRepo {
         }
     }
     #[must_use]
-    pub const fn new(engine: Arc<Database>) -> Self {
+    pub const fn new(engine: db::Client) -> Self {
         Self { engine }
     }
 
@@ -34,7 +32,7 @@ impl DbReplicaSignerRepo {
         issuer: &str,
         now: i64,
     ) -> RepoResult<Vec<(ReplicaMembership, IdpSignerRecord)>> {
-        let mut results = self.engine.client().translate_and_execute(
+        let mut results = self.engine.translate_and_execute(
             "SELECT id, installation_id, member_id, endpoint_id, issuer, approved_at, revoked_at FROM idp_replica_members; SELECT id, member_id, active_member_id, key_id, issuer, public_jwk, approved_at, revoked_at, expires_at FROM idp_replica_signers", &SqlTranslator,
         ).await.map_err(db_error)?;
         if results.len() != 2 {
@@ -147,7 +145,7 @@ impl DbReplicaSignerRepo {
         membership: &ReplicaMembership,
         signer: &IdpSignerRecord,
     ) -> RepoResult<bool> {
-        let mut transaction = self.engine.client().transaction().await.map_err(db_error)?;
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         let operation = Self::enroll_in_transaction(&mut transaction, membership, signer).await;
         match operation {
             Ok(created) => {
@@ -258,7 +256,7 @@ impl DbReplicaSignerRepo {
         signer: &IdpSignerRecord,
     ) -> RepoResult<bool> {
         let approved_at = validate_signer(signer, member_id, issuer)?;
-        let mut transaction = self.engine.client().transaction().await.map_err(db_error)?;
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         let operation = async {
             let mut results = transaction
                 .translate_and_execute(
@@ -332,7 +330,7 @@ impl DbReplicaSignerRepo {
         issuer: &str,
         revoked_at: i64,
     ) -> RepoResult<bool> {
-        let mut transaction = self.engine.client().transaction().await.map_err(db_error)?;
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         let operation = async {
             let mut results = transaction
                 .translate_and_execute(
@@ -514,7 +512,7 @@ mod tests {
         signer.member_id = member.member_id;
         signer.key_id = Id::now_v7();
         signer.public_jwk.kid = signer.key_id.to_string();
-        DbReplicaSignerRepo::new(engine.clone())
+        DbReplicaSignerRepo::new(engine.client())
             .enroll(&member, &signer)
             .await
             .expect("enroll public Node trust");
@@ -534,13 +532,13 @@ mod tests {
                 .is_err(),
             "public trust needs no private enrollment table"
         );
-        let trusted = DbReplicaSignerRepo::new(engine.clone())
+        let trusted = DbReplicaSignerRepo::new(engine.client())
             .trusted_signers(&member.issuer, 10)
             .await
             .expect("current public trust");
         assert_eq!(trusted, vec![(member.clone(), signer.clone())]);
         assert_eq!(
-            DbKeyRepo::new(engine)
+            DbKeyRepo::new(engine.client())
                 .trusted_node_signers(&member.issuer, 10)
                 .await
                 .expect("unchanged pair facade"),
@@ -564,7 +562,7 @@ mod tests {
     async fn trusted_signers_preserve_independent_pairs_and_recheck_revocation() {
         {
             let (engine, member, signer) = public_trust_fixture().await;
-            let repo = DbReplicaSignerRepo::new(engine.clone());
+            let repo = DbReplicaSignerRepo::new(engine.client());
             let mut other_member = member.clone();
             other_member.member_id = Id::now_v7();
             other_member.endpoint_id = "other-endpoint".into();
@@ -608,7 +606,7 @@ mod tests {
     async fn trusted_signers_ignore_malformed_revoked_and_duplicate_devices() {
         let (engine, member, signer) = public_trust_fixture().await;
         legacy_devices(&engine).await;
-        let repo = DbReplicaSignerRepo::new(engine.clone());
+        let repo = DbReplicaSignerRepo::new(engine.client());
         let expected = vec![(member.clone(), signer)];
         let devices = [
             (member.member_id, "endpoint-key"),
@@ -656,7 +654,7 @@ mod tests {
         }
         let (engine, member, signer) = public_trust_fixture().await;
         legacy_devices(&engine).await;
-        let repo = DbReplicaSignerRepo::new(engine.clone());
+        let repo = DbReplicaSignerRepo::new(engine.client());
         let expected = vec![(member.clone(), signer)];
         execute(&engine, "DROP INDEX devices_public_key").await;
         for state in [0, 1, 2] {
@@ -686,7 +684,7 @@ mod tests {
             );
         }
         assert_eq!(
-            DbReplicaSignerRepo::new(engine)
+            DbReplicaSignerRepo::new(engine.client())
                 .trusted_signers(&member.issuer, 10)
                 .await
                 .expect("IdP trust reads only member and signer records"),
@@ -736,7 +734,7 @@ mod tests {
             let (engine, member, _) = public_trust_fixture().await;
             execute(&engine, &format!("UPDATE {table} SET {assignment}")).await;
             assert!(
-                DbReplicaSignerRepo::new(engine)
+                DbReplicaSignerRepo::new(engine.client())
                     .trusted_signers(&member.issuer, 10)
                     .await
                     .expect("invalid IdP binding is excluded")
@@ -769,7 +767,7 @@ mod tests {
                 .await
                 .expect("set negative timestamp without SQL unary minus");
             assert!(
-                DbReplicaSignerRepo::new(engine)
+                DbReplicaSignerRepo::new(engine.client())
                     .trusted_signers(&member.issuer, 10)
                     .await
                     .expect("negative IdP timestamp is excluded")
@@ -784,7 +782,7 @@ mod tests {
         let (engine, member, mut signer) = public_trust_fixture().await;
         execute(&engine, "UPDATE idp_replica_signers SET expires_at = 20").await;
         signer.expires_at = Some(20);
-        let repo = DbReplicaSignerRepo::new(engine);
+        let repo = DbReplicaSignerRepo::new(engine.client());
         for now in [-1, 9, 20, i64::MAX] {
             assert!(
                 repo.trusted_signers(&member.issuer, now)
@@ -836,7 +834,7 @@ mod tests {
                 ),
             )
             .await;
-            let result = DbReplicaSignerRepo::new(engine)
+            let result = DbReplicaSignerRepo::new(engine.client())
                 .trusted_signers(&member.issuer, 10)
                 .await;
             assert!(
@@ -851,7 +849,7 @@ mod tests {
         )
         .await;
         assert!(
-            DbReplicaSignerRepo::new(engine)
+            DbReplicaSignerRepo::new(engine.client())
                 .trusted_signers(&member.issuer, 10)
                 .await
                 .is_err()
@@ -898,7 +896,7 @@ mod tests {
                 .await
                 .expect("insert ambiguous IdP binding");
             assert!(
-                DbReplicaSignerRepo::new(engine)
+                DbReplicaSignerRepo::new(engine.client())
                     .trusted_signers(&member.issuer, 10)
                     .await
                     .is_err(),
@@ -911,7 +909,7 @@ mod tests {
     async fn caller_transaction_controls_enrollment_commit_and_rollback() {
         let engine = Arc::new(db::Database::in_memory());
         replica::up(&engine).await.expect("initialize IdP schema");
-        let repo = DbReplicaSignerRepo::new(engine.clone());
+        let repo = DbReplicaSignerRepo::new(engine.client());
         let (membership, signer) = records();
         let mut transaction = engine
             .client()
@@ -957,7 +955,7 @@ mod tests {
     async fn enrollment_is_persistent_idempotent_and_rejects_conflicts() {
         let engine = Arc::new(db::Database::in_memory());
         replica::up(&engine).await.expect("initialize IdP schema");
-        let repo = DbReplicaSignerRepo::new(engine.clone());
+        let repo = DbReplicaSignerRepo::new(engine.client());
         let (membership, signer) = records();
 
         assert!(

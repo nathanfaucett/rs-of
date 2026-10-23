@@ -431,7 +431,6 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
     assert!(
         provisioner
             .engine
-            .client()
             .translate_and_execute("SELECT id FROM devices", &db::SqlTranslator)
             .await
             .is_err(),
@@ -452,7 +451,7 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
         ),
     )
     .with_local_permissions(management_service::LocalPermissions::new(
-        management.clone(),
+        management.client(),
     ));
     ApprovalFixture {
         state,
@@ -588,8 +587,8 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
         "ordinary authentication must not approve"
     );
     let policy = ManagementService::new(
-        DbPermissionRepo::new(fixture.management.clone()),
-        DbRoleRepo::new(fixture.management.clone()),
+        DbPermissionRepo::new(fixture.management.client()),
+        DbRoleRepo::new(fixture.management.client()),
     );
     let role = policy
         .create_role(INSTALLATION_POLICY_ID, "Join approver", None)

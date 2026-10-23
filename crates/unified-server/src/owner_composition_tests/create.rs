@@ -986,8 +986,8 @@ pub(super) async fn seed_endpoint_negatives(root: &Path) -> Vec<(String, StatusC
             .expect("existing-only stopped owner"),
     );
     let service = ManagementService::new(
-        DbPermissionRepo::new(engine.clone()),
-        DbRoleRepo::new(engine.clone()),
+        DbPermissionRepo::new(engine.client()),
+        DbRoleRepo::new(engine.client()),
     );
     for action in [
         IdentityAction::DevicesRevoke,

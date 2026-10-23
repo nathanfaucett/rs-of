@@ -260,12 +260,7 @@ impl RouterState {
             revoked_at: None,
             expires_at: None,
         };
-        let mut transaction = self
-            .engine
-            .client()
-            .transaction()
-            .await
-            .map_err(io::Error::other)?;
+        let mut transaction = self.engine.transaction().await.map_err(io::Error::other)?;
         let result = async {
             persist_join_intent(&mut transaction, request, owner).await?;
             DbReplicaSignerRepo::enroll_in_transaction(&mut transaction, &membership, &signer)

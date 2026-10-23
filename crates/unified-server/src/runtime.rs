@@ -281,7 +281,7 @@ impl UnifiedRuntime {
         let result: io::Result<Self> =
             async {
                 let server = endpoint.server().clone();
-                let local_permissions = LocalPermissions::new(Arc::clone(&idp_engine));
+                let local_permissions = LocalPermissions::new(idp_engine.client());
                 let devices = Arc::new(management_service::replica::DbDeviceRepo::new(Arc::clone(
                     &management_engine,
                 )));
@@ -291,7 +291,7 @@ impl UnifiedRuntime {
                 let idp_runtime = Arc::new(
                     build_idp_runtime(
                         &idp_config,
-                        Arc::clone(&idp_engine),
+                        idp_engine.client(),
                         Some(Arc::clone(&devices)),
                         Arc::new(endpoint.identity()?),
                         server.clone(),
@@ -395,7 +395,7 @@ impl UnifiedRuntime {
                     cancellation_token.clone(),
                 ));
                 let management_router = management_server::build_router(
-                    Arc::clone(&idp_engine),
+                    idp_engine.client(),
                     Arc::clone(&management_engine),
                     &management_config.api_public_uri,
                     MANAGEMENT_PREFIX,
@@ -962,10 +962,7 @@ mod tests {
         let issuer = &config.oauth2.issuer;
         let engine = super::open_service_engine(&config.data_dir, "idp.redb")
             .expect("open native trust fixture");
-        let users = idp_service::replica::DbUserRepo::new(
-            std::sync::Arc::clone(&engine),
-            config.password.clone(),
-        );
+        let users = idp_service::replica::DbUserRepo::new(engine.client(), config.password.clone());
         let owner = users
             .find_user_by_username_or_email("administrator")
             .await
@@ -1020,7 +1017,7 @@ mod tests {
         let public = peer
             .prepare_node_signer(&binding)
             .expect("independent peer private preparation");
-        idp_service::replica::DbReplicaSignerRepo::new(engine)
+        idp_service::replica::DbReplicaSignerRepo::new(engine.client())
             .enroll(
                 &idp_model::contract::ReplicaMembership {
                     installation_id: issuer.clone(),
@@ -1093,7 +1090,7 @@ mod tests {
             ));
             let idp = idp_server::build_runtime(
                 &config,
-                std::sync::Arc::clone(&engine),
+                engine.client(),
                 Some(devices.clone()),
                 std::sync::Arc::new(endpoint.identity().expect("restored identity")),
                 endpoint.server().clone(),
@@ -1124,10 +1121,8 @@ mod tests {
             );
             if !revoked {
                 use idp_service::repo::UserRepo;
-                let users = idp_service::replica::DbUserRepo::new(
-                    std::sync::Arc::clone(&engine),
-                    config.password.clone(),
-                );
+                let users =
+                    idp_service::replica::DbUserRepo::new(engine.client(), config.password.clone());
                 let owner = users
                     .find_user_by_username_or_email("administrator")
                     .await
@@ -1217,7 +1212,7 @@ mod tests {
                     authorizer.selected_resources(local).await.is_err(),
                     "production callback reads newly learned restrictions"
                 );
-                idp_service::replica::DbReplicaSignerRepo::new(std::sync::Arc::clone(&engine))
+                idp_service::replica::DbReplicaSignerRepo::new(engine.client())
                     .revoke(binding.member_id, &config.oauth2.issuer, 2)
                     .await
                     .expect("learn signer-only revocation");
@@ -1278,10 +1273,8 @@ mod tests {
                 refresh.await.expect("peer refresh shutdown");
             } else {
                 use idp_service::repo::UserRepo;
-                let users = idp_service::replica::DbUserRepo::new(
-                    std::sync::Arc::clone(&engine),
-                    config.password.clone(),
-                );
+                let users =
+                    idp_service::replica::DbUserRepo::new(engine.client(), config.password.clone());
                 let owner = users
                     .find_user_by_username_or_email("administrator")
                     .await
@@ -1371,8 +1364,8 @@ mod tests {
             let policy = super::open_service_engine(&config.idp.data_dir, "idp.redb")
                 .expect("shared identity policy");
             let service = management_service::ManagementService::new(
-                management_service::replica::DbPermissionRepo::new(policy.clone()),
-                management_service::replica::DbRoleRepo::new(policy),
+                management_service::replica::DbPermissionRepo::new(policy.client()),
+                management_service::replica::DbRoleRepo::new(policy.client()),
             );
             let role = service
                 .create_role(
@@ -1510,10 +1503,13 @@ mod tests {
             .expect("call normal Management route");
         assert_eq!(response.status(), http::StatusCode::UNAUTHORIZED);
 
-        let policy = runtime.owner.node_join_database();
+        let policy = runtime
+            .owner
+            .node_join_database()
+            .expect("local identity owner");
         let service = management_service::ManagementService::new(
-            management_service::replica::DbPermissionRepo::new(policy.clone()),
-            management_service::replica::DbRoleRepo::new(policy),
+            management_service::replica::DbPermissionRepo::new(policy.client()),
+            management_service::replica::DbRoleRepo::new(policy.client()),
         );
         let (role_id, permission_id) = public_context_grant.expect("exact context grant");
         service
@@ -1929,10 +1925,13 @@ mod tests {
             format!("{issuer}/oauth2/token")
         );
 
-        let policy = runtime.owner.node_join_database();
+        let policy = runtime
+            .owner
+            .node_join_database()
+            .expect("local identity owner");
         let service = management_service::ManagementService::new(
-            management_service::replica::DbPermissionRepo::new(policy.clone()),
-            management_service::replica::DbRoleRepo::new(policy),
+            management_service::replica::DbPermissionRepo::new(policy.client()),
+            management_service::replica::DbRoleRepo::new(policy.client()),
         );
         let (role_id, permission_id) = public_context_grant.expect("exact context grant");
         service
@@ -2003,7 +2002,7 @@ mod tests {
         ));
         let restored_idp = idp_server::build_runtime(
             &persisted_idp_config,
-            std::sync::Arc::clone(&reopened_engine),
+            reopened_engine.client(),
             Some(devices.clone()),
             std::sync::Arc::new(restored_endpoint.identity().expect("restored identity")),
             restored_endpoint.server().clone(),
@@ -2035,7 +2034,7 @@ mod tests {
                 .peers()
                 .contains(device_only_peer)
         );
-        idp_service::replica::DbReplicaSignerRepo::new(std::sync::Arc::clone(&reopened_engine))
+        idp_service::replica::DbReplicaSignerRepo::new(reopened_engine.client())
             .revoke(peer_binding.member_id, &issuer, 2)
             .await
             .expect("learn signer-only revocation");

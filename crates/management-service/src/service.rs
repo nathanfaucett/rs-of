@@ -385,8 +385,8 @@ mod tests {
         let engine = Arc::new(db::Database::in_memory());
         up(&engine).await.expect("initialize management schema");
         let service = ManagementService::new(
-            DbPermissionRepo::new(Arc::clone(&engine)),
-            DbRoleRepo::new(engine),
+            DbPermissionRepo::new(engine.client()),
+            DbRoleRepo::new(engine.client()),
         );
         let role_id = Id::now_v7();
         let application_id = Id::now_v7();

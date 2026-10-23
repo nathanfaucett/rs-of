@@ -48,7 +48,7 @@ async fn authenticated_equal_peers_exchange_scoped_history_without_local_verifie
 }
 
 pub(super) async fn enroll(idp: Arc<Database>, member: Id, endpoint: iroh::EndpointId, key: Id) {
-    DbReplicaSignerRepo::new(idp)
+    DbReplicaSignerRepo::new(idp.client())
         .enroll(
             &ReplicaMembership {
                 installation_id: INSTALLATION.into(),
@@ -130,8 +130,8 @@ async fn exchange_history() {
             enroll(idp.clone(), member, endpoint, key).await;
         }
         ManagementService::new(
-            DbPermissionRepo::new(management.clone()),
-            DbRoleRepo::new(management.clone()),
+            DbPermissionRepo::new(management.client()),
+            DbRoleRepo::new(management.client()),
         )
         .provision_initial_administrator(
             actor,
@@ -170,8 +170,8 @@ async fn exchange_history() {
         Id::now_v7(),
     )
     .await;
-    let users_a = DbUserRepo::new(idp_a.clone(), PasswordConfig::default());
-    let users_b = DbUserRepo::new(idp_b.clone(), PasswordConfig::default());
+    let users_a = DbUserRepo::new(idp_a.client(), PasswordConfig::default());
+    let users_b = DbUserRepo::new(idp_b.client(), PasswordConfig::default());
     let user_a = users_a
         .create_user_with_password("only-a", "secret-a")
         .await
@@ -201,8 +201,8 @@ async fn exchange_history() {
         created_at: 100,
     };
     use idp_service::repo::OAuth2RefreshTokenRepo;
-    let grants_a = idp_service::replica::DbOAuth2RefreshTokenRepo::new(idp_a.clone());
-    let grants_b = idp_service::replica::DbOAuth2RefreshTokenRepo::new(idp_b.clone());
+    let grants_a = idp_service::replica::DbOAuth2RefreshTokenRepo::new(idp_a.client());
+    let grants_b = idp_service::replica::DbOAuth2RefreshTokenRepo::new(idp_b.client());
     grants_a
         .issue_refresh_token(grant("private-bearer-original"), None)
         .await
@@ -381,7 +381,7 @@ async fn exchange_history() {
         root.join("unsigned-stage"),
         cancellation.clone(),
     );
-    DbReplicaSignerRepo::new(idp_a.clone())
+    DbReplicaSignerRepo::new(idp_a.client())
         .revoke(member_a, INSTALLATION, 2)
         .await
         .expect("learned token-signer revocation is not Device revocation");
@@ -665,7 +665,7 @@ async fn exchange_history() {
     ));
     let reopened_idp =
         Arc::new(Database::open(root.join("b-idp.redb")).expect("native IdP reopen"));
-    let reopened_users = DbUserRepo::new(reopened_idp.clone(), PasswordConfig::default());
+    let reopened_users = DbUserRepo::new(reopened_idp.client(), PasswordConfig::default());
     assert!(
         reopened_users
             .find_user_by_id(user_a.id)

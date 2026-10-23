@@ -16,7 +16,23 @@ name = "db"
 default = ["native", "replica"]
 native = ["dep:ofdb-sql", "ofdb-sql/redb"]
 replica = ["native", "ofdb-sql/in-memory", "ofdb-sql/macros"]
+remote = ["replica", "ofdb-sql/remote", "dep:serde", "dep:tokio", "dep:url"]
+server = ["native", "ofdb-sql/server"]
 
 [dependencies]
+# Configuration
+serde = { version = "1.0", default-features = false, features = [
+    "derive",
+    "std",
+], optional = true }
+tokio = { version = "1.52", default-features = false, features = [
+    "time",
+], optional = true }
+url = { version = "2.5", default-features = false, features = [
+    "std",
+], optional = true }
+
 # Database
-ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = ["sql"], optional = true }
+ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = [
+    "sql",
+], optional = true }

@@ -1,10 +1,7 @@
-use std::sync::Arc;
-
 use chrono::{DateTime, Timelike, Utc};
 use db::{
-    Database, FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue,
-    QueryFrom, QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid,
-    Value,
+    FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue, QueryFrom,
+    QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid, Value,
 };
 use idp_model::{
     contract::Sex,
@@ -79,13 +76,13 @@ const CREDENTIAL_COLUMNS: [&str; 7] = [
 ];
 
 pub struct DbUserRepo {
-    engine: Arc<Database>,
+    engine: db::Client,
     password_config: PasswordConfig,
 }
 
 impl DbUserRepo {
     #[must_use]
-    pub const fn new(engine: Arc<Database>, password_config: PasswordConfig) -> Self {
+    pub const fn new(engine: db::Client, password_config: PasswordConfig) -> Self {
         Self {
             engine,
             password_config,
@@ -95,7 +92,6 @@ impl DbUserRepo {
     async fn rows<T: FromRow>(&self, query: Query, missing: &str) -> RepoResult<Vec<T>> {
         let mut results = self
             .engine
-            .client()
             .execute(vec![Statement::Query(query)])
             .await
             .map_err(db_error)?;
@@ -271,7 +267,6 @@ impl UserRepo for DbUserRepo {
         let key = Row::new(vec![Value::Uuid(credential.id)]);
         if !self
             .engine
-            .client()
             .row_conflicts("local_credential_secrets", &key)
             .await
             .map_err(db_error)?
@@ -281,7 +276,7 @@ impl UserRepo for DbUserRepo {
                 "conflicted local password verifier".into(),
             ));
         }
-        let results = self.engine.client().translate_and_execute(
+        let results = self.engine.translate_and_execute(
             &format!("SELECT secret_hash FROM local_credential_secrets WHERE credential_id = CAST('{}' AS UUID)", credential.id),
             &db::SqlTranslator,
         ).await.map_err(db_error)?;
@@ -342,7 +337,7 @@ impl UserRepo for DbUserRepo {
             created_at: now.timestamp(),
             updated_at: now.timestamp(),
         };
-        let mut transaction = self.engine.client().transaction().await.map_err(db_error)?;
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         transaction
             .execute(vec![
                 Statement::Query(Query::Insert(QueryInsert {
@@ -369,7 +364,6 @@ impl UserRepo for DbUserRepo {
         }
         let updated_at = now();
         self.engine
-            .client()
             .execute(vec![Statement::Query(Query::Update(QueryUpdate {
                 from: from(USERS),
                 assignments: UserRow::assignments(&user, updated_at),
@@ -392,7 +386,6 @@ impl UserRepo for DbUserRepo {
         let email_row = emails.iter_mut().find(|existing| existing.email == email);
         if let Some(existing) = email_row {
             self.engine
-                .client()
                 .execute(vec![Statement::Query(Query::Update(QueryUpdate {
                     from: from(EMAILS),
                     assignments: vec![
@@ -416,7 +409,6 @@ impl UserRepo for DbUserRepo {
                 updated_at: now,
             };
             self.engine
-                .client()
                 .execute(vec![Statement::Query(Query::Insert(QueryInsert {
                     table: EMAILS.into(),
                     row: row.into(),
@@ -430,7 +422,6 @@ impl UserRepo for DbUserRepo {
             .filter(|existing| existing.email != email)
         {
             self.engine
-                .client()
                 .execute(vec![Statement::Query(Query::Update(QueryUpdate {
                     from: from(EMAILS),
                     assignments: vec![
@@ -459,7 +450,6 @@ impl UserRepo for DbUserRepo {
             .find(|existing| existing.phone_number == phone_number)
         {
             self.engine
-                .client()
                 .execute(vec![Statement::Query(Query::Update(QueryUpdate {
                     from: from(PHONES),
                     assignments: vec![
@@ -483,7 +473,6 @@ impl UserRepo for DbUserRepo {
                 updated_at: now,
             };
             self.engine
-                .client()
                 .execute(vec![Statement::Query(Query::Insert(QueryInsert {
                     table: PHONES.into(),
                     row: row.into(),
@@ -497,7 +486,6 @@ impl UserRepo for DbUserRepo {
             .filter(|existing| existing.phone_number != phone_number)
         {
             self.engine
-                .client()
                 .execute(vec![Statement::Query(Query::Update(QueryUpdate {
                     from: from(PHONES),
                     assignments: vec![
@@ -517,7 +505,7 @@ impl UserRepo for DbUserRepo {
         let password_hash = encrypt_password(&self.password_config, password)
             .map_err(|error| RepoError::Other(error.into()))?;
         let now = now().timestamp();
-        let mut transaction = self.engine.client().transaction().await.map_err(db_error)?;
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         let results = transaction
             .execute(vec![Statement::Query(select(
                 CREDENTIALS,
@@ -583,7 +571,6 @@ impl UserRepo for DbUserRepo {
 
     async fn delete_user_by_id(&self, user_id: Id) -> RepoResult<()> {
         self.engine
-            .client()
             .execute(vec![Statement::Query(Query::Delete(QueryDelete {
                 from: from(USERS),
                 predicate: Some(equals(USERS, "id", Value::Uuid(user_id))),
@@ -954,6 +941,9 @@ fn select(table: &str, columns: &[&str], predicate: Option<QueryExpr>) -> Query 
 }
 
 #[cfg(test)]
+use db::Database;
+
+#[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
@@ -968,7 +958,7 @@ mod tests {
         {
             let database = Arc::new(Database::open(&path).expect("open local identity"));
             up(&database).await.expect("initialize new schema");
-            let repo = DbUserRepo::new(Arc::clone(&database), PasswordConfig::default());
+            let repo = DbUserRepo::new(database.client(), PasswordConfig::default());
             id = repo
                 .create_user_with_password("local-user", "first-password")
                 .await
@@ -992,7 +982,7 @@ mod tests {
         }
         {
             let database = Arc::new(Database::open(&path).expect("reopen identity offline"));
-            let repo = DbUserRepo::new(Arc::clone(&database), PasswordConfig::default());
+            let repo = DbUserRepo::new(database.client(), PasswordConfig::default());
             let credential = repo
                 .find_user_password_by_user_id(id)
                 .await
@@ -1025,7 +1015,7 @@ mod tests {
     async fn manages_uuid_users_and_password_credentials() {
         let engine = Arc::new(db::Database::in_memory());
         up(&engine).await.unwrap();
-        let repo = DbUserRepo::new(engine, PasswordConfig::default());
+        let repo = DbUserRepo::new(engine.client(), PasswordConfig::default());
         let user = repo
             .create_user_with_password("alice", "password")
             .await

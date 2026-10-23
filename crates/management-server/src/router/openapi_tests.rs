@@ -24,8 +24,8 @@ async fn document() -> Value {
     let state = RouterState::new(
         "https://management.example/management",
         Arc::new(ManagementService::new(
-            DbPermissionRepo::new(Arc::clone(&engine)),
-            DbRoleRepo::new(Arc::clone(&engine)),
+            DbPermissionRepo::new(engine.client()),
+            DbRoleRepo::new(engine.client()),
         )),
         Arc::new(DbSelectionPolicyRepo::new(Arc::clone(&engine))),
         Arc::new(

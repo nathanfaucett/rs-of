@@ -159,8 +159,8 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
         .await
         .expect("actor audiences");
     let service = ManagementService::new(
-        DbPermissionRepo::new(fixture.management.clone()),
-        DbRoleRepo::new(fixture.management.clone()),
+        DbPermissionRepo::new(fixture.management.client()),
+        DbRoleRepo::new(fixture.management.client()),
     );
     for (app, actions) in [
         (fixture.scope.application_id, vec!["devices.select"]),
@@ -210,7 +210,7 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
     let control = Arc::new(control);
     let mut management = Listener::start(
         management_server::build_router(
-            fixture.management.clone(),
+            fixture.management.client(),
             fixture.management.clone(),
             "https://management.test",
             "",
@@ -369,7 +369,7 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
         .token("storage:databases", vec![StorageAuthorizationAction::Read])
         .await;
     require_success(fixture.http.put(&selection_url).bearer_auth(&actor).json(&serde_json::json!({"applicationId": fixture.scope.application_id, "kind": "database", "id": database_resource.id, "storageAccessToken": database_token})).send().await.expect("same Management service selects the database kind")).await;
-    let new_owner = DbUserRepo::new(fixture.idp.clone(), Default::default())
+    let new_owner = DbUserRepo::new(fixture.idp.client(), Default::default())
         .create_user_with_password("next-owner", "next-password")
         .await
         .expect("active next User");

@@ -342,7 +342,7 @@ impl SecurityProtocol {
         let owner: Id = device.owner_subject.parse().map_err(denied)?;
         if device.id.is_nil()
             || owner.is_nil()
-            || DbUserRepo::new(self.idp.clone(), PasswordConfig::default())
+            || DbUserRepo::new(self.idp.client(), PasswordConfig::default())
                 .find_user_by_id(owner)
                 .await
                 .map_err(denied)?
@@ -378,7 +378,7 @@ impl SecurityProtocol {
         }
         let actor: Id = device.owner_subject.parse().map_err(denied)?;
         if actor.is_nil()
-            || DbUserRepo::new(self.idp.clone(), PasswordConfig::default())
+            || DbUserRepo::new(self.idp.client(), PasswordConfig::default())
                 .find_user_by_id(actor)
                 .await
                 .map_err(denied)?
@@ -389,7 +389,7 @@ impl SecurityProtocol {
             ));
         }
         let (action, resource) = context.permission();
-        if !LocalPermissions::new(self.policy.clone())
+        if !LocalPermissions::new(self.policy.client())
             .evaluate(&PermissionEvaluationRequest {
                 request_id: Id::now_v7(),
                 subject: PermissionSubject::User { id: actor },
@@ -439,7 +439,7 @@ impl SecurityProtocol {
                     .parse()
                     .map_err(|_| denied("invalid session owner"))?;
                 if owner.is_nil()
-                    || DbUserRepo::new(self.idp.clone(), PasswordConfig::default())
+                    || DbUserRepo::new(self.idp.client(), PasswordConfig::default())
                         .find_user_by_id(owner)
                         .await
                         .map_err(denied)?

@@ -690,8 +690,8 @@ impl Pair {
                     .expect("public Management fixture owner"),
             );
             let policy = ManagementService::new(
-                DbPermissionRepo::new(management.clone()),
-                DbRoleRepo::new(management),
+                DbPermissionRepo::new(management.client()),
+                DbRoleRepo::new(management.client()),
             );
             let role = journal["role"]
                 .as_str()

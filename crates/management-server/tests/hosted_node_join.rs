@@ -34,7 +34,7 @@ async fn service_builder_mounts_hosted_join_routes_at_its_configured_prefix() {
     );
     for prefix in ["", "/management", "/custom/management"] {
         let router = management_server::build_router(
-            engine.clone(),
+            engine.client(),
             engine.clone(),
             "https://management.example",
             prefix,

@@ -59,13 +59,13 @@ pub async fn run(
     let engine = Arc::new(Database::open(database_path).map_err(io::Error::other)?);
 
     let key_service = Arc::new(KeyService::new(
-        DbKeyRepo::new(Arc::clone(&engine)),
+        DbKeyRepo::new(engine.client()),
         PrivateKeyKeyringRepo::new(&app_config.oauth2.issuer).map_err(io::Error::other)?,
         app_config.key_namespace.clone(),
     ));
-    let client_repo = DbClientRepo::new(Arc::clone(&engine), Arc::clone(&key_service));
+    let client_repo = DbClientRepo::new(engine.client(), Arc::clone(&key_service));
     provision(
-        &DbApplicationRepo::new(Arc::clone(&engine)),
+        &DbApplicationRepo::new(engine.client()),
         &client_repo,
         &key_service,
         application_uri,
@@ -438,7 +438,7 @@ mod tests {
                         idp_model::replica::up(&engine)
                             .await
                             .expect("initialize current IdP schema");
-                        let applications = DbApplicationRepo::new(Arc::clone(&engine));
+                        let applications = DbApplicationRepo::new(engine.client());
                         applications
                             .create_application(
                                 "Test application".to_owned(),
@@ -449,12 +449,11 @@ mod tests {
                             .expect("create canonical application");
                         let private_keys = TestPrivateKeyRepo::new(Some(1));
                         let key_service = Arc::new(KeyService::new(
-                            DbKeyRepo::new(Arc::clone(&engine)),
+                            DbKeyRepo::new(engine.client()),
                             private_keys.clone(),
                             "test-namespace".to_owned(),
                         ));
-                        let clients =
-                            DbClientRepo::new(Arc::clone(&engine), Arc::clone(&key_service));
+                        let clients = DbClientRepo::new(engine.client(), Arc::clone(&key_service));
 
                         provision(
                             &applications,
@@ -571,7 +570,7 @@ mod tests {
         idp_model::replica::up(&engine)
             .await
             .expect("initialize current IdP schema");
-        let applications = DbApplicationRepo::new(Arc::clone(&engine));
+        let applications = DbApplicationRepo::new(engine.client());
         applications
             .create_application(
                 "Test application".to_owned(),
@@ -581,11 +580,11 @@ mod tests {
             .await
             .expect("create canonical application");
         let key_service = Arc::new(KeyService::new(
-            DbKeyRepo::new(Arc::clone(&engine)),
+            DbKeyRepo::new(engine.client()),
             PrivateKeyKeyringRepo::new_with_store("idp-live-test", test_keyring_store()),
             "live-test-namespace".to_owned(),
         ));
-        let clients = DbClientRepo::new(Arc::clone(&engine), Arc::clone(&key_service));
+        let clients = DbClientRepo::new(engine.client(), Arc::clone(&key_service));
         let credentials_path = root.join("service-credentials.json");
         provision(
             &applications,
@@ -641,7 +640,7 @@ mod tests {
         let public_jwk = key_service
             .prepare_node_signer(&local_signer)
             .expect("prepare independent local Node signer");
-        idp_service::replica::DbReplicaSignerRepo::new(Arc::clone(&engine))
+        idp_service::replica::DbReplicaSignerRepo::new(engine.client())
             .enroll(
                 &idp_model::contract::ReplicaMembership {
                     installation_id: issuer.into(),
@@ -664,12 +663,12 @@ mod tests {
             .await
             .expect("approve matching local signer trust");
         let oauth2_service = Arc::new(OAuth2Service::new(
-            DbApplicationRepo::new(Arc::clone(&engine)),
-            DbClientRepo::new(Arc::clone(&engine), Arc::clone(&key_service)),
-            DbOAuth2AuthorizationCodeRepo::new(Arc::clone(&engine)),
-            DbOAuth2RefreshTokenRepo::new(Arc::clone(&engine)),
-            DbUserRepo::new(Arc::clone(&engine), PasswordConfig::default()),
-            DbOAuth2UserConsentRepo::new(Arc::clone(&engine)),
+            DbApplicationRepo::new(engine.client()),
+            DbClientRepo::new(engine.client(), Arc::clone(&key_service)),
+            DbOAuth2AuthorizationCodeRepo::new(engine.client()),
+            DbOAuth2RefreshTokenRepo::new(engine.client()),
+            DbUserRepo::new(engine.client(), PasswordConfig::default()),
+            DbOAuth2UserConsentRepo::new(engine.client()),
             key_service,
             OAuth2Config {
                 issuer: issuer.to_owned(),
@@ -734,8 +733,8 @@ mod tests {
             .await
             .expect("persist live authorization code");
         let policy = management_service::ManagementService::new(
-            management_service::replica::DbPermissionRepo::new(Arc::clone(&policy_engine)),
-            management_service::replica::DbRoleRepo::new(Arc::clone(&policy_engine)),
+            management_service::replica::DbPermissionRepo::new(policy_engine.client()),
+            management_service::replica::DbRoleRepo::new(policy_engine.client()),
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -744,7 +743,7 @@ mod tests {
         let state = crate::RouterState::new(
             issuer,
             "https://example.test/app",
-            Arc::clone(&engine),
+            engine.client(),
             oauth2_service,
             None,
             Arc::new(
@@ -752,7 +751,7 @@ mod tests {
                     .expect("matching endpoint identity key"),
             ),
         )
-        .with_local_permissions(LocalPermissions::new(Arc::clone(&policy_engine)));
+        .with_local_permissions(LocalPermissions::new(policy_engine.client()));
         let app = crate::openapi_router(state.clone(), "/")
             .split_for_parts()
             .0;
@@ -1377,7 +1376,7 @@ mod tests {
                             .await
                             .expect("initialize current IdP schema");
 
-                        let applications = DbApplicationRepo::new(Arc::clone(&engine));
+                        let applications = DbApplicationRepo::new(engine.client());
                         applications
                             .create_application(
                                 "Test application".to_owned(),
@@ -1387,12 +1386,12 @@ mod tests {
                             .await
                             .expect("create canonical application");
                         let key_service = Arc::new(KeyService::new(
-                            DbKeyRepo::new(Arc::clone(&engine)),
+                            DbKeyRepo::new(engine.client()),
                             TestPrivateKeyRepo::new(None),
                             "test-namespace".to_owned(),
                         ));
                         let clients =
-                            DbClientRepo::new(Arc::clone(&engine), Arc::clone(&key_service));
+                            DbClientRepo::new(engine.client(), Arc::clone(&key_service));
 
                         provision(
                             &applications,
@@ -1532,12 +1531,12 @@ mod tests {
                         }
 
                         let oauth2_service = OAuth2Service::new(
-                            DbApplicationRepo::new(Arc::clone(&engine)),
-                            DbClientRepo::new(Arc::clone(&engine), Arc::clone(&key_service)),
-                            DbOAuth2AuthorizationCodeRepo::new(Arc::clone(&engine)),
-                            DbOAuth2RefreshTokenRepo::new(Arc::clone(&engine)),
-                            DbUserRepo::new(Arc::clone(&engine), PasswordConfig::default()),
-                            DbOAuth2UserConsentRepo::new(Arc::clone(&engine)),
+                            DbApplicationRepo::new(engine.client()),
+                            DbClientRepo::new(engine.client(), Arc::clone(&key_service)),
+                            DbOAuth2AuthorizationCodeRepo::new(engine.client()),
+                            DbOAuth2RefreshTokenRepo::new(engine.client()),
+                            DbUserRepo::new(engine.client(), PasswordConfig::default()),
+                            DbOAuth2UserConsentRepo::new(engine.client()),
                             Arc::clone(&key_service),
                             OAuth2Config {
                                 issuer: "https://idp.example.test".to_owned(),

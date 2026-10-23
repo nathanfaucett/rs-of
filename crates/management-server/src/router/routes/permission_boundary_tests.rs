@@ -154,8 +154,8 @@ fn state(engine: Arc<db::Database>) -> RouterState {
     RouterState::new(
         "http://127.0.0.1",
         Arc::new(ManagementService::new(
-            DbPermissionRepo::new(Arc::clone(&engine)),
-            DbRoleRepo::new(Arc::clone(&engine)),
+            DbPermissionRepo::new(engine.client()),
+            DbRoleRepo::new(engine.client()),
         )),
         Arc::new(DbSelectionPolicyRepo::new(engine)),
         Arc::new(

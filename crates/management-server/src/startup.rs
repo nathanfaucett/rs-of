@@ -36,6 +36,10 @@ pub fn prepare_setup(
     config: &AppConfig,
     address: SocketAddr,
 ) -> io::Result<Option<IndependentSetupHost>> {
+    if let Some(remote) = &config.identity_database {
+        remote.validate()?;
+        return Ok(None);
+    }
     IndependentSetupHost::prepare(
         "management",
         Path::new(&config.data_dir),

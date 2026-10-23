@@ -185,6 +185,12 @@ pub async fn serve_independent_create(
     setup: IndependentSetupHost,
     shutdown: CancellationToken,
 ) -> io::Result<()> {
+    if config.identity_database.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "remote identity consumers attach to an initialized Installation; independent Create/Join requires a local database owner",
+        ));
+    }
     setup.require_owner("management", Path::new(&config.data_dir))?;
     let (host, commands) = setup.into_create(shutdown.clone())?;
     let mut worker = tokio::spawn(run(config, host.control(), commands, shutdown.clone()));

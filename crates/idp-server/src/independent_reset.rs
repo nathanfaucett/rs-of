@@ -133,20 +133,22 @@ pub async fn reset_independent(config: &AppConfig, remove_os_trust: bool) -> io:
                         "IdP protected inventory disagrees with worker references",
                     ));
                 }
-                let database = Path::new(&config.data_dir).join("idp.redb");
-                if !fs::symlink_metadata(&database)?.file_type().is_file() {
-                    return Err(io::Error::other(
-                        "attempted IdP database missing or invalid",
-                    ));
-                }
                 let mut local = config.clone();
                 local.oauth2.issuer = intent.issuer.clone();
-                // Reuse the owner deletion contract without schema initialization, runtime
-                // construction, peer access, secret loading, or key generation.
-                let owner_api = OwnerProvisioner::from_database(
-                    &local,
-                    Arc::new(Database::open(&database).map_err(io::Error::other)?),
-                )?;
+                let owner_api = if config.identity_database.is_some() {
+                    OwnerProvisioner::open(&local).await?
+                } else {
+                    let database = Path::new(&config.data_dir).join("idp.redb");
+                    if !fs::symlink_metadata(&database)?.file_type().is_file() {
+                        return Err(io::Error::other(
+                            "attempted IdP database missing or invalid",
+                        ));
+                    }
+                    OwnerProvisioner::from_database(
+                        &local,
+                        Arc::new(Database::open(&database).map_err(io::Error::other)?),
+                    )?
+                };
                 owner_api
                     .delete_local_secrets(references.member, references.key, owner, &clients)
                     .await?;

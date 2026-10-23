@@ -1,10 +1,7 @@
-use std::sync::Arc;
-
 use chrono::{DateTime, Timelike, Utc};
 use db::{
-    Database, FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue,
-    QueryFrom, QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid,
-    Value,
+    FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue, QueryFrom,
+    QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid, Value,
 };
 use idp_model::{
     contract::{EntityType, JwkPublic},
@@ -32,19 +29,18 @@ const COLUMNS: [&str; 13] = [
 ];
 
 pub struct DbKeyRepo {
-    engine: Arc<Database>,
+    engine: db::Client,
 }
 
 impl DbKeyRepo {
     #[must_use]
-    pub const fn new(engine: Arc<Database>) -> Self {
+    pub const fn new(engine: db::Client) -> Self {
         Self { engine }
     }
 
     async fn keys(&self) -> RepoResult<Vec<Key>> {
         let mut results = self
             .engine
-            .client()
             .execute(vec![Statement::Query(select(None))])
             .await
             .map_err(db_error)?;
@@ -81,7 +77,7 @@ impl KeyRepo for DbKeyRepo {
             idp_model::contract::IdpSignerRecord,
         )>,
     > {
-        super::DbReplicaSignerRepo::new(Arc::clone(&self.engine))
+        super::DbReplicaSignerRepo::new(self.engine.clone())
             .trusted_signers(issuer, now)
             .await
     }
@@ -97,7 +93,6 @@ impl KeyRepo for DbKeyRepo {
             serde_json::to_string(&jwk).map_err(|error| RepoError::Other(Box::new(error)))?;
         let results = self
             .engine
-            .client()
             .execute(vec![Statement::Query(Query::Update(QueryUpdate {
                 from: from(),
                 assignments: vec![QueryUpdateAssignment {
@@ -199,7 +194,6 @@ impl KeyRepo for DbKeyRepo {
         entity_id: Id,
     ) -> RepoResult<()> {
         self.engine
-            .client()
             .execute(vec![Statement::Query(Query::Delete(QueryDelete {
                 from: from(),
                 predicate: Some(QueryExpr::And(
@@ -266,7 +260,6 @@ impl KeyRepo for DbKeyRepo {
             updated_at: now,
         };
         self.engine
-            .client()
             .execute(vec![Statement::Query(Query::Insert(QueryInsert {
                 table: TABLE.into(),
                 row: KeyRow::from(&key).into(),
@@ -458,7 +451,7 @@ mod tests {
     async fn creates_uuid_keys_with_unique_sibling_paths() {
         let engine = Arc::new(db::Database::in_memory());
         up(&engine).await.unwrap();
-        let repo = DbKeyRepo::new(engine);
+        let repo = DbKeyRepo::new(engine.client());
         let entity_id = Id::now_v7();
 
         let first = repo

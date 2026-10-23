@@ -100,7 +100,7 @@ impl Fixture {
         );
         let devices = Arc::new(DbDeviceRepo::new(database.clone()));
         let router = crate::build_router(
-            database.clone(),
+            database.client(),
             "https://management.example",
             "/management",
             "storage",
@@ -167,8 +167,8 @@ impl Fixture {
 
     async fn grant(&self, action: IdentityAction) {
         let service = ManagementService::new(
-            DbPermissionRepo::new(self.database.clone()),
-            DbRoleRepo::new(self.database.clone()),
+            DbPermissionRepo::new(self.database.client()),
+            DbRoleRepo::new(self.database.client()),
         );
         let role = service
             .create_role(Id::nil(), action.permission(), None)

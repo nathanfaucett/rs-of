@@ -1,9 +1,7 @@
-use std::sync::Arc;
-
 use chrono::{DateTime, Timelike, Utc};
 use db::{
-    Database, FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue,
-    QueryFrom, QueryInsert, QuerySelect, Row, Statement, Uuid, Value,
+    FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue, QueryFrom,
+    QueryInsert, QuerySelect, Row, Statement, Uuid, Value,
 };
 use idp_model::{
     model::{Id, Permission},
@@ -28,19 +26,18 @@ const ROLE_COLUMNS: [&str; 3] = ["id", "application_id", "revoked_at"];
 const ROLE_PERMISSION_COLUMNS: [&str; 4] = ["id", "role_id", "permission_id", "revoked_at"];
 
 pub struct DbPermissionRepo {
-    engine: Arc<Database>,
+    engine: db::Client,
 }
 
 impl DbPermissionRepo {
     #[must_use]
-    pub const fn new(engine: Arc<Database>) -> Self {
+    pub const fn new(engine: db::Client) -> Self {
         Self { engine }
     }
 
     async fn rows<T: FromRow>(&self, query: Query) -> ManagementResult<Vec<T>> {
         let mut results = self
             .engine
-            .client()
             .execute(vec![Statement::Query(query)])
             .await
             .map_err(db_error)?;
@@ -185,7 +182,6 @@ impl PermissionRepo for DbPermissionRepo {
             updated_at: now,
         };
         self.engine
-            .client()
             .execute(vec![Statement::Query(Query::Insert(QueryInsert {
                 table: PERMISSIONS.into(),
                 row: PermissionRow::from(&permission).into(),
@@ -215,7 +211,6 @@ impl PermissionRepo for DbPermissionRepo {
             .await?
             .ok_or_else(|| ManagementError::InvalidInput("permission not found".into()))?;
         self.engine
-            .client()
             .execute(vec![Statement::Query(delete(PERMISSIONS, permission_id))])
             .await
             .map_err(db_error)?;
@@ -252,7 +247,6 @@ impl PermissionRepo for DbPermissionRepo {
         };
         let relation_id = relation.id;
         self.engine
-            .client()
             .execute(vec![Statement::Query(Query::Insert(QueryInsert {
                 table: ROLE_PERMISSIONS.into(),
                 row: relation.into(),
@@ -281,7 +275,6 @@ impl PermissionRepo for DbPermissionRepo {
             .await?
             .ok_or_else(|| ManagementError::InvalidInput("role permission not found".into()))?;
         self.engine
-            .client()
             .execute(vec![Statement::Query(delete(
                 ROLE_PERMISSIONS,
                 relation.id,

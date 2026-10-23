@@ -131,12 +131,18 @@ impl IdpRuntime {
 /// Composes serving from an already initialized IdP database and optional host-owned Management capability.
 pub async fn build_runtime(
     config: &AppConfig,
-    engine: Arc<Database>,
+    engine: db::Client,
     devices: Option<Arc<DbDeviceRepo>>,
     device_identity: Arc<DeviceIdentity>,
     server: Server,
     local_permissions: Option<LocalPermissions>,
 ) -> io::Result<IdpRuntime> {
+    if config.identity_database.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "injected identity owner and remote SQL are mutually exclusive",
+        ));
+    }
     if device_identity.endpoint_id() != server.endpoint().id() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -161,18 +167,51 @@ pub async fn build_runtime(
     Ok(runtime_from_state(config, state))
 }
 
+pub async fn identity_client(config: &AppConfig) -> io::Result<db::Client> {
+    if let Some(remote) = &config.identity_database {
+        if std::path::Path::new(&config.data_dir)
+            .join("idp.redb")
+            .try_exists()?
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "remote identity consumer cannot also own idp.redb",
+            ));
+        }
+        if config.management_data_dir.is_some() || config.management_permissions.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "remote identity SQL cannot be combined with a separate Management policy source",
+            ));
+        }
+        let client = remote.connect().await?;
+        idp_model::replica::validate_identity(&client)
+            .await
+            .map_err(io::Error::other)?;
+        return Ok(client);
+    }
+    std::fs::create_dir_all(&config.data_dir)?;
+    let database = Database::open(std::path::Path::new(&config.data_dir).join("idp.redb"))
+        .map_err(io::Error::other)?;
+    idp_model::replica::up(&database)
+        .await
+        .map_err(io::Error::other)?;
+    Ok(database.client())
+}
+
 /// Builds an IdP HTTPS owner without acquiring transport identity or Management state.
-pub async fn build_oauth_runtime(
-    config: &AppConfig,
-    engine: Arc<Database>,
-) -> io::Result<IdpRuntime> {
-    let state = build_state(config, engine, None, None, None).await?;
+pub async fn build_oauth_runtime(config: &AppConfig, engine: db::Client) -> io::Result<IdpRuntime> {
+    let permissions = config
+        .identity_database
+        .as_ref()
+        .map(|_| LocalPermissions::new(engine.clone()));
+    let state = build_state(config, engine, None, None, permissions).await?;
     Ok(runtime_from_state(config, state))
 }
 
 pub(crate) async fn build_state(
     config: &AppConfig,
-    engine: Arc<Database>,
+    engine: db::Client,
     devices: Option<Arc<DbDeviceRepo>>,
     device_identity: Option<Arc<DeviceIdentity>>,
     local_permissions: Option<LocalPermissions>,
@@ -191,7 +230,7 @@ pub(crate) async fn build_state(
         None
     };
     let key_service = Arc::new(KeyService::new(
-        DbKeyRepo::new(Arc::clone(&engine)),
+        DbKeyRepo::new(engine.clone()),
         PrivateKeyKeyringRepo::new(&config.oauth2.issuer).map_err(io::Error::other)?,
         config.key_namespace.clone(),
     ));
@@ -208,12 +247,12 @@ pub(crate) async fn build_state(
             .map_err(io::Error::other)?;
     }
     let oauth2_service = Arc::new(OAuth2Service::new(
-        DbApplicationRepo::new(Arc::clone(&engine)),
-        DbClientRepo::new(Arc::clone(&engine), Arc::clone(&key_service)),
-        DbOAuth2AuthorizationCodeRepo::new(Arc::clone(&engine)),
-        DbOAuth2RefreshTokenRepo::new(Arc::clone(&engine)),
-        DbUserRepo::new(Arc::clone(&engine), config.password.clone()),
-        DbOAuth2UserConsentRepo::new(Arc::clone(&engine)),
+        DbApplicationRepo::new(engine.clone()),
+        DbClientRepo::new(engine.clone(), Arc::clone(&key_service)),
+        DbOAuth2AuthorizationCodeRepo::new(engine.clone()),
+        DbOAuth2RefreshTokenRepo::new(engine.clone()),
+        DbUserRepo::new(engine.clone(), config.password.clone()),
+        DbOAuth2UserConsentRepo::new(engine.clone()),
         key_service,
         config.oauth2.clone(),
     ));
@@ -239,7 +278,7 @@ pub(crate) async fn build_state(
     let mut router_state = RouterState::new_oauth(
         &config.ui_public_uri,
         &config.api_public_uri,
-        Arc::clone(&engine),
+        engine,
         Arc::clone(&oauth2_service),
     )
     .with_service_audience(service_audience);
@@ -320,6 +359,38 @@ mod tests {
     use management_service::PairingAcceptanceController;
 
     use crate::node_join_tests::approval_fixture;
+
+    #[tokio::test]
+    async fn remote_identity_startup_never_falls_back_to_a_private_database() {
+        let root = std::env::temp_dir().join(format!(
+            "remote-identity-startup-{}",
+            idp_model::model::Id::now_v7()
+        ));
+        let listener =
+            std::net::TcpListener::bind("127.0.0.1:0").expect("reserve unavailable SQL endpoint");
+        let address = listener.local_addr().expect("SQL endpoint");
+        drop(listener);
+        let mut config = crate::AppConfig {
+            data_dir: root.to_string_lossy().into_owned(),
+            identity_database: Some(db::RemoteDatabaseConfig {
+                endpoint: format!("http://{address}"),
+                ca_certificate: None,
+                client_certificate: None,
+                client_key: None,
+                deadline_ms: 100,
+            }),
+            ..Default::default()
+        };
+        assert!(super::identity_client(&config).await.is_err());
+        assert!(!root.exists());
+        config
+            .identity_database
+            .as_mut()
+            .expect("remote config")
+            .endpoint = "http://sql.example:50051".into();
+        assert!(super::identity_client(&config).await.is_err());
+        assert!(!root.exists());
+    }
 
     async fn assert_normal_oauth(runtime: &super::IdpRuntime) {
         use axum::{
@@ -440,7 +511,7 @@ mod tests {
         drop(fixture);
         let engine =
             Arc::new(db::Database::open(root.join("idp.redb")).expect("stopped owner reopen"));
-        let reopened = super::build_oauth_runtime(&config, engine)
+        let reopened = super::build_oauth_runtime(&config, engine.client())
             .await
             .expect("offline OAuth-only reopen");
         assert_normal_oauth(&reopened).await;
@@ -452,7 +523,9 @@ mod tests {
             idp_model::model::Id::now_v7();
         let engine = Arc::new(db::Database::open(root.join("idp.redb")).expect("existing owner"));
         assert!(
-            super::build_oauth_runtime(&invalid, engine).await.is_err(),
+            super::build_oauth_runtime(&invalid, engine.client())
+                .await
+                .is_err(),
             "independence must not bypass approved signer/private-key validation"
         );
         std::fs::remove_dir_all(root).expect("isolated cleanup");
