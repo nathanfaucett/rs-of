@@ -2,9 +2,10 @@ use std::{fs, io, path::Path, sync::Arc};
 
 use api::IndependentReset;
 use db::Database;
+use device_service::independent_join::IndependentJoinApproval;
+use device_service::independent_join::IndependentJoinRequest;
 use idp_model::{contract::ClientRegistration, model::Id};
 use idp_service::setup_credentials::delete_setup_secrets;
-use management_service::independent_join::{IndependentJoinApproval, IndependentJoinRequest};
 use serde::Deserialize;
 
 use crate::{AppConfig, OwnerProvisioner};

@@ -1,5 +1,7 @@
 # Storage security and transport
 
+Current owner/database boundaries and Device routes: [shared control-plane databases](../../../docs/control-plane.md).
+
 [Storage design](design.md) defines resource isolation; [system design](../../../docs/design.md) defines equal offline-first Nodes and owner boundaries. This is the confirmed target contract, not verified implementation behavior. Acceptance requires results recorded against the active tickets; no tests were rerun for this documentation migration.
 
 ## Local authorization

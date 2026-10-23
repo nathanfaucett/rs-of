@@ -45,7 +45,7 @@ fn run_production_create(legacy_reset: bool) {
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).expect("private roots");
     let mut addresses = Vec::new();
     let mut bundle = Vec::new();
-    for owner in ["idp", "management", "storage"] {
+    for owner in ["idp", "device", "storage"] {
         let port = std::net::TcpListener::bind("127.0.0.1:0").expect("reserve listener");
         let address = port.local_addr().expect("address");
         let host = setup(&root, owner, address);
@@ -118,11 +118,11 @@ pub(super) async fn start(
         ..Default::default()
     };
     idp.server.prefix = Some("/idp".into());
-    let mut management = management_server::AppConfig {
-        data_dir: root.join("management").to_string_lossy().into_owned(),
+    let mut device = device_server::AppConfig {
+        data_dir: root.join("device").to_string_lossy().into_owned(),
         ..Default::default()
     };
-    management.server.prefix = Some("/management".into());
+    device.server.prefix = Some("/device".into());
     let mut storage = storage_server::AppConfig {
         data_dir: root.join("storage").to_string_lossy().into_owned(),
         ..Default::default()
@@ -142,14 +142,14 @@ pub(super) async fn start(
             }
         }),
         tokio::spawn({
-            let task = management_server::serve_independent_create(
-                Arc::new(management),
-                setup(root, "management", addresses[1]),
+            let task = device_server::serve_independent_create(
+                Arc::new(device),
+                setup(root, "device", addresses[1]),
                 shutdown.child_token(),
             );
             async move {
                 task.await.inspect_err(|error| {
-                    eprintln!("Independent fixture owner=management stopped: {error}")
+                    eprintln!("Independent fixture owner=device stopped: {error}")
                 })
             }
         }),
@@ -169,7 +169,7 @@ pub(super) async fn start(
 }
 pub(super) async fn wait(http: &Client, intent: &IndependentCreateIntent, ready: bool) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-    for owner in ["idp", "management", "storage"] {
+    for owner in ["idp", "device", "storage"] {
         loop {
             if let Ok(response) = http
                 .get(format!(
@@ -304,7 +304,7 @@ pub(super) async fn normal_use(
         response.json().await.expect("Management audience token");
     let management_token = token.access_token.0.clone();
     let response = http
-        .get(format!("{}/devices/trusted", intent.management))
+        .get(format!("{}/devices/trusted", intent.device))
         .bearer_auth(&token.access_token.0)
         .send()
         .await
@@ -375,7 +375,7 @@ async fn independent_create_child() {
         administrator: "operator".into(),
         node: "Independent Node".into(),
         idp: format!("https://{}/idp", addresses[0]),
-        management: format!("https://{}/management", addresses[1]),
+        device: format!("https://{}/device", addresses[1]),
         storage: format!("https://{}/storage", addresses[2]),
         issuer: format!("https://{}/idp", addresses[0]),
         peer: None,
@@ -385,9 +385,9 @@ async fn independent_create_child() {
     let shutdown = CancellationToken::new();
     let servers = start(&root, &addresses, &shutdown).await;
     wait(&http, &intent, false).await;
-    let management_code = setup_code(&root, "management");
+    let management_code = setup_code(&root, "device");
     let storage_code = setup_code(&root, "storage");
-    let create = format!("{}/independent/setup/create", intent.management);
+    let create = format!("{}/independent/setup/create", intent.device);
     assert_eq!(
         http.post(&create)
             .header("Authorization", format!("Setup {storage_code}"))
@@ -419,9 +419,9 @@ async fn independent_create_child() {
             .status(),
         StatusCode::ACCEPTED
     );
-    let retained = wait_public(&http, &intent.management).await;
+    let retained = wait_public(&http, &intent.device).await;
     let recovered: serde_json::Value = http
-        .post(format!("{}/independent/setup/intent", intent.management))
+        .post(format!("{}/independent/setup/intent", intent.device))
         .header("Authorization", format!("Setup {management_code}"))
         .send()
         .await
@@ -455,11 +455,11 @@ async fn independent_create_child() {
             .status(),
         StatusCode::CONFLICT
     );
-    let forged = serde_json::json!({"operation":intent,"recipient":"management","registration":retained["clients"][0],"challenge":"a".repeat(64)});
+    let forged = serde_json::json!({"operation":intent,"recipient":"device","registration":retained["clients"][0],"challenge":"a".repeat(64)});
     assert_eq!(
         http.post(format!(
             "{}/independent/setup/independent/challenge",
-            intent.management
+            intent.device
         ))
         .json(&forged)
         .send()
@@ -468,7 +468,7 @@ async fn independent_create_child() {
         .status(),
         StatusCode::FORBIDDEN
     );
-    let cancel = format!("{}/independent/setup/cancel", intent.management);
+    let cancel = format!("{}/independent/setup/cancel", intent.device);
     assert_eq!(
         http.post(&cancel)
             .json(&intent)
@@ -491,7 +491,7 @@ async fn independent_create_child() {
     assert_eq!(
         http.post(format!(
             "{}/independent/setup/independent/challenge",
-            intent.management
+            intent.device
         ))
         .json(&forged)
         .send()
@@ -507,11 +507,11 @@ async fn independent_create_child() {
             .expect("join interrupted owner")
             .expect("interrupted owner shutdown");
     }
-    let worker_path = root.join("management.setup-host/worker.json");
+    let worker_path = root.join("device.setup-host/worker.json");
     let worker = fs::read(&worker_path).expect("pre-domain worker evidence");
     let provider = idp_service::repo::RawKeyringRepo::new(format!(
         "independent-setup:{}",
-        root.join("management.setup-host").display()
+        root.join("device.setup-host").display()
     ))
     .expect("isolated provider");
     let client = retained["clients"][0]["client_id"]
@@ -526,11 +526,11 @@ async fn independent_create_child() {
         .expect("endpoint read")
         .expect("endpoint key");
     assert!(
-        !root.join("management").exists(),
+        !root.join("device").exists(),
         "fault precedes domain creation"
     );
     fs::remove_file(&worker_path).expect("inject lost initialized worker record");
-    let prepared = setup(&root, "management", addresses[1]);
+    let prepared = setup(&root, "device", addresses[1]);
     assert!(
         prepared.into_create(CancellationToken::new()).is_err(),
         "lost pre-domain initialized record must refuse before exact retry"
@@ -564,7 +564,7 @@ async fn independent_create_child() {
     );
     let idp_code = setup_code(&root, "idp");
     let mut unretired_idp = None;
-    for owner in ["idp", "management", "storage"] {
+    for owner in ["idp", "device", "storage"] {
         let base = intent.base(owner).expect("base");
         assert_eq!(
             http.get(format!("{base}/devices/trusted"))
@@ -613,7 +613,7 @@ async fn independent_create_child() {
     assert_eq!(
         http.post(format!(
             "{}/independent/setup/independent/challenge",
-            intent.management
+            intent.device
         ))
         .json(&forged)
         .send()
@@ -627,7 +627,7 @@ async fn independent_create_child() {
         finalized,
         "callback cannot progress after finalization"
     );
-    let completed = wait_public(&http, &intent.management).await;
+    let completed = wait_public(&http, &intent.device).await;
     assert_eq!(
         completed["clients"], retained["clients"],
         "interruption retains recipient-generated Client"
@@ -636,9 +636,9 @@ async fn independent_create_child() {
         completed["facts"]["endpoint"], retained["facts"]["endpoint"],
         "interruption retains the actual endpoint"
     );
-    for owner in ["management", "storage"] {
+    for owner in ["device", "storage"] {
         let base = intent.base(owner).expect("owner base");
-        let code = if owner == "management" {
+        let code = if owner == "device" {
             &management_code
         } else {
             &storage_code
@@ -662,7 +662,7 @@ async fn independent_create_child() {
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(
-        http.get(format!("{}/devices/trusted", intent.management))
+        http.get(format!("{}/devices/trusted", intent.device))
             .send()
             .await
             .expect("unauthenticated Management")
@@ -689,10 +689,10 @@ async fn independent_create_child() {
     current_status(&http, &intent.idp, true).await;
     for (owner, slot) in [
         ("idp", "client"),
-        ("management", "client"),
-        ("management", "endpoint"),
+        ("device", "client"),
+        ("device", "endpoint"),
         ("storage", "idp"),
-        ("storage", "management"),
+        ("storage", "device"),
     ] {
         let path = root.join(format!("{owner}.setup-host/worker.json"));
         let before = fs::read(&path).expect("retained owner record");
@@ -700,7 +700,7 @@ async fn independent_create_child() {
         let client = match slot {
             "endpoint" => Some("endpoint"),
             "idp" => record["clients"][0].as_str(),
-            "management" => record["clients"][1].as_str(),
+            "device" => record["clients"][1].as_str(),
             _ => record["client"].as_str(),
         }
         .expect("exact protected owner slot");
@@ -887,7 +887,7 @@ async fn independent_create_child() {
     assert_eq!(
         http.get(format!(
             "{}/replication/devices/{}/selections",
-            intent.management, endpoints[0].0
+            intent.device, endpoints[0].0
         ))
         .bearer_auth(&service)
         .send()
@@ -896,7 +896,7 @@ async fn independent_create_child() {
         .status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
-    current_status(&http, &intent.management, true).await;
+    current_status(&http, &intent.device, true).await;
     revoke_current_signer(&root, &http, &intent, &management_token).await;
     current_status(&http, &intent.idp, false).await;
     assert_eq!(
@@ -966,24 +966,23 @@ async fn independent_create_child() {
 }
 
 pub(super) async fn seed_endpoint_negatives(root: &Path) -> Vec<(String, StatusCode, bool)> {
+    use device_service::DeviceRepo;
+    use device_service::replica::DbDeviceRepo;
+    use device_service::replica::DbSelectionPolicyRepo;
+    use device_service::replica::SelectionPolicy;
     use idp_model::contract::IdentityAction;
-    use management_service::{
-        DeviceRepo, ManagementService,
-        replica::{
-            DbDeviceRepo, DbPermissionRepo, DbRoleRepo, DbSelectionPolicyRepo, SelectionPolicy,
-        },
-    };
+    use management_service::ManagementService;
+    use management_service::replica::DbPermissionRepo;
+    use management_service::replica::DbRoleRepo;
     let record: serde_json::Value = serde_json::from_slice(
-        &fs::read(root.join("management.setup-host/worker.json"))
-            .expect("stopped Management evidence"),
+        &fs::read(root.join("device.setup-host/worker.json")).expect("stopped Management evidence"),
     )
     .expect("record");
     let owner: Id = serde_json::from_value(record["user"].clone()).expect("setup owner");
     let role: Id = serde_json::from_value(record["create"]["role"].clone())
         .expect("Create administrator role");
     let engine = Arc::new(
-        db::Database::open(root.join("management/management.redb"))
-            .expect("existing-only stopped owner"),
+        db::Database::open(root.join("device/devices.redb")).expect("existing-only stopped owner"),
     );
     let service = ManagementService::new(
         DbPermissionRepo::new(engine.clone()),
@@ -1094,7 +1093,7 @@ async fn storage_policy_token(
             ("client_secret", secret.as_str()),
             (
                 "scope",
-                "management.device.list management.replication.read management.replication.admit",
+                "management.device.list device.replication.read device.replication.admit",
             ),
             ("audience", intent.storage.as_str()),
         ])
@@ -1121,7 +1120,7 @@ async fn exercise_endpoint_negatives(
     http: &Client,
     intent: &IndependentCreateIntent,
     endpoints: &[(String, StatusCode, bool)],
-    management: &str,
+    device: &str,
     storage: &str,
 ) {
     let token = storage_policy_token(root, http, intent).await;
@@ -1130,7 +1129,7 @@ async fn exercise_endpoint_negatives(
         let response = http
             .get(format!(
                 "{}/replication/devices/{endpoint}/selections",
-                intent.management
+                intent.device
             ))
             .bearer_auth(&token)
             .send()
@@ -1172,10 +1171,10 @@ async fn exercise_endpoint_negatives(
     assert_eq!(
         http.delete(format!(
             "{}/devices/{}",
-            intent.management,
+            intent.device,
             approved.expect("signer-free Device")
         ))
-        .bearer_auth(management)
+        .bearer_auth(device)
         .send()
         .await
         .expect("ordinary User learns exact endpoint revocation")
@@ -1185,7 +1184,7 @@ async fn exercise_endpoint_negatives(
     assert_eq!(
         http.get(format!(
             "{}/replication/devices/{}/selections",
-            intent.management, endpoints[0].0
+            intent.device, endpoints[0].0
         ))
         .bearer_auth(&token)
         .send()
@@ -1194,25 +1193,22 @@ async fn exercise_endpoint_negatives(
         .status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
-    let public = wait_public(http, &intent.management).await;
+    let public = wait_public(http, &intent.device).await;
     let device = public["facts"]["device"]
         .as_str()
         .expect("local Management Device");
     for allowed in [false, true] {
         assert_eq!(
-            http.put(format!(
-                "{}/devices/{device}/restriction",
-                intent.management
-            ))
-            .bearer_auth(management)
-            .json(&serde_json::json!({"adminAllowed":allowed}))
-            .send()
-            .await
-            .expect("ordinary exact policy update")
-            .status(),
+            http.put(format!("{}/devices/{device}/restriction", intent.device))
+                .bearer_auth(device)
+                .json(&serde_json::json!({"adminAllowed":allowed}))
+                .send()
+                .await
+                .expect("ordinary exact policy update")
+                .status(),
             StatusCode::NO_CONTENT
         );
-        current_status(http, &intent.management, allowed).await;
+        current_status(http, &intent.device, allowed).await;
         current_status(http, &intent.storage, allowed).await;
         let normal = http
             .get(format!("{}/databases", intent.storage))
@@ -1235,7 +1231,7 @@ async fn revoke_current_signer(
     root: &Path,
     http: &Client,
     intent: &IndependentCreateIntent,
-    management: &str,
+    device: &str,
 ) {
     let public = wait_public(http, &intent.idp).await;
     let response = http
@@ -1251,7 +1247,7 @@ async fn revoke_current_signer(
                     .as_str()
                     .expect("public login"),
             ),
-            ("subject_token", management),
+            ("subject_token", device),
             (
                 "subject_token_type",
                 "urn:ietf:params:oauth:token-type:access_token",
@@ -1336,16 +1332,16 @@ async fn delayed_forged_https_callback(
             .with_graceful_shutdown(stopped.cancelled_owned())
             .await
     });
-    let (host, mut commands) = setup(root, "management", addresses[1])
+    let (host, mut commands) = setup(root, "device", addresses[1])
         .into_create(stop.child_token())
         .expect("recipient host");
     let control = host.control();
     let recipient = tokio::spawn(host.serve());
-    let code = setup_code(root, "management");
+    let code = setup_code(root, "device");
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         if http
-            .get(format!("{}/independent/setup/status", intent.management))
+            .get(format!("{}/independent/setup/status", intent.device))
             .send()
             .await
             .is_ok()
@@ -1356,7 +1352,7 @@ async fn delayed_forged_https_callback(
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     assert_eq!(
-        http.post(format!("{}/independent/setup/create", intent.management))
+        http.post(format!("{}/independent/setup/create", intent.device))
             .header("Authorization", format!("Setup {code}"))
             .json(intent)
             .send()
@@ -1371,7 +1367,7 @@ async fn delayed_forged_https_callback(
         .set_public(
             api::IndependentOwnerPublic {
                 operation: intent.clone(),
-                owner: "management".into(),
+                owner: "device".into(),
                 clients: vec![registration.clone()],
                 facts: serde_json::json!({}),
                 registered: vec![],
@@ -1380,11 +1376,11 @@ async fn delayed_forged_https_callback(
         )
         .await
         .expect("arranged public recipient");
-    let forged = serde_json::json!({"operation":intent,"recipient":"management","registration":registration,"challenge":"a".repeat(64)});
+    let forged = serde_json::json!({"operation":intent,"recipient":"device","registration":registration,"challenge":"a".repeat(64)});
     let request = http
         .post(format!(
             "{}/independent/setup/independent/challenge",
-            intent.management
+            intent.device
         ))
         .json(&forged);
     let callback = tokio::spawn(async move { request.send().await });
@@ -1393,7 +1389,7 @@ async fn delayed_forged_https_callback(
         .expect("forged callback reached delayed verified HTTPS IdP");
     let cancellation = tokio::time::timeout(
         Duration::from_millis(250),
-        http.post(format!("{}/independent/setup/cancel", intent.management))
+        http.post(format!("{}/independent/setup/cancel", intent.device))
             .header("Authorization", format!("Setup {code}"))
             .json(intent)
             .send(),
@@ -1433,7 +1429,7 @@ async fn delayed_forged_https_callback(
         "cancelled operation cannot finalize"
     );
     assert_eq!(
-        http.get(format!("{}/independent/setup/status", intent.management))
+        http.get(format!("{}/independent/setup/status", intent.device))
             .send()
             .await
             .expect("responsive status")
@@ -1488,7 +1484,7 @@ async fn assert_public_has_no_secrets(
     intent: &IndependentCreateIntent,
 ) {
     let mut secrets = vec!["protected-password".to_owned()];
-    for owner in ["idp", "management", "storage"] {
+    for owner in ["idp", "device", "storage"] {
         let public = wait_public(http, intent.base(owner).expect("owner")).await;
         let provider = idp_service::repo::RawKeyringRepo::new(format!(
             "independent-setup:{}",
@@ -1508,7 +1504,7 @@ async fn assert_public_has_no_secrets(
             );
         }
     }
-    for owner in ["idp", "management", "storage"] {
+    for owner in ["idp", "device", "storage"] {
         let base = intent.base(owner).expect("owner");
         for route in ["setup/status", "setup/independent/public"] {
             let body = http

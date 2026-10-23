@@ -5,7 +5,8 @@ use idp_service::{oauth2::NodeSignerBinding, repo::PrivateKeyRepo};
 use iroh::EndpointId;
 use serde::Serialize;
 
-use management_service::hosted_join::{NodeJoinApproval, NodeJoinRequest};
+use device_service::hosted_join::NodeJoinApproval;
+use device_service::hosted_join::NodeJoinRequest;
 
 use crate::OwnerProvisioner;
 

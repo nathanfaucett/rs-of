@@ -26,15 +26,15 @@ export interface IndependentCreateIntent {
     /**
      *
      */
+    device: string;
+    /**
+     *
+     */
     idp: string;
     /**
      *
      */
     issuer: string;
-    /**
-     *
-     */
-    management: string;
     /**
      *
      */
@@ -65,10 +65,9 @@ export function instanceOfIndependentCreateIntent(
 ): value is IndependentCreateIntent {
     if (!("administrator" in value) || value["administrator"] === undefined)
         return false;
+    if (!("device" in value) || value["device"] === undefined) return false;
     if (!("idp" in value) || value["idp"] === undefined) return false;
     if (!("issuer" in value) || value["issuer"] === undefined) return false;
-    if (!("management" in value) || value["management"] === undefined)
-        return false;
     if (!("node" in value) || value["node"] === undefined) return false;
     if (
         (!("operationNonce" in (value as Record<string, any>)) &&
@@ -99,9 +98,9 @@ export function IndependentCreateIntentFromJSONTyped(
             (key) =>
                 ![
                     "administrator",
+                    "device",
                     "idp",
                     "issuer",
-                    "management",
                     "node",
                     "operation_nonce",
                     "peer",
@@ -116,9 +115,9 @@ export function IndependentCreateIntentFromJSONTyped(
     }
     return {
         administrator: json["administrator"],
+        device: json["device"],
         idp: json["idp"],
         issuer: json["issuer"],
-        management: json["management"],
         node: json["node"],
         operationNonce: json["operation_nonce"],
         peer:
@@ -148,9 +147,9 @@ export function IndependentCreateIntentToJSONTyped(
 
     return {
         administrator: value["administrator"],
+        device: value["device"],
         idp: value["idp"],
         issuer: value["issuer"],
-        management: value["management"],
         node: value["node"],
         operation_nonce: value["operationNonce"],
         peer: value["peer"],

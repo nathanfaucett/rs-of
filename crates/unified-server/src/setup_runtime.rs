@@ -450,6 +450,10 @@ impl HostedSetupOwners for RuntimeSetupOwners {
                     management_server::openapi_document(&config.management.api_public_uri, ""),
                 ),
                 (
+                    "/device".into(),
+                    device_server::openapi_document(&config.device.api_public_uri, ""),
+                ),
+                (
                     "/storage".into(),
                     storage_server::openapi_document(&config.storage.api_public_uri, "/storage"),
                 ),
@@ -477,6 +481,7 @@ impl HostedSetupOwners for RuntimeSetupOwners {
                 &config.management.api_public_uri,
                 "/management",
             ),
+            device_server::public_metadata_router(&config.device.api_public_uri, "/device"),
             storage_server::public_metadata_router(&config.storage.api_public_uri, "/storage"),
         )
     }

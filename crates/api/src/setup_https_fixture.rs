@@ -156,10 +156,10 @@ pub async fn child(
         serde_json::json!({"stage":"installation", "state":"awaiting_choice", "ready":false, "owners":[owner]})
     );
     let admission = format!("{base}/setup/owner/admission");
-    let other_owner = if owner == "management" {
+    let other_owner = if owner == "device" {
         "storage"
     } else {
-        "management"
+        "device"
     };
     let other = IndependentSetupHost::prepare(
         other_owner,

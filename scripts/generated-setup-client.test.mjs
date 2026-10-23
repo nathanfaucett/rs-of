@@ -49,7 +49,7 @@ test("generated setup defaults to HTTPS and sends exact accepted Create once", a
                 stage: "installation",
                 state: "creating",
                 ready: false,
-                owners: ["idp", "management", "storage"],
+                owners: ["idp", "device", "storage"],
             },
             { status: 202 },
         );
@@ -127,7 +127,7 @@ test("generated Join preserves exact request, recovered issuer and cancellation"
                     stage: "installation",
                     state: "joining",
                     ready: false,
-                    owners: ["idp", "management", "storage"],
+                    owners: ["idp", "device", "storage"],
                 },
                 { status: 202 },
             );
@@ -158,7 +158,7 @@ test("generated public status sends no setup capability and decodes public login
             stage: "installation",
             state: "ready",
             ready: true,
-            owners: ["idp", "management", "storage"],
+            owners: ["idp", "device", "storage"],
             login_client: {
                 client_id: "01234567-89ab-4def-8123-456789abcdef",
                 scopes: ["openid"],

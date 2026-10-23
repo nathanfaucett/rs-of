@@ -8,6 +8,7 @@ use serde_json::Value;
 pub fn canonical_openapi(owner: &str, api_base_uri: &str, prefix: &str) -> Value {
     let source = match owner {
         "idp" => include_str!("../../../openapi/idp.json"),
+        "device" => include_str!("../../../openapi/device.json"),
         "management" => include_str!("../../../openapi/management.json"),
         "storage" => include_str!("../../../openapi/storage.json"),
         _ => panic!("canonical OpenAPI requires a validated IdP, Management, or Storage owner"),

@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { SelectionKind, type DeviceInfo, type DeviceRestriction } from "@aicacia/management-client";
+  import { SelectionKind, type DeviceInfo, type DeviceRestriction } from "@aicacia/device-client";
   import * as v from "valibot";
-  import { managementApi } from "$lib/common/state/managementClient.svelte";
+  import { deviceApi } from "$lib/common/state/deviceClient.svelte";
 
   import ResourceResidency from "./ResourceResidency.svelte";
 
@@ -23,7 +23,7 @@
     restriction = null;
     try {
       v.parse(uuid, deviceId);
-      restriction = await managementApi.getDeviceRestriction({ deviceId });
+      restriction = await deviceApi.getDeviceRestriction({ deviceId });
     } catch (cause) { error = String(cause); }
     finally { busy = false; }
   }
@@ -34,8 +34,8 @@
     status = "";
     try {
       v.parse(uuid, deviceId);
-      await managementApi.putDeviceRestriction({ deviceId, deviceRestriction: { adminAllowed: allowed } });
-      restriction = await managementApi.getDeviceRestriction({ deviceId });
+      await deviceApi.putDeviceRestriction({ deviceId, deviceRestriction: { adminAllowed: allowed } });
+      restriction = await deviceApi.getDeviceRestriction({ deviceId });
       status = "Management acknowledged the restriction. Local-copy retirement may still be pending; no resource is reported ready.";
     } catch (cause) { error = String(cause); }
     finally { busy = false; }
@@ -48,10 +48,10 @@
       for (const id of [deviceId, applicationId, resourceId]) v.parse(uuid, id);
       if (select) {
         if (!storageAccessToken.trim()) throw new Error("An independently authorized, resource-scoped Storage token is required");
-        await managementApi.putDeviceSelection({ deviceId, selectionRequest: { applicationId, id: resourceId, kind, storageAccessToken } });
+        await deviceApi.putDeviceSelection({ deviceId, selectionRequest: { applicationId, id: resourceId, kind, storageAccessToken } });
       } else {
         if (!confirm(`Deselect ${kind} ${resourceId} in application ${applicationId}? Local retirement may remain incomplete.`)) return;
-        await managementApi.deleteDeviceResourceSelection({ deviceId, applicationId, kind, resourceId });
+        await deviceApi.deleteDeviceResourceSelection({ deviceId, applicationId, kind, resourceId });
       }
       status = `Management acknowledged ${select ? "selection" : "deselection"}. This is policy state only, not Storage authorization, local-copy cleanup completion, or Residency readiness.`;
     } catch (cause) { error = String(cause); }

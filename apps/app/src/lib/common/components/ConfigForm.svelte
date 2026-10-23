@@ -4,7 +4,10 @@
     import { validateIdpApiUrl } from "$lib/common/state/idpClient.svelte";
     import { validateManagementApiUrl } from "$lib/common/state/managementClient.svelte";
 
+    import { validateDeviceApiUrl, getDeviceApiUrl, setDeviceApiUrl } from "$lib/common/state/deviceClient.svelte";
+
     const configSchema = v.objectAsync({
+        deviceApiUrl: v.pipeAsync(v.string(), v.nonEmpty(m.errors_message_required()), v.url(m.errors_message_invalid_url()), v.checkAsync(validateDeviceApiUrl, m.errors_message_invalid_url())),
         idpApiUrl: v.pipeAsync(
             v.string(),
             v.nonEmpty(m.errors_message_required()),
@@ -43,11 +46,13 @@
     let { onSaved = () => {} }: Props = $props();
 
     const form = createForm(configSchema, {
+        deviceApiUrl: getDeviceApiUrl() ?? "",
         idpApiUrl: getIdpApiUrl() ?? "",
         managementApiUrl: getManagementApiUrl() ?? "",
     });
 
     export function reset() {
+        form.fields.deviceApiUrl.value = getDeviceApiUrl() ?? "";
         form.fields.idpApiUrl.value = getIdpApiUrl() ?? "";
         form.fields.managementApiUrl.value = getManagementApiUrl() ?? "";
     }
@@ -62,6 +67,7 @@
         }
 
         setIdpApiUrl(output.idpApiUrl);
+        setDeviceApiUrl(output.deviceApiUrl);
         setManagementApiUrl(output.managementApiUrl);
         onSaved();
     }
@@ -87,6 +93,11 @@
             bind:value={form.fields.managementApiUrl.value}
         />
         <Issues issues={form.fields.managementApiUrl.issues} />
+    </label>
+    <label class="flex flex-col">
+        Device API URL
+        <input type="url" aria-label="Device API URL" placeholder="https://node.example/device" bind:value={form.fields.deviceApiUrl.value} />
+        <Issues issues={form.fields.deviceApiUrl.issues} />
     </label>
     <input type="submit" value={m.env_config_save()} class="btn primary" />
 </form>

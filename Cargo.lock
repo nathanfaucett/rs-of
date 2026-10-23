@@ -137,8 +137,8 @@ dependencies = [
  "getrandom 0.3.4",
  "iroh",
  "log",
+ "of-device-client",
  "of-idp-client",
- "of-management-client",
  "rcgen",
  "reqwest 0.12.28",
  "rustix",
@@ -1661,6 +1661,76 @@ dependencies = [
 ]
 
 [[package]]
+name = "device-server"
+version = "0.1.0"
+dependencies = [
+ "api",
+ "axum",
+ "base64 0.22.1",
+ "chrono",
+ "clap",
+ "cli",
+ "config",
+ "device-service",
+ "dotenvy",
+ "env_logger",
+ "http",
+ "idp-db",
+ "idp-model",
+ "idp-service",
+ "iroh",
+ "iroh-chain",
+ "log",
+ "management-server",
+ "management-service",
+ "model",
+ "of-idp-client",
+ "ofdb-sql",
+ "serde",
+ "serde_json",
+ "storage-model",
+ "tokio",
+ "tokio-util",
+ "tower",
+ "tower-http 0.7.1",
+ "utoipa",
+ "utoipa-axum",
+ "utoipa-swagger-ui",
+]
+
+[[package]]
+name = "device-service"
+version = "0.1.0"
+dependencies = [
+ "api",
+ "axum",
+ "base64 0.22.1",
+ "chrono",
+ "futures-util",
+ "getrandom 0.3.4",
+ "idp-db",
+ "idp-model",
+ "idp-service",
+ "iroh",
+ "iroh-chain",
+ "model",
+ "of-device-client",
+ "of-idp-client",
+ "of-storage-client",
+ "ofdb-sql",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "storage-model",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-tungstenite",
+ "tokio-util",
+ "utoipa",
+ "uuid",
+]
+
+[[package]]
 name = "dialoguer"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3122,6 +3192,7 @@ dependencies = [
  "clap_complete",
  "cli",
  "config",
+ "device-service",
  "dotenvy",
  "env_logger",
  "http",
@@ -3135,6 +3206,7 @@ dependencies = [
  "log",
  "management-service",
  "model",
+ "of-device-client",
  "of-idp-client",
  "of-management-client",
  "ofdb-sql",
@@ -3786,8 +3858,8 @@ dependencies = [
  "keyring-core",
  "log",
  "management-server",
+ "of-device-client",
  "of-idp-client",
- "of-management-client",
  "reqwest 0.12.28",
  "rustix",
  "rustls",
@@ -3891,31 +3963,18 @@ version = "0.1.0"
 dependencies = [
  "api",
  "axum",
- "base64 0.22.1",
- "chrono",
- "clap",
- "cli",
  "config",
- "dotenvy",
- "env_logger",
+ "device-service",
  "http",
  "idp-db",
  "idp-model",
- "idp-service",
- "iroh",
- "iroh-chain",
  "log",
  "management-service",
  "model",
- "of-idp-client",
- "ofdb-sql",
  "serde",
  "serde_json",
- "storage-model",
  "tokio",
- "tokio-util",
  "tower",
- "tower-http 0.7.1",
  "utoipa",
  "utoipa-axum",
  "utoipa-swagger-ui",
@@ -3925,32 +3984,12 @@ dependencies = [
 name = "management-service"
 version = "0.1.0"
 dependencies = [
- "api",
- "axum",
- "base64 0.22.1",
  "chrono",
- "futures-util",
- "getrandom 0.3.4",
  "idp-db",
  "idp-model",
- "idp-service",
- "iroh",
- "iroh-chain",
- "model",
- "of-idp-client",
- "of-management-client",
- "of-storage-client",
- "ofdb-sql",
- "reqwest 0.12.28",
  "serde",
- "serde_json",
- "storage-model",
  "thiserror 2.0.20",
  "tokio",
- "tokio-tungstenite",
- "tokio-util",
- "utoipa",
- "uuid",
 ]
 
 [[package]]
@@ -4830,6 +4869,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "of-device-client"
+version = "0.1.0"
+dependencies = [
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "serde_with",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "of-idp-client"
 version = "0.1.0"
 dependencies = [
@@ -4852,7 +4904,6 @@ dependencies = [
  "serde_repr",
  "serde_with",
  "url",
- "uuid",
 ]
 
 [[package]]
@@ -6855,6 +6906,7 @@ dependencies = [
  "clap",
  "cli",
  "config",
+ "device-service",
  "dotenvy",
  "env_logger",
  "file-system",
@@ -6868,8 +6920,8 @@ dependencies = [
  "log",
  "management-service",
  "model",
+ "of-device-client",
  "of-idp-client",
- "of-management-client",
  "ofdb-kv",
  "ofdb-sql",
  "postcard",
@@ -8116,6 +8168,8 @@ dependencies = [
  "clap_complete",
  "cli",
  "config",
+ "device-server",
+ "device-service",
  "dialoguer",
  "env_logger",
  "file-system",
@@ -8133,6 +8187,7 @@ dependencies = [
  "management-server",
  "management-service",
  "model",
+ "of-device-client",
  "of-idp-client",
  "of-management-client",
  "of-storage-client",

@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use db::{Database, SqlTranslator};
+use device_service::DeviceRepo;
 use idp_model::{
     contract::{INSTALLATION_POLICY_ID, IdentityAction},
     model::Id,
@@ -8,10 +9,9 @@ use idp_model::{
 use idp_service::{oauth2::NodeSignerBinding, replica::DbReplicaSignerRepo, repo::UserRepo};
 use iroh::{SecretKey, endpoint::presets};
 use iroh_chain::{EndpointIdStore, Server};
-use management_service::{
-    DeviceRepo, ManagementService,
-    replica::{DbPermissionRepo, DbRoleRepo},
-};
+use management_service::ManagementService;
+use management_service::replica::DbPermissionRepo;
+use management_service::replica::DbRoleRepo;
 use tokio::sync::Notify;
 
 use crate::{
@@ -92,7 +92,7 @@ async fn node_join_oversized_signed_reply_rejects_before_any_enrollment_mutation
     request.installation.push_str(&"i".repeat(padding));
     let fixture = approval_fixture_for_issuer(request.installation.clone()).await;
     request.approving_peer = fixture.server.endpoint().id().to_string();
-    let approval = management_service::hosted_join::NodeJoinApproval::signed_by(
+    let approval = device_service::hosted_join::NodeJoinApproval::signed_by(
         fixture
             .state
             .transport_identity()
@@ -335,7 +335,7 @@ async fn node_join_owner_interleaving_rejection_has_no_active_trust_after_reopen
         Database::open(root.join("management/management.redb"))
             .expect("offline Management owner reopen"),
     );
-    let reopened = management_service::replica::DbDeviceRepo::new(management.clone())
+    let reopened = device_service::replica::DbDeviceRepo::new(management.clone())
         .find_approved_by_public_key(&request.endpoint_id)
         .await
         .expect("reopened Device admission")

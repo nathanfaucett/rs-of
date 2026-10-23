@@ -7,9 +7,9 @@ import {
 } from "./idpClient.svelte";
 import { env } from "$env/dynamic/public";
 import {
-  getManagementApiUrl,
-  ensureTauriManagementApiUrl,
-} from "./managementClient.svelte";
+  getDeviceApiUrl,
+  ensureTauriDeviceApiUrl,
+} from "./deviceClient.svelte";
 import {
   cancelSetupCreate,
   setupBase,
@@ -35,7 +35,7 @@ export type { SetupStage } from "./setupApi";
 export async function resetDevice(): Promise<void> {
   if (isTauri() && usesRemoteApis())
     throw new Error(
-      "Remote owner reset requires explicit protected host management, not local native reset",
+      "Remote owner reset requires explicit protected host device, not local native reset",
     );
   clearOidcSession();
   await invoke("reset_device");
@@ -58,11 +58,11 @@ export async function getWebSetupHosts(): Promise<SetupHost[]> {
   requireSharedSetupOrigin();
   if (isTauri() && !usesRemoteApis()) {
     await ensureTauriIdpApiUrl();
-    await ensureTauriManagementApiUrl();
+    await ensureTauriDeviceApiUrl();
   }
   return fetchSetupHosts({
     idp: getIdpApiUrl() ?? "",
-    management: getManagementApiUrl(),
+    device: getDeviceApiUrl(),
     storage: env.PUBLIC_STORAGE_BASE_URL,
   });
 }
@@ -106,8 +106,8 @@ export async function readNativeSetupCode(
 export function isUnifiedSetupHost(host: SetupHost): boolean {
   return (
     host.status.owners.length === 3 &&
-    ["idp", "management", "storage"].every((owner) =>
-      host.status.owners.includes(owner as "idp" | "management" | "storage"),
+    ["idp", "device", "storage"].every((owner) =>
+      host.status.owners.includes(owner as "idp" | "device" | "storage"),
     )
   );
 }

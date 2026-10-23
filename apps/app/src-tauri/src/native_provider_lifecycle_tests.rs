@@ -160,7 +160,7 @@ async fn native_shared_create_child() {
             .expect("unselected desktop status")["state"],
         "awaiting_choice"
     );
-    for owner in ["idp", "management", "storage", "endpoint"] {
+    for owner in ["idp", "device", "storage", "endpoint"] {
         assert!(
             !data.join("bundled/node").join(owner).exists(),
             "addressing remote APIs must not create a desktop {owner}"

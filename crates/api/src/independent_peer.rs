@@ -11,7 +11,7 @@ pub struct IndependentPeer {
     pub nonce: String,
     pub issuer: String,
     pub idp: String,
-    pub management: String,
+    pub device: String,
     pub endpoint: String,
     pub address: serde_json::Value,
     pub signature: String,
@@ -24,7 +24,7 @@ impl IndependentPeer {
             &self.nonce,
             &self.issuer,
             &self.idp,
-            &self.management,
+            &self.device,
             &self.endpoint,
             &self.address,
         ))?)
@@ -46,7 +46,7 @@ impl IndependentPeer {
         let (base, pin) = Self::choice(choice)?;
         exact_https(&self.idp)?;
         exact_https(&self.issuer)?;
-        if self.nonce != nonce || self.management != base || self.endpoint != pin.to_string() {
+        if self.nonce != nonce || self.device != base || self.endpoint != pin.to_string() {
             return Err(io::Error::other("issuer discovery binding mismatch"));
         }
         if self.signature.len() != 128
@@ -66,15 +66,15 @@ impl IndependentPeer {
     pub async fn discover(choice: &str) -> io::Result<Self> {
         let (base, _) = Self::choice(choice)?;
         let nonce = crate::independent_exchange::random_capability()?;
-        let configuration = of_management_client::apis::configuration::Configuration {
+        let configuration = of_device_client::apis::configuration::Configuration {
             base_path: base.to_owned(),
             client: LocalTls::verification_client()?,
             ..Default::default()
         };
-        let response = of_management_client::apis::independent_join_api::independent_join_discover(
+        let response = of_device_client::apis::independent_join_api::independent_join_discover(
             &configuration,
-            of_management_client::apis::independent_join_api::IndependentJoinDiscoverParams {
-                discovery_request: of_management_client::models::DiscoveryRequest {
+            of_device_client::apis::independent_join_api::IndependentJoinDiscoverParams {
+                discovery_request: of_device_client::models::DiscoveryRequest {
                     nonce: nonce.clone(),
                 },
             },

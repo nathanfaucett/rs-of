@@ -95,7 +95,7 @@ impl IndependentCreateControl {
         registration: &serde_json::Value,
     ) -> io::Result<()> {
         if self.owner() != "idp"
-            || !["management", "storage"].contains(&recipient.owner.as_str())
+            || !["device", "storage"].contains(&recipient.owner.as_str())
             || !recipient.clients.contains(registration)
             || registration.get("client_secret").is_some()
             || registration["client_id"].as_str().is_none()
@@ -380,7 +380,7 @@ mod tests {
             administrator: "operator".into(),
             node: "Independent Node".into(),
             idp: "https://127.0.0.1:3000".into(),
-            management: "https://127.0.0.1:3001".into(),
+            device: "https://127.0.0.1:3001".into(),
             storage: "https://127.0.0.1:3002".into(),
             issuer: "https://127.0.0.1:3000".into(),
             peer: None,
@@ -412,7 +412,7 @@ mod tests {
         let registration = serde_json::json!({"client_id":"00000000-0000-4000-8000-000000000001"});
         let bound = Challenge {
             operation: intent.clone(),
-            recipient: "management".into(),
+            recipient: "device".into(),
             registration: registration.clone(),
             challenge: "a".repeat(64),
         };

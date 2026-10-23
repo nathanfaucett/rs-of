@@ -1,0 +1,284 @@
+use std::sync::Arc;
+
+use axum::{
+    Json,
+    extract::{Path, State},
+};
+use device_service::HostedControlPlane;
+use device_service::replica::DbSelectionPolicyRepo;
+use idp_model::{
+    contract::{ErrorCode, IdentityAction},
+    model::Id,
+};
+use management_service::ManagementService;
+use management_service::replica::DbPermissionRepo;
+use management_service::replica::DbRoleRepo;
+async fn up(engine: &db::Database) -> Result<(), db::QueryError> {
+    idp_model::replica::up_policy(engine).await?;
+    device_service::replica::up(engine).await
+}
+
+use crate::router::{RouterState, middleware::DeviceAuthorization};
+
+fn state(engine: Arc<db::Database>) -> RouterState {
+    RouterState::new(
+        "http://127.0.0.1",
+        Arc::new(ManagementService::new(
+            DbPermissionRepo::new(Arc::clone(&engine)),
+            DbRoleRepo::new(Arc::clone(&engine)),
+        )),
+        Arc::new(DbSelectionPolicyRepo::new(engine)),
+        Arc::new(
+            HostedControlPlane::new_with_services(
+                "http://127.0.0.1",
+                "http://127.0.0.1",
+                "https://installation.example",
+            )
+            .expect("construct unused control plane"),
+        ),
+        "storage-api",
+    )
+}
+
+#[tokio::test]
+async fn restriction_api_updates_exact_device_with_separate_read_and_update_grants() {
+    use crate::router::routes::device_restriction::{
+        DeviceRestriction, get_device_restriction, put_device_restriction,
+    };
+    let root = std::env::temp_dir().join(format!("restriction-api-{}.redb", Id::now_v7()));
+    let engine = Arc::new(db::Database::open(&root).expect("open policy"));
+    up(&engine).await.expect("initialize policy");
+    let mut state = state(Arc::clone(&engine));
+    let owner = Id::now_v7();
+    let administrator = Id::now_v7();
+    let device = Id::now_v7();
+    engine.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{owner}', 'test', 'd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a', '', 1, 1, NULL, 1, 1)"), &db::SqlTranslator).await.expect("Management-owned Device");
+    let owner_api = axum::Router::new().route("/oauth2/token", axum::routing::post(|| async { Json(serde_json::json!({
+        "access_token":"lookup-token", "token_type":"Bearer", "expires_in":300,
+        "scope":"idp.token.validate idp.user.lookup", "iss":"https://installation.example"
+    })) })).route("/users/{user}/active", axum::routing::get(move |Path(user): Path<Id>| async move {
+        if user == owner { axum::http::StatusCode::NO_CONTENT } else { axum::http::StatusCode::NOT_FOUND }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("owner seam listener");
+    let address = listener.local_addr().expect("address");
+    let server = tokio::spawn(async move {
+        axum::serve(listener, owner_api)
+            .await
+            .expect("owner seam HTTP");
+    });
+    let url = format!("http://{address}");
+    state.control_plane = Arc::new(
+        HostedControlPlane::new_with_services(&url, &url, "https://installation.example")
+            .expect("control plane")
+            .with_idp_service_client("lookup", "secret", "idp-services")
+            .expect("scoped lookup")
+            .with_local_devices(Arc::new(device_service::replica::DbDeviceRepo::new(
+                engine.clone(),
+            ))),
+    );
+    state
+        .selection_policies
+        .set_admin_allowed_prevalidated(device, &owner.to_string(), true)
+        .await
+        .expect("prior policy");
+    let role = state
+        .management_service
+        .create_role(Id::nil(), "restriction-admin", None)
+        .await
+        .expect("role");
+    let update = state
+        .management_service
+        .create_permission(
+            Id::nil(),
+            IdentityAction::DeviceRestrictionsUpdate.permission(),
+            None,
+        )
+        .await
+        .expect("update action");
+    state
+        .management_service
+        .add_permission_to_role(Id::nil(), role.id, update.id)
+        .await
+        .expect("grant update");
+    state
+        .management_service
+        .add_role_to_user(Id::nil(), administrator, role.id)
+        .await
+        .expect("grant administrator");
+    let actor = || DeviceAuthorization::new(administrator, Id::now_v7());
+    assert!(
+        get_device_restriction(State(state.clone()), Path(device), actor())
+            .await
+            .is_err(),
+        "update does not grant read"
+    );
+    put_device_restriction(
+        State(state.clone()),
+        Path(device),
+        actor(),
+        Json(DeviceRestriction {
+            admin_allowed: false,
+        }),
+    )
+    .await
+    .expect("authorized exact update");
+    let read = state
+        .management_service
+        .create_permission(
+            Id::nil(),
+            IdentityAction::DeviceRestrictionsRead.permission(),
+            None,
+        )
+        .await
+        .expect("read action");
+    state
+        .management_service
+        .add_permission_to_role(Id::nil(), role.id, read.id)
+        .await
+        .expect("grant read");
+    assert!(
+        !get_device_restriction(State(state.clone()), Path(device), actor())
+            .await
+            .expect("read current restriction")
+            .0
+            .admin_allowed
+    );
+    assert!(
+        put_device_restriction(
+            State(state.clone()),
+            Path(Id::now_v7()),
+            actor(),
+            Json(DeviceRestriction {
+                admin_allowed: true
+            })
+        )
+        .await
+        .is_err(),
+        "mismatched owner target rejected"
+    );
+    assert!(
+        !get_device_restriction(State(state.clone()), Path(device), actor())
+            .await
+            .expect("wrong target preserves policy")
+            .0
+            .admin_allowed
+    );
+    server.abort();
+    let _ = server.await;
+    drop(state);
+    drop(engine);
+    std::fs::remove_file(root).expect("remove fixture");
+}
+
+#[tokio::test]
+async fn restriction_api_denies_without_installation_grant_and_preserves_policy() {
+    let root = std::env::temp_dir().join(format!("restriction-policy-{}.redb", Id::now_v7()));
+    let engine = Arc::new(db::Database::open(&root).expect("open policy"));
+    up(&engine).await.expect("initialize policy");
+    let state = state(Arc::clone(&engine));
+    let owner = Id::now_v7();
+    let device = Id::now_v7();
+    state
+        .selection_policies
+        .set_admin_allowed_prevalidated(device, &owner.to_string(), false)
+        .await
+        .expect("prior restriction");
+    let request =
+        serde_json::from_value(serde_json::json!({"adminAllowed":true})).expect("typed request");
+    let result = crate::router::routes::device_restriction::put_device_restriction(
+        State(state.clone()),
+        Path(device),
+        DeviceAuthorization::new(owner, Id::now_v7()),
+        Json(request),
+    )
+    .await;
+    assert_eq!(
+        result.err().expect("requires installation grant").error,
+        ErrorCode::AccessDenied
+    );
+    assert!(
+        !state
+            .selection_policies
+            .get(device, &owner.to_string(), Id::nil())
+            .await
+            .expect("policy unchanged")
+            .expect("policy")
+            .admin_allowed
+    );
+    drop(state);
+    drop(engine);
+    std::fs::remove_file(root).expect("remove fixture");
+}
+
+#[tokio::test]
+async fn deselection_cannot_use_stale_policy_owner_when_idp_binding_is_unavailable() {
+    let root = std::env::temp_dir().join(format!("stale-device-owner-{}.redb", Id::now_v7()));
+    let engine = Arc::new(db::Database::open(&root).expect("open policy"));
+    up(&engine).await.expect("initialize policy");
+    let state = state(Arc::clone(&engine));
+    let owner = Id::now_v7();
+    let app = Id::now_v7();
+    let device = Id::now_v7();
+    let resource = Id::now_v7();
+    let role = state
+        .management_service
+        .create_role(app, "selector", None)
+        .await
+        .expect("role");
+    let permission = state
+        .management_service
+        .create_permission(app, "devices.select", None)
+        .await
+        .expect("permission");
+    state
+        .management_service
+        .add_permission_to_role(app, role.id, permission.id)
+        .await
+        .expect("grant action");
+    state
+        .management_service
+        .add_role_to_user(app, owner, role.id)
+        .await
+        .expect("grant actor");
+    state
+        .selection_policies
+        .set_prevalidated(device_service::replica::SelectionPolicy {
+            device_id: device,
+            owner_subject: owner.to_string(),
+            application_id: Some(app),
+            selected_kind: Some("database".into()),
+            selected_id: Some(resource),
+            admin_allowed: true,
+        })
+        .await
+        .expect("previous locally stored selection");
+    let result = crate::router::routes::device_selection::delete_device_resource_selection(
+        State(state.clone()),
+        Path((
+            device,
+            app,
+            crate::router::routes::device_selection::SelectionKind::Database,
+            resource,
+        )),
+        DeviceAuthorization::new(owner, app),
+    )
+    .await;
+    assert!(
+        result.is_err(),
+        "policy owner is not current IdP ownership evidence"
+    );
+    assert_eq!(
+        state
+            .selection_policies
+            .selected_resources_for_device(device)
+            .await
+            .expect("selection unchanged")
+            .len(),
+        1
+    );
+    drop(state);
+    drop(engine);
+    std::fs::remove_file(root).expect("remove fixture");
+}

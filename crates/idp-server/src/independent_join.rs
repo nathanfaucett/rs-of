@@ -12,11 +12,11 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 use db::Database;
+use device_service::independent_join::IndependentJoinApproval;
+use device_service::join_history::CheckJoinHistory;
+use device_service::join_history::JoinHistoryContext;
+use device_service::join_history::JoinHistorySource;
 use idp_model::contract::{IdpSignerRecord, ReplicaMembership};
-use management_service::{
-    independent_join::IndependentJoinApproval,
-    join_history::{CheckJoinHistory, JoinHistoryContext, JoinHistorySource},
-};
 use tokio_util::sync::CancellationToken;
 
 use crate::{AppConfig, IdpRuntime, RouterState};
@@ -34,7 +34,7 @@ pub async fn build_independent_idp(
         .ok_or_else(|| io::Error::other("independent signer binding missing"))?
         .endpoint_id
         .clone();
-    let management = config
+    let device = config
         .management_permissions
         .as_ref()
         .ok_or_else(|| io::Error::other("independent Management binding missing"))?
@@ -43,7 +43,7 @@ pub async fn build_independent_idp(
     let source = Arc::new(Source {
         state: state.clone(),
         endpoint,
-        management,
+        device,
     });
     let checked = source.clone();
     let check: CheckJoinHistory = Arc::new(move |approval| {
@@ -74,13 +74,13 @@ pub async fn build_independent_idp(
 struct Source {
     state: RouterState,
     endpoint: String,
-    management: String,
+    device: String,
 }
 impl Source {
     fn binding(&self, approval: &IndependentJoinApproval) -> io::Result<()> {
         approval.verify()?;
         if approval.request.source.endpoint != self.endpoint
-            || approval.request.source.management != self.management
+            || approval.request.source.device != self.device
             || approval.request.source.idp != self.state.api_base_uri
             || approval.request.operation.issuer != self.state.oauth2_service.metadata().issuer
         {
@@ -88,16 +88,16 @@ impl Source {
         }
         Ok(())
     }
-    async fn management(&self, approval: &IndependentJoinApproval) -> io::Result<()> {
+    async fn device(&self, approval: &IndependentJoinApproval) -> io::Result<()> {
         self.binding(approval)?;
-        let configuration = of_management_client::apis::configuration::Configuration {
-            base_path: self.management.clone(),
+        let configuration = of_device_client::apis::configuration::Configuration {
+            base_path: self.device.clone(),
             client: api::LocalTls::verification_client()?,
             ..Default::default()
         };
-        of_management_client::apis::independent_join_api::independent_join_verify(
+        of_device_client::apis::independent_join_api::independent_join_verify(
             &configuration,
-            of_management_client::apis::independent_join_api::IndependentJoinVerifyParams {
+            of_device_client::apis::independent_join_api::IndependentJoinVerifyParams {
                 verification_request: serde_json::from_value(
                     serde_json::json!({"approval":approval,"context":"idp"}),
                 )?,
@@ -107,7 +107,7 @@ impl Source {
         .map_err(|_| io::Error::other("current Management enrollment unavailable or denied"))
     }
     async fn verify(&self, approval: &IndependentJoinApproval) -> io::Result<()> {
-        self.management(approval).await?;
+        self.device(approval).await?;
         self.state
             .oauth2_service
             .find_user_info(approval.owner_subject)
@@ -168,7 +168,7 @@ async fn enroll(
         return Err(StatusCode::FORBIDDEN);
     }
     source
-        .management(&approval)
+        .device(&approval)
         .await
         .map_err(|_| StatusCode::FORBIDDEN)?;
     let now = SystemTime::now()

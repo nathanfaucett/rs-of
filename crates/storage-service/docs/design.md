@@ -1,5 +1,7 @@
 # Storage design
 
+Current owner/database boundaries and Device routes: [shared control-plane databases](../../../docs/control-plane.md).
+
 Storage provides offline-first database and filesystem resources. Definitions live in [the Storage glossary](../GLOSSARY.md); equal-Node ownership and synchronization requirements live in [system design](../../../docs/design.md). These are design requirements; [security and transport](security.md) distinguishes source-checked behavior from acceptance targets.
 
 ## Resource isolation

@@ -57,15 +57,15 @@ impl IndependentCreateControl {
                 .await
                 .map_err(|_| io::Error::other("source public history unavailable or denied"))?;
             }
-            "management" => {
-                let configuration = of_management_client::apis::configuration::Configuration {
+            "device" => {
+                let configuration = of_device_client::apis::configuration::Configuration {
                     base_path: source.to_owned(),
                     client: LocalTls::verification_client()?,
                     ..Default::default()
                 };
-                of_management_client::apis::independent_join_api::independent_join_request_history(
+                of_device_client::apis::independent_join_api::independent_join_request_history(
                     &configuration,
-                    of_management_client::apis::independent_join_api::IndependentJoinRequestHistoryParams {
+                    of_device_client::apis::independent_join_api::IndependentJoinRequestHistoryParams {
                         history_request: serde_json::from_value(body)?,
                     },
                 )

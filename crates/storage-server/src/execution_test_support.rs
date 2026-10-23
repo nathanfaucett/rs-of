@@ -2,6 +2,10 @@ use std::{path::PathBuf, sync::Arc};
 
 use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD};
 use db::{Database, SqlTranslator};
+use device_service::DeviceRepo;
+use device_service::replica::DbDeviceRepo;
+use device_service::replica::DbSelectionPolicyRepo;
+use device_service::replica::SelectionPolicy;
 use idp_model::{
     contract::{
         IdpSignerRecord, JwkPublic, JwkPublicParameters, JwsAlgorithm, KeyUse, ReplicaMembership,
@@ -17,10 +21,6 @@ use iroh::{
     Endpoint, EndpointId,
     address_lookup::MemoryLookup,
     endpoint::{Connection, presets},
-};
-use management_service::{
-    DeviceRepo,
-    replica::{DbDeviceRepo, DbSelectionPolicyRepo, SelectionPolicy},
 };
 use model::contract::SelectedResource;
 use tokio::sync::Notify;
@@ -200,7 +200,7 @@ impl DomainNode {
         let management =
             Arc::new(Database::open(root.join("management.redb")).expect("Management store"));
         idp_model::replica::up(&idp).await.expect("IdP schema");
-        management_service::replica::up(&management)
+        device_service::replica::up(&management)
             .await
             .expect("Management schema");
         sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{owner}' AS UUID), 'owner', 'Owner', 1, 1)")).await;

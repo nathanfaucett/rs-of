@@ -5,8 +5,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use device_service::issuer_discovery::validate_issuer;
 use idp_model::model::Id;
-use management_service::issuer_discovery::validate_issuer;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -119,7 +119,7 @@ impl<H: BootstrapHost> BootstrapConfig<H> {
             ));
         }
         if let Some((peer, issuer)) = peer_issuer {
-            management_service::hosted_join::NodeJoinRequest::validate_trusted_peer(peer)?;
+            device_service::hosted_join::NodeJoinRequest::validate_trusted_peer(peer)?;
             validate_issuer(issuer)?;
         }
         let listener = if http.is_none() {
@@ -218,7 +218,7 @@ impl<H: BootstrapHost> BootstrapConfig<H> {
             ));
         }
         if let Some(peer) = &host.trusted_peer {
-            management_service::hosted_join::NodeJoinRequest::validate_trusted_peer(peer)?;
+            device_service::hosted_join::NodeJoinRequest::validate_trusted_peer(peer)?;
         }
         Ok(Self {
             host,
@@ -280,7 +280,7 @@ impl<H: BootstrapHost> BootstrapConfig<H> {
     }
 
     pub fn select_join(&mut self, peer: &str, issuer: &str) -> io::Result<()> {
-        management_service::hosted_join::NodeJoinRequest::validate_trusted_peer(peer)?;
+        device_service::hosted_join::NodeJoinRequest::validate_trusted_peer(peer)?;
         validate_issuer(issuer)?;
         if self.host.purpose == BootstrapPurpose::Join
             && self.setup_attempted()
@@ -413,9 +413,9 @@ impl<H: BootstrapHost> BootstrapConfig<H> {
             service_audience: Some(idp_uri),
             ..Default::default()
         };
-        let management = crate::bootstrap_settings::ManagementBootstrapSettings {
-            data_dir: root.join("management").to_string_lossy().into_owned(),
-            api_public_uri: format!("{base}/management"),
+        let management = crate::bootstrap_settings::DeviceBootstrapSettings {
+            data_dir: root.join("device").to_string_lossy().into_owned(),
+            api_public_uri: format!("{base}/device"),
             storage_audience: storage_uri.clone(),
         };
         let storage = crate::bootstrap_settings::StorageBootstrapSettings {
@@ -426,7 +426,7 @@ impl<H: BootstrapHost> BootstrapConfig<H> {
             listen_addr: self.host.listen,
             endpoint_data_dir: root.join("endpoint"),
             idp,
-            management,
+            device: management,
             storage,
         })
     }
@@ -442,15 +442,15 @@ fn explicit_identity(config: &BootstrapSettings) -> io::Result<serde_json::Value
     Ok(serde_json::json!({
         "roots": [
             absolute(Path::new(&config.idp.data_dir))?,
-            absolute(Path::new(&config.management.data_dir))?,
+            absolute(Path::new(&config.device.data_dir))?,
             absolute(Path::new(&config.storage.data_dir))?,
             absolute(&config.endpoint_data_dir)?,
         ],
         "listen": config.listen_addr,
         "key_namespace": config.idp.key_namespace,
-        "applications": [config.idp.api_public_uri, config.management.api_public_uri, config.storage.api_public_uri],
+        "applications": [config.idp.api_public_uri, config.device.api_public_uri, config.storage.api_public_uri],
         "ui_origin": config.idp.ui_public_uri,
-        "audiences": [config.idp.service_audience, Some(config.management.storage_audience.clone())],
+        "audiences": [config.idp.service_audience, Some(config.device.storage_audience.clone())],
     }))
 }
 

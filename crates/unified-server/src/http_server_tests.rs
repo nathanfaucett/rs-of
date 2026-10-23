@@ -141,7 +141,7 @@ async fn fresh_host_publishes_complete_openapi_without_provisioning() {
     );
     for path in [
         &config.idp.data_dir,
-        &config.management.data_dir,
+        &config.device.data_dir,
         &config.storage.data_dir,
     ] {
         assert!(

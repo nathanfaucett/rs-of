@@ -12,14 +12,16 @@ use std::{
 };
 
 use db::Database;
+use device_service::replica::DbSelectionPolicyRepo;
+use device_service::replica::SelectionPolicy;
+use device_service::replica::up;
 use idp_model::model::Id;
-use management_service::replica::{DbSelectionPolicyRepo, SelectionPolicy, up};
 use tower::ServiceExt;
 
 #[tokio::test]
 async fn stale_cleanup_cannot_clear_current_binding_and_exact_retry_stays_restricted() {
     let root = std::env::temp_dir().join(format!("independent-transfer-{}", Id::now_v7()));
-    let path = root.join("management.redb");
+    let path = root.join("devices.redb");
     fs::create_dir_all(&root).expect("isolated Management root");
     let device = Id::now_v7();
     let old = Id::now_v7().to_string();
@@ -175,7 +177,7 @@ async fn stale_cleanup_cannot_clear_current_binding_and_exact_retry_stays_restri
 async fn original_owner_return_keeps_retirement_pending_after_stopped_reopen() {
     let root = std::env::temp_dir().join(format!("original-owner-return-{}", Id::now_v7()));
     fs::create_dir_all(&root).expect("isolated owner store");
-    let path = root.join("management.redb");
+    let path = root.join("devices.redb");
     let device = Id::now_v7();
     let old = Id::now_v7().to_string();
     let next = Id::now_v7().to_string();
@@ -366,7 +368,7 @@ fn independent_transfer_production_https() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("reserve TLS address");
     let address = listener.local_addr().expect("TLS address");
     let mut bundle = Vec::new();
-    for owner in ["idp", "management"] {
+    for owner in ["idp", "device"] {
         let tls = api::LocalTls::create(&TlsConfig {
             root: root.join(owner),
             address,
@@ -437,10 +439,12 @@ async fn independent_transfer_https_child() {
             middleware::{self, Next},
             response::IntoResponse,
         };
+        use device_service::DeviceRepo;
+        use device_service::HostedControlPlane;
+        use device_service::replica::DbDeviceRepo;
         use idp_service::{PasswordConfig, replica::DbUserRepo, repo::UserRepo};
-        use management_service::{DeviceRepo, HostedControlPlane, replica::DbDeviceRepo};
         use model::contract::{OwnerCopyCleanup, SelectedResourcesResponse};
-        use storage_server::{LocalReplicationAuthorizer, ManagementClient, StorageCopyRetirement};
+        use storage_server::{DeviceClient, LocalReplicationAuthorizer, StorageCopyRetirement};
         use storage_service::{DatabaseRuntime, ScopedFileSystemRuntime};
         use tokio_util::sync::CancellationToken;
 
@@ -482,15 +486,15 @@ async fn independent_transfer_https_child() {
             .id
             .to_string();
         let old = fixture.administrator.to_string();
-        let management_path = owners.join("management/management.redb");
-        let management = Arc::new(Database::open(&management_path).expect("Management owner"));
-        let devices = DbDeviceRepo::new(management.clone());
+        let management_path = owners.join("device/devices.redb");
+        let device_engine = Arc::new(Database::open(&management_path).expect("Management owner"));
+        let devices = DbDeviceRepo::new(device_engine.clone());
         let device = devices
             .find_approved_by_public_key(&local.to_string())
             .await
             .expect("Management lookup")
             .expect("approved endpoint without its own signer");
-        let policies = Arc::new(DbSelectionPolicyRepo::new(management.clone()));
+        let policies = Arc::new(DbSelectionPolicyRepo::new(device_engine.clone()));
         policies
             .set_prevalidated(SelectionPolicy {
                 device_id: device.id,
@@ -513,7 +517,7 @@ async fn independent_transfer_https_child() {
             .local_addr()
             .expect("Management address");
         let idp_base = format!("https://{idp_address}/idp");
-        let management_base = format!("https://{management_address}/management");
+        let management_base = format!("https://{management_address}/device");
         let mut config = idp_server::AppConfig {
             data_dir: owners.join("idp").to_string_lossy().into_owned(),
             service_audience: Some("idp-services".into()),
@@ -527,7 +531,7 @@ async fn independent_transfer_https_child() {
             idp_engine.clone(),
             None,
             Arc::new(
-                management_service::device_identity_from_server(&server, secret)
+                device_service::device_identity_from_server(&server, secret)
                     .expect("signer transport identity"),
             ),
             server.clone(),
@@ -538,14 +542,14 @@ async fn independent_transfer_https_child() {
         let control = Arc::new(
             HostedControlPlane::new_with_services(&idp_base, &idp_base, &issuer)
                 .expect("Management service binding")
-                .with_idp_service_client("management-idp", "management-idp-secret", "idp-services")
+                .with_idp_service_client("device-idp", "device-idp-secret", "idp-services")
                 .expect("existing introspection/active-User relationship"),
         );
-        let management_router = management_server::build_router(
-            management.clone(),
-            management.clone(),
+        let management_router = device_server::build_router(
+            idp_engine.clone(),
+            device_engine.clone(),
             &management_base,
-            "/management",
+            "/device",
             "storage-service",
             control,
             None,
@@ -584,7 +588,7 @@ async fn independent_transfer_https_child() {
         })
         .expect("retained IdP TLS");
         let management_tls = api::LocalTls::open(&TlsConfig {
-            root: root.join("management"),
+            root: root.join("device"),
             address: management_address,
         })
         .expect("retained Management TLS");
@@ -602,11 +606,11 @@ async fn independent_transfer_https_child() {
             .await
             .expect("Management HTTPS");
         });
-        let client = ManagementClient::new(
+        let client = DeviceClient::new(
             &management_base,
             &idp_base,
-            "storage-management",
-            "storage-management-secret",
+            "storage-device",
+            "storage-device-secret",
             &issuer,
             "storage-service",
         )
@@ -662,7 +666,7 @@ async fn independent_transfer_https_child() {
             .expect("unaffected filesystem");
         let copies = StorageCopyRetirement::new(databases.clone(), files.clone());
         let cancellation = CancellationToken::new();
-        let authorizer = LocalReplicationAuthorizer::with_management_cleanup(
+        let authorizer = LocalReplicationAuthorizer::with_device_cleanup(
             client.clone(),
             local,
             copies.clone(),
@@ -711,8 +715,8 @@ async fn independent_transfer_https_child() {
             .post(format!("{idp_base}/oauth2/token"))
             .form(&[
                 ("grant_type", "client_credentials"),
-                ("client_id", "storage-management"),
-                ("client_secret", "storage-management-secret"),
+                ("client_id", "storage-device"),
+                ("client_secret", "storage-device-secret"),
                 ("audience", "storage-service"),
                 ("scope", "management.replication.read"),
             ])
@@ -760,7 +764,7 @@ async fn independent_transfer_https_child() {
                 .status(),
             StatusCode::FORBIDDEN
         );
-        let read_only = LocalReplicationAuthorizer::from_management_client(client.clone());
+        let read_only = LocalReplicationAuthorizer::from_device_client(client.clone());
         assert!(
             read_only.local_owner(local).await.is_err(),
             "policy read cannot acknowledge another Storage's cleanup"
@@ -861,7 +865,7 @@ async fn independent_transfer_https_child() {
                 .await
                 .is_ok()
         );
-        let authorizer = LocalReplicationAuthorizer::with_management_cleanup(
+        let authorizer = LocalReplicationAuthorizer::with_device_cleanup(
             client.clone(),
             local,
             StorageCopyRetirement::new(databases.clone(), files.clone()),
@@ -901,7 +905,7 @@ async fn independent_transfer_https_child() {
         drop(files);
         let storage_runtime = storage_server::build_http_runtime(
             storage_server::RouterState::new("https://storage.example")
-                .with_management_client(client.clone())
+                .with_device_client(client.clone())
                 .with_idp_client(storage_server::IdpClient::local(|_| async {
                     Err(storage_server::IdpIntrospectionError::InvalidToken)
                 })),
@@ -944,7 +948,7 @@ async fn independent_transfer_https_child() {
             ScopedFileSystemRuntime::new(storage_root.join("filesystems"), local)
                 .expect("completed filesystem reopen"),
         );
-        let authorizer = LocalReplicationAuthorizer::with_management_cleanup(
+        let authorizer = LocalReplicationAuthorizer::with_device_cleanup(
             client.clone(),
             local,
             StorageCopyRetirement::new(databases.clone(), files.clone()),
@@ -1004,12 +1008,12 @@ async fn independent_transfer_https_child() {
         drop(files);
         drop(policies);
         drop(devices);
-        drop(management);
+        drop(device_engine);
         drop(users);
         drop(idp_engine);
-        let management =
+        let device_engine =
             Arc::new(Database::open(&management_path).expect("stopped offline Management reopen"));
-        let policies = DbSelectionPolicyRepo::new(management);
+        let policies = DbSelectionPolicyRepo::new(device_engine);
         assert!(
             !policies
                 .local_cleanup_pending(device.id)

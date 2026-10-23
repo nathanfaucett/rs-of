@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::{AppConfig, IdpClient, ManagementClient, RouterState, StorageRuntime};
+use crate::{AppConfig, DeviceClient, IdpClient, RouterState, StorageRuntime};
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -129,7 +129,7 @@ async fn public(
         serde_json::to_value(relationship.registration(
             id,
             &intent.idp,
-            &intent.management,
+            &intent.device,
             &intent.storage,
         ))
     })
@@ -174,8 +174,8 @@ fn observe(
         .ok_or_else(|| io::Error::other("retained Management endpoint missing"))?
         .parse()
         .map_err(io::Error::other)?;
-    let management = ManagementClient::new(
-        &intent.management,
+    let device = DeviceClient::new(
+        &intent.device,
         &intent.idp,
         &record.clients[1].to_string(),
         &secrets[1],
@@ -183,7 +183,7 @@ fn observe(
         &intent.storage,
     )
     .map_err(io::Error::other)?;
-    let policy = crate::LocalReplicationAuthorizer::from_management_client(management);
+    let policy = crate::LocalReplicationAuthorizer::from_device_client(device);
     control.set_readiness(move |control| {
         let (config, intent, record, expected, secrets, policy) = (
             config.clone(),
@@ -217,7 +217,7 @@ fn observe(
                     &serde_json::to_value(relationship.registration(
                         *client,
                         &intent.idp,
-                        &intent.management,
+                        &intent.device,
                         &intent.storage,
                     ))?,
                 )? {
@@ -250,8 +250,8 @@ fn build(
         &intent.idp,
     )
     .map_err(io::Error::other)?;
-    let management = ManagementClient::new(
-        &intent.management,
+    let device = DeviceClient::new(
+        &intent.device,
         &intent.idp,
         &record.clients[1].to_string(),
         &load_setup_secret(&service(control), &record.clients[1].to_string())?,
@@ -268,7 +268,7 @@ fn build(
     crate::build_http_runtime(
         RouterState::new(&intent.storage)
             .with_idp_client(idp)
-            .with_management_client(management),
+            .with_device_client(device),
         Path::new(&config.data_dir),
         config.server.prefix(),
         endpoint,
@@ -329,10 +329,10 @@ async fn provision(
         command.intent.purpose,
         relationships_at.elapsed().as_millis()
     );
-    let management = control
-        .wait_peer(&command.intent, "management", &command.cancellation)
+    let device = control
+        .wait_peer(&command.intent, "device", &command.cancellation)
         .await?;
-    let endpoint = management.facts["endpoint"]
+    let endpoint = device.facts["endpoint"]
         .as_str()
         .ok_or_else(|| io::Error::other("Management endpoint missing"))?
         .to_owned();

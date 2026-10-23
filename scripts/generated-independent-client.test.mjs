@@ -14,10 +14,10 @@ const operation = {
     administrator: "",
     node: "Joining Node",
     idp: "https://target.test/idp",
-    management: "https://target.test/management",
+    device: "https://target.test/device",
     storage: "https://target.test/storage",
     issuer: "",
-    peer: "https://source.test/management#" + "d".repeat(64),
+    peer: "https://source.test/device#" + "d".repeat(64),
 };
 const options = { credentials: "omit", redirect: "error", cache: "no-store" };
 
@@ -59,7 +59,7 @@ test("complete independent schema includes worker handoffs with owner-relative b
     );
 });
 test("generated Join sends empty issuer/admin without password to each exact owner base", async () => {
-    for (const owner of ["idp", "management", "storage"]) {
+    for (const owner of ["idp", "device", "storage"]) {
         const api = new DefaultApi(
             new Configuration({
                 basePath: operation[owner],
@@ -123,7 +123,7 @@ test("public observation carries no setup code and recovery/cancel retain distin
     const calls = [];
     const api = new DefaultApi(
         new Configuration({
-            basePath: operation.management,
+            basePath: operation.device,
             apiKey: "Setup code",
             fetchApi: async (url, init) => {
                 calls.push({ url, init });
@@ -132,11 +132,11 @@ test("public observation carries no setup code and recovery/cancel retain distin
                         stage: "installation",
                         state: "joining",
                         ready: false,
-                        owners: ["management"],
+                        owners: ["device"],
                     });
                 if (url.endsWith("/public"))
                     return Response.json({
-                        owner: "management",
+                        owner: "device",
                         operation: IndependentCreateIntentToJSON({
                             ...operation,
                             issuer: "https://installation.test/idp",

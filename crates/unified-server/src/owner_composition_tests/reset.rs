@@ -80,7 +80,7 @@ pub(super) async fn qualify_interrupted(root: &Path, address: SocketAddr, provid
         administrator: "operator".into(),
         node: "Interrupted reset target".into(),
         idp: "https://127.0.0.1:1/idp".into(),
-        management: "https://127.0.0.1:2/management".into(),
+        device: "https://127.0.0.1:2/device".into(),
         storage: base.clone(),
         issuer: "https://127.0.0.1:1/idp".into(),
         peer: None,
@@ -266,9 +266,9 @@ async fn reset(owner: &str, domain: &Path, trust: bool) -> io::Result<()> {
             )
             .await
         }
-        "management" => {
-            management_server::reset_independent(
-                &management_server::AppConfig {
+        "device" => {
+            device_server::reset_independent(
+                &device_server::AppConfig {
                     data_dir,
                     ..Default::default()
                 },
@@ -304,15 +304,15 @@ pub(super) async fn qualify_completed(root: &Path, provider: &Provider, issuer: 
     if std::env::var("OF_INDEPENDENT_LEGACY_RESET").as_deref() == Ok("1") {
         retain_legacy_cleanup_references(root).await;
     }
-    let management = root.join("management");
-    let worker_path = root.join("management.setup-host/worker.json");
+    let device = root.join("device");
+    let worker_path = root.join("device.setup-host/worker.json");
     let bytes = fs::read(&worker_path).expect("actual completed worker");
     let worker: Value = serde_json::from_slice(&bytes).expect("current worker schema");
     assert_eq!(worker["complete"], true);
     let client = worker["client"].as_str().expect("exact consumer slot");
     let scope = format!(
         "independent-setup:{}",
-        root.join("management.setup-host").display()
+        root.join("device.setup-host").display()
     );
     let local = RawKeyringRepo::new(&scope).expect("mock provider");
     local
@@ -372,18 +372,18 @@ pub(super) async fn qualify_completed(root: &Path, provider: &Provider, issuer: 
         .into_iter()
         .filter(|(reference, _)| !removed.contains(reference))
         .collect::<HashMap<_, _>>();
-    assert!(reset("management", &management, false).await.is_err());
+    assert!(reset("device", &device, false).await.is_err());
     provider.unavailable.store(true, Ordering::SeqCst);
     assert!(
-        reset("management", &management, true).await.is_err(),
+        reset("device", &device, true).await.is_err(),
         "provider absence is not successful cleanup"
     );
     provider.unavailable.store(false, Ordering::SeqCst);
     assert_eq!(fs::read(&worker_path).expect("preserved worker"), bytes);
-    assert!(management.exists());
+    assert!(device.exists());
     provider.fail_endpoint_delete.store(true, Ordering::SeqCst);
     assert!(
-        reset("management", &management, true).await.is_err(),
+        reset("device", &device, true).await.is_err(),
         "actual provider deletion failure"
     );
     assert!(
@@ -402,13 +402,13 @@ pub(super) async fn qualify_completed(root: &Path, provider: &Provider, issuer: 
         fs::read(&worker_path).expect("preserved retry evidence"),
         bytes
     );
-    assert!(root.join("management.setup-host/tls/ca.pem").exists());
+    assert!(root.join("device.setup-host/tls/ca.pem").exists());
     provider.fail_endpoint_delete.store(false, Ordering::SeqCst);
-    reset("management", &management, true)
+    reset("device", &device, true)
         .await
         .expect("exact partial cleanup retry");
-    assert!(!management.exists());
-    assert!(!root.join("management.setup-host").exists());
+    assert!(!device.exists());
+    assert!(!root.join("device.setup-host").exists());
     assert!(
         local
             .load("", "", "endpoint")
@@ -474,7 +474,7 @@ pub(super) async fn qualify_completed(root: &Path, provider: &Provider, issuer: 
             "captured slot survived reset: {reference:?}"
         );
     }
-    for owner in ["idp", "management", "storage"] {
+    for owner in ["idp", "device", "storage"] {
         assert!(!root.join(owner).exists());
         assert!(!root.join(format!("{owner}.setup-host")).exists());
         assert!(!root.join(format!("{owner}.setup-reset.json")).exists());
@@ -482,7 +482,7 @@ pub(super) async fn qualify_completed(root: &Path, provider: &Provider, issuer: 
 }
 
 async fn retain_legacy_cleanup_references(root: &Path) {
-    for owner in ["idp", "management"] {
+    for owner in ["idp", "device"] {
         let path = root.join(format!("{owner}.setup-host/worker.json"));
         let mut record: Value =
             serde_json::from_slice(&fs::read(&path).expect("completed current record"))
@@ -528,12 +528,12 @@ async fn retain_legacy_cleanup_references(root: &Path) {
             config.server.prefix = Some("/idp".into());
             idp_server::serve_independent_create(Arc::new(config), setup, shutdown).await
         } else {
-            let mut config = management_server::AppConfig {
+            let mut config = device_server::AppConfig {
                 data_dir: root.join(owner).to_string_lossy().into_owned(),
                 ..Default::default()
             };
-            config.server.prefix = Some("/management".into());
-            management_server::serve_independent_create(Arc::new(config), setup, shutdown).await
+            config.server.prefix = Some("/device".into());
+            device_server::serve_independent_create(Arc::new(config), setup, shutdown).await
         };
         assert!(
             result.is_err(),

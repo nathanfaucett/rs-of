@@ -10,10 +10,12 @@ use std::{
 use api::serve_listener;
 use axum::Router;
 use db::Database;
+use device_service::HostedControlPlane;
+use device_service::hosted_join::NodeJoinApproval;
 use idp_model::model::Id;
 use idp_server::{IdpRuntime, OwnerProvisioner, build_runtime as build_idp_runtime};
 use iroh::protocol::Router as IrohRouter;
-use management_service::{HostedControlPlane, LocalPermissions, hosted_join::NodeJoinApproval};
+use management_service::LocalPermissions;
 use storage_server::{
     DeviceReplicationPolicy, IdpClient, LocalReplicationAuthorizer,
     RouterState as StorageRouterState, StorageRuntime, build_runtime as build_storage_runtime,
@@ -29,6 +31,7 @@ use crate::{
 
 const IDP_PREFIX: &str = "/idp";
 const MANAGEMENT_PREFIX: &str = "/management";
+const DEVICE_PREFIX: &str = "/device";
 const STORAGE_PREFIX: &str = "/storage";
 const PEER_REFRESH_RETRY_DELAY: Duration = Duration::from_secs(2);
 
@@ -58,16 +61,14 @@ pub(crate) fn local_storage_idp_client(idp: Arc<IdpRuntime>) -> IdpClient {
 }
 
 pub(crate) fn owner_replication_authorizer(
-    control: Arc<HostedControlPlane>,
-    management: Arc<Database>,
+    authority: device_server::DeviceAuthority,
     local_endpoint: iroh::EndpointId,
     copies: Arc<OnceLock<storage_server::StorageCopyRetirement>>,
 ) -> LocalReplicationAuthorizer {
     let cleanup = Arc::new(Mutex::new(()));
     let copies = Arc::downgrade(&copies);
     LocalReplicationAuthorizer::new(move |endpoint| {
-        let control = Arc::clone(&control);
-        let management = Arc::clone(&management);
+        let authority = authority.clone();
         let copies = copies.clone();
         let cleanup = Arc::clone(&cleanup);
         async move {
@@ -76,24 +77,11 @@ pub(crate) fn owner_replication_authorizer(
             } else {
                 None
             };
-            let device = control
-                .get_storage_endpoint_identity(&endpoint.to_string())
-                .await?;
+            let device = authority.endpoint_identity(&endpoint.to_string()).await?;
 
             if endpoint == local_endpoint {
-                let policies = management_service::replica::DbSelectionPolicyRepo::new(Arc::clone(
-                    &management,
-                ));
-                if !policies
-                    .reconcile_owner_prevalidated(device.device_id, &device.owner_subject)
-                    .await
-                    .map_err(|error| error.to_string())?
-                {
-                    let old_owner = policies
-                        .pending_cleanup_owner(device.device_id)
-                        .await
-                        .map_err(|error| error.to_string())?
-                        .ok_or("missing local transfer cleanup intent")?;
+                if !authority.reconcile_owner(&device).await? {
+                    let old_owner = authority.pending_cleanup_owner(&device).await?;
                     copies
                         .upgrade()
                         .ok_or("Storage runtime was released")?
@@ -102,26 +90,16 @@ pub(crate) fn owner_replication_authorizer(
                         .remove_owner_copies(&old_owner)
                         .await
                         .map_err(|error| error.to_string())?;
-                    let current = control
-                        .get_storage_endpoint_identity(&endpoint.to_string())
-                        .await?;
-                    if current != device
-                        || !policies
-                            .complete_owner_cleanup_prevalidated(
-                                device.device_id,
-                                &old_owner,
-                                &device.owner_subject,
-                            )
-                            .await
-                            .map_err(|error| error.to_string())?
+                    if !authority
+                        .complete_owner_cleanup(&device, &old_owner)
+                        .await?
                     {
                         return Err("Device owner changed during local cleanup".into());
                     }
                 }
             }
 
-            let (admin_allowed, resources) =
-                management_server::replication_policy(management, &device).await?;
+            let (admin_allowed, resources) = authority.replication_policy(&device).await?;
 
             if endpoint == local_endpoint {
                 copies
@@ -137,7 +115,7 @@ pub(crate) fn owner_replication_authorizer(
                 device_id: device.device_id,
                 endpoint_id: endpoint,
                 owner_subject: device.owner_subject,
-                state: management_service::DeviceState::Approved,
+                state: device_service::DeviceState::Approved,
                 owner_active: true,
                 admin_allowed,
                 resources,
@@ -150,7 +128,7 @@ pub(crate) fn owner_replication_authorizer(
 pub struct RuntimeOwners {
     pub endpoint: Arc<UnifiedEndpoint>,
     pub idp: Arc<Database>,
-    pub management: Arc<Database>,
+    pub devices: Arc<Database>,
 }
 
 impl RuntimeOwners {
@@ -162,11 +140,11 @@ impl RuntimeOwners {
             idp_model::replica::up(&idp)
                 .await
                 .map_err(io::Error::other)?;
-            let management = management_server::open_device_database(&config.management).await?;
+            let management = device_server::open_device_database(&config.device).await?;
             Ok(Self {
                 endpoint: Arc::clone(&endpoint),
                 idp,
-                management,
+                devices: management,
             })
         }
         .await;
@@ -191,11 +169,11 @@ pub struct UnifiedRuntime {
     peer_changes: ofdb_sql::ChangeSubscription,
     security_protocol: SecurityProtocol,
     owner: Arc<OwnerProvisioner>,
-    node_joins: Arc<management_server::NodeJoinSource>,
+    node_joins: Arc<device_server::NodeJoinSource>,
     join_processing: Option<JoinHandle<io::Result<()>>>,
     _managed_copies: Arc<OnceLock<storage_server::StorageCopyRetirement>>,
     #[cfg(test)]
-    pub(crate) management_engine: Arc<Database>,
+    pub(crate) device_engine: Arc<Database>,
 }
 
 impl UnifiedRuntime {
@@ -272,7 +250,7 @@ impl UnifiedRuntime {
         let RuntimeOwners {
             endpoint,
             idp: idp_engine,
-            management: management_engine,
+            devices: device_engine,
         } = match owners {
             Some(owners) => owners,
             None => RuntimeOwners::open(&config).await?,
@@ -282,8 +260,8 @@ impl UnifiedRuntime {
             async {
                 let server = endpoint.server().clone();
                 let local_permissions = LocalPermissions::new(Arc::clone(&idp_engine));
-                let devices = Arc::new(management_service::replica::DbDeviceRepo::new(Arc::clone(
-                    &management_engine,
+                let devices = Arc::new(device_service::replica::DbDeviceRepo::new(Arc::clone(
+                    &device_engine,
                 )));
                 let mut idp_config = config.idp.clone();
                 idp_config.server.prefix = Some(IDP_PREFIX.to_owned());
@@ -315,14 +293,19 @@ impl UnifiedRuntime {
                         .with_pairing_acceptance(idp_runtime.pairing_acceptance()),
                 );
 
+                let mut device_config = config.device.clone();
+                device_config.api_public_uri = format!("{api_base}{DEVICE_PREFIX}");
+                device_config.server.prefix = Some(DEVICE_PREFIX.to_owned());
                 let mut management_config = config.management.clone();
                 management_config.server.prefix = Some(MANAGEMENT_PREFIX.to_owned());
                 let mut storage_config = config.storage.clone();
                 storage_config.server.prefix = Some(STORAGE_PREFIX.to_owned());
                 let copies = Arc::new(OnceLock::new());
                 let authorizer = owner_replication_authorizer(
-                    Arc::clone(&management_control_plane),
-                    Arc::clone(&management_engine),
+                    device_server::DeviceAuthority::new(
+                        Arc::clone(&device_engine),
+                        Arc::clone(&management_control_plane),
+                    ),
                     server.endpoint().id(),
                     Arc::clone(&copies),
                 );
@@ -352,11 +335,11 @@ impl UnifiedRuntime {
                 )?);
                 let peer_changes = idp_engine
                     .sync_changes()?
-                    .merge(management_engine.sync_changes()?);
+                    .merge(device_engine.sync_changes()?);
                 let security_protocol = SecurityProtocol::new(
                     server.clone(),
                     Arc::clone(&idp_engine),
-                    Arc::clone(&management_engine),
+                    Arc::clone(&device_engine),
                     Arc::clone(&idp_engine),
                     idp_config.oauth2.issuer.clone(),
                     idp_config.oauth2.local_signer.clone(),
@@ -376,7 +359,7 @@ impl UnifiedRuntime {
                     let security = security_protocol.clone();
                     let owner = owner.clone();
                     Arc::new(
-                        move || -> management_service::hosted_join::JoinFuture<'static, bool> {
+                        move || -> device_service::hosted_join::JoinFuture<'static, bool> {
                             let security = security.clone();
                             let owner = owner.clone();
                             Box::pin(async move {
@@ -385,30 +368,38 @@ impl UnifiedRuntime {
                         },
                     )
                 };
-                let node_joins = Arc::new(management_server::NodeJoinSource::new(
+                let node_joins = Arc::new(device_server::NodeJoinSource::new(
                     server.clone(),
                     idp_runtime.clone(),
                     management_control_plane.clone(),
                     readiness,
-                    management_engine.clone(),
+                    device_engine.clone(),
                     idp_config.oauth2.issuer.clone(),
                     cancellation_token.clone(),
                 ));
                 let management_router = management_server::build_router(
                     Arc::clone(&idp_engine),
-                    Arc::clone(&management_engine),
                     &management_config.api_public_uri,
                     MANAGEMENT_PREFIX,
-                    &management_config.storage_audience,
+                    Arc::clone(&management_control_plane),
+                )
+                .await
+                .map_err(io::Error::other)?;
+                let device_router = device_server::build_router(
+                    Arc::clone(&idp_engine),
+                    Arc::clone(&device_engine),
+                    &format!("{api_base}{DEVICE_PREFIX}"),
+                    DEVICE_PREFIX,
+                    &device_config.storage_audience,
                     Arc::clone(&management_control_plane),
                     Some(node_joins.clone()),
                 )
                 .await
                 .map_err(io::Error::other)?;
-
                 let router = compose_router(
                     idp_runtime.router(),
                     management_router,
+                    device_router,
                     storage_runtime.router(),
                 )
                 .layer(CorsLayer::very_permissive().allow_private_network(true))
@@ -432,7 +423,7 @@ impl UnifiedRuntime {
                     join_processing: None,
                     _managed_copies: copies,
                     #[cfg(test)]
-                    management_engine,
+                    device_engine,
                 })
             }
             .await;
@@ -609,7 +600,7 @@ impl UnifiedRuntime {
     }
 
     #[cfg(test)]
-    pub(crate) fn node_join_source_for_test(&self) -> Arc<management_server::NodeJoinSource> {
+    pub(crate) fn node_join_source_for_test(&self) -> Arc<device_server::NodeJoinSource> {
         self.node_joins.clone()
     }
 
@@ -735,7 +726,7 @@ pub(crate) fn validate_config(config: &UnifiedConfig) -> io::Result<()> {
 fn validate_data_dirs(config: &UnifiedConfig) -> io::Result<()> {
     let directories = [
         Path::new(&config.idp.data_dir),
-        Path::new(&config.management.data_dir),
+        Path::new(&config.device.data_dir),
         Path::new(&config.storage.data_dir),
         config.endpoint_data_dir.as_path(),
     ];
@@ -764,7 +755,7 @@ fn open_service_engine(data_dir: &str, file_name: &str) -> io::Result<Arc<Databa
 
 pub(crate) fn build_control_plane(
     idp: Arc<IdpRuntime>,
-    devices: Arc<management_service::replica::DbDeviceRepo>,
+    devices: Arc<device_service::replica::DbDeviceRepo>,
     idp_api_base: &str,
     storage_api_base: &str,
     issuer: &str,
@@ -956,8 +947,8 @@ mod tests {
         approved_peer_id: iroh::EndpointId,
         device_only_peer: iroh::EndpointId,
     ) -> idp_service::oauth2::NodeSignerBinding {
+        use device_service::DeviceRepo;
         use idp_service::repo::UserRepo;
-        use management_service::DeviceRepo;
 
         let issuer = &config.oauth2.issuer;
         let engine = super::open_service_engine(&config.data_dir, "idp.redb")
@@ -971,12 +962,10 @@ mod tests {
             .await
             .expect("local owner lookup")
             .expect("fixture active owner");
-        let management = super::open_service_engine(
-            &root.join("management").to_string_lossy(),
-            "management.redb",
-        )
-        .expect("Management Device fixture");
-        let devices = management_service::replica::DbDeviceRepo::new(management);
+        let management =
+            super::open_service_engine(&root.join("device").to_string_lossy(), "devices.redb")
+                .expect("Management Device fixture");
+        let devices = device_service::replica::DbDeviceRepo::new(management);
         let approved = devices
             .find_approved_by_public_key(&approved_peer_id.to_string())
             .await
@@ -1083,12 +1072,10 @@ mod tests {
             assert_eq!(endpoint.endpoint_id(), local);
             let engine = super::open_service_engine(&config.data_dir, "idp.redb")
                 .expect("native trust reopen");
-            let management = super::open_service_engine(
-                &root.join("management").to_string_lossy(),
-                "management.redb",
-            )
-            .expect("reopen Management Device owner");
-            let devices = std::sync::Arc::new(management_service::replica::DbDeviceRepo::new(
+            let management =
+                super::open_service_engine(&root.join("device").to_string_lossy(), "devices.redb")
+                    .expect("reopen Management Device owner");
+            let devices = std::sync::Arc::new(device_service::replica::DbDeviceRepo::new(
                 management.clone(),
             ));
             let idp = idp_server::build_runtime(
@@ -1148,7 +1135,7 @@ mod tests {
                         .owner_subject,
                     owner.id.to_string()
                 );
-                let policies = management_service::replica::DbSelectionPolicyRepo::new(
+                let policies = device_service::replica::DbSelectionPolicyRepo::new(
                     std::sync::Arc::clone(&management),
                 );
                 let copies = std::sync::Arc::new(std::sync::OnceLock::new());
@@ -1170,8 +1157,10 @@ mod tests {
                         .is_ok()
                 );
                 let authorizer = super::owner_replication_authorizer(
-                    std::sync::Arc::clone(&control),
-                    management.clone(),
+                    device_server::DeviceAuthority::new(
+                        management.clone(),
+                        std::sync::Arc::clone(&control),
+                    ),
                     local,
                     std::sync::Arc::clone(&copies),
                 );
@@ -1180,7 +1169,7 @@ mod tests {
                     "missing local policy fails closed"
                 );
                 policies
-                    .set_prevalidated(management_service::replica::SelectionPolicy {
+                    .set_prevalidated(device_service::replica::SelectionPolicy {
                         device_id: member,
                         owner_subject: owner.id.to_string(),
                         application_id: None,
@@ -1317,7 +1306,7 @@ mod tests {
         idp.oauth2.issuer = format!("https://idp-{unique}.example/idp");
         idp.service_audience = Some("idp-services".to_owned());
         let mut management = management_server::AppConfig::default();
-        management.data_dir = root.join("management").to_string_lossy().into_owned();
+        management.data_dir = root.join("device").to_string_lossy().into_owned();
         management.api_public_uri = "https://management.example".to_owned();
         management.storage_audience = "storage-service".to_owned();
         let mut storage = storage_server::AppConfig::default();
@@ -1327,6 +1316,11 @@ mod tests {
             listen_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
             endpoint_data_dir: root.join("endpoint"),
             idp,
+            device: device_server::AppConfig {
+                data_dir: root.join("device").to_string_lossy().into_owned(),
+                storage_audience: management.storage_audience.clone(),
+                ..Default::default()
+            },
             management,
             storage,
         };
@@ -1355,10 +1349,10 @@ mod tests {
         let persisted_idp_config = config.idp.clone();
         let mut public_context_grant = None;
         {
-            let policy = super::open_service_engine(&config.management.data_dir, "management.redb")
+            let policy = super::open_service_engine(&config.device.data_dir, "devices.redb")
                 .expect("policy fixture");
-            management_service::replica::DbSelectionPolicyRepo::new(policy.clone())
-                .set_prevalidated(management_service::replica::SelectionPolicy {
+            device_service::replica::DbSelectionPolicyRepo::new(policy.clone())
+                .set_prevalidated(device_service::replica::SelectionPolicy {
                     device_id: fixture.local_signer.member_id,
                     owner_subject: fixture.administrator.to_string(),
                     application_id: None,
@@ -1608,19 +1602,19 @@ mod tests {
             management_service::MANAGEMENT_APPLICATION_URI,
         )
         .await;
-        let mut generated = of_management_client::apis::configuration::Configuration {
-            base_path: format!("http://{server_address}/management"),
+        let mut generated = of_device_client::apis::configuration::Configuration {
+            base_path: format!("http://{server_address}/device"),
             client: client.clone(),
             ..Default::default()
         };
         assert!(
-            of_management_client::apis::node_join_api::node_join_pending(&generated)
+            of_device_client::apis::node_join_api::node_join_pending(&generated)
                 .await
                 .is_err(),
             "generated host routes require bearer admission"
         );
         generated.bearer_access_token = Some(bearer.clone());
-        of_management_client::apis::node_join_api::node_join_acceptance(&generated)
+        of_device_client::apis::node_join_api::node_join_acceptance(&generated)
             .await
             .expect("generated acceptance against actual composed router");
         let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1871,7 +1865,7 @@ mod tests {
             .await
             .expect("Management endpoint authority through unified listener");
         assert_eq!(response.status(), http::StatusCode::OK);
-        let identity: management_service::DeviceEndpointIdentity = response
+        let identity: device_service::DeviceEndpointIdentity = response
             .json()
             .await
             .expect("approved Management endpoint identity");
@@ -1993,12 +1987,10 @@ mod tests {
         let reopened_engine =
             super::open_service_engine(&persisted_idp_config.data_dir, "idp.redb")
                 .expect("reopen persisted IdP without peer contact");
-        let reopened_management = super::open_service_engine(
-            &root.join("management").to_string_lossy(),
-            "management.redb",
-        )
-        .expect("reopen Management offline");
-        let devices = std::sync::Arc::new(management_service::replica::DbDeviceRepo::new(
+        let reopened_management =
+            super::open_service_engine(&root.join("device").to_string_lossy(), "devices.redb")
+                .expect("reopen Management offline");
+        let devices = std::sync::Arc::new(device_service::replica::DbDeviceRepo::new(
             reopened_management.clone(),
         ));
         let restored_idp = idp_server::build_runtime(
@@ -2050,9 +2042,9 @@ mod tests {
                 .contains(approved_peer_id),
             "signer revocation leaves Device approval intact"
         );
-        use management_service::DeviceRepo;
+        use device_service::DeviceRepo;
         assert!(
-            management_service::replica::DbDeviceRepo::new(reopened_management)
+            device_service::replica::DbDeviceRepo::new(reopened_management)
                 .revoke(
                     &fixture.administrator.to_string(),
                     peer_binding.member_id,

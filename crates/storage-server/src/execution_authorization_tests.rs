@@ -8,6 +8,8 @@ use std::{
 };
 
 use db::{Database, SqlTranslator};
+use device_service::DeviceRepo;
+use device_service::replica::DbDeviceRepo;
 use file_system::FileResponse;
 use idp_model::{
     contract::{
@@ -18,10 +20,10 @@ use idp_model::{
 };
 use idp_service::{PasswordConfig, replica::DbUserRepo, repo::UserRepo};
 use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets};
-use management_service::{
-    DeviceRepo, LocalPermissions, ManagementService,
-    replica::{DbDeviceRepo, DbPermissionRepo, DbRoleRepo},
-};
+use management_service::LocalPermissions;
+use management_service::ManagementService;
+use management_service::replica::DbPermissionRepo;
+use management_service::replica::DbRoleRepo;
 use tokio::sync::{Mutex, broadcast, mpsc, watch};
 
 use super::{FrameAuthorizer, Inner, send_response, write_loop};
@@ -62,7 +64,7 @@ async fn queued_write_fixture(in_flight: bool) {
         let idp = Arc::new(Database::open(root.join("idp.redb")).expect("open IdP"));
         let management = Arc::new(Database::open(root.join("management.redb")).expect("open Management"));
         idp_model::replica::up(&idp).await.expect("IdP schema");
-        management_service::replica::up(&management).await.expect("Management schema");
+        device_service::replica::up(&management).await.expect("Management schema");
         let actor = Id::now_v7();
         let member = Id::now_v7();
         let role = Id::now_v7();

@@ -1,27 +1,27 @@
 import {
     Configuration as IndependentJoinConfiguration,
     IndependentJoinApi,
-} from "@aicacia/management-client";
+} from "@aicacia/device-client";
 import {
     Configuration as NodeJoinConfiguration,
     NodeJoinApi,
-} from "@aicacia/management-client";
+} from "@aicacia/device-client";
 import * as v from "valibot";
 import type {
     DeviceEnrollment,
     DeviceInfo,
     DeviceState,
-} from "@aicacia/management-client";
+} from "@aicacia/device-client";
 import {
     ownerAccessToken,
     ensureTauriIdpApiUrl,
     getIdpApiUrl,
 } from "./idpClient.svelte";
 import {
-    managementApi,
-    getManagementApiUrl,
-    ensureTauriManagementApiUrl,
-} from "./managementClient.svelte";
+    deviceApi,
+    getDeviceApiUrl,
+    ensureTauriDeviceApiUrl,
+} from "./deviceClient.svelte";
 import { setupBase, fetchSetupStatus } from "./setupApi";
 import {
     exactIndependentIntent,
@@ -60,10 +60,10 @@ async function sourceNodeJoinClient(): Promise<
     NodeJoinApi | IndependentJoinApi
 > {
     await ensureTauriIdpApiUrl();
-    await ensureTauriManagementApiUrl();
-    const base = setupBase(getManagementApiUrl() ?? "");
+    await ensureTauriDeviceApiUrl();
+    const base = setupBase(getDeviceApiUrl() ?? "");
     const bearer = await nodeJoinBearer();
-    if (getManagementApiUrl()?.replace(/\/$/, "") !== base)
+    if (getDeviceApiUrl()?.replace(/\/$/, "") !== base)
         throw new Error(
             "Source owner target changed; sign in to the intended Node",
         );
@@ -73,7 +73,7 @@ async function sourceNodeJoinClient(): Promise<
     if (
         !scope.owners.includes("idp") ||
         getIdpApiUrl() !== idpBase ||
-        getManagementApiUrl()?.replace(/\/$/, "") !== base
+        getDeviceApiUrl()?.replace(/\/$/, "") !== base
     )
         throw new Error(
             "Source owner scope or target changed; sign in to the intended Node",
@@ -118,7 +118,7 @@ const independentJoinRequest = v.object({
     public_signer: v.record(v.string(), v.unknown()),
     source: v.object({
         endpoint: v.string(),
-        management: v.string(),
+        device: v.string(),
         issuer: v.string(),
     }),
 });
@@ -179,7 +179,7 @@ export async function pendingNodeJoins(): Promise<PendingNodeJoin[]> {
             request.operation.purpose !== "join" ||
             request.device_id === request.member_id ||
             request.source.issuer !== request.operation.issuer ||
-            `${request.source.management}#${request.source.endpoint}` !==
+            `${request.source.device}#${request.source.endpoint}` !==
                 request.operation.peer
         )
             throw new Error(
@@ -224,13 +224,13 @@ export async function rejectPendingNodeJoin(offerId: string): Promise<void> {
 }
 
 export function listDevices(): Promise<DeviceInfo[]> {
-    return managementApi.listDevices();
+    return deviceApi.listDevices();
 }
 
 export function renameDevice(id: string, name: string): Promise<DeviceInfo> {
-    return managementApi.updateDevice({ id, updateDeviceRequest: { name } });
+    return deviceApi.updateDevice({ id, updateDeviceRequest: { name } });
 }
 
 export function revokeDevice(id: string): Promise<void> {
-    return managementApi.revokeDevice({ id });
+    return deviceApi.revokeDevice({ id });
 }

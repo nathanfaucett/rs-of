@@ -31,7 +31,7 @@ impl<H: crate::bootstrap_host::BootstrapHost> BootstrapConfig<H> {
         } else {
             for path in [
                 Path::new(&settings.idp.data_dir),
-                Path::new(&settings.management.data_dir),
+                Path::new(&settings.device.data_dir),
                 Path::new(&settings.storage.data_dir),
                 &settings.endpoint_data_dir,
             ] {

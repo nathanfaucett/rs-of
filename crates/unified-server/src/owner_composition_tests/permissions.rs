@@ -9,6 +9,7 @@ use std::{
 };
 
 use db::Database;
+use device_service::HostedControlPlane;
 use idp_model::{
     contract::{
         IdentityAction, IdentityResource, MANAGEMENT_PERMISSION_EVALUATE_SCOPE,
@@ -21,10 +22,9 @@ use idp_service::{
     replica::{DbApplicationRepo, DbClientRepo, DbKeyRepo},
     repo::{ApplicationRepo, ClientRepo, KeyService, PrivateKeyKeyringRepo},
 };
-use management_service::{
-    HostedControlPlane, ManagementService,
-    replica::{DbPermissionRepo, DbRoleRepo},
-};
+use management_service::ManagementService;
+use management_service::replica::DbPermissionRepo;
+use management_service::replica::DbRoleRepo;
 use reqwest::StatusCode;
 
 use crate::permission_http_tests::{seed_idp, user_token};
@@ -52,7 +52,7 @@ fn independent_permission_production_management_https() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("reserve TLS address");
     let address = listener.local_addr().expect("TLS address");
     let mut bundle = Vec::new();
-    for owner in ["idp", "management"] {
+    for owner in ["idp", "device"] {
         let tls = api::LocalTls::create(&TlsConfig {
             root: root.join(owner),
             address,
@@ -213,9 +213,9 @@ async fn independent_permission_management_https_child() {
             .expect("other Application lookup")
             .expect("other Application")
             .id;
-        let management_directory = owners.join("management");
-        let management_engine = Arc::new(
-            Database::open(management_directory.join("management.redb"))
+        let management_directory = owners.join("device");
+        let device_engine = Arc::new(
+            Database::open(management_directory.join("devices.redb"))
                 .expect("Management owner store"),
         );
         let idp_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -230,7 +230,7 @@ async fn independent_permission_management_https_child() {
             .expect("Management address");
         let base = format!("https://{idp_address}");
         let idp_base = format!("{base}/idp");
-        let management_base = format!("https://{management_address}/management");
+        let management_base = format!("https://{management_address}/device");
         let mut config = idp_server::AppConfig {
             data_dir: owners.join("idp").to_string_lossy().into_owned(),
             service_audience: Some("idp-services".into()),
@@ -249,7 +249,7 @@ async fn independent_permission_management_https_child() {
             idp_engine.clone(),
             None,
             Arc::new(
-                management_service::device_identity_from_server(&server, secret)
+                device_service::device_identity_from_server(&server, secret)
                     .expect("local IdP identity"),
             ),
             server.clone(),
@@ -259,19 +259,19 @@ async fn independent_permission_management_https_child() {
         .expect("production independent IdP runtime without local Management policy");
         let control_plane = HostedControlPlane::new_with_services(&idp_base, &idp_base, &issuer)
             .expect("independent Management IdP binding")
-            .with_idp_service_client("management-idp", "management-idp-secret", "idp-services")
+            .with_idp_service_client("device-idp", "device-idp-secret", "idp-services")
             .expect("distinct introspection relationship")
             .with_permission_evaluator("idp-evaluator")
             .expect("exact evaluator binding")
-            .with_local_devices(Arc::new(management_service::replica::DbDeviceRepo::new(
-                management_engine.clone(),
+            .with_local_devices(Arc::new(device_service::replica::DbDeviceRepo::new(
+                device_engine.clone(),
             )))
             .with_pairing_acceptance(runtime.pairing_acceptance());
-        let management_router = management_server::build_router(
-            management_engine.clone(),
-            management_engine.clone(),
+        let management_router = device_server::build_router(
+            device_engine.clone(),
+            device_engine.clone(),
             &management_base,
-            "/management",
+            "/device",
             "storage-service",
             Arc::new(control_plane),
             None,
@@ -284,7 +284,7 @@ async fn independent_permission_management_https_child() {
         })
         .expect("retained IdP TLS");
         let management_tls = api::LocalTls::open(&TlsConfig {
-            root: root.join("management"),
+            root: root.join("device"),
             address: management_address,
         })
         .expect("retained Management TLS");
@@ -324,8 +324,8 @@ async fn independent_permission_management_https_child() {
             StatusCode::FORBIDDEN
         );
         let policy = ManagementService::new(
-            DbPermissionRepo::new(management_engine.clone()),
-            DbRoleRepo::new(management_engine.clone()),
+            DbPermissionRepo::new(device_engine.clone()),
+            DbRoleRepo::new(device_engine.clone()),
         );
         let role = policy
             .create_role(Id::nil(), "independent application reader", None)

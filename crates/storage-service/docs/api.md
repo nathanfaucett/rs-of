@@ -1,5 +1,7 @@
 # Storage API
 
+Current owner/database boundaries and Device routes: [shared control-plane databases](../../../docs/control-plane.md).
+
 These are current owner contracts, reconciled with the Management Device cutover; this documentation change is not a new runtime test or full-Node acceptance. Unified composition uses locally hosted IdP/Management owner boundaries and persistent trusted state. HTTP introspection of the local IdP is not a required remote authority. See [security](security.md), [system API contracts](../../../docs/api.md) and [qualification limits](../../../docs/operations.md#qualification-boundary).
 
 ## Identity and ownership

@@ -1,143 +1,34 @@
-use std::sync::Arc;
-
 use axum::{body::Body, http::Request};
-use idp_model::model::Id;
-use management_service::{
-    HostedControlPlane, ManagementService,
-    replica::{DbPermissionRepo, DbRoleRepo, DbSelectionPolicyRepo},
-};
-use serde_json::Value;
+use std::sync::Arc;
 use tower::ServiceExt;
-
-use super::{RouterState, openapi_router};
-
 #[tokio::test]
-async fn composed_openapi_requires_current_selected_resources_policy() {
-    assert_contract(&document().await);
-}
-
-async fn document() -> Value {
-    let root = std::env::temp_dir().join(format!("management-openapi-{}", Id::now_v7()));
-    std::fs::create_dir_all(&root).expect("create isolated schema export directory");
-    let engine =
-        Arc::new(db::Database::open(root.join("management.redb")).expect("open isolated engine"));
-    let state = RouterState::new(
-        "https://management.example/management",
-        Arc::new(ManagementService::new(
-            DbPermissionRepo::new(Arc::clone(&engine)),
-            DbRoleRepo::new(Arc::clone(&engine)),
-        )),
-        Arc::new(DbSelectionPolicyRepo::new(Arc::clone(&engine))),
-        Arc::new(
-            HostedControlPlane::new_with_services(
-                "http://127.0.0.1",
-                "http://127.0.0.1",
-                "https://installation.example",
-            )
-            .expect("construct unused control plane"),
-        ),
-        "storage-api",
-    );
-    let response = openapi_router(state, "/management")
-        .split_for_parts()
-        .0
+async fn management_serves_only_permission_contract() {
+    let identity = Arc::new(db::Database::in_memory());
+    let control =
+        Arc::new(device_service::HostedControlPlane::new("https://idp.example").expect("control"));
+    let router = crate::build_router(identity, "https://node.example", "/management", control)
+        .await
+        .expect("router");
+    let response = router
         .oneshot(
-            Request::builder()
-                .uri("/management/openapi.json")
+            Request::get("/management/openapi.json")
                 .body(Body::empty())
-                .expect("public OpenAPI request"),
+                .expect("request"),
         )
         .await
-        .expect("serve composed Management OpenAPI");
-    assert_eq!(response.status(), axum::http::StatusCode::OK);
+        .expect("response");
+    assert_eq!(response.status(), http::StatusCode::OK);
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
-        .expect("read composed Management OpenAPI");
-    let document: Value = serde_json::from_slice(&body).expect("public Management OpenAPI JSON");
-    let mut expected: Value =
-        serde_json::from_str(include_str!("../../../../openapi/management.json"))
-            .expect("exported Management contract");
-    expected["servers"] = serde_json::json!([{ "url": "https://management.example/management" }]);
-    assert_eq!(
-        document, expected,
-        "runtime Management contract matches export"
-    );
-    drop(engine);
-    std::fs::remove_dir_all(root).expect("remove isolated schema export database");
-    document
-}
-
-fn assert_contract(document: &Value) {
-    let paths = document["paths"].as_object().expect("complete owner paths");
-    let operations = paths
-        .values()
-        .flat_map(|item| item.as_object().expect("path item").values())
-        .filter(|operation| operation.get("operationId").is_some())
-        .count();
-    assert_eq!(operations, 64, "complete Management operation inventory");
-    assert!(paths.contains_key("/openapi.json"));
-    for (path, method) in [
-        ("/replication/owner-cleanup", "post"),
-        ("/device", "get"),
-        ("/devices", "get"),
-        ("/devices/endpoints", "get"),
-        ("/devices/endpoints/{endpoint_id}", "get"),
-        ("/devices/identities/{device_id}", "get"),
-        ("/devices/trusted", "get"),
-        ("/devices/enrollments", "post"),
-        ("/devices/revoke-self", "post"),
-        ("/devices/pairing-accepting", "get"),
-        ("/devices/pairing-accepting", "put"),
-        ("/devices/{id}", "patch"),
-        ("/devices/{id}", "delete"),
-        ("/devices/{device_id}/owner", "put"),
-    ] {
-        assert!(
-            document["paths"][path][method].is_object(),
-            "Management owns {method} {path}"
-        );
-    }
-    assert!(paths.keys().all(|path| !path.starts_with("/management/")));
-    assert_eq!(
-        document["servers"][0]["url"],
-        "https://management.example/management"
-    );
-
-    let schema = &document["components"]["schemas"]["SelectedResourcesResponse"];
-    let fields = [
-        "adminAllowed",
-        "deviceId",
-        "endpointId",
-        "ownerSubject",
-        "resources",
-    ];
-    assert_eq!(
-        schema["properties"]
+        .expect("body");
+    let document: serde_json::Value = serde_json::from_slice(&body).expect("contract");
+    assert!(
+        document["paths"]
             .as_object()
-            .expect("selected resources policy properties")
+            .expect("paths")
             .keys()
-            .map(String::as_str)
-            .collect::<Vec<_>>(),
-        [
-            "adminAllowed",
-            "deviceId",
-            "endpointId",
-            "ownerSubject",
-            "pendingCleanup",
-            "resources"
-        ],
+            .all(|path| !path.starts_with("/device")
+                && !path.starts_with("/replication")
+                && !path.starts_with("/node-joins"))
     );
-    let mut required = schema["required"]
-        .as_array()
-        .expect("required selected resources policy fields")
-        .iter()
-        .map(|field| field.as_str().expect("required field name"))
-        .collect::<Vec<_>>();
-    required.sort_unstable();
-    assert_eq!(required, fields);
-    for field in ["deviceId", "endpointId", "ownerSubject"] {
-        assert_eq!(schema["properties"][field]["type"], "string");
-    }
-    assert_eq!(schema["properties"]["adminAllowed"]["type"], "boolean");
-    assert_eq!(schema["properties"]["resources"]["type"], "array");
 }

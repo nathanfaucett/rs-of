@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import test from "node:test";
 
-for (const owner of ["idp", "management", "storage"]) {
+for (const owner of ["idp", "management", "device", "storage"]) {
     const manifest = new URL(
         "../packages/" + owner + "-client/package.json",
         import.meta.url,

@@ -1,8 +1,9 @@
 use std::sync::{Arc, OnceLock};
 
+use device_service::replica::DbSelectionPolicyRepo;
+use device_service::replica::SelectionPolicy;
 use idp_model::contract::{GrantType, TokenEndpointAuthMethod};
 use idp_service::repo::ClientRepo;
-use management_service::replica::{DbSelectionPolicyRepo, SelectionPolicy};
 use model::contract::StorageAuthorizationAction;
 use storage_server::{RouterState, StorageCopyRetirement, openapi_router, resource_router};
 use storage_service::ScopedFileSystemRuntime;
@@ -21,8 +22,7 @@ async fn start_storage(fixture: &mut Fixture) -> Arc<OnceLock<StorageCopyRetirem
             .is_ok()
     );
     let policy = crate::runtime::owner_replication_authorizer(
-        fixture.control.clone(),
-        fixture.management.clone(),
+        device_server::DeviceAuthority::new(fixture.management.clone(), fixture.control.clone()),
         fixture.identity.endpoint().id(),
         copies.clone(),
     );

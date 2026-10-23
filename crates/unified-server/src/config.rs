@@ -8,6 +8,7 @@ pub struct UnifiedConfig {
     pub endpoint_data_dir: std::path::PathBuf,
     pub idp: idp_server::AppConfig,
     pub management: management_server::AppConfig,
+    pub device: device_server::AppConfig,
     pub storage: storage_server::AppConfig,
 }
 
@@ -35,9 +36,18 @@ impl From<idp_server::BootstrapSettings> for UnifiedConfig {
             endpoint_data_dir: settings.endpoint_data_dir,
             idp: settings.idp,
             management: management_server::AppConfig {
-                data_dir: settings.management.data_dir,
-                api_public_uri: settings.management.api_public_uri,
-                storage_audience: settings.management.storage_audience,
+                api_public_uri: settings
+                    .device
+                    .api_public_uri
+                    .trim_end_matches("/device")
+                    .to_owned()
+                    + "/management",
+                ..Default::default()
+            },
+            device: device_server::AppConfig {
+                data_dir: settings.device.data_dir,
+                api_public_uri: settings.device.api_public_uri,
+                storage_audience: settings.device.storage_audience,
                 ..Default::default()
             },
             storage: storage_server::AppConfig {
@@ -64,6 +74,7 @@ struct FileConfig {
     endpoint_data_dir: String,
     idp: idp_server::AppConfig,
     management: management_server::AppConfig,
+    device: device_server::AppConfig,
     storage: storage_server::AppConfig,
 }
 
@@ -74,6 +85,7 @@ impl Default for FileConfig {
             endpoint_data_dir: "unified-data".to_owned(),
             idp: idp_server::AppConfig::default(),
             management: management_server::AppConfig::default(),
+            device: device_server::AppConfig::default(),
             storage: storage_server::AppConfig::default(),
         }
     }
@@ -100,6 +112,7 @@ impl TryFrom<&Path> for UnifiedConfig {
             endpoint_data_dir: file.endpoint_data_dir.into(),
             idp: file.idp,
             management: file.management,
+            device: file.device,
             storage: file.storage,
         })
     }
@@ -124,7 +137,7 @@ mod tests {
         let mut config = UnifiedConfig::try_from(path.as_path()).expect("concrete YAML settings");
         config.endpoint_data_dir = root.join("endpoint");
         config.idp.data_dir = root.join("idp").to_string_lossy().into_owned();
-        config.management.data_dir = root.join("management").to_string_lossy().into_owned();
+        config.device.data_dir = root.join("management").to_string_lossy().into_owned();
         config.storage.data_dir = root.join("storage").to_string_lossy().into_owned();
         let host = crate::BootstrapConfig::create_explicit_http(config.clone())
             .expect("explicit neutral host");
@@ -155,11 +168,11 @@ mod tests {
         assert_eq!(loaded.storage.server.port, 5432);
         assert_eq!(loaded.storage.idp_api_base_uri, "https://identity.test/idp");
         assert_eq!(
-            loaded.storage.management_api_base_uri,
+            loaded.storage.device_api_base_uri,
             "https://control.test/management"
         );
         assert_eq!(
-            loaded.storage.management_service_audience.as_deref(),
+            loaded.storage.device_service_audience.as_deref(),
             Some("https://control.test/audience")
         );
         assert_eq!(loaded.idp.oauth2.issuer, selected.idp.oauth2.issuer);
@@ -194,7 +207,7 @@ mod tests {
             Path::new("./data/unified/endpoint")
         );
         assert_eq!(config.idp.data_dir, "./data/unified/idp");
-        assert_eq!(config.management.data_dir, "./data/unified/management");
+        assert_eq!(config.device.data_dir, "./data/unified/management");
         assert_eq!(config.storage.data_dir, "./data/unified/storage");
         assert_eq!(config.idp.ui_public_uri, "https://of.localhost:1355");
         assert_eq!(
@@ -211,7 +224,7 @@ mod tests {
         );
         assert_eq!(config.idp_audience(), config.idp.api_public_uri);
         assert_eq!(
-            config.management.storage_audience,
+            config.device.storage_audience,
             config.storage.api_public_uri
         );
         assert!(config.idp.oauth2.issuer.is_empty());
@@ -228,9 +241,9 @@ mod tests {
         assert!(config.storage.idp_issuer_uri.is_empty());
         assert!(config.storage.idp_oauth_client_id.is_none());
         assert!(config.storage.idp_oauth_client_secret.is_none());
-        assert!(config.storage.management_oauth_client_id.is_none());
-        assert!(config.storage.management_oauth_client_secret.is_none());
-        assert!(config.storage.management_endpoint_id.is_none());
+        assert!(config.storage.device_oauth_client_id.is_none());
+        assert!(config.storage.device_oauth_client_secret.is_none());
+        assert!(config.storage.device_endpoint_id.is_none());
     }
 
     #[test]
@@ -282,9 +295,9 @@ mod tests {
         assert!(storage.idp_issuer_uri.is_empty());
         assert!(storage.idp_oauth_client_id.is_none());
         assert!(storage.idp_oauth_client_secret.is_none());
-        assert!(storage.management_oauth_client_id.is_none());
-        assert!(storage.management_oauth_client_secret.is_none());
-        assert!(storage.management_endpoint_id.is_none());
+        assert!(storage.device_oauth_client_id.is_none());
+        assert!(storage.device_oauth_client_secret.is_none());
+        assert!(storage.device_endpoint_id.is_none());
     }
 
     #[cfg(unix)]
@@ -300,7 +313,7 @@ mod tests {
         let settings = &mut config;
         for data_dir in [
             &mut settings.idp.data_dir,
-            &mut settings.management.data_dir,
+            &mut settings.device.data_dir,
             &mut settings.storage.data_dir,
         ] {
             *data_dir = root.join(&*data_dir).to_string_lossy().into_owned();
@@ -327,7 +340,7 @@ mod tests {
         for directory in [
             &config.endpoint_data_dir,
             Path::new(&config.idp.data_dir),
-            Path::new(&config.management.data_dir),
+            Path::new(&config.device.data_dir),
             Path::new(&config.storage.data_dir),
         ] {
             assert!(
@@ -380,6 +393,10 @@ pub(crate) fn test_config(root: &Path) -> UnifiedConfig {
         endpoint_data_dir: root.join("endpoint"),
         idp: idp_server::AppConfig {
             data_dir: root.join("idp").to_string_lossy().into_owned(),
+            ..Default::default()
+        },
+        device: device_server::AppConfig {
+            data_dir: root.join("device").to_string_lossy().into_owned(),
             ..Default::default()
         },
         management: management_server::AppConfig {

@@ -19,7 +19,7 @@ import {
 } from "@aicacia/idp-client";
 
 export type SetupStage = "installation" | "device" | "ready" | "unavailable";
-export type SetupOwner = "idp" | "management" | "storage";
+export type SetupOwner = "idp" | "device" | "storage";
 export type SetupStatus = {
     stage: "installation" | "unavailable" | "ready";
     state:
@@ -52,7 +52,7 @@ export type SetupSessionIntent =
 export type SetupHost = { base: string; status: SetupStatus };
 export type SetupBases = {
     idp: string;
-    management?: string | null;
+    device?: string | null;
     storage?: string | null;
 };
 
@@ -86,7 +86,7 @@ export function requireSetupUiOrigin(origin: string): void {
         throw new Error("Setup requires the current HTTPS UI origin");
 }
 
-const owners: SetupOwner[] = ["idp", "management", "storage"];
+const owners: SetupOwner[] = ["idp", "device", "storage"];
 
 const setupInit: RequestInit = {
     credentials: "omit",
@@ -266,17 +266,17 @@ export async function fetchSetupHosts(bases: SetupBases): Promise<SetupHost[]> {
     if (status.owners.length === 3) return [{ base, status }];
     if (status.owners[0] !== "idp")
         throw new Error("Primary setup scope must include IdP");
-    if (!bases.management || !bases.storage)
+    if (!bases.device || !bases.storage)
         throw new Error(
             "Independent setup requires configured Management and Storage HTTPS service bases",
         );
-    const management = setupBase(bases.management);
+    const device = setupBase(bases.device);
     const storage = setupBase(bases.storage);
-    if (new Set([base, management, storage]).size !== 3)
+    if (new Set([base, device, storage]).size !== 3)
         throw new Error("Independent setup service bases must be distinct");
     const hosts: SetupHost[] = [{ base, status }];
     for (const [owner, target] of [
-        ["management", management],
+        ["device", device],
         ["storage", storage],
     ] as const) {
         const targetStatus = await fetchSetupStatus(target);

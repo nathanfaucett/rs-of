@@ -6,6 +6,9 @@ use std::{
 };
 
 use db::Database;
+use device_service::DeviceRepo;
+use device_service::PUBLIC_DEVICE_TABLES;
+use device_service::replica::DbDeviceRepo;
 use idp_model::{
     contract::{
         IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
@@ -19,9 +22,7 @@ use idp_service::{
 };
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh_chain::Server;
-use management_service::{
-    DeviceRepo, LocalPermissions, PUBLIC_POLICY_TABLES, replica::DbDeviceRepo,
-};
+use management_service::LocalPermissions;
 use ofdb_sql::{SessionConfig, SyncError, SyncResult, SyncRole, SyncTransport};
 use serde::{Deserialize, Serialize};
 use storage_server::{DataProtocolHandler, DatabaseTransport};
@@ -43,7 +44,7 @@ const SECURITY_STREAM_KIND: u8 = 3;
 #[serde(rename_all = "snake_case")]
 pub enum SecurityContext {
     Idp,
-    Management,
+    Device,
 }
 
 impl SecurityContext {
@@ -53,12 +54,10 @@ impl SecurityContext {
                 .into_iter()
                 .find(|public| public.name() == table)
                 .is_some_and(|public| public.permits_historical_value(column, value)),
-            Self::Management => {
-                management_service::public_policy_columns(table).is_some_and(|columns| {
-                    columns.contains(&column)
-                        && (table != "devices" || candidates::permits_device_value(column, value))
-                })
-            }
+            Self::Device => device_service::public_device_columns(table).is_some_and(|columns| {
+                columns.contains(&column)
+                    && (table != "devices" || candidates::permits_device_value(column, value))
+            }),
         };
         if permitted {
             Ok(())
@@ -73,7 +72,7 @@ impl SecurityContext {
                 IdentityAction::IdpSecuritySync,
                 IdentityResource::IdpSecurity,
             ),
-            Self::Management => (
+            Self::Device => (
                 IdentityAction::ManagementSecuritySync,
                 IdentityResource::ManagementSecurity,
             ),
@@ -145,11 +144,11 @@ impl SecurityProtocol {
                     .map(|table| table.name())
                     .collect(),
             )],
-            SecurityContext::Management => vec![
+            SecurityContext::Device => vec![
                 (
                     &self.policy,
                     "policy-identity",
-                    PUBLIC_POLICY_TABLES
+                    PUBLIC_DEVICE_TABLES
                         .iter()
                         .copied()
                         .filter(|table| identity_policy_table(table))
@@ -158,7 +157,7 @@ impl SecurityProtocol {
                 (
                     &self.management,
                     "policy-devices",
-                    PUBLIC_POLICY_TABLES
+                    PUBLIC_DEVICE_TABLES
                         .iter()
                         .copied()
                         .filter(|table| !identity_policy_table(table))
@@ -276,10 +275,8 @@ impl SecurityProtocol {
                             .find(|table| table.name() == name)
                             .expect("public identity table")
                             .columns(),
-                        SecurityContext::Management => {
-                            management_service::public_policy_columns(name)
-                                .expect("public policy table")
-                        }
+                        SecurityContext::Device => device_service::public_device_columns(name)
+                            .expect("public policy table"),
                     };
                     (name, columns)
                 })
@@ -489,8 +486,8 @@ impl SecurityProtocol {
                         SecurityContext::Idp => {
                             candidates::validate(view, &self.installation, &bindings)
                         }
-                        SecurityContext::Management => {
-                            candidates::validate_management(view, &bindings, None)
+                        SecurityContext::Device => {
+                            candidates::validate_device_history(view, &bindings, None)
                         }
                     },
                     || async {

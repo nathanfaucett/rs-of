@@ -5,10 +5,9 @@ use idp_model::{contract::IdentityAction, model::Id};
 use idp_service::oauth2::NodeSignerBinding;
 use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets};
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
-use management_service::{
-    ManagementService,
-    replica::{DbPermissionRepo, DbRoleRepo},
-};
+use management_service::ManagementService;
+use management_service::replica::DbPermissionRepo;
+use management_service::replica::DbRoleRepo;
 use ofdb_sql::{SessionConfig, SyncMessage, SyncRole, SyncTransport};
 use storage_server::DatabaseTransport;
 use tokio_util::sync::CancellationToken;
@@ -68,7 +67,7 @@ impl Fixture {
             let management = Arc::new(
                 Database::open(root.join("source-management.redb")).expect("native Management"),
             );
-            management_service::replica::up(&management)
+            device_service::replica::up(&management)
                 .await
                 .expect("Management schema");
             for (member, key, endpoint) in [
@@ -357,7 +356,7 @@ async fn peer_exchange(
         for (_, _, tables) in fixture.source.sessions(context) {
             let database = match context {
                 SecurityContext::Idp => &fixture.peer_idp,
-                SecurityContext::Management => &fixture.peer_management,
+                SecurityContext::Device => &fixture.peer_management,
             };
             peer_result = database
                 .synchronize_tables_checked(
@@ -387,12 +386,12 @@ async fn peer_exchange(
 #[tokio::test]
 async fn learned_denial_blocks_next_security_disclosure_on_existing_connection() {
     tokio::time::timeout(Duration::from_secs(360), async {
-        for context in [SecurityContext::Idp, SecurityContext::Management] {
+        for context in [SecurityContext::Idp, SecurityContext::Device] {
             for role in [SyncRole::Initiator, SyncRole::Responder] {
                 let fixture = Fixture::new().await;
                 let (source_database, peer_database, table) = match context {
                     SecurityContext::Idp => (&fixture.source.idp, &fixture.peer_idp, "users"),
-                    SecurityContext::Management => (
+                    SecurityContext::Device => (
                         &fixture.source.management,
                         &fixture.peer_management,
                         "roles",
@@ -507,12 +506,12 @@ async fn learned_actor_device_cancellation_and_policy_failure_deny_outbound() {
 #[tokio::test]
 async fn currently_authorized_security_payloads_exchange_on_both_roles_and_contexts() {
     tokio::time::timeout(Duration::from_secs(240), async {
-        for context in [SecurityContext::Idp, SecurityContext::Management] {
+        for context in [SecurityContext::Idp, SecurityContext::Device] {
             for role in [SyncRole::Initiator, SyncRole::Responder] {
                 let fixture = Fixture::new().await;
                 let (source, peer, table) = match context {
                     SecurityContext::Idp => (&fixture.source.idp, &fixture.peer_idp, "users"),
-                    SecurityContext::Management => (
+                    SecurityContext::Device => (
                         &fixture.source.management,
                         &fixture.peer_management,
                         "roles",

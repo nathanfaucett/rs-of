@@ -63,7 +63,7 @@ impl<H: BootstrapHost> LocalJoin<H> {
         for root in [
             config.endpoint_data_dir.as_path(),
             Path::new(&config.idp.data_dir),
-            Path::new(&config.management.data_dir),
+            Path::new(&config.device.data_dir),
             Path::new(&config.storage.data_dir),
         ] {
             require_absent(root)?;
@@ -356,18 +356,18 @@ impl<H: BootstrapHost> LocalJoin<H> {
         let fresh_inventory = !self.journal.inventory_attempted;
         if fresh_inventory {
             require_absent(Path::new(&self.config.idp.data_dir))?;
-            require_absent(Path::new(&self.config.management.data_dir))?;
+            require_absent(Path::new(&self.config.device.data_dir))?;
             self.journal.inventory_attempted = true;
             self.write()?;
             create_private_directory(Path::new(&self.config.idp.data_dir), false)?;
-            create_private_directory(Path::new(&self.config.management.data_dir), false)?;
+            create_private_directory(Path::new(&self.config.device.data_dir), false)?;
         } else {
             require_file(
                 &Path::new(&self.config.idp.data_dir).join("idp.redb"),
                 false,
             )?;
             require_file(
-                &Path::new(&self.config.management.data_dir).join("management.redb"),
+                &Path::new(&self.config.device.data_dir).join("devices.redb"),
                 false,
             )?;
         }
@@ -375,7 +375,7 @@ impl<H: BootstrapHost> LocalJoin<H> {
         let (protocol, owner) = H::Protocol::open_node_bootstrap(
             &endpoint,
             &self.config.idp,
-            Path::new(&self.config.management.data_dir),
+            Path::new(&self.config.device.data_dir),
             binding,
         )
         .await?;
@@ -432,7 +432,7 @@ impl<H: BootstrapHost> LocalJoin<H> {
         }
         for root in [
             Path::new(&self.config.idp.data_dir),
-            Path::new(&self.config.management.data_dir),
+            Path::new(&self.config.device.data_dir),
             &self.config.endpoint_data_dir,
         ] {
             require_retained_directory(root)?;
@@ -442,7 +442,7 @@ impl<H: BootstrapHost> LocalJoin<H> {
             false,
         )?;
         require_file(
-            &Path::new(&self.config.management.data_dir).join("management.redb"),
+            &Path::new(&self.config.device.data_dir).join("devices.redb"),
             false,
         )?;
         require_storage(&self.config)?;

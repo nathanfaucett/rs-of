@@ -1,4 +1,6 @@
 use db::Database;
+use device_service::DeviceRepo;
+use device_service::replica::DbDeviceRepo;
 use idp_model::contract::{
     ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, EntityType, GrantType,
     INSTALLATION_POLICY_ID, IdentityAction, IdentityResource, MANAGEMENT_PERMISSION_EVALUATE_SCOPE,
@@ -13,7 +15,6 @@ use idp_service::{
         UserRepo,
     },
 };
-use management_service::{DeviceRepo, replica::DbDeviceRepo};
 use std::{
     any::Any,
     collections::HashMap,
@@ -94,26 +95,25 @@ async fn run_separate_permission_acceptance(lifecycle_only: bool) {
     config.server.prefix = Some("/idp".into());
     let idp_engine =
         Arc::new(Database::open(root.join("idp/idp.redb")).expect("open IdP owner engine"));
-    let management_engine = Arc::new(
-        Database::open(root.join("management/management.redb"))
-            .expect("open Management owner engine"),
+    let device_engine = Arc::new(
+        Database::open(root.join("device/devices.redb")).expect("open Management owner engine"),
     );
     let runtime = idp_server::build_runtime(
         &config,
         Arc::clone(&idp_engine),
         None,
         Arc::new(
-            management_service::device_identity_from_server(&server, secret.clone())
+            device_service::device_identity_from_server(&server, secret.clone())
                 .expect("create local identity"),
         ),
         server.clone(),
         Some(management_service::LocalPermissions::new(Arc::clone(
-            &management_engine,
+            &idp_engine,
         ))),
     )
     .await
     .expect("build independent IdP runtime");
-    let control_plane = management_service::HostedControlPlane::new_with_services(
+    let control_plane = device_service::HostedControlPlane::new_with_services(
         &format!("{idp_base}/idp"),
         &format!("{idp_base}/unused-storage"),
         &issuer,
@@ -123,19 +123,30 @@ async fn run_separate_permission_acceptance(lifecycle_only: bool) {
     .expect("configure introspection relationship")
     .with_permission_evaluator("idp-evaluator")
     .expect("pin distinct assertion client")
-    .with_local_devices(Arc::new(DbDeviceRepo::new(management_engine.clone())))
+    .with_local_devices(Arc::new(DbDeviceRepo::new(device_engine.clone())))
     .with_pairing_acceptance(runtime.pairing_acceptance());
+    let control_plane = Arc::new(control_plane);
     let router = management_server::build_router(
-        Arc::clone(&management_engine),
-        management_engine,
+        idp_engine.clone(),
         &management_base,
         "/management",
-        "storage-service",
-        Arc::new(control_plane),
-        None,
+        control_plane.clone(),
     )
     .await
-    .expect("build independent Management router");
+    .expect("Management role router")
+    .merge(
+        device_server::build_router(
+            idp_engine.clone(),
+            device_engine,
+            &management_base,
+            "/device",
+            "storage-service",
+            control_plane,
+            None,
+        )
+        .await
+        .expect("Device router"),
+    );
     let idp_router = runtime.router();
     let mut idp_task = tokio::spawn(async move {
         axum::serve(idp_listener, idp_router)
@@ -159,7 +170,7 @@ async fn run_separate_permission_acceptance(lifecycle_only: bool) {
             Arc::clone(&idp_engine),
             None,
             Arc::new(
-                management_service::device_identity_from_server(&server, secret)
+                device_service::device_identity_from_server(&server, secret)
                     .expect("local identity"),
             ),
             server.clone(),
@@ -496,11 +507,11 @@ pub(crate) async fn seed_idp(
         )
         .await
         .expect("seed owner consent");
-    fs::create_dir_all(root.join("management")).expect("create Management fixture directory");
+    fs::create_dir_all(root.join("device")).expect("create Management fixture directory");
     let management = Arc::new(
-        Database::open(root.join("management/management.redb")).expect("Management Device owner"),
+        Database::open(root.join("device/devices.redb")).expect("Management Device owner"),
     );
-    management_service::replica::up(&management)
+    device_service::replica::up(&management)
         .await
         .expect("Management fixture schema");
     let devices = DbDeviceRepo::new(management);
@@ -577,14 +588,13 @@ pub(crate) async fn seed_idp(
 }
 
 pub(crate) async fn seed_permissions(root: &std::path::Path, fixture: &mut PermissionFixture) {
-    seed_permissions_at(&root.join("management/management.redb"), fixture).await;
+    seed_permissions_at(&root.join("idp/idp.redb"), fixture).await;
 }
 
 pub(crate) async fn seed_permissions_at(path: &std::path::Path, fixture: &mut PermissionFixture) {
-    use management_service::{
-        ManagementService,
-        replica::{DbPermissionRepo, DbRoleRepo},
-    };
+    use management_service::ManagementService;
+    use management_service::replica::DbPermissionRepo;
+    use management_service::replica::DbRoleRepo;
     fs::create_dir_all(path.parent().expect("database directory"))
         .expect("create Management data directory");
     let engine = Arc::new(Database::open(path).expect("open Management fixture"));
@@ -1117,7 +1127,7 @@ pub(crate) async fn run_permission_http_checks(
         management_service::MANAGEMENT_APPLICATION_URI,
     )
     .await;
-    let pairing_url = format!("{management_base}/management/devices/pairing-accepting");
+    let pairing_url = format!("{management_base}/device/devices/pairing-accepting");
     expect_status(
         client
             .get(&pairing_url)
@@ -1147,7 +1157,7 @@ pub(crate) async fn run_permission_http_checks(
         http::StatusCode::OK,
     )
     .await;
-    let pairing_update = management_service::PairingAcceptance { accepting: false };
+    let pairing_update = device_service::PairingAcceptance { accepting: false };
     expect_status(
         client
             .put(&pairing_url)
@@ -1671,17 +1681,18 @@ async fn shared_identity_acceptance() {
         endpoint_data_dir: root.join("endpoint"),
         idp: idp_server::AppConfig::default(),
         management: management_server::AppConfig::default(),
+        device: device_server::AppConfig::default(),
         storage: storage_server::AppConfig::default(),
     };
     config.idp.data_dir = root.join("idp").to_string_lossy().into_owned();
-    config.management.data_dir = root.join("management").to_string_lossy().into_owned();
+    config.device.data_dir = root.join("device").to_string_lossy().into_owned();
     config.storage.data_dir = root.join("storage").to_string_lossy().into_owned();
     config.idp.oauth2.issuer = format!(
         "https://shared-{}.example/idp",
         idp_model::model::Id::now_v7()
     );
     config.idp.service_audience = Some("idp-services".into());
-    config.management.storage_audience = "storage-service".into();
+    config.device.storage_audience = "storage-service".into();
     let endpoint = crate::UnifiedEndpoint::open_fresh(&config.endpoint_data_dir, &config.idp)
         .await
         .expect("fresh endpoint");

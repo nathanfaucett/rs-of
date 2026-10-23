@@ -1,8 +1,8 @@
 use std::{future::Future, pin::Pin, sync::Arc};
 
+use device_service::DeviceState;
 use idp_model::model::Id;
 use iroh::EndpointId;
-use management_service::DeviceState;
 use model::contract::SelectedResource;
 
 /// Current evidence supplied by trusted IdP and Management services, not by a peer.
@@ -31,21 +31,21 @@ pub struct LocalReplicationAuthorizer {
 }
 
 impl LocalReplicationAuthorizer {
-    pub fn from_management_client(client: crate::ManagementClient) -> Self {
-        Self::management_policy(client, None)
+    pub fn from_device_client(client: crate::DeviceClient) -> Self {
+        Self::device_policy(client, None)
     }
 
-    pub fn with_management_cleanup(
-        client: crate::ManagementClient,
+    pub fn with_device_cleanup(
+        client: crate::DeviceClient,
         local_endpoint: EndpointId,
         copies: crate::StorageCopyRetirement,
         cancellation: tokio_util::sync::CancellationToken,
     ) -> Self {
-        Self::management_policy(client, Some((local_endpoint, copies, cancellation)))
+        Self::device_policy(client, Some((local_endpoint, copies, cancellation)))
     }
 
-    fn management_policy(
-        client: crate::ManagementClient,
+    fn device_policy(
+        client: crate::DeviceClient,
         local: Option<(
             EndpointId,
             crate::StorageCopyRetirement,
@@ -247,8 +247,8 @@ mod native_tests;
 #[cfg(test)]
 mod tests {
     use super::{DeviceReplicationPolicy, LocalReplicationAuthorizer};
+    use device_service::DeviceState;
     use idp_model::model::Id;
-    use management_service::DeviceState;
     use model::contract::SelectedResource;
 
     #[tokio::test]

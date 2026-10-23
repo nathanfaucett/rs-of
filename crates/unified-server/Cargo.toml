@@ -21,9 +21,12 @@ required-features = ["cli"]
 default = []
 cli = ["dep:clap", "dep:cli", "dep:dialoguer", "dep:env_logger", "tokio/signal"]
 completions = ["cli", "dep:clap_complete"]
-swagger-ui = ["idp-server/swagger-ui", "management-server/swagger-ui", "storage-server/swagger-ui"]
+swagger-ui = ["idp-server/swagger-ui", "management-server/swagger-ui", "device-server/swagger-ui", "storage-server/swagger-ui"]
 
 [dependencies]
+of-device-client = { path = "../device-client", default-features = false }
+device-server = { path = "../device-server", default-features = false }
+device-service = { path = "../device-service", default-features = false, features = ["replica", "std", "utoipa"] }
 # Generated HTTP operations
 of-idp-client = { path = "../idp-client", default-features = false }
 of-management-client = { path = "../management-client", default-features = false }

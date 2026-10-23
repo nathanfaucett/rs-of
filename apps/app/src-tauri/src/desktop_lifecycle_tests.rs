@@ -43,9 +43,9 @@ async fn native_host_keeps_one_listener_and_shared_routes_until_coordinated_clos
     assert_eq!(status["ready"], false);
     assert_eq!(
         status["owners"],
-        serde_json::json!(["idp", "management", "storage"])
+        serde_json::json!(["idp", "device", "storage"])
     );
-    for path in ["idp", "management", "storage", "endpoint"] {
+    for path in ["idp", "device", "storage", "endpoint"] {
         assert!(
             !root.join(path).exists(),
             "startup must not provision {path}"

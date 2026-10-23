@@ -40,8 +40,8 @@ struct Record {
     inventory_attempted: bool,
     endpoint: Option<String>,
     registrations: Vec<ClientRegistration>,
-    request: Option<management_service::independent_join::IndependentJoinRequest>,
-    approval: Option<management_service::independent_join::IndependentJoinApproval>,
+    request: Option<device_service::independent_join::IndependentJoinRequest>,
+    approval: Option<device_service::independent_join::IndependentJoinApproval>,
     #[serde(default)]
     imported: bool,
     complete: bool,
@@ -183,7 +183,7 @@ async fn run(
                     &SetupRelationship::IdpManagement.registration(
                         record.client,
                         &intent.idp,
-                        &intent.management,
+                        &intent.device,
                         &intent.storage,
                     ),
                 )
@@ -250,7 +250,7 @@ fn runtime_config(
     config.management_data_dir = None;
     config.control_plane_uri = None;
     config.management_permissions = Some(ManagementPermissionConfig {
-        api_base_uri: intent.management.clone(),
+        api_base_uri: intent.device.clone(),
         client_id: record.client.to_string(),
         client_secret: load_setup_secret(&service(control), &record.client.to_string())?,
     });
@@ -315,7 +315,7 @@ fn observe(
                     &SetupRelationship::IdpManagement.registration(
                         record.client,
                         &intent.idp,
-                        &intent.management,
+                        &intent.device,
                         &intent.storage,
                     ),
                 )
@@ -338,7 +338,7 @@ async fn public(
     let registration = SetupRelationship::IdpManagement.registration(
         record.client,
         &intent.idp,
-        &intent.management,
+        &intent.device,
         &intent.storage,
     );
     let scope = service(control);
@@ -388,13 +388,13 @@ async fn provision(
     if intent.purpose == "join" {
         return join::provision(config, control, command, &mut record, owner, runtime).await;
     }
-    let management = control
-        .wait_peer(intent, "management", &command.cancellation)
+    let device = control
+        .wait_peer(intent, "device", &command.cancellation)
         .await?;
     let storage = control
         .wait_peer(intent, "storage", &command.cancellation)
         .await?;
-    let endpoint = management.facts["endpoint"]
+    let endpoint = device.facts["endpoint"]
         .as_str()
         .ok_or_else(|| io::Error::other("Management endpoint is missing"))?
         .to_owned();
@@ -408,7 +408,7 @@ async fn provision(
     }
     let mut registrations = Vec::new();
     for (peer, relationships) in [
-        (&management, &[SetupRelationship::ManagementIdp][..]),
+        (&device, &[SetupRelationship::ManagementIdp][..]),
         (
             &storage,
             &[
@@ -430,12 +430,7 @@ async fn provision(
                 .map_err(io::Error::other)?;
             if id.is_nil()
                 || registration
-                    != relationship.registration(
-                        id,
-                        &intent.idp,
-                        &intent.management,
-                        &intent.storage,
-                    )
+                    != relationship.registration(id, &intent.idp, &intent.device, &intent.storage)
             {
                 return Err(io::Error::other(
                     "consumer least-privilege registration changed",
@@ -532,7 +527,7 @@ async fn provision(
     let mut own_registration = SetupRelationship::IdpManagement.registration(
         record.client,
         &intent.idp,
-        &intent.management,
+        &intent.device,
         &intent.storage,
     );
     own_registration.client_secret = Some(load_setup_secret(
@@ -578,7 +573,7 @@ async fn provision(
         serving_at.elapsed().as_millis()
     );
     let relationships_at = Instant::now();
-    for peer in [&management, &storage] {
+    for peer in [&device, &storage] {
         for registration in &peer.clients {
             if command.cancellation.is_cancelled() {
                 return Err(io::Error::new(

@@ -14,10 +14,9 @@ use idp_server::{AppConfig, NodeJoinStage, OwnerProvisioner};
 use idp_service::{oauth2::NodeSignerBinding, replica::DbReplicaSignerRepo};
 use iroh::{SecretKey, endpoint::presets::Minimal};
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
-use management_service::{
-    ManagementService,
-    replica::{DbPermissionRepo, DbRoleRepo},
-};
+use management_service::ManagementService;
+use management_service::replica::DbPermissionRepo;
+use management_service::replica::DbRoleRepo;
 use tokio_util::sync::CancellationToken;
 
 use crate::permission_http_tests::{seed_idp, seed_permissions, user_token};
@@ -124,9 +123,8 @@ async fn interruption_boundary(
     seed_permissions(&source_root, &mut fixture).await;
     let source_idp =
         Arc::new(Database::open(source_root.join("idp/idp.redb")).expect("source IdP"));
-    let source_policy = Arc::new(
-        Database::open(source_root.join("management/management.redb")).expect("source policy"),
-    );
+    let source_policy =
+        Arc::new(Database::open(source_root.join("device/devices.redb")).expect("source policy"));
     let policy = ManagementService::new(
         DbPermissionRepo::new(source_policy.clone()),
         DbRoleRepo::new(source_policy.clone()),
@@ -253,11 +251,11 @@ async fn interruption_boundary(
     let runtime = idp_server::build_runtime(
         &source_config,
         source_idp.clone(),
-        Some(Arc::new(management_service::replica::DbDeviceRepo::new(
+        Some(Arc::new(device_service::replica::DbDeviceRepo::new(
             source_policy.clone(),
         ))),
         Arc::new(
-            management_service::device_identity_from_server(&source, source_secret)
+            device_service::device_identity_from_server(&source, source_secret)
                 .expect("source identity"),
         ),
         source.clone(),
@@ -312,10 +310,9 @@ async fn interruption_boundary(
         .prepare_node_join(&binding, "Joining Node", source.endpoint().id())
         .expect("durable independent private signer");
     let mut joining_idp = provisioner.node_join_database();
-    let mut joining_policy = Arc::new(
-        Database::open(joining_root.join("management.redb")).expect("joining policy owner"),
-    );
-    management_service::replica::up(&joining_policy)
+    let mut joining_policy =
+        Arc::new(Database::open(joining_root.join("devices.redb")).expect("joining policy owner"));
+    device_service::replica::up(&joining_policy)
         .await
         .expect("empty fixed public policy schema");
     let mut protocol = SecurityProtocol::new(
@@ -378,7 +375,7 @@ async fn interruption_boundary(
         source_allowed.replace(
             crate::runtime::build_control_plane(
                 runtime.clone(),
-                Arc::new(management_service::replica::DbDeviceRepo::new(
+                Arc::new(device_service::replica::DbDeviceRepo::new(
                     source_policy.clone(),
                 )),
                 "http://127.0.0.1:1",
@@ -466,7 +463,7 @@ async fn interruption_boundary(
                             .receive_node_bootstrap(
                                 &connection,
                                 &provisioner,
-                                SecurityContext::Management,
+                                SecurityContext::Device,
                             )
                             .await
                             .map(|_| ()),
@@ -490,7 +487,7 @@ async fn interruption_boundary(
                 .expect("reopen durable import and retained independent signer");
             joining_idp = provisioner.node_join_database();
             joining_policy = Arc::new(
-                Database::open(joining_root.join("management.redb"))
+                Database::open(joining_root.join("devices.redb"))
                     .expect("reopen actual policy owner"),
             );
             protocol = SecurityProtocol::new(
@@ -544,7 +541,7 @@ async fn interruption_boundary(
                             .check_join_context_grants(&received)
                             .await
                             .expect("actual imported policy survives without its journal");
-                        (SecurityContext::Management, NodeJoinStage::Management)
+                        (SecurityContext::Device, NodeJoinStage::Management)
                     };
                     assert!(
                         !provisioner
@@ -671,7 +668,7 @@ async fn interruption_boundary(
             .await
             .expect("offline native owner reopen");
         let policy_store = Arc::new(
-            Database::open(joining_root.join("management.redb")).expect("offline policy reopen"),
+            Database::open(joining_root.join("devices.redb")).expect("offline policy reopen"),
         );
         let protocol = SecurityProtocol::new(
             joining.clone(),

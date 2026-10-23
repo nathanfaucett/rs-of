@@ -109,6 +109,11 @@ impl Fixture {
             listen_addr: "127.0.0.1:0".parse().expect("local ephemeral listener"),
             endpoint_data_dir: root.join("endpoint"),
             idp,
+            device: device_server::AppConfig {
+                data_dir: root.join("device").to_string_lossy().into_owned(),
+                storage_audience: management.storage_audience.clone(),
+                ..Default::default()
+            },
             management,
             storage,
         };
@@ -751,7 +756,7 @@ async fn local_provisioning_restores_stopped_same_node_filesystem_with_retained_
     let secrets = fixture.secrets();
     let roots = [
         PathBuf::from(&config.idp.data_dir),
-        PathBuf::from(&config.management.data_dir),
+        PathBuf::from(&config.device.data_dir),
         PathBuf::from(&config.storage.data_dir),
         config.endpoint_data_dir.clone(),
         config.local_provisioning_directory(),
@@ -1314,8 +1319,8 @@ async fn local_provisioning_existing_cli_host_without_journal_starts_and_reopens
     runtime.shutdown().await.expect("joined shutdown");
     let endpoint = fs::read(fixture.root.join("endpoint/endpoint.key")).expect("retained endpoint");
 
-    let management_before = fs::read(fixture.root.join("management/management.redb"))
-        .expect("retained Management database");
+    let management_before =
+        fs::read(fixture.root.join("device/devices.redb")).expect("retained Management database");
     let mut unbound = fixture.config.clone();
     unbound.idp.oauth2.local_signer = None;
     assert!(
@@ -1376,7 +1381,7 @@ async fn local_provisioning_existing_cli_host_without_journal_starts_and_reopens
     drop(owner);
     assert_eq!(
         management_before,
-        fs::read(fixture.root.join("management/management.redb"))
+        fs::read(fixture.root.join("device/devices.redb"))
             .expect("Management unchanged on missing trust")
     );
     let endpoint_path = fixture.root.join("endpoint/endpoint.key");
@@ -1423,7 +1428,7 @@ async fn local_provisioning_lost_management_after_late_failure_denies_without_re
     assert!(host.provision(&fixture.password).await.is_err());
     let retained = fixture.journal();
     assert_eq!(retained["complete"], false);
-    let database = fixture.root.join("management/management.redb");
+    let database = fixture.root.join("device/devices.redb");
     assert!(
         database.is_file(),
         "real Management initialization precedes late failure"
@@ -1645,7 +1650,7 @@ async fn local_provisioning_reuses_pre_enrollment_signer_after_readback_interrup
     assert_eq!(current["management_attempted"], true);
     assert_eq!(current["management_complete"], true);
     assert!(
-        fixture.root.join("management/management.redb").is_file(),
+        fixture.root.join("device/devices.redb").is_file(),
         "first authorized Management initialization succeeds"
     );
     for field in [

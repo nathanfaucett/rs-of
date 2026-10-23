@@ -119,18 +119,18 @@ fn build_runtime_inner(
     if state.local_replication_authorizer.is_none() {
         state.local_replication_authorizer =
             state
-                .management_client
+                .device_client
                 .clone()
                 .map(|client| match (endpoint, copies.clone()) {
                     (Some(endpoint), Some(copies)) => {
-                        crate::LocalReplicationAuthorizer::with_management_cleanup(
+                        crate::LocalReplicationAuthorizer::with_device_cleanup(
                             client,
                             endpoint,
                             copies,
                             cancellation_token.clone(),
                         )
                     }
-                    _ => crate::LocalReplicationAuthorizer::from_management_client(client),
+                    _ => crate::LocalReplicationAuthorizer::from_device_client(client),
                 });
     }
     if let (Some(endpoint), Some(policy), Some(idp)) = (
@@ -207,8 +207,8 @@ mod tests {
             idp_model::model::Id::now_v7()
         ));
         let cancellation = tokio_util::sync::CancellationToken::new();
-        let remote = crate::ManagementClient::new(
-            "https://management.example",
+        let remote = crate::DeviceClient::new(
+            "https://device.example",
             "https://idp.example",
             "storage-client",
             "storage-secret",
@@ -217,7 +217,7 @@ mod tests {
         )
         .expect("configure authenticated remote policy source");
         let remote_policy = build_runtime(
-            RouterState::new("https://storage.example").with_management_client(remote.clone()),
+            RouterState::new("https://storage.example").with_device_client(remote.clone()),
             &data_dir,
             "/storage",
             "",
@@ -259,7 +259,7 @@ mod tests {
         });
         let runtime = build_runtime(
             RouterState::new("https://storage.example")
-                .with_management_client(remote)
+                .with_device_client(remote)
                 .with_idp_client(idp)
                 .with_local_replication_authorizer(policy.clone()),
             &data_dir,

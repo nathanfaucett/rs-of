@@ -39,6 +39,7 @@ tokio = { version = "1.52", default-features = false, features = [
 members = [
   "crates/idp-client",
   "crates/management-client",
+  "crates/device-client",
   "crates/storage-client",
   "crates/db",
   "crates/cli",
@@ -47,6 +48,8 @@ members = [
   "crates/model",
   "crates/management-server",
   "crates/management-service",
+  "crates/device-service",
+  "crates/device-server",
   "crates/idp-model",
   "crates/idp-server",
   "crates/idp-service",

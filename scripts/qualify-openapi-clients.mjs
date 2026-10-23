@@ -93,6 +93,8 @@ try {
         "--filter",
         "@aicacia/management-client",
         "--filter",
+        "@aicacia/device-client",
+        "--filter",
         "@aicacia/storage-client",
         "run",
         "build:esm",
@@ -100,6 +102,7 @@ try {
     const artifacts = [
         "packages/idp-client/src",
         "packages/management-client/src",
+        "packages/device-client/src",
         "packages/storage-client/src",
         ...readdirSync(path.join(root, "openapi")).map(
             (file) => `crates/${file.replace(/\.json$/, "")}-client`,
@@ -154,6 +157,8 @@ try {
         "--filter",
         "@aicacia/management-client",
         "--filter",
+        "@aicacia/device-client",
+        "--filter",
         "@aicacia/storage-client",
         "run",
         "build:esm",
@@ -179,6 +184,8 @@ try {
         "idp-server",
         "-p",
         "management-server",
+        "-p",
+        "device-server",
     ]);
     run("cargo", [
         "test",
@@ -186,6 +193,8 @@ try {
         "idp-server",
         "-p",
         "management-server",
+        "-p",
+        "device-server",
         "-p",
         "storage-server",
         "--lib",

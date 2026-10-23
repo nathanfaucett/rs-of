@@ -8,8 +8,8 @@ vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => true }));
 vi.mock("$lib/common/state/localhostBaseUrl.svelte", () => ({
     ensureLocalhostBaseUrl: async () => "https://localhost:4100",
 }));
-vi.mock("$lib/common/state/managementClient.svelte", () => ({
-    managementApi: {
+vi.mock("$lib/common/state/deviceClient.svelte", () => ({
+    deviceApi: {
         putDeviceSelection: owner.select,
         deleteDeviceResourceSelection: owner.deselect,
     },

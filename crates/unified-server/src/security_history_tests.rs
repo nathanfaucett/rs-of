@@ -18,10 +18,9 @@ use iroh::{
     protocol::Router,
 };
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
-use management_service::{
-    ManagementService,
-    replica::{DbPermissionRepo, DbRoleRepo},
-};
+use management_service::ManagementService;
+use management_service::replica::DbPermissionRepo;
+use management_service::replica::DbRoleRepo;
 use ofdb_sql::{SessionConfig, SyncMessage, SyncRole, SyncTransport};
 use storage_server::{
     DatabaseTransport, IdpClient, LocalReplicationAuthorizer, RouterState, StorageRuntime,
@@ -210,7 +209,7 @@ impl Pair {
             let management = Arc::new(
                 Database::open(root.join("baseline-management.redb")).expect("open local policy"),
             );
-            management_service::replica::up(&management)
+            device_service::replica::up(&management)
                 .await
                 .expect("declare Management schema");
             for (member, key, endpoint) in [
@@ -354,7 +353,7 @@ impl Pair {
                     inner.send(serde_json::to_vec(&serde_json::json!({"Accepted": {"version": 2, "installation": INSTALLATION, "member": member, "context": handshake["context"]}})).map_err(io::Error::other)?).await?;
                     let mut transport = RecordedTransport { inner, received, recovery };
                     let (database, tables) = if handshake["context"] == "management" {
-                        (management, management_service::PUBLIC_POLICY_TABLES.to_vec())
+                        (management, device_service::PUBLIC_DEVICE_TABLES.to_vec())
                     } else {
                         (idp, public_security_tables().into_iter().map(|table| table.name()).collect::<Vec<_>>())
                     };
@@ -505,7 +504,7 @@ async fn sync_fixture_context(a: &Database, b: &Database, context: SecurityConte
             .into_iter()
             .map(|table| table.name())
             .collect::<Vec<_>>(),
-        SecurityContext::Management => management_service::PUBLIC_POLICY_TABLES.to_vec(),
+        SecurityContext::Device => device_service::PUBLIC_DEVICE_TABLES.to_vec(),
     };
     let config = SessionConfig::default();
     let (a, b) = tokio::join!(
@@ -560,9 +559,9 @@ async fn unvalidated_initiate_context(
                 .map(|table| table.name())
                 .collect::<Vec<_>>(),
         ),
-        SecurityContext::Management => (
+        SecurityContext::Device => (
             &pair.management_a,
-            management_service::PUBLIC_POLICY_TABLES.to_vec(),
+            device_service::PUBLIC_DEVICE_TABLES.to_vec(),
         ),
     };
     database

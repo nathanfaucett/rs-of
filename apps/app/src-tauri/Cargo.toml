@@ -19,7 +19,7 @@ tauri-build = { version = "2.6.3", features = [] }
 [dependencies]
 # Generated HTTP operations
 of-idp-client = { path = "../../../crates/idp-client", default-features = false }
-of-management-client = { path = "../../../crates/management-client", default-features = false }
+of-device-client = { path = "../../../crates/device-client", default-features = false }
 
 # HTTP
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }

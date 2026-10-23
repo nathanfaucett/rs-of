@@ -10,7 +10,7 @@ pub struct IndependentCreateIntent {
     pub administrator: String,
     pub node: String,
     pub idp: String,
-    pub management: String,
+    pub device: String,
     pub storage: String,
     pub issuer: String,
     pub peer: Option<String>,
@@ -20,7 +20,7 @@ impl IndependentCreateIntent {
     pub fn base(&self, owner: &str) -> io::Result<&str> {
         match owner {
             "idp" => Ok(&self.idp),
-            "management" => Ok(&self.management),
+            "device" => Ok(&self.device),
             "storage" => Ok(&self.storage),
             _ => Err(io::Error::other("invalid independent owner")),
         }
@@ -56,7 +56,7 @@ impl IndependentCreateIntent {
         {
             return Err(io::Error::other("invalid exact independent Create intent"));
         }
-        for base in [&self.idp, &self.management, &self.storage] {
+        for base in [&self.idp, &self.device, &self.storage] {
             let url = reqwest::Url::parse(base)
                 .map_err(|_| io::Error::other("invalid owner HTTPS base"))?;
             if url.scheme() != "https"
@@ -70,10 +70,7 @@ impl IndependentCreateIntent {
                 return Err(io::Error::other("owner base must be exact canonical HTTPS"));
             }
         }
-        if self.idp == self.management
-            || self.idp == self.storage
-            || self.management == self.storage
-        {
+        if self.idp == self.device || self.idp == self.storage || self.device == self.storage {
             return Err(io::Error::other(
                 "independent owners require distinct bases",
             ));

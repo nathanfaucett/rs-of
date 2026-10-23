@@ -626,10 +626,9 @@ mod tests {
             .bind()
             .await
             .expect("bind temporary IdP Iroh endpoint");
-        let policy_engine = Arc::new(
-            Database::open(root.join("management.redb")).expect("open local policy store"),
-        );
-        management_service::replica::up(&policy_engine)
+        let policy_engine =
+            Arc::new(Database::open(root.join("devices.redb")).expect("open local policy store"));
+        device_service::replica::up(&policy_engine)
             .await
             .expect("initialize local policy");
         let endpoint_id = endpoint.id().to_string();
@@ -748,7 +747,7 @@ mod tests {
             oauth2_service,
             None,
             Arc::new(
-                management_service::DeviceIdentity::new(endpoint.clone(), secret_key)
+                device_service::DeviceIdentity::new(endpoint.clone(), secret_key)
                     .expect("matching endpoint identity key"),
             ),
         )

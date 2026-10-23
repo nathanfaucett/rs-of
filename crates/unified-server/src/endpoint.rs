@@ -4,9 +4,10 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+use device_service::DeviceIdentity;
+use device_service::device_identity_from_server;
 use iroh::{EndpointId, SecretKey, endpoint::presets};
 use iroh_chain::{EndpointIdStore, Server};
-use management_service::{DeviceIdentity, device_identity_from_server};
 
 const ENDPOINT_KEY_FILE: &str = "endpoint.key";
 
@@ -105,7 +106,7 @@ impl UnifiedEndpoint {
 
     pub async fn refresh_approved_peers(
         &self,
-        management: &management_service::HostedControlPlane,
+        management: &device_service::HostedControlPlane,
     ) -> io::Result<()> {
         let peers = management
             .approved_device_endpoints()

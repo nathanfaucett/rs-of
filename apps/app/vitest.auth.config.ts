@@ -6,13 +6,15 @@ export default defineConfig({
   plugins: [sveltekit()],
   resolve: {
     alias: {
+      "@aicacia/native-fetch": fileURLToPath(new URL("../../packages/native-fetch/src/index.ts", import.meta.url)),
       "@aicacia/oidc-client": fileURLToPath(
         new URL("../../packages/oidc-client/src/index.ts", import.meta.url),
       ),
       "@aicacia/idp-client": fileURLToPath(
         new URL("../../packages/idp-client/src/index.ts", import.meta.url),
       ),
-      "@aicacia/management-client": fileURLToPath(
+      "@aicacia/device-client": fileURLToPath(new URL("../../packages/device-client/src/index.ts", import.meta.url)),
+            "@aicacia/management-client": fileURLToPath(
         new URL(
           "../../packages/management-client/src/index.ts",
           import.meta.url,

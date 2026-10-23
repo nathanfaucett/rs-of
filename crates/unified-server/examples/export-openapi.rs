@@ -11,9 +11,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "management",
             management_server::openapi_document("", "/management"),
         ),
+        ("device", device_server::openapi_document("", "/device")),
         ("storage", storage_server::openapi_document("", "/storage")),
     ]);
-    for owner in ["idp", "management", "storage"] {
+    for owner in ["idp", "device", "storage"] {
         let document = documents.get_mut(owner).expect("canonical owner");
         merge(document, api::owner_setup_openapi(), "owner_setup", None);
         merge(
@@ -24,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         merge(
             document,
-            management_service::join_history::history_openapi(),
+            device_service::join_history::history_openapi(),
             "independent_join",
             None,
         );
@@ -42,8 +43,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None,
     );
     merge(
-        documents.get_mut("management").expect("Management"),
-        management_server::independent_join_openapi(),
+        documents.get_mut("device").expect("Device"),
+        device_server::independent_join_openapi(),
         "independent_join",
         None,
     );
@@ -52,6 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let base = match name {
             "idp" => "/idp",
             "management" => "/management",
+            "device" => "/device",
             "storage" => "/storage",
             _ => "/",
         };

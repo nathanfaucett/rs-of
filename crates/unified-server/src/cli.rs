@@ -184,7 +184,8 @@ pub async fn run() -> io::Result<()> {
             config.idp.api_public_uri = format!("{base}/idp");
             config.idp.service_audience = Some(format!("{base}/idp"));
             config.management.api_public_uri = format!("{base}/management");
-            config.management.storage_audience = format!("{base}/storage");
+            config.device.api_public_uri = format!("{base}/device");
+            config.device.storage_audience = format!("{base}/storage");
             config.storage.api_public_uri = format!("{base}/storage");
         }
     }
@@ -339,7 +340,7 @@ pub async fn run() -> io::Result<()> {
     let public_idp = config.idp.api_public_uri.clone();
     let issuer = config.idp.oauth2.issuer.clone();
     let idp_audience = config.idp_audience().to_owned();
-    let management_audience = config.management.storage_audience.clone();
+    let management_audience = config.device.storage_audience.clone();
     let (runtime, create_guard, join_guard) =
         if present(&config.local_provisioning_directory().join("join.json"))? {
             let local = LocalJoin::<UnifiedBootstrapHost>::open(config)?;
@@ -355,7 +356,7 @@ pub async fn run() -> io::Result<()> {
     println!("Public IdP: {public_idp}");
     println!("Installation issuer: {issuer}");
     println!("IdP token endpoint: {base}/idp/oauth2/token");
-    println!("Public APIs: {base}/idp {base}/management {base}/storage");
+    println!("Public APIs: {base}/idp {base}/management {base}/device {base}/storage");
     println!("IdP audience: {idp_audience}");
     println!(
         "Management audience: {} (Storage: {management_audience})",
@@ -448,7 +449,7 @@ fn peer_input(peer: Option<&str>) -> io::Result<String> {
             .interact_text()
             .map_err(io::Error::other)?
     };
-    management_service::hosted_join::NodeJoinRequest::validate_trusted_peer(&peer)?;
+    device_service::hosted_join::NodeJoinRequest::validate_trusted_peer(&peer)?;
     Ok(peer)
 }
 fn parse_port(value: &str) -> io::Result<u16> {
@@ -538,7 +539,7 @@ mod tests {
         );
         assert_eq!(config.idp_audience(), original.idp_audience());
         assert_eq!(
-            config.management.storage_audience,
+            config.device.storage_audience,
             original.management.storage_audience
         );
         assert_eq!(config.idp.oauth2.issuer, original.idp.oauth2.issuer);

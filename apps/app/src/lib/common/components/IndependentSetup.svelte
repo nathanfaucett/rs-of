@@ -12,9 +12,9 @@
   let node = $state("");
   let peer = $state("");
   let password = $state("");
-  let codes = $state<OwnerCodes>({ idp: "", management: "", storage: "" });
+  let codes = $state<OwnerCodes>({ idp: "", device: "", storage: "" });
   const canSubmit = $derived(!session.busy && !session.ready && !session.observationRequired && (!!session.intent || session.hosts.every(host => host.status.state === "awaiting_choice")));
-  function clearSecrets() { password = ""; codes = { idp: "", management: "", storage: "" }; }
+  function clearSecrets() { password = ""; codes = { idp: "", device: "", storage: "" }; }
   async function submit(event: SubmitEvent) {
     event.preventDefault();
     const currentCodes = { ...codes };
@@ -68,7 +68,7 @@
     {/if}
     <label>Node name<input bind:value={node} autocomplete="off" disabled={session.busy || !!session.intent} required /></label>
     {#if purpose === "join"}
-      <label>Trusted source Management HTTPS base#pinned endpoint<input bind:value={peer} autocomplete="off" spellcheck="false" disabled={session.busy || !!session.intent} placeholder="https://source.example/management#…" required /></label>
+      <label>Trusted source Device HTTPS base#pinned endpoint<input bind:value={peer} autocomplete="off" spellcheck="false" disabled={session.busy || !!session.intent} placeholder="https://source.example/device#…" required /></label>
       <p>The target authenticates the pinned source and discovers its issuer. Do not supply an administrator, issuer or password for Join.</p>
     {:else if !session.hosts.find(host => host.status.owners[0] === "idp")?.status.ready}
       <label>IdP administrator password<input type="password" bind:value={password} autocomplete="new-password" disabled={session.busy} required /></label>

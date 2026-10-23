@@ -26,15 +26,22 @@ async fn assert_response(router: &Router, path: &str, status: StatusCode, expect
 }
 
 #[tokio::test]
-async fn composition_exposes_only_routes_supplied_by_the_three_services() {
+async fn composition_exposes_only_routes_supplied_by_the_four_services() {
     let idp = Router::new().route("/idp/health", get(|| async { "idp" }));
     let management = Router::new().route("/management/health", get(|| async { "management" }));
+    let device = Router::new().route("/device/health", get(|| async { "device" }));
     let storage = Router::new().route("/storage/databases", get(|| async { "storage" }));
-    let router = compose_router(idp.clone(), management.clone(), storage.clone());
+    let router = compose_router(
+        idp.clone(),
+        management.clone(),
+        device.clone(),
+        storage.clone(),
+    );
 
     for (path, expected) in [
         ("/idp/health", "idp"),
         ("/management/health", "management"),
+        ("/device/health", "device"),
         ("/storage/databases", "storage"),
     ] {
         assert_response(&router, path, StatusCode::OK, expected).await;
@@ -52,8 +59,9 @@ async fn composition_exposes_only_routes_supplied_by_the_three_services() {
 
     let router = compose_router(
         idp.route("/idp/setup/status", get(|| async { "setup" })),
-        management.route(
-            "/management/node-joins/acceptance",
+        management,
+        device.route(
+            "/device/node-joins/acceptance",
             get(|| async { "acceptance" }),
         ),
         storage,
@@ -61,7 +69,7 @@ async fn composition_exposes_only_routes_supplied_by_the_three_services() {
     assert_response(&router, "/idp/setup/status", StatusCode::OK, "setup").await;
     assert_response(
         &router,
-        "/management/node-joins/acceptance",
+        "/device/node-joins/acceptance",
         StatusCode::OK,
         "acceptance",
     )
@@ -86,12 +94,16 @@ async fn owner_service_builders_supply_hosted_features_to_composition() {
         vec![],
         tokio_util::sync::CancellationToken::new(),
     );
-    let management = Arc::new(db::Database::in_memory());
-    management_service::replica::up(&management)
+    let identity = Arc::new(db::Database::in_memory());
+    idp_model::replica::up(&identity)
+        .await
+        .expect("identity schema");
+    let devices = Arc::new(db::Database::in_memory());
+    device_service::replica::up(&devices)
         .await
         .expect("Management schema");
     let control = Arc::new(
-        management_service::HostedControlPlane::new_with_services(
+        device_service::HostedControlPlane::new_with_services(
             "https://idp.example",
             "https://storage.example",
             "https://installation.example",
@@ -101,21 +113,30 @@ async fn owner_service_builders_supply_hosted_features_to_composition() {
     let router = compose_router(
         idp_server::build_setup_router(setup, "https://idp.example/idp", "/idp"),
         management_server::build_router(
-            Arc::clone(&management),
-            management,
+            identity.clone(),
             "https://management.example",
             "/management",
+            control.clone(),
+        )
+        .await
+        .expect("Management router"),
+        device_server::build_router(
+            identity,
+            devices,
+            "https://device.example",
+            "/device",
             "storage",
             control,
             None,
         )
         .await
-        .expect("Management router"),
+        .expect("Device router"),
         storage_server::public_metadata_router("https://storage.example/storage", "/storage"),
     );
     for path in [
         "/idp/version",
         "/management/health",
+        "/device/health",
         "/storage/version",
         "/idp/setup/status",
     ] {
@@ -133,7 +154,7 @@ async fn owner_service_builders_supply_hosted_features_to_composition() {
     let response = router
         .clone()
         .oneshot(
-            Request::get("/management/node-joins/acceptance")
+            Request::get("/device/node-joins/acceptance")
                 .body(Body::empty())
                 .expect("join request"),
         )

@@ -1,6 +1,7 @@
 use std::io;
 
 use db::{Row, SqlTranslator, Transaction, Value};
+use device_service::DeviceRepo;
 use idp_model::{
     contract::{
         IdentityAction, IdentityResource, IdpSignerRecord, PermissionTarget, ReplicaMembership,
@@ -9,11 +10,11 @@ use idp_model::{
 };
 use idp_service::replica::DbReplicaSignerRepo;
 use iroh_chain::{MAX_PAIRING_PAYLOAD_LENGTH, PairingOffer};
-use management_service::DeviceRepo;
 
 use super::middleware::require_identity_permission_for_audience;
 use crate::{RouterState, authorize_bearer, node_join::invalid};
-use management_service::hosted_join::{NodeJoinApproval, NodeJoinRequest};
+use device_service::hosted_join::NodeJoinApproval;
+use device_service::hosted_join::NodeJoinRequest;
 
 impl RouterState {
     /// Approves only an authenticated pairing offer using a locally authenticated User session.

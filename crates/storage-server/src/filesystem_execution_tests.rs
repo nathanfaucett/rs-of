@@ -283,7 +283,7 @@ async fn delayed_http_policy_cannot_release_queued_filesystem_content_after_loca
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind Management policy fixture");
             let base = format!("http://{}", listener.local_addr().expect("Management address"));
             let http = tokio::spawn(async move { axum::serve(listener, app).await.expect("serve current policy") });
-            let policy = crate::LocalReplicationAuthorizer::from_management_client(crate::ManagementClient::new(
+            let policy = crate::LocalReplicationAuthorizer::from_device_client(crate::DeviceClient::new(
                 &base, &base, "storage-client", "storage-secret", "https://idp.example", "management-api",
             ).expect("authenticated Management client"));
             let cancellation = CancellationToken::new();

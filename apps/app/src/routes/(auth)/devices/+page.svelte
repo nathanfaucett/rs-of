@@ -14,7 +14,7 @@
         renameDevice,
         revokeDevice,
     } from "$lib/common/state/devices.svelte";
-    import { managementApi } from "$lib/common/state/managementClient.svelte";
+    import { deviceApi } from "$lib/common/state/deviceClient.svelte";
     import { notifications } from "$lib/common/state/notifications.svelte";
 
     let nodeOffers = $state.raw<PendingNodeJoin[]>([]);
@@ -167,7 +167,7 @@
     }
 
     onMount(() => {
-        void managementApi
+        void deviceApi
             .device()
             .then(async (device) => {
                 deviceEndpointId = device.publicKey;
@@ -236,8 +236,8 @@
                         <dt>Management Device</dt><dd class="break-all">{offer.request.device_id}</dd>
                     {/if}
                     {#if offer.request.operation}
-                        {#each ["idp", "management", "storage"] as owner (owner)}
-                            <dt>Target {owner}</dt><dd class="break-all">{offer.request.operation[owner as "idp" | "management" | "storage"]}</dd>
+                        {#each ["idp", "device", "storage"] as owner (owner)}
+                            <dt>Target {owner}</dt><dd class="break-all">{offer.request.operation[owner as "idp" | "device" | "storage"]}</dd>
                         {/each}
                     {/if}
                     <dt>Signer member</dt>

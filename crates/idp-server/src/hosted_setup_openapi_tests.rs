@@ -123,7 +123,7 @@ fn setup_openapi_keeps_password_write_only_and_status_nonsecret() {
         serde_json::to_value(&result).expect("accepted result"),
         json!({
             "stage": "installation", "state": "creating", "ready": false,
-            "owners": ["idp", "management", "storage"]
+            "owners": ["idp", "device", "storage"]
         })
     );
     result.state = "ready".into();
@@ -136,7 +136,7 @@ fn setup_openapi_keeps_password_write_only_and_status_nonsecret() {
         serde_json::to_value(result).expect("ready result"),
         json!({
             "stage": "installation", "state": "ready", "ready": true,
-            "owners": ["idp", "management", "storage"],
+            "owners": ["idp", "device", "storage"],
             "login_client": { "client_id": "public-login-client", "scopes": ["openid"] }
         })
     );

@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
+use device_service::replica::DbSelectionPolicyRepo;
 use futures_util::{SinkExt, StreamExt};
 use idp_model::{
     contract::{GrantType, INSTALLATION_POLICY_ID, IdentityAction},
@@ -7,10 +8,9 @@ use idp_model::{
 };
 use idp_service::{oauth2::NodeSignerBinding, repo::PrivateKeyKeyringRepo};
 use iroh_chain::DATA_ALPN;
-use management_service::{
-    ManagementService,
-    replica::{DbPermissionRepo, DbRoleRepo, DbSelectionPolicyRepo},
-};
+use management_service::ManagementService;
+use management_service::replica::DbPermissionRepo;
+use management_service::replica::DbRoleRepo;
 use model::contract::TokenResponse;
 use storage_model::{StorageRequest, StorageResponse};
 use tokio::{net::TcpStream, task::JoinHandle};
@@ -424,7 +424,7 @@ async fn join_host(
     let (protocol, joining_owner) = SecurityProtocol::open_node_bootstrap(
         &endpoint,
         &b.config.idp,
-        std::path::Path::new(&b.config.management.data_dir),
+        std::path::Path::new(&b.config.device.data_dir),
         binding.clone(),
     )
     .await
@@ -532,7 +532,7 @@ async fn join_host(
         )
         .await
         .expect("authenticated purpose-bound bootstrap");
-    for context in [SecurityContext::Idp, SecurityContext::Management] {
+    for context in [SecurityContext::Idp, SecurityContext::Device] {
         eprintln!(
             "08 join: importing {context:?} at {:?}",
             joining_started.elapsed()
@@ -628,10 +628,10 @@ impl Pair {
         let _ = PrivateKeyKeyringRepo::new_with_store(&a.config.idp.oauth2.issuer, stores);
         let roots = [
             &a.config.idp.data_dir,
-            &a.config.management.data_dir,
+            &a.config.device.data_dir,
             &a.config.storage.data_dir,
             &b.config.idp.data_dir,
-            &b.config.management.data_dir,
+            &b.config.device.data_dir,
             &b.config.storage.data_dir,
         ];
         for (index, root) in roots.iter().enumerate() {
@@ -686,7 +686,7 @@ impl Pair {
         let login_id = login.client_id.expect("public login Client");
         if slice != Slice::Grants {
             let management = Arc::new(
-                db::Database::open(a.root.join("management/management.redb"))
+                db::Database::open(a.root.join("device/devices.redb"))
                     .expect("public Management fixture owner"),
             );
             let policy = ManagementService::new(
@@ -1145,7 +1145,7 @@ async fn learned_restrictions() {
         let (resource, connection) = create_written_resource(&pair.http, host, &storage).await;
         retained.push((policy, storage, resource, connection));
     }
-    pair.reconnect(SecurityContext::Management).await;
+    pair.reconnect(SecurityContext::Device).await;
     for ((host, member), (policy, storage, resource, mut connection)) in [
         (&pair.source, pair.member_a),
         (&pair.joined, pair.binding().member_id),

@@ -55,7 +55,7 @@ pub(super) async fn revoke(
     if target["issuer"].as_str() != Some(metadata.issuer.as_str()) {
         return Err("peer belongs to a different Installation; no bearer was sent".into());
     }
-    let management_api = format!("{}/management", url.origin().ascii_serialization());
+    let device_api = format!("{}/device", url.origin().ascii_serialization());
     for (idp_owner, resource) in [(true, peer_api), (false, MANAGEMENT_APPLICATION_URI)] {
         idp.bearer_access_token = None;
         let token = of_idp_client::apis::default_api::token(&idp,
@@ -82,15 +82,15 @@ pub(super) async fn revoke(
                 format!("peer signer revocation incomplete; public target retained: {error}")
             })?;
         } else {
-            let configuration = of_management_client::apis::configuration::Configuration {
-                base_path: management_api.clone(),
+            let configuration = of_device_client::apis::configuration::Configuration {
+                base_path: device_api.clone(),
                 client: client.clone(),
                 bearer_access_token: Some(token.access_token),
                 ..Default::default()
             };
-            of_management_client::apis::default_api::revoke_device(
+            of_device_client::apis::default_api::revoke_device(
                 &configuration,
-                of_management_client::apis::default_api::RevokeDeviceParams {
+                of_device_client::apis::default_api::RevokeDeviceParams {
                     id: member_id.to_string(),
                 },
             )

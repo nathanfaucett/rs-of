@@ -8,6 +8,7 @@ import {
     idpApi,
     getIdpApiUrl,
 } from "$lib/common/state/idpClient.svelte";
+import { ensureTauriDeviceApiUrl } from "$lib/common/state/deviceClient.svelte";
 import { ensureTauriManagementApiUrl } from "$lib/common/state/managementClient.svelte";
 import {
     clearOidcSession,
@@ -44,6 +45,7 @@ export const load = (async (event) => {
         await ensureTauriIdpApiUrl();
         await ensureOidcClientId();
         await ensureTauriManagementApiUrl();
+        await ensureTauriDeviceApiUrl();
     } else {
         if (!getIdpApiUrl()) {
             redirect(302, resolve("/setup/installation"));

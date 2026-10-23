@@ -312,7 +312,7 @@ async fn delayed_http_policy_cannot_release_database_frame_after_local_denial() 
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind Management policy fixture");
             let base = format!("http://{}", listener.local_addr().expect("Management address"));
             let http = tokio::spawn(async move { axum::serve(listener, app).await.expect("serve current policy") });
-            let policy = crate::LocalReplicationAuthorizer::from_management_client(crate::ManagementClient::new(
+            let policy = crate::LocalReplicationAuthorizer::from_device_client(crate::DeviceClient::new(
                 &base, &base, "storage-client", "storage-secret", "https://idp.example", "management-api",
             ).expect("authenticated Management client"));
             let cancellation = CancellationToken::new();
@@ -465,7 +465,7 @@ async fn real_production_database_admission_checks_identity_both_selections_and_
             }
             for device in 0..2 {
                 let node = &fixture.nodes[receiver];
-                assert!(management_service::replica::DbSelectionPolicyRepo::new(node.management.clone()).deselect_resource_owned(node.devices[device], &fixture.resource.owner_subject, fixture.resource.application_id.parse().expect("Application"), "database", fixture.resource.resource_id.parse().expect("database ID")).await.expect("real local deselection"));
+                assert!(device_service::replica::DbSelectionPolicyRepo::new(node.management.clone()).deselect_resource_owned(node.devices[device], &fixture.resource.owner_subject, fixture.resource.application_id.parse().expect("Application"), "database", fixture.resource.resource_id.parse().expect("database ID")).await.expect("real local deselection"));
                 assert!(production_session_claim(&fixture, source, &fixture.resource).await.is_err(), "allowlisted authenticated peer requires BOTH current selections");
                 node.select(&fixture.resource).await;
                 node.restrict(device, false).await;

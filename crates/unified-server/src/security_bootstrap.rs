@@ -1,5 +1,8 @@
 use std::{future::Future, io, path::Path, sync::Arc};
 
+use device_service::DeviceRepo;
+use device_service::hosted_join::NodeJoinApproval;
+use device_service::replica::DbDeviceRepo;
 use idp_model::{
     contract::{
         IdpSignerRecord, PermissionEvaluationRequest, PermissionSubject, PermissionTarget,
@@ -15,8 +18,7 @@ use idp_service::{
     repo::{PrivateKeyRepo, UserRepo},
 };
 use iroh::endpoint::{Connection, RecvStream, SendStream};
-use management_service::hosted_join::NodeJoinApproval;
-use management_service::{DeviceRepo, LocalPermissions, replica::DbDeviceRepo};
+use management_service::LocalPermissions;
 use ofdb_sql::{
     SessionConfig, SyncDirection, SyncError, SyncResult, SyncRole, SyncTransport,
     SyncValidationDirection,
@@ -51,7 +53,7 @@ impl SecurityProtocol {
         crate::runtime::RuntimeOwners {
             endpoint,
             idp: self.idp,
-            management: self.management,
+            devices: self.management,
         }
     }
 
@@ -69,10 +71,10 @@ impl SecurityProtocol {
         let owner = OwnerProvisioner::open(config).await?;
         std::fs::create_dir_all(management_directory)?;
         let management = Arc::new(
-            db::Database::open(management_directory.join("management.redb"))
+            db::Database::open(management_directory.join("devices.redb"))
                 .map_err(io::Error::other)?,
         );
-        management_service::replica::up_devices(&management)
+        device_service::replica::up(&management)
             .await
             .map_err(io::Error::other)?;
         let protocol = Self::new(
@@ -140,7 +142,7 @@ impl SecurityProtocol {
                 })?
                 .map_err(io::Error::other)?;
                 let result = async {
-                    for context in [SecurityContext::Idp, SecurityContext::Management] {
+                    for context in [SecurityContext::Idp, SecurityContext::Device] {
                         if !owner.node_join_stage_recorded(stage(context))? {
                             provisioning_stage(|| {
                                 self.receive_node_bootstrap(&connection, owner, context)
@@ -252,7 +254,7 @@ impl SecurityProtocol {
         let started = std::time::Instant::now();
         let approval = owner.node_join_anchor()?;
         provisioning_stage(|| self.check_bootstrap_receiver(connection, owner, &approval)).await?;
-        if context == SecurityContext::Management
+        if context == SecurityContext::Device
             && !owner.node_join_stage_recorded(NodeJoinStage::Idp)?
         {
             return Err(denied("Management bootstrap requires the IdP import first"));
@@ -323,7 +325,7 @@ impl SecurityProtocol {
         #[cfg(test)]
         interruption_tests::interrupt(match context {
             SecurityContext::Idp => interruption_tests::Transition::IdpImported,
-            SecurityContext::Management => interruption_tests::Transition::ManagementImported,
+            SecurityContext::Device => interruption_tests::Transition::ManagementImported,
         })?;
         #[cfg(test)]
         eprintln!(
@@ -332,7 +334,7 @@ impl SecurityProtocol {
         );
         owner.record_node_join_stage(stage(context))?;
         self.check_join_identity(&approval).await?;
-        if context == SecurityContext::Management {
+        if context == SecurityContext::Device {
             self.check_exact_join_trust(&approval).await?;
             self.check_join_context_grants(&approval).await?;
             self.refresh_learned_membership().await?;
@@ -636,7 +638,7 @@ impl SecurityProtocol {
                             SecurityContext::Idp => {
                                 candidates::validate_node_join(view, &self.installation, &candidate)
                             }
-                            SecurityContext::Management => candidates::validate_management(
+                            SecurityContext::Device => candidates::validate_device_history(
                                 view,
                                 &[candidates::PeerBinding {
                                     member: approval.request.member_id,
@@ -699,7 +701,7 @@ impl SecurityProtocol {
     }
 
     async fn check_public_context_grants(&self, owner: Id) -> io::Result<()> {
-        for context in [SecurityContext::Idp, SecurityContext::Management] {
+        for context in [SecurityContext::Idp, SecurityContext::Device] {
             let (action, resource) = context.permission();
             if !LocalPermissions::new(self.policy.clone())
                 .evaluate(&PermissionEvaluationRequest {
@@ -749,7 +751,7 @@ impl SecurityProtocol {
                 .as_ref()
                 .ok_or_else(|| denied("local signer binding is required"))?;
             owner.verify_node_signer(binding).await?;
-            for context in [SecurityContext::Idp, SecurityContext::Management] {
+            for context in [SecurityContext::Idp, SecurityContext::Device] {
                 let local = self.local_handshake(context).await?;
                 if local.member != binding.member_id {
                     return Err(denied("local member binding changed"));
@@ -836,7 +838,7 @@ impl iroh::protocol::ProtocolHandler for NodeBootstrapHandler {
 fn stage(context: SecurityContext) -> NodeJoinStage {
     match context {
         SecurityContext::Idp => NodeJoinStage::Idp,
-        SecurityContext::Management => NodeJoinStage::Management,
+        SecurityContext::Device => NodeJoinStage::Management,
     }
 }
 

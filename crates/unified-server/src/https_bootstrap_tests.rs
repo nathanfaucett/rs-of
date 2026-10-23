@@ -379,7 +379,7 @@ async fn production_https_bootstrap_child() {
         assert_eq!(join_journal(&b), retained);
         assert_eq!(retained["complete"], false);
         assert!(
-            management_service::replica::DbSelectionPolicyRepo::new(source.management.clone())
+            device_service::replica::DbSelectionPolicyRepo::new(source.management.clone())
                 .get(member, &user.to_string(), Id::nil())
                 .await
                 .expect("cancelled membership policy")
@@ -459,7 +459,7 @@ async fn production_https_bootstrap_child() {
         reqwest::StatusCode::FORBIDDEN
     );
     assert!(
-        management_service::replica::DbSelectionPolicyRepo::new(source.management.clone())
+        device_service::replica::DbSelectionPolicyRepo::new(source.management.clone())
             .get(member, &user.to_string(), Id::nil())
             .await
             .expect("policy lookup after forged approval")
@@ -472,11 +472,11 @@ async fn production_https_bootstrap_child() {
         .await
         .expect("actual production HTTPS approval route");
     assert_eq!(response.status(), reqwest::StatusCode::OK);
-    let approval: management_service::hosted_join::NodeJoinApproval =
+    let approval: device_service::hosted_join::NodeJoinApproval =
         response.json().await.expect("public signed approval");
     assert_eq!(approval.owner_subject, user);
     assert_eq!(approval.request.member_id, member);
-    let policy = management_service::replica::DbSelectionPolicyRepo::new(source.management.clone())
+    let policy = device_service::replica::DbSelectionPolicyRepo::new(source.management.clone())
         .get(member, &user.to_string(), Id::nil())
         .await
         .expect("approved policy lookup")
@@ -717,8 +717,7 @@ async fn rejected_enrollment_keeps_policy_absent(
         reqwest::StatusCode::CONFLICT,
         "IdP exact signer validation rejects before Management mutation"
     );
-    let policies =
-        management_service::replica::DbSelectionPolicyRepo::new(source.management.clone());
+    let policies = device_service::replica::DbSelectionPolicyRepo::new(source.management.clone());
     assert!(
         policies
             .get(member, &owner.to_string(), Id::nil())
@@ -923,7 +922,7 @@ struct HttpsHost {
     endpoint: iroh::EndpointId,
     server: iroh_chain::Server,
     management: Arc<db::Database>,
-    node_joins: Arc<management_server::NodeJoinSource>,
+    node_joins: Arc<device_server::NodeJoinSource>,
     base: String,
 }
 impl HttpsHost {

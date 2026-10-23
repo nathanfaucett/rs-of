@@ -19,7 +19,7 @@ test-support = []
 [dependencies]
 # Generated HTTP operations
 of-idp-client = { path = "../idp-client", default-features = false }
-of-management-client = { path = "../management-client", default-features = false }
+of-device-client = { path = "../device-client", default-features = false }
 
 # Web
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }

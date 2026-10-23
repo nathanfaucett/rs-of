@@ -51,7 +51,7 @@ impl CreateIntent {
         validate_human_intent(&self.operation_nonce, &[&self.administrator, &self.node])?;
         serde_json::to_string(&(
             "create",
-            ["idp", "management", "storage"],
+            ["idp", "device", "storage"],
             &self.operation_nonce,
             &self.administrator,
             &self.node,
@@ -92,7 +92,7 @@ impl CreateResult {
             stage: "installation".into(),
             state: state.into(),
             ready: false,
-            owners: vec!["idp".into(), "management".into(), "storage".into()],
+            owners: vec!["idp".into(), "device".into(), "storage".into()],
             login_client: None,
         }
     }
@@ -125,7 +125,7 @@ impl JoinRequest {
         if peer.to_string() != self.peer {
             return Err(StatusCode::BAD_REQUEST);
         }
-        management_service::hosted_join::NodeJoinRequest::validate_trusted_peer(&self.peer)
+        device_service::hosted_join::NodeJoinRequest::validate_trusted_peer(&self.peer)
             .map_err(|_| StatusCode::BAD_REQUEST)
     }
 }
@@ -147,11 +147,11 @@ impl JoinIntent {
 
     pub fn canonical(&self) -> Result<String, StatusCode> {
         self.request().validate()?;
-        management_service::issuer_discovery::validate_issuer(&self.issuer)
+        device_service::issuer_discovery::validate_issuer(&self.issuer)
             .map_err(|_| StatusCode::BAD_REQUEST)?;
         serde_json::to_string(&(
             "join",
-            ["idp", "management", "storage"],
+            ["idp", "device", "storage"],
             &self.operation_nonce,
             &self.node,
             &self.peer,

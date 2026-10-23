@@ -11,7 +11,7 @@ use crate::{AppConfig, BootstrapSettings, OwnerProvisioner};
 pub struct BootstrapOwners<E> {
     pub endpoint: Arc<E>,
     pub idp: Arc<Database>,
-    pub management: Arc<Database>,
+    pub devices: Arc<Database>,
 }
 
 /// Host capabilities only; retained setup decisions and journals belong to IdP.
@@ -24,7 +24,7 @@ pub trait BootstrapHost: Send + Sync + 'static {
     fn settings(config: &Self::Config) -> BootstrapSettings;
     fn configure(config: &Self::Config, settings: BootstrapSettings) -> Self::Config;
     fn from_settings(settings: BootstrapSettings) -> Self::Config;
-    fn open_management(
+    fn open_devices(
         config: &Self::Config,
     ) -> impl Future<Output = io::Result<Arc<Database>>> + Send;
     fn provision_administrator(
@@ -92,6 +92,6 @@ pub trait BootstrapProtocol<E>: Send + Sync + Sized {
         owner: &OwnerProvisioner,
         name: &str,
         peer: &str,
-    ) -> impl Future<Output = io::Result<management_service::hosted_join::NodeJoinApproval>> + Send;
+    ) -> impl Future<Output = io::Result<device_service::hosted_join::NodeJoinApproval>> + Send;
     fn into_runtime_owners(self, endpoint: Arc<E>) -> BootstrapOwners<E>;
 }

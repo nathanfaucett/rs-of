@@ -12,7 +12,6 @@ import { env } from "$env/dynamic/public";
 import { afterSigninRedirect } from "./afterSigninRedirect.svelte";
 import { ensureLocalhostBaseUrl } from "./localhostBaseUrl.svelte";
 import { ownerAccessToken, usesRemoteApis } from "./idpClient.svelte";
-import { fetchSetupStatus } from "./setupApi";
 
 const managementApiUrl = createStorage<string | null>(
   "management-api-url",
@@ -96,9 +95,5 @@ export async function validateManagementApiUrl(
     const version = await api.version();
     if (version.name === "management-server") return true;
   } catch {}
-  try {
-    return (await fetchSetupStatus(basePath)).owners.includes("management");
-  } catch {
-    return false;
-  }
+  return false;
 }

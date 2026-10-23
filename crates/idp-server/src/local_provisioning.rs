@@ -128,7 +128,7 @@ impl<H: BootstrapHost> LocalProvisioner<H> {
                 })?;
                 for root in [
                     Path::new(&config.idp.data_dir),
-                    Path::new(&config.management.data_dir),
+                    Path::new(&config.device.data_dir),
                     Path::new(&config.storage.data_dir),
                     &config.endpoint_data_dir,
                 ] {
@@ -136,7 +136,7 @@ impl<H: BootstrapHost> LocalProvisioner<H> {
                 }
                 require_file(&Path::new(&config.idp.data_dir).join("idp.redb"), false)?;
                 require_file(
-                    &Path::new(&config.management.data_dir).join("management.redb"),
+                    &Path::new(&config.device.data_dir).join("devices.redb"),
                     false,
                 )?;
                 require_file(&config.endpoint_data_dir.join("endpoint.key"), true)?;
@@ -384,9 +384,9 @@ impl<H: BootstrapHost> LocalProvisioner<H> {
             return Box::pin(self.build_runtime_for_host(https, hosted)).await;
         }
         if journal.management_attempted {
-            require_directory(Path::new(&self.config.management.data_dir))?;
+            require_directory(Path::new(&self.config.device.data_dir))?;
             require_file(
-                &Path::new(&self.config.management.data_dir).join("management.redb"),
+                &Path::new(&self.config.device.data_dir).join("devices.redb"),
                 false,
             )?;
             if !journal.management_complete {
@@ -508,13 +508,13 @@ impl<H: BootstrapHost> LocalProvisioner<H> {
             let started = std::time::Instant::now();
             check_cancellation(cancellation)?;
             if !journal.management_attempted {
-                require_absent(Path::new(&self.config.management.data_dir))?;
+                require_absent(Path::new(&self.config.device.data_dir))?;
                 journal.management_attempted = true;
                 self.write(&journal)?;
-                create_private_directory(Path::new(&self.config.management.data_dir), false)?;
+                create_private_directory(Path::new(&self.config.device.data_dir), false)?;
             }
             let management_engine =
-                H::open_management(&H::configure(&self.host_config, self.config.clone())).await?;
+                H::open_devices(&H::configure(&self.host_config, self.config.clone())).await?;
             if !journal.management_complete {
                 let permissions = journal
                     .permissions
@@ -578,7 +578,7 @@ impl<H: BootstrapHost> LocalProvisioner<H> {
                 BootstrapOwners {
                     endpoint: Arc::clone(&endpoint),
                     idp: idp_engine,
-                    management: management_engine,
+                    devices: management_engine,
                 },
             ))
             .await?;
@@ -632,7 +632,7 @@ impl<H: BootstrapHost> LocalProvisioner<H> {
             false,
         )?;
         require_file(
-            &Path::new(&self.config.management.data_dir).join("management.redb"),
+            &Path::new(&self.config.device.data_dir).join("devices.redb"),
             false,
         )?;
         require_file(&self.config.endpoint_data_dir.join("endpoint.key"), true)?;
@@ -679,7 +679,7 @@ impl<H: BootstrapHost> LocalProvisioner<H> {
                 BootstrapOwners {
                     endpoint: Arc::clone(&owners.endpoint),
                     idp: Arc::clone(&owners.idp),
-                    management: Arc::clone(&owners.management),
+                    devices: Arc::clone(&owners.devices),
                 },
             ))
             .await
@@ -826,7 +826,7 @@ pub fn intent(config: &BootstrapSettings) -> io::Result<Intent> {
     }
     let roots = [
         PathBuf::from(&config.idp.data_dir),
-        PathBuf::from(&config.management.data_dir),
+        PathBuf::from(&config.device.data_dir),
         PathBuf::from(&config.storage.data_dir),
         config.endpoint_data_dir.clone(),
     ];
@@ -856,12 +856,12 @@ pub fn intent(config: &BootstrapSettings) -> io::Result<Intent> {
         password_policy: serde_json::to_value(&config.idp.password)?,
         applications: [
             config.idp.api_public_uri.clone(),
-            config.management.api_public_uri.clone(),
+            config.device.api_public_uri.clone(),
             config.storage.api_public_uri.clone(),
         ],
         audiences: [
             config.idp_audience().to_owned(),
-            config.management.storage_audience.clone(),
+            config.device.storage_audience.clone(),
         ],
     })
 }
@@ -899,7 +899,7 @@ pub fn login_registration(config: &BootstrapSettings, client_id: Id) -> ClientRe
         allowed_audiences: vec![
             config.idp_audience().to_owned(),
             management_service::MANAGEMENT_APPLICATION_URI.into(),
-            config.management.storage_audience.clone(),
+            config.device.storage_audience.clone(),
             "storage:databases".into(),
             "storage:filesystems".into(),
         ],
@@ -936,7 +936,7 @@ pub fn normalized_config(mut config: BootstrapSettings) -> io::Result<BootstrapS
     config.idp.data_dir = absolute(Path::new(&config.idp.data_dir))?
         .to_string_lossy()
         .into_owned();
-    config.management.data_dir = absolute(Path::new(&config.management.data_dir))?
+    config.device.data_dir = absolute(Path::new(&config.device.data_dir))?
         .to_string_lossy()
         .into_owned();
     config.storage.data_dir = absolute(Path::new(&config.storage.data_dir))?

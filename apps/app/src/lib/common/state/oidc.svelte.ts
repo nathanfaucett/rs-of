@@ -4,7 +4,7 @@ import { env } from "$env/dynamic/public";
 import icon256x256Png from "$lib/assets/icon256x256.png";
 import { getIdpApiUrl, usesRemoteApis } from "./idpClient.svelte";
 import { fetchSetupHosts } from "./setupApi";
-import { getManagementApiUrl } from "./managementClient.svelte";
+import { getDeviceApiUrl } from "./deviceClient.svelte";
 
 let desktopClientId = $state<string | undefined>(undefined);
 let storedClient: OidcClient | undefined;
@@ -23,7 +23,7 @@ export async function ensureOidcClientId(): Promise<string> {
         const base = getIdpApiUrl()?.replace(/\/$/, "") ?? "";
         const hosts = await fetchSetupHosts({
             idp: base,
-            management: getManagementApiUrl(),
+            device: getDeviceApiUrl(),
             storage: env.PUBLIC_STORAGE_BASE_URL,
         });
         const status = hosts[0].status;

@@ -1,12 +1,12 @@
 use std::{io, path::Path, sync::Arc, time::Instant};
 
 use api::{IndependentCreateCommand, IndependentCreateControl};
+use device_service::independent_join::IndependentJoinApproval;
+use device_service::independent_join::IndependentJoinRequest;
+use device_service::join_history::JoinHistoryContext;
+use device_service::join_history::import_join_history;
 use idp_model::{contract::ClientRegistration, model::Id};
 use idp_service::setup_credentials::{SetupRelationship, load_setup_secret};
-use management_service::{
-    independent_join::{IndependentJoinApproval, IndependentJoinRequest},
-    join_history::{JoinHistoryContext, import_join_history},
-};
 
 use super::{Record, binding, login, observe, open, public, runtime_config, service};
 use crate::{AppConfig, IdpRuntime, OwnerProvisioner};
@@ -20,13 +20,13 @@ pub(super) async fn provision(
     runtime: &mut Option<IdpRuntime>,
 ) -> io::Result<()> {
     let intent = &command.intent;
-    let management = control
-        .wait_peer(intent, "management", &command.cancellation)
+    let device = control
+        .wait_peer(intent, "device", &command.cancellation)
         .await?;
     let storage = control
         .wait_peer(intent, "storage", &command.cancellation)
         .await?;
-    let endpoint = management.facts["endpoint"]
+    let endpoint = device.facts["endpoint"]
         .as_str()
         .ok_or_else(|| io::Error::other("Management endpoint missing"))?
         .to_owned();
@@ -40,7 +40,7 @@ pub(super) async fn provision(
     record.endpoint = Some(endpoint.clone());
     let mut registrations = Vec::new();
     for (peer, relationships) in [
-        (&management, &[SetupRelationship::ManagementIdp][..]),
+        (&device, &[SetupRelationship::ManagementIdp][..]),
         (
             &storage,
             &[
@@ -62,12 +62,7 @@ pub(super) async fn provision(
                 .map_err(io::Error::other)?;
             if id.is_nil()
                 || registration
-                    != relationship.registration(
-                        id,
-                        &intent.idp,
-                        &intent.management,
-                        &intent.storage,
-                    )
+                    != relationship.registration(id, &intent.idp, &intent.device, &intent.storage)
             {
                 return Err(io::Error::other("least-privilege consumer binding changed"));
             }
@@ -123,8 +118,8 @@ pub(super) async fn provision(
         return Err(io::Error::new(io::ErrorKind::Interrupted, "Join cancelled"));
     }
     if record.request.is_none() {
-        let source = serde_json::from_value(management.facts["source"].clone())?;
-        let device_id = serde_json::from_value(management.facts["device"].clone())?;
+        let source = serde_json::from_value(device.facts["source"].clone())?;
+        let device_id = serde_json::from_value(device.facts["device"].clone())?;
         let request = IndependentJoinRequest {
             operation: intent.clone(),
             device_id,
@@ -159,7 +154,7 @@ pub(super) async fn provision(
     if record.approval.is_none() {
         let approval = loop {
             let peer = control
-                .wait_peer(intent, "management", &command.cancellation)
+                .wait_peer(intent, "device", &command.cancellation)
                 .await?;
             if !peer.facts["approval"].is_null() {
                 break serde_json::from_value::<IndependentJoinApproval>(
@@ -223,7 +218,7 @@ pub(super) async fn provision(
     let mut own_registration = SetupRelationship::IdpManagement.registration(
         record.client,
         &intent.idp,
-        &intent.management,
+        &intent.device,
         &intent.storage,
     );
     own_registration.client_secret = Some(load_setup_secret(
@@ -269,7 +264,7 @@ pub(super) async fn provision(
         serving_at.elapsed().as_millis()
     );
     let relationships_at = Instant::now();
-    for peer in [&management, &storage] {
+    for peer in [&device, &storage] {
         for registration in &peer.clients {
             if command.cancellation.is_cancelled() {
                 return Err(io::Error::new(io::ErrorKind::Interrupted, "Join cancelled"));

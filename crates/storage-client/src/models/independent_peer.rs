@@ -16,14 +16,14 @@ use serde::{Deserialize, Serialize};
 pub struct IndependentPeer {
     #[serde(rename = "address", deserialize_with = "Option::deserialize")]
     pub address: Option<serde_json::Value>,
+    #[serde(rename = "device")]
+    pub device: String,
     #[serde(rename = "endpoint")]
     pub endpoint: String,
     #[serde(rename = "idp")]
     pub idp: String,
     #[serde(rename = "issuer")]
     pub issuer: String,
-    #[serde(rename = "management")]
-    pub management: String,
     #[serde(rename = "nonce")]
     pub nonce: String,
     #[serde(rename = "signature")]
@@ -33,19 +33,19 @@ pub struct IndependentPeer {
 impl IndependentPeer {
     pub fn new(
         address: Option<serde_json::Value>,
+        device: String,
         endpoint: String,
         idp: String,
         issuer: String,
-        management: String,
         nonce: String,
         signature: String,
     ) -> IndependentPeer {
         IndependentPeer {
             address,
+            device,
             endpoint,
             idp,
             issuer,
-            management,
             nonce,
             signature,
         }

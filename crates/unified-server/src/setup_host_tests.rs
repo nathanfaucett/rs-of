@@ -136,7 +136,7 @@ fn explicit_configuration_classifies_absence_and_never_selects_an_issuer() {
         config.idp.ui_public_uri = "https://app.example".into();
         let retained = match field {
             "idp" => PathBuf::from(&config.idp.data_dir),
-            "management" => PathBuf::from(&config.management.data_dir),
+            "management" => PathBuf::from(&config.device.data_dir),
             "storage" => PathBuf::from(&config.storage.data_dir),
             "endpoint" => config.endpoint_data_dir.clone(),
             "credentials" => config.credential_bootstrap_directory(),

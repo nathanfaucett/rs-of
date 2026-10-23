@@ -5,6 +5,8 @@ use std::{
 };
 
 use db::{Database, SqlTranslator, Value};
+use device_service::DeviceRepo;
+use device_service::replica::DbDeviceRepo;
 use idp_model::{
     contract::{
         IdentityAction, IdpSignerRecord, JwkPublic, JwkPublicParameters, JwsAlgorithm, KeyUse,
@@ -20,10 +22,9 @@ use idp_service::{
 };
 use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets, protocol::Router};
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
-use management_service::{
-    DeviceRepo, ManagementService,
-    replica::{DbDeviceRepo, DbPermissionRepo, DbRoleRepo},
-};
+use management_service::ManagementService;
+use management_service::replica::DbPermissionRepo;
+use management_service::replica::DbRoleRepo;
 use storage_server::{IdpClient, LocalReplicationAuthorizer, RouterState, build_runtime};
 use tokio_util::sync::CancellationToken;
 
@@ -119,7 +120,7 @@ async fn exchange_history() {
         sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{actor}' AS UUID), 'administrator', 'Administrator', 1, 1)")).await;
         let management =
             Arc::new(Database::open(root.join("a-management.redb")).expect("seed Management"));
-        management_service::replica::up(&management)
+        device_service::replica::up(&management)
             .await
             .expect("Management schemas");
         for (member, key, endpoint) in [
@@ -448,11 +449,11 @@ async fn exchange_history() {
     );
     let restricted = Id::now_v7();
     let ambiguous = Id::now_v7();
-    let selection_a = management_service::replica::DbSelectionPolicyRepo::new(management_a.clone());
-    let selection_b = management_service::replica::DbSelectionPolicyRepo::new(management_b.clone());
+    let selection_a = device_service::replica::DbSelectionPolicyRepo::new(management_a.clone());
+    let selection_b = device_service::replica::DbSelectionPolicyRepo::new(management_b.clone());
     for device_id in [restricted, ambiguous] {
         selection_a
-            .set_prevalidated(management_service::replica::SelectionPolicy {
+            .set_prevalidated(device_service::replica::SelectionPolicy {
                 device_id,
                 owner_subject: actor.to_string(),
                 application_id: None,
@@ -466,7 +467,7 @@ async fn exchange_history() {
     let policy = Id::now_v7();
     sql(&management_a, &format!("INSERT INTO roles (id, application_id, name, created_at, updated_at) VALUES (CAST('{policy}' AS UUID), CAST('{actor}' AS UUID), 'shared-policy', 1, 1)")).await;
     protocol_a
-        .synchronize(&connection, SecurityContext::Management)
+        .synchronize(&connection, SecurityContext::Device)
         .await
         .expect("separate policy exchange");
     assert!(
@@ -530,7 +531,7 @@ async fn exchange_history() {
         }
     }
     protocol_a
-        .synchronize(&connection, SecurityContext::Management)
+        .synchronize(&connection, SecurityContext::Device)
         .await
         .expect("preserve concurrent restriction histories");
     eprintln!(
@@ -552,7 +553,7 @@ async fn exchange_history() {
     );
 
     protocol_a
-        .synchronize(&connection, SecurityContext::Management)
+        .synchronize(&connection, SecurityContext::Device)
         .await
         .expect("resolution delta exchange");
     eprintln!(
@@ -576,7 +577,7 @@ async fn exchange_history() {
     .await;
 
     protocol_a
-        .synchronize(&connection, SecurityContext::Management)
+        .synchronize(&connection, SecurityContext::Device)
         .await
         .expect("policy tombstone transfer");
     eprintln!(
@@ -585,7 +586,7 @@ async fn exchange_history() {
     );
 
     protocol_a
-        .synchronize(&connection, SecurityContext::Management)
+        .synchronize(&connection, SecurityContext::Device)
         .await
         .expect("repeated history exchange cannot resurrect tombstone");
     assert!(
@@ -638,7 +639,7 @@ async fn exchange_history() {
     .await;
     assert_eq!(
         protocol_a
-            .synchronize(&connection, SecurityContext::Management)
+            .synchronize(&connection, SecurityContext::Device)
             .await
             .expect_err("unreviewed Management layout rejects before export")
             .kind(),
@@ -690,7 +691,7 @@ async fn exchange_history() {
     let reopened_management =
         Arc::new(Database::open(root.join("b-management.redb")).expect("native Management reopen"));
     let reopened_selection =
-        management_service::replica::DbSelectionPolicyRepo::new(reopened_management.clone());
+        device_service::replica::DbSelectionPolicyRepo::new(reopened_management.clone());
     assert!(
         !reopened_selection
             .get(restricted, &actor.to_string(), actor)

@@ -17,7 +17,7 @@ async fn databases() -> (std::path::PathBuf, db::Database, db::Database) {
         std::env::temp_dir().join(format!("peer-refresh-{}", idp_model::model::Id::now_v7()));
     std::fs::create_dir_all(&root).expect("test directory");
     let idp = db::Database::open(root.join("idp.redb")).expect("IdP database");
-    let management = db::Database::open(root.join("management.redb")).expect("Management database");
+    let management = db::Database::open(root.join("devices.redb")).expect("Management database");
     for database in [&idp, &management] {
         database
             .client()

@@ -16,12 +16,12 @@ pub struct BootstrapSettings {
     pub listen_addr: SocketAddr,
     pub endpoint_data_dir: std::path::PathBuf,
     pub idp: AppConfig,
-    pub management: ManagementBootstrapSettings,
+    pub device: DeviceBootstrapSettings,
     pub storage: StorageBootstrapSettings,
 }
 
 #[derive(Clone)]
-pub struct ManagementBootstrapSettings {
+pub struct DeviceBootstrapSettings {
     pub data_dir: String,
     pub api_public_uri: String,
     pub storage_audience: String,
@@ -62,7 +62,7 @@ impl api::LocalTlsConfig for BootstrapSettings {
 fn roots(config: &BootstrapSettings) -> io::Result<[PathBuf; 7]> {
     Ok([
         absolute(Path::new(&config.idp.data_dir))?,
-        absolute(Path::new(&config.management.data_dir))?,
+        absolute(Path::new(&config.device.data_dir))?,
         absolute(Path::new(&config.storage.data_dir))?,
         absolute(&config.endpoint_data_dir)?,
         absolute(&config.credential_bootstrap_directory())?,

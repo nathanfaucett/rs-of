@@ -2,6 +2,11 @@ use std::{io, sync::Arc, time::Duration};
 
 use axum::Router;
 use db::Database;
+use device_service::DeviceIdentity;
+use device_service::HostedControlPlane;
+use device_service::PairingAcceptanceController;
+use device_service::TimedPairingAcceptanceController;
+use device_service::replica::DbDeviceRepo;
 use idp_model::model::Id;
 use idp_service::{
     oauth2::OAuth2Service,
@@ -13,10 +18,7 @@ use idp_service::{
 };
 use iroh::protocol::{ProtocolHandler, Router as IrohRouter};
 use iroh_chain::Server;
-use management_service::{
-    DeviceIdentity, HostedControlPlane, LocalPermissions, PairingAcceptanceController,
-    TimedPairingAcceptanceController, replica::DbDeviceRepo,
-};
+use management_service::LocalPermissions;
 
 use crate::{
     AppConfig, BootstrapProtocolHandler, ManagementPermissionClient, RouterState,
@@ -41,7 +43,7 @@ impl IdpRuntime {
         crate::management_owner::active_management_user(&self.join_state, user_id).await
     }
 
-    pub fn pairing_acceptance(&self) -> Arc<management_service::PairingAcceptanceControllerSlot> {
+    pub fn pairing_acceptance(&self) -> Arc<device_service::PairingAcceptanceControllerSlot> {
         Arc::clone(&self.join_state.pairing_acceptance)
     }
 
@@ -82,7 +84,7 @@ impl IdpRuntime {
         &self,
         offer: &iroh_chain::PairingOffer,
         bearer: &str,
-    ) -> io::Result<management_service::hosted_join::NodeJoinApproval> {
+    ) -> io::Result<device_service::hosted_join::NodeJoinApproval> {
         self.join_state.approve_node_join(offer, bearer).await
     }
 
@@ -90,13 +92,13 @@ impl IdpRuntime {
         &self,
         offer: &iroh_chain::PairingOffer,
         bearer: &str,
-    ) -> io::Result<management_service::hosted_join::NodeJoinApproval> {
+    ) -> io::Result<device_service::hosted_join::NodeJoinApproval> {
         self.join_state.enroll_node_join_offer(offer, bearer).await
     }
 
     pub async fn verify_node_join_enrollment(
         &self,
-        approval: &management_service::hosted_join::NodeJoinApproval,
+        approval: &device_service::hosted_join::NodeJoinApproval,
     ) -> io::Result<()> {
         self.join_state.verify_node_join_enrollment(approval).await
     }
@@ -105,7 +107,7 @@ impl IdpRuntime {
         &self,
         offer: &iroh_chain::PairingOffer,
         bearer: &str,
-        approval: &management_service::hosted_join::NodeJoinApproval,
+        approval: &device_service::hosted_join::NodeJoinApproval,
     ) -> io::Result<()> {
         self.join_state
             .reply_node_join(offer, bearer, approval)
@@ -275,49 +277,44 @@ pub(crate) fn runtime_from_state(config: &AppConfig, router_state: RouterState) 
     }
 }
 
-impl management_service::hosted_join::NodeJoinIdentity for IdpRuntime {
+impl device_service::hosted_join::NodeJoinIdentity for IdpRuntime {
     fn accepting<'a>(
         &'a self,
         bearer: &'a str,
         accepting: Option<bool>,
-    ) -> management_service::hosted_join::JoinFuture<'a, bool> {
+    ) -> device_service::hosted_join::JoinFuture<'a, bool> {
         Box::pin(self.node_join_accepting(bearer, accepting))
     }
-    fn authorize<'a>(
-        &'a self,
-        bearer: &'a str,
-    ) -> management_service::hosted_join::JoinFuture<'a, ()> {
+    fn authorize<'a>(&'a self, bearer: &'a str) -> device_service::hosted_join::JoinFuture<'a, ()> {
         Box::pin(async move { self.authorize_node_join_approver(bearer).await.map(|_| ()) })
     }
     fn enroll<'a>(
         &'a self,
         offer: &'a iroh_chain::PairingOffer,
         bearer: &'a str,
-    ) -> management_service::hosted_join::JoinFuture<
-        'a,
-        management_service::hosted_join::NodeJoinApproval,
-    > {
+    ) -> device_service::hosted_join::JoinFuture<'a, device_service::hosted_join::NodeJoinApproval>
+    {
         Box::pin(self.enroll_node_join_offer(offer, bearer))
     }
     fn verify<'a>(
         &'a self,
-        approval: &'a management_service::hosted_join::NodeJoinApproval,
-    ) -> management_service::hosted_join::JoinFuture<'a, ()> {
+        approval: &'a device_service::hosted_join::NodeJoinApproval,
+    ) -> device_service::hosted_join::JoinFuture<'a, ()> {
         Box::pin(self.verify_node_join_enrollment(approval))
     }
     fn reply<'a>(
         &'a self,
         offer: &'a iroh_chain::PairingOffer,
         bearer: &'a str,
-        approval: &'a management_service::hosted_join::NodeJoinApproval,
-    ) -> management_service::hosted_join::JoinFuture<'a, ()> {
+        approval: &'a device_service::hosted_join::NodeJoinApproval,
+    ) -> device_service::hosted_join::JoinFuture<'a, ()> {
         Box::pin(self.reply_node_join(offer, bearer, approval))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use management_service::PairingAcceptanceController;
+    use device_service::PairingAcceptanceController;
 
     use crate::node_join_tests::approval_fixture;
 
@@ -383,7 +380,7 @@ mod tests {
         .await
         .expect("independent transport");
         let identity = Arc::new(
-            management_service::DeviceIdentity::new(transport.endpoint().clone(), secret)
+            device_service::DeviceIdentity::new(transport.endpoint().clone(), secret)
                 .expect("transport possession"),
         );
         let config = crate::AppConfig {

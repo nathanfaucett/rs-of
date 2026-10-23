@@ -413,8 +413,8 @@ mod tests {
     async fn local_introspection_checks_current_device_owner_without_endpoint_enumeration() {
         use std::sync::{Arc, Mutex};
 
+        use device_service::DeviceState;
         use idp_model::{contract::IntrospectionResponse, model::Id};
-        use management_service::DeviceState;
         use model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
 
         let endpoint = iroh::SecretKey::generate().public();

@@ -136,13 +136,13 @@
           "administrator": {
             "type": "string"
           },
+          "device": {
+            "type": "string"
+          },
           "idp": {
             "type": "string"
           },
           "issuer": {
-            "type": "string"
-          },
-          "management": {
             "type": "string"
           },
           "node": {
@@ -170,7 +170,7 @@
           "administrator",
           "node",
           "idp",
-          "management",
+          "device",
           "storage",
           "issuer"
         ],
@@ -283,6 +283,9 @@
         "additionalProperties": false,
         "properties": {
           "address": {},
+          "device": {
+            "type": "string"
+          },
           "endpoint": {
             "type": "string"
           },
@@ -290,9 +293,6 @@
             "type": "string"
           },
           "issuer": {
-            "type": "string"
-          },
-          "management": {
             "type": "string"
           },
           "nonce": {
@@ -306,7 +306,7 @@
           "nonce",
           "issuer",
           "idp",
-          "management",
+          "device",
           "endpoint",
           "address",
           "signature"

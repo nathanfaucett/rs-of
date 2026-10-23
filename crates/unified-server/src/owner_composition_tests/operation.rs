@@ -12,8 +12,9 @@ use std::{
 };
 
 use api::{IndependentCreateIntent, LocalTls};
+use device_service::DeviceRepo;
+use device_service::replica::DbDeviceRepo;
 use idp_model::model::Id;
-use management_service::{DeviceRepo, replica::DbDeviceRepo};
 use reqwest::{Client, StatusCode};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
@@ -29,7 +30,7 @@ fn production_independent_signer_free_operation_and_delayed_authority_reopen() {
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).expect("private roots");
     let mut addresses = Vec::new();
     let mut bundle = Vec::new();
-    for owner in ["idp", "management", "storage"] {
+    for owner in ["idp", "device", "storage"] {
         let reserved = std::net::TcpListener::bind("127.0.0.1:0").expect("reserve");
         let address = reserved.local_addr().expect("address");
         let host = setup(&root, owner, address);
@@ -99,7 +100,7 @@ async fn operation_child() {
         administrator: "operator".into(),
         node: "Independent operation".into(),
         idp: format!("https://{}/idp", addresses[0]),
-        management: format!("https://{}/management", addresses[1]),
+        device: format!("https://{}/device", addresses[1]),
         storage: format!("https://{}/storage", addresses[2]),
         issuer: format!("https://{}/idp", addresses[0]),
         peer: None,
@@ -108,7 +109,7 @@ async fn operation_child() {
     let shutdown = CancellationToken::new();
     let servers = start(&root, &addresses, &shutdown).await;
     wait(&http, &intent, false).await;
-    for owner in ["idp", "management", "storage"] {
+    for owner in ["idp", "device", "storage"] {
         let mut body = serde_json::to_value(&intent).expect("intent");
         if owner == "idp" {
             body["password"] = serde_json::json!("protected-password");
@@ -143,8 +144,7 @@ async fn operation_child() {
     let endpoint = &endpoints[0].0;
     let device = {
         let engine = Arc::new(
-            db::Database::open(root.join("management/management.redb"))
-                .expect("stopped Management"),
+            db::Database::open(root.join("device/devices.redb")).expect("stopped Management"),
         );
         DbDeviceRepo::new(engine)
             .find_approved_by_public_key(endpoint)
@@ -270,7 +270,7 @@ async fn operation_child() {
         StatusCode::OK
     );
     assert_eq!(
-        http.delete(format!("{}/devices/{device}", intent.management))
+        http.delete(format!("{}/devices/{device}", intent.device))
             .bearer_auth(&management_token)
             .send()
             .await
@@ -400,8 +400,8 @@ fn operation_runtime(
     let idp = storage_server::IdpClient::new(&intent.idp, id, &secret, &intent.issuer, &intent.idp)
         .expect("IdP client");
     let (id, secret) = client(1);
-    let management = storage_server::ManagementClient::new(
-        &intent.management,
+    let device = storage_server::DeviceClient::new(
+        &intent.device,
         &intent.idp,
         id,
         &secret,
@@ -412,7 +412,7 @@ fn operation_runtime(
     storage_server::build_http_runtime(
         storage_server::RouterState::new(&intent.storage)
             .with_idp_client(idp)
-            .with_management_client(management),
+            .with_device_client(device),
         data,
         "/storage",
         endpoint.parse().expect("approved endpoint"),
@@ -429,16 +429,13 @@ async fn restrict(
     allowed: bool,
 ) {
     assert_eq!(
-        http.put(format!(
-            "{}/devices/{device}/restriction",
-            intent.management
-        ))
-        .bearer_auth(token)
-        .json(&serde_json::json!({"adminAllowed":allowed}))
-        .send()
-        .await
-        .expect("current exact policy")
-        .status(),
+        http.put(format!("{}/devices/{device}/restriction", intent.device))
+            .bearer_auth(token)
+            .json(&serde_json::json!({"adminAllowed":allowed}))
+            .send()
+            .await
+            .expect("current exact policy")
+            .status(),
         StatusCode::NO_CONTENT
     );
 }
@@ -449,7 +446,7 @@ async fn delayed_authority_reopen(
     intent: &IndependentCreateIntent,
     http: &Client,
 ) {
-    let evidence: Vec<_> = ["idp", "management", "storage"]
+    let evidence: Vec<_> = ["idp", "device", "storage"]
         .map(|owner| {
             fs::read(root.join(format!("{owner}.setup-host/worker.json")))
                 .expect("completed evidence")
@@ -536,20 +533,20 @@ async fn delayed_authority_reopen(
         ..Default::default()
     };
     idp.server.prefix = Some("/idp".into());
-    let mut management = management_server::AppConfig {
-        data_dir: root.join("management").to_string_lossy().into_owned(),
+    let mut device = device_server::AppConfig {
+        data_dir: root.join("device").to_string_lossy().into_owned(),
         ..Default::default()
     };
-    management.server.prefix = Some("/management".into());
+    device.server.prefix = Some("/device".into());
     let authorities = [
         tokio::spawn(idp_server::serve_independent_create(
             Arc::new(idp),
             setup(root, "idp", addresses[0]),
             shutdown.child_token(),
         )),
-        tokio::spawn(management_server::serve_independent_create(
-            Arc::new(management),
-            setup(root, "management", addresses[1]),
+        tokio::spawn(device_server::serve_independent_create(
+            Arc::new(device),
+            setup(root, "device", addresses[1]),
             shutdown.child_token(),
         )),
     ];
@@ -566,7 +563,7 @@ async fn delayed_authority_reopen(
             .expect("join recovered")
             .expect("stop recovered");
     }
-    for (owner, expected) in ["idp", "management", "storage"].into_iter().zip(evidence) {
+    for (owner, expected) in ["idp", "device", "storage"].into_iter().zip(evidence) {
         assert_eq!(
             fs::read(root.join(format!("{owner}.setup-host/worker.json")))
                 .expect("retained evidence"),

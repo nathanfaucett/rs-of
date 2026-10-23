@@ -7,10 +7,9 @@ use idp_model::{
     contract::{GrantType, INSTALLATION_POLICY_ID, IdentityAction},
     model::Id,
 };
-use management_service::{
-    ManagementService,
-    replica::{DbPermissionRepo, DbRoleRepo},
-};
+use management_service::ManagementService;
+use management_service::replica::DbPermissionRepo;
+use management_service::replica::DbRoleRepo;
 
 use super::{
     Fixture, Host, LocalProvisioner, denied_grant, exchange, refresh, rotation_login_client, token,
@@ -61,7 +60,7 @@ async fn probe() {
     let client = login.client_id.expect("public login Client ID");
     {
         let engine = Arc::new(
-            db::Database::open(fixture.root.join("management/management.redb"))
+            db::Database::open(fixture.root.join("device/devices.redb"))
                 .expect("stopped native Management owner"),
         );
         let service = ManagementService::new(

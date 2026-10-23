@@ -1,8 +1,9 @@
 use std::{fs, net::SocketAddr, path::Path, sync::Arc, time::Duration};
 
 use api::IndependentCreateIntent;
+use device_service::replica::DbDeviceRepo;
+use device_service::replica::DbSelectionPolicyRepo;
 use idp_model::model::Id;
-use management_service::replica::{DbDeviceRepo, DbSelectionPolicyRepo};
 use reqwest::{Client, StatusCode};
 use tokio_util::sync::CancellationToken;
 
@@ -14,14 +15,14 @@ pub(super) async fn qualify(
     management_token: &str,
 ) {
     let record: serde_json::Value = serde_json::from_slice(
-        &fs::read(root.join("management.setup-host/worker.json")).expect("completed worker"),
+        &fs::read(root.join("device.setup-host/worker.json")).expect("completed worker"),
     )
     .expect("worker JSON");
     let device: Id = serde_json::from_value(record["device"].clone()).expect("local Device");
     let old: Id = serde_json::from_value(record["user"].clone()).expect("original owner");
 
     let endpoint = record["endpoint"].as_str().expect("retained endpoint");
-    let path = root.join("management/management.redb");
+    let path = root.join("device/devices.redb");
     let pending_id;
     {
         let engine = Arc::new(db::Database::open(&path).expect("stopped Management owner"));
@@ -66,20 +67,20 @@ pub(super) async fn qualify(
             ..Default::default()
         };
         idp.server.prefix = Some("/idp".into());
-        let mut management = management_server::AppConfig {
-            data_dir: root.join("management").to_string_lossy().into_owned(),
+        let mut device_config = device_server::AppConfig {
+            data_dir: root.join("device").to_string_lossy().into_owned(),
             ..Default::default()
         };
-        management.server.prefix = Some("/management".into());
+        device_config.server.prefix = Some("/device".into());
         let servers = [
             tokio::spawn(idp_server::serve_independent_create(
                 Arc::new(idp),
                 super::setup(root, "idp", addresses[0]),
                 shutdown.child_token(),
             )),
-            tokio::spawn(management_server::serve_independent_create(
-                Arc::new(management),
-                super::setup(root, "management", addresses[1]),
+            tokio::spawn(device_server::serve_independent_create(
+                Arc::new(device_config),
+                super::setup(root, "device", addresses[1]),
                 shutdown.child_token(),
             )),
         ];
@@ -97,7 +98,7 @@ pub(super) async fn qualify(
                 _ => false,
             };
             if let Ok(response) = http
-                .get(format!("{}/devices/trusted", intent.management))
+                .get(format!("{}/devices/trusted", intent.device))
                 .send()
                 .await
             {
@@ -111,12 +112,12 @@ pub(super) async fn qualify(
             );
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
-        super::current_status(http, &intent.management, false).await;
+        super::current_status(http, &intent.device, false).await;
         let token = super::storage_policy_token(root, http, intent).await;
         let policy: model::contract::SelectedResourcesResponse = http
             .get(format!(
                 "{}/replication/devices/{endpoint}/selections",
-                intent.management
+                intent.device
             ))
             .bearer_auth(&token)
             .send()
@@ -136,7 +137,7 @@ pub(super) async fn qualify(
                 .expect("retirement survives stopped restart");
             assert_eq!(exact.cleanup_id, pending_id.to_string());
             assert_eq!(exact.old_owner_subject, exact.new_owner_subject);
-            let cleanup = format!("{}/replication/owner-cleanup", intent.management);
+            let cleanup = format!("{}/replication/owner-cleanup", intent.device);
             assert_eq!(
                 http.post(&cleanup)
                     .json(&exact)
@@ -168,10 +169,10 @@ pub(super) async fn qualify(
                     .status(),
                 StatusCode::NO_CONTENT
             );
-            super::current_status(http, &intent.management, false).await;
+            super::current_status(http, &intent.device, false).await;
         } else {
             assert!(policy.pending_cleanup.is_none());
-            let restriction = format!("{}/devices/{device}/restriction", intent.management);
+            let restriction = format!("{}/devices/{device}/restriction", intent.device);
             let body = serde_json::json!({"adminAllowed": true});
             assert_eq!(
                 http.put(&restriction)
@@ -192,7 +193,7 @@ pub(super) async fn qualify(
                     .status(),
                 StatusCode::NO_CONTENT
             );
-            super::current_status(http, &intent.management, true).await;
+            super::current_status(http, &intent.device, true).await;
         }
         shutdown.cancel();
         for server in servers {

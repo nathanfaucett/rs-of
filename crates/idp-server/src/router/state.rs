@@ -1,5 +1,9 @@
 use std::sync::Arc;
 
+use device_service::DeviceIdentity;
+use device_service::HostedControlPlane;
+use device_service::PairingAcceptanceControllerSlot;
+use device_service::replica::DbDeviceRepo;
 use idp_service::{
     oauth2::OAuth2Service,
     replica::{
@@ -8,10 +12,7 @@ use idp_service::{
     },
     repo::PrivateKeyKeyringRepo,
 };
-use management_service::{
-    DeviceIdentity, HostedControlPlane, LocalPermissions, PairingAcceptanceControllerSlot,
-    replica::DbDeviceRepo,
-};
+use management_service::LocalPermissions;
 
 use crate::ManagementPermissionClient;
 

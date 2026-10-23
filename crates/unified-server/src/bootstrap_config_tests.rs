@@ -30,8 +30,8 @@ mod tests {
                 .issuer
                 .contains(&config.listen_addr.to_string())
         );
-        assert_ne!(config.idp.data_dir, config.management.data_dir);
-        assert_ne!(config.management.data_dir, config.storage.data_dir);
+        assert_ne!(config.idp.data_dir, config.device.data_dir);
+        assert_ne!(config.device.data_dir, config.storage.data_dir);
         drop(host);
         let reopened = BootstrapConfig::open(&root)
             .expect("retained host settings")

@@ -1,6 +1,6 @@
 # Shared domain
 
-Terms shared by IdP, Management, and Storage. See [the glossary map](GLOSSARY-MAP.md) for context terms, design, and contracts.
+Terms shared by IdP, Management, Device, and Storage. See [the glossary map](GLOSSARY-MAP.md) for context terms, design, and contracts.
 
 ## Language
 
@@ -8,11 +8,11 @@ Terms shared by IdP, Management, and Storage. See [the glossary map](GLOSSARY-MA
 A group of equal Nodes sharing a canonical identity issuer and trusted identity, policy, and resource data.
 
 **Node**:
-An independently usable Installation member hosting IdP, Management, and Storage, with its own local trusted state and private signer.
+An independently usable Installation member hosting IdP, Management, Device, and Storage, with its own local trusted state and private signer.
 _Avoid_: Authority node, privileged replica, Storage-only Node
 
 **Unified Host**:
-The host composing a Node's IdP, Management, and Storage contexts while retaining separate domain and state ownership.
+The host composing a Node's IdP, Management, Device, and Storage contexts while retaining separate domain and state ownership.
 
 **User**:
 An authenticated human subject with a stable public identity.
@@ -24,13 +24,13 @@ A logical product or resource identified by a stable URI. It groups OAuth Client
 The User or OAuth Client represented by a token's subject. A Node Signer identifies the issuing Node, while Device endpoint identity authenticates transport; neither is the token's subject.
 
 **Device**:
-A Management-owned persistent domain identity bound to a transport endpoint ID, with a locally supplied name, public key, and reachable address. Management owns its User association, approval, transfer and revocation. An endpoint alone is neither an approved Device nor resource permission; a Device's transport identity is distinct from an IdP token-signing identity.
+A Device-service-owned persistent domain identity bound to a transport endpoint ID, with a locally supplied name, public key, and reachable address. The Device service owns its User association, approval, transfer and revocation. An endpoint alone is neither an approved Device nor resource permission; a Device's transport identity is distinct from an IdP token-signing identity.
 
 **Trusted Device**:
-A Management-approved, non-revoked Device eligible to participate in the mesh. Approval is transport trust, not User authentication, token-signing authority or resource authorization.
+A Device-service-approved, non-revoked Device eligible to participate in the mesh. Approval is transport trust, not User authentication, token-signing authority or resource authorization.
 
 **Bootstrap Service**:
-The coordinator that establishes the repeatable system baseline for a new Installation through separate IdP and Management owner operations.
+The coordinator that establishes the repeatable system baseline for a new Installation through separate IdP and Device owner operations.
 
 **Installation Setup**:
 The process that establishes a new Installation or joins it as an equal Node through a trusted peer.

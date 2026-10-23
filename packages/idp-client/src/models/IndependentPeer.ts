@@ -26,6 +26,10 @@ export interface IndependentPeer {
     /**
      *
      */
+    device: string;
+    /**
+     *
+     */
     endpoint: string;
     /**
      *
@@ -35,10 +39,6 @@ export interface IndependentPeer {
      *
      */
     issuer: string;
-    /**
-     *
-     */
-    management: string;
     /**
      *
      */
@@ -56,11 +56,10 @@ export function instanceOfIndependentPeer(
     value: object,
 ): value is IndependentPeer {
     if (!("address" in value) || value["address"] === undefined) return false;
+    if (!("device" in value) || value["device"] === undefined) return false;
     if (!("endpoint" in value) || value["endpoint"] === undefined) return false;
     if (!("idp" in value) || value["idp"] === undefined) return false;
     if (!("issuer" in value) || value["issuer"] === undefined) return false;
-    if (!("management" in value) || value["management"] === undefined)
-        return false;
     if (!("nonce" in value) || value["nonce"] === undefined) return false;
     if (!("signature" in value) || value["signature"] === undefined)
         return false;
@@ -82,10 +81,10 @@ export function IndependentPeerFromJSONTyped(
             (key) =>
                 ![
                     "address",
+                    "device",
                     "endpoint",
                     "idp",
                     "issuer",
-                    "management",
                     "nonce",
                     "signature",
                 ].includes(key),
@@ -97,10 +96,10 @@ export function IndependentPeerFromJSONTyped(
     }
     return {
         address: json["address"],
+        device: json["device"],
         endpoint: json["endpoint"],
         idp: json["idp"],
         issuer: json["issuer"],
-        management: json["management"],
         nonce: json["nonce"],
         signature: json["signature"],
     };
@@ -120,10 +119,10 @@ export function IndependentPeerToJSONTyped(
 
     return {
         address: value["address"],
+        device: value["device"],
         endpoint: value["endpoint"],
         idp: value["idp"],
         issuer: value["issuer"],
-        management: value["management"],
         nonce: value["nonce"],
         signature: value["signature"],
     };

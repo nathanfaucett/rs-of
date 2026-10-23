@@ -7,8 +7,9 @@ use std::{
 };
 
 use db::{Database, Row, Value};
+use device_service::DeviceRepo;
+use device_service::replica::DbDeviceRepo;
 use idp_model::model::Id;
-use management_service::{DeviceRepo, replica::DbDeviceRepo};
 use ofdb_sql::{SyncMessage, SyncRole};
 
 use super::{Pair, Poison, RecoveryAttack, public_jwk, sync_fixture, unvalidated_initiate};
@@ -212,15 +213,15 @@ async fn approved_devices_reject_conflicted_public_device_bindings() {
         }
         let fork = Database::open(pair.root.join("device-binding-fork.redb"))
             .expect("independent Device contender");
-        management_service::replica::up(&fork).await.expect("public schema");
-        super::sync_fixture_context(&pair.management_a, &fork, SecurityContext::Management).await;
+        device_service::replica::up(&fork).await.expect("public schema");
+        super::sync_fixture_context(&pair.management_a, &fork, SecurityContext::Device).await;
         for (column, member) in &bindings {
             for database in [pair.management_a.as_ref(), &fork] {
                 let value = Id::now_v7();
                 sql(database, &format!("UPDATE devices SET {column} = '{value}' WHERE id = CAST('{member}' AS UUID)")).await;
             }
         }
-        super::sync_fixture_context(&pair.management_a, &fork, SecurityContext::Management).await;
+        super::sync_fixture_context(&pair.management_a, &fork, SecurityContext::Device).await;
         for database in [pair.management_a.as_ref(), &fork] {
             for (column, member) in &bindings {
                 assert!(database.client().row_conflicts("devices", &Row::new(vec![Value::Uuid(*member)])).await.expect("actual public Device conflict").contains(&column.to_string()));
@@ -248,17 +249,17 @@ async fn marker3_persists_pending_conflicts_and_tombstones_without_trust() {
         let pending = seed_device(&pair.management_a).await;
         let conflicted = seed_device(&pair.management_a).await;
         let fork = Database::open(pair.root.join("candidate-fork.redb")).expect("independent native contender");
-        management_service::replica::up(&fork).await.expect("Management schema");
-        super::sync_fixture_context(&pair.management_a, &fork, SecurityContext::Management).await;
+        device_service::replica::up(&fork).await.expect("Management schema");
+        super::sync_fixture_context(&pair.management_a, &fork, SecurityContext::Device).await;
         for database in [pair.management_a.as_ref(), &fork] {
             let endpoint = iroh::SecretKey::generate().public();
             sql(database, &format!("UPDATE devices SET public_key = '{endpoint}' WHERE id = CAST('{conflicted}' AS UUID)")).await;
         }
-        super::sync_fixture_context(&pair.management_a, &fork, SecurityContext::Management).await;
+        super::sync_fixture_context(&pair.management_a, &fork, SecurityContext::Device).await;
         sql(&pair.management_a, &format!("DELETE FROM devices WHERE id = CAST('{pending}' AS UUID)")).await;
         pair.serve(true);
         let connection = pair.connect().await;
-        pair.protocol_a.synchronize(&connection, SecurityContext::Management).await.expect("pending/conflicted/revoked history may persist");
+        pair.protocol_a.synchronize(&connection, SecurityContext::Device).await.expect("pending/conflicted/revoked history may persist");
         assert!(pair.management_b.client().row_conflicts("devices", &Row::new(vec![Value::Uuid(conflicted)])).await.expect("public conflict inspection").contains(&"public_key".to_string()));
         let Value::Text(endpoint) = &sql(&pair.management_b, &format!("SELECT public_key FROM devices WHERE id = CAST('{conflicted}' AS UUID)")).await[0].rows[0].values[0] else {
             panic!("fixture endpoint")
@@ -296,8 +297,8 @@ async fn marker3_rejects_correlated_rebinding_of_authenticated_session_peer() {
                 pair.serve(matches!(role, SyncRole::Responder));
                 let connection = pair.connect().await;
                 match role {
-                    SyncRole::Initiator => pair.protocol_a.synchronize(&connection, SecurityContext::Management).await,
-                    SyncRole::Responder => super::unvalidated_initiate_context(&pair, &connection, SecurityContext::Management).await,
+                    SyncRole::Initiator => pair.protocol_a.synchronize(&connection, SecurityContext::Device).await,
+                    SyncRole::Responder => super::unvalidated_initiate_context(&pair, &connection, SecurityContext::Device).await,
                 }.expect_err("correlated rows cannot rebind authenticated session evidence");
                 assert_eq!(sql(&target, &query).await[0].rows, before, "pinned Device batch rolls back");
                 assert_eq!(source.sync_manifest().await.expect("unchanged source"), source_before);
@@ -327,8 +328,8 @@ async fn management_rejects_overwritten_invalid_device_history_before_export_or_
                 pair.serve(matches!(role, SyncRole::Responder));
                 let connection = pair.connect().await;
                 match role {
-                    SyncRole::Initiator => pair.protocol_a.synchronize(&connection, SecurityContext::Management).await,
-                    SyncRole::Responder => super::unvalidated_initiate_context(&pair, &connection, SecurityContext::Management).await,
+                    SyncRole::Initiator => pair.protocol_a.synchronize(&connection, SecurityContext::Device).await,
+                    SyncRole::Responder => super::unvalidated_initiate_context(&pair, &connection, SecurityContext::Device).await,
                 }.expect_err("overwriting or deleting a row cannot hide invalid public Device history");
                 assert_eq!(target.sync_manifest().await.expect("unchanged target"), before);
                 drop((source, target));

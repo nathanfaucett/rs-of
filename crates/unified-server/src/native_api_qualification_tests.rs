@@ -1,11 +1,11 @@
 use std::time::Duration;
 
+use device_service::replica::DbSelectionPolicyRepo;
 use idp_model::{
     contract::{GrantType, TokenEndpointAuthMethod},
     model::Id,
 };
 use idp_service::repo::ClientRepo;
-use management_service::replica::DbSelectionPolicyRepo;
 use model::contract::StorageAuthorizationAction;
 use storage_model::{StorageRequest, StorageResponse};
 
@@ -148,8 +148,10 @@ async fn bundled_storage_direct_idp_preserves_real_local_owner_gate() {
                 .is_ok()
         );
         let policy = crate::runtime::owner_replication_authorizer(
-            fixture.control.clone(),
-            fixture.management.clone(),
+            device_server::DeviceAuthority::new(
+                fixture.management.clone(),
+                fixture.control.clone(),
+            ),
             fixture.identity.endpoint().id(),
             copies.clone(),
         );
@@ -335,7 +337,8 @@ async fn set_device_allowed(fixture: &Fixture, allowed: bool) {
             .expect("persist real owner-bound Management restriction")
     );
     let (current, selected) =
-        management_server::replication_policy(fixture.management.clone(), &fixture.device)
+        device_server::DeviceAuthority::new(fixture.management.clone(), fixture.control.clone())
+            .replication_policy(&fixture.device)
             .await
             .expect("current local Management evaluation");
     assert_eq!(current, allowed);

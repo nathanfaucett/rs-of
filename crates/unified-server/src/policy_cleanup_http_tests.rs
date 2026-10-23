@@ -1,5 +1,8 @@
 use std::sync::{Arc, OnceLock};
 
+use device_service::HostedControlPlane;
+use device_service::replica::DbSelectionPolicyRepo;
+use device_service::replica::SelectionPolicy;
 use idp_model::{
     contract::{EntityType, GrantType, IdentityAction, TokenEndpointAuthMethod},
     model::Id,
@@ -8,10 +11,9 @@ use idp_service::{
     replica::DbUserRepo,
     repo::{ClientRepo, UserRepo},
 };
-use management_service::{
-    HostedControlPlane, ManagementService,
-    replica::{DbPermissionRepo, DbRoleRepo, DbSelectionPolicyRepo, SelectionPolicy},
-};
+use management_service::ManagementService;
+use management_service::replica::DbPermissionRepo;
+use management_service::replica::DbRoleRepo;
 use model::contract::{StorageAuthorizationAction, TokenResponse};
 use storage_server::{RouterState, StorageCopyRetirement, resource_router};
 
@@ -112,8 +114,7 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
             .is_ok()
     );
     let authorizer = crate::runtime::owner_replication_authorizer(
-        fixture.control.clone(),
-        fixture.management.clone(),
+        device_server::DeviceAuthority::new(fixture.management.clone(), fixture.control.clone()),
         fixture.identity.endpoint().id(),
         copies.clone(),
     );
@@ -204,12 +205,12 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
         "idp-services",
     )
     .expect("scoped introspection")
-    .with_local_devices(Arc::new(management_service::replica::DbDeviceRepo::new(
+    .with_local_devices(Arc::new(device_service::replica::DbDeviceRepo::new(
         fixture.management.clone(),
     )));
     let control = Arc::new(control);
     let mut management = Listener::start(
-        management_server::build_router(
+        device_server::build_router(
             fixture.management.clone(),
             fixture.management.clone(),
             "https://management.test",
@@ -442,8 +443,10 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
     fixture.client = fixture.client.clone().with_local_device_policy(
         fixture.identity.endpoint().id(),
         crate::runtime::owner_replication_authorizer(
-            fixture.control.clone(),
-            fixture.management.clone(),
+            device_server::DeviceAuthority::new(
+                fixture.management.clone(),
+                fixture.control.clone(),
+            ),
             fixture.identity.endpoint().id(),
             copies.clone(),
         ),

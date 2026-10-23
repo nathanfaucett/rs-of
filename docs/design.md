@@ -1,12 +1,14 @@
 # System design
 
+Current owner/database boundaries and Device routes: [shared control-plane databases](control-plane.md).
+
 This is the confirmed target architecture, not a claim of complete implementation/platform acceptance. [The glossary map](../GLOSSARY-MAP.md) links definitions and context contracts; [operations](operations.md#qualification-boundary) records the bounded Ubuntu qualification and broader limits.
 
 Current source contracts and acceptance limits are summarized in [API boundaries](api.md) and [security boundaries](security.md). Automatic CLI bootstrap and production approval routes are present; documented code paths do not establish new native installation, GUI or full deployment passes. Historical replication terminology does not imply a privileged replica topology.
 
 ## Equal offline-first nodes
 
-Every Node runs IdP, Management, and Storage. Nodes are equal peers: none is a designated writer, central authority, privileged replica, or promotion candidate. Any Node may mutate identity, policy, and resources when the actor's permissions checked against that Node's trusted local state permit it. An Installation shares a Canonical Issuer and approved public identities, not one live authorization server.
+Every Node runs IdP, Management, Device, and Storage. Nodes are equal peers: none is a designated writer, central authority, privileged replica, or promotion candidate. Any Node may mutate identity, policy, and resources when the actor's permissions checked against that Node's trusted local state permit it. An Installation shares a Canonical Issuer and approved public identities, not one live authorization server.
 
 Trusted identity and policy state persists locally. Restart restores usable trusted state and local signing capability without requiring a reachable peer or revalidation against a central service. Missing, corrupt, untrusted, or locally revoked state must not grant access. A partition alone does not invalidate trusted state; there is no 30-second freshness rule or background freshness lease.
 
@@ -14,7 +16,7 @@ Revocations and restrictions take effect on a Node when learned. Temporarily div
 
 ## Service ownership
 
-IdP owns Users, credentials, Applications, OAuth Clients/grants and token-signing trust. Management owns Devices, endpoint-ID bindings, User ownership, approval/enrollment, transfer/revocation, roles, permissions, assignments, restrictions, selections and replication policy. Storage owns resource catalogs, namespace isolation, resource lifecycle, and authorization. These domain responsibilities exist on every Node; ownership names a context, not a privileged machine.
+IdP owns Users, credentials, Applications, OAuth Clients/grants and token-signing trust. Management owns roles, permissions, and assignments in the identity database. Device owns Devices, endpoint-ID bindings, User ownership, approval/enrollment, transfer/revocation, restrictions, selections, and replication policy in its separate database. Storage owns resource catalogs, namespace isolation, resource lifecycle, and authorization. These domain responsibilities exist on every Node; ownership names a context, not a privileged machine.
 
 Users call the relevant authenticated owner API; Management is not an identity-administration proxy. Contexts retain separate repositories and data roots. A host composes services and coordinates owner-local setup without reading another context's repositories or bypassing permissions. Permission checks use local IdP and Management state through their owner boundaries, not a required remote control plane. Ordinary token issuance and validation need local identity/grant checks; administration additionally requires exact actor/action/target permissions.
 
@@ -22,7 +24,7 @@ Users call the relevant authenticated owner API; Management is not an identity-a
 
 ## Identity and grants
 
-Each Node has an independent private signer kept in its local secure store. Approved public signer data and other explicitly approved identity/policy data may synchronize; private keys, raw passwords, and raw client secrets must not. Define record allowlists and provenance checks rather than copying mixed engines. Signer identity, token Principal, Device ID and authenticated endpoint ID remain distinct. Management-approved endpoints do not require individual IdP signers; endpoint possession/approval never replaces exact resource policy.
+Each Node has an independent private signer kept in its local secure store. Approved public signer data and other explicitly approved identity/policy data may synchronize; private keys, raw passwords, and raw client secrets must not. Define record allowlists and provenance checks rather than copying mixed engines. Signer identity, token Principal, Device ID and authenticated endpoint ID remain distinct. Device-approved endpoints do not require individual IdP signers; endpoint possession/approval never replaces exact resource policy.
 
 All Nodes may perform locally authorized OAuth/OIDC issuance, code creation/redemption, and refresh rotation/revocation. Validate signature, configured issuer, audience, token use, lifetime, client, scope, Principal, and signer against locally known state. Grant consumption is durable and atomic locally, including after restart. Local atomicity does not guarantee global single use across partitioned Nodes; partitioned concurrent consumption is an accepted limitation, not a reason to introduce a designated consumer or global coordination dependency.
 
@@ -30,7 +32,7 @@ All Nodes may perform locally authorized OAuth/OIDC issuance, code creation/rede
 
 The same app supports web without Tauri and desktop bundled or remote service selection. Unified and independently deployed owner APIs admit Create/Join through verified HTTPS using protected host-generated Setup codes, not pre-existing administrator authority. Every independent owner has its own code and exact operation binding. API hosts serve APIs, not UI assets. See [worker design](setup-workers.md) and [literal contracts](api.md).
 
-Create seeds only necessary identity/signing/public-login state, Management Device/endpoint binding and explicit initial grants; Storage and selection start empty. It needs no peer or history/content sync. Join authenticates the pinned source, retains its Canonical Issuer and imports approved public identity/policy through each owner, not passwords, private keys or resource content. Topology does not create Nodes/Devices per process, a multi-endpoint Node aggregate, copied endpoint keys or per-service enrollment.
+Create seeds only necessary identity/signing/public-login state, Device/endpoint binding and explicit initial grants; Storage and selection start empty. It needs no peer or history/content sync. Join authenticates the pinned source, retains its Canonical Issuer and imports approved public identity/policy through each owner, not passwords, private keys or resource content. Topology does not create Nodes/Devices per process, a multi-endpoint Node aggregate, copied endpoint keys or per-service enrollment.
 
 Open/initialize owner stores once per runtime and reuse their handles through seed/import/serving. Bundled calls use local owners and no confidential service Clients; independent relationships use verified authenticated HTTPS with consumer-local secrets delivered directly under operation-bound challenges. The browser never assembles or receives infrastructure secrets.
 
@@ -38,7 +40,7 @@ After durable exact admission, the host returns 202 and owns work independently 
 
 Both flows require OS-level trust and verified production HTTPS across the selected topology. Native coordinates explicit local elevation/consent; web uses deployment-managed installation on relevant hosts/clients, never browser privileges or warning bypasses. Provider/trust/TLS failure denies. Bundled native transfers its host to the shared API worker and retains observation, protected code retrieval, retry/reset/reference recovery and Device completion, not separate provisioning/approval. A remote selection must never provision/reset the bundled Node.
 
-Optional `unified-server create`/`join` derives and retains IDs, roots, logical issuer, endpoint/signing/TLS material and public login registration; `serve` reopens its completed state. Ordinary fresh API startup instead stays running for app setup without a second serve command. CLI verification checks current local readiness and native-root HTTPS, not a full token/health integration suite. Source approval uses Management HTTPS and ordinary User permissions, separate from target codes. See [operations](operations.md#automatic-unified-cli-bootstrap).
+Optional `unified-server create`/`join` derives and retains IDs, roots, logical issuer, endpoint/signing/TLS material and public login registration; `serve` reopens its completed state. Ordinary fresh API startup instead stays running for app setup without a second serve command. CLI verification checks current local readiness and native-root HTTPS, not a full token/health integration suite. Source approval uses Device HTTPS and ordinary User permissions, separate from target codes. See [operations](operations.md#automatic-unified-cli-bootstrap).
 
 After completed setup, persist trust, identity, policy, endpoint identity, and local completion state for offline restart. Partial setup remains incomplete and retryable. Secure-store or TLS failures do not permit plaintext fallback; malformed state is preserved for explicit recovery/reset. Local reset affects only that Node and may proceed offline; authorized revocation is propagated when possible.
 
@@ -46,7 +48,7 @@ A Node host composes one shared `iroh-chain` endpoint/router with persisted endp
 
 ## Networking composition and trust
 
-Reuse [ofnet's Endpoint Mesh vocabulary](../../ofnet/GLOSSARY.md) without equating its Endpoint with an Installation Node or its Peer with an approved Device. `of` binds an authenticated endpoint to an Installation Device through local Management owner state; `ofnet` has no Installation, User, selection, or resource policy.
+Reuse [ofnet's Endpoint Mesh vocabulary](../../ofnet/GLOSSARY.md) without equating its Endpoint with an Installation Node or its Peer with an approved Device. `of` binds an authenticated endpoint to an Installation Device through local Device owner state; `ofnet` has no Installation, User, selection, or resource policy.
 
 At startup, `of` loads persisted, locally trusted approved/non-revoked membership into the shared endpoint allowlist and updates it as approval/revocation is learned. The endpoint key and domain membership are persisted by the host/owner integration; `iroh-chain`'s `EndpointIdStore` is an in-memory shared set, not a durable trust database. A completed Node restores this state offline without central contact or a trust-expiry lease. Missing/invalid local trust fails closed.
 

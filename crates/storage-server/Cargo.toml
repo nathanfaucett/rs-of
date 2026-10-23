@@ -25,6 +25,7 @@ completions = ["cli?/completions"]
 swagger-ui = ["utoipa-swagger-ui"]
 
 [dependencies]
+device-service = { path = "../device-service", default-features = false, features = ["replica", "std", "utoipa"] }
 # CLI
 dotenvy = { version = "0.15", default-features = false, features = [
 ], optional = true }
@@ -37,7 +38,7 @@ cli = { path = "../cli", default-features = false, features = [
 ], optional = true }
 
 # Internal
-of-management-client = { path = "../management-client", default-features = false }
+of-device-client = { path = "../device-client", default-features = false }
 of-idp-client = { path = "../idp-client", default-features = false }
 api = { path = "../api", default-features = false, features = [] }
 file-system = { path = "../../../offs/crates/file-system", default-features = false, features = [] }

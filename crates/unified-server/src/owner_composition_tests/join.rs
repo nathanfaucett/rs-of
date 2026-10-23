@@ -9,6 +9,8 @@ use std::{
 };
 
 use api::{IndependentCreateIntent, LocalTls};
+use device_service::DeviceIdentity;
+use device_service::HostedControlPlane;
 use idp_model::{
     contract::{ClientProfile, ClientType, GrantType, IdentityAction, TokenEndpointAuthMethod},
     model::Id,
@@ -17,7 +19,6 @@ use idp_service::{
     oauth2::NodeSignerBinding,
     setup_credentials::{SetupRelationship, create_setup_secret, load_setup_secret},
 };
-use management_service::{DeviceIdentity, HostedControlPlane};
 use reqwest::{Client, StatusCode};
 use tokio_util::sync::CancellationToken;
 
@@ -44,7 +45,7 @@ fn run_production_join(legacy_reset: bool) {
         fs::create_dir(&directory).expect("separate deployment roots");
         fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))
             .expect("private deployment");
-        for owner in ["idp", "management", "storage"] {
+        for owner in ["idp", "device", "storage"] {
             let reservation =
                 std::net::TcpListener::bind("127.0.0.1:0").expect("reserve owner address");
             let address = reservation.local_addr().expect("owner address");
@@ -128,18 +129,18 @@ impl api::LocalTlsConfig for SourceTls {
 
 struct ExistingSource {
     idp: String,
-    management: String,
+    device: String,
     issuer: String,
     login: Id,
     identity: Arc<DeviceIdentity>,
     idp_runtime: idp_server::IdpRuntime,
-    management_runtime: management_server::IndependentManagementRuntime,
+    management_runtime: device_server::IndependentDeviceRuntime,
     storage_runtime: storage_server::StorageRuntime,
     tls: Vec<LocalTls>,
 }
 impl ExistingSource {
     async fn provision(root: &Path, addresses: &[SocketAddr]) -> Self {
-        let tls = ["idp", "management", "storage"]
+        let tls = ["idp", "device", "storage"]
             .iter()
             .zip(addresses)
             .map(|(owner, address)| {
@@ -151,7 +152,7 @@ impl ExistingSource {
             })
             .collect();
         let idp = format!("https://{}/idp", addresses[0]);
-        let management = format!("https://{}/management", addresses[1]);
+        let device = format!("https://{}/device", addresses[1]);
         let storage = format!("https://{}/storage", addresses[2]);
         let issuer = format!("https://existing-{}.installation.invalid/idp", Id::now_v7());
         let secret = iroh::SecretKey::generate();
@@ -188,7 +189,7 @@ impl ExistingSource {
                 .expect("explicit fixture provider preparation");
         }
         config.management_permissions = Some(idp_server::ManagementPermissionConfig {
-            api_base_uri: management.clone(),
+            api_base_uri: device.clone(),
             client_id: clients[0].to_string(),
             client_secret: load_setup_secret(&service, &clients[0].to_string())
                 .expect("fixture evaluator credential"),
@@ -232,7 +233,7 @@ impl ExistingSource {
         .into_iter()
         .zip(clients)
         {
-            let mut registration = relationship.registration(client, &idp, &management, &storage);
+            let mut registration = relationship.registration(client, &idp, &device, &storage);
             registration.client_secret = Some(
                 load_setup_secret(&service, &client.to_string())
                     .expect("fixture-only relationship"),
@@ -243,7 +244,7 @@ impl ExistingSource {
                 .expect("existing authenticated relationship");
         }
         let mut registration =
-            SetupRelationship::ManagementIdp.registration(login, &idp, &management, &storage);
+            SetupRelationship::ManagementIdp.registration(login, &idp, &device, &storage);
         registration.client_type = ClientType::Public;
         registration.profile = ClientProfile::Native;
         registration.token_endpoint_auth_method = TokenEndpointAuthMethod::None;
@@ -265,12 +266,12 @@ impl ExistingSource {
             .ensure_setup_public_login_client(registration)
             .await
             .expect("existing source login");
-        let mut management_config = management_server::AppConfig {
-            data_dir: root.join("management").to_string_lossy().into_owned(),
+        let mut management_config = device_server::AppConfig {
+            data_dir: root.join("device").to_string_lossy().into_owned(),
             ..Default::default()
         };
-        management_config.server.prefix = Some("/management".into());
-        let management_engine = management_server::open_database(&management_config)
+        management_config.server.prefix = Some("/device".into());
+        let device_engine = device_server::open_device_database(&management_config)
             .await
             .expect("existing source Management owner");
         let permissions = [
@@ -283,15 +284,15 @@ impl ExistingSource {
         ]
         .map(|action| (Id::now_v7(), action));
         management_server::provision_initial_administrator(
-            management_engine.clone(),
+            device_engine.clone(),
             user,
             Id::now_v7(),
             &permissions,
         )
         .await
         .expect("explicit existing source grants");
-        management_server::provision_initial_device(
-            management_engine.clone(),
+        device_server::provision_initial_device(
+            device_engine.clone(),
             Id::now_v7(),
             user,
             &identity.endpoint_id().to_string(),
@@ -311,14 +312,14 @@ impl ExistingSource {
             .with_permission_evaluator(&clients[0].to_string())
             .expect("source evaluator")
             .with_device_identity(identity.clone());
-        let management_runtime = management_server::build_independent_management(
+        let management_runtime = device_server::build_independent_device(
             &management_config,
-            management_engine,
+            device_engine,
             Arc::new(plane),
             identity.clone(),
             &issuer,
             &idp,
-            &management,
+            &device,
             &storage,
             CancellationToken::new(),
         )
@@ -339,8 +340,8 @@ impl ExistingSource {
             &idp,
         )
         .expect("source Storage IdP client");
-        let management_client = storage_server::ManagementClient::new(
-            &management,
+        let management_client = storage_server::DeviceClient::new(
+            &device,
             &idp,
             &clients[3].to_string(),
             &load_setup_secret(&service, &clients[3].to_string()).expect("source Storage policy"),
@@ -351,7 +352,7 @@ impl ExistingSource {
         let storage_runtime = storage_server::build_http_runtime(
             storage_server::RouterState::new(&storage)
                 .with_idp_client(idp_client)
-                .with_management_client(management_client),
+                .with_device_client(management_client),
             &root.join("storage"),
             "/storage",
             identity.endpoint_id(),
@@ -360,7 +361,7 @@ impl ExistingSource {
         .expect("existing source Storage serving");
         Self {
             idp,
-            management,
+            device,
             issuer,
             login,
             identity,
@@ -412,7 +413,7 @@ async fn source_tokens(http: &Client, source: &ExistingSource) -> (String, Strin
         .expect("ordinary existing source login");
     assert_eq!(response.status(), StatusCode::OK);
     let token: model::contract::TokenResponse = response.json().await.expect("ordinary User token");
-    let management = http
+    let device = http
         .post(format!("{}/oauth2/token", source.idp))
         .form(&[
             (
@@ -430,9 +431,9 @@ async fn source_tokens(http: &Client, source: &ExistingSource) -> (String, Strin
         .send()
         .await
         .expect("ordinary Management audience exchange");
-    assert_eq!(management.status(), StatusCode::OK);
-    let management: model::contract::TokenResponse =
-        management.json().await.expect("Management User token");
+    assert_eq!(device.status(), StatusCode::OK);
+    let device: model::contract::TokenResponse =
+        device.json().await.expect("Management User token");
     let storage = http
         .post(format!("{}/oauth2/token", source.idp))
         .form(&[
@@ -441,7 +442,7 @@ async fn source_tokens(http: &Client, source: &ExistingSource) -> (String, Strin
                 "urn:ietf:params:oauth:grant-type:token-exchange",
             ),
             ("client_id", login.as_str()),
-            ("subject_token", management.access_token.0.as_str()),
+            ("subject_token", device.access_token.0.as_str()),
             (
                 "subject_token_type",
                 "urn:ietf:params:oauth:token-type:access_token",
@@ -457,16 +458,13 @@ async fn source_tokens(http: &Client, source: &ExistingSource) -> (String, Strin
         .expect("ordinary Storage exchange");
     assert_eq!(storage.status(), StatusCode::OK);
     let storage: model::contract::TokenResponse = storage.json().await.expect("Storage User token");
-    (management.access_token.0, storage.access_token.0)
+    (device.access_token.0, storage.access_token.0)
 }
 async fn pending_offer(http: &Client, source: &ExistingSource, bearer: &str) -> serde_json::Value {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
         let response = http
-            .get(format!(
-                "{}/independent/node-joins/pending",
-                source.management
-            ))
+            .get(format!("{}/independent/node-joins/pending", source.device))
             .bearer_auth(bearer)
             .send()
             .await
@@ -486,11 +484,11 @@ async fn pending_offer(http: &Client, source: &ExistingSource, bearer: &str) -> 
 async fn use_joined(
     http: &Client,
     intent: &IndependentCreateIntent,
-    management: &str,
+    device: &str,
     storage: &str,
 ) -> serde_json::Value {
     assert_eq!(
-        http.get(format!("{}/devices/trusted", intent.management))
+        http.get(format!("{}/devices/trusted", intent.device))
             .send()
             .await
             .expect("missing User evidence")
@@ -498,8 +496,8 @@ async fn use_joined(
         StatusCode::UNAUTHORIZED
     );
     let response = http
-        .get(format!("{}/devices/trusted", intent.management))
-        .bearer_auth(management)
+        .get(format!("{}/devices/trusted", intent.device))
+        .bearer_auth(device)
         .send()
         .await
         .expect("normal joined Management");
@@ -541,7 +539,7 @@ async fn independent_join_child() {
     assert_eq!(
         http.put(format!(
             "{}/independent/node-joins/acceptance",
-            source.management
+            source.device
         ))
         .json(&serde_json::json!({"accepting":true}))
         .send()
@@ -553,7 +551,7 @@ async fn independent_join_child() {
     assert_eq!(
         http.put(format!(
             "{}/independent/node-joins/acceptance",
-            source.management
+            source.device
         ))
         .bearer_auth(&management_token)
         .json(&serde_json::json!({"accepting":true}))
@@ -570,12 +568,12 @@ async fn independent_join_child() {
         administrator: String::new(),
         node: "Independent joining Node".into(),
         idp: format!("https://{}/idp", addresses[3]),
-        management: format!("https://{}/management", addresses[4]),
+        device: format!("https://{}/device", addresses[4]),
         storage: format!("https://{}/storage", addresses[5]),
         issuer: String::new(),
         peer: Some(format!(
             "{}#{}",
-            source.management,
+            source.device,
             source.identity.endpoint_id()
         )),
     };
@@ -584,7 +582,7 @@ async fn independent_join_child() {
     wait(&http, &intent, false).await;
     let idp_code = setup_code(&target, "idp");
     let mut unretired_idp = None;
-    for owner in ["idp", "management", "storage"] {
+    for owner in ["idp", "device", "storage"] {
         let base = intent.base(owner).expect("owner");
         let code = setup_code(&target, owner);
         assert_eq!(
@@ -615,7 +613,7 @@ async fn independent_join_child() {
     }
     intent.issuer = source.issuer.clone();
     let first = pending_offer(&http, &source, &management_token).await;
-    for (owner, absent) in [("idp", "credential"), ("management", "create")] {
+    for (owner, absent) in [("idp", "credential"), ("device", "create")] {
         let record: serde_json::Value = serde_json::from_slice(
             &fs::read(target.join(format!("{owner}.setup-host/worker.json")))
                 .expect("durable admitted Join record"),
@@ -637,7 +635,7 @@ async fn independent_join_child() {
     assert_eq!(
         http.post(format!(
             "{}/independent/node-joins/{first_id}/approve",
-            source.management
+            source.device
         ))
         .json(&serde_json::json!({}))
         .send()
@@ -649,7 +647,7 @@ async fn independent_join_child() {
     assert_eq!(
         http.post(format!(
             "{}/independent/node-joins/{first_id}/reject",
-            source.management
+            source.device
         ))
         .bearer_auth(&management_token)
         .send()
@@ -661,7 +659,7 @@ async fn independent_join_child() {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
         let status: serde_json::Value = http
-            .get(format!("{}/independent/setup/status", intent.management))
+            .get(format!("{}/independent/setup/status", intent.device))
             .send()
             .await
             .expect("rejection observation")
@@ -677,7 +675,7 @@ async fn independent_join_child() {
         );
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    for owner in ["idp", "management", "storage"] {
+    for owner in ["idp", "device", "storage"] {
         let base = intent.base(owner).expect("owner");
         let code = setup_code(&target, owner);
         let recovered: serde_json::Value = http
@@ -701,7 +699,7 @@ async fn independent_join_child() {
                 .await
                 .expect("explicit Join cancellation")
                 .status(),
-            if owner == "management" {
+            if owner == "device" {
                 StatusCode::CONFLICT
             } else {
                 StatusCode::NO_CONTENT
@@ -718,7 +716,7 @@ async fn independent_join_child() {
     let shutdown = CancellationToken::new();
     let servers = start(&target, &addresses[3..], &shutdown).await;
     wait(&http, &intent, false).await;
-    for owner in ["idp", "management", "storage"] {
+    for owner in ["idp", "device", "storage"] {
         let base = intent.base(owner).expect("owner");
         let code = setup_code(&target, owner);
         let mut conflicting = intent.clone();
@@ -754,7 +752,7 @@ async fn independent_join_child() {
     let response = http
         .post(format!(
             "{}/independent/node-joins/{id}/approve",
-            source.management
+            source.device
         ))
         .bearer_auth(&management_token)
         .send()
@@ -791,7 +789,7 @@ async fn independent_join_child() {
         "Join never replays administrator credentials"
     );
     let secrets = forbidden_secrets(&target, &http, &intent).await;
-    for owner in ["idp", "management", "storage"] {
+    for owner in ["idp", "device", "storage"] {
         let base = intent.base(owner).expect("owner");
         let body = http
             .get(format!("{base}/independent/setup/status"))
@@ -899,7 +897,7 @@ async fn forbidden_secrets(
     intent: &IndependentCreateIntent,
 ) -> Vec<String> {
     let mut secrets = vec!["source-protected-password".into()];
-    for owner in ["idp", "management", "storage"] {
+    for owner in ["idp", "device", "storage"] {
         let public = wait_public(http, intent.base(owner).expect("owner")).await;
         let provider = idp_service::repo::RawKeyringRepo::new(format!(
             "independent-setup:{}",
@@ -929,7 +927,7 @@ async fn forbidden_secrets(
                 .all(|registration| registration["client_secret"].is_null())
         );
     }
-    for owner in ["idp", "management", "storage"] {
+    for owner in ["idp", "device", "storage"] {
         let public = wait_public(http, intent.base(owner).expect("owner"))
             .await
             .to_string();

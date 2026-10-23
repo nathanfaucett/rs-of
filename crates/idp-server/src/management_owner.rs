@@ -36,8 +36,8 @@ pub async fn active_management_user(state: &RouterState, user_id: Id) -> Result<
 
 #[cfg(test)]
 mod tests {
+    use device_service::HostedControlPlane;
     use idp_service::repo::ClientRepo;
-    use management_service::HostedControlPlane;
 
     use crate::node_join_tests::{approval_fixture, user_token};
 

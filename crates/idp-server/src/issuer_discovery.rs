@@ -21,15 +21,14 @@ pub async fn discover_with_preset(
     cancellation: &tokio_util::sync::CancellationToken,
     preset: impl presets::Preset,
 ) -> io::Result<String> {
-    management_service::hosted_join::NodeJoinRequest::validate_trusted_peer(peer)?;
+    device_service::hosted_join::NodeJoinRequest::validate_trusted_peer(peer)?;
     let peer_id: EndpointId = peer.parse().map_err(io::Error::other)?;
     let allowed = EndpointIdStore::default();
     allowed.replace([peer_id]);
     let server = Server::bind_with_secret_key(preset, SecretKey::generate(), allowed)
         .await
         .map_err(io::Error::other)?;
-    let result =
-        management_service::issuer_discovery::discover_on(&server, peer, cancellation).await;
+    let result = device_service::issuer_discovery::discover_on(&server, peer, cancellation).await;
     server.endpoint().close().await;
     result
 }

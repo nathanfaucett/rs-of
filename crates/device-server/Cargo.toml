@@ -1,0 +1,126 @@
+[package]
+name = "device-server"
+version = "0.1.0"
+publish = false
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Device API server for LIDP"
+
+[lib]
+name = "device_server"
+
+[[bin]]
+name = "device-server"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[features]
+default = ["cli", "completions", "swagger-ui"]
+cli = ["dep:dotenvy", "dep:clap", "dep:cli"]
+completions = ["cli?/completions"]
+swagger-ui = ["utoipa-swagger-ui"]
+
+[dependencies]
+management-server = { path = "../management-server", default-features = false }
+management-service = { path = "../management-service", default-features = false, features = ["replica", "std", "utoipa"] }
+device-service = { path = "../device-service", default-features = false, features = ["replica", "std", "utoipa"] }
+of-idp-client = { path = "../idp-client", default-features = false }
+# Generated HTTP operations
+
+# CLI
+dotenvy = { version = "0.15", default-features = false, features = [
+], optional = true }
+clap = { version = "4.6", default-features = false, features = [
+  "std",
+  "derive",
+  "help",
+], optional = true }
+cli = { path = "../cli", default-features = false, features = [
+], optional = true }
+
+# Internal
+api = { path = "../api", default-features = false, features = [] }
+db = { package = "idp-db", path = "../db", default-features = false, features = ["replica"] }
+model = { path = "../model", default-features = false, features = [
+  "std",
+  "utoipa",
+  "axum",
+] }
+idp-model = { path = "../idp-model", default-features = false, features = [
+  "std",
+  "utoipa",
+  "axum",
+  "replica",
+] }
+idp-service = { path = "../idp-service", default-features = false, features = ["replica", "std"] }
+storage-model = { path = "../storage-model", default-features = false, features = [] }
+
+# Database
+ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = [
+
+  "redb",
+] }
+
+# Transport
+iroh-chain = { path = "../../../ofnet/crates/iroh-chain", default-features = false }
+
+# Cryptography
+base64 = { version = "0.22", default-features = false, features = ["std"] }
+iroh = { version = "1.1", default-features = false, features = ["tls-ring"] }
+
+# Serialization
+serde = { version = "1.0", default-features = false, features = [
+  "derive",
+  "std",
+] }
+serde_json = { version = "1.0", default-features = false, features = ["std"] }
+
+# Utilities
+config = { version = "0.15", features = ["yaml"], default-features = false }
+
+# Web
+axum = { version = "0.8", default-features = false, features = [
+  "http1",
+  "http2",
+  "query",
+  "json",
+  "tokio",
+  "macros",
+] }
+tower-http = { version = "0.7", features = [
+  "cors",
+  "trace",
+  "compression-gzip",
+], default-features = false }
+http = { version = "1.4", default-features = false }
+utoipa = { version = "5.5", default-features = false, features = ["macros"] }
+utoipa-axum = { version = "0.2", default-features = false, features = [] }
+utoipa-swagger-ui = { version = "9.0", default-features = false, features = [
+  "axum",
+], optional = true }
+
+# Async
+tokio = { version = "1.52", default-features = false, features = [
+  "macros",
+  "rt-multi-thread",
+] }
+tokio-util = { version = "0.7", default-features = false, features = [
+] }
+
+# Logging
+log = { version = "0.4", default-features = false, features = ["std"] }
+env_logger = { version = "0.10", default-features = false, features = [] }
+
+[dev-dependencies]
+
+# Time
+chrono = { version = "0.4", default-features = false, features = [
+  "std",
+  "clock",
+] }
+
+# Web
+tower = { version = "0.5", default-features = false, features = ["util"] }

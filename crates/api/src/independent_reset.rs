@@ -40,7 +40,7 @@ enum Phase {
     Cleanup,
 }
 
-/// Stopped, owner-local host management only. No HTTP reset capability is exposed.
+/// Stopped, owner-local host device only. No HTTP reset capability is exposed.
 /// Keep this guard alive through provider cleanup and local data removal.
 pub struct IndependentReset {
     journal: Journal,

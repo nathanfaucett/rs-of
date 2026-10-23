@@ -1,7 +1,7 @@
 use axum::Router;
 
-pub fn compose_router(idp: Router, management: Router, storage: Router) -> Router {
-    idp.merge(management).merge(storage)
+pub fn compose_router(idp: Router, management: Router, device: Router, storage: Router) -> Router {
+    idp.merge(management).merge(device).merge(storage)
 }
 
 #[cfg(test)]
@@ -15,12 +15,14 @@ mod tests {
     async fn composes_service_routers_without_rewriting_prefixes() {
         let idp = Router::new().route("/idp/health", get(|| async { "idp" }));
         let management = Router::new().route("/management/health", get(|| async { "management" }));
+        let device = Router::new().route("/device/health", get(|| async { "device" }));
         let storage = Router::new().route("/storage/health", get(|| async { "storage" }));
-        let router = compose_router(idp, management, storage);
+        let router = compose_router(idp, management, device, storage);
 
         for (path, expected) in [
             ("/idp/health", "idp"),
             ("/management/health", "management"),
+            ("/device/health", "device"),
             ("/storage/health", "storage"),
         ] {
             let response = router

@@ -21,6 +21,7 @@ mod database_protocol;
 mod database_sessions;
 #[cfg(feature = "network")]
 mod database_transport;
+mod device_client;
 #[cfg(all(test, feature = "network"))]
 mod execution_test_support;
 #[cfg(feature = "network")]
@@ -28,7 +29,6 @@ mod filesystem_transport;
 mod idp_client;
 #[cfg(feature = "network")]
 mod local_replication_authorizer;
-mod management_client;
 #[cfg(feature = "network")]
 mod replication_admission;
 #[cfg(feature = "network")]
@@ -48,10 +48,10 @@ pub use copy_retirement::StorageCopyRetirement;
 pub use data_protocol::DataProtocolHandler;
 #[cfg(feature = "network")]
 pub use database_transport::DatabaseTransport;
+pub use device_client::DeviceClient;
 pub use idp_client::{IdpClient, IdpIntrospectionError};
 #[cfg(feature = "network")]
 pub use local_replication_authorizer::{DeviceReplicationPolicy, LocalReplicationAuthorizer};
-pub use management_client::ManagementClient;
 #[cfg(feature = "network")]
 pub use replication_runtime::StorageReplicationRuntime;
 pub use router::{

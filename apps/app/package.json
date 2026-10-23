@@ -42,6 +42,7 @@
     "vitest": "4.1.10"
   },
   "dependencies": {
+    "@aicacia/device-client": "workspace:*",
     "@aicacia/idp-client": "workspace:*",
     "@aicacia/management-client": "workspace:*",
     "@aicacia/native-fetch": "workspace:*",

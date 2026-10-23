@@ -26,15 +26,15 @@ export interface IndependentCreateRequest {
     /**
      *
      */
+    device: string;
+    /**
+     *
+     */
     idp: string;
     /**
      *
      */
     issuer: string;
-    /**
-     *
-     */
-    management: string;
     /**
      *
      */
@@ -69,10 +69,9 @@ export function instanceOfIndependentCreateRequest(
 ): value is IndependentCreateRequest {
     if (!("administrator" in value) || value["administrator"] === undefined)
         return false;
+    if (!("device" in value) || value["device"] === undefined) return false;
     if (!("idp" in value) || value["idp"] === undefined) return false;
     if (!("issuer" in value) || value["issuer"] === undefined) return false;
-    if (!("management" in value) || value["management"] === undefined)
-        return false;
     if (!("node" in value) || value["node"] === undefined) return false;
     if (
         (!("operationNonce" in (value as Record<string, any>)) &&
@@ -101,9 +100,9 @@ export function IndependentCreateRequestFromJSONTyped(
     }
     return {
         administrator: json["administrator"],
+        device: json["device"],
         idp: json["idp"],
         issuer: json["issuer"],
-        management: json["management"],
         node: json["node"],
         operationNonce: json["operation_nonce"],
         peer: json["peer"] == null ? undefined : json["peer"],
@@ -134,9 +133,9 @@ export function IndependentCreateRequestToJSONTyped(
 
     return {
         administrator: value["administrator"],
+        device: value["device"],
         idp: value["idp"],
         issuer: value["issuer"],
-        management: value["management"],
         node: value["node"],
         operation_nonce: value["operationNonce"],
         peer: value["peer"],

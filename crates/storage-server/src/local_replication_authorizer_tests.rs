@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use db::{Database, SqlTranslator};
+use device_service::DeviceRepo;
+use device_service::replica::DbDeviceRepo;
+use device_service::replica::DbSelectionPolicyRepo;
+use device_service::replica::SelectionPolicy;
 use idp_model::model::Id;
 use idp_service::{PasswordConfig, replica::DbUserRepo, repo::UserRepo};
-use management_service::{
-    DeviceRepo,
-    replica::{DbDeviceRepo, DbSelectionPolicyRepo, SelectionPolicy},
-};
 use model::contract::SelectedResource;
 
 use super::{DeviceReplicationPolicy, LocalReplicationAuthorizer};
@@ -28,7 +28,7 @@ async fn native_selection_fixture(select: bool) {
     let management =
         Arc::new(Database::open(root.join("management.redb")).expect("Management store"));
     idp_model::replica::up(&idp).await.expect("IdP schema");
-    management_service::replica::up(&management)
+    device_service::replica::up(&management)
         .await
         .expect("Management schema");
     let owner = Id::now_v7();

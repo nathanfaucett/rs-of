@@ -98,10 +98,10 @@ async fn node_join_anchor_verification_is_existing_only_and_does_not_write() {
         .prepare_node_join(&binding, "Read-only verification", peer.public())
         .expect("explicit preparation");
     let signature = peer.sign(
-        &management_service::hosted_join::NodeJoinApproval::payload(&request, subject)
+        &device_service::hosted_join::NodeJoinApproval::payload(&request, subject)
             .expect("exact approval payload"),
     );
-    let approval = management_service::hosted_join::NodeJoinApproval {
+    let approval = device_service::hosted_join::NodeJoinApproval {
         request,
         owner_subject: subject,
         signature: URL_SAFE_NO_PAD.encode(signature.to_bytes()),
@@ -266,7 +266,7 @@ async fn node_join_secure_store_loss_and_corrupt_journal_fail_closed() {
         "missing persisted key cannot be replaced"
     );
     assert_eq!(
-        serde_json::from_slice::<management_service::hosted_join::NodeJoinRequest>(
+        serde_json::from_slice::<device_service::hosted_join::NodeJoinRequest>(
             &std::fs::read(root.join("node-join-request.json")).expect("preserved journal")
         )
         .expect("request"),
@@ -415,10 +415,10 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
         db::Database::open(root.join("management/management.redb"))
             .expect("native Management owner"),
     );
-    management_service::replica::up(&management)
+    device_service::replica::up(&management)
         .await
         .expect("policy schema");
-    management_service::replica::DbDeviceRepo::new(management.clone())
+    device_service::replica::DbDeviceRepo::new(management.clone())
         .enroll_approved_exact(
             peer_binding.member_id,
             owner,
@@ -443,12 +443,11 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
         "idp-services",
         engine.clone(),
         Arc::new(provisioner.oauth2),
-        Some(Arc::new(management_service::replica::DbDeviceRepo::new(
+        Some(Arc::new(device_service::replica::DbDeviceRepo::new(
             management.clone(),
         ))),
         Arc::new(
-            management_service::device_identity_from_server(&server, secret)
-                .expect("peer identity"),
+            device_service::device_identity_from_server(&server, secret).expect("peer identity"),
         ),
     )
     .with_local_permissions(management_service::LocalPermissions::new(
@@ -515,10 +514,10 @@ pub(crate) async fn user_token(fixture: &ApprovalFixture, audience: &str) -> Str
 
 #[tokio::test]
 async fn node_join_requires_both_permissions_and_retries_after_disconnected_reply() {
-    use management_service::{
-        DeviceRepo, ManagementService,
-        replica::{DbPermissionRepo, DbRoleRepo},
-    };
+    use device_service::DeviceRepo;
+    use management_service::ManagementService;
+    use management_service::replica::DbPermissionRepo;
+    use management_service::replica::DbRoleRepo;
     let fixture = approval_fixture().await;
     let peer_router = fixture.server.router(crate::BootstrapProtocolHandler);
     fixture.server.set_pairing_enabled(true);
@@ -867,7 +866,7 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
     forged.signature = URL_SAFE_NO_PAD.encode(
         SecretKey::generate()
             .sign(
-                &management_service::hosted_join::NodeJoinApproval::payload(
+                &device_service::hosted_join::NodeJoinApproval::payload(
                     &request,
                     received.owner_subject,
                 )

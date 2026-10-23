@@ -32,10 +32,10 @@ impl BootstrapHost for UnifiedBootstrapHost {
             listen_addr: config.listen_addr,
             endpoint_data_dir: config.endpoint_data_dir.clone(),
             idp: config.idp.clone(),
-            management: idp_server::bootstrap_settings::ManagementBootstrapSettings {
-                data_dir: config.management.data_dir.clone(),
-                api_public_uri: config.management.api_public_uri.clone(),
-                storage_audience: config.management.storage_audience.clone(),
+            device: idp_server::bootstrap_settings::DeviceBootstrapSettings {
+                data_dir: config.device.data_dir.clone(),
+                api_public_uri: config.device.api_public_uri.clone(),
+                storage_audience: config.device.storage_audience.clone(),
             },
             storage: idp_server::bootstrap_settings::StorageBootstrapSettings {
                 data_dir: config.storage.data_dir.clone(),
@@ -49,9 +49,9 @@ impl BootstrapHost for UnifiedBootstrapHost {
         config.listen_addr = settings.listen_addr;
         config.endpoint_data_dir = settings.endpoint_data_dir;
         config.idp = settings.idp;
-        config.management.data_dir = settings.management.data_dir;
-        config.management.api_public_uri = settings.management.api_public_uri;
-        config.management.storage_audience = settings.management.storage_audience;
+        config.device.data_dir = settings.device.data_dir;
+        config.device.api_public_uri = settings.device.api_public_uri;
+        config.device.storage_audience = settings.device.storage_audience;
         config.storage.data_dir = settings.storage.data_dir;
         config.storage.api_public_uri = settings.storage.api_public_uri;
         config
@@ -61,8 +61,8 @@ impl BootstrapHost for UnifiedBootstrapHost {
         settings.into()
     }
 
-    async fn open_management(config: &UnifiedConfig) -> io::Result<Arc<db::Database>> {
-        management_server::open_device_database(&config.management).await
+    async fn open_devices(config: &UnifiedConfig) -> io::Result<Arc<db::Database>> {
+        device_server::open_device_database(&config.device).await
     }
 
     async fn provision_administrator(
@@ -83,7 +83,7 @@ impl BootstrapHost for UnifiedBootstrapHost {
         endpoint: &str,
         name: &str,
     ) -> io::Result<()> {
-        management_server::provision_initial_device(database, member, user, endpoint, name).await
+        device_server::provision_initial_device(database, member, user, endpoint, name).await
     }
 
     async fn open_owners(config: &UnifiedConfig) -> io::Result<BootstrapOwners<UnifiedEndpoint>> {
@@ -91,7 +91,7 @@ impl BootstrapHost for UnifiedBootstrapHost {
         Ok(BootstrapOwners {
             endpoint: owners.endpoint,
             idp: owners.idp,
-            management: owners.management,
+            devices: owners.devices,
         })
     }
 }
@@ -137,7 +137,7 @@ impl BootstrapRuntime<UnifiedConfig, UnifiedEndpoint> for UnifiedRuntime {
             RuntimeOwners {
                 endpoint: owners.endpoint,
                 idp: owners.idp,
-                management: owners.management,
+                devices: owners.devices,
             },
         )
         .await
@@ -182,7 +182,7 @@ impl BootstrapProtocol<UnifiedEndpoint> for SecurityProtocol {
         owner: &OwnerProvisioner,
         name: &str,
         peer: &str,
-    ) -> io::Result<management_service::hosted_join::NodeJoinApproval> {
+    ) -> io::Result<device_service::hosted_join::NodeJoinApproval> {
         self.join_from_trusted_peer(owner, name, peer).await
     }
     fn into_runtime_owners(
@@ -193,7 +193,7 @@ impl BootstrapProtocol<UnifiedEndpoint> for SecurityProtocol {
         BootstrapOwners {
             endpoint: owners.endpoint,
             idp: owners.idp,
-            management: owners.management,
+            devices: owners.devices,
         }
     }
 }

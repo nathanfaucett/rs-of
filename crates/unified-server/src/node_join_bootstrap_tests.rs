@@ -1,15 +1,16 @@
 use std::{io::ErrorKind, sync::Arc, time::Duration};
 
 use db::Database;
+use device_service::DeviceRepo;
+use device_service::replica::DbDeviceRepo;
 use idp_model::{contract::IdentityAction, model::Id};
 use idp_server::{AppConfig, OwnerProvisioner};
 use idp_service::{oauth2::NodeSignerBinding, replica::DbReplicaSignerRepo};
 use iroh::{SecretKey, endpoint::presets::Minimal};
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
-use management_service::{
-    DeviceRepo, ManagementService,
-    replica::{DbDeviceRepo, DbPermissionRepo, DbRoleRepo},
-};
+use management_service::ManagementService;
+use management_service::replica::DbPermissionRepo;
+use management_service::replica::DbRoleRepo;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -84,7 +85,7 @@ async fn issue_local_token(
         owner.node_join_database(),
         Some(Arc::new(DbDeviceRepo::new(policy.clone()))),
         Arc::new(
-            management_service::device_identity_from_server(server, secret.clone())
+            device_service::device_identity_from_server(server, secret.clone())
                 .expect("retained local endpoint identity"),
         ),
         server.clone(),
@@ -139,9 +140,8 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
     seed_permissions(&source_root, &mut fixture).await;
     let source_idp =
         Arc::new(Database::open(source_root.join("idp/idp.redb")).expect("source IdP"));
-    let source_policy = Arc::new(
-        Database::open(source_root.join("management/management.redb")).expect("source policy"),
-    );
+    let source_policy =
+        Arc::new(Database::open(source_root.join("device/devices.redb")).expect("source policy"));
     let policy = ManagementService::new(
         DbPermissionRepo::new(source_policy.clone()),
         DbRoleRepo::new(source_policy.clone()),
@@ -267,7 +267,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
         source_idp.clone(),
         Some(Arc::new(DbDeviceRepo::new(source_policy.clone()))),
         Arc::new(
-            management_service::device_identity_from_server(&source, source_secret)
+            device_service::device_identity_from_server(&source, source_secret)
                 .expect("source identity"),
         ),
         source.clone(),
@@ -354,7 +354,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
     source_allowed.replace(
         crate::runtime::build_control_plane(
             Arc::new(runtime),
-            Arc::new(management_service::replica::DbDeviceRepo::new(
+            Arc::new(device_service::replica::DbDeviceRepo::new(
                 source_policy.clone(),
             )),
             "http://127.0.0.1:1",
@@ -383,10 +383,9 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
         "receipt is not local signer trust"
     );
     let joining_idp = provisioner.node_join_database();
-    let joining_policy = Arc::new(
-        Database::open(joining_root.join("management.redb")).expect("joining policy owner"),
-    );
-    management_service::replica::up(&joining_policy)
+    let joining_policy =
+        Arc::new(Database::open(joining_root.join("devices.redb")).expect("joining policy owner"));
+    device_service::replica::up(&joining_policy)
         .await
         .expect("empty fixed public policy schema");
     let protocol = SecurityProtocol::new(
@@ -413,7 +412,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
         .await
         .expect("authenticated purpose-specific bootstrap connection");
     assert_eq!(connection.remote_id(), source.endpoint().id());
-    for context in [SecurityContext::Idp, SecurityContext::Management] {
+    for context in [SecurityContext::Idp, SecurityContext::Device] {
         let error = protocol
             .synchronize(&connection, context)
             .await
@@ -460,7 +459,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
             .expect("incomplete receipt")
     );
     protocol
-        .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Management)
+        .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Device)
         .await
         .expect_err("Management bootstrap requires the retained IdP import first");
     protocol
@@ -474,7 +473,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
             .is_empty(),
         "IdP import must not establish Management endpoint authority"
     );
-    for context in [SecurityContext::Idp, SecurityContext::Management] {
+    for context in [SecurityContext::Idp, SecurityContext::Device] {
         protocol
             .synchronize(&connection, context)
             .await
@@ -489,7 +488,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
     );
     assert!(
         protocol
-            .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Management)
+            .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Device)
             .await
             .is_err(),
         "receipt alone cannot grant missing source context permission"
@@ -545,7 +544,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
         .await
         .expect("authorized independent policy bootstrap");
     protocol
-        .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Management)
+        .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Device)
         .await
         .expect("authorized policy import after partial restart");
     eprintln!("bootstrap policy imported: {:?}", started.elapsed());
@@ -637,7 +636,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
             .expect("learned source context revocation");
         assert!(
             protocol
-                .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Management)
+                .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Device)
                 .await
                 .is_err(),
             "existing connection cannot reuse receipt after source grant revocation"
@@ -731,9 +730,8 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
     )
     .await
     .expect("offline restored endpoint and durable purpose admission");
-    let reopened_policy = Arc::new(
-        Database::open(joining_root.join("management.redb")).expect("offline policy reopen"),
-    );
+    let reopened_policy =
+        Arc::new(Database::open(joining_root.join("devices.redb")).expect("offline policy reopen"));
     let offline = SecurityProtocol::new(
         restarted.clone(),
         provisioner.node_join_database(),

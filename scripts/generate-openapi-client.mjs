@@ -17,6 +17,7 @@ const root = path.resolve(import.meta.dirname, "..");
 const destinations = {
     idp: ["idp", ""],
     management: ["management", ""],
+    device: ["device", ""],
     storage: ["storage", "generated"],
 };
 const selected = process.argv[2];

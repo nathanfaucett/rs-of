@@ -1,12 +1,12 @@
 #[cfg(feature = "network")]
 use crate::LocalReplicationAuthorizer;
-use crate::{IdpClient, ManagementClient};
+use crate::{DeviceClient, IdpClient};
 
 #[derive(Clone)]
 pub struct RouterState {
     pub api_base_uri: String,
     pub idp_client: Option<IdpClient>,
-    pub management_client: Option<ManagementClient>,
+    pub device_client: Option<DeviceClient>,
     #[cfg(feature = "network")]
     pub local_replication_authorizer: Option<LocalReplicationAuthorizer>,
 }
@@ -16,7 +16,7 @@ impl RouterState {
         Self {
             api_base_uri: api_base_uri.into(),
             idp_client: None,
-            management_client: None,
+            device_client: None,
             #[cfg(feature = "network")]
             local_replication_authorizer: None,
         }
@@ -36,8 +36,8 @@ impl RouterState {
         self
     }
 
-    pub fn with_management_client(mut self, management_client: ManagementClient) -> Self {
-        self.management_client = Some(management_client);
+    pub fn with_device_client(mut self, device_client: DeviceClient) -> Self {
+        self.device_client = Some(device_client);
         self
     }
 }

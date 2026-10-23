@@ -181,17 +181,17 @@ fn references(config: &BootstrapSettings) -> io::Result<References> {
         tls_attempted: false,
         roots: [
             absolute(std::path::Path::new(&config.idp.data_dir))?,
-            absolute(std::path::Path::new(&config.management.data_dir))?,
+            absolute(std::path::Path::new(&config.device.data_dir))?,
             absolute(std::path::Path::new(&config.storage.data_dir))?,
             absolute(&config.endpoint_data_dir)?,
         ],
         issuer: config.idp.oauth2.issuer.clone(),
         key_namespace: config.idp.key_namespace.clone(),
         idp_audience: config.idp_audience().to_owned(),
-        storage_audience: config.management.storage_audience.clone(),
+        storage_audience: config.device.storage_audience.clone(),
         applications: [
             config.idp.api_public_uri.clone(),
-            config.management.api_public_uri.clone(),
+            config.device.api_public_uri.clone(),
             config.storage.api_public_uri.clone(),
         ],
     })

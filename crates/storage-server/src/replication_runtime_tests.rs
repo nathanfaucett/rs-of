@@ -7,10 +7,10 @@ use std::{
     time::Duration,
 };
 
+use device_service::DeviceState;
 use idp_model::model::Id;
 use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets, protocol::Router};
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
-use management_service::DeviceState;
 use model::contract::SelectedResource;
 
 use storage_service::{DatabaseRuntime, ScopedFileSystemRuntime};

@@ -1,5 +1,7 @@
 # Node operations
 
+Current owner/database boundaries and Device routes: [shared control-plane databases](control-plane.md).
+
 These are current operational requirements for the [offline-first Node design](design.md), not a fully qualified deployment runbook. Ordinary unified CLI create/join is automatic apart from the human password, trusted peer choice and authorized approval; TLS terminates at the deployment proxy. Desktop/native and independent-owner HTTPS startup still require OS trust/elevation consent. Internal IDs, secrets, audiences, context roots and password files are not prerequisites.
 
 ## Qualification boundary

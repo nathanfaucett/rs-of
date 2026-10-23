@@ -5,7 +5,7 @@ use crate::IndependentSetupHost;
 #[test]
 fn independent_join_binds_a_pinned_source_without_an_administrator_seed() {
     let pin = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
-    let intent: crate::IndependentCreateIntent = serde_json::from_value(serde_json::json!({"purpose":"join", "operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"", "node":"Joining Node", "idp":"https://127.0.0.1:3000/idp", "management":"https://127.0.0.1:3001/management", "storage":"https://127.0.0.1:3002/storage", "issuer":"https://existing.installation/idp", "peer":format!("https://127.0.0.1:4001/management#{pin}")})).expect("Join intent");
+    let intent: crate::IndependentCreateIntent = serde_json::from_value(serde_json::json!({"purpose":"join", "operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"", "node":"Joining Node", "idp":"https://127.0.0.1:3000/idp", "device":"https://127.0.0.1:3001/device", "storage":"https://127.0.0.1:3002/storage", "issuer":"https://existing.installation/idp", "peer":format!("https://127.0.0.1:4001/device#{pin}")})).expect("Join intent");
     intent
         .canonical()
         .expect("Join is not a fresh administrator Create");
@@ -42,7 +42,7 @@ async fn independent_create_requires_owner_code_and_retains_exact_intent() {
     let (host, mut commands) = setup
         .into_create(tokio_util::sync::CancellationToken::new())
         .expect("host");
-    let payload = serde_json::json!({"purpose":"create", "operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"operator", "node":"Independent Node", "idp":"https://127.0.0.1:3000", "management":"https://127.0.0.1:3001", "storage":"https://127.0.0.1:3002", "issuer":"https://127.0.0.1:3000", "peer":null, "password":"protected-password"});
+    let payload = serde_json::json!({"purpose":"create", "operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"operator", "node":"Independent Node", "idp":"https://127.0.0.1:3000", "device":"https://127.0.0.1:3001", "storage":"https://127.0.0.1:3002", "issuer":"https://127.0.0.1:3000", "peer":null, "password":"protected-password"});
     for (authorization, expected) in [
         ("Setup wrong".to_owned(), StatusCode::UNAUTHORIZED),
         (format!("Setup {code}"), StatusCode::ACCEPTED),
@@ -159,7 +159,7 @@ async fn delayed_forged_challenge_does_not_block_cancel_or_commit_after_cancel()
     };
     use tower::ServiceExt;
     let root = tempfile::tempdir().expect("isolated host");
-    let setup = prepare(&root.path().join("management"), "management", false)
+    let setup = prepare(&root.path().join("device"), "device", false)
         .expect("prepare")
         .expect("fresh");
     let admission = fs::read_to_string(setup.admission_path()).expect("protected admission");
@@ -167,7 +167,7 @@ async fn delayed_forged_challenge_does_not_block_cancel_or_commit_after_cancel()
     let (host, mut commands) = setup
         .into_create(tokio_util::sync::CancellationToken::new())
         .expect("host");
-    let intent: crate::IndependentCreateIntent = serde_json::from_value(serde_json::json!({"purpose":"create", "operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"operator", "node":"Independent Node", "idp":"https://127.0.0.1:3001", "management":"https://127.0.0.1:3000", "storage":"https://127.0.0.1:3002", "issuer":"https://127.0.0.1:3001", "peer":null})).expect("operation");
+    let intent: crate::IndependentCreateIntent = serde_json::from_value(serde_json::json!({"purpose":"create", "operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"operator", "node":"Independent Node", "idp":"https://127.0.0.1:3001", "device":"https://127.0.0.1:3000", "storage":"https://127.0.0.1:3002", "issuer":"https://127.0.0.1:3001", "peer":null})).expect("operation");
     let response = host
         .router()
         .oneshot(
@@ -190,7 +190,7 @@ async fn delayed_forged_challenge_does_not_block_cancel_or_commit_after_cancel()
         .set_public(
             crate::IndependentOwnerPublic {
                 operation: intent.clone(),
-                owner: "management".into(),
+                owner: "device".into(),
                 clients: vec![registration.clone()],
                 facts: serde_json::json!({}),
                 registered: vec![],
@@ -207,7 +207,7 @@ async fn delayed_forged_challenge_does_not_block_cancel_or_commit_after_cancel()
         )
         .await
         .expect("public evidence");
-    let forged = serde_json::json!({"operation":intent,"recipient":"management","registration":registration,"challenge":"a".repeat(64)});
+    let forged = serde_json::json!({"operation":intent,"recipient":"device","registration":registration,"challenge":"a".repeat(64)});
     let callback = tokio::spawn(
         host.router().oneshot(
             Request::post("/independent/setup/independent/challenge")
@@ -273,7 +273,7 @@ async fn delayed_forged_challenge_does_not_block_cancel_or_commit_after_cancel()
 fn setup_scope_accepts_only_single_owner_or_complete_unified_host() {
     use crate::SetupScope;
 
-    for owner in ["idp", "management", "storage"] {
+    for owner in ["idp", "device", "storage"] {
         assert_eq!(
             SetupScope::from_owners(&[owner])
                 .expect("independent scope")
@@ -282,21 +282,21 @@ fn setup_scope_accepts_only_single_owner_or_complete_unified_host() {
         );
     }
     assert_eq!(
-        SetupScope::from_owners(&["storage", "idp", "management"])
+        SetupScope::from_owners(&["storage", "idp", "device"])
             .expect("unified scope")
             .owners(),
-        &["idp", "management", "storage"]
+        &["idp", "device", "storage"]
     );
     for invalid in [
         &[][..],
         &["idp", "idp"][..],
-        &["idp", "management"][..],
-        &["idp", "management", "management"][..],
-        &["idp", "management", "storage", "storage"][..],
+        &["idp", "device"][..],
+        &["idp", "device", "device"][..],
+        &["idp", "device", "storage", "storage"][..],
         &["unified"][..],
         &["IdP"][..],
         &["unknown"][..],
-        &["idp", "management", "unknown"][..],
+        &["idp", "device", "unknown"][..],
     ] {
         assert!(
             SetupScope::from_owners(invalid).is_err(),
@@ -314,14 +314,14 @@ async fn owner_scope_is_retained_not_inferred_from_origin_or_path() {
     use tower::ServiceExt;
 
     let temporary = tempfile::tempdir().expect("isolated roots");
-    for owner in ["idp", "management", "storage"] {
+    for owner in ["idp", "device", "storage"] {
         let domain = temporary.path().join(owner).join("idp");
         let host = prepare(&domain, owner, false)
             .expect("fresh owner")
             .expect("setup");
         let code = fs::read(host.admission_path()).expect("protected retained code");
         drop(host);
-        for other in ["idp", "management", "storage"] {
+        for other in ["idp", "device", "storage"] {
             if other != owner {
                 assert!(
                     prepare(&domain, other, false).is_err(),
@@ -329,7 +329,7 @@ async fn owner_scope_is_retained_not_inferred_from_origin_or_path() {
                 );
             }
         }
-        for invalid in ["unified", "unknown", "idp,management"] {
+        for invalid in ["unified", "unknown", "idp,device"] {
             assert!(prepare(&domain, invalid, false).is_err());
         }
         let host = prepare(&domain, owner, false)
@@ -424,7 +424,7 @@ async fn live_awaiting_choice_status_refuses_partial_domain_state() {
         .expect("fresh startup")
         .expect("setup");
     let router = host.router();
-    let state = fs::read_to_string(host.admission_path()).expect("protected management retrieval");
+    let state = fs::read_to_string(host.admission_path()).expect("protected device retrieval");
     let code = state.lines().nth(1).expect("private code");
     fs::create_dir(&domain).expect("simulate incomplete external provisioning");
     let response = router
@@ -492,7 +492,7 @@ fn retained_owner_setup_is_not_new_admission_permission_after_loss_or_domain_mut
     let ca_path = reopened.tls().ca_path();
     drop(reopened);
     assert!(
-        prepare(&domain, "management", false).is_err(),
+        prepare(&domain, "device", false).is_err(),
         "owner cannot adopt another owner root"
     );
     assert!(
@@ -532,7 +532,7 @@ async fn independent_hosts_serve_canonical_openapi_without_provisioning() {
     use tower::ServiceExt;
 
     let root = tempfile::tempdir().expect("isolated metadata hosts");
-    for owner in ["idp", "management", "storage"] {
+    for owner in ["idp", "device", "storage"] {
         for (index, prefix) in [String::new(), format!("/{owner}")].iter().enumerate() {
             let domain = root.path().join(format!("{owner}-{index}"));
             let host = IndependentSetupHost::prepare(
@@ -566,7 +566,7 @@ async fn independent_hosts_serve_canonical_openapi_without_provisioning() {
                     serde_json::from_slice(&bytes).expect("served contract");
                 let mut expected: serde_json::Value = serde_json::from_str(match owner {
                     "idp" => include_str!("../../../openapi/idp.json"),
-                    "management" => include_str!("../../../openapi/management.json"),
+                    "device" => include_str!("../../../openapi/device.json"),
                     "storage" => include_str!("../../../openapi/storage.json"),
                     _ => unreachable!("known owner"),
                 })

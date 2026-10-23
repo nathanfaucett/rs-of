@@ -31,9 +31,11 @@ function digest() {
     for (const dir of [
         "packages/idp-client/src",
         "packages/management-client/src",
+        "packages/device-client/src",
         "packages/storage-client/src",
         "crates/idp-client",
         "crates/management-client",
+        "crates/device-client",
         "crates/storage-client",
     ])
         visit(path.join(root, dir));

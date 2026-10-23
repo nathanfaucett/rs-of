@@ -45,7 +45,7 @@ async fn revoke(State(peer): State<Arc<Peer>>, request: Request) -> StatusCode {
         "Bearer exchanged-peer-user"
     );
     let path = request.uri().path().to_owned();
-    let management = path.starts_with("/management");
+    let management = path.starts_with("/device");
     let denied = management && peer.deny_device.load(Ordering::SeqCst);
     peer.deletions.lock().expect("deletion records").push(path);
     if denied {
@@ -85,7 +85,7 @@ async fn peer_reset_revocation_pins_issuer_exchanges_each_audience_and_acknowled
         .route("/idp/.well-known/openid-configuration", get(metadata))
         .route("/idp/oauth2/token", post(exchange))
         .route("/idp/replica-signers/{id}", delete(revoke))
-        .route("/management/devices/{id}", delete(revoke))
+        .route("/device/devices/{id}", delete(revoke))
         .with_state(state.clone());
     let listener = tokio::net::TcpListener::bind(address)
         .await
@@ -138,7 +138,7 @@ async fn peer_reset_revocation_pins_issuer_exchanges_each_audience_and_acknowled
         state.deletions.lock().expect("deletions").as_slice(),
         [
             format!("/idp/replica-signers/{member}"),
-            format!("/management/devices/{member}")
+            format!("/device/devices/{member}")
         ]
     );
     let exchanges = state.exchanges.lock().expect("exchange records").clone();

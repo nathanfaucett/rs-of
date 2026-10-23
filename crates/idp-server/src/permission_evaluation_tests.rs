@@ -372,10 +372,9 @@ async fn independent_permission_http_binds_exact_request_and_fails_closed() {
 #[tokio::test]
 async fn local_permission_http_remains_offline_and_does_not_fallback() {
     tokio::time::timeout(std::time::Duration::from_secs(120), async {
-        use management_service::{
-            ManagementService,
-            replica::{DbPermissionRepo, DbRoleRepo},
-        };
+        use management_service::ManagementService;
+        use management_service::replica::DbPermissionRepo;
+        use management_service::replica::DbRoleRepo;
 
         let fixture = approval_fixture().await;
         let user = user_token(&fixture, "idp-services").await;

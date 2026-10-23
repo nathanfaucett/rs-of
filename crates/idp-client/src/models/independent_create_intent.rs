@@ -16,12 +16,12 @@ use serde::{Deserialize, Serialize};
 pub struct IndependentCreateIntent {
     #[serde(rename = "administrator")]
     pub administrator: String,
+    #[serde(rename = "device")]
+    pub device: String,
     #[serde(rename = "idp")]
     pub idp: String,
     #[serde(rename = "issuer")]
     pub issuer: String,
-    #[serde(rename = "management")]
-    pub management: String,
     #[serde(rename = "node")]
     pub node: String,
     #[serde(rename = "operation_nonce")]
@@ -42,9 +42,9 @@ pub struct IndependentCreateIntent {
 impl IndependentCreateIntent {
     pub fn new(
         administrator: String,
+        device: String,
         idp: String,
         issuer: String,
-        management: String,
         node: String,
         operation_nonce: String,
         purpose: String,
@@ -52,9 +52,9 @@ impl IndependentCreateIntent {
     ) -> IndependentCreateIntent {
         IndependentCreateIntent {
             administrator,
+            device,
             idp,
             issuer,
-            management,
             node,
             operation_nonce,
             peer: None,

@@ -39,8 +39,8 @@ pub fn prepare_setup(
         config.server.prefix(),
         config.idp_oauth_client_id.is_some()
             || config.idp_oauth_client_secret.is_some()
-            || config.management_oauth_client_id.is_some()
-            || config.management_oauth_client_secret.is_some(),
+            || config.device_oauth_client_id.is_some()
+            || config.device_oauth_client_secret.is_some(),
     )
 }
 
@@ -124,8 +124,8 @@ mod tests {
             idp_api_base_uri: "https://127.0.0.1:3000".into(),
             idp_issuer_uri: "https://127.0.0.1:3000/idp".into(),
             idp_service_audience: Some("storage:databases".into()),
-            management_api_base_uri: "https://127.0.0.1:3001".into(),
-            management_service_audience: Some("storage:databases".into()),
+            device_api_base_uri: "https://127.0.0.1:3001".into(),
+            device_service_audience: Some("storage:databases".into()),
             ..crate::AppConfig::default()
         };
         let host = super::prepare_setup(&config, "127.0.0.1:3002".parse().expect("address"))

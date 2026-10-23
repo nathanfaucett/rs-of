@@ -22,7 +22,7 @@ pub(crate) fn fixture_config(
     config.idp.api_public_uri = format!("{base}/idp");
     config.management.api_public_uri = format!("{base}/management");
     config.storage.api_public_uri = format!("{base}/storage");
-    config.management.storage_audience = config.storage.api_public_uri.clone();
+    config.device.storage_audience = config.storage.api_public_uri.clone();
     config.idp.password.memory_mib = 1;
     config.idp.password.iterations = 1;
     config
@@ -444,10 +444,10 @@ impl log::Log for SetupTimingLog {
             || metadata.level() == log::Level::Debug
                 && [
                     "idp_server::independent",
-                    "management_server::independent",
+                    "device_server::independent",
                     "storage_server::independent",
                     "storage_server::idp_client",
-                    "management_server::router::routes::replication",
+                    "device_server::router::routes::replication",
                 ]
                 .iter()
                 .any(|target| metadata.target().starts_with(*target))

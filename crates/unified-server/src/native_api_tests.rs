@@ -187,14 +187,14 @@ impl Listener {
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 struct Fixture {
-    control: Arc<management_service::HostedControlPlane>,
+    control: Arc<device_service::HostedControlPlane>,
     issuer: String,
     binding: NodeSignerBinding,
     keys: Arc<KeyService<DbKeyRepo, PrivateKeyKeyringRepo>>,
     idp: Arc<Database>,
     management: Arc<Database>,
     clients: DbClientRepo,
-    device: management_service::DeviceEndpointIdentity,
+    device: device_service::DeviceEndpointIdentity,
     owner: Id,
     scope: StorageNamespace,
     resource: FileSystemId,
@@ -337,12 +337,12 @@ impl Fixture {
             .await
             .expect("native human Application client");
         let management = Arc::new(
-            Database::open(directory.0.join("management.redb")).expect("separate Management store"),
+            Database::open(directory.0.join("devices.redb")).expect("separate Management store"),
         );
-        management_service::replica::up(&management)
+        device_service::replica::up(&management)
             .await
             .expect("native policy schema");
-        let devices = Arc::new(management_service::replica::DbDeviceRepo::new(
+        let devices = Arc::new(device_service::replica::DbDeviceRepo::new(
             management.clone(),
         ));
         devices
@@ -360,7 +360,7 @@ impl Fixture {
             idp.clone(),
             Some(devices.clone()),
             Arc::new(
-                management_service::device_identity_from_server(&identity, secret)
+                device_service::device_identity_from_server(&identity, secret)
                     .expect("injected endpoint identity"),
             ),
             identity.clone(),
