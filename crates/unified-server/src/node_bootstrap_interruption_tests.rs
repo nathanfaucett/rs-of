@@ -126,8 +126,8 @@ async fn interruption_boundary(
     let source_policy =
         Arc::new(Database::open(source_root.join("device/devices.redb")).expect("source policy"));
     let policy = ManagementService::new(
-        DbPermissionRepo::new(source_policy.client()),
-        DbRoleRepo::new(source_policy.client()),
+        DbPermissionRepo::new(source_idp.client()),
+        DbRoleRepo::new(source_idp.client()),
     );
     let role = policy
         .create_role(
@@ -232,7 +232,7 @@ async fn interruption_boundary(
         source.clone(),
         source_idp.clone(),
         source_policy.clone(),
-        source_policy.clone(),
+        source_idp.clone(),
         issuer.clone(),
         Some(fixture.local_signer.clone()),
         source_root.join("security-staging"),
@@ -260,7 +260,7 @@ async fn interruption_boundary(
         ),
         source.clone(),
         Some(management_service::LocalPermissions::new(
-            source_policy.client(),
+            source_idp.client(),
         )),
     )
     .await
@@ -680,7 +680,7 @@ async fn interruption_boundary(
                 .node_join_database()
                 .expect("local identity owner"),
             policy_store.clone(),
-            policy_store.clone(),
+            provisioner.node_join_database().expect("identity owner"),
             issuer.clone(),
             Some(binding.clone()),
             joining_root.join("security-staging"),
@@ -745,7 +745,7 @@ async fn interruption_boundary(
     let mut transport = begin(&protocol, &connection, &provisioner).await;
     let mut gated = RevokeAfterHello {
         inner: &mut transport,
-        policy: &source_policy,
+        policy: &source_idp,
         learned: false,
         application_frames_after_denial: 0,
     };

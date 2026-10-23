@@ -73,3 +73,8 @@ All Cargo invocations used literal `CARGO_TARGET_DIR=/home/nathan/code/rust/aica
 - `management-server/src/router/routes/replication.rs` and Device-related test files: only required identity repository constructor arguments changed to `.client()`; Device route behavior and models were not changed.
 - `unified-server/src/{runtime.rs,security_bootstrap.rs,security_sync.rs}`: mechanical `.client()` query injection and propagation of fallible local-owner access. Local owner handles and Device composition are retained. Other Unified/Storage changes are corresponding test/fixture constructor updates, not a Device design change.
 - `idp-server/src/local_provisioning.rs`: propagates the local-owner accessor error. Keep local bootstrap ownership intact when merging ticket02.
+
+
+### Review-fix addendum
+
+The earlier reset preservation statement was incomplete: `delete_local_secrets` also deleted shared public key metadata. Removed public SQL deletion from that local cleanup boundary for all callers. The remote Create IdP reset regression compares every column of every shared key row before/after reset and proves another IdP consumer still authenticates/signs. Local and remote independent IdP both use injected identity permissions; obsolete Device-as-permission-evaluator wiring is removed. See [ticket 05](05-review-fixes.md) for exact validation, red/green evidence, deployment limits and remaining unqualified checks; this addendum supersedes conflicting completion claims above.

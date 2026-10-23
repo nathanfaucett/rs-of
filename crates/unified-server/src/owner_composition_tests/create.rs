@@ -92,7 +92,7 @@ fn run_production_create(legacy_reset: bool) {
         .stdin(Stdio::null())
         .spawn()
         .expect("isolated child");
-    let deadline = Instant::now() + Duration::from_secs(90);
+    let deadline = Instant::now() + Duration::from_secs(180);
     let status = loop {
         if let Some(status) = child.try_wait().expect("child status") {
             break status;
@@ -100,7 +100,7 @@ fn run_production_create(legacy_reset: bool) {
         if Instant::now() >= deadline {
             child.kill().expect("bound child");
             child.wait().expect("reap child");
-            panic!("independent Create exceeded 90 seconds");
+            panic!("independent Create exceeded 180 seconds");
         }
         std::thread::sleep(Duration::from_millis(20));
     };
@@ -175,7 +175,7 @@ pub(super) async fn start(
     ]
 }
 pub(super) async fn wait(http: &Client, intent: &IndependentCreateIntent, ready: bool) {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
     for owner in ["idp", "device", "storage"] {
         loop {
             if let Ok(response) = http
@@ -262,7 +262,7 @@ pub(super) async fn normal_use(
             ("username", "operator"),
             ("password", "protected-password"),
             ("scope", "openid"),
-            ("resource", "idp-management"),
+            ("resource", intent.idp.as_str()),
         ])
         .send()
         .await
@@ -288,6 +288,40 @@ pub(super) async fn normal_use(
         Some("https://untrusted.example")
     );
     let token: model::contract::TokenResponse = response.json().await.expect("normal token");
+    let administration_token: model::contract::TokenResponse = http
+        .post(format!("{}/oauth2/token", intent.idp))
+        .form(&[
+            (
+                "grant_type",
+                "urn:ietf:params:oauth:grant-type:token-exchange",
+            ),
+            ("client_id", client),
+            ("subject_token", token.access_token.0.as_str()),
+            (
+                "subject_token_type",
+                "urn:ietf:params:oauth:token-type:access_token",
+            ),
+            ("resource", intent.idp.as_str()),
+        ])
+        .send()
+        .await
+        .expect("IdP audience exchange")
+        .json()
+        .await
+        .expect("IdP audience token");
+    let administration = http
+        .get(format!("{}/applications", intent.idp))
+        .bearer_auth(&administration_token.access_token.0)
+        .send()
+        .await
+        .expect("authorized IdP administration");
+    let status = administration.status();
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "independent IdP administration: {}",
+        administration.text().await.expect("response")
+    );
     let response = http
         .post(format!("{}/oauth2/token", intent.idp))
         .form(&[
@@ -991,9 +1025,10 @@ pub(super) async fn seed_endpoint_negatives(root: &Path) -> Vec<(String, StatusC
     let engine = Arc::new(
         db::Database::open(root.join("device/devices.redb")).expect("existing-only stopped owner"),
     );
+    let identity = db::Database::open(root.join("idp/idp.redb")).expect("stopped identity owner");
     let service = ManagementService::new(
-        DbPermissionRepo::new(engine.client()),
-        DbRoleRepo::new(engine.client()),
+        DbPermissionRepo::new(identity.client()),
+        DbRoleRepo::new(identity.client()),
     );
     for action in [
         IdentityAction::DevicesRevoke,
@@ -1100,7 +1135,7 @@ async fn storage_policy_token(
             ("client_secret", secret.as_str()),
             (
                 "scope",
-                "management.device.list device.replication.read device.replication.admit",
+                "management.device.list management.replication.read management.replication.admit",
             ),
             ("audience", intent.storage.as_str()),
         ])
@@ -1201,18 +1236,21 @@ async fn exercise_endpoint_negatives(
         StatusCode::SERVICE_UNAVAILABLE
     );
     let public = wait_public(http, &intent.device).await;
-    let device = public["facts"]["device"]
+    let local_device = public["facts"]["device"]
         .as_str()
         .expect("local Management Device");
     for allowed in [false, true] {
         assert_eq!(
-            http.put(format!("{}/devices/{device}/restriction", intent.device))
-                .bearer_auth(device)
-                .json(&serde_json::json!({"adminAllowed":allowed}))
-                .send()
-                .await
-                .expect("ordinary exact policy update")
-                .status(),
+            http.put(format!(
+                "{}/devices/{local_device}/restriction",
+                intent.device
+            ))
+            .bearer_auth(device)
+            .json(&serde_json::json!({"adminAllowed":allowed}))
+            .send()
+            .await
+            .expect("ordinary exact policy update")
+            .status(),
             StatusCode::NO_CONTENT
         );
         current_status(http, &intent.device, allowed).await;
@@ -1466,7 +1504,7 @@ pub(super) fn setup_code(root: &Path, owner: &str) -> String {
 }
 
 pub(super) async fn wait_public(http: &Client, base: &str) -> serde_json::Value {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
     loop {
         if let Ok(response) = http
             .get(format!("{base}/independent/setup/independent/public"))

@@ -40,4 +40,3 @@ CREATE TABLE IF NOT EXISTS application_user_roles (
     updated_at INTEGER
 );
 CREATE UNIQUE INDEX IF NOT EXISTS application_user_roles_user_application_role ON application_user_roles (user_id, application_id, role_id);
-

@@ -51,6 +51,7 @@ pub use runtime::{IdpRuntime, build_oauth_runtime, build_runtime, identity_clien
 
 #[cfg(unix)]
 mod independent_create;
+mod independent_identity;
 #[cfg(unix)]
 mod independent_join;
 #[cfg(unix)]

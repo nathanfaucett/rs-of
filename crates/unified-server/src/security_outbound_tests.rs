@@ -78,8 +78,8 @@ impl Fixture {
                 enroll(idp.clone(), member, endpoint, key).await;
             }
             ManagementService::new(
-                DbPermissionRepo::new(management.client()),
-                DbRoleRepo::new(management.client()),
+                DbPermissionRepo::new(idp.client()),
+                DbRoleRepo::new(idp.client()),
             )
             .provision_initial_administrator(
                 actor,
@@ -110,12 +110,12 @@ impl Fixture {
             Arc::new(Database::open(root.join("peer-management.redb")).expect("peer Management"));
         let payload = Id::now_v7();
         sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{payload}' AS UUID), 'outbound-payload', 'Outbound Payload', 1, 1)")).await;
-        sql(&management, &format!("INSERT INTO roles (id, application_id, name, created_at, updated_at) VALUES (CAST('{payload}' AS UUID), CAST('{payload}' AS UUID), 'outbound-payload', 1, 1)")).await;
+        sql(&idp, &format!("INSERT INTO roles (id, application_id, name, created_at, updated_at) VALUES (CAST('{payload}' AS UUID), CAST('{payload}' AS UUID), 'outbound-payload', 1, 1)")).await;
         let source = SecurityProtocol::new(
             source,
-            idp,
-            management.clone(),
+            idp.clone(),
             management,
+            idp,
             INSTALLATION.into(),
             Some(NodeSignerBinding {
                 member_id: member,
@@ -175,7 +175,10 @@ impl SyncTransport for GatedPeer<'_> {
     async fn receive(&mut self) -> io::Result<Vec<u8>> {
         let frame = self.transport.receive().await?;
         let Ok(message) = postcard::from_bytes::<SyncMessage>(&frame) else {
-            assert!(!self.learned, "no undecodable frame after denial");
+            assert!(
+                !self.learned || matches!(self.revoke, Revoke::Keep),
+                "no undecodable frame after denial"
+            );
             return Ok(frame);
         };
         if self.learned {
@@ -185,11 +188,7 @@ impl SyncTransport for GatedPeer<'_> {
             match self.revoke {
                 Revoke::Keep => {}
                 Revoke::Grant => {
-                    sql(
-                        &self.fixture.source.management,
-                        "DELETE FROM role_permissions",
-                    )
-                    .await;
+                    sql(&self.fixture.source.idp, "DELETE FROM role_permissions").await;
                 }
                 Revoke::User => {
                     sql(
@@ -206,11 +205,7 @@ impl SyncTransport for GatedPeer<'_> {
                 }
                 Revoke::Cancel => self.fixture.source.cancellation.cancel(),
                 Revoke::PolicyFailure => {
-                    sql(
-                        &self.fixture.source.management,
-                        "DROP TABLE role_permissions",
-                    )
-                    .await;
+                    sql(&self.fixture.source.idp, "DROP TABLE role_permissions").await;
                 }
             }
             self.learned = true;
@@ -353,9 +348,10 @@ async fn peer_exchange(
             SyncRole::Initiator
         };
         let mut peer_result = Ok(ofdb_sql::SyncResult::default());
-        for (_, _, tables) in fixture.source.sessions(context) {
+        for (_, name, tables) in fixture.source.sessions(context) {
             let database = match context {
                 SecurityContext::Idp => &fixture.peer_idp,
+                SecurityContext::Device if name == "policy-identity" => &fixture.peer_idp,
                 SecurityContext::Device => &fixture.peer_management,
             };
             peer_result = database
@@ -391,11 +387,7 @@ async fn learned_denial_blocks_next_security_disclosure_on_existing_connection()
                 let fixture = Fixture::new().await;
                 let (source_database, peer_database, table) = match context {
                     SecurityContext::Idp => (&fixture.source.idp, &fixture.peer_idp, "users"),
-                    SecurityContext::Device => (
-                        &fixture.source.management,
-                        &fixture.peer_management,
-                        "roles",
-                    ),
+                    SecurityContext::Device => (&fixture.source.idp, &fixture.peer_idp, "roles"),
                 };
                 let query = format!(
                     "SELECT * FROM {table} WHERE id = CAST('{}' AS UUID)",
@@ -511,11 +503,7 @@ async fn currently_authorized_security_payloads_exchange_on_both_roles_and_conte
                 let fixture = Fixture::new().await;
                 let (source, peer, table) = match context {
                     SecurityContext::Idp => (&fixture.source.idp, &fixture.peer_idp, "users"),
-                    SecurityContext::Device => (
-                        &fixture.source.management,
-                        &fixture.peer_management,
-                        "roles",
-                    ),
+                    SecurityContext::Device => (&fixture.source.idp, &fixture.peer_idp, "roles"),
                 };
                 let query = format!(
                     "SELECT * FROM {table} WHERE id = CAST('{}' AS UUID)",
@@ -621,7 +609,7 @@ async fn admitted_security_write_finishes_then_next_write_denies() {
                 admitted.notified().await;
                 match revoke {
                     Revoke::Grant => {
-                        sql(&fixture.source.management, "DELETE FROM role_permissions").await;
+                        sql(&fixture.source.idp, "DELETE FROM role_permissions").await;
                     }
                     Revoke::Cancel => fixture.source.cancellation.cancel(),
                     _ => unreachable!("only grant removal/cancellation in this fixture"),
@@ -651,4 +639,76 @@ async fn admitted_security_write_finishes_then_next_write_denies() {
     })
     .await
     .expect("bounded admitted-write interleaving");
+}
+
+#[tokio::test]
+async fn identity_policy_history_grant_and_revocation_reach_an_existing_peer() {
+    let fixture = Fixture::new().await;
+    let service = ManagementService::new(
+        DbPermissionRepo::new(fixture.source.idp.client()),
+        DbRoleRepo::new(fixture.source.idp.client()),
+    );
+    let role = service
+        .create_role(Id::nil(), "history-administrator", None)
+        .await
+        .expect("new installation role");
+    let permission = service
+        .create_permission(
+            Id::nil(),
+            IdentityAction::ApplicationsRead.permission(),
+            None,
+        )
+        .await
+        .expect("explicit permission");
+    service
+        .add_permission_to_role(Id::nil(), role.id, permission.id)
+        .await
+        .expect("grant role permission");
+    service
+        .add_role_to_user(Id::nil(), fixture.actor, role.id)
+        .await
+        .expect("assign role");
+    let request = idp_model::contract::PermissionEvaluationRequest {
+        request_id: Id::now_v7(),
+        subject: idp_model::contract::PermissionSubject::User { id: fixture.actor },
+        action: IdentityAction::ApplicationsRead,
+        target: idp_model::contract::PermissionTarget::Installation {
+            resource: idp_model::contract::IdentityResource::Application { id: None },
+        },
+    };
+    let peer = management_service::LocalPermissions::new(fixture.peer_idp.client());
+    assert!(!peer.evaluate(&request).await.expect("no unlearned grant"));
+    let (result, _, _) = peer_exchange(
+        &fixture,
+        SecurityContext::Device,
+        SyncRole::Initiator,
+        Revoke::Keep,
+    )
+    .await;
+    result.expect("identity policy and Device history exchange");
+    assert!(
+        peer.evaluate(&request)
+            .await
+            .expect("learned grant permits administration")
+    );
+    service
+        .remove_permission_from_role(Id::nil(), role.id, permission.id)
+        .await
+        .expect("revoke permission");
+    let (result, _, _) = peer_exchange(
+        &fixture,
+        SecurityContext::Device,
+        SyncRole::Initiator,
+        Revoke::Keep,
+    )
+    .await;
+    result.expect("policy revocation exchange");
+    assert!(
+        !peer
+            .evaluate(&request)
+            .await
+            .expect("learned revocation denies administration")
+    );
+    drop(peer);
+    fixture.close().await;
 }

@@ -351,6 +351,49 @@ async fn remote_setup_child() {
             .len(),
         2
     );
+    let target_idp_stop = CancellationToken::new();
+    let mut target_idp = idp_server::AppConfig {
+        data_dir: target_root.join("idp").to_string_lossy().into_owned(),
+        identity_database: Some(shared.0.clone()),
+        ..Default::default()
+    };
+    target_idp.server.prefix = Some("/idp".into());
+    let target_idp_task = tokio::spawn(idp_server::serve_independent_create(
+        std::sync::Arc::new(target_idp),
+        setup(&target_root, "idp", addresses[3]),
+        target_idp_stop.clone(),
+    ));
+    tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            if let Ok(response) = http
+                .get(format!("{}/independent/setup/status", target.idp))
+                .send()
+                .await
+            {
+                if response.status() == StatusCode::OK
+                    && response.json::<serde_json::Value>().await.expect("status")["ready"] == true
+                {
+                    break;
+                }
+            }
+            assert!(!target_idp_task.is_finished(), "other IdP must restore");
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("other IdP restored before reset");
+    let identity_client = shared
+        .0
+        .connect()
+        .await
+        .expect("shared identity query client");
+    let keys_before = identity_client
+        .translate_and_execute("SELECT * FROM keys ORDER BY id", &db::SqlTranslator)
+        .await
+        .expect("complete signing metadata")[0]
+        .rows
+        .clone();
+    assert!(!keys_before.is_empty());
     source_stop.cancel();
     for server in source_servers {
         server
@@ -358,6 +401,64 @@ async fn remote_setup_child() {
             .expect("join source task")
             .expect("source shutdown");
     }
+    idp_server::reset_independent(
+        &idp_server::AppConfig {
+            data_dir: source_root.join("idp").to_string_lossy().into_owned(),
+            identity_database: Some(shared.0.clone()),
+            ..Default::default()
+        },
+        true,
+    )
+    .await
+    .expect("remote Create IdP consumer reset");
+    assert_eq!(
+        identity_client
+            .translate_and_execute("SELECT * FROM keys ORDER BY id", &db::SqlTranslator)
+            .await
+            .expect("preserved signing metadata")[0]
+            .rows,
+        keys_before,
+        "consumer reset must not retire any shared signing metadata"
+    );
+    let public: serde_json::Value = http
+        .get(format!(
+            "{}/independent/setup/independent/public",
+            target.idp
+        ))
+        .send()
+        .await
+        .expect("other IdP consumer")
+        .json()
+        .await
+        .expect("public identity");
+    let response = http
+        .post(format!("{}/oauth2/token", target.idp))
+        .form(&[
+            ("grant_type", "password"),
+            (
+                "client_id",
+                public["facts"]["login_client"]
+                    .as_str()
+                    .expect("login client"),
+            ),
+            ("username", "operator"),
+            ("password", "protected-password"),
+            ("scope", "openid"),
+            ("resource", "idp-management"),
+        ])
+        .send()
+        .await
+        .expect("other IdP login after reset");
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "other consumer can still authenticate and sign after Create IdP reset"
+    );
+    target_idp_stop.cancel();
+    target_idp_task
+        .await
+        .expect("other IdP task")
+        .expect("other IdP shutdown");
     sql_shutdown.cancel();
     identity_task
         .await

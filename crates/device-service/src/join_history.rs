@@ -49,7 +49,7 @@ impl JoinHistoryContext {
     fn role(self) -> &'static str {
         match self {
             Self::Idp => "idp",
-            Self::Device => "management",
+            Self::Device => "device",
         }
     }
     fn tables(self) -> Vec<&'static str> {
@@ -408,7 +408,7 @@ async fn synchronize(
             }
         },
     );
-    tokio::select! { biased; () = cancellation.cancelled() => Err(io::Error::new(io::ErrorKind::Interrupted,"history cancelled")), result = result => result.map(|_| ()).map_err(|_| io::Error::other("validated owner public history import failed")) }
+    tokio::select! { biased; () = cancellation.cancelled() => Err(io::Error::new(io::ErrorKind::Interrupted,"history cancelled")), result = result => result.map(|_| ()).map_err(|error| io::Error::other(format!("validated owner public history import failed: {error}"))) }
 }
 
 fn validate_candidate(

@@ -59,3 +59,8 @@ The HTTP acceptance covers initial denial, Management role creation/permission a
 The worktree used the prior agent's temporary `python3 .scratch/validate.py` prefix to rebase sibling dependency paths for Cargo; that helper and its four temporary check logs were removed after validation. The logs identify Cargo test executables and test filters, but do not preserve complete shell commands or environment. The join test initially overflowed the default test-thread stack; the explicit 16 MiB stack rerun passed. Changed Rust files were formatted and `git diff --check` passed.
 
 Qualification remains focused: earlier agent logs reported failures in broader provisioning/security suites (create 8/10, outbound 3/4, security 14/24); those suites were not rerun or certified by this completion pass. Full feature-powerset, clippy, and CRAP validation were not run. Remote configuration/query behavior and separate-process testing remain deferred to ticket 03.
+
+
+### Review-fix addendum
+
+The review found that the claimed separate identity-policy bootstrap/session allowlist was empty. Restored an explicit four-table identity-policy allowlist, column/value/candidate validators and separate native session; local IdP Join history includes the policy too. Native grant/revoke authorization, fresh/source-offline independent Join administration and owner bootstrap/offline reopen have focused regression coverage. See [ticket 05](05-review-fixes.md) for exact validation, red/green evidence, deployment limits and remaining unqualified checks; this addendum supersedes conflicting completion claims above.

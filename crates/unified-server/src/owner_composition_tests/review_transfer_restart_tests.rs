@@ -73,18 +73,30 @@ pub(super) async fn qualify(
         };
         device_config.server.prefix = Some("/device".into());
         let servers = [
-            tokio::spawn(idp_server::serve_independent_create(
-                Arc::new(idp),
-                super::setup(root, "idp", addresses[0]),
-                shutdown.child_token(),
-            )),
-            tokio::spawn(device_server::serve_independent_create(
-                Arc::new(device_config),
-                super::setup(root, "device", addresses[1]),
-                shutdown.child_token(),
-            )),
+            tokio::spawn({
+                let task = idp_server::serve_independent_create(
+                    Arc::new(idp),
+                    super::setup(root, "idp", addresses[0]),
+                    shutdown.child_token(),
+                );
+                async move {
+                    task.await
+                        .inspect_err(|e| eprintln!("restricted IdP restore: {e}"))
+                }
+            }),
+            tokio::spawn({
+                let task = device_server::serve_independent_create(
+                    Arc::new(device_config),
+                    super::setup(root, "device", addresses[1]),
+                    shutdown.child_token(),
+                );
+                async move {
+                    task.await
+                        .inspect_err(|e| eprintln!("restricted Device restore: {e}"))
+                }
+            }),
         ];
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(75);
         loop {
             let idp_ready = match http
                 .get(format!("{}/independent/setup/status", intent.idp))

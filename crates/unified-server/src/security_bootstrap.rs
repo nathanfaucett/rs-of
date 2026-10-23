@@ -638,6 +638,9 @@ impl SecurityProtocol {
                             SecurityContext::Idp => {
                                 candidates::validate_node_join(view, &self.installation, &candidate)
                             }
+                            SecurityContext::Device if name == "policy-identity" => {
+                                candidates::validate(view, &self.installation, &[])
+                            }
                             SecurityContext::Device => candidates::validate_device_history(
                                 view,
                                 &[candidates::PeerBinding {

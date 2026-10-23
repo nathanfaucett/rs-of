@@ -2,6 +2,8 @@
 
 ## Shared domain
 
+- [Shared control-plane deployment](docs/control-plane.md): identity/Device owners, injected and remote clients, default local independent socket setup, scoped policy history, reset boundaries, and qualification limits.
+
 - [Public persistence and protocol integration](docs/public-persistence.md): owner facade contracts, shared-router adapters, authenticated scoped security history, local credential separation, and qualification boundaries.
 
 - [Shared terms](GLOSSARY.md): Installation, User, Application, Principal, Device, and setup lifecycle.

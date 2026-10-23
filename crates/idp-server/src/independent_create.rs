@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::{AppConfig, IdpRuntime, ManagementPermissionConfig, OwnerProvisioner};
+use crate::{AppConfig, IdpRuntime, OwnerProvisioner};
 
 #[path = "independent_join_worker.rs"]
 mod join;
@@ -147,8 +147,11 @@ pub async fn serve_independent_create(
     setup.require_owner("idp", Path::new(&config.data_dir))?;
     let (host, commands) = setup.into_create(shutdown.clone())?;
     let control = host.control();
-    let mut worker = tokio::spawn(run(config, control, commands, shutdown.clone()));
-    let serving = host.serve();
+    let (owners, receiver) = tokio::sync::watch::channel(None);
+    let identity_serving =
+        crate::independent_identity::serve(control.clone(), receiver, shutdown.clone());
+    let mut worker = tokio::spawn(run(config, control, commands, shutdown.clone(), owners));
+    let serving = async { tokio::try_join!(host.serve(), identity_serving).map(|_| ()) };
     tokio::pin!(serving);
     tokio::select! {
         result = &mut serving => { shutdown.cancel(); result.and(worker.await.map_err(io::Error::other)?) },
@@ -161,6 +164,7 @@ async fn run(
     control: IndependentCreateControl,
     mut commands: mpsc::Receiver<IndependentCreateCommand>,
     shutdown: CancellationToken,
+    owners: tokio::sync::watch::Sender<Option<Arc<db::Database>>>,
 ) -> io::Result<()> {
     let mut owner = None;
     let mut runtime = None;
@@ -172,7 +176,8 @@ async fn run(
                 .await
                 .ok_or_else(|| io::Error::other("completed IdP has no exact operation"))?;
             record.validate_operation(&intent)?;
-            open(&config, &control, &intent, &record, &mut owner).await?;
+            open(&config, &intent, &record, &mut owner).await?;
+            owners.send_replace(owner.as_ref().expect("opened owner").database.clone());
             let opened = owner.as_ref().expect("opened IdP");
             opened.verify_node_signer(&binding(&record)?).await?;
             opened
@@ -193,10 +198,10 @@ async fn run(
                     .verify_setup_infrastructure_registration(registration)
                     .await?;
             }
-            public(&control, &intent, &record).await?;
+            public(&config, &control, &intent, &record).await?;
             runtime = Some(
                 crate::build_independent_idp(
-                    &runtime_config(&config, &control, &intent, &record)?,
+                    &runtime_config(&config, &intent, &record)?,
                     opened.engine.clone(),
                     opened.database.clone(),
                     control.shutdown_token(),
@@ -211,7 +216,16 @@ async fn run(
     }
     loop {
         let command = tokio::select! { biased; () = shutdown.cancelled() => break, command = commands.recv() => match command { Some(command) => command, None => break } };
-        if let Err(error) = provision(&config, &control, &command, &mut owner, &mut runtime).await {
+        if let Err(error) = provision(
+            &config,
+            &control,
+            &command,
+            &mut owner,
+            &mut runtime,
+            &owners,
+        )
+        .await
+        {
             log::warn!(
                 "Independent Create owner=idp state=unfinished error_kind={:?}",
                 error.kind()
@@ -239,7 +253,6 @@ fn binding(record: &Record) -> io::Result<NodeSignerBinding> {
 }
 fn runtime_config(
     config: &AppConfig,
-    control: &IndependentCreateControl,
     intent: &IndependentCreateIntent,
     record: &Record,
 ) -> io::Result<AppConfig> {
@@ -250,20 +263,11 @@ fn runtime_config(
     config.service_audience = Some(intent.idp.clone());
     config.management_data_dir = None;
     config.control_plane_uri = Some(intent.device.clone());
-    config.management_permissions = if config.identity_database.is_some() {
-        None
-    } else {
-        Some(ManagementPermissionConfig {
-            api_base_uri: intent.device.clone(),
-            client_id: record.client.to_string(),
-            client_secret: load_setup_secret(&service(control), &record.client.to_string())?,
-        })
-    };
+    config.management_permissions = None;
     Ok(config)
 }
 async fn open(
     config: &AppConfig,
-    control: &IndependentCreateControl,
     intent: &IndependentCreateIntent,
     record: &Record,
     opened: &mut Option<Arc<OwnerProvisioner>>,
@@ -275,7 +279,7 @@ async fn open(
             return Err(io::Error::other("attempted IdP store is missing"));
         }
         *opened = Some(Arc::new(
-            OwnerProvisioner::open(&runtime_config(config, control, intent, record)?).await?,
+            OwnerProvisioner::open(&runtime_config(config, intent, record)?).await?,
         ));
     }
     Ok(())
@@ -338,6 +342,7 @@ fn observe(
 }
 
 async fn public(
+    config: &AppConfig,
     control: &IndependentCreateControl,
     intent: &IndependentCreateIntent,
     record: &Record,
@@ -350,7 +355,12 @@ async fn public(
     );
     let scope = service(control);
     let id = record.client.to_string();
-    control.set_public(IndependentOwnerPublic { operation: intent.clone(), owner: "idp".into(), clients: vec![serde_json::to_value(registration)?], facts: serde_json::json!({"user":record.user, "login_client":record.login, "endpoint":record.endpoint, "evaluator":record.client, "join_request":record.request, "approval":record.approval}), registered: Vec::new() }, Arc::new(move |requested| {
+    let identity_socket = if config.identity_database.is_none() {
+        Some(crate::independent_identity::socket_path(control)?)
+    } else {
+        None
+    };
+    control.set_public(IndependentOwnerPublic { operation: intent.clone(), owner: "idp".into(), clients: vec![serde_json::to_value(registration)?], facts: serde_json::json!({"identity_socket":identity_socket, "user":record.user, "login_client":record.login, "endpoint":record.endpoint, "evaluator":record.client, "join_request":record.request, "approval":record.approval}), registered: Vec::new() }, Arc::new(move |requested| {
         if requested != id { return Err(io::Error::other("unknown consumer Client")); }
         load_setup_secret(&scope, requested)
     })).await
@@ -362,6 +372,7 @@ async fn provision(
     command: &IndependentCreateCommand,
     owner: &mut Option<Arc<OwnerProvisioner>>,
     runtime: &mut Option<IdpRuntime>,
+    owners: &tokio::sync::watch::Sender<Option<Arc<db::Database>>>,
 ) -> io::Result<()> {
     let mut record = match control.read_record::<Record>()? {
         Some(record) => record,
@@ -391,9 +402,18 @@ async fn provision(
         intent.purpose,
         protected.elapsed().as_millis()
     );
-    public(control, intent, &record).await?;
+    public(config, control, intent, &record).await?;
     if intent.purpose == "join" {
-        return join::provision(config, control, command, &mut record, owner, runtime).await;
+        return join::provision(
+            config,
+            control,
+            command,
+            &mut record,
+            owner,
+            runtime,
+            owners,
+        )
+        .await;
     }
     let device = control
         .wait_peer(intent, "device", &command.cancellation)
@@ -472,16 +492,17 @@ async fn provision(
             record.domain_attempted = true;
             control.write_record(&record)?;
             *owner = Some(Arc::new(
-                OwnerProvisioner::open(&runtime_config(config, control, intent, &record)?).await?,
+                OwnerProvisioner::open(&runtime_config(config, intent, &record)?).await?,
             ));
         } else {
-            open(config, control, intent, &record, owner).await?;
+            open(config, intent, &record, owner).await?;
         }
     }
     log::debug!(
         "Independent setup owner=idp purpose=create phase=schema-open elapsed_ms={}",
         opened_at.elapsed().as_millis()
     );
+    owners.send_replace(owner.as_ref().expect("opened IdP owner").database.clone());
     let owner = owner.as_ref().expect("opened IdP owner");
     let inventory_at = Instant::now();
     if !record.inventory_attempted {
@@ -548,7 +569,7 @@ async fn provision(
         "Independent setup owner=idp purpose=create phase=client-registration-seed elapsed_ms={}",
         clients_at.elapsed().as_millis()
     );
-    public(control, intent, &record).await?;
+    public(config, control, intent, &record).await?;
     let registrar = Arc::clone(owner);
     control
         .set_registrar(Arc::new(move |registration| {
@@ -565,7 +586,7 @@ async fn provision(
     if runtime.is_none() {
         *runtime = Some(
             crate::build_independent_idp(
-                &runtime_config(config, control, intent, &record)?,
+                &runtime_config(config, intent, &record)?,
                 owner.engine.clone(),
                 owner.database.clone(),
                 control.shutdown_token(),

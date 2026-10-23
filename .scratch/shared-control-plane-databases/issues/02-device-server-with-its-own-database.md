@@ -83,3 +83,8 @@ Limits and unsuccessful broader checks:
 - The broader historical independent-host/default-stack/native-provider suites were not qualified. Remote identity is ticket03; SQL gRPC Device startup and remote Device acceptance are ticket04.
 
 Integration: implementation commit `37a2d51e5` was followed by `GIT_EDITOR=true git merge integration/shared-control-plane-databases` in worktree `02`. Git reported `Already up to date`; the checked integration tip was `9e7360378b36cdd0385d6559afa53ae74034c005`, already an ancestor. No merge was performed into the main working tree.
+
+
+### Review-fix addendum
+
+Corrected default independent local composition: Device receives an identity query client from the IdP-owned private Unix socket rather than trying to open an existing identity file. Corrected the leftover Device history recipient name (`management` → `device`). Updated affected sync/bootstrap/setup fixtures to seed identity policy in identity, not Device; removed stale scope/token-shadowing errors from the expanded local acceptance. Device schema/history remains isolated. See [ticket 05](05-review-fixes.md) for exact validation, red/green evidence, deployment limits and remaining unqualified checks; this addendum supersedes conflicting completion claims above.

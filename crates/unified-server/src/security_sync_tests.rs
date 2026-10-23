@@ -131,8 +131,8 @@ async fn exchange_history() {
             enroll(idp.clone(), member, endpoint, key).await;
         }
         ManagementService::new(
-            DbPermissionRepo::new(management.client()),
-            DbRoleRepo::new(management.client()),
+            DbPermissionRepo::new(idp.client()),
+            DbRoleRepo::new(idp.client()),
         )
         .provision_initial_administrator(
             actor,
@@ -213,7 +213,7 @@ async fn exchange_history() {
         server_a.clone(),
         idp_a.clone(),
         management_a.clone(),
-        management_a.clone(),
+        idp_a.clone(),
         INSTALLATION.into(),
         Some(NodeSignerBinding {
             member_id: member_a,
@@ -227,7 +227,7 @@ async fn exchange_history() {
         server_b.clone(),
         idp_b.clone(),
         management_b.clone(),
-        management_b.clone(),
+        idp_b.clone(),
         INSTALLATION.into(),
         Some(NodeSignerBinding {
             member_id: member_b,
@@ -376,7 +376,7 @@ async fn exchange_history() {
         server_a.clone(),
         idp_a.clone(),
         management_a.clone(),
-        management_a.clone(),
+        idp_a.clone(),
         INSTALLATION.into(),
         None,
         root.join("unsigned-stage"),
@@ -467,7 +467,7 @@ async fn exchange_history() {
             .expect("public unselected policy");
     }
     let policy = Id::now_v7();
-    sql(&management_a, &format!("INSERT INTO roles (id, application_id, name, created_at, updated_at) VALUES (CAST('{policy}' AS UUID), CAST('{actor}' AS UUID), 'shared-policy', 1, 1)")).await;
+    sql(&idp_a, &format!("INSERT INTO roles (id, application_id, name, created_at, updated_at) VALUES (CAST('{policy}' AS UUID), CAST('{actor}' AS UUID), 'shared-policy', 1, 1)")).await;
     protocol_a
         .synchronize(&connection, SecurityContext::Device)
         .await
@@ -492,23 +492,13 @@ async fn exchange_history() {
     );
     assert_eq!(
         sql(
-            &management_b,
+            &idp_b,
             &format!("SELECT name FROM roles WHERE id = CAST('{policy}' AS UUID)")
         )
         .await[0]
             .rows[0]
             .values,
         vec![Value::Text("shared-policy".into())]
-    );
-    assert!(
-        sql(
-            &idp_b,
-            &format!("SELECT name FROM roles WHERE id = CAST('{policy}' AS UUID)")
-        )
-        .await[0]
-            .rows
-            .is_empty(),
-        "Management never leaks into IdP repository"
     );
 
     for (database, updates) in [
@@ -573,7 +563,7 @@ async fn exchange_history() {
     );
 
     sql(
-        &management_a,
+        &idp_a,
         &format!("DELETE FROM roles WHERE id = CAST('{policy}' AS UUID)"),
     )
     .await;
@@ -593,7 +583,7 @@ async fn exchange_history() {
         .expect("repeated history exchange cannot resurrect tombstone");
     assert!(
         sql(
-            &management_b,
+            &idp_b,
             &format!("SELECT name FROM roles WHERE id = CAST('{policy}' AS UUID)")
         )
         .await[0]
@@ -605,7 +595,7 @@ async fn exchange_history() {
         started.elapsed()
     );
     sql(
-        &management_b,
+        &idp_b,
         "UPDATE permissions SET revoked_at = 2 WHERE name = 'idp.security.sync'",
     )
     .await;
@@ -634,11 +624,7 @@ async fn exchange_history() {
             .kind(),
         ErrorKind::InvalidData
     );
-    sql(
-        &management_a,
-        "ALTER TABLE roles ADD COLUMN private_note TEXT",
-    )
-    .await;
+    sql(&idp_a, "ALTER TABLE roles ADD COLUMN private_note TEXT").await;
     assert_eq!(
         protocol_a
             .synchronize(&connection, SecurityContext::Device)
@@ -710,7 +696,7 @@ async fn exchange_history() {
     );
     assert!(
         sql(
-            &reopened_management,
+            &reopened_idp,
             &format!("SELECT name FROM roles WHERE id = CAST('{policy}' AS UUID)")
         )
         .await[0]

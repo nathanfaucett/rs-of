@@ -60,13 +60,10 @@ impl IndependentDeviceRuntime {
 pub async fn build_independent_device(
     config: &crate::AppConfig,
     engine: db::Client,
+    identity_engine: db::Client,
     owner: Option<Arc<Database>>,
     plane: Arc<HostedControlPlane>,
     identity: Arc<DeviceIdentity>,
-    issuer: &str,
-    idp: &str,
-    device: &str,
-    storage: &str,
     cancellation: CancellationToken,
 ) -> io::Result<IndependentDeviceRuntime> {
     if config.device_database.is_some() && owner.is_some() {
@@ -75,6 +72,10 @@ pub async fn build_independent_device(
             "injected Device owner and remote SQL are mutually exclusive",
         ));
     }
+    let issuer = config.expected_issuer.as_str();
+    let idp = config.idp_api_base.as_str();
+    let device = config.api_public_uri.as_str();
+    let storage = config.storage_api_base.as_str();
     let origin = config
         .server
         .setup_ui_origin
@@ -102,7 +103,6 @@ pub async fn build_independent_device(
     );
     let server = Server::new(identity.endpoint(), EndpointIdStore::default());
     let (approve_sender, approval_jobs) = tokio::sync::mpsc::channel(1);
-    let identity_engine = crate::identity_client(config).await?;
     let source = Arc::new(IndependentJoinSource {
         identity_engine: identity_engine.clone(),
         engine: engine.clone(),

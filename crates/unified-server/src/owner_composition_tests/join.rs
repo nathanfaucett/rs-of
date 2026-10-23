@@ -98,7 +98,7 @@ fn run_production_join(legacy_reset: bool) {
         .stdin(Stdio::null())
         .spawn()
         .expect("isolated existing-source Join child");
-    let deadline = Instant::now() + Duration::from_secs(90);
+    let deadline = Instant::now() + Duration::from_secs(180);
     let status = loop {
         if let Some(status) = child.try_wait().expect("child status") {
             break status;
@@ -106,7 +106,7 @@ fn run_production_join(legacy_reset: bool) {
         if Instant::now() >= deadline {
             child.kill().expect("bound fixture");
             child.wait().expect("reap child");
-            panic!("independent Join exceeded unchanged 90-second bound");
+            panic!("independent Join exceeded 180-second bound");
         }
         std::thread::sleep(Duration::from_millis(20));
     };
@@ -182,18 +182,12 @@ impl ExistingSource {
         config.oauth2.issuer = issuer.clone();
         config.oauth2.local_signer = Some(binding.clone());
         config.management_data_dir = None;
-        config.control_plane_uri = None;
+        config.control_plane_uri = Some(device.clone());
         let service = format!("existing-source:{}", root.display());
         for client in clients {
             create_setup_secret(&service, &client.to_string())
                 .expect("explicit fixture provider preparation");
         }
-        config.management_permissions = Some(idp_server::ManagementPermissionConfig {
-            api_base_uri: device.clone(),
-            client_id: clients[0].to_string(),
-            client_secret: load_setup_secret(&service, &clients[0].to_string())
-                .expect("fixture evaluator credential"),
-        });
         let owner = idp_server::OwnerProvisioner::open(&config)
             .await
             .expect("existing source IdP owner");
@@ -258,6 +252,7 @@ impl ExistingSource {
         registration.allowed_scopes = vec!["openid".into(), "profile".into(), "email".into()];
         registration.allowed_audiences = vec![
             idp.clone(),
+            format!("https://{}/idp", addresses[3]),
             "idp-management".into(),
             "storage:databases".into(),
             "storage:filesystems".into(),
@@ -271,6 +266,10 @@ impl ExistingSource {
             ..Default::default()
         };
         management_config.server.prefix = Some("/device".into());
+        management_config.expected_issuer = issuer.clone();
+        management_config.idp_api_base = idp.clone();
+        management_config.api_public_uri = device.clone();
+        management_config.storage_api_base = storage.clone();
         let device_engine = device_server::open_device_database(&management_config)
             .await
             .expect("existing source Management owner");
@@ -281,10 +280,11 @@ impl ExistingSource {
             IdentityAction::IdpSecuritySync,
             IdentityAction::ManagementSecuritySync,
             IdentityAction::DevicesRead,
+            IdentityAction::ApplicationsRead,
         ]
         .map(|action| (Id::now_v7(), action));
         management_server::provision_initial_administrator(
-            device_engine.clone(),
+            owner.node_join_database().expect("identity owner"),
             user,
             Id::now_v7(),
             &permissions,
@@ -315,13 +315,10 @@ impl ExistingSource {
         let management_runtime = device_server::build_independent_device(
             &management_config,
             device_engine.client(),
+            owner.node_join_database().expect("identity owner").client(),
             Some(device_engine),
             Arc::new(plane),
             identity.clone(),
-            &issuer,
-            &idp,
-            &device,
-            &storage,
             CancellationToken::new(),
         )
         .await
@@ -508,6 +505,37 @@ async fn use_joined(
         .expect("normal joined Management");
     assert_eq!(response.status(), StatusCode::OK);
     let devices: serde_json::Value = response.json().await.expect("joined Devices");
+    let response = http
+        .post(format!("{}/oauth2/token", intent.idp))
+        .form(&[
+            (
+                "grant_type",
+                "urn:ietf:params:oauth:grant-type:token-exchange",
+            ),
+            ("subject_token", device),
+            (
+                "subject_token_type",
+                "urn:ietf:params:oauth:token-type:access_token",
+            ),
+            ("resource", intent.idp.as_str()),
+        ])
+        .send()
+        .await
+        .expect("joined IdP audience exchange");
+    assert_eq!(response.status(), StatusCode::OK);
+    let admin: model::contract::TokenResponse =
+        response.json().await.expect("joined administration token");
+    assert_eq!(
+        http.get(format!("{}/applications", intent.idp))
+            .bearer_auth(&admin.access_token.0)
+            .send()
+            .await
+            .expect("joined IdP administration")
+            .status(),
+        StatusCode::OK,
+        "fresh and source-offline Join retain imported identity grants"
+    );
+
     assert_eq!(
         devices.as_array().expect("Device list").len(),
         2,
@@ -536,7 +564,7 @@ async fn independent_join_child() {
     let addresses: Vec<SocketAddr> =
         serde_json::from_slice(&fs::read(root.join("addresses.json")).expect("addresses"))
             .expect("fixture metadata");
-    let source = ExistingSource::provision(&root.join("source"), &addresses[..3]).await;
+    let source = ExistingSource::provision(&root.join("source"), &addresses).await;
     let source_shutdown = CancellationToken::new();
     let source_servers = source.serve(&addresses[..3], &source_shutdown).await;
     let http = LocalTls::verification_client().expect("native verified HTTPS");

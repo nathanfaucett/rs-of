@@ -18,6 +18,7 @@ pub(super) async fn provision(
     record: &mut Record,
     owner: &mut Option<Arc<OwnerProvisioner>>,
     runtime: &mut Option<IdpRuntime>,
+    owners: &tokio::sync::watch::Sender<Option<Arc<db::Database>>>,
 ) -> io::Result<()> {
     let intent = &command.intent;
     let device = control
@@ -83,16 +84,17 @@ pub(super) async fn provision(
             record.domain_attempted = true;
             control.write_record(record)?;
             *owner = Some(Arc::new(
-                OwnerProvisioner::open(&runtime_config(config, control, intent, record)?).await?,
+                OwnerProvisioner::open(&runtime_config(config, intent, record)?).await?,
             ));
         } else {
-            open(config, control, intent, record, owner).await?;
+            open(config, intent, record, owner).await?;
         }
     }
     log::debug!(
         "Independent setup owner=idp purpose=join phase=schema-open elapsed_ms={}",
         opened_at.elapsed().as_millis()
     );
+    owners.send_replace(owner.as_ref().expect("opened own IdP").database.clone());
     let opened = owner.as_ref().expect("opened own IdP");
     let protected_at = Instant::now();
     let mut clients = vec![record.login, record.client];
@@ -149,7 +151,7 @@ pub(super) async fn provision(
         "Independent setup owner=idp purpose=join phase=protected-signer elapsed_ms={}",
         protected_at.elapsed().as_millis()
     );
-    public(control, intent, record).await?;
+    public(config, control, intent, record).await?;
     let approval_at = Instant::now();
     if record.approval.is_none() {
         let approval = loop {
@@ -244,7 +246,7 @@ pub(super) async fn provision(
             })
         }))
         .await;
-    public(control, intent, record).await?;
+    public(config, control, intent, record).await?;
     log::debug!(
         "Independent setup owner=idp purpose=join phase=local-client-seed elapsed_ms={}",
         registered_at.elapsed().as_millis()
@@ -253,7 +255,7 @@ pub(super) async fn provision(
     if runtime.is_none() {
         *runtime = Some(
             crate::build_independent_idp(
-                &runtime_config(config, control, intent, record)?,
+                &runtime_config(config, intent, record)?,
                 opened.engine.clone(),
                 opened.database.clone(),
                 control.shutdown_token(),

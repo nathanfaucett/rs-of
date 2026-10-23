@@ -221,8 +221,8 @@ impl Pair {
             }
             sql(&idp, &format!("INSERT INTO keys (id, derivation_index, public_jwk) VALUES (CAST('{row}' AS UUID), 0, '{}')", public_jwk("baseline"))).await;
             ManagementService::new(
-                DbPermissionRepo::new(management.client()),
-                DbRoleRepo::new(management.client()),
+                DbPermissionRepo::new(idp.client()),
+                DbRoleRepo::new(idp.client()),
             )
             .provision_initial_administrator(
                 actor,
@@ -260,7 +260,7 @@ impl Pair {
             a.clone(),
             idp_a.clone(),
             management_a.clone(),
-            management_a.clone(),
+            idp_a.clone(),
             INSTALLATION.into(),
             Some(NodeSignerBinding {
                 member_id: member_a,
@@ -274,7 +274,7 @@ impl Pair {
             b.clone(),
             idp_b.clone(),
             management_b.clone(),
-            management_b.clone(),
+            idp_b.clone(),
             INSTALLATION.into(),
             Some(NodeSignerBinding {
                 member_id: member_b,

@@ -141,3 +141,8 @@ git --no-pager rev-parse integration/shared-control-plane-databases
 ```
 
 Observed: **Already up to date**, clean `implement/shared-control-plane-04`, integration tip **`ba45e15f52fb19b2519b602cbd733684d8691377`** already an ancestor. This completion evidence is a documentation-only follow-up commit, with the merge repeated afterward. No merge into the original checkout was performed; the merger owns that handoff. No new ofdb changes or commits were made.
+
+
+### Review-fix addendum
+
+Review fixes qualify the previously omitted default local Create/Join/reopen paths, restore identity-policy synchronization/bootstrap and prevent remote IdP reset from deleting shared signing metadata. Remote acceptance now includes Create IdP consumer reset, complete key-row preservation and continued operation by a second IdP. Earlier focused remote passes did not establish these guarantees. Local selectors remain unset in the default acceptance; this is a production same-machine Unix-socket startup path, not fixture-only injected configuration. See [ticket 05](05-review-fixes.md) for exact validation, red/green evidence, deployment limits and remaining unqualified checks; this addendum supersedes conflicting completion claims above.

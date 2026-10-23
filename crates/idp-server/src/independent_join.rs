@@ -33,11 +33,8 @@ pub async fn build_independent_idp(
             "injected identity owner and remote SQL are mutually exclusive",
         ));
     }
-    let permissions = config
-        .identity_database
-        .as_ref()
-        .map(|_| management_service::LocalPermissions::new(engine.clone()));
-    let state = crate::runtime::build_state(config, engine, None, None, permissions).await?;
+    let permissions = management_service::LocalPermissions::new(engine.clone());
+    let state = crate::runtime::build_state(config, engine, None, None, Some(permissions)).await?;
     let endpoint = config
         .oauth2
         .local_signer
@@ -48,12 +45,6 @@ pub async fn build_independent_idp(
     let device = config
         .control_plane_uri
         .clone()
-        .or_else(|| {
-            config
-                .management_permissions
-                .as_ref()
-                .map(|permissions| permissions.api_base_uri.clone())
-        })
         .ok_or_else(|| io::Error::other("independent Device binding missing"))?;
     let source = Arc::new(Source {
         state: state.clone(),

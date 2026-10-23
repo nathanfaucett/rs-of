@@ -12,6 +12,10 @@ pub enum PublicSecurityTable {
     Consents,
     AuthorizationCodes,
     RefreshTokens,
+    Roles,
+    Permissions,
+    RolePermissions,
+    ApplicationUserRoles,
 }
 
 impl PublicSecurityTable {
@@ -28,6 +32,10 @@ impl PublicSecurityTable {
             Self::Consents => "oauth2_user_consents",
             Self::AuthorizationCodes => "oauth2_authorization_codes",
             Self::RefreshTokens => "oauth2_refresh_tokens",
+            Self::Roles => "roles",
+            Self::Permissions => "permissions",
+            Self::RolePermissions => "role_permissions",
+            Self::ApplicationUserRoles => "application_user_roles",
         }
     }
 
@@ -35,6 +43,32 @@ impl PublicSecurityTable {
     #[must_use]
     pub const fn columns(self) -> &'static [&'static str] {
         match self {
+            Self::Roles | Self::Permissions => &[
+                "id",
+                "application_id",
+                "name",
+                "description",
+                "revoked_at",
+                "created_at",
+                "updated_at",
+            ],
+            Self::RolePermissions => &[
+                "id",
+                "role_id",
+                "permission_id",
+                "revoked_at",
+                "created_at",
+                "updated_at",
+            ],
+            Self::ApplicationUserRoles => &[
+                "id",
+                "user_id",
+                "application_id",
+                "role_id",
+                "revoked_at",
+                "created_at",
+                "updated_at",
+            ],
             Self::Users => &[
                 "id",
                 "handle",
@@ -213,13 +247,23 @@ impl PublicSecurityTable {
                 | "member_id"
                 | "active_member_id"
                 | "key_id"
+                | "role_id"
+                | "permission_id"
         ) || (column == "client_id"
             && matches!(self, Self::AuthorizationCodes | Self::RefreshTokens));
         if uuid {
             return value
                 .as_str()
                 .and_then(|text| idp_model::model::Id::parse_str(text).ok())
-                .is_some_and(|id| !id.is_nil() && (column != "id" || id.get_version_num() == 7));
+                .is_some_and(|id| {
+                    let installation_scope = column == "application_id"
+                        && matches!(
+                            self,
+                            Self::Roles | Self::Permissions | Self::ApplicationUserRoles
+                        );
+                    (installation_scope || !id.is_nil())
+                        && (column != "id" || id.get_version_num() == 7)
+                });
         }
         let integer = matches!(
             column,
@@ -294,10 +338,17 @@ fn permits_public_jwk(text: &str) -> bool {
             .is_some_and(|jwk| crate::oauth2::verifing_key_from_jwt(&jwk).is_ok())
 }
 
+pub const PUBLIC_IDENTITY_POLICY_TABLES: &[PublicSecurityTable] = &[
+    PublicSecurityTable::Roles,
+    PublicSecurityTable::Permissions,
+    PublicSecurityTable::RolePermissions,
+    PublicSecurityTable::ApplicationUserRoles,
+];
+
 #[must_use]
 pub fn public_security_tables() -> Vec<PublicSecurityTable> {
     use PublicSecurityTable as T;
-    alloc::vec![
+    let mut tables = alloc::vec![
         T::Users,
         T::Credentials,
         T::Applications,
@@ -308,7 +359,9 @@ pub fn public_security_tables() -> Vec<PublicSecurityTable> {
         T::Consents,
         T::AuthorizationCodes,
         T::RefreshTokens
-    ]
+    ];
+    tables.extend_from_slice(PUBLIC_IDENTITY_POLICY_TABLES);
+    tables
 }
 
 #[cfg(test)]

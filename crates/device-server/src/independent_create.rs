@@ -434,16 +434,18 @@ async fn build(
         })
         .map_err(io::Error::other)?
         .with_device_identity(identity.clone());
+    let mut serving = config.clone();
+    serving.expected_issuer = intent.issuer.clone();
+    serving.idp_api_base = intent.idp.clone();
+    serving.api_public_uri = intent.device.clone();
+    serving.storage_api_base = intent.storage.clone();
     crate::build_independent_device(
-        config,
+        &serving,
         engine.client,
+        identity_client(config, control, intent).await?,
         engine.owner,
         Arc::new(plane),
         identity,
-        &intent.issuer,
-        &intent.idp,
-        &intent.device,
-        &intent.storage,
         control.shutdown_token(),
     )
     .await
@@ -574,7 +576,7 @@ async fn provision(
         .copied()
         .zip(ACTIONS)
         .collect::<Vec<_>>();
-    let identity_client = crate::identity_client(config).await?;
+    let identity_client = identity_client(config, control, &command.intent).await?;
     management_service::ManagementService::new(
         management_service::replica::DbPermissionRepo::new(identity_client.clone()),
         management_service::replica::DbRoleRepo::new(identity_client),
@@ -622,4 +624,49 @@ async fn provision(
             &record,
         )
         .await
+}
+
+async fn identity_client(
+    config: &AppConfig,
+    control: &IndependentCreateControl,
+    intent: &IndependentCreateIntent,
+) -> io::Result<db::Client> {
+    if config.identity_database.is_some() || config.identity_database_path.is_some() {
+        return crate::identity_client(config).await;
+    }
+    let shutdown = control.shutdown_token();
+    let idp = control.wait_peer(intent, "idp", &shutdown).await?;
+    let path = idp.facts["identity_socket"].as_str().ok_or_else(|| io::Error::other("local independent Device requires the IdP-owned identity socket or explicit remote identity SQL"))?;
+    #[cfg(unix)]
+    {
+        let operation = async {
+            loop {
+                if let Ok(client) = db::Client::connect_unix(path).await {
+                    let client = client.with_deadline(std::time::Duration::from_secs(10));
+                    idp_model::replica::validate_identity(&client)
+                        .await
+                        .map_err(io::Error::other)?;
+                    return Ok(client);
+                }
+                tokio::select! {
+                    biased;
+                    () = shutdown.cancelled() => return Err(io::Error::new(io::ErrorKind::Interrupted, "identity connection cancelled")),
+                    () = tokio::time::sleep(std::time::Duration::from_millis(25)) => (),
+                }
+            }
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(60), operation)
+            .await
+            .map_err(|_| {
+                io::Error::new(io::ErrorKind::TimedOut, "local identity SQL unavailable")
+            })?
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "configure remote identity SQL on this platform",
+        ))
+    }
 }

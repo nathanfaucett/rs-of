@@ -92,7 +92,9 @@ async fn issue_local_token(
                 .expect("retained local endpoint identity"),
         ),
         server.clone(),
-        Some(management_service::LocalPermissions::new(policy.client())),
+        Some(management_service::LocalPermissions::new(
+            owner.node_join_database().expect("identity owner").client(),
+        )),
     )
     .await
     .expect("production independent local issuance runtime");
@@ -146,8 +148,8 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
     let source_policy =
         Arc::new(Database::open(source_root.join("device/devices.redb")).expect("source policy"));
     let policy = ManagementService::new(
-        DbPermissionRepo::new(source_policy.client()),
-        DbRoleRepo::new(source_policy.client()),
+        DbPermissionRepo::new(source_idp.client()),
+        DbRoleRepo::new(source_idp.client()),
     );
     let role = policy
         .create_role(
@@ -249,7 +251,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
         source.clone(),
         source_idp.clone(),
         source_policy.clone(),
-        source_policy.clone(),
+        source_idp.clone(),
         issuer.clone(),
         Some(fixture.local_signer.clone()),
         source_root.join("security-staging"),
@@ -275,7 +277,7 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
         ),
         source.clone(),
         Some(management_service::LocalPermissions::new(
-            source_policy.client(),
+            source_idp.client(),
         )),
     )
     .await

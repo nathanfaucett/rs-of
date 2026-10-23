@@ -1055,12 +1055,6 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             }
         }
         delete_verified(keys.private_key_repo(), &node_namespace, &node_path)?;
-        for (entity_type, entity, _, _) in entities {
-            keys.key_repo()
-                .delete_by_entity_type_and_id(entity_type, entity)
-                .await
-                .map_err(io::Error::other)?;
-        }
         Ok(())
     }
 

@@ -17,8 +17,11 @@ use idp_model::{
     model::Id,
 };
 use idp_service::{
-    PasswordConfig, oauth2::NodeSignerBinding, replica::DbUserRepo, repo::UserRepo,
-    security_sync::public_security_tables,
+    PasswordConfig,
+    oauth2::NodeSignerBinding,
+    replica::DbUserRepo,
+    repo::UserRepo,
+    security_sync::{PUBLIC_IDENTITY_POLICY_TABLES, public_security_tables},
 };
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh_chain::Server;
@@ -54,6 +57,10 @@ impl SecurityContext {
                 .into_iter()
                 .find(|public| public.name() == table)
                 .is_some_and(|public| public.permits_historical_value(column, value)),
+            Self::Device if identity_policy_table(table) => public_security_tables()
+                .into_iter()
+                .find(|public| public.name() == table)
+                .is_some_and(|public| public.permits_historical_value(column, value)),
             Self::Device => device_service::public_device_columns(table).is_some_and(|columns| {
                 columns.contains(&column)
                     && (table != "devices" || candidates::permits_device_value(column, value))
@@ -62,7 +69,9 @@ impl SecurityContext {
         if permitted {
             Ok(())
         } else {
-            Err("invalid public security historical value".into())
+            Err(format!(
+                "invalid public security historical value: {table}.{column}"
+            ))
         }
     }
 
@@ -142,26 +151,22 @@ impl SecurityProtocol {
                 public_security_tables()
                     .into_iter()
                     .map(|table| table.name())
+                    .filter(|table| !identity_policy_table(table))
                     .collect(),
             )],
             SecurityContext::Device => vec![
                 (
                     &self.policy,
                     "policy-identity",
-                    PUBLIC_DEVICE_TABLES
+                    PUBLIC_IDENTITY_POLICY_TABLES
                         .iter()
-                        .copied()
-                        .filter(|table| identity_policy_table(table))
+                        .map(|table| table.name())
                         .collect(),
                 ),
                 (
                     &self.management,
                     "policy-devices",
-                    PUBLIC_DEVICE_TABLES
-                        .iter()
-                        .copied()
-                        .filter(|table| !identity_policy_table(table))
-                        .collect(),
+                    PUBLIC_DEVICE_TABLES.to_vec(),
                 ),
             ],
         }
@@ -269,14 +274,15 @@ impl SecurityProtocol {
             let tables = names
                 .into_iter()
                 .map(|name| {
-                    let columns = match context {
-                        SecurityContext::Idp => public_security_tables()
+                    let columns = if context == SecurityContext::Idp || identity_policy_table(name)
+                    {
+                        public_security_tables()
                             .into_iter()
                             .find(|table| table.name() == name)
                             .expect("public identity table")
-                            .columns(),
-                        SecurityContext::Device => device_service::public_device_columns(name)
-                            .expect("public policy table"),
+                            .columns()
+                    } else {
+                        device_service::public_device_columns(name).expect("public Device table")
                     };
                     (name, columns)
                 })
@@ -486,6 +492,9 @@ impl SecurityProtocol {
                         SecurityContext::Idp => {
                             candidates::validate(view, &self.installation, &bindings)
                         }
+                        SecurityContext::Device if name == "policy-identity" => {
+                            candidates::validate(view, &self.installation, &[])
+                        }
                         SecurityContext::Device => {
                             candidates::validate_device_history(view, &bindings, None)
                         }
@@ -546,10 +555,9 @@ fn now() -> io::Result<i64> {
 }
 
 fn identity_policy_table(table: &str) -> bool {
-    matches!(
-        table,
-        "roles" | "permissions" | "role_permissions" | "application_user_roles"
-    )
+    PUBLIC_IDENTITY_POLICY_TABLES
+        .iter()
+        .any(|public| public.name() == table)
 }
 
 fn accumulate(total: &mut SyncResult, result: SyncResult) {

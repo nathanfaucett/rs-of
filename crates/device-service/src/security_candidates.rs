@@ -47,7 +47,10 @@ pub fn validate(
                 if !public.permits_historical_value(column, value)
                     || !permits_installation(&table.name, column, value, installation)
                 {
-                    return Err("invalid public security historical value".into());
+                    return Err(format!(
+                        "invalid public security historical value: {}.{column}",
+                        table.name
+                    ));
                 }
             }
             for (column, values) in &row.conflicts {
