@@ -733,7 +733,7 @@ impl Pair {
             &source,
             &login_id,
             &shared.access_token.0,
-            a.config.idp_audience(),
+            management_service::MANAGEMENT_APPLICATION_URI,
         )
         .await;
         source

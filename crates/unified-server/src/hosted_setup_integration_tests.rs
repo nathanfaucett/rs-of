@@ -186,6 +186,7 @@ async fn partial_credentials_reopen_preserves_recovery_for_create_and_join() {
         body::{Body, to_bytes},
         http::{Request, StatusCode},
     };
+    use idp_server::hosted_setup::{CreateIntent, JoinIntent};
     use tower::ServiceExt;
 
     for joining in [false, true] {
@@ -225,14 +226,13 @@ async fn partial_credentials_reopen_preserves_recovery_for_create_and_join() {
             let (canonical, expected) = if joining {
                 let peer = iroh::SecretKey::generate().public().to_string();
                 let issuer = "https://partial-installation.test/idp";
-                let canonical = serde_json::to_string(&(
-                    "join",
-                    ["idp", "management", "storage"],
-                    nonce,
-                    "Partial Node",
-                    &peer,
-                    issuer,
-                ))
+                let canonical = JoinIntent {
+                    operation_nonce: nonce.into(),
+                    node: "Partial Node".into(),
+                    peer: peer.clone(),
+                    issuer: issuer.into(),
+                }
+                .canonical()
                 .expect("Join intent");
                 idp_server::local_provisioning::private_options(true)
                     .open(root.join("join-admission.json"))
@@ -257,13 +257,12 @@ async fn partial_credentials_reopen_preserves_recovery_for_create_and_join() {
             } else {
                 host.select_create().expect("select Create");
                 (
-                    serde_json::to_string(&(
-                        "create",
-                        ["idp", "management", "storage"],
-                        nonce,
-                        "operator",
-                        "Partial Node",
-                    ))
+                    CreateIntent {
+                        operation_nonce: nonce.into(),
+                        administrator: "operator".into(),
+                        node: "Partial Node".into(),
+                    }
+                    .canonical()
                     .expect("Create intent"),
                     serde_json::json!({"operation_nonce": nonce, "administrator": "operator", "node": "Partial Node"}),
                 )
