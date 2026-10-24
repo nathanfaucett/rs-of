@@ -3296,6 +3296,20 @@ dependencies = [
 name = "idp-unified"
 version = "0.1.0"
 dependencies = [
+ "api",
+ "device-server",
+ "idp-server",
+ "idp-service",
+ "keyring-core",
+ "management-server",
+ "of-device-client",
+ "of-idp-client",
+ "of-management-client",
+ "of-storage-client",
+ "reqwest 0.12.28",
+ "serde_json",
+ "storage-server",
+ "tempfile",
  "tokio",
  "unified-server",
 ]
