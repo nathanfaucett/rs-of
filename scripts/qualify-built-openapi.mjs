@@ -74,10 +74,29 @@ for (const owner of ["idp", "management", "device", "storage"]) {
     );
     if (owner === "management") {
         assert.ok(sdk.DefaultApi);
-        assert.equal(sdk.IndependentSetupApi, undefined);
-        assert.equal(sdk.IndependentJoinApi, undefined);
-        assert.equal(sdk.OwnerSetupApi, undefined);
-        assert.equal(sdk.NodeJoinApi, undefined);
+        for (const operation of [
+            "evaluatePermission",
+            "listRoles",
+            "listPermissions",
+        ]) {
+            assert.equal(
+                typeof sdk.DefaultApi.prototype[operation],
+                "function",
+                `Management policy operation: ${operation}`,
+            );
+        }
+        for (const name of [
+            "IndependentSetupApi",
+            "IndependentJoinApi",
+            "OwnerSetupApi",
+            "NodeJoinApi",
+        ]) {
+            assert.equal(
+                sdk[name],
+                undefined,
+                `Management is RBAC-only; rebuild stale SDK output exporting ${name}`,
+            );
+        }
     } else {
         assert.ok(sdk.IndependentSetupApi);
         assert.ok(sdk.IndependentJoinApi);
@@ -87,9 +106,6 @@ for (const owner of ["idp", "management", "device", "storage"]) {
         }
     }
 }
-console.log(
-    "Built package exports and generated operations qualified against actual owner routers",
-);
 
 const owner = await import(
     createRequire(path.join(root, "packages/idp-client/package.json")).resolve(
@@ -104,24 +120,35 @@ await assert.rejects(
     setup.independentSetupRecover(),
     (error) => error.response.status === 401,
 );
+const operation = {
+    administrator: "",
+    idp: "",
+    issuer: "",
+    device: "",
+    storage: "",
+    node: "",
+    operationNonce: "",
+    purpose: "join",
+    peer: null,
+};
+const wireIntent = owner.IndependentCreateIntentToJSON(operation);
+assert.equal(
+    wireIntent.device,
+    operation.device,
+    "Independent setup targets Device; rebuild stale SDK serializers",
+);
+assert.ok(!Object.hasOwn(wireIntent, "management"));
 await assert.rejects(
     setup.independentSetupChallenge({
         challenge: {
             challenge: "a".repeat(64),
-            recipient: "management",
+            recipient: "device",
             registration: { client_id: "unregistered" },
-            operation: {
-                administrator: "",
-                idp: "",
-                issuer: "",
-                management: "",
-                storage: "",
-                node: "",
-                operationNonce: "",
-                purpose: "join",
-                peer: null,
-            },
+            operation,
         },
     }),
     (error) => error.response.status === 403,
+);
+console.log(
+    "Built package exports and generated operations qualified against actual owner routers",
 );
