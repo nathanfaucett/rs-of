@@ -1,6 +1,8 @@
 # Restore Unified Host composition boundaries
 
-Status: ready-for-agent
+Status: resolved
+
+Implementation: `refactor/unified-server-boundaries`. See [the responsibility audit and qualification limits](audit.md). Implementation tickets are resolved; full feature-matrix and complexity qualification remain incomplete after bounded validation attempts.
 
 ## Problem Statement
 

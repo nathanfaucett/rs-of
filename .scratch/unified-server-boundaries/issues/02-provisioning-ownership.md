@@ -11,7 +11,6 @@ Write scope: local_provisioning and local_join modules/tests, IdP provisioning o
 
 Use tdd. Commit work on a ticket worktree based on integration branch; merge integration tip before reporting. Report validation and unresolved limitations honestly.
 
-
 ## Answer
 
 Implemented the scoped IdP/Management/Storage provisioning ownership extraction in `c22007dcd`.
@@ -42,3 +41,7 @@ Risk assessment: security/recovery impact is high; implementation complexity is 
 - Local Create/Join still inspect the retained `devices.redb` file as a fail-closed construction fence. Device lacks a concrete existing-only provisioning preflight. Replacing this requires a Device-owner interface outside this ticket's permitted IdP/Management/Storage owner changes; no Device policy/protocol or security-bootstrap files were edited.
 - Join still calls the existing Unified `SecurityProtocol` bootstrap entry point. Protocol ownership belongs to the separate security ticket, not a relocated provisioning workflow.
 - `setup_host`, configuration/runtime audit, and final shared manifest/root-declaration reconciliation remain with the parent as requested. This resolves the scoped provisioning changes, not the entire multi-ticket spec or the outstanding full-node qualification gap.
+
+### Integration follow-up
+
+The handoff items above were subsequently addressed: `3db3c5eaa` adds Device existing-only preflight and owner-local database construction, ticket 01 extracts the security implementation, and ticket 03 completes the host audit and fixture reconciliation. All three full-node scenarios subsequently passed on the integration branch. See the [final audit](../audit.md) for current results and remaining feature-matrix/complexity qualification limits.

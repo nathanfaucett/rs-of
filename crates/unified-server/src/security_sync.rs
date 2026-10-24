@@ -1,13 +1,14 @@
-use db::Database;
-pub use device_service::security_policy::SecurityContext;
-use idp_server::OwnerProvisioner;
-use idp_service::oauth2::NodeSignerBinding;
 use std::{
     io,
     ops::Deref,
     path::{Path, PathBuf},
     sync::Arc,
 };
+
+use db::Database;
+pub use device_service::security_policy::SecurityContext;
+use idp_server::OwnerProvisioner;
+use idp_service::oauth2::NodeSignerBinding;
 use storage_server::DataProtocolHandler;
 use tokio_util::sync::CancellationToken;
 
