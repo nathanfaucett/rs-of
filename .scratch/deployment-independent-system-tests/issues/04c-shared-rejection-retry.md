@@ -1,6 +1,6 @@
 # 04c: Join rejection and interrupted/exact retry
 
-**Status:** open
+**Status:** claimed
 
 **Blocked by:** 04b
 

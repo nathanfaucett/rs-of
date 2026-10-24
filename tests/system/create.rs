@@ -699,6 +699,10 @@ impl Node {
     }
 
     async fn login(&self) -> String {
+        self.login_response().await.access_token
+    }
+
+    async fn login_response(&self) -> models::TokenResponse {
         idp::token(
             &self.config(&self.idp),
             idp::TokenParams {
@@ -721,7 +725,6 @@ impl Node {
                 }
             )
         })
-        .access_token
     }
 
     async fn exchange(&self, token: &str, audience: &str, scope: &str) -> String {
@@ -918,6 +921,7 @@ pub async fn join_scenario(independent_layout: bool) {
     let source_device = of_device_client::apis::default_api::device(&device_config(&source))
         .await
         .expect("public source endpoint");
+    let grants = prepare_learned_grants(&source).await;
     let session = source.login().await;
     let authority = source.exchange(&session, "idp-management", "").await;
     let resource_token = source.exchange(&session, "storage:filesystems", "").await;
@@ -1200,6 +1204,10 @@ pub async fn join_scenario(independent_layout: bool) {
         .await
         .unwrap_or_else(|_| panic!("source public User info"))
         .sub;
+    assert_learned_grants(&target, &source.login, &grants).await;
+    let replacement = refresh_grant(&target, &source.login, &grants[2]).await.unwrap_or_else(|_| panic!("unconsumed learned grant remains usable"));
+    assert_ne!(replacement.refresh_token.flatten().expect("rotated learned grant"), grants[2]);
+    denied_refresh(refresh_grant(&target, &source.login, &grants[2]).await);
     let resource = use_node(&mut target, Some(&resource_token), None).await;
     target.policy_permission(&authority, &subject).await;
     let endpoint = of_device_client::apis::default_api::device(&device_config(&target))
@@ -1217,6 +1225,8 @@ pub async fn join_scenario(independent_layout: bool) {
             .public_key,
         endpoint.public_key
     );
+    assert_learned_grants(&target, &source.login, &grants).await;
+    denied_refresh(refresh_grant(&target, &source.login, &grants[2]).await);
     use_node(&mut target, Some(&resource_token), Some(&resource)).await;
     target.policy_permission(&authority, &subject).await;
 }
@@ -1286,10 +1296,104 @@ pub async fn denial_scenario(independent_layout: bool) {
         .unwrap_or_else(|_| panic!("read-only authorized read"));
     assert!(matches!(storage::delete_file_system(&storage_config, storage::DeleteFileSystemParams { filesystem_id:resource.clone() }).await,
         Err(of_storage_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 403), "read permission cannot delete resource");
-    let wrong_audience = of_storage_client::apis::configuration::Configuration { bearer_access_token:Some(session), ..storage_config.clone() };
+    let wrong_audience = of_storage_client::apis::configuration::Configuration { bearer_access_token:Some(session.clone()), ..storage_config.clone() };
     assert!(matches!(storage::get_file_system(&wrong_audience, storage::GetFileSystemParams { filesystem_id:resource.clone() }).await,
         Err(of_storage_client::apis::Error::ResponseError(r)) if matches!(r.status.as_u16(), 401 | 403)), "IdP audience is not resource authority");
     let after = storage::get_file_system(&storage_config, storage::GetFileSystemParams { filesystem_id:resource }).await
         .unwrap_or_else(|_| panic!("denied mutations preserve resource"));
     assert_eq!(before, after);
+    retained_socket_denial(&node, &user, &session, &before.id).await;
+}
+
+
+async fn refresh_grant(node: &Node, client_id: &str, grant: &str) -> Result<models::TokenResponse, of_idp_client::apis::Error<idp::TokenError>> {
+    idp::token(&node.config(&node.idp), idp::TokenParams {
+        grant_type:Some("refresh_token".into()), client_id:Some(client_id.into()), refresh_token:Some(grant.into()), ..Default::default()
+    }).await
+}
+
+fn denied_refresh(result: Result<models::TokenResponse, of_idp_client::apis::Error<idp::TokenError>>) {
+    match result {
+        Err(of_idp_client::apis::Error::ResponseError(response)) => {
+            assert!(response.status.is_client_error(), "denial is not a server outage");
+            let body: serde_json::Value = serde_json::from_str(&response.content).expect("OAuth denial body");
+            assert_eq!(body["error"], "invalid_grant");
+        }
+        _ => panic!("consumed or revoked refresh grant must be denied"),
+    }
+}
+
+async fn prepare_learned_grants(source: &Node) -> [String; 3] {
+    let mut grants = Vec::new();
+    for _ in 0..3 {
+        grants.push(source.login_response().await.refresh_token.flatten().expect("ordinary refresh grant"));
+    }
+    assert_ne!(grants[0], grants[1]);
+    assert_ne!(grants[1], grants[2]);
+    refresh_grant(source, &source.login, &grants[0]).await.unwrap_or_else(|_| panic!("consume source refresh grant"));
+    idp::revoke(&source.config(&source.idp), idp::RevokeParams { token:grants[1].clone(), token_type_hint:Some("refresh_token".into()) }).await
+        .unwrap_or_else(|_| panic!("ordinary source refresh revocation"));
+    let grants: [String; 3] = grants.try_into().expect("three distinct grant cases");
+    assert_learned_grants(source, &source.login, &grants).await;
+    grants
+}
+
+async fn assert_learned_grants(node: &Node, client_id: &str, grants: &[String; 3]) {
+    for grant in &grants[..2] {
+        denied_refresh(refresh_grant(node, client_id, grant).await);
+    }
+}
+
+
+async fn retained_socket_denial(node: &Node, user: &Configuration, session: &str, resource: &str) {
+    use futures_util::{SinkExt, StreamExt};
+    use rustls::pki_types::{CertificateDer, pem::PemObject};
+    use storage_model::{StorageRequest, StorageResponse};
+    use tokio_tungstenite::{Connector, connect_async_tls_with_config, tungstenite::Message};
+
+    let token = node.exchange(session, "storage:filesystems", "").await;
+    let mut url = reqwest::Url::parse(&node.storage).expect("explicit Storage base");
+    url.set_scheme(if node.storage.starts_with("https:") { "wss" } else { "ws" }).expect("resource WebSocket scheme");
+    url.query_pairs_mut().append_pair("access_token", &token).append_pair("filesystem_id", resource);
+    let connector = if node.storage.starts_with("https:") {
+        let pem = fs::read(node.root.path().join("roots.pem")).expect("isolated native roots");
+        let mut roots = rustls::RootCertStore::empty();
+        for certificate in CertificateDer::pem_slice_iter(&pem) {
+            roots.add(certificate.expect("fixture CA certificate")).expect("trusted fixture CA");
+        }
+        Some(Connector::Rustls(std::sync::Arc::new(rustls::ClientConfig::builder().with_root_certificates(roots).with_no_client_auth())))
+    } else { None };
+    let (mut socket, _) = tokio::time::timeout(Duration::from_secs(30), connect_async_tls_with_config(url.as_str(), None, false, connector.clone())).await
+        .expect("bounded native resource connection").unwrap_or_else(|_| panic!("authorized resource connection"));
+    let write = StorageRequest::Write { path:"retained.txt".into(), content:b"authorized before denial".to_vec() };
+    socket.send(Message::Text(serde_json::to_string(&write).expect("native request").into())).await.expect("authorized native write");
+    let frame = tokio::time::timeout(Duration::from_secs(30), socket.next()).await.expect("bounded native write response").expect("write response").expect("valid frame");
+    assert!(matches!(serde_json::from_str::<StorageResponse>(frame.to_text().expect("text response")).expect("typed write response"), StorageResponse::Written { .. }));
+    socket.send(Message::Text(serde_json::to_string(&StorageRequest::Read { path:"retained.txt".into() }).expect("native read").into())).await.expect("native read");
+    let frame = tokio::time::timeout(Duration::from_secs(30), socket.next()).await.expect("bounded native read response").expect("read response").expect("valid frame");
+    assert_eq!(serde_json::from_str::<StorageResponse>(frame.to_text().expect("text response")).expect("typed read response"), StorageResponse::Read { content:b"authorized before denial".to_vec() });
+    let subject = idp::userinfo(user).await.unwrap_or_else(|_| panic!("User before deletion")).sub;
+    let mut administrator = node.config(&node.idp);
+    administrator.bearer_access_token = Some(node.exchange(session, &node.idp, "").await);
+    idp::delete_user(&administrator, idp::DeleteUserParams { user_id:subject }).await.unwrap_or_else(|_| panic!("ordinary authorized User deletion"));
+    socket.send(Message::Text(serde_json::to_string(&write).expect("native denied request").into())).await.expect("subsequent retained-socket operation");
+    tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            match socket.next().await {
+                Some(Ok(Message::Text(body))) => {
+                    assert!(matches!(serde_json::from_str::<StorageResponse>(&body).expect("typed denial"), StorageResponse::Error { .. }), "existing connection must not retain User authority");
+                    break;
+                }
+                Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
+                Some(Ok(Message::Ping(_) | Message::Pong(_))) => continue,
+                _ => panic!("unexpected denied resource frame"),
+            }
+        }
+    }).await.expect("bounded subsequent-operation denial");
+    assert!(matches!(tokio::time::timeout(Duration::from_secs(30), connect_async_tls_with_config(url.as_str(), None, false, connector)).await.expect("bounded reconnect"),
+        Err(tokio_tungstenite::tungstenite::Error::Http(response)) if response.status().as_u16() == 401), "deleted User cannot reconnect");
+    let storage_config = of_storage_client::apis::configuration::Configuration { client:node.http.clone(), base_path:node.storage.clone(), bearer_access_token:Some(token), ..Default::default() };
+    assert!(matches!(storage::get_file_system(&storage_config, storage::GetFileSystemParams { filesystem_id:resource.into() }).await,
+        Err(of_storage_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 401), "deleted User cannot use catalog");
+    of_device_client::apis::default_api::health(&device_config(node)).await.expect("denial is not process loss");
 }
