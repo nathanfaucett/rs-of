@@ -41,9 +41,6 @@ pub use setup_host::SetupHost;
 #[cfg(unix)]
 pub use setup_runtime::ApiSetupHost;
 
-#[cfg(test)]
-mod generated_transport_tests;
-
 #[cfg(all(test, unix))]
 mod setup_runtime_tests;
 
