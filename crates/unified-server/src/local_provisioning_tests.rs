@@ -719,6 +719,36 @@ fn copy_stopped_recovery_tree(source: &Path, destination: &Path) {
     }
 }
 
+fn assert_matching_bytes(expected: &[u8], actual: &[u8], context: &str) {
+    let first_difference = expected
+        .iter()
+        .zip(actual)
+        .position(|(expected, actual)| expected != actual)
+        .or_else(|| (expected.len() != actual.len()).then_some(expected.len().min(actual.len())));
+    assert!(
+        first_difference.is_none(),
+        "{context}: expected {} bytes, got {} bytes; first difference at offset {first_difference:?}",
+        expected.len(),
+        actual.len(),
+    );
+}
+
+#[test]
+fn byte_mismatch_diagnostics_do_not_dump_contents() {
+    let expected = vec![0xab; 1024 * 1024];
+    let mut actual = expected.clone();
+    actual[123] = 0xcd;
+    let panic = std::panic::catch_unwind(|| {
+        assert_matching_bytes(&expected, &actual, "recovery contents");
+    })
+    .expect_err("different contents must fail");
+    let message = panic.downcast_ref::<String>().expect("formatted assertion");
+    assert!(message.len() < 200, "byte diagnostics must stay bounded");
+    assert!(message.contains("1048576 bytes"));
+    assert!(message.contains("offset Some(123)"));
+    assert_matching_bytes(&expected, &expected, "identical contents");
+}
+
 fn assert_stopped_recovery_tree(source: &Path, restored: &Path) {
     use std::os::unix::fs::PermissionsExt;
 
@@ -744,10 +774,10 @@ fn assert_stopped_recovery_tree(source: &Path, restored: &Path) {
             assert_stopped_recovery_tree(&source.join(&name), &restored.join(&name));
         }
     } else {
-        assert!(
-            fs::read(source).expect("snapshot bytes")
-                == fs::read(restored).expect("restored bytes"),
-            "restored bytes match without disclosing private material"
+        assert_matching_bytes(
+            &fs::read(source).expect("snapshot bytes"),
+            &fs::read(restored).expect("restored bytes"),
+            "restored file contents",
         );
     }
 }
@@ -877,13 +907,15 @@ async fn local_provisioning_restores_stopped_same_node_filesystem_with_retained_
         "same trusted public signer"
     );
     drop(owner);
-    let (runtime, guard) = LocalProvisioner::open_runtime(config.clone())
+    let (mut runtime, guard) = LocalProvisioner::open_runtime(config.clone())
         .await
         .expect("restored Node reopens again");
+    runtime
+        .start_background_tasks()
+        .await
+        .expect("recovered runtime completes startup before shutdown");
     assert_eq!(runtime.endpoint_id(), endpoint);
     let client = runtime.management_control_plane.clone();
-    let cancellation = runtime.cancellation_token();
-    let task = tokio::spawn(runtime.serve());
     assert_eq!(
         client
             .get_storage_endpoint_identity(&endpoint.to_string())
@@ -892,11 +924,9 @@ async fn local_provisioning_restores_stopped_same_node_filesystem_with_retained_
             .endpoint_id,
         endpoint.to_string()
     );
-    cancellation.cancel();
-    tokio::time::timeout(Duration::from_secs(60), task)
+    tokio::time::timeout(Duration::from_secs(60), runtime.shutdown())
         .await
         .expect("bounded recovered shutdown")
-        .expect("recovered task")
         .expect("recovered shutdown");
     drop(client);
     drop(guard);
@@ -906,17 +936,19 @@ async fn local_provisioning_restores_stopped_same_node_filesystem_with_retained_
         (restored_lock.dev(), restored_lock.ino())
     );
     let journal_path = journal_root.join("intent.json");
-    assert!(
-        fs::read(&journal_path).expect("unchanged journal")
-            == fs::read(snapshot.join("4/intent.json")).expect("snapshot journal")
+    assert_matching_bytes(
+        &fs::read(snapshot.join("4/intent.json")).expect("snapshot journal"),
+        &fs::read(&journal_path).expect("unchanged journal"),
+        "retained recovery journal",
     );
     assert_stopped_recovery_tree(
         &snapshot.join("0/local-client-key-references"),
         &roots[0].join("local-client-key-references"),
     );
-    assert!(
-        fs::read(snapshot.join("0/setup-secret-inventory.json")).expect("snapshot inventory")
-            == fs::read(roots[0].join("setup-secret-inventory.json")).expect("retained inventory")
+    assert_matching_bytes(
+        &fs::read(snapshot.join("0/setup-secret-inventory.json")).expect("snapshot inventory"),
+        &fs::read(roots[0].join("setup-secret-inventory.json")).expect("retained inventory"),
+        "retained secret inventory",
     );
     for (index, root) in roots.iter().take(4).enumerate() {
         let lost = fixture.root.join(format!("missing-restored-{index}"));
@@ -1369,8 +1401,13 @@ async fn local_provisioning_existing_cli_host_without_journal_starts_and_reopens
     runtime.shutdown().await.expect("joined shutdown");
     let endpoint = fs::read(fixture.root.join("endpoint/endpoint.key")).expect("retained endpoint");
 
-    let management_before =
-        fs::read(fixture.root.join("device/devices.redb")).expect("retained Management database");
+    let device_database = device_server::open_device_database(&fixture.config.device)
+        .await
+        .expect("retained Device owner");
+    let devices = device_service::replica::DbDeviceRepo::new(device_database.client());
+    let devices_before = device_service::DeviceRepo::list(&devices)
+        .await
+        .expect("retained Device records");
     let mut unbound = fixture.config.clone();
     unbound.idp.oauth2.local_signer = None;
     assert!(
@@ -1429,11 +1466,15 @@ async fn local_provisioning_existing_cli_host_without_journal_starts_and_reopens
             .is_err()
     );
     drop(owner);
-    assert_eq!(
-        management_before,
-        fs::read(fixture.root.join("device/devices.redb"))
-            .expect("Management unchanged on missing trust")
+    let devices_after = device_service::DeviceRepo::list(&devices)
+        .await
+        .expect("Device records after denied startup");
+    assert!(
+        devices_before == devices_after,
+        "denied startup must preserve Device records"
     );
+    drop(devices);
+    drop(device_database);
     let endpoint_path = fixture.root.join("endpoint/endpoint.key");
     fs::set_permissions(&endpoint_path, fs::Permissions::from_mode(0o644))
         .expect("unprotected endpoint fixture");

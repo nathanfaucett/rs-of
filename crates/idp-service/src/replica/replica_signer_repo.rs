@@ -557,10 +557,7 @@ mod tests {
                 .await
                 .expect("nil is not a User")
         );
-        assert_eq!(
-            check().await.expect("exact current enrollment"),
-            vec![(member.clone(), signer.clone())]
-        );
+        check().await.expect("exact current enrollment");
         let binding = crate::oauth2::NodeSignerBinding {
             member_id: member.member_id,
             key_id: signer.key_id,

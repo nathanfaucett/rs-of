@@ -1,10 +1,7 @@
 use std::io;
 
 use db::Client;
-use idp_model::{
-    contract::{IdpSignerRecord, JwkPublic, ReplicaMembership},
-    model::Id,
-};
+use idp_model::{contract::JwkPublic, model::Id};
 
 use super::{DbReplicaSignerRepo, DbUserRepo};
 use crate::{PasswordConfig, oauth2::NodeSignerBinding, repo::UserRepo};
@@ -39,7 +36,7 @@ impl LocalIdentity {
         public_signer: &JwkPublic,
         owner: Id,
         now: i64,
-    ) -> io::Result<Vec<(ReplicaMembership, IdpSignerRecord)>> {
+    ) -> io::Result<()> {
         let key: Id = public_signer.kid.parse().map_err(denied)?;
         let trusted = DbReplicaSignerRepo::new(self.engine.clone())
             .trusted_signers(installation, now)
@@ -64,7 +61,7 @@ impl LocalIdentity {
                 "bootstrap owner is not a current conflict-clear User",
             ));
         }
-        Ok(trusted)
+        Ok(())
     }
 
     pub fn check_configured_join_signer(

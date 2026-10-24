@@ -1506,6 +1506,7 @@ mod tests {
             .await
             .expect("restore local readiness grant");
         drop(service);
+        drop(policy);
 
         let cancellation_token = runtime.cancellation_token();
         let server_address = runtime.local_addr();
@@ -1825,7 +1826,7 @@ mod tests {
         .await;
         let response = client
             .get(format!(
-                "http://{server_address}/management/devices/endpoints/{endpoint_id}"
+                "http://{server_address}/device/devices/endpoints/{endpoint_id}"
             ))
             .bearer_auth(&management_device_token)
             .send()
@@ -1930,6 +1931,7 @@ mod tests {
         );
 
         drop(service);
+        drop(policy);
         let shared_endpoint = runtime.endpoint.server().endpoint().clone();
         cancellation_token.cancel();
         assert!(

@@ -6,20 +6,20 @@ Implementation complete on `refactor/unified-server-boundaries`. Independent sta
 
 ## Retained Unified responsibilities
 
-| Module | Retained responsibility and owner seam |
-| --- | --- |
-| Configuration | Loads and combines owner settings, normalizes host paths, enforces nonoverlapping host roots and listener constraints. Identity setting validity delegates to IdP configuration operations. |
-| Bootstrap configuration | Retains nonsecret host selection, port, root, issuer/configuration references and process lock. Reset coordinates exact owner reference capture and owner secret deletion; it does not delete arbitrary owner keys or interpret database layout. |
-| Credential bootstrap | Retains exact configuration references and the TLS-production attempt fence, installs/opens host TLS through the existing API module. Credential validation and private material remain owner behavior. |
-| Local Create | Orders concrete owner operations and preserves owner handles through publication. Its journal is a cross-owner attempted/acknowledged construction fence, not a domain authority. Password verification and signer evidence belong to IdP; retained administrator inventory belongs to Management; acknowledged stores are checked by their owners. |
-| Local Join | Coordinates endpoint construction, owner inventory, Device's public-bootstrap operation, owner-handle transfer and host publication. Exact IdP receipt/signer/import progress remains IdP-owned; Device implements protocol and readiness. |
-| Setup host | Composes protected Setup admission, TLS and worker serving; owns listener and task lifetime. |
-| Setup runtime | Adapts the existing HostedSetup worker to concrete owner construction/reopen/publication. Retained host phase checks prevent accidental fresh initialization; owner evidence still decides readiness and domain validity. |
-| Endpoint | Persists the host's one endpoint identity and constructs it with the owner-provided admission hook. Approved membership and issuer discovery come from owner operations. Key publication/failure tests remain host-lifecycle tests. |
-| Security facade | Constructs Device's protocol owner, attaches its stream handler to Storage's dispatcher, and transfers existing handles into runtime construction. No replication handshake, historical validation implementation, repository lookup, or admission state machine remains. |
-| Runtime | Opens owners through their constructors, injects local owner interfaces, mounts routers, registers handlers, subscribes to changes and coordinates startup/shutdown. Convenience methods delegate to owners; owning an operation's caller is not owning its policy. |
-| Bootstrap verification | Probes composed public owner contracts and readiness through the real listener and shuts the runtime down. It does not define domain readiness. |
-| CLI and crate roots | Argument parsing/dispatch and declarations/re-exports. No new feature, crate, generic orchestration framework, or file-count target. |
+| Module                  | Retained responsibility and owner seam                                                                                                                                                                                                                                                                                                              |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Configuration           | Loads and combines owner settings, normalizes host paths, enforces nonoverlapping host roots and listener constraints. Identity setting validity delegates to IdP configuration operations.                                                                                                                                                         |
+| Bootstrap configuration | Retains nonsecret host selection, port, root, issuer/configuration references and process lock. Reset coordinates exact owner reference capture and owner secret deletion; it does not delete arbitrary owner keys or interpret database layout.                                                                                                    |
+| Credential bootstrap    | Retains exact configuration references and the TLS-production attempt fence, installs/opens host TLS through the existing API module. Credential validation and private material remain owner behavior.                                                                                                                                             |
+| Local Create            | Orders concrete owner operations and preserves owner handles through publication. Its journal is a cross-owner attempted/acknowledged construction fence, not a domain authority. Password verification and signer evidence belong to IdP; retained administrator inventory belongs to Management; acknowledged stores are checked by their owners. |
+| Local Join              | Coordinates endpoint construction, owner inventory, Device's public-bootstrap operation, owner-handle transfer and host publication. Exact IdP receipt/signer/import progress remains IdP-owned; Device implements protocol and readiness.                                                                                                          |
+| Setup host              | Composes protected Setup admission, TLS and worker serving; owns listener and task lifetime.                                                                                                                                                                                                                                                        |
+| Setup runtime           | Adapts the existing HostedSetup worker to concrete owner construction/reopen/publication. Retained host phase checks prevent accidental fresh initialization; owner evidence still decides readiness and domain validity.                                                                                                                           |
+| Endpoint                | Persists the host's one endpoint identity and constructs it with the owner-provided admission hook. Approved membership and issuer discovery come from owner operations. Key publication/failure tests remain host-lifecycle tests.                                                                                                                 |
+| Security facade         | Constructs Device's protocol owner, attaches its stream handler to Storage's dispatcher, and transfers existing handles into runtime construction. No replication handshake, historical validation implementation, repository lookup, or admission state machine remains.                                                                           |
+| Runtime                 | Opens owners through their constructors, injects local owner interfaces, mounts routers, registers handlers, subscribes to changes and coordinates startup/shutdown. Convenience methods delegate to owners; owning an operation's caller is not owning its policy.                                                                                 |
+| Bootstrap verification  | Probes composed public owner contracts and readiness through the real listener and shuts the runtime down. It does not define domain readiness.                                                                                                                                                                                                     |
+| CLI and crate roots     | Argument parsing/dispatch and declarations/re-exports. No new feature, crate, generic orchestration framework, or file-count target.                                                                                                                                                                                                                |
 
 ## Extracted behavior
 
@@ -70,3 +70,21 @@ Incomplete or not green:
 The requested change-review skill was unavailable. An independent read-only code review identified three concrete gaps: IdP evidence interpreted by Device, identity settings validated in Unified, and a parallel SQL bootstrap test implementation. All three were fixed in `d8a0e21c1`; follow-up static review accepted those fixes and the retained host responsibilities. Documentation API-name/scope inaccuracies identified by that review were corrected before finalization.
 
 Remaining qualification is bounded testing/coverage work, not an identified remaining ownership violation. Do not describe this implementation as fully qualified across all features or deployments.
+
+## Final basic validation before merge
+
+The maintainer explicitly narrowed final acceptance to basic validation: no CRAP or feature-powerset testing. Historical incomplete runs above remain historical limits, not merge requirements under this updated scope.
+
+Cleanup removes unused signer-list return plumbing without changing trust checks. Recovery diagnostics report byte lengths and first differing offsets, never full buffers. Recovery tests compare Device records rather than mutable database-file metadata and explicitly complete background startup before shutdown. Stale configuration, setup-route, Device SDK and endpoint-route expectations were corrected. Composition fixtures release both identity-policy handles before reopening their database. API Join readiness observation allows 120 seconds for measured native bootstrap work; other states retain 30 seconds and denial assertions remain immediate.
+
+Observed passing with default or CLI features, not a feature matrix:
+
+- Unified configuration (5), CLI (5), and setup-host (5, plus child subprocesses) tests.
+- Large-buffer diagnostic regression and both previously failing local recovery/reopen tests.
+- API Join completion/offline reopen, unretired finalization, and interrupted retry/rejection.
+- IdP local-identity contract and three Device security-protocol contract tests.
+- Both public composition integration tests.
+- Runtime listener/SDK/permission/offline-reopen acceptance, setup route lifecycle, generated Rust/JavaScript owner qualification, and policy cleanup/transfer integration.
+- Default all-target compilation and strict affected-library Clippy with CLI enabled.
+
+Focused Unified builds used only a command-line test optimization override and the existing larger test stack. The earlier full normal suite exceeded 40 minutes; it is not claimed as a complete pass. All reproduced failures addressed in this final pass were rerun successfully. No exhaustive feature or coverage qualification is claimed.

@@ -1,10 +1,7 @@
 use std::{future::Future, io, pin::Pin, sync::Arc};
 
 use db::DatabaseTransport;
-use idp_model::{
-    contract::{IdpSignerRecord, ReplicaMembership},
-    model::Id,
-};
+use idp_model::model::Id;
 use idp_service::replica::LocalIdentity;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use ofdb_sql::{
@@ -352,10 +349,7 @@ impl SecurityProtocol {
         Ok(())
     }
 
-    async fn check_join_identity(
-        &self,
-        approval: &NodeJoinApproval,
-    ) -> io::Result<Vec<(ReplicaMembership, IdpSignerRecord)>> {
+    async fn check_join_identity(&self, approval: &NodeJoinApproval) -> io::Result<()> {
         let request = &approval.request;
         LocalIdentity::new(self.idp.client())
             .check_join_identity(
@@ -369,11 +363,8 @@ impl SecurityProtocol {
             .await
     }
 
-    pub async fn check_exact_join_trust(
-        &self,
-        approval: &NodeJoinApproval,
-    ) -> io::Result<Vec<(ReplicaMembership, IdpSignerRecord)>> {
-        let trusted = self.check_join_identity(approval).await?;
+    pub async fn check_exact_join_trust(&self, approval: &NodeJoinApproval) -> io::Result<()> {
+        self.check_join_identity(approval).await?;
         let request = &approval.request;
         let device = DbDeviceRepo::new(self.management.clone().client())
             .find_approved_by_public_key(&request.endpoint_id)
@@ -389,7 +380,7 @@ impl SecurityProtocol {
                 "bootstrap Device owner/name/endpoint binding changed",
             ));
         }
-        Ok(trusted)
+        Ok(())
     }
 
     pub async fn check_bootstrap_receiver(

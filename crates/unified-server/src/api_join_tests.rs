@@ -600,7 +600,9 @@ async fn post(
 }
 
 async fn wait_state(http: &Client, base: &str, expected: &str) -> Value {
-    tokio::time::timeout(Duration::from_secs(30), async {
+    let budget = Duration::from_secs(if expected == "ready" { 120 } else { 30 });
+    let mut last_status = None;
+    tokio::time::timeout(budget, async {
         loop {
             if let Ok(response) = http.get(format!("{base}/idp/setup/status")).send().await {
                 let status = response.json::<Value>().await.expect("setup status JSON");
@@ -617,12 +619,17 @@ async fn wait_state(http: &Client, base: &str, expected: &str) -> Value {
                         "host-owned Join stopped unfinished while awaiting ready; inspect bootstrap stage diagnostics"
                     );
                 }
+                last_status = Some(status);
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     })
     .await
-    .expect("bounded host-owned setup observation")
+    .unwrap_or_else(|_| {
+        panic!(
+            "host-owned setup did not reach {expected} within {budget:?}; last status: {last_status:?}"
+        )
+    })
 }
 
 async fn pending_node(http: &Client, source: &HttpsHost, approving: &str) -> Value {

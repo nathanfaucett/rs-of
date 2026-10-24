@@ -276,7 +276,7 @@ async fn setup_https_child() {
     let status: serde_json::Value = serde_json::from_str(&text).expect("JSON status");
     assert_eq!(
         status,
-        serde_json::json!({"stage": "installation", "state": "awaiting_choice", "ready": false, "owners": ["idp", "management", "storage"]})
+        serde_json::json!({"stage": "installation", "state": "awaiting_choice", "ready": false, "owners": ["idp", "device", "storage"]})
     );
     let admission = format!("{base}/idp/setup/admission");
     for authorized in [false, true] {
@@ -368,11 +368,24 @@ async fn setup_https_child() {
             .expect("preflight CORS"),
         origin.as_str()
     );
-    for path in [
-        "/idp/setup/create",
-        "/idp/setup/join",
-        "/management/permissions/evaluate",
-        "/storage",
+    for path in ["/idp/setup/create", "/idp/setup/join"] {
+        assert_eq!(
+            client
+                .post(format!("{base}{path}"))
+                .header("Authorization", format!("Setup {code}"))
+                .send()
+                .await
+                .expect("setup requires a JSON operation")
+                .status(),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE
+        );
+    }
+    for (path, expected) in [
+        (
+            "/management/permissions/evaluate",
+            StatusCode::SERVICE_UNAVAILABLE,
+        ),
+        ("/storage", StatusCode::METHOD_NOT_ALLOWED),
     ] {
         assert_eq!(
             client
@@ -380,9 +393,10 @@ async fn setup_https_child() {
                 .header("Authorization", format!("Setup {code}"))
                 .send()
                 .await
-                .expect("no resource/setup mutation routes")
+                .expect("normal owner mutations remain unavailable before setup")
                 .status(),
-            StatusCode::NOT_FOUND
+            expected,
+            "{path}"
         );
     }
     let response = client
@@ -414,7 +428,7 @@ async fn setup_https_child() {
         assert!(!text.contains(&code));
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(&text).expect("status JSON"),
-            serde_json::json!({"stage": "installation", "state": "unavailable", "ready": false, "owners": ["idp", "management", "storage"]})
+            serde_json::json!({"stage": "installation", "state": "unavailable", "ready": false, "owners": ["idp", "device", "storage"]})
         );
         let response = client
             .post(&admission)

@@ -527,7 +527,7 @@ mod tests {
         assert_eq!(config.idp_audience(), original.idp_audience());
         assert_eq!(
             config.device.storage_audience,
-            original.management.storage_audience
+            original.device.storage_audience
         );
         assert_eq!(config.idp.oauth2.issuer, original.idp.oauth2.issuer);
         host.set_runtime_config(config);

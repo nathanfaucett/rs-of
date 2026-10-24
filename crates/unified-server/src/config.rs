@@ -111,11 +111,11 @@ mod tests {
         ));
         fs::create_dir(&root).expect("isolated config parent");
         let path = root.join("config.yaml");
-        fs::write(&path, "management:\n  log_level: debug\n  idp_api_base: https://identity.test/idp\n  storage_api_base: https://resources.test/storage\n  storage_audience: https://resources.test/audience\n  server:\n    port: 4321\nstorage:\n  log_level: trace\n  idp_api_base_uri: https://identity.test/idp\n  management_api_base_uri: https://control.test/management\n  management_service_audience: https://control.test/audience\n  server:\n    port: 5432\n").expect("nondefault server configuration");
+        fs::write(&path, "management:\n  log_level: debug\n  idp_api_base: https://identity.test/idp\n  storage_api_base: https://resources.test/storage\n  storage_audience: https://resources.test/audience\n  server:\n    port: 4321\ndevice:\n  storage_audience: https://resources.test/audience\nstorage:\n  log_level: trace\n  idp_api_base_uri: https://identity.test/idp\n  device_api_base_uri: https://control.test/device\n  device_service_audience: https://control.test/audience\n  server:\n    port: 5432\n").expect("nondefault server configuration");
         let mut config = UnifiedConfig::try_from(path.as_path()).expect("concrete YAML settings");
         config.endpoint_data_dir = root.join("endpoint");
         config.idp.data_dir = root.join("idp").to_string_lossy().into_owned();
-        config.device.data_dir = root.join("management").to_string_lossy().into_owned();
+        config.device.data_dir = root.join("device").to_string_lossy().into_owned();
         config.storage.data_dir = root.join("storage").to_string_lossy().into_owned();
         let host = crate::BootstrapConfig::create_explicit_http(config.clone())
             .expect("explicit neutral host");
@@ -147,7 +147,7 @@ mod tests {
         assert_eq!(loaded.storage.idp_api_base_uri, "https://identity.test/idp");
         assert_eq!(
             loaded.storage.device_api_base_uri,
-            "https://control.test/management"
+            "https://control.test/device"
         );
         assert_eq!(
             loaded.storage.device_service_audience.as_deref(),
@@ -169,7 +169,7 @@ mod tests {
         );
         drop(bootstrap);
         let mut conflicting = selected;
-        conflicting.management.storage_audience = "https://different.test".into();
+        conflicting.device.storage_audience = "https://different.test".into();
         assert!(crate::CredentialBootstrap::open(conflicting).is_err());
         drop(host);
         fs::remove_dir_all(root).expect("isolated cleanup");
@@ -185,7 +185,7 @@ mod tests {
             Path::new("./data/unified/endpoint")
         );
         assert_eq!(config.idp.data_dir, "./data/unified/idp");
-        assert_eq!(config.device.data_dir, "./data/unified/management");
+        assert_eq!(config.device.data_dir, "./data/unified/device");
         assert_eq!(config.storage.data_dir, "./data/unified/storage");
         assert_eq!(config.idp.ui_public_uri, "https://of.localhost:1355");
         assert_eq!(
