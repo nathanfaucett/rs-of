@@ -4935,11 +4935,15 @@ dependencies = [
 name = "of-idp-client"
 version = "0.1.0"
 dependencies = [
+ "rcgen",
  "reqwest 0.12.28",
+ "rustls",
  "serde",
  "serde_json",
  "serde_repr",
  "serde_with",
+ "tokio",
+ "tokio-rustls",
  "url",
  "uuid",
 ]
@@ -5116,7 +5120,6 @@ dependencies = [
  "ofdb-btree",
  "ofdb-btree-automerge",
  "ofdb-sql-engine",
- "ofdb-sql-sync",
  "ofdb-value",
  "postcard",
  "serde",
