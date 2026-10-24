@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 — Qualify retained restart and offline-independent Join.
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] Reconcile the existing scenario inventory against the shared Create/restart/Join coverage and identify the remaining existing assertions in this ticket's scenario families. Do not add new product requirements or an exhaustive deployment cross-product.
 - [ ] Migrate applicable permission and resource-denial assertions into shared scenarios using generated owner clients, preserving exact actor/audience/target checks rather than asserting private rows.
@@ -18,3 +18,11 @@
 ## Scope control
 
 Keep this slice bounded to existing coverage. If the inventory demonstrates that these scenario families cannot fit one fresh implementation context, split it into scenario-family child tickets before implementation, each independently verifiable with explicit blockers. Do not replace this acceptance scope with an unbounded test-framework project.
+
+## Claim
+
+Claimed by ticket04 agent on `refactor/system-tests-04`, base `af62ed7bc`. Approved seams: generated owner HTTP clients and existing native protocol clients against actual processes. Targeted validation only; ticket01 external files and coverage edits are not owned here.
+
+## Bounded execution
+
+Split before implementation into sequential children 04a (permission/resource denial), 04b (learned denial), 04c (rejection/retry). Shared fixture edits are owned here; coverage.md is left to ticket01, with ticket04 inventory in its own report.

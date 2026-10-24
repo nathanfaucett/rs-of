@@ -1227,3 +1227,69 @@ fn authorization_denied<T, E>(result: Result<T, of_device_client::apis::Error<E>
         "source administration requires ordinary User authority"
     );
 }
+
+
+pub async fn denial_scenario(independent_layout: bool) {
+    use of_management_client::apis::default_api as policy;
+    let mut node = Node::new();
+    if independent_layout { node.independent_create(true).await; } else { node.unified().await; }
+    let resource = use_node(&mut node, None, None).await;
+    let session = node.login().await;
+    let mut user = node.config(&node.idp);
+    user.bearer_access_token = Some(session.clone());
+    let subject = idp::userinfo(&user).await.unwrap_or_else(|_| panic!("public User info")).sub;
+    let authority = node.exchange(&session, "idp-management", "").await;
+    let config = of_management_client::apis::configuration::Configuration {
+        client: node.http.clone(), base_path: node.management.clone(),
+        bearer_access_token: Some(authority.clone()), ..Default::default()
+    };
+    let request: of_management_client::models::PermissionEvaluationRequest = serde_json::from_value(json!({
+        "requestId":"01234567-89ab-4cde-8fab-0123456789ab", "action":"devices_read",
+        "subject":{"type":"user","id":subject}, "target":{"scope":"installation","resource":{"type":"device","id":null}}
+    })).expect("generated permission request");
+    let decision = policy::evaluate_permission(&config, policy::EvaluatePermissionParams { permission_evaluation_request:request.clone() }).await
+        .unwrap_or_else(|_| panic!("authorized exact evaluation"));
+    assert!(decision.allowed);
+    assert_eq!(*decision.request, request);
+    assert_eq!(*decision.audit.actor, *request.subject);
+    let mut forged = request.clone();
+    forged.subject = Box::new(serde_json::from_value(json!({"type":"user","id":"01234567-89ab-4cde-8fab-0123456789ab"})).expect("different actor"));
+    assert!(matches!(policy::evaluate_permission(&config, policy::EvaluatePermissionParams { permission_evaluation_request:forged }).await,
+        Err(of_management_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 403), "User cannot assert another actor");
+    let wrong_audience = of_management_client::apis::configuration::Configuration { bearer_access_token:Some(session.clone()), ..config.clone() };
+    assert!(matches!(policy::evaluate_permission(&wrong_audience, policy::EvaluatePermissionParams { permission_evaluation_request:request.clone() }).await,
+        Err(of_management_client::apis::Error::ResponseError(r)) if matches!(r.status.as_u16(), 401 | 403)), "IdP session is not Management authority");
+    let mut device = device_config(&node);
+    device.bearer_access_token = Some(authority);
+    let local = of_device_client::apis::default_api::list_devices(&device).await.unwrap_or_else(|_| panic!("public Device list")).into_iter().next().expect("created Node Device");
+    let mut ungranted = request.clone();
+    ungranted.action = of_management_client::models::IdentityAction::DeviceRestrictionsRead;
+    ungranted.target = Box::new(serde_json::from_value(json!({"scope":"installation","resource":{"type":"device","id":local.id}})).expect("exact Device restriction target"));
+    let denied = policy::evaluate_permission(&config, policy::EvaluatePermissionParams { permission_evaluation_request:ungranted.clone() }).await
+        .unwrap_or_else(|_| panic!("negative decision is not an outage"));
+    assert!(!denied.allowed);
+    assert_eq!(*denied.request, ungranted);
+    assert_eq!(*denied.audit.actor, *request.subject);
+    assert!(matches!(of_device_client::apis::default_api::get_device_restriction(&device,
+        of_device_client::apis::default_api::GetDeviceRestrictionParams { device_id:local.id }).await,
+        Err(of_device_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 403), "ordinary owner enforces the ungranted action");
+    of_device_client::apis::default_api::list_devices(&device).await.unwrap_or_else(|_| panic!("distinct granted action remains allowed"));
+    let read_only = idp::token(&node.config(&node.idp), idp::TokenParams {
+        grant_type:Some("urn:ietf:params:oauth:grant-type:token-exchange".into()), client_id:Some(node.login.clone()), subject_token:Some(session.clone()),
+        subject_token_type:Some(models::SubjectTokenType::UrnColonIetfColonParamsColonOauthColonTokenTypeColonAccessToken), resource:Some("storage:filesystems".into()),
+        authorization_details:Some(r#"[{"type":"storage","actions":["read"]}]"#.into()), ..Default::default()
+    }).await.unwrap_or_else(|_| panic!("ordinary read-only resource token")).access_token;
+    let storage_config = of_storage_client::apis::configuration::Configuration {
+        client:node.http.clone(), base_path:node.storage.clone(), bearer_access_token:Some(read_only), ..Default::default()
+    };
+    let before = storage::get_file_system(&storage_config, storage::GetFileSystemParams { filesystem_id:resource.clone() }).await
+        .unwrap_or_else(|_| panic!("read-only authorized read"));
+    assert!(matches!(storage::delete_file_system(&storage_config, storage::DeleteFileSystemParams { filesystem_id:resource.clone() }).await,
+        Err(of_storage_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 403), "read permission cannot delete resource");
+    let wrong_audience = of_storage_client::apis::configuration::Configuration { bearer_access_token:Some(session), ..storage_config.clone() };
+    assert!(matches!(storage::get_file_system(&wrong_audience, storage::GetFileSystemParams { filesystem_id:resource.clone() }).await,
+        Err(of_storage_client::apis::Error::ResponseError(r)) if matches!(r.status.as_u16(), 401 | 403)), "IdP audience is not resource authority");
+    let after = storage::get_file_system(&storage_config, storage::GetFileSystemParams { filesystem_id:resource }).await
+        .unwrap_or_else(|_| panic!("denied mutations preserve resource"));
+    assert_eq!(before, after);
+}

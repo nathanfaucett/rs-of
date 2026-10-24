@@ -44,3 +44,15 @@ async fn independent_join_and_source_offline_reopen() {
 async fn independent_local_owner_create_and_restart() {
     create::local_restart_scenario().await;
 }
+
+#[tokio::test]
+#[ignore = "requires built service launcher; see tests/system/README.md"]
+async fn unified_permission_resource_denial() {
+    create::denial_scenario(false).await;
+}
+
+#[tokio::test]
+#[ignore = "requires built service launcher; see tests/system/README.md"]
+async fn independent_permission_resource_denial() {
+    create::denial_scenario(true).await;
+}
