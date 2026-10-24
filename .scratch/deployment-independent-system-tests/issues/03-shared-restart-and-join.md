@@ -4,17 +4,17 @@
 
 **Blocked by:** 02 — Qualify Create and ordinary use across both deployment layouts.
 
-**Status:** claimed
+**Status:** resolved
 
-- [ ] Extend the existing shared scenarios and concrete deployment fixtures, rather than adding a separate assertion suite per layout.
-- [ ] Stop and restart a created Node with the same retained configuration, protected provider, and state; verify public readiness and ordinary authorized use without fresh setup or reseeding.
-- [ ] Exercise documented source acceptance, pending Join, and exact authorized Device approval through generated clients. Preserve the distinction between endpoint possession, Device approval, signer trust, and resource authorization.
-- [ ] Run Join through each layout's documented setup sequence and admission capabilities, then verify correlated Installation identity, readiness, and usable owner interfaces.
-- [ ] Stop the source after completed Join, reopen the target from its retained state, and demonstrate readiness and an ordinary authorized operation without source access.
-- [ ] Ensure the independent joining Node has the independently retained owner state required by the documented local-owner Join operation. Attaching HTTP consumers to the source's shared SQL databases does not count as offline-independent Node qualification.
-- [ ] Keep private signers local and do not import source credentials, write fixture completion markers, or bypass approval using database injection.
-- [ ] Remove directly replaced restart/Join scenarios and obsolete fixture helpers once replacement coverage passes; retain legitimate layout-specific recovery assertions.
-- [ ] Demonstrate the shared restart and approved-Join/source-offline-reopen scenarios passing in both layouts with bounded diagnostics and reliable teardown. Record exact commands and limits; no CRAP/coverage or feature-powerset tests.
+- [x] Extend the existing shared scenarios and concrete deployment fixtures, rather than adding a separate assertion suite per layout.
+- [x] Stop and restart a created Node with the same retained configuration, protected provider, and state; verify public readiness and ordinary authorized use without fresh setup or reseeding.
+- [x] Exercise documented source acceptance, pending Join, and exact authorized Device approval through generated clients. Preserve the distinction between endpoint possession, Device approval, signer trust, and resource authorization.
+- [x] Run Join through each layout's documented setup sequence and admission capabilities, then verify correlated Installation identity, readiness, and usable owner interfaces.
+- [x] Stop the source after completed Join, reopen the target from its retained state, and demonstrate readiness and an ordinary authorized operation without source access.
+- [x] Ensure the independent joining Node has the independently retained owner state required by the documented local-owner Join operation. Attaching HTTP consumers to the source's shared SQL databases does not count as offline-independent Node qualification.
+- [x] Keep private signers local and do not import source credentials, write fixture completion markers, or bypass approval using database injection.
+- [x] Remove directly replaced restart/Join scenarios and obsolete fixture helpers once replacement coverage passes; retain legitimate layout-specific recovery assertions.
+- [x] Demonstrate the shared restart and approved-Join/source-offline-reopen scenarios passing in both layouts with bounded diagnostics and reliable teardown. Record exact commands and limits; no CRAP/coverage or feature-powerset tests.
 
 ## Comments
 
@@ -28,8 +28,22 @@ recorded in the spec and implemented with mutual exclusion, finite deadlines,
 identity schema validation and stateless reset checks. There is no fallback,
 file reopening, fixture proxy, source credential import or source SQL sharing.
 
-Current qualification includes the complete seven-test suite passing, then a
-separate repeated pair of approved-Join/source-offline-reopen executions passing.
-Final post-integration validation and report are being recorded before resolution.
-No old recovery/private test body is wholly replaced, and no helper became obsolete;
-see the updated coverage map for the assertion-level replacement boundaries.
+## Answer
+
+Completed in `b6f9cfcbf` atop the earlier retained-provider/Unified work. The
+approved explicit Management socket selector and stateless reset validation have
+focused positive/negative tests. Both layouts pass shared retained restart and
+authorized Join/source-offline reopen; independent Nodes retain their own IdP,
+Device and Storage owner state and target-local Management credentials.
+
+After merging current integration (`a2b9bad75`, already up to date), final tests
+passed: **16 Management, 1 provider, 7 lifecycle**. An earlier full seven-scenario
+run and a separate two-Join repeat also passed. Strict Clippy, checks, formatting
+and dependency boundaries passed. No CRAP/powerset or integration/main merge/push.
+
+Production N0 discovery still needs working external networking; earlier DNS
+failures and an unexplained early source-Create transient remain explicitly
+reported, not claims of unconditional reliability. No old recovery/private body
+is wholly replaced and no helper became obsolete; retained tests are mapped in
+[coverage](../coverage.md). Exact commands, failures, limits and approved exception:
+[ticket03-report](../ticket03-report.md).

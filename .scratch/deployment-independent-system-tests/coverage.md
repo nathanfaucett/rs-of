@@ -361,3 +361,9 @@ native tests include synchronization, revocation and private credential assertio
 These remain, with their existing private helpers. No newly obsolete hook was found.
 See `ticket03-report.md` for actual commands, production N0 networking dependence,
 prior failures and the supported qualification boundary.
+
+Ticket03 is [resolved](issues/03-shared-restart-and-join.md): post-integration
+validation passed 16 Management tests, one provider test and all seven lifecycle
+scenarios. An earlier full seven-scenario run and paired Join repeat also pass.
+The report records earlier failures and external N0 discovery requirements; these
+results do not certify discovery availability on offline/unreliable networks.
