@@ -21,11 +21,15 @@
 Claimed on `refactor/system-tests-03` from `a2b9bad75` using the pre-approved
 public generated-client/native-protocol seam and the `tdd` skill.
 
-**Blocked, not resolved:** retained restart passes both layouts, and Unified
-approved Join/source-offline reopen passes. The actual local-owner standalone
-Management CLI exits because it accepts only TCP `identity_database`, while IdP's
-local owner publishes a Unix socket. No production connection feature, fixture
-proxy, SQL seed, copied source credential, or source-SQL attachment was added to
-make this pass. Independent target/Management continuation remains unqualified.
-Full evidence and remaining work: [ticket03-report](../ticket03-report.md).
-Old recovery/private/Join tests are retained; their replacement is not complete.
+The initial Management connection blocker was reproduced in the actual CLI and
+reported before production changes were authorized. The user then explicitly
+approved the minimal explicit socket-selector correction; that exception is now
+recorded in the spec and implemented with mutual exclusion, finite deadlines,
+identity schema validation and stateless reset checks. There is no fallback,
+file reopening, fixture proxy, source credential import or source SQL sharing.
+
+Current qualification includes the complete seven-test suite passing, then a
+separate repeated pair of approved-Join/source-offline-reopen executions passing.
+Final post-integration validation and report are being recorded before resolution.
+No old recovery/private test body is wholly replaced, and no helper became obsolete;
+see the updated coverage map for the assertion-level replacement boundaries.

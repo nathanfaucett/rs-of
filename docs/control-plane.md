@@ -43,6 +43,29 @@ With both identity selectors unset on Device and no remote SQL configuration on 
 
 Start IdP, Device, and Storage with their ordinary independent configuration, distinct data directories, correct HTTPS origins/prefixes, protected provider access and CA trust. Submit Create/Join to each setup host with its own code as below, without adding a SQL endpoint or identity file path. Device rediscovers the local socket on completed reopen. IdP must run alongside Device, but a joining Node needs no live source peer after its own local imports complete. Other machines, separate OS accounts without access to the private socket directory, and non-Unix platforms require explicit remote identity SQL; public discovery of a socket path grants no filesystem access. Unified continues to inject clients directly and starts no socket or gRPC listener.
 
+Policy-only standalone Management can explicitly select this same IdP-owned Unix
+socket instead of remote identity SQL:
+
+```yaml
+identity_socket: /private/node/idp.setup-host/identity.sock
+identity_socket_deadline_ms: 10000
+```
+
+Use the absolute socket path published in that Node's operation-bound IdP owner
+facts; the example path is illustrative, not an inferred default. Configure
+**exactly one** of `identity_socket` or `identity_database`. Socket deadlines default
+to 10000 ms and must be 1..=300000 ms. Startup bounds connection and identity schema
+validation, then applies the same deadline to queries. Missing/unavailable sockets,
+ordinary files, invalid schemas, conflicting selectors and invalid deadlines fail
+closed: Management never discovers a fallback, reopens IdP's live file, or migrates
+an owner schema. Start IdP and its socket before Management, including on retained
+restart. The connection needs the same trusted OS account/private-directory access
+as Device; it grants identity-domain SQL authority, not OAuth permission. Management
+still needs its own ordinarily registered confidential IdP service relationship.
+Its stateless reset validates the selector without contacting or deleting the
+owner socket/database, and refuses unexpected retained consumer state. Non-Unix
+hosts must use remote identity SQL.
+
 Independent IdP permission evaluation always uses its injected identity query client, local or remote. It never sends permission checks to Device. Local Join's IdP public history includes `roles`, `permissions`, `role_permissions`, and `application_user_roles`, with explicit column/value/candidate validation. Native security sync/bootstrap transfers those tables in its separate identity-policy session, and Device history carries only Device-owned tables. Grants, revocations and offline-reopened authorization use the same identity records.
 
 ### Fresh Create, Join, attachment, and reset

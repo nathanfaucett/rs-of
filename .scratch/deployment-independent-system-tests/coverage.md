@@ -339,3 +339,25 @@ per-assertion exceptions above; this index includes nested/path-mounted modules.
 
 - `unsupported_platform_rejects_all_bootstrap_constructors_before_creating_state`
 
+
+## Ticket03 lifecycle coverage
+
+`tests/system/create.rs` shares retained restart and authorized Join assertions
+across actual Unified and independent CLI processes. `tests/system_create.rs`
+executes both layouts plus explicit local-owner Create/restart. Retained public
+readiness, endpoint identity, pre-restart resource reads, new authorized resource
+operations, anonymous denials and exact Management permission decisions are tested.
+Independent Join checks each host's capability and correlated owner evidence,
+imports into independently owned target stores, registers target-local Management
+credentials ordinarily, stops the source and reopens the target without reseeding.
+
+The former Management local-owner connection blocker is addressed by the explicit
+user-approved socket selector, not by sharing source SQL or a fixture proxy.
+No legacy complete test body is wholly replaced: `api_join_tests` also qualifies
+interrupted/rejected/exact-retry/finalization/publication cases; `https_bootstrap_tests`
+and `hosted_setup_integration_tests` contain retained damage/intent/TLS/host cases;
+`owner_composition_tests::join` includes interruption, reset and recovery; full-node
+native tests include synchronization, revocation and private credential assertions.
+These remain, with their existing private helpers. No newly obsolete hook was found.
+See `ticket03-report.md` for actual commands, production N0 networking dependence,
+prior failures and the supported qualification boundary.

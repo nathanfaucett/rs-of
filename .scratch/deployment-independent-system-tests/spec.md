@@ -44,6 +44,14 @@ Use generated owner HTTP clients for supported operations and existing protocol 
 
 ## Implementation Decisions
 
+- **Approved ticket03 production exception:** the user explicitly approved a
+  minimal standalone Management connection to IdP's existing owned Unix socket.
+  Add an explicit absolute `identity_socket` selector, mutually exclusive with
+  TCP `identity_database`, bounded connection/query deadlines and identity schema
+  validation. Align stateless reset validation and docs. No automatic fallback,
+  live-file reopening, migrations, new SQL owner, credential import, admission
+  weakening, or replacement test transport is authorized by this exception.
+
 - Inventory existing tests by assertions and dependencies. Classify them as private unit tests, owner tests, Unified-only integration tests, shared Node system scenarios, or deployment-specific system tests. Preserve meaningful assertions; remove duplication only when replacement coverage is identified.
 - Use the existing public owner client/protocol seam as the system-test interface. The user approved this seam and generated-client-first consumption during the preceding discussion; no new interview is required.
 - Place shared system scenarios outside the Unified implementation. Choose the smallest existing workspace test arrangement that can launch both layouts; do not introduce a production crate, framework, generic host trait hierarchy, or new public runtime API just to move tests.

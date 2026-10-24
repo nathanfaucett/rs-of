@@ -14,22 +14,23 @@ qualification. Each test can also be selected by its exact name:
 `unified_create_and_use`, `independent_create_and_use`,
 `unified_retained_restart`, `independent_retained_restart`,
 `unified_join_and_source_offline_reopen`, or
-`independent_join_and_source_offline_reopen`.
+`independent_join_and_source_offline_reopen`, or
+`independent_local_owner_create_and_restart`.
 
-**Ticket03 is blocked, not complete.** The independent Join execution currently
-fails in the actual standalone Management CLI during local-owner source startup:
-`standalone Management requires identity_database; local composition injects the identity client`.
-The local-owner IdP publishes a Unix socket, while standalone Management requires
-TCP identity SQL. Its local-owner connection and target Management launch remain
-unqualified. Do not interpret this failing execution as independent Join coverage.
-The full six-test invocation is expected to fail until that contract gap is fixed.
-See `.scratch/deployment-independent-system-tests/ticket03-report.md`.
+Ticket03's local-owner Management connection is explicitly selected through the
+approved production `identity_socket` option. The seven-test suite covers retained
+restart and approved Join/source-offline reopen in both layouts, with a separate
+local-owner Create/restart execution. See
+`.scratch/deployment-independent-system-tests/ticket03-report.md` for exact
+validation and earlier failures. Native networking prerequisites below are real;
+no offline discovery reliability or external network availability is promised.
 
 ## Public seam and concrete deployments
 
-`create::scenario` is the single assertion body. It checks generated-client
+`create::use_node` holds the common owner/resource assertions. It checks generated-client
 Installation discovery, ordinary Initial Administrator login and User info,
-Device/Management database health, authorized Storage filesystem creation/read,
+Device/Management database health, an authorized exact Management permission decision,
+authorized Storage filesystem creation/read,
 and anonymous denial of that same resource. It never opens a domain database.
 All HTTP operations use generated clients and models; there are no raw HTTP
 fallbacks. The common independent setup contract is consumed through its
@@ -43,7 +44,7 @@ Ordinary owner operations use the respective generated owner clients.
   is outside this loopback CLI qualification.
 - **Independent:** actual production CLI entry points run in separate OS
   processes for IdP, Device, Storage, and Management. The actual
-  `identity-database` executable is a fifth process. Its database is outside all
+  `identity-database` executable is a fifth process in the explicit remote-SQL Create/restart fixture. Its database is outside all
   consumer roots; IdP/Device/Management use its explicit loopback SQL connection.
   Device owns its separate local Device database. Storage receives no SQL access.
   IdP, Device, and Storage each admit the correlated Create tuple with their own
@@ -53,6 +54,16 @@ Ordinary owner operations use the respective generated owner clients.
   Management is not a setup worker: an ordinarily authorized administrator
   registers its Application and confidential service Client through generated
   IdP operations, then starts the ordinary Management CLI with that relationship.
+
+- **Independent local owners:** the additional local Create/restart execution and
+  both sides of independent Join run IdP, Device, Storage and Management as four
+  actual CLI processes per Node. IdP owns its identity database and socket; Device
+  owns a separate Device database and rediscovers its own IdP socket. Management's
+  configuration selects its own Node's published socket explicitly and receives a
+  separately registered local service Client. Restart waits for IdP's public ready
+  status and socket listener before launching Management. Source and target have
+  independent roots, private providers and owner databases; neither target
+  consumer receives a source SQL connection.
 
 Every address is explicit and uses a separately allocated ephemeral loopback
 port in the independent layout. IdP uses no prefix, Device uses `/device`,
@@ -97,9 +108,10 @@ runner is not an orderly teardown test.
 This is same-machine Linux mock-provider qualification, not real OS-provider or
 trust installation, default-stack, proxy/mTLS, WAN/container,
 recovery, synchronization, or full-suite certification. Unified approved Join and
-source-offline reopen are qualified separately below; independent Join is blocked. Existing Unified tests
-remain owned by ticket01; do not delete their Create coverage based only on this
-narrow replacement. See the ticket02 report for exact validation and gaps.
+source-offline reopen are qualified separately below in both layouts. Historical
+mixed recovery/private tests remain because their corruption, rejection, retry,
+publication and reset assertions are not wholly replaced. See the coverage map
+and ticket03 report for exact replacement boundaries and validation.
 
 ## Authorized Join and offline independence
 
@@ -109,8 +121,8 @@ and approves the exact pending offer. Unified approval must return the same publ
 request observed in the pending list. The target discovers the same Installation,
 uses an ordinarily issued source resource token, stops all source processes,
 restarts its own retained processes, and reads its retained resource with the same
-endpoint identity. A new resource operation and anonymous denial also run after
-reopen. Source-issued tokens are held only in the test runner, not installed as
+endpoint identity. A new resource operation, anonymous denial and authorized Management permission
+evaluation also run after reopen. Source-issued tokens are held only in the test runner, not installed as
 source credentials in the target.
 
 Public security history deliberately excludes password and confidential-client
@@ -130,6 +142,14 @@ Network discovery failures are not bypassed with a router or injected lookup.
 Independent Join selects local-owner source/target state, not the remote-SQL
 attachment used by the Create fixture. Three workers have separate protected
 capabilities, roots, explicit addresses and isolated HTTPS trust. No source SQL
-connection is given to the joining target. The currently failing source Management
-launch prevents qualification of the remaining target Join and offline assertions.
-No old recovery, private, rejected-Join, or layout-specific test has been deleted.
+connection is given to the joining target. Before history exchange, each side's
+isolated native CA bundle trusts both Nodes so the operation-bound history callback
+is also verified HTTPS. Generated IdP token exchange obtains a User token for the
+target IdP audience; after approved history import the target registers its own
+Management Application and confidential Client through generated operations.
+This creates a target-local credential, not a copy of a source credential.
+All three ready owners must publish the same exact Join operation, issuer,
+service bases and nonempty endpoint evidence. The pending offer's authenticated
+transport endpoint must match its requested endpoint, and the completed target
+endpoint must differ from the source endpoint. No old recovery, private,
+rejected-Join, or layout-specific test has been deleted.

@@ -38,3 +38,9 @@ async fn unified_join_and_source_offline_reopen() {
 async fn independent_join_and_source_offline_reopen() {
     create::join_scenario(true).await;
 }
+
+#[tokio::test]
+#[ignore = "requires built service launcher; see tests/system/README.md"]
+async fn independent_local_owner_create_and_restart() {
+    create::local_restart_scenario().await;
+}

@@ -97,6 +97,9 @@ utoipa-swagger-ui = { version = "9.0", default-features = false, features = [
 ], optional = true }
 
 [dev-dependencies]
+# Database test owner
+db = { package = "idp-db", path = "../db", default-features = false, features = ["server"] }
+
 # Async
 tokio = { version = "1.52", default-features = false, features = [
     "macros",

@@ -124,7 +124,7 @@ impl Node {
                 self.root.path().join(format!("{name}.provider")),
             )
             .env("RUST_MIN_STACK", "67108864")
-            .env("RUST_LOG", "warn,storage_server::idp_client=debug")
+            .env("RUST_LOG", "warn,idp_server::independent_create=debug,idp_server::independent_create::join=debug,device_server::independent_create=debug,device_server::independent_create::join=debug,storage_server::idp_client=debug")
             .env("SSL_CERT_FILE", self.root.path().join("roots.pem"))
             .env("SSL_CERT_DIR", self.root.path().join("empty-certs"))
             .env(
@@ -184,7 +184,39 @@ impl Node {
         while let Some(process) = self.processes.pop() {
             drop(process);
         }
-        for (name, command) in &mut self.commands {
+        for i in 0..self.commands.len() {
+            if self.commands[i].0 == "management" && self.sql.is_none() {
+                let deadline = Instant::now() + Duration::from_secs(60);
+                loop {
+                    self.alive();
+                    if independent::independent_setup_status(&self.config(&self.idp))
+                        .await
+                        .is_ok_and(|status| status.ready)
+                    {
+                        let public =
+                            independent::independent_setup_owner_public(&self.config(&self.idp))
+                                .await
+                                .expect("reopened local IdP evidence");
+                        let facts = public.facts.expect("reopened local IdP facts");
+                        if tokio::net::UnixStream::connect(
+                            facts["identity_socket"]
+                                .as_str()
+                                .expect("retained explicit owner socket"),
+                        )
+                        .await
+                        .is_ok()
+                        {
+                            break;
+                        }
+                    }
+                    assert!(
+                        Instant::now() < deadline,
+                        "retained IdP socket startup timeout"
+                    );
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+            let (name, command) = &mut self.commands[i];
             self.processes
                 .push(Self::spawn(name, command, self.root.path()));
             if name == "identity-database" {
@@ -524,12 +556,16 @@ impl Node {
             .as_str()
             .expect("published operator Client")
             .into();
-        self.start_management(self.sql).await;
+        self.start_management(None).await;
     }
 
-    async fn start_management(&mut self, sql: Option<SocketAddr>) {
-        let login = self.login().await;
-        let bearer = self.exchange(&login, &self.idp, "").await;
+    async fn start_management(&mut self, authority: Option<&str>) {
+        let bearer = if let Some(authority) = authority {
+            authority.to_owned()
+        } else {
+            let login = self.login().await;
+            self.exchange(&login, &self.idp, "").await
+        };
         let mut config = self.config(&self.idp);
         config.bearer_access_token = Some(bearer);
         let application = models::ApplicationRegistration {
@@ -567,9 +603,23 @@ impl Node {
         let addr = address();
         self.management = format!("http://{addr}/policy");
         let mut value = json!({"data_dir":self.root.path().join("management"), "server":{"host":"127.0.0.1", "port":addr.port(), "prefix":"/policy"}, "api_public_uri":self.management, "idp_api_base":self.idp, "storage_api_base":self.storage, "expected_issuer":self.issuer});
-        if let Some(sql) = sql {
+        if let Some(sql) = self.sql {
             value["identity_database"] =
                 json!({"endpoint":format!("http://{sql}"), "deadline_ms":20000});
+        } else {
+            let public = independent::independent_setup_owner_public(&self.config(&self.idp))
+                .await
+                .expect("local IdP public connection evidence");
+            assert_eq!(public.owner, "idp");
+            assert_eq!(public.operation.issuer, self.issuer);
+            assert_eq!(public.operation.idp, self.idp);
+            let facts = public.facts.expect("local IdP facts");
+            value["identity_socket"] = json!(
+                facts["identity_socket"]
+                    .as_str()
+                    .expect("explicit local-owner socket")
+            );
+            value["identity_socket_deadline_ms"] = json!(20000);
         }
         let file = self.write_config("management", value);
         self.start(
@@ -595,6 +645,37 @@ impl Node {
             ],
         );
         self.management_ready().await;
+    }
+
+    async fn policy_permission(&self, authority: &str, subject: &str) {
+        let config = of_management_client::apis::configuration::Configuration {
+            client: self.http.clone(),
+            base_path: self.management.clone(),
+            bearer_access_token: Some(authority.into()),
+            ..Default::default()
+        };
+        let request: of_management_client::models::PermissionEvaluationRequest = serde_json::from_value(json!({
+            "requestId":"01234567-89ab-4cde-8fab-0123456789ab", "action":"devices_read", "subject":{"type":"user","id":subject}, "target":{"scope":"installation","resource":{"type":"device","id":null}}
+        })).expect("generated permission request model");
+        let result = of_management_client::apis::default_api::evaluate_permission(
+            &config,
+            of_management_client::apis::default_api::EvaluatePermissionParams {
+                permission_evaluation_request: request.clone(),
+            },
+        )
+        .await
+        .unwrap_or_else(|error| {
+            panic!(
+                "authorized Management permission evaluation failed: {}",
+                match error {
+                    of_management_client::apis::Error::ResponseError(response) =>
+                        format!("HTTP {}", response.status),
+                    _ => "transport or decoding".into(),
+                }
+            )
+        });
+        assert!(result.allowed);
+        assert_eq!(*result.request, request);
     }
 
     async fn management_ready(&mut self) {
@@ -672,17 +753,25 @@ fn client(roots: Option<&[u8]>) -> reqwest::Client {
 }
 
 pub async fn scenario(independent_layout: bool) {
-    create_node(independent_layout, false).await;
+    create_node(independent_layout, false, false).await;
 }
 
 pub async fn restart_scenario(independent_layout: bool) {
-    create_node(independent_layout, true).await;
+    create_node(independent_layout, true, false).await;
 }
 
-async fn create_node(independent_layout: bool, restart: bool) {
+pub async fn local_restart_scenario() {
+    create_node(true, true, true).await;
+}
+
+async fn create_node(independent_layout: bool, restart: bool, local: bool) {
     let mut node = Node::new();
     if independent_layout {
-        node.independent().await;
+        if local {
+            node.independent_create(true).await;
+        } else {
+            node.independent().await;
+        }
     } else {
         node.unified().await;
     }
@@ -716,6 +805,7 @@ async fn use_node(node: &mut Node, resource_token: Option<&str>, retained: Optio
     of_device_client::apis::default_api::health(&device)
         .await
         .expect("Device database health");
+    node.management_ready().await;
     let bearer = if let Some(token) = resource_token {
         token.to_owned()
     } else {
@@ -727,9 +817,13 @@ async fn use_node(node: &mut Node, resource_token: Option<&str>, retained: Optio
             .await
             .unwrap_or_else(|_| panic!("ordinary User info failed"));
         assert!(!user.sub.is_empty());
+        node.policy_permission(
+            &node.exchange(&token, "idp-management", "").await,
+            &user.sub,
+        )
+        .await;
         node.exchange(&token, "storage:filesystems", "").await
     };
-    node.management_ready().await;
     let config = of_storage_client::apis::configuration::Configuration {
         client: node.http.clone(),
         base_path: node.storage.clone(),
@@ -828,7 +922,7 @@ pub async fn join_scenario(independent_layout: bool) {
     let authority = source.exchange(&session, "idp-management", "").await;
     let resource_token = source.exchange(&session, "storage:filesystems", "").await;
     let mut approval = device_config(&source);
-    approval.bearer_access_token = Some(authority);
+    approval.bearer_access_token = Some(authority.clone());
     let anonymous = device_config(&source);
     if independent_layout {
         authorization_denied(
@@ -883,10 +977,17 @@ pub async fn join_scenario(independent_layout: bool) {
         }).await.expect("native Trusted Peer discovery readiness timeout (production N0 discovery requires network access)");
     }
     let mut target = Node::new();
+    let mut target_authority = None;
     if independent_layout {
         let roots =
             fs::read(source.root.path().join("roots.pem")).expect("source isolated CA trust");
         let capabilities = target.start_independent(true, &roots).await;
+        let roots =
+            fs::read(target.root.path().join("roots.pem")).expect("mutual isolated HTTPS trust");
+        fs::write(source.root.path().join("roots.pem"), &roots)
+            .expect("source verifies target history callbacks");
+        source.http = client(Some(&roots));
+        target_authority = Some(source.exchange(&session, &target.idp, "").await);
         let mut request = models::IndependentCreateRequest::new(
             String::new(),
             target.device.clone(),
@@ -934,7 +1035,7 @@ pub async fn join_scenario(independent_layout: bool) {
                 join_request: models::JoinRequest::new(
                     "Joining System Node".into(),
                     NONCE.into(),
-                    source_device.public_key,
+                    source_device.public_key.clone(),
                 ),
             },
         )
@@ -975,6 +1076,10 @@ pub async fn join_scenario(independent_layout: bool) {
         assert!(Instant::now() < deadline, "pending authorized Join timeout");
         tokio::time::sleep(Duration::from_millis(100)).await;
     };
+    assert_eq!(
+        offer["authenticated_endpoint"],
+        offer["request"]["endpoint_id"]
+    );
     if independent_layout {
         assert_eq!(offer["request"]["operation"]["issuer"], source.issuer);
     } else {
@@ -1060,10 +1165,47 @@ pub async fn join_scenario(independent_layout: bool) {
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
     target.issuer = source.issuer.clone();
+    if independent_layout {
+        let mut operations = Vec::new();
+        let mut endpoints = Vec::new();
+        for (owner, base) in [
+            ("idp", &target.idp),
+            ("device", &target.device),
+            ("storage", &target.storage),
+        ] {
+            let public = independent::independent_setup_owner_public(&target.config(base))
+                .await
+                .expect("completed Join owner evidence");
+            assert_eq!(public.owner, owner);
+            assert_eq!(public.operation.operation_nonce, NONCE);
+            assert_eq!(public.operation.issuer, source.issuer);
+            assert_eq!(public.operation.node, "Joining System Node");
+            assert_eq!(public.operation.purpose, "join");
+            assert_eq!(public.operation.idp, target.idp);
+            assert_eq!(public.operation.device, target.device);
+            assert_eq!(public.operation.storage, target.storage);
+            endpoints.push(public.facts.expect("completed owner facts")["endpoint"].clone());
+            operations.push(public.operation);
+        }
+        assert_eq!(operations[0], operations[1]);
+        assert_eq!(operations[1], operations[2]);
+        assert_eq!(endpoints[0], endpoints[1]);
+        assert_eq!(endpoints[1], endpoints[2]);
+        assert!(endpoints[0].as_str().is_some_and(|value| !value.is_empty()));
+        target.start_management(target_authority.as_deref()).await;
+    }
+    let mut user_config = source.config(&source.idp);
+    user_config.bearer_access_token = Some(session);
+    let subject = idp::userinfo(&user_config)
+        .await
+        .unwrap_or_else(|_| panic!("source public User info"))
+        .sub;
     let resource = use_node(&mut target, Some(&resource_token), None).await;
+    target.policy_permission(&authority, &subject).await;
     let endpoint = of_device_client::apis::default_api::device(&device_config(&target))
         .await
         .expect("joined endpoint");
+    assert_ne!(endpoint.public_key, source_device.public_key);
     while let Some(process) = source.processes.pop() {
         drop(process);
     }
@@ -1076,6 +1218,7 @@ pub async fn join_scenario(independent_layout: bool) {
         endpoint.public_key
     );
     use_node(&mut target, Some(&resource_token), Some(&resource)).await;
+    target.policy_permission(&authority, &subject).await;
 }
 
 fn authorization_denied<T, E>(result: Result<T, of_device_client::apis::Error<E>>) {
