@@ -68,6 +68,12 @@ The Management and IdP Device/identity clients are regenerated and built; Device
 
 ## Remote shared identity SQL
 
+For a same-machine IdP-owned database, standalone Management may instead select an
+explicit `identity_socket` and finite `identity_socket_deadline_ms`, mutually
+exclusive with `identity_database`. It connects through the existing Unix SQL
+client and validates the identity schema; there is no local file opening,
+migration or fallback. See [local-owner startup, authority and reset rules](control-plane.md#default-same-machine-independent-setup-unix).
+
 Standalone IdP and Management can attach to the same initialized identity database. Their identity repositories use the same `db::Client` query surface as an in-process Unified Host; only startup selects the connection. Unified composition still injects local clients without a SQL listener. Device state and user Storage replication do not use this identity connection.
 
 Run the application-aware database owner, not the generic SQL CLI (which does not install the identity schema):

@@ -1,38 +1,18 @@
-use std::{collections::HashMap, io, sync::Arc};
+use std::{io, sync::Arc};
 
 use idp_service::repo::PrivateKeyKeyringRepo;
-use keyring_core::{Entry, api::CredentialStoreApi};
 
-struct TestStore(Arc<keyring_core::mock::Store>);
-impl CredentialStoreApi for TestStore {
-    fn vendor(&self) -> String {
-        self.0.vendor()
-    }
-    fn id(&self) -> String {
-        self.0.id()
-    }
-    fn build(
-        &self,
-        service: &str,
-        user: &str,
-        _: Option<&HashMap<&str, &str>>,
-    ) -> keyring_core::Result<Entry> {
-        self.0.build(service, user, None)
-    }
-    fn search(&self, spec: &HashMap<&str, &str>) -> keyring_core::Result<Vec<Entry>> {
-        self.0.search(spec)
-    }
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-}
+#[path = "system_test/provider.rs"]
+mod provider;
 
 fn main() -> io::Result<()> {
     PrivateKeyKeyringRepo::new_with_store(
         "system-test",
-        Arc::new(TestStore(
-            keyring_core::mock::Store::new().expect("isolated mock provider"),
-        )),
+        Arc::new(provider::Store::open(
+            std::env::var_os("OF_SYSTEM_PROVIDER")
+                .expect("private durable provider path")
+                .into(),
+        )?),
     );
     std::thread::Builder::new()
         .stack_size(64 * 1024 * 1024)
