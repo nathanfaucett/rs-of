@@ -27,6 +27,8 @@ Fresh Create seeds the administrator, necessary identity/public login/signing st
 | Evidence | Presentation | Supported action |
 | --- | --- | --- |
 | Bundled runtime has no available host yet | `starting` | Observe again; do not provision a replacement |
+| Retained certificate has typed native-root unknown-issuer failure | `blocked`, `trust_consent` | Explain OS trust anchor/elevation; explicitly allow installation or decline without replacing identity |
+| User declines necessary trust | `blocked`, `trust_declined` | Preserve evidence; explicit runtime retry rechecks trust, or select remote HTTPS services |
 | Valid awaiting-choice owner evidence | `needs_setup` | Explicit Create or Join against that target |
 | Current creating/joining evidence | `working` | Observe; Join may instruct an authorized User to approve the exact source offer |
 | All current owner and public login evidence verifies | `ready` | Ordinary sign-in; optional Device preferences are deferred |

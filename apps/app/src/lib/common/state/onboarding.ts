@@ -19,7 +19,7 @@ export type OnboardingTarget = {
     device: string | null;
     storage: string | null;
 };
-export type OnboardingFailure = "retry" | "prerequisite" | "repair";
+export type OnboardingFailure = "retry" | "prerequisite" | "repair" | "trust_consent" | "trust_declined";
 type Evidence = { target: OnboardingTarget; hosts: SetupHost[] };
 export type OnboardingObservation = Evidence &
     (
@@ -84,7 +84,11 @@ function blocked(
         state: "blocked",
         action,
         message:
-            action === "repair"
+            action === "trust_consent"
+                ? "The retained localhost certificate is not currently trusted by the operating system. Trust consent is required before local HTTPS can start."
+                : action === "trust_declined"
+                  ? "Certificate trust was declined. Retained identity is unchanged. Retry local services to reconsider, or select remote HTTPS services in Connection settings."
+                : action === "repair"
                 ? "Retained setup evidence needs repair. Preserve the existing identity; use exact recovery, not replacement or reset."
                 : action === "prerequisite"
                   ? "Check protected-provider access, HTTPS trust and selected service configuration, then observe again."
@@ -105,7 +109,7 @@ export async function observeOnboarding(): Promise<OnboardingObservation> {
             if (native.failure)
                 return blocked(
                     target,
-                    ["retry", "prerequisite", "repair"].includes(native.failure)
+                    ["retry", "prerequisite", "repair", "trust_consent", "trust_declined"].includes(native.failure)
                         ? native.failure
                         : "repair",
                 );

@@ -33,8 +33,13 @@ fn trust_command(program: &str) -> Command {
     command
 }
 
-pub fn install_ca_to_user_trust_store(ca_pem_path: &Path) -> io::Result<()> {
-    let result = install_ca_with_commands(ca_pem_path, &mut run_trust_command);
+pub fn install_ca_to_user_trust_store(
+    ca_pem_path: &Path,
+    cancellation: &tokio_util::sync::CancellationToken,
+) -> io::Result<()> {
+    let result = install_ca_with_commands(ca_pem_path, &mut |command| {
+        run_trust_command(command, cancellation)
+    });
     match &result {
         Ok(()) => log::info!("installed localhost CA into the operating system trust store"),
         Err(error) => log::error!("localhost OS CA trust installation failed: {error}"),
@@ -42,17 +47,54 @@ pub fn install_ca_to_user_trust_store(ca_pem_path: &Path) -> io::Result<()> {
     result
 }
 
-fn run_trust_command(command: &mut Command) -> io::Result<bool> {
+fn run_trust_command(
+    command: &mut Command,
+    cancellation: &tokio_util::sync::CancellationToken,
+) -> io::Result<bool> {
     #[cfg(test)]
     {
-        let _ = command;
+        let _ = (command, cancellation);
         Err(io::Error::other(
             "OS trust commands are disabled in tests; inject a command runner",
         ))
     }
     #[cfg(not(test))]
     {
-        command.status().map(|status| status.success())
+        run_owned_command(command, cancellation)
+    }
+}
+
+fn run_owned_command(
+    command: &mut Command,
+    cancellation: &tokio_util::sync::CancellationToken,
+) -> io::Result<bool> {
+    if cancellation.is_cancelled() {
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "trust installation cancelled",
+        ));
+    }
+    let mut child = command.spawn()?;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status.success()),
+            Ok(None) => (),
+            Err(error) => {
+                let _ = child.kill();
+                child.wait()?;
+                return Err(error);
+            }
+        }
+        if cancellation.is_cancelled() {
+            // Elevation may prevent killing; keep ownership until the process is reaped.
+            let _ = child.kill();
+            child.wait()?;
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "trust installation cancelled",
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
     }
 }
 
@@ -121,6 +163,28 @@ mod tests {
     use std::{ffi::OsString, fs, io, path::Path};
 
     use super::install_ca_with_commands;
+
+    #[cfg(unix)]
+    #[test]
+    fn cancelled_injected_installer_is_reaped_before_returning() {
+        let cancellation = tokio_util::sync::CancellationToken::new();
+        let cancel = cancellation.clone();
+        let thread = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            cancel.cancel();
+        });
+        let mut command = std::process::Command::new("sleep");
+        command.arg("30");
+        let before = std::time::Instant::now();
+        let error = super::run_owned_command(&mut command, &cancellation)
+            .expect_err("cancel harmless injected process");
+        thread.join().expect("join cancellation fixture");
+        assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+        assert!(
+            before.elapsed() < std::time::Duration::from_secs(5),
+            "shutdown must not leave the installer running"
+        );
+    }
 
     #[test]
     fn os_trust_failures_never_succeed() {
