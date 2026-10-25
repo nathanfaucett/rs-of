@@ -18,6 +18,17 @@ use of_idp_client::{
 use of_storage_client::{apis::resources_api as storage, models::CreateResourceRequest};
 use serde_json::json;
 
+#[path = "authorization.rs"]
+mod authorization;
+#[path = "recovery.rs"]
+mod recovery;
+
+pub use authorization::denial_scenario;
+use recovery::{
+    JoinAdmission, assert_learned_grants, denied_refresh, pending_offer, prepare_learned_grants,
+    refresh_grant, retry_rejected_join,
+};
+
 const PASSWORD: &str = "system-test-initial-password";
 const NONCE: &str = "0123456789abcdef0123456789abcdef";
 
@@ -982,7 +993,7 @@ pub async fn join_scenario(independent_layout: bool) {
     }
     let mut target = Node::new();
     let mut target_authority = None;
-    if independent_layout {
+    let admission = if independent_layout {
         let roots =
             fs::read(source.root.path().join("roots.pem")).expect("source isolated CA trust");
         let capabilities = target.start_independent(true, &roots).await;
@@ -1003,6 +1014,7 @@ pub async fn join_scenario(independent_layout: bool) {
             target.storage.clone(),
         );
         request.peer = Some(format!("{}#{}", source.device, source_device.public_key));
+        let mut configs = Vec::new();
         for (i, base) in [
             target.idp.clone(),
             target.device.clone(),
@@ -1022,64 +1034,22 @@ pub async fn join_scenario(independent_layout: bool) {
                 assert!(Instant::now() < deadline, "target worker startup timeout");
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
-            independent::independent_setup_join(
-                &config,
-                independent::IndependentSetupJoinParams {
-                    independent_create_request: request.clone(),
-                },
-            )
-            .await
-            .unwrap_or_else(|_| panic!("target worker {i} admitted Join"));
+            configs.push(config);
         }
+        JoinAdmission::Independent(configs, request)
     } else {
         let config = target.start_unified().await;
-        setup::setup_join(
-            &config,
-            setup::SetupJoinParams {
-                join_request: models::JoinRequest::new(
-                    "Joining System Node".into(),
-                    NONCE.into(),
-                    source_device.public_key.clone(),
-                ),
-            },
+        JoinAdmission::Unified(
+            config,
+            models::JoinRequest::new(
+                "Joining System Node".into(),
+                NONCE.into(),
+                source_device.public_key.clone(),
+            ),
         )
-        .await
-        .unwrap_or_else(|error| {
-            panic!(
-                "target host Join admission failed: {}",
-                match error {
-                    of_idp_client::apis::Error::ResponseError(response) =>
-                        format!("HTTP {}", response.status),
-                    _ => "transport or decoding".into(),
-                }
-            )
-        });
-    }
-    let deadline = Instant::now() + Duration::from_secs(60);
-    let offer = loop {
-        source.alive();
-        target.alive();
-        let offers = if independent_layout {
-            independent_joins::independent_join_pending(&approval)
-                .await
-                .unwrap_or_else(|_| panic!("authorized independent pending list"))
-        } else {
-            joins::node_join_pending(&approval)
-                .await
-                .unwrap_or_else(|_| panic!("authorized pending list"))
-                .as_array()
-                .expect("pending list")
-                .clone()
-        };
-        if let Some(offer) = offers.into_iter().find(|offer| {
-            offer["request"]["name"] == "Joining System Node"
-                || offer["request"]["operation"]["node"] == "Joining System Node"
-        }) {
-            break offer;
-        }
-        assert!(Instant::now() < deadline, "pending authorized Join timeout");
-        tokio::time::sleep(Duration::from_millis(100)).await;
     };
+    admission.submit().await;
+    let offer = pending_offer(&mut source, &mut target, &approval, independent_layout).await;
     assert_eq!(
         offer["authenticated_endpoint"],
         offer["request"]["endpoint_id"]
@@ -1101,6 +1071,15 @@ pub async fn join_scenario(independent_layout: bool) {
             .ready
     };
     assert!(!pending_ready);
+    let offer = retry_rejected_join(
+        &mut source,
+        &mut target,
+        &approval,
+        independent_layout,
+        &admission,
+        offer,
+    )
+    .await;
     let id = offer["offer_id"]
         .as_str()
         .expect("exact pending offer ID")
@@ -1205,8 +1184,17 @@ pub async fn join_scenario(independent_layout: bool) {
         .unwrap_or_else(|_| panic!("source public User info"))
         .sub;
     assert_learned_grants(&target, &source.login, &grants).await;
-    let replacement = refresh_grant(&target, &source.login, &grants[2]).await.unwrap_or_else(|_| panic!("unconsumed learned grant remains usable"));
-    assert_ne!(replacement.refresh_token.flatten().expect("rotated learned grant"), grants[2]);
+    let replacement = refresh_grant(&target, &source.login, &grants[2])
+        .await
+        .unwrap_or_else(|_| panic!("unconsumed learned grant remains usable"));
+    assert!(
+        replacement
+            .refresh_token
+            .flatten()
+            .expect("rotated learned grant")
+            != grants[2],
+        "refresh rotation must replace the consumed learned grant"
+    );
     denied_refresh(refresh_grant(&target, &source.login, &grants[2]).await);
     let resource = use_node(&mut target, Some(&resource_token), None).await;
     target.policy_permission(&authority, &subject).await;
@@ -1236,164 +1224,4 @@ fn authorization_denied<T, E>(result: Result<T, of_device_client::apis::Error<E>
         matches!(result, Err(of_device_client::apis::Error::ResponseError(response)) if matches!(response.status.as_u16(), 401 | 403)),
         "source administration requires ordinary User authority"
     );
-}
-
-
-pub async fn denial_scenario(independent_layout: bool) {
-    use of_management_client::apis::default_api as policy;
-    let mut node = Node::new();
-    if independent_layout { node.independent_create(true).await; } else { node.unified().await; }
-    let resource = use_node(&mut node, None, None).await;
-    let session = node.login().await;
-    let mut user = node.config(&node.idp);
-    user.bearer_access_token = Some(session.clone());
-    let subject = idp::userinfo(&user).await.unwrap_or_else(|_| panic!("public User info")).sub;
-    let authority = node.exchange(&session, "idp-management", "").await;
-    let config = of_management_client::apis::configuration::Configuration {
-        client: node.http.clone(), base_path: node.management.clone(),
-        bearer_access_token: Some(authority.clone()), ..Default::default()
-    };
-    let request: of_management_client::models::PermissionEvaluationRequest = serde_json::from_value(json!({
-        "requestId":"01234567-89ab-4cde-8fab-0123456789ab", "action":"devices_read",
-        "subject":{"type":"user","id":subject}, "target":{"scope":"installation","resource":{"type":"device","id":null}}
-    })).expect("generated permission request");
-    let decision = policy::evaluate_permission(&config, policy::EvaluatePermissionParams { permission_evaluation_request:request.clone() }).await
-        .unwrap_or_else(|_| panic!("authorized exact evaluation"));
-    assert!(decision.allowed);
-    assert_eq!(*decision.request, request);
-    assert_eq!(*decision.audit.actor, *request.subject);
-    let mut forged = request.clone();
-    forged.subject = Box::new(serde_json::from_value(json!({"type":"user","id":"01234567-89ab-4cde-8fab-0123456789ab"})).expect("different actor"));
-    assert!(matches!(policy::evaluate_permission(&config, policy::EvaluatePermissionParams { permission_evaluation_request:forged }).await,
-        Err(of_management_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 403), "User cannot assert another actor");
-    let wrong_audience = of_management_client::apis::configuration::Configuration { bearer_access_token:Some(session.clone()), ..config.clone() };
-    assert!(matches!(policy::evaluate_permission(&wrong_audience, policy::EvaluatePermissionParams { permission_evaluation_request:request.clone() }).await,
-        Err(of_management_client::apis::Error::ResponseError(r)) if matches!(r.status.as_u16(), 401 | 403)), "IdP session is not Management authority");
-    let mut device = device_config(&node);
-    device.bearer_access_token = Some(authority);
-    let local = of_device_client::apis::default_api::list_devices(&device).await.unwrap_or_else(|_| panic!("public Device list")).into_iter().next().expect("created Node Device");
-    let mut ungranted = request.clone();
-    ungranted.action = of_management_client::models::IdentityAction::DeviceRestrictionsRead;
-    ungranted.target = Box::new(serde_json::from_value(json!({"scope":"installation","resource":{"type":"device","id":local.id}})).expect("exact Device restriction target"));
-    let denied = policy::evaluate_permission(&config, policy::EvaluatePermissionParams { permission_evaluation_request:ungranted.clone() }).await
-        .unwrap_or_else(|_| panic!("negative decision is not an outage"));
-    assert!(!denied.allowed);
-    assert_eq!(*denied.request, ungranted);
-    assert_eq!(*denied.audit.actor, *request.subject);
-    assert!(matches!(of_device_client::apis::default_api::get_device_restriction(&device,
-        of_device_client::apis::default_api::GetDeviceRestrictionParams { device_id:local.id }).await,
-        Err(of_device_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 403), "ordinary owner enforces the ungranted action");
-    of_device_client::apis::default_api::list_devices(&device).await.unwrap_or_else(|_| panic!("distinct granted action remains allowed"));
-    let read_only = idp::token(&node.config(&node.idp), idp::TokenParams {
-        grant_type:Some("urn:ietf:params:oauth:grant-type:token-exchange".into()), client_id:Some(node.login.clone()), subject_token:Some(session.clone()),
-        subject_token_type:Some(models::SubjectTokenType::UrnColonIetfColonParamsColonOauthColonTokenTypeColonAccessToken), resource:Some("storage:filesystems".into()),
-        authorization_details:Some(r#"[{"type":"storage","actions":["read"]}]"#.into()), ..Default::default()
-    }).await.unwrap_or_else(|_| panic!("ordinary read-only resource token")).access_token;
-    let storage_config = of_storage_client::apis::configuration::Configuration {
-        client:node.http.clone(), base_path:node.storage.clone(), bearer_access_token:Some(read_only), ..Default::default()
-    };
-    let before = storage::get_file_system(&storage_config, storage::GetFileSystemParams { filesystem_id:resource.clone() }).await
-        .unwrap_or_else(|_| panic!("read-only authorized read"));
-    assert!(matches!(storage::delete_file_system(&storage_config, storage::DeleteFileSystemParams { filesystem_id:resource.clone() }).await,
-        Err(of_storage_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 403), "read permission cannot delete resource");
-    let wrong_audience = of_storage_client::apis::configuration::Configuration { bearer_access_token:Some(session.clone()), ..storage_config.clone() };
-    assert!(matches!(storage::get_file_system(&wrong_audience, storage::GetFileSystemParams { filesystem_id:resource.clone() }).await,
-        Err(of_storage_client::apis::Error::ResponseError(r)) if matches!(r.status.as_u16(), 401 | 403)), "IdP audience is not resource authority");
-    let after = storage::get_file_system(&storage_config, storage::GetFileSystemParams { filesystem_id:resource }).await
-        .unwrap_or_else(|_| panic!("denied mutations preserve resource"));
-    assert_eq!(before, after);
-    retained_socket_denial(&node, &user, &session, &before.id).await;
-}
-
-
-async fn refresh_grant(node: &Node, client_id: &str, grant: &str) -> Result<models::TokenResponse, of_idp_client::apis::Error<idp::TokenError>> {
-    idp::token(&node.config(&node.idp), idp::TokenParams {
-        grant_type:Some("refresh_token".into()), client_id:Some(client_id.into()), refresh_token:Some(grant.into()), ..Default::default()
-    }).await
-}
-
-fn denied_refresh(result: Result<models::TokenResponse, of_idp_client::apis::Error<idp::TokenError>>) {
-    match result {
-        Err(of_idp_client::apis::Error::ResponseError(response)) => {
-            assert!(response.status.is_client_error(), "denial is not a server outage");
-            let body: serde_json::Value = serde_json::from_str(&response.content).expect("OAuth denial body");
-            assert_eq!(body["error"], "invalid_grant");
-        }
-        _ => panic!("consumed or revoked refresh grant must be denied"),
-    }
-}
-
-async fn prepare_learned_grants(source: &Node) -> [String; 3] {
-    let mut grants = Vec::new();
-    for _ in 0..3 {
-        grants.push(source.login_response().await.refresh_token.flatten().expect("ordinary refresh grant"));
-    }
-    assert_ne!(grants[0], grants[1]);
-    assert_ne!(grants[1], grants[2]);
-    refresh_grant(source, &source.login, &grants[0]).await.unwrap_or_else(|_| panic!("consume source refresh grant"));
-    idp::revoke(&source.config(&source.idp), idp::RevokeParams { token:grants[1].clone(), token_type_hint:Some("refresh_token".into()) }).await
-        .unwrap_or_else(|_| panic!("ordinary source refresh revocation"));
-    let grants: [String; 3] = grants.try_into().expect("three distinct grant cases");
-    assert_learned_grants(source, &source.login, &grants).await;
-    grants
-}
-
-async fn assert_learned_grants(node: &Node, client_id: &str, grants: &[String; 3]) {
-    for grant in &grants[..2] {
-        denied_refresh(refresh_grant(node, client_id, grant).await);
-    }
-}
-
-
-async fn retained_socket_denial(node: &Node, user: &Configuration, session: &str, resource: &str) {
-    use futures_util::{SinkExt, StreamExt};
-    use rustls::pki_types::{CertificateDer, pem::PemObject};
-    use storage_model::{StorageRequest, StorageResponse};
-    use tokio_tungstenite::{Connector, connect_async_tls_with_config, tungstenite::Message};
-
-    let token = node.exchange(session, "storage:filesystems", "").await;
-    let mut url = reqwest::Url::parse(&node.storage).expect("explicit Storage base");
-    url.set_scheme(if node.storage.starts_with("https:") { "wss" } else { "ws" }).expect("resource WebSocket scheme");
-    url.query_pairs_mut().append_pair("access_token", &token).append_pair("filesystem_id", resource);
-    let connector = if node.storage.starts_with("https:") {
-        let pem = fs::read(node.root.path().join("roots.pem")).expect("isolated native roots");
-        let mut roots = rustls::RootCertStore::empty();
-        for certificate in CertificateDer::pem_slice_iter(&pem) {
-            roots.add(certificate.expect("fixture CA certificate")).expect("trusted fixture CA");
-        }
-        Some(Connector::Rustls(std::sync::Arc::new(rustls::ClientConfig::builder().with_root_certificates(roots).with_no_client_auth())))
-    } else { None };
-    let (mut socket, _) = tokio::time::timeout(Duration::from_secs(30), connect_async_tls_with_config(url.as_str(), None, false, connector.clone())).await
-        .expect("bounded native resource connection").unwrap_or_else(|_| panic!("authorized resource connection"));
-    let write = StorageRequest::Write { path:"retained.txt".into(), content:b"authorized before denial".to_vec() };
-    socket.send(Message::Text(serde_json::to_string(&write).expect("native request").into())).await.expect("authorized native write");
-    let frame = tokio::time::timeout(Duration::from_secs(30), socket.next()).await.expect("bounded native write response").expect("write response").expect("valid frame");
-    assert!(matches!(serde_json::from_str::<StorageResponse>(frame.to_text().expect("text response")).expect("typed write response"), StorageResponse::Written { .. }));
-    socket.send(Message::Text(serde_json::to_string(&StorageRequest::Read { path:"retained.txt".into() }).expect("native read").into())).await.expect("native read");
-    let frame = tokio::time::timeout(Duration::from_secs(30), socket.next()).await.expect("bounded native read response").expect("read response").expect("valid frame");
-    assert_eq!(serde_json::from_str::<StorageResponse>(frame.to_text().expect("text response")).expect("typed read response"), StorageResponse::Read { content:b"authorized before denial".to_vec() });
-    let subject = idp::userinfo(user).await.unwrap_or_else(|_| panic!("User before deletion")).sub;
-    let mut administrator = node.config(&node.idp);
-    administrator.bearer_access_token = Some(node.exchange(session, &node.idp, "").await);
-    idp::delete_user(&administrator, idp::DeleteUserParams { user_id:subject }).await.unwrap_or_else(|_| panic!("ordinary authorized User deletion"));
-    socket.send(Message::Text(serde_json::to_string(&write).expect("native denied request").into())).await.expect("subsequent retained-socket operation");
-    tokio::time::timeout(Duration::from_secs(30), async {
-        loop {
-            match socket.next().await {
-                Some(Ok(Message::Text(body))) => {
-                    assert!(matches!(serde_json::from_str::<StorageResponse>(&body).expect("typed denial"), StorageResponse::Error { .. }), "existing connection must not retain User authority");
-                    break;
-                }
-                Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
-                Some(Ok(Message::Ping(_) | Message::Pong(_))) => continue,
-                _ => panic!("unexpected denied resource frame"),
-            }
-        }
-    }).await.expect("bounded subsequent-operation denial");
-    assert!(matches!(tokio::time::timeout(Duration::from_secs(30), connect_async_tls_with_config(url.as_str(), None, false, connector)).await.expect("bounded reconnect"),
-        Err(tokio_tungstenite::tungstenite::Error::Http(response)) if response.status().as_u16() == 401), "deleted User cannot reconnect");
-    let storage_config = of_storage_client::apis::configuration::Configuration { client:node.http.clone(), base_path:node.storage.clone(), bearer_access_token:Some(token), ..Default::default() };
-    assert!(matches!(storage::get_file_system(&storage_config, storage::GetFileSystemParams { filesystem_id:resource.into() }).await,
-        Err(of_storage_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 401), "deleted User cannot use catalog");
-    of_device_client::apis::default_api::health(&device_config(node)).await.expect("denial is not process loss");
 }

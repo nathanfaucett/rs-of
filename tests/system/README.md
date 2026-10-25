@@ -15,10 +15,11 @@ qualification. Each test can also be selected by its exact name:
 `unified_retained_restart`, `independent_retained_restart`,
 `unified_join_and_source_offline_reopen`, or
 `independent_join_and_source_offline_reopen`, or
-`independent_local_owner_create_and_restart`.
+`independent_local_owner_create_and_restart`, `unified_permission_resource_denial`,
+or `independent_permission_resource_denial`.
 
 Ticket03's local-owner Management connection is explicitly selected through the
-approved production `identity_socket` option. The seven-test suite covers retained
+approved production `identity_socket` option. The nine-test suite covers targeted permission/resource denial, retained
 restart and approved Join/source-offline reopen in both layouts, with a separate
 local-owner Create/restart execution. See
 `.scratch/deployment-independent-system-tests/ticket03-report.md` for exact
@@ -107,7 +108,7 @@ runner is not an orderly teardown test.
 
 This is same-machine Linux mock-provider qualification, not real OS-provider or
 trust installation, default-stack, proxy/mTLS, WAN/container,
-recovery, synchronization, or full-suite certification. Unified approved Join and
+general recovery, post-Join peer reconciliation, or full-suite certification. Unified approved Join and
 source-offline reopen are qualified separately below in both layouts. Historical
 mixed recovery/private tests remain because their corruption, rejection, retry,
 publication and reset assertions are not wholly replaced. See the coverage map
@@ -151,5 +152,56 @@ This creates a target-local credential, not a copy of a source credential.
 All three ready owners must publish the same exact Join operation, issuer,
 service bases and nonempty endpoint evidence. The pending offer's authenticated
 transport endpoint must match its requested endpoint, and the completed target
-endpoint must differ from the source endpoint. No old recovery, private,
-rejected-Join, or layout-specific test has been deleted.
+endpoint must differ from the source endpoint. Ticket04 replaces the public rejection/retry assertions from the old API Join
+interruption case; its private host-purpose/peer, retained TLS/admission and
+internal offer-lifetime assertions remain under
+`production_api_join_interruption_preserves_private_host_intent`. Other private
+recovery and layout-specific tests remain.
+
+
+## Ticket04: denial, learned history and interrupted Join
+
+The new `*_permission_resource_denial` entries share `authorization.rs`. Generated
+owner clients verify the exact actor, caller audit, action and specific Device
+target, denied actor/Application substitution, wrong audience, an ungranted
+restriction action, read-only delete denial, and a database-kind token denied on a
+filesystem. An authorized read after denial verifies that the resource is still
+present and unchanged. Existing `tokio-tungstenite` and `storage-model` protocol
+clients write/read bytes over the actual Storage WebSocket. After generated IdP
+User deletion, a subsequent write on that **same connection** must fail or close;
+reconnect and catalog access must return 401 while another owner's health remains
+available. Independent WebSockets verify the fixture CA explicitly, not an
+accept-all connector. These cases delete their disposable administrator last.
+
+The existing two `*_join_and_source_offline_reopen` entries now also exercise
+`recovery.rs`:
+
+- Source refresh consumption/revocation through generated OAuth clients is learned
+  during real native/WebSocket Join history import. Both must return
+  `invalid_grant` on the target. An unconsumed imported grant succeeds, rotates and
+  then rejects replay, distinguishing denial from missing history or an outage.
+  Denial survives target reopen with every source process stopped.
+- Repeating the exact active admission preserves the pending request. Protected
+  cancellation refuses absent capabilities. The scenario then stops/reaps target
+  processes, restarts their retained commands, compares the recovered exact public
+  intent, checks non-readiness and observes source offer release. A cancellation
+  response alone is **not** asserted to mean cleanup completion or rollback.
+- Exact retry retains the public Node, signer and endpoint request. Anonymous
+  Device rejection is denied; ordinary authorized rejection cannot complete the
+  target. The rejected offer is no longer approvable. A further exact retry keeps
+  the request and completes only after ordinary approval.
+- Independent setup has three protected worker operations. When Device rejection
+  leaves IdP/Storage waiting, explicitly cancel those workers and reopen the
+  retained processes before retry. Independent stale offers return documented
+  409; Unified returns 404. These are lifecycle/contract differences, not weakened
+  membership assertions.
+
+Only these existing behavioral families are qualified. Post-Join live peer
+reconciliation still requires the in-process owner `SecurityProtocol`, local
+member identity and owner databases; no public process trigger exists. Its old
+consumption/revocation and learned Device restriction tests remain, including
+existing-connection enforcement. This suite does not read their keys/databases or
+add a production/test-control endpoint to force reconciliation. See
+`.scratch/deployment-independent-system-tests/ticket04-report.md` for the concrete
+inventory, replacements and exact validation history; ticket01's coverage entries
+are not edited by ticket04.
