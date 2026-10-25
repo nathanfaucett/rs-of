@@ -147,11 +147,8 @@ async fn bundled_storage_direct_idp_preserves_real_local_owner_gate() {
                 ))
                 .is_ok()
         );
-        let policy = crate::runtime::owner_replication_authorizer(
-            device_server::DeviceAuthority::new(
-                fixture.management.clone(),
-                fixture.control.clone(),
-            ),
+        let policy = crate::support::replication::owner_replication_authorizer(
+            device_server::DeviceAuthority::new(fixture.devices.clone(), fixture.control.clone()),
             fixture.identity.endpoint().id(),
             copies.clone(),
         );
@@ -327,7 +324,7 @@ async fn catalog_count(fixture: &Fixture, kind: &str, scope: &super::StorageName
 
 async fn set_device_allowed(fixture: &Fixture, allowed: bool) {
     assert!(
-        DbSelectionPolicyRepo::new(fixture.management.clone().client())
+        DbSelectionPolicyRepo::new(fixture.devices.clone().client())
             .set_admin_allowed_prevalidated(
                 fixture.device.device_id,
                 &fixture.device.owner_subject,
@@ -337,7 +334,7 @@ async fn set_device_allowed(fixture: &Fixture, allowed: bool) {
             .expect("persist real owner-bound Management restriction")
     );
     let (current, selected) =
-        device_server::DeviceAuthority::new(fixture.management.clone(), fixture.control.clone())
+        device_server::DeviceAuthority::new(fixture.devices.clone(), fixture.control.clone())
             .replication_policy(&fixture.device)
             .await
             .expect("current local Management evaluation");

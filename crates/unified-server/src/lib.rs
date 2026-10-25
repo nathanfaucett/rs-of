@@ -12,10 +12,6 @@ mod hosted_setup_integration_tests;
 mod http_server_tests;
 #[cfg(all(test, unix))]
 mod local_provisioning_tests;
-#[cfg(test)]
-mod native_api_tests;
-#[cfg(test)]
-mod node_join_bootstrap_tests;
 mod runtime;
 mod security_sync;
 mod setup_host;
@@ -52,10 +48,3 @@ pub use local_provisioning::LocalProvisioner;
 mod bootstrap_config_tests;
 #[cfg(all(test, not(unix)))]
 mod unsupported_bootstrap_tests;
-
-#[cfg(test)]
-mod node_bootstrap_interruption_tests;
-
-#[cfg(test)]
-#[path = "../../../tests/support/identity.rs"]
-mod identity_fixture;
