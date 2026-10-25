@@ -352,11 +352,9 @@ async fn http_setup_child() {
     let server = tokio::spawn(runtime.serve());
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     loop {
-        if http
-            .get(format!("{base}/idp/health"))
-            .send()
+        if of_idp_client::apis::default_api::health(&client)
             .await
-            .is_ok_and(|response| response.status() == reqwest::StatusCode::OK)
+            .is_ok()
         {
             break;
         }

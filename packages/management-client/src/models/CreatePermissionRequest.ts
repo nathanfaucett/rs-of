@@ -2,7 +2,7 @@
 /* eslint-disable */
 /**
  * LIDP Management API
- * Management API server for LIDP
+ * Management role, permission, and assignment API
  *
  * The version of the OpenAPI document: 0.1.0
  *
