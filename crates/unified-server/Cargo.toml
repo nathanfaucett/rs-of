@@ -143,8 +143,6 @@ utoipa = { version = "5.5", default-features = false }
 api = { path = "../api", default-features = false, features = ["test-support"] }
 
 # Storage API integration
-file-system = { path = "../../../offs/crates/file-system", default-features = false, features = [
-] }
 storage-model = { path = "../storage-model", default-features = false, features = [
     "std",
 ] }
@@ -153,9 +151,6 @@ storage-service = { path = "../storage-service", default-features = false, featu
 
 # Identity fixtures
 keyring-core = { version = "1.0", default-features = false, features = [] }
-
-# Wire assertions
-postcard = { version = "1.1", default-features = false, features = ["alloc"] }
 
 # Web
 futures-util = { version = "0.3", default-features = false, features = [
