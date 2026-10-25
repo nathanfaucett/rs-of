@@ -48,7 +48,10 @@ pub(crate) async fn status_tracks_revocation_in_existing_runtime(
         body
     }
 
-    let policy = runtime.full_node_test_identity();
+    let policy = runtime
+        .join_owner()
+        .node_join_database()
+        .expect("local readiness policy owner");
     let service = management_service::ManagementService::new(
         management_service::replica::DbPermissionRepo::new(policy.client()),
         management_service::replica::DbRoleRepo::new(policy.client()),
@@ -103,7 +106,6 @@ pub(crate) async fn status_tracks_revocation_in_existing_runtime(
         "https://localhost/idp",
         "/idp",
     ));
-    runtime.trace_bootstrap_http_stages();
     runtime
         .start_background_tasks()
         .await

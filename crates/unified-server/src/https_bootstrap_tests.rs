@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fs, io,
     path::PathBuf,
     process::{Command, Stdio},
@@ -14,8 +15,48 @@ use idp_service::repo::PrivateKeyKeyringRepo;
 use model::contract::TokenResponse;
 use tokio::task::JoinHandle;
 
-use super::{Fixture, full_nodes::NodeStores};
+use super::Fixture;
 use crate::{LocalJoin, LocalProvisioner, LocalTls, UnifiedRuntime};
+
+struct NodeStores {
+    stores: [(String, Arc<keyring_core::CredentialStore>); 2],
+}
+
+impl keyring_core::api::CredentialStoreApi for NodeStores {
+    fn vendor(&self) -> String {
+        "isolated-full-node-test-stores".into()
+    }
+
+    fn id(&self) -> String {
+        self.vendor()
+    }
+
+    fn build(
+        &self,
+        service: &str,
+        user: &str,
+        modifiers: Option<&HashMap<&str, &str>>,
+    ) -> keyring_core::Result<keyring_core::Entry> {
+        let (_, store) = self
+            .stores
+            .iter()
+            .find(|(namespace, _)| user.starts_with(&format!("{namespace}:")))
+            .ok_or(keyring_core::Error::NoEntry)?;
+        keyring_core::api::CredentialStoreApi::build(&**store, service, user, modifiers)
+    }
+
+    fn search(&self, spec: &HashMap<&str, &str>) -> keyring_core::Result<Vec<keyring_core::Entry>> {
+        let mut entries = Vec::new();
+        for (_, store) in &self.stores {
+            entries.extend(store.search(spec)?);
+        }
+        Ok(entries)
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
 
 #[path = "api_join_tests.rs"]
 mod api_join_tests;
@@ -23,11 +64,6 @@ mod api_join_tests;
 #[test]
 fn production_https_create_join_and_offline_reopen_with_isolated_native_roots() {
     https_bootstrap(false, "0");
-}
-
-#[test]
-fn production_https_local_create_and_completed_verification_with_isolated_native_roots() {
-    https_bootstrap(false, "local-create");
 }
 
 #[test]
@@ -137,8 +173,7 @@ async fn production_https_bootstrap_child() {
         ],
     });
     let api_join = std::env::var("OF_TEST_API_JOIN").expect("parent API mode");
-    let local_create = api_join == "local-create";
-    let is_api_join = api_join != "0" && !local_create;
+    let is_api_join = api_join != "0";
     let store = if is_api_join {
         api_join_tests::credential_store(nodes, b.store.clone())
     } else {
@@ -224,9 +259,6 @@ async fn production_https_bootstrap_child() {
         .await
         .expect("completed production verification uses current local readiness and trusted HTTPS");
     drop(local);
-    if local_create {
-        return;
-    }
     let (runtime, guard) =
         provisioning_stage(|| LocalProvisioner::open_runtime_https(a.config.clone()))
             .await
@@ -928,7 +960,6 @@ impl HttpsHost {
         tls: &LocalTls,
         listener: Option<tokio::net::TcpListener>,
     ) -> Self {
-        runtime.trace_bootstrap_http_stages();
         runtime
             .start_background_tasks()
             .await

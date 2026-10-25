@@ -366,8 +366,6 @@ impl RuntimeSetupOwners {
         mut runtime: UnifiedRuntime,
         control: &HostedSetupControl,
     ) -> io::Result<()> {
-        #[cfg(test)]
-        runtime.trace_bootstrap_http_stages();
         if let Err(error) = runtime.start_background_tasks().await {
             runtime.shutdown().await?;
             return Err(error);

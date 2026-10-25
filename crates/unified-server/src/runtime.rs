@@ -571,33 +571,6 @@ impl UnifiedRuntime {
         self.node_joins.clone()
     }
 
-    #[cfg(test)]
-    pub(crate) fn trace_bootstrap_http_stages(&mut self) {
-        self.router = self.router.clone().layer(axum::middleware::from_fn(
-            |request: axum::extract::Request, next: axum::middleware::Next| async move {
-                let stage = match request.uri().path() {
-                    "/storage/filesystems" => Some("storage_catalog"),
-                    "/idp/oauth2/token" => Some("token"),
-                    "/idp/oauth2/introspect" => Some("introspect"),
-                    _ => None,
-                };
-                let started = std::time::Instant::now();
-                if let Some(stage) = stage {
-                    eprintln!("bootstrap HTTP stage={stage} begin");
-                }
-                let response = next.run(request).await;
-                if let Some(stage) = stage {
-                    eprintln!(
-                        "bootstrap HTTP stage={stage} status={} elapsed={:?}",
-                        response.status(),
-                        started.elapsed()
-                    );
-                }
-                response
-            },
-        ));
-    }
-
     pub async fn serve_https(mut self, tls: crate::LocalTls) -> io::Result<()> {
         if !self.api_base.starts_with("https://") {
             self.shutdown().await?;

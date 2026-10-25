@@ -18,16 +18,9 @@ use crate::permission_http_tests::{seed_idp, seed_permissions, user_token};
 
 #[tokio::test]
 async fn authorized_node_bootstrap_imports_both_contexts_and_reopens_offline() {
-    tokio::time::timeout(Duration::from_secs(600), receipt_boundary(false))
+    tokio::time::timeout(Duration::from_secs(600), receipt_boundary())
         .await
         .expect("native approval, context denial and offline reopen complete");
-}
-
-#[tokio::test]
-async fn owner_cutover_node_bootstrap_reopens_offline() {
-    tokio::time::timeout(Duration::from_secs(600), receipt_boundary(true))
-        .await
-        .expect("initial native bootstrap and offline owner retry complete");
 }
 
 async fn issue_local_token(
@@ -125,7 +118,7 @@ async fn issue_local_token(
     assert_ne!(claims.sub, binding.member_id.to_string());
 }
 
-async fn receipt_boundary(initial_and_offline_only: bool) {
+async fn receipt_boundary() {
     let started = std::time::Instant::now();
     let root = std::env::temp_dir().join(format!("of-node-join-bootstrap-{}", Id::now_v7()));
     let issuer = format!("https://join-{}.example", Id::now_v7());
@@ -576,155 +569,153 @@ async fn receipt_boundary(initial_and_offline_only: bool) {
     )
     .await;
     eprintln!("bootstrap locally issued token: {:?}", started.elapsed());
-    if !initial_and_offline_only {
-        let updated = Id::now_v7();
-        crate::security_sync_tests::sql(&source_idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{updated}' AS UUID), 'source-update', 'New Public User', 2, 2)")).await;
-        let retry = protocol
-            .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Idp)
-            .await
-            .expect("retained history and local-only client do not block source update retry");
-        assert_eq!(
-            retry.sent_units, 0,
-            "receiver cannot publish application/catalog history"
-        );
-        assert_eq!(
-            retry.sent_changes, 0,
-            "receiver cannot publish local mutations"
-        );
-        assert_eq!(
-            crate::security_sync_tests::sql(
-                &joining_idp,
-                &format!("SELECT id FROM users WHERE id = CAST('{updated}' AS UUID)")
-            )
-            .await[0]
-                .rows
-                .len(),
-            1
-        );
-        assert!(
-            crate::security_sync_tests::sql(
-                &source_idp,
-                &format!("SELECT id FROM clients WHERE client_id = '{local_client}'")
-            )
-            .await[0]
-                .rows
-                .is_empty(),
-            "joining local client is never published to source"
-        );
-        let source_before_retry = source_idp
+    let updated = Id::now_v7();
+    crate::security_sync_tests::sql(&source_idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{updated}' AS UUID), 'source-update', 'New Public User', 2, 2)")).await;
+    let retry = protocol
+        .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Idp)
+        .await
+        .expect("retained history and local-only client do not block source update retry");
+    assert_eq!(
+        retry.sent_units, 0,
+        "receiver cannot publish application/catalog history"
+    );
+    assert_eq!(
+        retry.sent_changes, 0,
+        "receiver cannot publish local mutations"
+    );
+    assert_eq!(
+        crate::security_sync_tests::sql(
+            &joining_idp,
+            &format!("SELECT id FROM users WHERE id = CAST('{updated}' AS UUID)")
+        )
+        .await[0]
+            .rows
+            .len(),
+        1
+    );
+    assert!(
+        crate::security_sync_tests::sql(
+            &source_idp,
+            &format!("SELECT id FROM clients WHERE client_id = '{local_client}'")
+        )
+        .await[0]
+            .rows
+            .is_empty(),
+        "joining local client is never published to source"
+    );
+    let source_before_retry = source_idp
+        .sync_manifest()
+        .await
+        .expect("source before exact retry");
+    let joined_before_retry = joining_idp
+        .sync_manifest()
+        .await
+        .expect("joined history before exact retry");
+    let unchanged = protocol
+        .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Idp)
+        .await
+        .expect("exact unchanged retry");
+    assert_eq!(
+        (unchanged.sent_units, unchanged.sent_changes),
+        (0, 0),
+        "Device bootstrap retry never reverse-publishes history"
+    );
+    assert_eq!(
+        source_idp
             .sync_manifest()
             .await
-            .expect("source before exact retry");
-        let joined_before_retry = joining_idp
+            .expect("source after exact retry"),
+        source_before_retry,
+        "retry must not mutate source history"
+    );
+    assert_eq!(
+        joining_idp
             .sync_manifest()
             .await
-            .expect("joined history before exact retry");
-        let unchanged = protocol
-            .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Idp)
-            .await
-            .expect("exact unchanged retry");
-        assert_eq!(
-            (unchanged.sent_units, unchanged.sent_changes),
-            (0, 0),
-            "Device bootstrap retry never reverse-publishes history"
-        );
-        assert_eq!(
-            source_idp
-                .sync_manifest()
-                .await
-                .expect("source after exact retry"),
-            source_before_retry,
-            "retry must not mutate source history"
-        );
-        assert_eq!(
-            joining_idp
-                .sync_manifest()
-                .await
-                .expect("joined history after exact retry"),
-            joined_before_retry,
-            "unchanged retry retains exact imported progress"
-        );
-        eprintln!(
-            "bootstrap source update and exact retry: {:?}",
-            started.elapsed()
-        );
-        assert_eq!(
-            crate::security_sync_tests::sql(
-                &joining_idp,
-                &format!(
-                    "SELECT id FROM idp_replica_members WHERE member_id = CAST('{}' AS UUID)",
-                    binding.member_id
-                )
+            .expect("joined history after exact retry"),
+        joined_before_retry,
+        "unchanged retry retains exact imported progress"
+    );
+    eprintln!(
+        "bootstrap source update and exact retry: {:?}",
+        started.elapsed()
+    );
+    assert_eq!(
+        crate::security_sync_tests::sql(
+            &joining_idp,
+            &format!(
+                "SELECT id FROM idp_replica_members WHERE member_id = CAST('{}' AS UUID)",
+                binding.member_id
             )
-            .await[0]
-                .rows
-                .len(),
-            1,
-            "retries cannot duplicate member"
-        );
-        policy
-            .remove_permission_from_role(
-                idp_model::contract::INSTALLATION_POLICY_ID,
-                role.id,
-                permission.id,
-            )
+        )
+        .await[0]
+            .rows
+            .len(),
+        1,
+        "retries cannot duplicate member"
+    );
+    policy
+        .remove_permission_from_role(
+            idp_model::contract::INSTALLATION_POLICY_ID,
+            role.id,
+            permission.id,
+        )
+        .await
+        .expect("learned source context revocation");
+    assert!(
+        protocol
+            .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Device)
             .await
-            .expect("learned source context revocation");
-        assert!(
-            protocol
-                .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Device)
-                .await
-                .is_err(),
-            "existing connection cannot reuse receipt after source grant revocation"
-        );
-        let devices = DbDeviceRepo::new(source_policy.clone().client());
-        devices
-            .rename(
-                &received.owner_subject.to_string(),
-                binding.member_id,
-                "Changed Node".into(),
-            )
+            .is_err(),
+        "existing connection cannot reuse receipt after source grant revocation"
+    );
+    let devices = DbDeviceRepo::new(source_policy.clone().client());
+    devices
+        .rename(
+            &received.owner_subject.to_string(),
+            binding.member_id,
+            "Changed Node".into(),
+        )
+        .await
+        .expect("source changes approved Device name")
+        .expect("current Device");
+    assert!(
+        DbReplicaSignerRepo::new(source_idp.client())
+            .trusted_signers(&issuer, i64::MAX)
             .await
-            .expect("source changes approved Device name")
-            .expect("current Device");
-        assert!(
-            DbReplicaSignerRepo::new(source_idp.client())
-                .trusted_signers(&issuer, i64::MAX)
-                .await
-                .expect("unchanged exact signing trust")
-                .iter()
-                .any(|(member, signer)| member.member_id == binding.member_id
-                    && signer.public_jwk == request.public_signer)
-        );
+            .expect("unchanged exact signing trust")
+            .iter()
+            .any(|(member, signer)| member.member_id == binding.member_id
+                && signer.public_jwk == request.public_signer)
+    );
+    protocol
+        .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Idp)
+        .await
+        .expect_err("exact Join denies changed Device independently of signer trust");
+    devices
+        .rename(
+            &received.owner_subject.to_string(),
+            binding.member_id,
+            request.name.clone(),
+        )
+        .await
+        .expect("restore exact approved Device name")
+        .expect("current Device");
+    DbReplicaSignerRepo::new(source_idp.client())
+        .revoke(binding.member_id, &issuer, 10)
+        .await
+        .expect("source learns joined membership revocation");
+    assert!(
         protocol
             .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Idp)
             .await
-            .expect_err("exact Join denies changed Device independently of signer trust");
-        devices
-            .rename(
-                &received.owner_subject.to_string(),
-                binding.member_id,
-                request.name.clone(),
-            )
-            .await
-            .expect("restore exact approved Device name")
-            .expect("current Device");
-        DbReplicaSignerRepo::new(source_idp.client())
-            .revoke(binding.member_id, &issuer, 10)
-            .await
-            .expect("source learns joined membership revocation");
-        assert!(
-            protocol
-                .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Idp)
-                .await
-                .is_err(),
-            "revoked source membership denies receipt retry"
-        );
-        eprintln!(
-            "bootstrap revocation denials complete: {:?}",
-            started.elapsed()
-        );
-    }
+            .is_err(),
+        "revoked source membership denies receipt retry"
+    );
+    eprintln!(
+        "bootstrap revocation denials complete: {:?}",
+        started.elapsed()
+    );
     connection.close(0u32.into(), b"test complete");
     drop(protocol);
     drop(provisioner);
