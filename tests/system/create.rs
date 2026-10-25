@@ -93,9 +93,35 @@ fn binaries() -> PathBuf {
         .to_owned()
 }
 
+#[test]
+fn root_is_private() {
+    const CHILD: &str = "OF_SYSTEM_ROOT_PERMISSIONS_CHILD";
+    if std::env::var_os(CHILD).is_some() {
+        let node = Node::new();
+        let mode = fs::metadata(node.root.path())
+            .expect("system-test root metadata")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o077, 0, "system-test root must exclude group/other");
+        return;
+    }
+
+    let status = Command::new("sh")
+        .arg("-c")
+        .arg("umask 000; exec \"$0\" --exact create::root_is_private --nocapture")
+        .arg(std::env::current_exe().expect("test executable"))
+        .env(CHILD, "1")
+        .status()
+        .expect("run root permission regression with permissive child umask");
+    assert!(status.success(), "root permission regression child failed");
+}
+
 impl Node {
     fn new() -> Self {
-        let root = tempfile::tempdir().expect("private system-test root");
+        let root = tempfile::Builder::new()
+            .permissions(fs::Permissions::from_mode(0o700))
+            .tempdir()
+            .expect("private system-test root");
         let tools = root.path().join("tools");
         fs::create_dir(&tools).expect("private test tools");
         for name in ["trust", "pkexec"] {
