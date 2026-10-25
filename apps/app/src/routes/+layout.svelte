@@ -81,9 +81,9 @@
     {#if isTauri()}
         <a
             class="btn secondary"
-            href={resolve("/setup/installation")}
+            href={resolve("/maintenance")}
             onclick={() => configModal?.close()}
-            >Installation setup / reset this local Node</a
+            >Local Node maintenance</a
         >
     {/if}
 </Modal>

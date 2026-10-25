@@ -12,6 +12,8 @@
 - Safe failure actions distinguish transient retry, prerequisites and exact retained-identity repair; destructive reset remains explicit maintenance, not automatic recovery.
 - [04: Source approval](issues/04-simplify-source-approval.md) resolved: one Add a device task, existing owner authorization/adapters, exact decisions and retained partial-approval retry. [Focused evidence and validation limits](evidence/04-source-approval.md): 9 rendered/27 owner-client tests pass; Svelte check/autofix clean. Rust lifecycle, feature matrix and CRAP bounded out compiling; broad auth suite is not green.
 
+- [06: Separate maintenance](issues/06-separate-maintenance.md) — resolved. Dedicated bundled-only `/maintenance`, per-attempt destructive confirmation, distinct advanced exact-reference recovery and explicit-bearer peer revocation. Native reset/runtime internals preserved. [Evidence](evidence/06-maintenance.md): 21 mounted interactions, 28 setup-page cases, build/check pass; broad auth and native/feature/CRAP qualification remain limited.
+
 ## Fog
 
 - Full Cargo Hack matrix is unqualified: Swagger UI's downloaded/cached archive fails its build script. CRAP coverage compilation exceeded the bounded run; no score is available.

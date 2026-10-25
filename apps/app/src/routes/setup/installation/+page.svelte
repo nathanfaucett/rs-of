@@ -10,7 +10,6 @@
         usesRemoteApis,
     } from "$lib/common/state/setupClient.svelte";
 
-    import NativeSetupRecovery from "$lib/common/components/NativeSetupRecovery.svelte";
     import IndependentSetup from "$lib/common/components/IndependentSetup.svelte";
 
     import type { SetupHost } from "$lib/common/state/setupApi";
@@ -314,7 +313,7 @@
                 <button onclick={refreshObservation}>Refresh status</button>
             {:else if observation.state === "blocked" && !data.hosts.some(host => host.status.state === "unfinished")}
                 <p role="alert">{observation.message}</p>
-                {#if observation.action === "repair"}<p>Repair retained evidence before continuing. Reset is not a repair action.</p>{/if}
+                {#if observation.action === "repair"}<p>Repair retained evidence before continuing. Reset is not a repair action.</p>{#if data.bundled}<a href={resolve("/maintenance")}>Open maintenance for exact-reference recovery</a>{/if}{/if}
                 <button onclick={refreshObservation} disabled={busy}>Retry observation</button>
                 {#if data.bundled && observation.action !== "repair"}
                     <button onclick={retryRuntime} disabled={busy}>Retry local services</button>
@@ -637,7 +636,7 @@
                     </p>
                 {/if}
             {/if}
-            {#if data.bundled}<details><summary>Maintenance</summary><NativeSetupRecovery /></details>{/if}
+            {#if data.bundled}<a href={resolve("/maintenance")}>Local Node maintenance</a>{/if}
             {#if error}<p role="alert">{error}</p>{/if}
         </div>
     </div>
