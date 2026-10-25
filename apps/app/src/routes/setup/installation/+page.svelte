@@ -11,6 +11,7 @@
     } from "$lib/common/state/setupClient.svelte";
 
     import NativeSetupRecovery from "$lib/common/components/NativeSetupRecovery.svelte";
+    import JoinSetup from "$lib/common/components/JoinSetup.svelte";
     import IndependentSetup from "$lib/common/components/IndependentSetup.svelte";
 
     import type { SetupHost } from "$lib/common/state/setupApi";
@@ -31,8 +32,8 @@
         data.hosts;
         return "";
     });
-    let peer = $state("");
     let node = $state("");
+    let joinStarted = $state(false);
     let web = $state.raw<WebSetupCreate | null>(null);
     let observedHosts = $state.raw<SetupHost[] | undefined>();
     let busy = $state(false);
@@ -76,19 +77,6 @@
                 (!web?.intent && webStatus.state === "awaiting_choice")),
     );
 
-    const canJoin = $derived(
-        unified &&
-            (!web ||
-                (web.base === selectedHost?.base &&
-                    observedHosts === data.hosts)) &&
-            purpose === "join" &&
-            webStatus?.stage === "installation" &&
-            !webStatus.ready &&
-            !web?.observationRequired &&
-            ((web?.intent && "peer" in web.intent) ||
-                (!web?.intent && webStatus.state === "awaiting_choice")),
-    );
-
     const setupStarted = $derived(
         unified &&
             !webStatus?.ready &&
@@ -117,7 +105,7 @@
     );
 
     $effect(() => {
-        if (!setupStarted || webStatus?.state === "unfinished") return;
+        if (purpose === "join" || !setupStarted || webStatus?.state === "unfinished") return;
         const interval = setInterval(() => void observeWeb(), 3000);
         return () => clearInterval(interval);
     });
@@ -134,7 +122,7 @@
     async function webSubmit(event: SubmitEvent) {
         event.preventDefault();
         if (
-            !(purpose === "create" ? canCreate : canJoin) ||
+            !canCreate ||
             busy ||
             !selectedHost
         )
@@ -147,8 +135,7 @@
         setupCode = "";
         password = "";
         try {
-            if (purpose === "join") await web.join(code, node, peer);
-            else await web.submit(code, name, node, credential);
+            await web.submit(code, name, node, credential);
         } finally {
             setupCode = "";
             password = "";
@@ -231,7 +218,6 @@
                         name = session.intent.administrator;
                     } else {
                         purpose = "join";
-                        peer = session.intent.peer;
                     }
                 }
             }
@@ -340,7 +326,7 @@
                                 verifiedBase = "";
                                 password = "";
                             }}
-                            disabled={busy || !!web?.intent}
+                            disabled={busy || !!web?.intent || joinStarted}
                         >
                             <option value="create"
                                 >Create an Installation</option
@@ -351,7 +337,9 @@
                         </select>
                     </label>
                 {/if}
-                {#if data.hosts?.length}
+                {#if purpose === "join" && unified}
+                    {#key selectedHost?.base}<JoinSetup {observation} onworking={() => { joinStarted = true; }} />{/key}
+                {:else if data.hosts?.length}
                     {#snippet setupForm()}
                         <form
                             onsubmit={unified ? webSubmit : verifyAdmission}
@@ -444,61 +432,6 @@
                                                 Resume setup below. Retrying
                                                 Create also requires the
                                                 original password.
-                                            </p>
-                                        {/if}
-                                    {:else}
-                                        <p>
-                                            Verify the peer's endpoint ID with
-                                            its administrator. On the source
-                                            Node, enable and approve joining in
-                                            Devices → Equal-Node joining.
-                                        </p>
-                                        {#if canJoin || (web?.intent && "peer" in web.intent)}
-                                            <label>
-                                                Node name
-                                                <input
-                                                    bind:value={node}
-                                                    autocomplete="off"
-                                                    required
-                                                    disabled={busy ||
-                                                        !!web?.intent}
-                                                />
-                                            </label>
-                                            <label>
-                                                Trusted peer endpoint ID
-                                                <input
-                                                    bind:value={peer}
-                                                    autocomplete="off"
-                                                    spellcheck="false"
-                                                    pattern="[a-f0-9]{64}"
-                                                    required
-                                                    disabled={busy ||
-                                                        !!web?.intent}
-                                                />
-                                            </label>
-                                            {#if web?.intent && "peer" in web.intent && web.intent.issuer}
-                                                <p>
-                                                    Recovered Installation
-                                                    issuer: {web.intent.issuer}
-                                                </p>
-                                            {/if}
-                                            <button
-                                                type="submit"
-                                                disabled={busy ||
-                                                    !canJoin ||
-                                                    !setupCode ||
-                                                    !node ||
-                                                    !peer}
-                                            >
-                                                {web?.intent
-                                                    ? "Retry exact Join"
-                                                    : "Request approval and join"}
-                                            </button>
-                                        {:else}
-                                            <p role="alert">
-                                                Setup is already in progress.
-                                                Enter your setup code and use
-                                                Resume setup below.
                                             </p>
                                         {/if}
                                     {/if}

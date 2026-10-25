@@ -281,20 +281,28 @@ it.each(["create", "join"] as const)(
             enter("Administrator name", "Alice");
             enter("Password", "protected-password");
         } else enter("Trusted peer endpoint ID", "d".repeat(64));
-        enter("Node name", "Bundled Node");
-        expect(input("Host setup code").value).toBe("");
-        button("Get bundled host code").click();
-        flushSync();
-        await vi.waitFor(() =>
-            expect(input("Host setup code").value).toBe("a".repeat(64)),
-        );
+        if (purpose === "create") enter("Node name", "Bundled Node");
+        if (purpose === "create") {
+            expect(input("Host setup code").value).toBe("");
+            button("Get bundled host code").click();
+            flushSync();
+            await vi.waitFor(() =>
+                expect(input("Host setup code").value).toBe("a".repeat(64)),
+            );
+        }
         target
             .querySelector("form")!
             .dispatchEvent(
                 new Event("submit", { bubbles: true, cancelable: true }),
             );
         flushSync();
-        await vi.waitFor(() => expect(fetchApi).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() =>
+            expect(
+                fetchApi.mock.calls.some(([url]) =>
+                    url.endsWith("/" + purpose),
+                ),
+            ).toBe(true),
+        );
         expect(fetchApi.mock.calls[0][0]).toBe(
             "https://localhost:4100/idp/setup/" + purpose,
         );
@@ -303,9 +311,12 @@ it.each(["create", "join"] as const)(
             "Setup " + "a".repeat(64),
         );
         const body = JSON.parse(init.body as string);
-        expect(body.node).toBe("Bundled Node");
+        expect(body.node).toBe(
+            purpose === "create" ? "Bundled Node" : "My Node",
+        );
         expect("password" in body).toBe(purpose === "create");
-        expect(input("Host setup code").value).toBe("");
+        if (purpose === "create")
+            expect(input("Host setup code").value).toBe("");
         expect(target.querySelector('a[href="/signin"]')).toBeNull();
         ready = true;
         await vi.waitFor(() =>
@@ -315,7 +326,11 @@ it.each(["create", "join"] as const)(
         flushSync();
         await vi.waitFor(() =>
             expect(
-                target.querySelector('a[href="/setup/device"]'),
+                target.querySelector(
+                    purpose === "create"
+                        ? 'a[href="/setup/device"]'
+                        : 'a[href="/signin"]',
+                ),
             ).not.toBeNull(),
         );
         expect(
