@@ -363,3 +363,10 @@ mod outbound_tests;
 #[cfg(test)]
 #[path = "security_protocol_test_fixtures.rs"]
 mod test_fixtures;
+
+#[cfg(test)]
+#[path = "security_history_tests.rs"]
+mod history_tests;
+#[cfg(test)]
+#[path = "security_sync_tests.rs"]
+mod sync_tests;

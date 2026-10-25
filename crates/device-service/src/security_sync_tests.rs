@@ -4,16 +4,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use db::{Database, SqlTranslator, Value};
-use device_service::DeviceRepo;
-use device_service::replica::DbDeviceRepo;
-use idp_model::{
-    contract::{
-        IdentityAction, IdpSignerRecord, JwkPublic, JwkPublicParameters, JwsAlgorithm, KeyUse,
-        ReplicaMembership,
-    },
-    model::Id,
-};
+use db::{Database, Value};
+use idp_model::{contract::IdentityAction, model::Id};
 use idp_service::{
     PasswordConfig,
     oauth2::NodeSignerBinding,
@@ -25,20 +17,19 @@ use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
 use management_service::ManagementService;
 use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
-use storage_server::{IdpClient, LocalReplicationAuthorizer, RouterState, build_runtime};
 use tokio_util::sync::CancellationToken;
 
-use crate::{SecurityContext, SecurityProtocol};
+use crate::{
+    DeviceRepo,
+    replica::DbDeviceRepo,
+    security_policy::SecurityContext,
+    security_protocol::{
+        SecurityProtocol,
+        test_fixtures::{enroll, native_handler, sql},
+    },
+};
 
 const INSTALLATION: &str = "https://installation.example";
-
-pub(super) async fn sql(database: &Database, statement: &str) -> Vec<db::QueryResult> {
-    database
-        .client()
-        .translate_and_execute(statement, &SqlTranslator)
-        .await
-        .expect("public SQL fixture")
-}
 
 #[tokio::test]
 async fn authenticated_equal_peers_exchange_scoped_history_without_local_verifiers() {
@@ -46,40 +37,6 @@ async fn authenticated_equal_peers_exchange_scoped_history_without_local_verifie
     tokio::time::timeout(Duration::from_secs(600), exchange_history())
         .await
         .expect("domain history exchange and shutdown complete");
-}
-
-pub(super) async fn enroll(idp: Arc<Database>, member: Id, endpoint: iroh::EndpointId, key: Id) {
-    DbReplicaSignerRepo::new(idp.client())
-        .enroll(
-            &ReplicaMembership {
-                installation_id: INSTALLATION.into(),
-                member_id: member,
-                endpoint_id: endpoint.to_string(),
-                issuer: INSTALLATION.into(),
-                approved_at: 1,
-                revoked_at: None,
-            },
-            &IdpSignerRecord {
-                member_id: member,
-                key_id: key,
-                issuer: INSTALLATION.into(),
-                public_jwk: JwkPublic {
-                    kid: key.to_string(),
-                    r#use: KeyUse::Signature,
-                    alg: JwsAlgorithm::ES256K,
-                    params: JwkPublicParameters::Ec {
-                        crv: "secp256k1".into(),
-                        x: "eb5mfvncu6xVoGKVzocLBwKb/NstzijZWfKBWxb4F5g".into(),
-                        y: "SDradyajxGVdpPv8DhEIqP0XtEimhVQZnEfQj/sQ1Lg".into(),
-                    },
-                },
-                approved_at: Some(1),
-                revoked_at: None,
-                expires_at: None,
-            },
-        )
-        .await
-        .expect("persist public peer approval");
 }
 
 async fn exchange_history() {
@@ -120,7 +77,7 @@ async fn exchange_history() {
         sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{actor}' AS UUID), 'administrator', 'Administrator', 1, 1)")).await;
         let management =
             Arc::new(Database::open(root.join("a-management.redb")).expect("seed Management"));
-        device_service::replica::up(&management)
+        crate::replica::up(&management)
             .await
             .expect("Management schemas");
         for (member, key, endpoint) in [
@@ -237,33 +194,17 @@ async fn exchange_history() {
         root.join("b-stage"),
         cancellation.clone(),
     );
-    let storage = build_runtime(
-        RouterState::new("http://localhost/storage")
-            .with_idp_client(
-                IdpClient::new(
-                    "http://127.0.0.1:1/idp",
-                    "storage",
-                    "local",
-                    INSTALLATION,
-                    "idp",
-                )
-                .expect("IdP client"),
-            )
-            .with_local_replication_authorizer(LocalReplicationAuthorizer::new(|_| async {
-                Err("resource access is not authorized in this fixture".to_owned())
-            })),
-        &root.join("storage"),
-        "/storage",
-        "",
-        Some(server_b.clone()),
-        cancellation.clone(),
-    )
-    .expect("existing Storage DATA handler");
+    let receiver = protocol_b.clone();
+    let handler = native_handler(cancellation.clone(), move |kind, connection, send, recv| {
+        let receiver = receiver.clone();
+        async move {
+            receiver
+                .accept_data_stream(kind, connection, send, recv)
+                .await
+        }
+    });
     let router = Router::builder(server_b.endpoint().clone())
-        .accept(
-            DATA_ALPN,
-            protocol_b.attach(storage.data_handler().expect("shared DATA handler")),
-        )
+        .accept(DATA_ALPN, handler)
         .spawn();
     let connection = server_a
         .connect_direct_with_alpn(server_b.endpoint().id(), DATA_ALPN)
@@ -408,7 +349,7 @@ async fn exchange_history() {
             .await
             .expect("fresh untrusted-claim stream");
         send.write_all(&[3]).await.expect("existing DATA marker");
-        let mut transport = storage_server::DatabaseTransport::new(send, recv);
+        let mut transport = db::DatabaseTransport::new(send, recv);
         transport
             .send(serde_json::to_vec(&request).expect("encode claim"))
             .await
@@ -449,13 +390,11 @@ async fn exchange_history() {
     );
     let restricted = Id::now_v7();
     let ambiguous = Id::now_v7();
-    let selection_a =
-        device_service::replica::DbSelectionPolicyRepo::new(management_a.clone().client());
-    let selection_b =
-        device_service::replica::DbSelectionPolicyRepo::new(management_b.clone().client());
+    let selection_a = crate::replica::DbSelectionPolicyRepo::new(management_a.clone().client());
+    let selection_b = crate::replica::DbSelectionPolicyRepo::new(management_b.clone().client());
     for device_id in [restricted, ambiguous] {
         selection_a
-            .set_prevalidated(device_service::replica::SelectionPolicy {
+            .set_prevalidated(crate::replica::SelectionPolicy {
                 device_id,
                 owner_subject: actor.to_string(),
                 application_id: None,
@@ -640,7 +579,6 @@ async fn exchange_history() {
     drop((
         protocol_a,
         protocol_b,
-        storage,
         users_a,
         users_b,
         idp_a,
@@ -679,7 +617,7 @@ async fn exchange_history() {
     let reopened_management =
         Arc::new(Database::open(root.join("b-management.redb")).expect("native Management reopen"));
     let reopened_selection =
-        device_service::replica::DbSelectionPolicyRepo::new(reopened_management.clone().client());
+        crate::replica::DbSelectionPolicyRepo::new(reopened_management.clone().client());
     assert!(
         !reopened_selection
             .get(restricted, &actor.to_string(), actor)
@@ -747,7 +685,7 @@ async fn assert_admission_closed(
         .await
         .expect("fresh stream on same connection");
     send.write_all(&[3]).await.expect("security marker");
-    let mut transport = storage_server::DatabaseTransport::new(send, recv);
+    let mut transport = db::DatabaseTransport::new(send, recv);
     transport.send(serde_json::to_vec(&serde_json::json!({"version": 1, "installation": INSTALLATION, "member": member, "context": context})).expect("authenticated claim")).await.expect("send admission probe");
     assert!(
         transport.receive().await.is_err(),

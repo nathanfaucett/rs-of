@@ -19,11 +19,7 @@ mod node_join_bootstrap_tests;
 #[cfg(test)]
 mod permission_http_tests;
 mod runtime;
-#[cfg(test)]
-mod security_history_tests;
 mod security_sync;
-#[cfg(test)]
-mod security_sync_tests;
 mod setup_host;
 #[cfg(all(test, unix))]
 mod setup_host_tests;
