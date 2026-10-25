@@ -194,7 +194,7 @@ Host Create has its existing 200 completed retry versus 202 accepted work semant
 | `crates/api/src/setup_server.rs` | Audited exclusion: production sends framework `OPTIONS` to verify native TLS without running remote readiness. There is no production GET operation here; embedded test requests remain test fixtures. |
 | `crates/unified-server/src/api_create.rs` | IdP `token` for an exact completed-Create password retry. Existing host lifecycle/domain checks remain; there is no independent status GET in this module. |
 | `crates/unified-server/src/bootstrap_verification.rs; runtime.rs; owner_health.rs` | Generated owner `health` probes using the existing verified transport. Runtime owner authorization remains direct and in-process. |
-| `apps/app/src-tauri/src/native_host.rs` | Unified Setup `status` for observation and bounded startup verification, including the documented 503 unavailable status. |
+| `apps/app/src-tauri/src/native_host.rs` | Generated Unified Setup `status` for observation, including 503 unavailable. Startup uses a bounded framework OPTIONS native-root TLS probe (200/405), not a handwritten owner GET operation. |
 | `apps/app/src-tauri/src/setup_peer_revocation.rs` | IdP `openid_configuration`, `token`, `revoke_replica_signer`; Management `revoke_device`. Checks peer/Installation identity before transmitting the User token, and retains the target until both owners acknowledge. |
 | `apps/app/src/lib/common/state/setupApi.ts; independentSetupApi.ts` | Unified and independent generated status, admission, Create/Join, intent recovery, cancel and public metadata operations. Generated decoders feed existing exact-intent/readiness/login-Client checks; requests omit credentials and forbid redirects/cache reuse. |
 | `apps/app/src/lib/common/state/devices.svelte.ts` | Generated host-composed Node-join operations, or independent-owner operations for an arbitrary complete Management base. Current User audience exchange and offer/endpoint/operation checks remain. |
@@ -224,7 +224,7 @@ Host Create has its existing 200 completed retry versus 202 accepted work semant
 
 ## Native lifecycle consumers
 
-- `apps/app/src-tauri/src/native_host.rs`: unified `GET /idp/setup/status` observation and startup verification.
+- `apps/app/src-tauri/src/native_host.rs`: generated unified `GET /idp/setup/status` observation; framework OPTIONS startup TLS verification.
 - `apps/app/src-tauri/src/setup_peer_revocation.rs`: IdP discovery, OAuth token exchange, signer revocation, and Management Device revocation. Preserve peer/Installation checks before sending bearer credentials.
 - `apps/app/src/lib/common/state/idpClient.svelte.ts`: password/OAuth token acquisition and generated IdP operations.
 - `apps/app/src/lib/common/state/devices.svelte.ts`: source Node-join acceptance/pending/approve/reject.

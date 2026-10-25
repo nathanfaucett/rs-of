@@ -32,44 +32,72 @@ pub(crate) struct NativeHost {
 
 impl NativeHost {
     #[cfg(unix)]
-    pub(crate) async fn start(root: &Path) -> io::Result<Self> {
-        let setup = prepare(root)?;
-        Self::start_with(
+    pub(crate) async fn start(
+        root: &Path,
+        consent: bool,
+        cancellation: CancellationToken,
+    ) -> io::Result<Self> {
+        let root = root.to_owned();
+        let setup = tokio::task::spawn_blocking(move || prepare(&root))
+            .await
+            .map_err(io::Error::other)??;
+        let stop = cancellation.clone();
+        Self::start_cancellable(
             setup,
-            |tls| crate::localhost_trust::install_ca_to_user_trust_store(&tls.ca_path()),
+            move |tls| {
+                if !consent {
+                    return Err(consent_required());
+                }
+                crate::localhost_trust::install_ca_to_user_trust_store(&tls.ca_path(), &stop)
+                    .map_err(|error| {
+                        if error.kind() == io::ErrorKind::Interrupted {
+                            error
+                        } else {
+                            io::Error::new(io::ErrorKind::PermissionDenied, error)
+                        }
+                    })
+            },
             LocalTls::verification_client,
+            cancellation,
         )
         .await
     }
 
     #[cfg(not(unix))]
-    pub(crate) async fn start(_: &Path) -> io::Result<Self> {
+    pub(crate) async fn start(_: &Path, _: bool, _: CancellationToken) -> io::Result<Self> {
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "the shared native host requires Unix protected-state support; remote HTTPS APIs remain independent",
         ))
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, test))]
     async fn start_with(
         setup: SetupHost,
         install: impl FnOnce(LocalTls) -> io::Result<()> + Send + 'static,
-        client: impl FnOnce() -> io::Result<reqwest::Client>,
+        client: impl FnMut() -> io::Result<reqwest::Client>,
     ) -> io::Result<Self> {
-        let tls = setup.tls().clone();
-        tokio::task::spawn_blocking(move || {
-            install(tls).map_err(|error| io::Error::new(io::ErrorKind::PermissionDenied, error))
-        })
-        .await
-        .map_err(io::Error::other)??;
-        let client = client()?;
+        Self::start_cancellable(setup, install, client, CancellationToken::new()).await
+    }
+
+    #[cfg(unix)]
+    async fn start_cancellable(
+        setup: SetupHost,
+        install: impl FnOnce(LocalTls) -> io::Result<()> + Send + 'static,
+        mut client: impl FnMut() -> io::Result<reqwest::Client>,
+        cancellation: CancellationToken,
+    ) -> io::Result<Self> {
+        if cancellation.is_cancelled() {
+            return Err(cancelled());
+        }
+        let initial_client = client()?;
         let address = setup.local_addr();
         let listener = TcpListener::bind(address).await?;
         let tls = setup.tls().clone();
-        let cancellation = CancellationToken::new();
         let worker = setup.into_worker(cancellation.clone());
         let router = worker.router_for_origin(native_origin())?;
         let shutdown = cancellation.clone();
+        let install_tls = tls.clone();
         let task = tokio::spawn(async move {
             let _cancel_on_drop = shutdown.clone().drop_guard();
             let owner = tokio::spawn(worker.run());
@@ -82,11 +110,33 @@ impl NativeHost {
         });
         let mut host = Self {
             base_url: LocalTls::api_base(address)?,
-            client,
+            client: initial_client,
             cancellation,
             task: Some(task),
         };
-        let verification = host.verify().await;
+        let verification = async {
+            let verification = tokio::select! {
+                biased;
+                _ = host.cancellation.cancelled() => return Err(cancelled()),
+                result = host.verify() => result,
+            };
+            match verification {
+                Ok(()) => Ok(()),
+                Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+                    if host.cancellation.is_cancelled() { return Err(cancelled()); }
+                    tokio::task::spawn_blocking(move || install(install_tls))
+                        .await.map_err(io::Error::other)??;
+                    if host.cancellation.is_cancelled() { return Err(cancelled()); }
+                    host.client = client()?;
+                    tokio::select! {
+                        biased;
+                        _ = host.cancellation.cancelled() => Err(cancelled()),
+                        result = host.verify() => result.map_err(|error| io::Error::other(format!("HTTPS verification after trust installation failed: {error}"))),
+                    }
+                }
+                Err(error) => Err(error),
+            }
+        }.await;
         if let Err(error) = verification {
             if let Err(cleanup) = host.close().await {
                 log::error!("native host cleanup after TLS verification failure: {cleanup}");
@@ -133,6 +183,12 @@ impl NativeHost {
             }
             Err(_) => observation.failure = Some(Failure::Retry),
         }
+        if self.cancellation.is_cancelled() {
+            return HostObservation {
+                failure: Some(Failure::Retry),
+                ..HostObservation::default()
+            };
+        }
         observation
     }
 
@@ -145,27 +201,43 @@ impl NativeHost {
     }
 
     async fn verify(&self) -> io::Result<()> {
-        let configuration = self.configuration();
-        for _ in 0..40 {
-            match tokio::time::timeout(
-                Duration::from_secs(2),
-                of_idp_client::apis::setup_api::setup_status(&configuration),
+        let response = self
+            .client
+            .request(
+                reqwest::Method::OPTIONS,
+                format!("{}/idp/setup/status", self.base_url),
             )
+            .timeout(Duration::from_secs(3))
+            .send()
             .await
-            {
-                Ok(Ok(_)) => return Ok(()),
-                Ok(Err(of_idp_client::apis::Error::ResponseError(response)))
-                    if response.status.as_u16() == 503 =>
-                {
-                    return Ok(());
+            .map_err(|error| {
+                let mut source: &(dyn std::error::Error + 'static) = &error;
+                loop {
+                    if matches!(
+                        source.downcast_ref::<rustls::Error>(),
+                        Some(rustls::Error::InvalidCertificate(
+                            rustls::CertificateError::UnknownIssuer
+                        ))
+                    ) {
+                        return io::Error::new(io::ErrorKind::PermissionDenied, error);
+                    }
+                    let nested = source
+                        .downcast_ref::<io::Error>()
+                        .and_then(io::Error::get_ref)
+                        .map(|inner| inner as &(dyn std::error::Error + 'static));
+                    match nested.or_else(|| source.source()) {
+                        Some(next) => source = next,
+                        None => return io::Error::other(error),
+                    }
                 }
-                _ => {}
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            })?;
+        if response.status() == reqwest::StatusCode::OK
+            || response.status() == reqwest::StatusCode::METHOD_NOT_ALLOWED
+        {
+            Ok(())
+        } else {
+            Err(io::Error::other("native HTTPS status verification failed"))
         }
-        Err(io::Error::other(
-            "native HTTPS host failed OS-root TLS verification",
-        ))
     }
 
     pub(crate) async fn close(&mut self) -> io::Result<()> {
@@ -205,3 +277,25 @@ mod tests;
 #[cfg(all(test, target_os = "linux"))]
 #[path = "native_provider_lifecycle_tests.rs"]
 mod provider_lifecycle_tests;
+
+#[derive(Debug)]
+struct TrustConsentRequired;
+
+impl core::fmt::Display for TrustConsentRequired {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter.write_str("explicit certificate trust consent required")
+    }
+}
+impl std::error::Error for TrustConsentRequired {}
+
+pub(crate) fn consent_required() -> io::Error {
+    io::Error::other(TrustConsentRequired)
+}
+pub(crate) fn needs_consent(error: &io::Error) -> bool {
+    error
+        .get_ref()
+        .is_some_and(|source| source.is::<TrustConsentRequired>())
+}
+fn cancelled() -> io::Error {
+    io::Error::new(io::ErrorKind::Interrupted, "native startup cancelled")
+}

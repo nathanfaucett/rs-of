@@ -387,3 +387,45 @@ it("retries a failed bundled runtime without resetting retained identity", async
         "reset_device",
     );
 });
+
+it("shows startup before host completion and requires explained trust consent before installation", async () => {
+    native.desktop = true;
+    let failure: string | undefined = "trust_consent";
+    native.invoke.mockImplementation(async (command, args) => {
+        if (command === "pending_reset_revocations") return [];
+        if (command === "get_onboarding_host") return failure ? { failure } : {
+            base: "https://localhost:4100",
+            status: { stage: "installation", state: "awaiting_choice", ready: false, owners: ["idp", "device", "storage"] },
+        };
+        if (command === "set_local_trust_consent") {
+            failure = args.consent ? undefined : "trust_declined";
+            return;
+        }
+        if (command === "retry_local_runtime") { failure = "trust_consent"; return; }
+        throw new Error("Unexpected command " + command);
+    });
+    const { default: Installation } = await import("../../../routes/setup/installation/+page.svelte");
+    target = document.createElement("div");
+    document.body.append(target);
+    component = mount(Installation, { target, props: { data: { observation: {
+        state: "starting", action: "observe", hosts: [],
+        target: { kind: "bundled", idp: "", device: null, storage: null },
+    } } } });
+    flushSync();
+    expect(target.textContent).toContain("Starting bundled services");
+    expect(native.invoke.mock.calls.some(([command]) => command === "set_local_trust_consent")).toBe(false);
+    await vi.waitFor(() => expect(target.textContent).toContain("operating system"), { timeout: 3000 });
+    expect(target.textContent).toContain("certificate authority");
+    button("Not now").click();
+    flushSync();
+    await vi.waitFor(() => expect(target.textContent).toContain("declined"));
+    expect(native.invoke).toHaveBeenCalledWith("set_local_trust_consent", { consent: false });
+    button("Retry local services").click();
+    flushSync();
+    await vi.waitFor(() => expect(button("Allow certificate trust")).toBeDefined());
+    button("Allow certificate trust").click();
+    flushSync();
+    await vi.waitFor(() => expect(target.textContent).toContain("Create a new Installation"));
+    expect(native.invoke).toHaveBeenCalledWith("set_local_trust_consent", { consent: true });
+    expect(native.invoke.mock.calls.some(([command]) => command === "reset_device")).toBe(false);
+});

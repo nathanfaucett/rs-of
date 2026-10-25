@@ -122,6 +122,12 @@
         return () => clearInterval(interval);
     });
 
+    $effect(() => {
+        if (observation.state !== "starting") return;
+        const interval = setInterval(() => void refreshObservation(), 500);
+        return () => clearInterval(interval);
+    });
+
     onDestroy(() => {
         active = false;
         setupCode = "";
@@ -156,6 +162,16 @@
         }
     }
 
+    async function trustConsent(consent: boolean) {
+        if (busy || observation.target.kind !== "bundled" || usesRemoteApis()) return;
+        busy = true;
+        error = "";
+        try { await invoke("set_local_trust_consent", { consent }); }
+        catch { error = "Trust installation or HTTPS verification failed. Check platform prerequisites, then retry; retained identity is unchanged."; }
+        finally { busy = false; }
+        await refreshObservation();
+    }
+
     async function retryRuntime() {
         if (busy || observation.target.kind !== "bundled" || usesRemoteApis()) return;
         busy = true;
@@ -170,7 +186,7 @@
     async function refreshObservation() {
         if (busy) return;
         busy = true;
-        try { observation = await observeOnboarding(); }
+        try { const next = await observeOnboarding(); if (active) observation = next; }
         finally { busy = false; }
     }
 
@@ -314,12 +330,18 @@
                 <button onclick={refreshObservation}>Refresh status</button>
             {:else if observation.state === "blocked" && !data.hosts.some(host => host.status.state === "unfinished")}
                 <p role="alert">{observation.message}</p>
+                {#if data.bundled && observation.action === "trust_consent"}
+                    <p>Allow the operating system to trust this Node's retained localhost certificate authority for HTTPS. This adds a trust anchor, may request administrator elevation, and can affect other applications using the OS trust store. It does not replace your certificate or sign you in. Reset does not remove installed OS trust.</p>
+                    <button onclick={() => trustConsent(true)} disabled={busy}>Allow certificate trust</button>
+                    <button onclick={() => trustConsent(false)} disabled={busy}>Not now</button>
+                {/if}
+                {#if busy}<p role="status">Checking retained host and HTTPS trust. Waiting for platform work to finish.</p>{/if}
                 {#if observation.action === "repair"}<p>Repair retained evidence before continuing. Reset is not a repair action.</p>{/if}
                 <button onclick={refreshObservation} disabled={busy}>Retry observation</button>
                 {#if data.bundled && observation.action !== "repair"}
                     <button onclick={retryRuntime} disabled={busy}>Retry local services</button>
                 {/if}
-                {#if observation.action === "prerequisite"}<a href={resolve("/config")}>Connection settings</a>{/if}
+                {#if ["prerequisite", "trust_consent", "trust_declined"].includes(observation.action)}<a href={resolve("/config")}>Connection settings</a>{/if}
             {:else if data.hosts?.length === 3}
                 {#key data.hosts}<IndependentSetup hosts={data.hosts} />{/key}
             {:else if observation.state === "ready"}

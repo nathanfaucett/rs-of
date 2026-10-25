@@ -1,4 +1,5 @@
 mod app;
+mod lifecycle;
 mod localhost_trust;
 mod native_host;
 mod onboarding;

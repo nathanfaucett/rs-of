@@ -12,6 +12,8 @@
 - Safe failure actions distinguish transient retry, prerequisites and exact retained-identity repair; destructive reset remains explicit maintenance, not automatic recovery.
 - [04: Source approval](issues/04-simplify-source-approval.md) resolved: one Add a device task, existing owner authorization/adapters, exact decisions and retained partial-approval retry. [Focused evidence and validation limits](evidence/04-source-approval.md): 9 rendered/27 owner-client tests pass; Svelte check/autofix clean. Rust lifecycle, feature matrix and CRAP bounded out compiling; broad auth suite is not green.
 
+- [05: Visible startup and trust](issues/05-visible-startup-and-trust.md) — resolved. Window-first asynchronous retained-host startup, current native-root verification before conditional explained consent, refusal/retry, cancellation/join and late-publication fencing. No Create/Join/completion or maintenance presentation rewrite. [Focused evidence and limits](evidence/05-visible-startup-and-trust.md): 22 native, 15 mounted and 181 route/state tests pass; existing provider readiness bound reproduced with original startup, full matrix/CRAP compilation timed out. No real OS trust/profile/GUI qualification.
+
 ## Fog
 
 - Full Cargo Hack matrix is unqualified: Swagger UI's downloaded/cached archive fails its build script. CRAP coverage compilation exceeded the bounded run; no score is available.
