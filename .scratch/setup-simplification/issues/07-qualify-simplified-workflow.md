@@ -8,6 +8,14 @@
 
 **Triage:** ready-for-agent
 
+## Scoped merge handoff
+
+The user accepted scoped merge readiness with incomplete qualification retained. Final source review of local `main...setup-simplification` at `8d94861d1` found no new code-level blocker; it did not test a merged tree or certify a packaged desktop release. No merge/push was performed as part of this handoff. Ticket 07 stays open and its unchecked acceptance criteria are not silently waived.
+
+Remaining work has concrete follow-ups: [08: provider fixture isolation](08-isolate-mock-provider-fixtures.md), [09: unexplained readiness/request timeouts](09-diagnose-readiness-and-request-timeouts.md), [10: fixture/SDK prerequisites](10-repair-validation-fixture-prerequisites.md), and [11: provisioned matrix/CRAP](11-complete-provisioned-validation.md). Their completion must feed evidence back into this ticket before qualification is resolved.
+
+## Qualification checklist
+
 Latest handoff: reviewed lifecycle fixes and three final serial HTTPS suites (9/9 scenarios) pass; [reliability evidence](../evidence/07-reliability-followup.md). The [matrix now fails owner-boundary tests and coverage is memory-blocked](../evidence/07-validation-followup.md). Earlier offer/request timeout causes remain unproven. Keep qualification open; historical Answer sections below are not the latest validation disposition.
 
 - [x] Verify default bundled first launch has one essential Create/Join choice, minimal required input, no mandatory internal composition, and no completion-only gate before ordinary sign-in.

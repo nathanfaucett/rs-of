@@ -19,6 +19,19 @@
 
 - [07: Integrated qualification](issues/07-qualify-simplified-workflow.md) — **open, not resolved**. Fixed Create completed-recovery/current-login routing, deleted the premature duplicate sign-in path and repaired a stale native test signature. 34 mounted/180 route-state-client, API 40, native 21 and scoped strict Clippy pass. Mixed HTTPS lifecycle timeouts and incomplete final matrix/CRAP prevent acceptance. [Current evidence and limits](evidence/07-integrated-qualification.md).
 
+## Scoped merge-readiness decision
+
+The user accepted proceeding with a scoped improvement rather than chasing unrelated validation repairs in this branch. A final read-only review of `main...setup-simplification` at `8d94861d1` found no new actionable auth/readiness/shutdown blocker. Local `main` at `ca7a1fc35` has two unrelated scratch-spec commits beyond merge base `dfeaf7dbe`, with no production-code target divergence. This was source review only; no merged-tree test, merge, push, GUI smoke test or full qualification is claimed.
+
+Ticket 07 and the spec remain open. Outstanding work is tracked explicitly:
+
+- [08: Isolate mock-provider fixtures](issues/08-isolate-mock-provider-fixtures.md) — high priority; deterministic isolation regression and concurrent suite checks.
+- [09: Diagnose readiness/request timeouts](issues/09-diagnose-readiness-and-request-timeouts.md) — medium priority, raised if users reproduce; retain security and timeout assertions.
+- [10: Repair fixture/SDK prerequisites](issues/10-repair-validation-fixture-prerequisites.md) — routine maintenance; no historical compatibility layer.
+- [11: Complete provisioned validation](issues/11-complete-provisioned-validation.md) — blocked by 08/10; human runner provisioning, then actual matrix/CRAP completion. Investigate 09 if failures recur.
+
+A packaged desktop disposable-profile Create/sign-in/reopen/Join smoke test remains recommended before a user-facing release. This merge-readiness decision does not replace it or close unchecked acceptance criteria.
+
 ## Fog
 
 - Latest final-code HTTPS Join evidence is 9/9 passing scenarios across three serial suites, after deterministic router/admission shutdown and queued-reply fixes. Earlier source-offer/authorized-request timeout causes remain unproven; no blanket baseline or environment attribution. See the reliability follow-up below.
