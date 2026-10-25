@@ -205,3 +205,26 @@ add a production/test-control endpoint to force reconciliation. See
 `.scratch/deployment-independent-system-tests/ticket04-report.md` for the concrete
 inventory, replacements and exact validation history; ticket01's coverage entries
 are not edited by ticket04.
+
+## Final audit and retained live reconciliation
+
+See `.scratch/deployment-independent-system-tests/coverage.md` for every original
+scenario disposition and the raw-HTTP/hook audit, and `ticket05-report.md` in that
+directory for exact final validation and earlier failures. Ticket05 ran **all nine**
+actual-process entries serially; this does not expand their documented topology.
+
+Live post-Join consumed/revoked grant reconciliation and learned **Device**
+restriction denial on retained sockets remain enabled in Unified's private mixed
+`full_node_tests`. They need live owner databases/member context and the native
+`SecurityProtocol::synchronize`; the process interface has no exact trigger.
+Initial Join history and local User deletion are **not** substitutes. The two
+retained tests can be run without the third full-node scenario:
+
+```sh
+RUST_MIN_STACK=67108864 cargo test -p unified-server --lib two_completed_full_hosts_ -- --test-threads=1 --skip two_completed_full_hosts_join_partition_reopen_and_learn_denial --nocapture
+```
+
+Use the same shared target and `-j8` convention as the process suite. A default
+small test-thread stack aborted during native import in ticket05; both focused
+live cases subsequently passed with the explicit 64 MiB stack. This is not
+actual-process cross-layout live reconciliation or default-stack qualification.

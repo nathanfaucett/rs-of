@@ -561,7 +561,7 @@
     "contact": {
       "name": "nathanfaucett@gmail.com"
     },
-    "description": "Management API server for LIDP",
+    "description": "Management role, permission, and assignment API",
     "license": {
       "identifier": "MIT OR Apache-2.0",
       "name": "MIT OR Apache-2.0"
