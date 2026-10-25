@@ -1,6 +1,6 @@
 # Ticket 07: HTTPS reliability follow-up
 
-Latest result: the [focused lifecycle follow-up](#focused-lifecycle-follow-up-deterministic-red--green) proves and fixes the router/admission shutdown-ownership gap. The original qualification runs below remain historical; ticket07 is still open because transport/request reliability is not established.
+Latest result: the [P1 queued-reply follow-up](#p1-review-queued-replies-must-be-rejected-before-the-teardown-fence) fixes a circular wait introduced by the original teardown fence. Deterministic red/green, 100 lifecycle executions and three final-code serial HTTPS suites (9/9 scenarios) pass. The original lifecycle and qualification runs below remain historical; ticket07 remains open conservatively, with no claim that earlier offer/request timeouts or broader validation failures are eliminated.
 
 ## Initial investigation disposition
 
@@ -196,3 +196,105 @@ The demonstrated **router/admission shutdown ownership gap is fixed**, with dete
 Ticket07 stays **open**, both integrated durability boxes unchecked. One interruption smoke pass is not the requested repeatable integrated finalization/interruption/offline qualification; source-offer and ordinary HTTPS request timeouts still have no established root cause. Historical failures above are retained and no baseline/environment-only attribution is made.
 
 Sibling revisions throughout this focused follow-up were observed as `ofdb` **e3242170c94d5fc4bcc121db812310c8106c7ab6**, `ofnet` **dbea925a0a3f99053fffc02618baccc2a1cbea9f**, `offs` **df4c696a910296635473ec296d9235acbaa60d9b**. No sibling modifications. Main lock hash still **bb7e608f57a6167612acac7d247e51eb2c6efbe449b95208c7a1862b78dd3a3f**; worktree-only Cargo lock refresh is not delivery. No main source, existing other receipts, spec/map, real profiles or OS trust changes. Integration tip is to be merged before handoff, never merged back by this agent.
+
+
+## P1 review: queued replies must be rejected before the teardown fence
+
+### Base, claim and demonstrated cycle
+
+Merged integration **4ae84f2fc4bbbaf007222859ee48b0e29b641ddf** first (fast-forward from `0739d5855`), including the separate validation receipt. Verified that integration commit is an ancestor of HEAD, then reclaimed ticket07 before implementation. Used TDD and ponytail. Source/read review covered `HostedSetup::run`, `submit`, active/queued commands, owner unpublish, and the router/admission teardown fence. No spec/map, validation receipt, main source/lock or unrelated scratch modifications.
+
+The reviewer identified a real P1 in the prior fix, not a hypothetical transport failure:
+
+```text
+run retains commands receiver
+  -> buffered SetupCommand retains reply sender
+  -> submit awaits reply, retaining Arc<Shared>
+  -> run awaits destruction of Shared
+  -> receiver/reply would only be dropped after that await
+```
+
+Cancellation is selected before receiving a queued command because the worker select is biased. Thus an authorized request can be in the queue without ever reaching durable admission/owner execution when the worker exits its loop. Dropping only the worker shared reference cannot break the cycle.
+
+### TDD and minimal correction
+
+New public lifecycle/router regression: `setup_host_tests::shutdown_rejects_queued_request_before_joining_router_teardown`.
+
+- Prepare an isolated neutral HTTP `SetupHost`, retrieve its protected capability, retain original admission bytes, and obtain its production router. No secure provider, domain provisioning, real profile or OS trust.
+- Start two distinct valid capability-authorized Create requests **without polling the worker**. One receives 409 from the full one-slot queue, deterministically proving the other is queued and waiting for a worker reply. This uses public routing/response behavior, not a new queue-inspection hook, sleep, or scheduling assumption.
+- Cancel before worker consumption and drop the original router. The initial regression joined queued request and worker under the unchanged five-second test bound. **Before the correction it failed in 5.04s**, exit 101, after a 1m10s compile:
+
+```text
+panicked at crates/unified-server/src/setup_host_tests.rs:137:6:
+queued reply and worker shutdown must not retain each other: Elapsed(())
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 62 filtered out; finished in 5.04s
+```
+
+**Correction: six production lines** before owner unpublish and before the shared-state fence:
+
+```rust
+self.commands.close();
+while let Some(mut command) = self.commands.recv().await {
+    if let Some(reply) = command.reply.take() {
+        let _ = reply.send(Err(StatusCode::SERVICE_UNAVAILABLE));
+    }
+}
+```
+
+Closing forbids new enqueues. Draining via `recv().await` until `None` also accounts for a capacity permit acquired immediately before close; a one-time `try_recv` snapshot could miss an in-progress sender. Explicit 503 replies release the corresponding `submit` waiters without executing, admitting or accepting unconsumed work. No dependency or public API change.
+
+**Green:** exact regression passed in **0.04s**, after a **3m17s** rebuild. Then strengthened that same regression to retain one connection-equivalent router while consuming the rejected reply: queued request returns 503; the host guard is still held; a new authorized request through that retained router returns 409 promptly because the queue is closed; consuming/dropping the last router lets the worker complete; one immediate host/admission reopen succeeds with byte-identical admission. Final strengthened regression and existing setup-host cases pass. No private queue hook, timeout inflation, retry or forced unlock.
+
+### Await and ownership review
+
+- The current command and its reply are resolved/dropped within the worker loop before cancellation exits it; the active record is cleared there. Buffered commands are now rejected before any cleanup await.
+- `commands.close()` runs synchronously before draining. `recv().await` can wait for an already-reserved sender to finish, but does not wait for the queued request to drop Shared: each received reply is resolved directly, and closed receivers reach `None` without requiring all sender handles to be destroyed. No lifecycle mutex is held across this await. Public submit only uses synchronous `try_send`, not a permit held across its own await.
+- Owner withdrawal clears published normal-router/readiness references before the final Shared wait. The owner shutdown result is retained, not used to skip queue closure or teardown joining.
+- Host owners/guard remain retained through both drain and shared teardown. The existing last-field notification still closes only after preceding shared admission/router state is destroyed. Independent in-flight handler references must genuinely finish; they are not forcibly invalidated or silently unlocked.
+- Active-work cancellation, durable binding/retirement and ordinary source approval/authentication are unchanged. No request can now be newly enqueued after close; already queued, unconsumed work is never reported 202.
+
+### Focused and final HTTPS validation
+
+All Cargo commands used this qualification worktree manifest, main target cache, `CARGO_BUILD_JOBS=2`, `RUST_MIN_STACK=67108864`; Cargo tool bounds up to 1200000ms. No tool timeout, raised test bound or assertion relaxation.
+
+| Validation | Actual result |
+| --- | --- |
+| `cargo test -p unified-server --lib setup_host_tests -- --nocapture --test-threads=1` | Final strengthened-source **5 passed / 1 parent-launched child ignore**, **0.65s**; both isolated TLS child modes actually passed. Earlier green suite before the added closed-queue/guard assertions: 5 passed, 0.36s. |
+| `cargo test -p idp-server --no-default-features --lib hosted_setup::tests -- --nocapture --test-threads=1` | **2 passed**, **0.03s**, after 1m18s build. Existing cancellation/retirement and disconnect behavior retained. |
+| Execution-only filter `setup_host_tests::shutdown_`, 50 serial repetitions | **100 lifecycle test executions passed**: queued-reply regression plus original router-teardown/guard regression in every subprocess. Each subprocess bounded at 30s. |
+| Execution-only retained Join mismatch/missing-evidence test | **1 passed**, all existing fault variants; unchanged security assertions. |
+| Execution-only partial Create/Join credentials recovery test | **1 passed**, **1.90s**, unchanged retained-recovery/refusal variants. |
+| `cargo clippy -p idp-server -p unified-server --no-default-features --lib --no-deps -- -D warnings` | **Passed**, **5.92s**, production libraries scoped as stated. |
+| `cargo fmt --all -- --check`; `git diff --check` | **Passed**. |
+
+Final-code executable SHA-256 **59979feae70512b228bc62a6ec7d74db576a5691dd2da0c296052526bf61ae28**. No compilation was launched during the timing-sensitive runs. A `/proc` snapshot before **each** suite found no `cargo` or `rustc` process (`BUILD_SNAPSHOT []`); this is not certification of a globally idle OS or absence of unrelated user/browser/editor activity.
+
+Executed the same final binary serially three times:
+
+```sh
+CARGO_TARGET_DIR=/home/nathan/code/rust/aicacia/of/target CARGO_BUILD_JOBS=2 RUST_MIN_STACK=67108864 /home/nathan/code/rust/aicacia/of/target/debug/deps/unified_server-f38d95073d23ab7e production_api_join_ --nocapture --test-threads=1
+```
+
+| Start (2026-10-25, -0400) | Finalization child | Offline-reopen child | Interruption/exact-retry child | Suite |
+| --- | --- | --- | --- | --- |
+| 16:04:52 | pass 100.63s | pass 97.72s | pass 89.97s | **3 passed**, 288.61s, exit 0 |
+| 16:09:41 | pass 99.74s | pass 99.66s | pass 91.22s | **3 passed**, 291.07s, exit 0 |
+| 16:14:32 | pass 99.21s | pass 91.88s | pass 88.33s | **3 passed**, 279.96s, exit 0 |
+
+Actual summary for every suite:
+
+```text
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 60 filtered out
+```
+
+All three parents launched their isolated real-Iroh/native-root children; every child passed. Existing negative authentication/Origin/intent checks, 15-second source-offer polling, five-second production HTTP request bound, readiness checks, exact retry and retained/offline identity assertions were unchanged. Each suite had a 1000s subprocess ceiling; the full focused-plus-three-suite tool invocation had a 1200000ms ceiling; neither fired. No final-code pending-offer, request, admission-lock or teardown timeout occurred in these **nine** scenarios.
+
+Disposable capture `/tmp/07-p1-final-serial-https.log`, SHA-256 **39b61ce7912bcd61640a774953a62280ab9ab38c7300d4035733582f8df57828**. It records the no-compiler snapshots, each actual stdout followed by stderr, and full test summaries; streams are not claimed interleaved in original emission order. Historical failing receipts above are not rewritten or attributed to this queue defect.
+
+### Latest disposition and boundaries
+
+**Reviewed P1 fixed**, with deterministic failing-before/passing-after evidence and final serial HTTPS **9/9 passing**. The original teardown fence remains, now ordered after queue closure/rejection. Ticket07 remains **open** and its two integrated durability boxes remain conservatively unchecked: this is additional bounded passing evidence, not a proof that the earlier pending-offer/ordinary-approval HTTP timeout family has been eliminated. No common root-cause or baseline attribution is asserted from these passes.
+
+Read the integrated [validation follow-up](07-validation-followup.md): its executed exact matrix failed in owner-boundary tests (**18 passed / 26 failed / 6 child ignores**, remaining matrix combinations unrun), not a compilation timeout. Its CRAP attempt was stopped after **435.34s**, exit **143**, when available memory stayed below 1.5 GiB; no coverage completion or score. Those outcomes remain separate. This fix neither repairs nor labels those failures unrelated/baseline; no new matrix/CRAP certification is claimed. No need to repeat the completed heavy validation just to obscure its concrete failures.
+
+Sibling revisions before and after these tests: `ofdb` **e3242170c94d5fc4bcc121db812310c8106c7ab6**, `ofnet` **dbea925a0a3f99053fffc02618baccc2a1cbea9f**, `offs` **df4c696a910296635473ec296d9235acbaa60d9b**. They were not modified by this agent. Main lock SHA-256 remained **bb7e608f57a6167612acac7d247e51eb2c6efbe449b95208c7a1862b78dd3a3f**; only the generated worktree lock refresh is reverted/excluded. Delivery owns only the shared-worker correction, lifecycle regression, this evidence and ticket07. Integration tip must be merged again before reporting; no merge back is authorized.

@@ -533,6 +533,12 @@ impl<B: HostedSetupOwners> HostedSetup<B> {
             }
             *self.shared.active.lock().expect("Create cancellation lock") = None;
         }
+        self.commands.close();
+        while let Some(mut command) = self.commands.recv().await {
+            if let Some(reply) = command.reply.take() {
+                let _ = reply.send(Err(StatusCode::SERVICE_UNAVAILABLE));
+            }
+        }
         let result = self.unpublish().await;
         let mut released = self.shared.released.subscribe();
         drop(self.shared);
