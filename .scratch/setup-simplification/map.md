@@ -26,3 +26,8 @@
 - Workspace strict Clippy fails 93 generated IdP SDK lints; scoped API/native strict Clippy passes. Standalone setup HTTP fixtures still fail; the 180-test Vitest route/state/client suite and 34 mounted interactions pass.
 - Existing deployment-independent process scenarios were inspected, not rerun; referenced scratch reports are absent. Do not infer their results or duplicate their suite.
 - Real OS trust/elevation/provider profiles, full desktop GUI, physical/WAN and other platforms remain outside isolated same-host injected evidence.
+
+
+## Review follow-up
+
+Single-implementer `setup-simplification-review` fixes independent ready-page sign-in, preserves operational retained-open errors, publishes stopped/retry after reference recovery, and supports exact configured packaged-native origins for remote HTTPS services without bundled capabilities. [Evidence](evidence/07-review-fixes.md): final frontend 193 + mounted 34, API 41, native 25, scoped strict Clippy/check/build pass. Final-code serial HTTPS Join finalization/offline/interruption **3 passed**, but a preceding repeat had a source-offer timeout; reliability remains open. Latest matrix still timed out; latest CRAP failed on a malformed cached Swagger archive rather than timing out. Earlier Fog/receipts retain their historical outcomes. Ticket07/spec remain **open**.

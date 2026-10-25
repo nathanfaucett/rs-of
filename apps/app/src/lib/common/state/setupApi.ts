@@ -1,3 +1,4 @@
+import { isTauri } from "@tauri-apps/api/core";
 import {
     Configuration,
     SetupApi as DefaultApi,
@@ -96,6 +97,19 @@ export function requireSetupUiOrigin(origin: string): void {
 }
 
 const owners: SetupOwner[] = ["idp", "device", "storage"];
+
+export function requireCurrentSetupUiOrigin(): void {
+    const location = typeof window === "undefined" ? undefined : window.location;
+    const origin =
+        location?.origin === "null" &&
+        location.protocol === "tauri:" &&
+        location.host === "localhost"
+            ? "tauri://localhost"
+            : (location?.origin ?? "");
+    if (isTauri() && ["tauri://localhost", "http://tauri.localhost"].includes(origin))
+        return;
+    requireSetupUiOrigin(origin);
+}
 
 const setupInit: RequestInit = {
     credentials: "omit",

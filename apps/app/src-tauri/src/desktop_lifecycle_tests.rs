@@ -133,7 +133,16 @@ fn native_reopen_refuses_lost_host_and_tls_evidence_without_replacement() {
         let host = fs::read(root.join("host.json")).expect("original host identity");
         drop(setup);
         fs::remove_file(root.join(lost)).expect("inject lost evidence");
-        assert!(super::prepare(&root).is_err(), "must refuse missing {lost}");
+        let error = super::prepare(&root)
+            .err()
+            .expect("must refuse missing evidence");
+        assert!(
+            matches!(
+                crate::onboarding::Failure::startup(&error),
+                crate::onboarding::Failure::Repair
+            ),
+            "missing {lost} requires repair"
+        );
         assert!(!root.join(lost).exists(), "must never regenerate {lost}");
         if lost != "host.json" {
             assert_eq!(
@@ -401,5 +410,123 @@ async fn a_host_finishing_after_close_cannot_be_published_as_running() {
     drop(operation);
     let _stopped = stop.await;
     assert!(tokio::net::TcpListener::bind(address).await.is_ok());
+    fs::remove_dir_all(root).expect("isolated cleanup");
+}
+
+#[test]
+fn retained_host_lock_contention_is_retryable_without_replacing_identity() {
+    let root = directory();
+    let setup = super::prepare(&root).expect("fresh retained host");
+    let address = setup.local_addr();
+    let identity = fs::read(root.join("host.json")).expect("retained identity");
+    let ca = fs::read(setup.tls().ca_path()).expect("retained CA");
+    let error = super::prepare(&root)
+        .err()
+        .expect("exclusive retained host lock");
+    assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+    assert!(matches!(
+        crate::onboarding::Failure::startup(&error),
+        crate::onboarding::Failure::Retry
+    ));
+    drop(setup);
+    let reopened = super::prepare(&root).expect("retry after releasing the lock");
+    assert_eq!(reopened.local_addr(), address);
+    assert_eq!(
+        fs::read(root.join("host.json")).expect("same identity"),
+        identity
+    );
+    assert_eq!(fs::read(reopened.tls().ca_path()).expect("same CA"), ca);
+    drop(reopened);
+    fs::remove_dir_all(root).expect("isolated fixture cleanup");
+}
+
+#[tokio::test]
+async fn failed_reference_recovery_publishes_retry_and_preserves_retained_host() {
+    let data = directory();
+    fs::create_dir_all(&data).expect("isolated application data");
+    let root = data.join("node");
+    let (setup, client) = fixture(&root);
+    let identity = fs::read(root.join("host.json")).expect("retained identity");
+    let ca = fs::read(setup.tls().ca_path()).expect("retained CA");
+    let host = NativeHost::start_with(setup, |_| panic!("trusted"), || Ok(client.clone()))
+        .await
+        .expect("healthy host before maintenance");
+    let address = host.base_url().to_owned();
+    let host = tokio::sync::Mutex::new(Some(host));
+    let failure = tokio::sync::Mutex::new(None);
+    fs::write(
+        data.join("setup-reference-backup.json"),
+        "invalid recovery evidence",
+    )
+    .expect("inject failed recovery");
+    let lifecycle = crate::lifecycle::Lifecycle::default();
+    assert!(
+        lifecycle
+            .recover_references(&data, &host, &failure)
+            .await
+            .is_err()
+    );
+    assert!(host.lock().await.is_none());
+    assert!(matches!(
+        *failure.lock().await,
+        Some(crate::onboarding::Failure::Retry)
+    ));
+    assert_eq!(
+        fs::read(root.join("host.json")).expect("same host"),
+        identity
+    );
+    let (setup, client) = fixture(&root);
+    assert_eq!(fs::read(setup.tls().ca_path()).expect("same CA"), ca);
+    let mut retry =
+        NativeHost::start_with(setup, |_| panic!("trusted retry"), || Ok(client.clone()))
+            .await
+            .expect("explicit retry without replacement");
+    assert_eq!(retry.base_url(), address);
+    retry.close().await.expect("close retried host");
+    fs::remove_dir_all(data).expect("isolated cleanup");
+}
+
+#[test]
+fn corrupt_retained_identity_requires_repair_without_replacement() {
+    let root = directory();
+    drop(super::prepare(&root).expect("fresh host"));
+    let corrupt = b"not a retained host identity";
+    fs::write(root.join("host.json"), corrupt).expect("inject corrupt identity");
+    let error = super::prepare(&root)
+        .err()
+        .expect("corrupt identity refused");
+    assert!(matches!(
+        crate::onboarding::Failure::startup(&error),
+        crate::onboarding::Failure::Repair
+    ));
+    assert_eq!(
+        fs::read(root.join("host.json")).expect("no replacement"),
+        corrupt
+    );
+    fs::remove_dir_all(root).expect("isolated cleanup");
+}
+
+#[test]
+fn corrupt_retained_admission_requires_repair_without_replacement() {
+    let root = directory();
+    drop(super::prepare(&root).expect("fresh host"));
+    let identity = fs::read(root.join("host.json")).expect("retained identity");
+    let corrupt = b"not retained admission";
+    fs::write(root.join("setup-admission/state"), corrupt).expect("inject corrupt admission");
+    let error = super::prepare(&root)
+        .err()
+        .expect("corrupt admission refused");
+    assert!(matches!(
+        crate::onboarding::Failure::startup(&error),
+        crate::onboarding::Failure::Repair
+    ));
+    assert_eq!(
+        fs::read(root.join("setup-admission/state")).expect("no replacement"),
+        corrupt
+    );
+    assert_eq!(
+        fs::read(root.join("host.json")).expect("same identity"),
+        identity
+    );
     fs::remove_dir_all(root).expect("isolated cleanup");
 }

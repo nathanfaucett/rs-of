@@ -345,12 +345,12 @@
                     <button onclick={retryRuntime} disabled={busy}>Retry local services</button>
                 {/if}
                 {#if ["prerequisite", "trust_consent", "trust_declined"].includes(observation.action)}<a href={resolve("/config")}>Connection settings</a>{/if}
-            {:else if data.hosts?.length === 3}
-                {#key data.hosts}<IndependentSetup hosts={data.hosts} />{/key}
             {:else if observation.state === "ready"}
                 <p>Selected services are ready. Setup does not sign you in.</p>
                 <p>Rename this Node in Devices. Choose local data and Residency after signing in; selection starts empty and resource permissions still apply.</p>
                 <a href={resolve("/signin")}>Sign in</a>
+            {:else if data.hosts?.length === 3}
+                {#key data.hosts}<IndependentSetup hosts={data.hosts} />{/key}
             {:else}
                 {#if webStatus?.stage === "installation" && !webStatus.ready && !setupStarted}
                     <p>Create a new Installation or join an existing one.</p>

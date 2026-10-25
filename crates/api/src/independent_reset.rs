@@ -151,8 +151,7 @@ impl IndependentReset {
             ));
         }
         require_private(&directory.join("setup-admission"), true)?;
-        let admission =
-            SetupAdmission::open(&directory.join("setup-admission")).map_err(io::Error::other)?;
+        let admission = SetupAdmission::open(&directory.join("setup-admission"))?;
         let intent: Option<IndependentCreateIntent> = admission
             .host_intent()
             .map_err(io::Error::other)?

@@ -333,8 +333,10 @@ async fn setup_handler_binds_before_work_without_changing_other_routes() {
 fn process_lock_probe() {
     if let Some(root) = std::env::var_os("OF_SETUP_ADMISSION_LOCK_PROBE_PATH") {
         assert_eq!(
-            SetupAdmission::open(std::path::Path::new(&root)).expect_err("other process owns lock"),
-            SetupAdmissionError::Unavailable
+            SetupAdmission::open(std::path::Path::new(&root))
+                .expect_err("other process owns lock")
+                .kind(),
+            std::io::ErrorKind::WouldBlock
         );
     }
 }
@@ -343,8 +345,10 @@ fn process_lock_probe() {
 fn live_handle_holds_exclusive_lock_until_drop() {
     let (_parent, root, admission, headers, _code) = fixture();
     assert_eq!(
-        SetupAdmission::open(&root).expect_err("second handle must deny"),
-        SetupAdmissionError::Unavailable
+        SetupAdmission::open(&root)
+            .expect_err("second handle must deny")
+            .kind(),
+        std::io::ErrorKind::WouldBlock
     );
     let child = std::process::Command::new(std::env::current_exe().expect("test executable"))
         .args(["--exact", "setup_admission_tests::process_lock_probe"])
@@ -447,11 +451,14 @@ fn missing_corrupt_and_unsafe_retained_state_is_not_repaired() {
                 metadata.permissions().mode(),
             )
         });
-        assert_eq!(
-            SetupAdmission::open(&root).expect_err(damage),
-            SetupAdmissionError::Unavailable,
-            "{damage}"
-        );
+        let error = SetupAdmission::open(&root).expect_err(damage);
+        if matches!(damage, "missing-state" | "missing-lock") {
+            assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "{damage}");
+        } else if damage == "directory" {
+            assert_eq!(error.kind(), std::io::ErrorKind::IsADirectory);
+        } else if damage != "symlink" {
+            assert_eq!(error.kind(), std::io::ErrorKind::InvalidData, "{damage}");
+        }
         assert_eq!(
             before,
             fs::symlink_metadata(&state).ok().map(|metadata| (

@@ -10,7 +10,7 @@ import {
   submitSetupJoin,
   cancelSetupJoin,
   fetchSetupStatus,
-  requireSetupUiOrigin,
+  requireCurrentSetupUiOrigin,
   submitSetupCreate,
   type SetupSessionIntent,
   type SetupStatus,
@@ -27,23 +27,6 @@ export async function resetDevice(): Promise<void> {
     );
   clearOidcSession();
   await invoke("reset_device");
-}
-
-function requireSharedSetupOrigin(): void {
-  const location = typeof window === "undefined" ? undefined : window.location;
-  const origin =
-    location?.origin === "null" &&
-    location.protocol === "tauri:" &&
-    location.hostname === "localhost"
-      ? "tauri://localhost"
-      : (location?.origin ?? "");
-  if (
-    isTauri() &&
-    !usesRemoteApis() &&
-    ["tauri://localhost", "http://tauri.localhost"].includes(origin)
-  )
-    return;
-  requireSetupUiOrigin(origin);
 }
 
 export async function readNativeSetupCode(
@@ -152,7 +135,7 @@ export class WebSetupCreate {
     this.busy = true;
     this.message = "";
     try {
-      requireSharedSetupOrigin();
+      requireCurrentSetupUiOrigin();
       if (!this.intent) {
         const bytes = crypto.getRandomValues(new Uint8Array(16));
         this.intent = Object.freeze({
@@ -200,7 +183,7 @@ export class WebSetupCreate {
       return;
     }
     try {
-      requireSharedSetupOrigin();
+      requireCurrentSetupUiOrigin();
       if (!/^[a-f0-9]{64}$/.test(code)) throw new Error("Invalid code");
       exactJoinRequest({ operation_nonce: "0".repeat(32), node, peer });
     } catch {
@@ -267,7 +250,7 @@ export class WebSetupCreate {
     this.busy = true;
     this.message = "";
     try {
-      requireSharedSetupOrigin();
+      requireCurrentSetupUiOrigin();
       const recovered = await fetchSetupIntent(this.base, code);
       if (!this.active) return;
       const status = await fetchSetupStatus(this.base);
@@ -318,7 +301,7 @@ export class WebSetupCreate {
     if (!this.active || this.busy) return;
     this.busy = true;
     try {
-      requireSharedSetupOrigin();
+      requireCurrentSetupUiOrigin();
       const status = observed ?? (await fetchSetupStatus(this.base));
       if (!this.active) return;
       this.accept(status);
@@ -353,7 +336,7 @@ export class WebSetupCreate {
     }
     this.busy = true;
     try {
-      requireSharedSetupOrigin();
+      requireCurrentSetupUiOrigin();
       if (
         !this.status ||
         !isUnifiedSetupHost({ base: this.base, status: this.status })

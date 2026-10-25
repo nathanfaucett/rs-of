@@ -462,12 +462,10 @@ impl<B: HostedSetupOwners> HostedSetup<B> {
         self.router_for_origin(setup_origin(&self.settings.ui_origin, self.settings.https)?)
     }
     pub fn router_for_origin(&self, origin: HeaderValue) -> io::Result<Router> {
-        if origin != "tauri://localhost" && origin != "http://tauri.localhost" {
-            setup_origin(
-                origin.to_str().map_err(io::Error::other)?,
-                self.settings.https,
-            )?;
-        }
+        setup_origin(
+            origin.to_str().map_err(io::Error::other)?,
+            self.settings.https,
+        )?;
         Ok(self
             .owners
             .service_router(HostedSetupControl(self.shared.clone()))

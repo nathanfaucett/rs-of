@@ -128,9 +128,7 @@ impl IndependentSetupHost {
             }
             require_private(&directory.join("setup-admission"), true)?;
         }
-        let admission = Arc::new(
-            SetupAdmission::open(&directory.join("setup-admission")).map_err(io::Error::other)?,
-        );
+        let admission = Arc::new(SetupAdmission::open(&directory.join("setup-admission"))?);
         if domain_exists && admission.host_intent().map_err(io::Error::other)?.is_none() {
             return Err(io::Error::other(
                 "domain state has no admitted exact setup operation",

@@ -20,6 +20,7 @@ const host = vi.hoisted(() => ({
     authority: null as string | null,
     device: "https://policy.test/api" as string | null,
     native: true,
+    remote: false,
     invoke: vi.fn(),
     submitCreate: vi.fn(),
     cancelCreate: vi.fn(),
@@ -38,7 +39,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.mock("./idpClient.svelte", () => ({
     getIdpApiUrl: () => host.authority,
     ensureTauriIdpApiUrl: async () => host.authority,
-    usesRemoteApis: () => !host.native,
+    usesRemoteApis: () => host.remote || !host.native,
 }));
 vi.mock("./deviceClient.svelte", () => ({
     getDeviceApiUrl: () => host.device,
@@ -73,6 +74,7 @@ beforeEach(() => {
     host.authority = null;
     host.device = "https://policy.test/api";
     host.native = true;
+    host.remote = false;
     host.invoke.mockReset();
     host.submitCreate.mockReset();
     host.cancelCreate.mockReset();
@@ -1272,6 +1274,7 @@ it("discovers independent public login Client from IdP facts only after matching
 
 it("submits bundled desktop Create through HTTPS rather than removed native mutation commands", async () => {
     host.native = true;
+    host.remote = false;
     host.authority = "https://localhost:4100/idp";
     const { WebSetupCreate } = await import("./setupClient.svelte");
     const session = new WebSetupCreate({
@@ -1302,6 +1305,7 @@ it("submits bundled desktop Create through HTTPS rather than removed native muta
 
 it("retrieves a bundled setup capability only by explicit protected host device for that exact local base", async () => {
     host.native = true;
+    host.remote = false;
     host.authority = "https://localhost:4100/idp";
     host.invoke.mockImplementation(async (command) =>
         command === "get_localhost_server_base_url"
@@ -1326,6 +1330,7 @@ it("retrieves a bundled setup capability only by explicit protected host device 
 
 it("permits only the exact bundled native WebView origin for shared HTTPS setup, never as a remote-origin bypass", async () => {
     host.native = true;
+    host.remote = false;
     host.authority = "https://localhost:4100/idp";
     vi.stubGlobal("window", {
         location: new URL("tauri://localhost"),
@@ -1375,4 +1380,55 @@ it("retrieves the exact bundled capability on fresh launch before owner addresse
         "a".repeat(64),
     );
     expect(fetchApi).not.toHaveBeenCalled();
+});
+
+
+it.each(["https://app.test", "tauri://localhost", "http://tauri.localhost"])(
+    "offers sign-in for correlated independent owners at the selected UI origin %s without native capability access",
+    async (origin) => {
+        host.native = origin !== "https://app.test";
+        host.remote = true;
+        host.authority = "https://node.test/idp";
+        vi.stubGlobal("window", { location: new URL(origin) });
+        const bases = { idp: host.authority, device: host.device!, storage: "https://data.test/api" };
+        const operation = { purpose: "create", operation_nonce: "1".repeat(32), administrator: "Alice", node: "Node", ...bases, issuer: bases.idp, peer: null };
+        fetchApi.mockImplementation(async (url: string, init: RequestInit) => {
+            expect(init.headers).not.toHaveProperty("Authorization");
+            if (url === bases.idp + "/setup/status") return new Response(null, { status: 404 });
+            const owner = (["idp", "device", "storage"] as const).find(owner => url.startsWith(bases[owner] + "/"))!;
+            if (url.endsWith("/status")) return Response.json({ stage: "installation", state: "ready", ready: true, owners: [owner] });
+            return Response.json({ operation, owner, clients: [], registered: [], facts: owner === "idp" ? { login_client: "01900000-0000-7000-8000-000000000001" } : {} });
+        });
+        const { observeOnboarding } = await import("./onboarding");
+        expect(await observeOnboarding()).toMatchObject({ state: "ready", action: "sign_in", target: { kind: "remote", ...bases }, loginClient: { client_id: "01900000-0000-7000-8000-000000000001", scopes: ["openid"] } });
+        expect(host.invoke).not.toHaveBeenCalled();
+    },
+);
+
+
+it.each(["tauri://localhost:4100", "tauri://unrelated.test", "http://unrelated.test"])(
+    "rejects unrelated native UI origins without requests: %s",
+    async (origin) => {
+        host.native = true;
+        host.remote = true;
+        host.authority = "https://node.test/idp";
+        vi.stubGlobal("window", { location: new URL(origin) });
+        const { observeOnboarding } = await import("./onboarding");
+        expect(await observeOnboarding()).toMatchObject({ state: "blocked", action: "prerequisite" });
+        expect(fetchApi).not.toHaveBeenCalled();
+        expect(host.invoke).not.toHaveBeenCalled();
+    },
+);
+
+it("native remote selection still requires HTTPS targets and cannot retrieve bundled capabilities", async () => {
+    host.native = true;
+    host.remote = true;
+    host.authority = "http://remote.test/idp";
+    vi.stubGlobal("window", { location: new URL("tauri://localhost") });
+    const { observeOnboarding } = await import("./onboarding");
+    expect(await observeOnboarding()).toMatchObject({ state: "blocked", action: "prerequisite" });
+    const { readNativeSetupCode } = await import("./setupClient.svelte");
+    await expect(readNativeSetupCode("https://localhost:4100/idp")).rejects.toThrow("only for the selected bundled host");
+    expect(fetchApi).not.toHaveBeenCalled();
+    expect(host.invoke).not.toHaveBeenCalled();
 });

@@ -32,3 +32,8 @@
 34 mounted, 180 route/state/client tests, clean app check/build, API 40 plus doc test, native 21 (including provider parent/child), scoped strict Clippy and formatting pass. Workspace Clippy fails generated SDK lints; standalone setup HTTP tests fail. HTTPS Join has individual offline/finalization passes but later approval/Storage/OAuth timeouts; interruption/exact retry is not reliably qualified. Final feature matrix and CRAP each exhausted 600000 ms; no matrix pass/score.
 
 The two unchecked integrated durability/Join items prevent resolution. Resume by reproducing the HTTPS timeouts and completing qualification, not by weakening trust/readiness/authorization assertions or editing real profiles/OS trust. See evidence for unrun process-suite and GUI/platform boundaries. Integration tip was merged before delivery; no main Cargo.lock changes belong to this ticket.
+
+
+### Review follow-up
+
+[Review-fix evidence](../evidence/07-review-fixes.md): independent ready-page routing, retained-open error kinds, failed recovery retry observation and packaged-native remote setup origins are fixed. Final checks: 193 route/state/client, 34 mounted, API 41 and native 25 pass; clean app check/build, scoped strict Clippy and formatting. Final-code serial public HTTPS finalization/offline/interruption scenarios all passed; a prior repeat failed at real Iroh source-offer polling, so the two integrated reliability boxes remain unchecked. Matrix timed out compiling; CRAP failed on a cached invalid Swagger archive. **Open, not resolved.** No GUI/platform or reliable full-system acceptance inferred.
