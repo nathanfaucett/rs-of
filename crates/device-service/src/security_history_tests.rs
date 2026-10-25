@@ -8,9 +8,9 @@ use std::{
     time::Duration,
 };
 
-use db::{Database, Row, Value};
+use db::{Database, DatabaseTransport, Row, Value};
 use idp_model::{contract::IdentityAction, model::Id};
-use idp_service::{oauth2::NodeSignerBinding, security_sync::public_security_tables};
+use idp_service::oauth2::NodeSignerBinding;
 use iroh::{
     Endpoint,
     address_lookup::MemoryLookup,
@@ -22,15 +22,14 @@ use management_service::ManagementService;
 use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
 use ofdb_sql::{SessionConfig, SyncMessage, SyncRole, SyncTransport};
-use storage_server::{
-    DatabaseTransport, IdpClient, LocalReplicationAuthorizer, RouterState, StorageRuntime,
-    build_runtime,
-};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    SecurityContext, SecurityProtocol,
-    security_sync_tests::{enroll, sql},
+    security_policy::{SecurityContext, SecurityHistory},
+    security_protocol::{
+        SecurityProtocol,
+        test_fixtures::{enroll, native_handler, sql},
+    },
 };
 
 #[path = "security_candidate_tests.rs"]
@@ -147,7 +146,6 @@ struct Pair {
     management_b: Arc<Database>,
     protocol_a: SecurityProtocol,
     protocol_b: SecurityProtocol,
-    storage: StorageRuntime,
     cancellation: CancellationToken,
     router: Option<Router>,
     received: Arc<Mutex<Vec<Vec<u8>>>>,
@@ -209,7 +207,7 @@ impl Pair {
             let management = Arc::new(
                 Database::open(root.join("baseline-management.redb")).expect("open local policy"),
             );
-            device_service::replica::up(&management)
+            crate::replica::up(&management)
                 .await
                 .expect("declare Management schema");
             for (member, key, endpoint) in [
@@ -284,28 +282,6 @@ impl Pair {
             root.join("b-stage"),
             cancellation.clone(),
         );
-        let storage = build_runtime(
-            RouterState::new("http://localhost/storage")
-                .with_idp_client(
-                    IdpClient::new(
-                        "http://127.0.0.1:1/idp",
-                        "storage",
-                        "local",
-                        INSTALLATION,
-                        "idp",
-                    )
-                    .expect("IdP client"),
-                )
-                .with_local_replication_authorizer(LocalReplicationAuthorizer::new(|_| async {
-                    Err("resource access is not authorized in this fixture".to_owned())
-                })),
-            &root.join("storage"),
-            "/storage",
-            "",
-            Some(b.clone()),
-            cancellation.clone(),
-        )
-        .expect("existing shared DATA dispatcher");
         Self {
             root,
             a,
@@ -319,7 +295,6 @@ impl Pair {
             management_b,
             protocol_a,
             protocol_b,
-            storage,
             cancellation,
             router: None,
             received: Arc::new(Mutex::new(Vec::new())),
@@ -328,41 +303,70 @@ impl Pair {
     }
 
     fn serve(&mut self, validated: bool) {
-        let handler = self.storage.data_handler().expect("shared DATA handler");
-        let handler = if validated {
-            self.protocol_b.attach(handler)
-        } else {
-            let idp = self.idp_b.clone();
-            let management = self.management_b.clone();
-            let member = self.member_b;
-            let received = self.received.clone();
-            let recovery = self.recovery.clone();
-            let expected_endpoint = self.a.endpoint().id();
-            let expected_member = self.member_a;
-            handler.with_additional_stream(move |kind, connection, send, recv| {
+        let protocol = self.protocol_b.clone();
+        let idp = self.idp_b.clone();
+        let management = self.management_b.clone();
+        let member = self.member_b;
+        let received = self.received.clone();
+        let recovery = self.recovery.clone();
+        let expected_endpoint = self.a.endpoint().id();
+        let expected_member = self.member_a;
+        let handler = native_handler(
+            self.cancellation.clone(),
+            move |kind, connection, send, recv| {
+                let protocol = protocol.clone();
                 let idp = idp.clone();
                 let management = management.clone();
                 let received = received.clone();
                 let recovery = recovery.clone();
                 async move {
+                    if validated {
+                        return protocol
+                            .accept_data_stream(kind, connection, send, recv)
+                            .await;
+                    }
                     assert_eq!(kind, 3, "actual security marker on shared DATA router");
-                    assert_eq!(connection.remote_id(), expected_endpoint, "real authenticated endpoint");
+                    assert_eq!(
+                        connection.remote_id(),
+                        expected_endpoint,
+                        "real authenticated endpoint"
+                    );
                     let mut inner = DatabaseTransport::new(send, recv);
-                    let handshake: serde_json::Value = serde_json::from_slice(&inner.receive().await?).map_err(io::Error::other)?;
+                    let handshake: serde_json::Value =
+                        serde_json::from_slice(&inner.receive().await?)
+                            .map_err(io::Error::other)?;
                     assert_eq!(handshake["version"], serde_json::json!(1));
                     assert_eq!(handshake["member"], serde_json::json!(expected_member));
                     inner.send(serde_json::to_vec(&serde_json::json!({"Accepted": {"version": 1, "installation": INSTALLATION, "member": member, "context": handshake["context"]}})).map_err(io::Error::other)?).await?;
-                    let mut transport = RecordedTransport { inner, received, recovery };
-                    let (database, tables) = if handshake["context"] == "management" {
-                        (management, device_service::PUBLIC_DEVICE_TABLES.to_vec())
-                    } else {
-                        (idp, public_security_tables().into_iter().map(|table| table.name()).collect::<Vec<_>>())
+                    let mut transport = RecordedTransport {
+                        inner,
+                        received,
+                        recovery,
                     };
+                    let context: SecurityContext =
+                        serde_json::from_value(handshake["context"].clone())
+                            .map_err(io::Error::other)?;
                     // A deliberately unvalidated peer proves that the production sender prevents disclosure itself.
-                    database.synchronize_tables_checked(&mut transport, &SessionConfig::default(), SyncRole::Responder, &tables, || async { Ok(()) }).await.map(|_| ()).map_err(|error| io::Error::other(error.to_string()))
+                    for history in context.histories() {
+                        let database = match history {
+                            SecurityHistory::Idp | SecurityHistory::IdentityPolicy => &idp,
+                            SecurityHistory::Devices => &management,
+                        };
+                        database
+                            .synchronize_tables_checked(
+                                &mut transport,
+                                &SessionConfig::default(),
+                                SyncRole::Responder,
+                                &history.tables(),
+                                || async { Ok(()) },
+                            )
+                            .await
+                            .map_err(|error| io::Error::other(error.to_string()))?;
+                    }
+                    Ok(())
                 }
-            })
-        };
+            },
+        );
         self.router = Some(
             Router::builder(self.b.endpoint().clone())
                 .accept(DATA_ALPN, handler)
@@ -501,11 +505,8 @@ async fn sync_fixture_context(a: &Database, b: &Database, context: SecurityConte
         receiver: a_rx,
     };
     let tables = match context {
-        SecurityContext::Idp => public_security_tables()
-            .into_iter()
-            .map(|table| table.name())
-            .collect::<Vec<_>>(),
-        SecurityContext::Device => device_service::PUBLIC_DEVICE_TABLES.to_vec(),
+        SecurityContext::Idp => SecurityHistory::Idp.tables(),
+        SecurityContext::Device => crate::PUBLIC_DEVICE_TABLES.to_vec(),
     };
     let config = SessionConfig::default();
     let (a, b) = tokio::join!(
@@ -552,29 +553,30 @@ async fn unvalidated_initiate_context(
         received: pair.received.clone(),
         recovery: pair.recovery.clone(),
     };
-    let (database, tables) = match context {
-        SecurityContext::Idp => (
-            &pair.idp_a,
-            public_security_tables()
-                .into_iter()
-                .map(|table| table.name())
-                .collect::<Vec<_>>(),
-        ),
-        SecurityContext::Device => (
-            &pair.management_a,
-            device_service::PUBLIC_DEVICE_TABLES.to_vec(),
-        ),
-    };
-    database
-        .synchronize_tables_checked(
-            &mut transport,
-            &SessionConfig::default(),
-            SyncRole::Initiator,
-            &tables,
-            || async { Ok(()) },
-        )
-        .await
-        .map_err(|error| io::Error::other(error.to_string()))
+    let mut total = ofdb_sql::SyncResult::default();
+    for history in context.histories() {
+        let database = match history {
+            SecurityHistory::Idp | SecurityHistory::IdentityPolicy => &pair.idp_a,
+            SecurityHistory::Devices => &pair.management_a,
+        };
+        let result = database
+            .synchronize_tables_checked(
+                &mut transport,
+                &SessionConfig::default(),
+                SyncRole::Initiator,
+                &history.tables(),
+                || async { Ok(()) },
+            )
+            .await
+            .map_err(|error| io::Error::other(error.to_string()))?;
+        total.received_units += result.received_units;
+        total.sent_units += result.sent_units;
+        total.received_changes += result.received_changes;
+        total.sent_changes += result.sent_changes;
+        total.received_snapshots += result.received_snapshots;
+        total.sent_snapshots += result.sent_snapshots;
+    }
+    Ok(total)
 }
 
 fn assert_no_history_disclosure(pair: &Pair, variant: Poison, role: SyncRole) {

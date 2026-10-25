@@ -7,15 +7,15 @@ use std::{
 };
 
 use db::{Database, Row, Value};
-use device_service::DeviceRepo;
-use device_service::replica::DbDeviceRepo;
 use idp_model::model::Id;
 use ofdb_sql::{SyncMessage, SyncRole};
 
 use super::{Pair, Poison, RecoveryAttack, public_jwk, sync_fixture, unvalidated_initiate};
 use crate::{
-    SecurityContext,
-    security_sync_tests::{enroll, sql},
+    DeviceRepo,
+    replica::DbDeviceRepo,
+    security_policy::SecurityContext,
+    security_protocol::test_fixtures::{enroll, sql},
 };
 
 struct ExtraMember {
@@ -213,7 +213,7 @@ async fn approved_devices_reject_conflicted_public_device_bindings() {
         }
         let fork = Database::open(pair.root.join("device-binding-fork.redb"))
             .expect("independent Device contender");
-        device_service::replica::up(&fork).await.expect("public schema");
+        crate::replica::up(&fork).await.expect("public schema");
         super::sync_fixture_context(&pair.management_a, &fork, SecurityContext::Device).await;
         for (column, member) in &bindings {
             for database in [pair.management_a.as_ref(), &fork] {
@@ -249,7 +249,7 @@ async fn marker3_persists_pending_conflicts_and_tombstones_without_trust() {
         let pending = seed_device(&pair.management_a).await;
         let conflicted = seed_device(&pair.management_a).await;
         let fork = Database::open(pair.root.join("candidate-fork.redb")).expect("independent native contender");
-        device_service::replica::up(&fork).await.expect("Management schema");
+        crate::replica::up(&fork).await.expect("Management schema");
         super::sync_fixture_context(&pair.management_a, &fork, SecurityContext::Device).await;
         for database in [pair.management_a.as_ref(), &fork] {
             let endpoint = iroh::SecretKey::generate().public();

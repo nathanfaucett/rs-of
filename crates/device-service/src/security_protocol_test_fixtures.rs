@@ -51,3 +51,74 @@ pub(super) async fn enroll(idp: Arc<Database>, member: Id, endpoint: iroh::Endpo
         .await
         .expect("persist public peer approval");
 }
+
+pub(super) fn native_handler<F, U>(
+    cancellation: tokio_util::sync::CancellationToken,
+    stream: F,
+) -> impl iroh::protocol::ProtocolHandler
+where
+    F: Fn(
+            u8,
+            iroh::endpoint::Connection,
+            iroh::endpoint::SendStream,
+            iroh::endpoint::RecvStream,
+        ) -> U
+        + Send
+        + Sync
+        + 'static,
+    U: core::future::Future<Output = std::io::Result<()>> + Send + 'static,
+{
+    NativeHandler {
+        cancellation,
+        stream,
+    }
+}
+
+struct NativeHandler<F> {
+    cancellation: tokio_util::sync::CancellationToken,
+    stream: F,
+}
+
+impl<F> core::fmt::Debug for NativeHandler<F> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("NativeHandler").finish_non_exhaustive()
+    }
+}
+
+impl<F, U> iroh::protocol::ProtocolHandler for NativeHandler<F>
+where
+    F: Fn(
+            u8,
+            iroh::endpoint::Connection,
+            iroh::endpoint::SendStream,
+            iroh::endpoint::RecvStream,
+        ) -> U
+        + Send
+        + Sync
+        + 'static,
+    U: core::future::Future<Output = std::io::Result<()>> + Send + 'static,
+{
+    async fn accept(
+        &self,
+        connection: iroh::endpoint::Connection,
+    ) -> Result<(), iroh::protocol::AcceptError> {
+        let mut streams = tokio::task::JoinSet::new();
+        loop {
+            tokio::select! {
+                () = self.cancellation.cancelled() => break,
+                result = connection.accept_bi() => {
+                    let Ok((send, mut recv)) = result else { break };
+                    let mut kind = [0];
+                    recv.read_exact(&mut kind).await.map_err(std::io::Error::other)?;
+                    let stream = (self.stream)(kind[0], connection.clone(), send, recv);
+                    streams.spawn(stream);
+                }
+                result = streams.join_next(), if !streams.is_empty() => {
+                    let _ = result.expect("active stream task").expect("security stream task must not panic");
+                }
+            }
+        }
+        streams.shutdown().await;
+        Ok(())
+    }
+}
