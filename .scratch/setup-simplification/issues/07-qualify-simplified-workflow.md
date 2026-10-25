@@ -37,3 +37,15 @@ The two unchecked integrated durability/Join items prevent resolution. Resume by
 ### Review follow-up
 
 [Review-fix evidence](../evidence/07-review-fixes.md): independent ready-page routing, retained-open error kinds, failed recovery retry observation and packaged-native remote setup origins are fixed. Final checks: 193 route/state/client, 34 mounted, API 41 and native 25 pass; clean app check/build, scoped strict Clippy and formatting. Final-code serial public HTTPS finalization/offline/interruption scenarios all passed; a prior repeat failed at real Iroh source-offer polling, so the two integrated reliability boxes remain unchecked. Matrix timed out compiling; CRAP failed on a cached invalid Swagger archive. **Open, not resolved.** No GUI/platform or reliable full-system acceptance inferred.
+
+- Reliability follow-up claimed on `setup-simplification-qualification` at integration `54816fa00`; owns only demonstrated backend HTTPS reliability fixes/tests, ticket07 and new `07-reliability-followup.md`. Existing public HTTPS Join scenarios are the agreed seam; no real profiles/OS trust or sibling changes.
+
+### Reliability follow-up
+
+[New reliability evidence](../evidence/07-reliability-followup.md): source-verified Cargo suite plus six untraced serial repetitions yield **20 passed / 1 failed**. Interruption reopen failed after awaited shutdown with admission `WouldBlock`; separate traced interruption replay yields **1 passed / 1 failed**, reproducing the ordinary authorized source-approval request timeout. No pending-offer timeout recurred here, no common root cause established, no speculative backend patch or relaxed deadline/security assertion. Both durability boxes stay unchecked; **open, not resolved**. Sibling revisions changed independently and are recorded, not modified. No real profiles/OS trust, main source/lock, spec/map or historical receipt changes.
+
+- Focused admission shutdown investigation reclaimed on `setup-simplification-qualification`; source/ownership investigation first while validation compiles. Existing host lifecycle/reopen and admission fail-closed boundaries are the authorized regression seams. No concurrent expensive HTTPS repeats.
+
+### Focused admission lifecycle fix
+
+[Deterministic red/green evidence](../evidence/07-reliability-followup.md#focused-lifecycle-follow-up-deterministic-red--green): proved that the shared worker could report shutdown complete while a connection-owned router retained admission. The worker now joins shared router/control destruction before releasing its host guard; no forced unlock, sleep, retry or timeout change. New lifecycle regression failed before the fix and passes after it (plus 50 serial repeats); setup-host TLS parents/children, retained-fault/recovery checks, two cancellation/retirement tests, scoped strict Clippy/formatting, and one real HTTPS interruption smoke pass. The ownership defect is fixed, not a proven cause of all earlier timeouts. **Open, not resolved**; both durability boxes remain unchecked pending reliable integrated transport/request evidence.

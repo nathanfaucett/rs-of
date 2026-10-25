@@ -9,6 +9,57 @@ fn root() -> PathBuf {
     ))
 }
 
+#[tokio::test]
+async fn shutdown_joins_router_teardown_before_releasing_host_and_admission() {
+    use std::{future::Future, task::Poll, time::Duration};
+
+    use tokio_util::sync::CancellationToken;
+
+    let root = root();
+    let host = BootstrapConfig::create(&root, BootstrapPurpose::AwaitingChoice, None)
+        .expect("isolated neutral host");
+    let setup = SetupHost::create_http(host).expect("neutral host without trust installation");
+    let admission = setup.admission_path();
+    let retained = fs::read(&admission).expect("retained admission before shutdown");
+    let shutdown = CancellationToken::new();
+    let worker = setup.into_worker(shutdown.clone());
+    let router = worker.router().expect("host-owned setup router");
+    let connection_router = router.clone();
+    drop(router);
+    let mut stopping = Box::pin(worker.run());
+    shutdown.cancel();
+
+    let pending =
+        std::future::poll_fn(|cx| Poll::Ready(stopping.as_mut().poll(cx).is_pending())).await;
+    assert!(pending, "shutdown must join outstanding router teardown");
+    assert!(
+        BootstrapConfig::open(&root).is_err(),
+        "host lifecycle guard remains held until router teardown"
+    );
+    assert_eq!(
+        api::SetupAdmission::open(admission.parent().expect("admission directory"))
+            .expect_err("connection router still owns admission")
+            .kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+
+    drop(connection_router);
+    tokio::time::timeout(Duration::from_secs(5), stopping)
+        .await
+        .expect("router teardown wakes shutdown without retry")
+        .expect("coordinated shutdown");
+    let reopened = SetupHost::open_http(
+        BootstrapConfig::open(&root).expect("host guard released after joined shutdown"),
+    )
+    .expect("admission immediately reusable after joined shutdown");
+    assert_eq!(
+        fs::read(reopened.admission_path()).expect("retained admission"),
+        retained
+    );
+    drop(reopened);
+    fs::remove_dir_all(root).expect("isolated cleanup");
+}
+
 #[test]
 fn neutral_production_history_is_required_without_changing_active_host_metadata() {
     let root = root();
