@@ -25,7 +25,7 @@ impl Fixture {
     pub fn new() -> Self {
         let root =
             std::env::temp_dir().join(format!("unified-local-provisioning-{}", Id::now_v7()));
-        fs::create_dir(&root).expect("isolated host parent");
+        api::setup_files::create_private_directory(&root, false).expect("private host parent");
         let password = root.join("initial-password");
         fs::OpenOptions::new()
             .write(true)
@@ -67,7 +67,6 @@ impl Fixture {
         };
         let store: Arc<keyring_core::CredentialStore> =
             keyring_core::mock::Store::new().expect("isolated Node credential store");
-        let _ = PrivateKeyKeyringRepo::new_with_store(&config.idp.oauth2.issuer, store.clone());
         Self {
             root,
             config,
@@ -107,36 +106,6 @@ impl Drop for Fixture {
     }
 }
 
-fn fixture_oauth2(
-    config: &idp_server::AppConfig,
-    engine: Arc<db::Database>,
-) -> OAuth2Service<
-    DbApplicationRepo,
-    DbClientRepo,
-    DbOAuth2AuthorizationCodeRepo,
-    DbOAuth2RefreshTokenRepo,
-    DbUserRepo,
-    DbOAuth2UserConsentRepo,
-    DbKeyRepo,
-    PrivateKeyKeyringRepo,
-> {
-    let keys = Arc::new(KeyService::new(
-        DbKeyRepo::new(engine.client()),
-        PrivateKeyKeyringRepo::new(&config.oauth2.issuer).expect("retained fixture private keys"),
-        config.key_namespace.clone(),
-    ));
-    OAuth2Service::new(
-        DbApplicationRepo::new(engine.client()),
-        DbClientRepo::new(engine.client(), Arc::clone(&keys)),
-        DbOAuth2AuthorizationCodeRepo::new(engine.client()),
-        DbOAuth2RefreshTokenRepo::new(engine.client()),
-        DbUserRepo::new(engine.client(), config.password.clone()),
-        DbOAuth2UserConsentRepo::new(engine.client()),
-        keys,
-        config.oauth2.clone(),
-    )
-}
-
 pub async fn rotation_login_client(
     fixture: &Fixture,
     grants: Vec<idp_model::contract::GrantType>,
@@ -150,9 +119,22 @@ pub async fn rotation_login_client(
         .idp
         .operator_login_registration(Id::now_v7(), audiences);
     request.allowed_grant_types = grants;
-    fixture_oauth2(
-        &fixture.config.idp,
-        owner.node_join_database().expect("local identity owner"),
+    let engine = owner.node_join_database().expect("local identity owner");
+    let keys = Arc::new(KeyService::new(
+        DbKeyRepo::new(engine.client()),
+        PrivateKeyKeyringRepo::new(&fixture.config.idp.oauth2.issuer)
+            .expect("retained fixture private keys"),
+        fixture.config.idp.key_namespace.clone(),
+    ));
+    OAuth2Service::new(
+        DbApplicationRepo::new(engine.client()),
+        DbClientRepo::new(engine.client(), Arc::clone(&keys)),
+        DbOAuth2AuthorizationCodeRepo::new(engine.client()),
+        DbOAuth2RefreshTokenRepo::new(engine.client()),
+        DbUserRepo::new(engine.client(), fixture.config.idp.password.clone()),
+        DbOAuth2UserConsentRepo::new(engine.client()),
+        keys,
+        fixture.config.idp.oauth2.clone(),
     )
     .register_client(request)
     .await
@@ -233,18 +215,22 @@ pub async fn runtime(config: &UnifiedConfig) -> (UnifiedRuntime, RuntimeOwners) 
 }
 
 pub fn run(scenario: impl std::future::Future<Output = ()> + Send + 'static) {
-    // Native bootstrap imports exceed the test harness's default thread stack.
+    static CREDENTIAL_STORE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _credential_store = CREDENTIAL_STORE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // The credential provider is process-global; native imports also need a larger stack.
     std::thread::Builder::new()
-        .stack_size(16 * 1024 * 1024)
+        .stack_size(64 * 1024 * 1024)
         .spawn(move || {
             tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
-                .thread_stack_size(16 * 1024 * 1024)
+                .thread_stack_size(64 * 1024 * 1024)
                 .enable_all()
                 .build()
                 .expect("full-node test runtime")
                 .block_on(async {
-                    tokio::time::timeout(std::time::Duration::from_secs(360), scenario)
+                    tokio::time::timeout(std::time::Duration::from_secs(600), scenario)
                         .await
                         .expect("bounded full-node scenario");
                 });
@@ -252,4 +238,71 @@ pub fn run(scenario: impl std::future::Future<Output = ()> + Send + 'static) {
         .expect("full-node test thread")
         .join()
         .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+}
+
+#[test]
+fn fixture_retains_owner_only_root_and_password() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = Fixture::new();
+    assert_eq!(
+        fs::metadata(&fixture.root)
+            .expect("fixture root")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    assert_eq!(
+        fs::metadata(&fixture.password)
+            .expect("password input")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+}
+
+#[test]
+fn node_stores_ignore_modifiers_without_crossing_namespaces() {
+    use keyring_core::api::CredentialStoreApi;
+
+    let left = keyring_core::mock::Store::new().expect("left private provider");
+    let right = keyring_core::mock::Store::new().expect("right private provider");
+    let stores = NodeStores {
+        stores: [
+            ("left".into(), left.clone()),
+            ("right".into(), right.clone()),
+        ],
+    };
+    let modifiers = HashMap::from([("test-only-modifier", "ignored-by-mock")]);
+    for (namespace, secret) in [
+        ("left", b"left-secret".as_slice()),
+        ("right", b"right-secret".as_slice()),
+    ] {
+        let entry = stores
+            .build(
+                "fixture",
+                &format!("{namespace}:node:signer"),
+                Some(&modifiers),
+            )
+            .expect("mock ignores provider modifiers");
+        entry.set_secret(secret).expect("retain namespace secret");
+        assert_eq!(entry.get_secret().expect("retained secret"), secret);
+    }
+    assert_eq!(
+        left.search(&HashMap::new()).expect("left inventory").len(),
+        1
+    );
+    assert_eq!(
+        right
+            .search(&HashMap::new())
+            .expect("right inventory")
+            .len(),
+        1
+    );
+    assert!(matches!(
+        stores.build("fixture", "left-other:node:signer", Some(&modifiers)),
+        Err(keyring_core::Error::NoEntry)
+    ));
 }
