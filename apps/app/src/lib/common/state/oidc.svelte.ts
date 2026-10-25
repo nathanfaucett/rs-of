@@ -1,43 +1,28 @@
 import { OidcClient } from "@aicacia/oidc-client";
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { isTauri } from "@tauri-apps/api/core";
 import { env } from "$env/dynamic/public";
 import icon256x256Png from "$lib/assets/icon256x256.png";
-import { getIdpApiUrl, usesRemoteApis } from "./idpClient.svelte";
-import { fetchSetupHosts } from "./setupApi";
-import { getDeviceApiUrl } from "./deviceClient.svelte";
+import { getIdpApiUrl } from "./idpClient.svelte";
+import { observeOnboarding, type OnboardingObservation } from "./onboarding";
 
-let desktopClientId = $state<string | undefined>(undefined);
 let storedClient: OidcClient | undefined;
 let webLogin = $state.raw<{ base: string; clientId: string }>();
 const CLIENT_ID = $derived(
-    !usesRemoteApis()
-        ? desktopClientId
-        : webLogin && webLogin.base === getIdpApiUrl()?.replace(/\/$/, "")
-          ? webLogin.clientId
-          : undefined,
+    webLogin && webLogin.base === getIdpApiUrl()?.replace(/\/$/, "")
+        ? webLogin.clientId
+        : undefined,
 );
 
-export async function ensureOidcClientId(): Promise<string> {
-    if (usesRemoteApis()) {
-        webLogin = undefined;
-        const base = getIdpApiUrl()?.replace(/\/$/, "") ?? "";
-        const hosts = await fetchSetupHosts({
-            idp: base,
-            device: getDeviceApiUrl(),
-            storage: env.PUBLIC_STORAGE_BASE_URL,
-        });
-        const status = hosts[0].status;
-        if (
-            base !== getIdpApiUrl()?.replace(/\/$/, "") ||
-            !status.ready ||
-            !status.login_client
-        )
-            throw new Error("Verified public login Client is unavailable");
-        webLogin = { base, clientId: status.login_client.client_id };
-        return webLogin.clientId;
-    }
-    desktopClientId ??= await invoke<string>("get_desktop_client_id");
-    return desktopClientId;
+export async function ensureOidcClientId(
+    observation?: OnboardingObservation,
+): Promise<string> {
+    webLogin = undefined;
+    const snapshot = observation ?? (await observeOnboarding());
+    const base = getIdpApiUrl()?.replace(/\/$/, "");
+    if (snapshot.state !== "ready" || snapshot.target.idp !== base)
+        throw new Error("Verified public login Client is unavailable");
+    webLogin = { base, clientId: snapshot.loginClient.client_id };
+    return webLogin.clientId;
 }
 
 const oidcClient = $derived.by(
@@ -87,7 +72,6 @@ export function clearOidcSession(): void {
     storedClient?.clearStoredTokenResponse();
     webLogin = undefined;
     if (isTauri()) {
-        desktopClientId = undefined;
         if (typeof window === "undefined") return;
         const storage = window.localStorage;
         for (let index = storage.length - 1; index >= 0; index--) {

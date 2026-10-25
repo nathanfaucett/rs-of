@@ -60,6 +60,12 @@ fn health_checks_private_state_without_authorizing_and_failure_is_sticky() {
             }
         }
         assert_eq!(admission.health(), Err(SetupAdmissionError::Unavailable));
+        if fault != "lock" {
+            assert_eq!(
+                SetupAdmission::protected_code(&root),
+                Err(SetupAdmissionError::Unavailable)
+            );
+        }
         match fault {
             "missing" => {
                 fs::rename(root.join("held-state"), &state).expect("external fixture restoration")
@@ -613,4 +619,36 @@ async fn setup_http_requires_explicit_exact_code() {
         app.oneshot(request).await.expect("response").status(),
         StatusCode::NO_CONTENT
     );
+}
+
+#[test]
+fn protected_management_reads_existing_capability_and_retirement_without_creating_state() {
+    let (_parent, root, admission, headers, code) = fixture();
+    assert_eq!(
+        SetupAdmission::protected_code(&root).expect("protected read"),
+        Some(code)
+    );
+    admission.bind(&headers, "create:management").expect("bind");
+    admission
+        .retire(&headers, "create:management")
+        .expect("retire");
+    assert_eq!(
+        SetupAdmission::protected_code(&root).expect("retired read"),
+        None
+    );
+    fs::write(
+        root.join("state"),
+        "setup-admission-v1\nretired\ninvalid\nintent",
+    )
+    .expect("corrupt intent");
+    assert_eq!(
+        SetupAdmission::protected_code(&root),
+        Err(SetupAdmissionError::Unavailable)
+    );
+    let missing = root.join("missing");
+    assert_eq!(
+        SetupAdmission::protected_code(&missing),
+        Err(SetupAdmissionError::Unavailable)
+    );
+    assert!(!missing.exists());
 }

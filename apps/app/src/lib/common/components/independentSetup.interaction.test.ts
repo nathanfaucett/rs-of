@@ -153,7 +153,9 @@ it.each(["create", "join"] as const)(
         );
         for (let index = 0; index < requests.length; index++) {
             const [url, init] = requests[index];
-            expect(url).toBe(bases[owners[index]] + "/setup/" + purpose);
+            expect(url).toBe(
+                bases[owners[index]] + "/independent/setup/" + purpose,
+            );
             expect((init.headers as Record<string, string>).Authorization).toBe(
                 "Setup " + String.fromCharCode(97 + index).repeat(64),
             );
@@ -186,8 +188,33 @@ it.each(["create", "join"] as const)(
         const { default: Installation } = await import(
             "../../../routes/setup/installation/+page.svelte"
         );
+        let ready = false;
         native.invoke.mockImplementation(async (command) => {
             if (command === "pending_reset_revocations") return [];
+            if (command === "get_onboarding_host")
+                return {
+                    base: "https://localhost:4100",
+                    device_setup_required: true,
+                    status: {
+                        stage: "installation",
+                        state: ready
+                            ? "ready"
+                            : purpose === "join"
+                              ? "joining"
+                              : "creating",
+                        ready,
+                        owners: ["idp", "device", "storage"],
+                        ...(ready
+                            ? {
+                                  login_client: {
+                                      client_id:
+                                          "01900000-0000-7000-8000-000000000001",
+                                      scopes: ["openid"],
+                                  },
+                              }
+                            : {}),
+                    },
+                };
             if (command === "get_localhost_server_base_url")
                 return "https://localhost:4100";
             if (command === "get_native_setup_code") return "a".repeat(64);
@@ -195,7 +222,6 @@ it.each(["create", "join"] as const)(
         });
         target = document.createElement("div");
         document.body.append(target);
-        let ready = false;
         const fetchApi = vi.fn(async (url: string, _init?: RequestInit) => {
             const status = {
                 stage: "installation",
@@ -233,7 +259,21 @@ it.each(["create", "join"] as const)(
         ];
         component = mount(Installation, {
             target,
-            props: { data: { stage: "installation", hosts, bundled: true } },
+            props: {
+                data: {
+                    observation: {
+                        state: "needs_setup",
+                        action: "choose",
+                        hosts,
+                        target: {
+                            kind: "bundled",
+                            idp: hosts[0].base,
+                            device: "https://localhost:4100/device",
+                            storage: "https://localhost:4100/storage",
+                        },
+                    },
+                },
+            },
         });
         flushSync();
         enter("Installation setup choice", purpose);
@@ -269,9 +309,9 @@ it.each(["create", "join"] as const)(
         expect(target.querySelector('a[href="/signin"]')).toBeNull();
         ready = true;
         await vi.waitFor(() =>
-            expect(button("Observe host status").disabled).toBe(false),
+            expect(button("Refresh status").disabled).toBe(false),
         );
-        button("Observe host status").click();
+        button("Refresh status").click();
         flushSync();
         await vi.waitFor(() =>
             expect(
@@ -281,6 +321,7 @@ it.each(["create", "join"] as const)(
         expect(
             native.invoke.mock.calls.every(([command]) =>
                 [
+                    "get_onboarding_host",
                     "pending_reset_revocations",
                     "get_localhost_server_base_url",
                     "get_native_setup_code",
@@ -289,3 +330,60 @@ it.each(["create", "join"] as const)(
         ).toBe(true);
     },
 );
+
+it("retries a failed bundled runtime without resetting retained identity", async () => {
+    native.desktop = true;
+    const { default: Installation } = await import(
+        "../../../routes/setup/installation/+page.svelte"
+    );
+    native.invoke.mockImplementation(async (command) => {
+        if (command === "pending_reset_revocations") return [];
+        if (command === "retry_local_runtime") return;
+        if (command === "get_onboarding_host")
+            return {
+                base: "https://localhost:4100",
+                status: {
+                    stage: "installation",
+                    state: "awaiting_choice",
+                    ready: false,
+                    owners: ["idp", "device", "storage"],
+                },
+            };
+        throw new Error("Unexpected command: " + command);
+    });
+    target = document.createElement("div");
+    document.body.append(target);
+    component = mount(Installation, {
+        target,
+        props: {
+            data: {
+                observation: {
+                    state: "blocked",
+                    action: "retry",
+                    message: "Unable to verify current readiness.",
+                    hosts: [],
+                    target: {
+                        kind: "bundled",
+                        idp: "https://localhost:4100/idp",
+                        device: null,
+                        storage: null,
+                    },
+                },
+            },
+        },
+    });
+    flushSync();
+    button("Retry local services").click();
+    flushSync();
+    await vi.waitFor(() =>
+        expect(target.textContent).toContain(
+            "Create a new Installation or join an existing one.",
+        ),
+    );
+    expect(native.invoke.mock.calls.map(([command]) => command)).toContain(
+        "retry_local_runtime",
+    );
+    expect(native.invoke.mock.calls.map(([command]) => command)).not.toContain(
+        "reset_device",
+    );
+});

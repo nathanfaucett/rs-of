@@ -25,10 +25,13 @@ pub(crate) fn reject_legacy_state(data: &Path, config: &Path) -> io::Result<()> 
     ] {
         match fs::symlink_metadata(&path) {
             Ok(_) => {
-                return Err(io::Error::other(format!(
-                    "legacy native setup state at {}; exact explicit recovery is required, not migration or replacement",
-                    path.display()
-                )));
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "legacy native setup state at {}; exact explicit recovery is required, not migration or replacement",
+                        path.display()
+                    ),
+                ));
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => (),
             Err(error) => return Err(error),
@@ -39,19 +42,16 @@ pub(crate) fn reject_legacy_state(data: &Path, config: &Path) -> io::Result<()> 
 
 pub(crate) async fn start_native_host(app: &AppHandle<Wry>) -> io::Result<()> {
     let result = start_host(app).await;
-    let error = result.as_ref().err().map(ToString::to_string);
-    if let Some(state) = app.try_state::<Mutex<Option<String>>>() {
+    let error = result
+        .as_ref()
+        .err()
+        .map(crate::onboarding::Failure::startup);
+    if let Some(state) = app.try_state::<Mutex<Option<crate::onboarding::Failure>>>() {
         *state.lock().await = error;
     } else {
         app.manage(Mutex::new(error));
     }
     result
-}
-
-#[tauri::command]
-pub async fn get_native_host_error(app: AppHandle<Wry>) -> Option<String> {
-    let state = app.try_state::<Mutex<Option<String>>>()?;
-    state.lock().await.clone()
 }
 
 async fn start_host(app: &AppHandle<Wry>) -> io::Result<()> {
@@ -89,16 +89,39 @@ pub async fn get_localhost_server_base_url(app: AppHandle<Wry>) -> String {
         .unwrap_or_default()
 }
 
-async fn status(app: &AppHandle<Wry>) -> io::Result<Value> {
-    let state = app
-        .try_state::<Mutex<Option<NativeHost>>>()
-        .ok_or_else(|| io::Error::other("native host unavailable"))?;
+#[tauri::command]
+pub async fn get_onboarding_host(app: AppHandle<Wry>) -> crate::onboarding::HostObservation {
+    use crate::onboarding::{Failure, HostObservation};
+    let _operation = LIFECYCLE.lock().await;
+    let mut observation = HostObservation::default();
+    let data = match app.path().app_data_dir() {
+        Ok(data) => data,
+        Err(_) => {
+            observation.failure = Some(Failure::Prerequisite);
+            return observation;
+        }
+    };
+    match reset::pending(&data) {
+        Ok(false) => (),
+        _ => {
+            observation.failure = Some(Failure::Repair);
+            return observation;
+        }
+    }
+    if let Some(state) = app.try_state::<Mutex<Option<Failure>>>() {
+        observation.failure = *state.lock().await;
+        if observation.failure.is_some() {
+            return observation;
+        }
+    }
+    let Some(state) = app.try_state::<Mutex<Option<NativeHost>>>() else {
+        return observation;
+    };
     let guard = state.lock().await;
-    guard
-        .as_ref()
-        .ok_or_else(|| io::Error::other("native host stopped"))?
-        .status()
-        .await
+    let Some(host) = guard.as_ref() else {
+        return observation;
+    };
+    host.observation(&data).await
 }
 
 /// Protected local host management only. Never expose this capability through HTTPS status.
@@ -112,67 +135,15 @@ pub async fn get_native_setup_code(app: AppHandle<Wry>) -> Result<Option<String>
     if reset::pending(&data).map_err(|error| error.to_string())? {
         return Err("native reset is pending".into());
     }
-    let path = data.join("node/setup-admission/state");
-    let bytes = reset::read_optional(&path)
-        .map_err(|error| error.to_string())?
-        .ok_or("native setup capability unavailable")?;
-    let text = std::str::from_utf8(&bytes).map_err(|_| "invalid native setup capability")?;
-    let mut lines = text.splitn(3, '\n');
-    if lines.next() != Some("setup-admission-v1") {
-        return Err("invalid native setup capability".into());
-    }
-    let code = lines.next().ok_or("missing native setup capability")?;
-    let intent = lines.next().ok_or("missing native setup intent")?;
-    if code == "retired" && !intent.is_empty() {
-        return Ok(None);
-    }
-    if code.len() != 64
-        || !code
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    #[cfg(unix)]
     {
-        return Err("invalid native setup capability".into());
+        api::SetupAdmission::protected_code(&data.join("node/setup-admission"))
+            .map_err(|error| error.to_string())
     }
-    Ok(Some(code.to_owned()))
-}
-
-#[tauri::command]
-pub async fn get_setup_stage(app: AppHandle<Wry>) -> Result<String, String> {
-    let data = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?;
-    if reset::pending(&data).map_err(|error| error.to_string())? {
-        return Ok("installation".into());
+    #[cfg(not(unix))]
+    {
+        Err("protected native setup capability unsupported".into())
     }
-    let status = match status(&app).await {
-        Ok(status) => status,
-        Err(_) => return Ok("unavailable".into()),
-    };
-    if status["state"] == "unavailable" {
-        return Ok("unavailable".into());
-    }
-    if status["ready"] != true {
-        return Ok("installation".into());
-    }
-    let client = status["login_client"]["client_id"]
-        .as_str()
-        .ok_or("ready native host has no public login Client")?;
-    crate::setup_completion::read(&data, "device-setup-ready", client)
-        .map(|done| if done { "ready" } else { "device" }.into())
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub async fn get_desktop_client_id(app: AppHandle<Wry>) -> Result<String, String> {
-    let status = status(&app).await.map_err(|error| error.to_string())?;
-    if status["ready"] != true {
-        return Err("native Node is not ready".into());
-    }
-    status["login_client"]["client_id"]
-        .as_str()
-        .map(str::to_owned)
-        .ok_or("ready native host has no public login Client".into())
 }
 
 #[tauri::command]
@@ -185,8 +156,10 @@ pub async fn complete_device_setup(app: AppHandle<Wry>) -> Result<(), String> {
     if reset::pending(&data).map_err(|error| error.to_string())? {
         return Err("native reset is pending".into());
     }
-    let client = get_desktop_client_id(app.clone()).await?;
-    crate::setup_completion::write(&data, "device-setup-ready", &client)
+    let observation = current_host_status(&app).await?;
+    let client =
+        crate::onboarding::login_client(&observation).map_err(|error| error.to_string())?;
+    crate::setup_completion::write(&data, "device-setup-ready", client)
         .map_err(|error| error.to_string())
 }
 
@@ -279,4 +252,19 @@ pub(crate) async fn finish_managed_startup<E>(
         log::error!("native startup cleanup failed: {error}");
     }
     startup
+}
+
+async fn current_host_status(
+    app: &AppHandle<Wry>,
+) -> Result<of_idp_client::models::CreateResult, String> {
+    let state = app
+        .try_state::<Mutex<Option<NativeHost>>>()
+        .ok_or("native host unavailable")?;
+    let guard = state.lock().await;
+    guard
+        .as_ref()
+        .ok_or("native host stopped")?
+        .status()
+        .await
+        .map_err(|_| "native readiness unavailable".into())
 }

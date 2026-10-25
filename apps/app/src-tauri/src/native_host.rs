@@ -9,7 +9,13 @@ use unified_server::{BootstrapConfig, BootstrapPurpose, LocalTls, SetupHost};
 #[cfg(unix)]
 pub(crate) fn prepare(root: &Path) -> io::Result<SetupHost> {
     match fs::symlink_metadata(root) {
-        Ok(_) => SetupHost::open(BootstrapConfig::open(root)?),
+        Ok(_) => (|| SetupHost::open(BootstrapConfig::open(root)?))().map_err(|error| {
+            if error.kind() == io::ErrorKind::PermissionDenied {
+                error
+            } else {
+                io::Error::new(io::ErrorKind::InvalidData, error)
+            }
+        }),
         Err(error) if error.kind() == io::ErrorKind::NotFound => SetupHost::create(
             BootstrapConfig::create(root, BootstrapPurpose::AwaitingChoice, None)?,
         ),
@@ -51,9 +57,11 @@ impl NativeHost {
         client: impl FnOnce() -> io::Result<reqwest::Client>,
     ) -> io::Result<Self> {
         let tls = setup.tls().clone();
-        tokio::task::spawn_blocking(move || install(tls))
-            .await
-            .map_err(io::Error::other)??;
+        tokio::task::spawn_blocking(move || {
+            install(tls).map_err(|error| io::Error::new(io::ErrorKind::PermissionDenied, error))
+        })
+        .await
+        .map_err(io::Error::other)??;
         let client = client()?;
         let address = setup.local_addr();
         let listener = TcpListener::bind(address).await?;
@@ -92,12 +100,40 @@ impl NativeHost {
         &self.base_url
     }
 
-    pub(crate) async fn status(&self) -> io::Result<serde_json::Value> {
+    pub(crate) async fn status(&self) -> io::Result<of_idp_client::models::CreateResult> {
         let configuration = self.configuration();
-        let status = of_idp_client::apis::setup_api::setup_status(&configuration)
-            .await
-            .map_err(io::Error::other)?;
-        serde_json::to_value(status).map_err(io::Error::other)
+        match of_idp_client::apis::setup_api::setup_status(&configuration).await {
+            Ok(status) => Ok(status),
+            Err(of_idp_client::apis::Error::ResponseError(response))
+                if response.status.as_u16() == 503 =>
+            {
+                serde_json::from_str(&response.content).map_err(io::Error::other)
+            }
+            Err(error) => Err(io::Error::other(error)),
+        }
+    }
+
+    pub(crate) async fn observation(&self, data: &Path) -> crate::onboarding::HostObservation {
+        use crate::onboarding::{Failure, HostObservation};
+        let mut observation = HostObservation {
+            base: Some(self.base_url.clone()),
+            ..HostObservation::default()
+        };
+        match self.status().await {
+            Ok(status) => {
+                if status.ready {
+                    match crate::onboarding::login_client(&status).and_then(|client| {
+                        crate::setup_completion::read(data, "device-setup-ready", client)
+                    }) {
+                        Ok(done) => observation.device_setup_required = !done,
+                        Err(_) => observation.failure = Some(Failure::Repair),
+                    }
+                }
+                observation.status = Some(status);
+            }
+            Err(_) => observation.failure = Some(Failure::Retry),
+        }
+        observation
     }
 
     fn configuration(&self) -> of_idp_client::apis::configuration::Configuration {

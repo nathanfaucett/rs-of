@@ -1,6 +1,7 @@
 mod app;
 mod localhost_trust;
 mod native_host;
+mod onboarding;
 mod runtime;
 mod setup_completion;
 mod setup_peer_revocation;

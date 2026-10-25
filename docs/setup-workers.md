@@ -10,6 +10,40 @@ Open/initialize each required owner once per runtime and reuse its handles throu
 
 Fresh Create seeds the administrator, necessary identity/public login/signing state, Management Device/endpoint binding and explicit grants; Storage/selection start empty. It performs no peer-history or resource-content exchange. Join authenticates the pinned source/issuer and exact approved offer, imports only allowlisted public identity/policy history through its owners, and retains independent local private material. Resource synchronization remains separately selected/authorized.
 
+## Onboarding observation and recovery routing
+
+`apps/app/src/lib/common/state/onboarding.ts` owns the typed presentation projection used by Installation setup, setup entry, Device-preference routing, direct sign-in and the authenticated layout. `observeOnboarding()` returns one `OnboardingObservation`: selected target kind and exact IdP/Device/Storage bases, validated owner evidence, presentation state and supported action. Ready observations additionally carry the verified public login Client. This is an ephemeral projection, not a persisted lifecycle, operation journal or authorization capability.
+
+### Inputs and target selection
+
+- Unified Create retains its exact nonce, administrator and Node name and requires a newly entered administrator password plus the target's Setup code. Join retains nonce, Node name and canonical pinned endpoint ID; authenticated discovery supplies its issuer. Recovery and cancellation still use their distinct protected shared-worker interfaces. This slice changes observation, not these provisioning requests or source approval.
+- Independent deployments retain their configured IdP/Device/Storage bases and each owner's separate code. Before readiness, the client correlates current public operation, issuer and base evidence from all three owners; a singleton `ready` flag is insufficient. No native proxy or bundled code is used for browser/remote operations.
+- The existing selected-API policy (`usesRemoteApis`) chooses bundled versus remote. Bundled observation invokes `get_onboarding_host` once; native code reads typed shared HTTPS status and the verified-Client-bound Device preference marker. Remote observation uses the generated HTTP SDK directly and never queries bundled startup errors. A failed local host cannot override a selected remote target.
+- Selection is captured before asynchronous observation and checked afterwards, including Device/Storage bases. A changed selection discards all old evidence and returns retry against the new target. Login Client binding is checked against the selected IdP before OIDC use; authentication never creates readiness.
+- Generated typed responses are validated directly, without serializing them to untyped JSON for readiness inspection. Unified ready evidence requires all exact owner scopes, consistent state/ready fields, a non-nil public Client UUID and valid `openid` scopes. Native IPC status is decoded through the same generated response contract. A listener, admission/202, approval, historical marker or successful sign-in is never sufficient.
+
+### State, failure and action table
+
+| Evidence | Presentation | Supported action |
+| --- | --- | --- |
+| Bundled runtime has no available host yet | `starting` | Observe again; do not provision a replacement |
+| Valid awaiting-choice owner evidence | `needs_setup` | Explicit Create or Join against that target |
+| Current creating/joining evidence | `working` | Observe; Join may instruct an authorized User to approve the exact source offer |
+| All current owner and public login evidence verifies | `ready` | Ordinary sign-in, or the existing Client-bound Device preference step |
+| Transport/IPC failure or transient HTTP 5xx | `blocked`, `retry` | Retry observation; bundled runtime retry is separate and preserves identity |
+| Protected-provider/trust/platform/configuration prerequisite or shared `unavailable` | `blocked`, `prerequisite` | Check provider access, HTTPS trust and connection settings; retry after correction |
+| Malformed/contradictory retained evidence, unfinished work, or damaged preference binding | `blocked`, `repair` | Preserve identity; inspect/recover the exact operation or retained references, never silently reset or create another identity |
+
+`unfinished` retains its exact authorized resume/cancel controls under recovery options. Shared `unavailable` does not identify a specific damaged file: it requests prerequisite investigation rather than inventing a diagnosis. Native retained-host preparation failures are distinguished from installer/provider prerequisites and transport retry. Snapshots contain only safe categorical failures/instructions, never raw startup errors or setup capabilities.
+
+`get_native_setup_code` remains a separate explicit protected operation scoped to the exact bundled base, rechecked after retrieval. `api::SetupAdmission::protected_code` owns existing-only admission-file parsing and private-file validation, including retirement, invalid intent, pending writes and private lock-file validation; it never creates state, takes over the worker lock or exposes a code through HTTP/status. Only the live worker handle can compare a replaced lock inode against its originally held lock; protected retrieval is not evidence of worker health or mutation authority. Codes/passwords remain transient and absent from URLs, logs and frontend persistence.
+
+### Device preferences and qualification
+
+The existing Device completion marker remains in this observation-only slice to preserve provisioning behavior. It is read only after current shared readiness and public login verification, and may select the preference screen but cannot manufacture readiness. Actual Device Setup continues to configure locally stored data; fresh Storage/selection are empty and no preference grants broader access. Removing wizard dismissal as a mandatory gate belongs to the later setup-simplification slice, not an authorization change here.
+
+Rendered-page, mounted-form, generated HTTP-adapter and isolated native-host/provider tests qualify this projection. They do not certify real OS trust installation/elevation, real secure-provider behavior, a full GUI session, WAN or other platforms. See ticket [01](../.scratch/setup-simplification/issues/01-unify-onboarding-observation.md) for exact commands and remaining validation limits.
+
 ## Independent credential handoff
 
 Each actual HTTPS consumer generates stable least-privilege Client identity/secret locally, records attempted-material evidence **before** secure-provider creation, and retains the raw secret only in its provider. Missing/uncertain attempted material refuses without replacement. Bundled owner calls need no confidential service Clients or OAuth self-calls.

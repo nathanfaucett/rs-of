@@ -1,12 +1,13 @@
 <script lang="ts">
-    import { isTauri } from "@tauri-apps/api/core";
     import { onDestroy } from "svelte";
+    import { invoke } from "@tauri-apps/api/core";
     import { resolve } from "$app/paths";
     import {
         readNativeSetupCode,
         verifyWebSetupCode,
         isUnifiedSetupHost,
         WebSetupCreate,
+        usesRemoteApis,
     } from "$lib/common/state/setupClient.svelte";
 
     import NativeSetupRecovery from "$lib/common/components/NativeSetupRecovery.svelte";
@@ -14,16 +15,14 @@
 
     import type { SetupHost } from "$lib/common/state/setupApi";
 
-    let {
-        data,
-    }: {
-        data: {
-            stage: string;
-            hosts?: SetupHost[];
-            bundled?: boolean;
-            nativeError?: string;
-        };
-    } = $props();
+    import { observeOnboarding, type OnboardingObservation } from "$lib/common/state/onboarding";
+
+    let { data: loaded }: { data: { observation: OnboardingObservation } } = $props();
+    let observation = $derived(loaded.observation);
+    const data = $derived({
+        hosts: observation.hosts,
+        bundled: observation.target.kind === "bundled",
+    });
     let purpose = $derived<"create" | "join">(
         data.hosts?.[0]?.status.state === "joining" ? "join" : "create",
     );
@@ -157,25 +156,45 @@
         }
     }
 
+    async function retryRuntime() {
+        if (busy || observation.target.kind !== "bundled" || usesRemoteApis()) return;
+        busy = true;
+        setupCode = "";
+        password = "";
+        try { await invoke("retry_local_runtime"); }
+        catch { error = "Local services could not restart. Check prerequisites; retained identity is unchanged."; }
+        finally { busy = false; }
+        await refreshObservation();
+    }
+
+    async function refreshObservation() {
+        if (busy) return;
+        busy = true;
+        try { observation = await observeOnboarding(); }
+        finally { busy = false; }
+    }
+
     async function observeWeb() {
         if (busy || !selectedHost) return;
-        if (web && web.base !== selectedHost.base) {
-            error =
-                "The configured target changed. This session cannot transfer its retained intent to another host.";
+        const base = selectedHost.base;
+        if (web && web.base !== base) {
+            error = "The configured target changed. This session cannot transfer its retained intent to another host.";
             setupCode = "";
             password = "";
             return;
         }
         web ??= new WebSetupCreate(selectedHost);
-        const hosts = data.hosts;
         busy = true;
-        await web.observe();
-        if (!web.observationRequired) observedHosts = hosts;
-        if (web.status?.ready) {
+        try {
+            const snapshot = await observeOnboarding();
+            if (!active) return;
             setupCode = "";
             password = "";
-        }
-        busy = false;
+            const host = snapshot.hosts.find(host => host.base === base);
+            if (snapshot.state !== "blocked" && host) await web.observe(host.status);
+            observedHosts = snapshot.hosts;
+            observation = snapshot;
+        } finally { busy = false; }
     }
 
     async function recoverWeb() {
@@ -289,9 +308,26 @@
             <h1 class="text-2xl font-semibold">
                 {setupStarted ? progressTitle : "Installation setup"}
             </h1>
-            {#if data.hosts?.length === 3}
+            {#if observation.state === "blocked" && data.hosts.some(host => host.status.state === "unfinished")}<p role="alert">{observation.message}</p>{/if}
+            {#if observation.state === "starting"}
+                <p role="status">Starting bundled services. Readiness has not yet been verified.</p>
+                <button onclick={refreshObservation}>Refresh status</button>
+            {:else if observation.state === "blocked" && !data.hosts.some(host => host.status.state === "unfinished")}
+                <p role="alert">{observation.message}</p>
+                {#if observation.action === "repair"}<p>Repair retained evidence before continuing. Reset is not a repair action.</p>{/if}
+                <button onclick={refreshObservation} disabled={busy}>Retry observation</button>
+                {#if data.bundled && observation.action !== "repair"}
+                    <button onclick={retryRuntime} disabled={busy}>Retry local services</button>
+                {/if}
+                {#if observation.action === "prerequisite"}<a href={resolve("/config")}>Connection settings</a>{/if}
+            {:else if data.hosts?.length === 3}
                 {#key data.hosts}<IndependentSetup hosts={data.hosts} />{/key}
-            {:else if !isTauri() || data.hosts}
+            {:else if observation.state === "ready"}
+                <p>Selected services are ready. Setup does not sign you in.</p>
+                {#if observation.action === "device_setup"}
+                    <a href={resolve("/setup/device")}>Continue Device setup</a>
+                {:else}<a href={resolve("/signin")}>Sign in</a>{/if}
+            {:else}
                 {#if webStatus?.stage === "installation" && !webStatus.ready && !setupStarted}
                     <p>Create a new Installation or join an existing one.</p>
                     <label>
@@ -600,16 +636,8 @@
                         established; no code can be submitted.
                     </p>
                 {/if}
-            {:else}
-                <p role="alert">
-                    Shared HTTPS setup is unavailable. Restore the selected host
-                    prerequisites; no replacement identity is created.
-                </p>
             {/if}
-            {#if data.bundled}<NativeSetupRecovery
-                    stage={data.stage}
-                    nativeError={data.nativeError}
-                />{/if}
+            {#if data.bundled}<details><summary>Maintenance</summary><NativeSetupRecovery /></details>{/if}
             {#if error}<p role="alert">{error}</p>{/if}
         </div>
     </div>

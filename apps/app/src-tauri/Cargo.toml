@@ -33,6 +33,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 rustix = { version = "1.1", default-features = false, features = ["process", "std"] }
 
 # Serialization
+serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0", default-features = false, features = ["std"] }
 
 # TLS
@@ -50,6 +51,7 @@ tokio = { version = "1.52", default-features = false, features = [
 tokio-util = { version = "0.7", default-features = false, features = ["rt"] }
 
 # Service contracts
+api = { path = "../../../crates/api", default-features = false, features = [] }
 idp-model = { path = "../../../crates/idp-model", default-features = false, features = [
   "replica",
   "std",

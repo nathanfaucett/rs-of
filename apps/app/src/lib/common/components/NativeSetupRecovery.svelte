@@ -5,7 +5,6 @@
   import { resolve } from "$app/paths";
   import { resetDevice, usesRemoteApis } from "../state/setupClient.svelte";
   import { getOidcClient } from "../state/oidc.svelte";
-  let { stage, nativeError }: { stage: string; nativeError?: string } = $props();
   let busy = $state(false);
   let message = $state("");
   let confirmation = $state("");
@@ -48,12 +47,6 @@
 </script>
 <section aria-labelledby="native-recovery-heading" class="flex flex-col gap-3">
   <h2 id="native-recovery-heading">Bundled host observation and recovery</h2>
-  {#if nativeError}<p role="alert">{nativeError}</p>{/if}
-  {#if stage === "ready"}
-    <p>Local completion does not sign you in or grant permissions.</p><a href={resolve("/signin")}>Sign in</a>
-  {:else if stage === "device"}
-    <p>Shared HTTPS Installation setup is complete. Finish the local Device preference marker, not authentication enablement.</p><a href={resolve("/setup/device")}>Continue Device setup</a>
-  {/if}
   <p>Create, Join, recovery and cancellation use the shared HTTPS worker above. Native capabilities only manage trust, the local host and explicit reset.</p>
   <button onclick={retry} disabled={busy}>Retry local services</button>
   <button onclick={recover} disabled={busy}>Recover reset references</button>

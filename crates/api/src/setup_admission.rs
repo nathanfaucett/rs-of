@@ -87,6 +87,21 @@ impl fmt::Debug for SetupAdmission {
 type Result<T> = std::result::Result<T, SetupAdmissionError>;
 
 impl SetupAdmission {
+    /// Protected local management only; never expose this capability through HTTP.
+    /// Reads existing private state without creating admission or acquiring its worker lock.
+    pub fn protected_code(root: &Path) -> Result<Option<String>> {
+        let directory = open_directory(root)?;
+        private(&directory, true)?;
+        let lock = local_file(&directory, "lock", false)?;
+        LocalState {
+            directory,
+            lock,
+            failed: false,
+        }
+        .read()
+        .map(|retained| retained.code)
+    }
+
     /// Automatically generate only when a dedicated root is absent in an existing
     /// private, euid-owned parent. An existing root must contain valid retained
     /// state and lock; missing/corrupt state is never regenerated or repaired.
