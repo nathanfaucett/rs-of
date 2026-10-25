@@ -31,7 +31,6 @@ pub fn run() {
             app::recover_reset_references,
             app::revoke_reset_on_peer,
             app::pending_reset_revocations,
-            app::complete_device_setup
         ])
         .setup(|app| {
             let startup = (|| -> Result<(), Box<dyn std::error::Error>> {

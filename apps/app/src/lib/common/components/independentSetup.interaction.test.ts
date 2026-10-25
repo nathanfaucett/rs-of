@@ -119,7 +119,8 @@ it.each(["create", "join"] as const)(
                 owners[index] + " host setup code",
                 String.fromCharCode(97 + index).repeat(64),
             );
-        enter("Node name", "Interactive Node");
+        if (purpose === "join") enter("Node name", "Interactive Node");
+        else expect(target.textContent).not.toContain("Node name");
         if (purpose === "create") {
             enter("Administrator name", "Alice");
             enter("IdP administrator password", "protected-password");
@@ -160,6 +161,7 @@ it.each(["create", "join"] as const)(
                 "Setup " + String.fromCharCode(97 + index).repeat(64),
             );
             const body = JSON.parse(init.body as string);
+            expect(body.node).toBe(purpose === "create" ? "My Node" : "Interactive Node");
             expect(body.administrator).toBe(
                 purpose === "create" ? "Alice" : "",
             );
@@ -194,7 +196,7 @@ it.each(["create", "join"] as const)(
             if (command === "get_onboarding_host")
                 return {
                     base: "https://localhost:4100",
-                    device_setup_required: true,
+
                     status: {
                         stage: "installation",
                         state: ready
@@ -281,13 +283,15 @@ it.each(["create", "join"] as const)(
             enter("Administrator name", "Alice");
             enter("Password", "protected-password");
         } else enter("Trusted peer endpoint ID", "d".repeat(64));
-        enter("Node name", "Bundled Node");
-        expect(input("Host setup code").value).toBe("");
-        button("Get bundled host code").click();
-        flushSync();
-        await vi.waitFor(() =>
-            expect(input("Host setup code").value).toBe("a".repeat(64)),
-        );
+        if (purpose === "join") {
+            enter("Node name", "Bundled Node");
+            button("Get bundled host code").click();
+            await vi.waitFor(() => expect(input("Host setup code").value).toBe("a".repeat(64)));
+        } else {
+            expect(target.textContent).not.toContain("Host setup code");
+            expect(target.textContent).not.toContain("Node name");
+            expect(target.querySelector('a[href="/config"]')?.textContent).toContain("Advanced");
+        }
         target
             .querySelector("form")!
             .dispatchEvent(
@@ -303,9 +307,9 @@ it.each(["create", "join"] as const)(
             "Setup " + "a".repeat(64),
         );
         const body = JSON.parse(init.body as string);
-        expect(body.node).toBe("Bundled Node");
+        expect(body.node).toBe(purpose === "create" ? "My Node" : "Bundled Node");
         expect("password" in body).toBe(purpose === "create");
-        expect(input("Host setup code").value).toBe("");
+        if (purpose === "join") expect(input("Host setup code").value).toBe("");
         expect(target.querySelector('a[href="/signin"]')).toBeNull();
         ready = true;
         await vi.waitFor(() =>
@@ -315,7 +319,7 @@ it.each(["create", "join"] as const)(
         flushSync();
         await vi.waitFor(() =>
             expect(
-                target.querySelector('a[href="/setup/device"]'),
+                target.querySelector('a[href="/signin"]'),
             ).not.toBeNull(),
         );
         expect(
@@ -386,4 +390,68 @@ it("retries a failed bundled runtime without resetting retained identity", async
     expect(native.invoke.mock.calls.map(([command]) => command)).not.toContain(
         "reset_device",
     );
+});
+
+
+it("recovers an accepted Create after closure and retries the retained identity with a newly entered password", async () => {
+    native.desktop = true;
+    const { default: Installation } = await import("../../../routes/setup/installation/+page.svelte");
+    let retained: Record<string, string> | undefined;
+    const requests: Record<string, string>[] = [];
+    const status = () => ({
+        stage: "installation", state: retained ? "creating" : "awaiting_choice",
+        ready: false, owners: ["idp", "device", "storage"],
+    });
+    native.invoke.mockImplementation(async (command) => {
+        if (command === "pending_reset_revocations") return [];
+        if (command === "get_native_setup_code") return "a".repeat(64);
+        if (command === "get_localhost_server_base_url") return "https://localhost:4100";
+        if (command === "get_onboarding_host") return { base: "https://localhost:4100", status: status() };
+        throw new Error("Unexpected native command: " + command);
+    });
+    const fetchApi = vi.fn(async (url: string, init: RequestInit = {}) => {
+        if (url.endsWith("/intent")) return Response.json(retained);
+        if (url.endsWith("/status")) return Response.json(status());
+        if (!url.endsWith("/create")) throw new Error("Unexpected owner mutation: " + url);
+        const body = JSON.parse(init.body as string);
+        requests.push(body);
+        const { password: _password, ...intent } = body;
+        retained = intent;
+        if (requests.length === 1) throw new Error("response lost after durable acceptance");
+        return Response.json(status(), { status: 202 });
+    });
+    vi.stubGlobal("fetch", fetchApi);
+    target = document.createElement("div");
+    document.body.append(target);
+    const open = () => {
+        const hosts: SetupHost[] = [{ base: "https://localhost:4100/idp", status: status() as SetupHost["status"] }];
+        component = mount(Installation, { target, props: { data: { observation: {
+            ...(retained ? { state: "working" as const, action: "observe" as const } : { state: "needs_setup" as const, action: "choose" as const }), hosts,
+            target: { kind: "bundled", idp: hosts[0].base, device: null, storage: null },
+        } } } });
+        flushSync();
+    };
+    open();
+    enter("Administrator name", "Alice");
+    enter("Password", "original-password");
+    target.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    await vi.waitFor(() => expect(button("Resume setup").disabled).toBe(false));
+    expect(target.querySelector('a[href="/signin"]')).toBeNull();
+    await unmount(component);
+    target.replaceChildren();
+    open();
+    expect(target.textContent).toContain("Creating your Node");
+    expect(target.querySelector('input[autocomplete="new-password"]')).toBeNull();
+    button("Resume setup").click();
+    await vi.waitFor(() => expect(input("Administrator name").value).toBe("Alice"));
+    expect(input("Password").value).toBe("");
+    expect(button("Retry exact Create").disabled).toBe(true);
+    enter("Password", "original-password");
+    target.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    expect(requests[1]).toEqual(requests[0]);
+    expect(retained).not.toHaveProperty("password");
+    expect(input("Password").value).toBe("");
+    expect(target.querySelector('a[href="/signin"]')).toBeNull();
 });

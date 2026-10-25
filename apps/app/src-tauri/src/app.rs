@@ -121,7 +121,7 @@ pub async fn get_onboarding_host(app: AppHandle<Wry>) -> crate::onboarding::Host
     let Some(host) = guard.as_ref() else {
         return observation;
     };
-    host.observation(&data).await
+    host.observation().await
 }
 
 /// Protected local host management only. Never expose this capability through HTTPS status.
@@ -144,23 +144,6 @@ pub async fn get_native_setup_code(app: AppHandle<Wry>) -> Result<Option<String>
     {
         Err("protected native setup capability unsupported".into())
     }
-}
-
-#[tauri::command]
-pub async fn complete_device_setup(app: AppHandle<Wry>) -> Result<(), String> {
-    let _operation = LIFECYCLE.lock().await;
-    let data = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?;
-    if reset::pending(&data).map_err(|error| error.to_string())? {
-        return Err("native reset is pending".into());
-    }
-    let observation = current_host_status(&app).await?;
-    let client =
-        crate::onboarding::login_client(&observation).map_err(|error| error.to_string())?;
-    crate::setup_completion::write(&data, "device-setup-ready", client)
-        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -252,19 +235,4 @@ pub(crate) async fn finish_managed_startup<E>(
         log::error!("native startup cleanup failed: {error}");
     }
     startup
-}
-
-async fn current_host_status(
-    app: &AppHandle<Wry>,
-) -> Result<of_idp_client::models::CreateResult, String> {
-    let state = app
-        .try_state::<Mutex<Option<NativeHost>>>()
-        .ok_or("native host unavailable")?;
-    let guard = state.lock().await;
-    guard
-        .as_ref()
-        .ok_or("native host stopped")?
-        .status()
-        .await
-        .map_err(|_| "native readiness unavailable".into())
 }

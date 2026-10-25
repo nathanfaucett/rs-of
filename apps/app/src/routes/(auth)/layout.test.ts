@@ -193,7 +193,6 @@ it("routes a fresh Installation to setup before owner discovery or credentials",
 });
 
 it.each([
-    ["device", "/setup/device"],
     ["unavailable", "/setup/installation"],
 ])(
     "routes %s to its existing setup UI without owner requests or session denial",

@@ -12,8 +12,6 @@ export async function load() {
     const observation = await observeOnboarding();
     if (observation.state !== "ready")
         throw redirect(302, "/setup/installation");
-    if (observation.action === "device_setup")
-        throw redirect(302, "/setup/device");
     if (isTauri()) await ensureTauriIdpApiUrl();
     await ensureOidcClientId(observation);
 }

@@ -53,11 +53,11 @@ async fn native_host_keeps_one_listener_and_shared_routes_until_coordinated_clos
     }
     fs::write(root.join("device-setup-ready"), "historical-marker")
         .expect("untrusted historical marker");
-    let observed = host.observation(&root).await;
+    let observed = host.observation().await;
     let serialized = serde_json::to_value(&observed).expect("public native observation");
     assert_eq!(serialized["status"]["state"], "awaiting_choice");
     assert_eq!(serialized["status"]["ready"], false);
-    assert_eq!(serialized["device_setup_required"], false);
+    assert!(serialized.get("device_setup_required").is_none());
     assert!(serialized["failure"].is_null());
     assert!(!serialized.to_string().contains("historical-marker"));
     assert!(!serialized.to_string().contains("setup-admission"));

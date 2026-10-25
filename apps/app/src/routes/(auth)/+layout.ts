@@ -28,8 +28,6 @@ export const load = (async (event) => {
     const observation = await observeOnboarding();
     if (observation.state !== "ready")
         redirect(302, resolve("/setup/installation"));
-    if (observation.action === "device_setup")
-        redirect(302, resolve("/setup/device"));
     if (isTauri()) {
         await ensureTauriIdpApiUrl();
         await ensureTauriManagementApiUrl();

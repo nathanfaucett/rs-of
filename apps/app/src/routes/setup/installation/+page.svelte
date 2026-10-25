@@ -33,6 +33,7 @@
     });
     let peer = $state("");
     let node = $state("");
+    const bundledCreate = $derived(data.bundled && purpose === "create");
     let web = $state.raw<WebSetupCreate | null>(null);
     let observedHosts = $state.raw<SetupHost[] | undefined>();
     let busy = $state(false);
@@ -141,14 +142,21 @@
             return;
         web ??= new WebSetupCreate(selectedHost);
         observedHosts = data.hosts;
+        error = "";
         busy = true;
-        const code = setupCode;
+        let code = setupCode;
         const credential = password;
         setupCode = "";
         password = "";
         try {
+            if (bundledCreate) {
+                code = await readNativeSetupCode(selectedHost.base) ?? "";
+                if (!active) return;
+            }
             if (purpose === "join") await web.join(code, node, peer);
-            else await web.submit(code, name, node, credential);
+            else await web.submit(code, name, web.intent?.node ?? "My Node", credential);
+        } catch {
+            error = "Protected bundled setup admission is unavailable. Retry without changing the retained identity.";
         } finally {
             setupCode = "";
             password = "";
@@ -199,7 +207,7 @@
 
     async function recoverWeb() {
         if (busy || !unified || !selectedHost) return;
-        const code = setupCode;
+        let code = setupCode;
         setupCode = "";
         password = "";
         admissionVerified = false;
@@ -215,7 +223,12 @@
         const hosts = data.hosts;
         busy = true;
         try {
+            if (bundledCreate) code = await readNativeSetupCode(session.base) ?? "";
+            if (!active) return;
             await session.recover(code);
+            if (bundledCreate && session.intent && !session.observationRequired) {
+                session.message = "Exact Create recovered. Re-enter the original administrator password to retry. Closing this page does not cancel accepted work.";
+            }
             if (
                 !active ||
                 web !== session ||
@@ -235,6 +248,8 @@
                     }
                 }
             }
+        } catch {
+            error = "Protected setup admission could not be read. Retained setup is unchanged.";
         } finally {
             setupCode = "";
             password = "";
@@ -243,14 +258,17 @@
     }
 
     async function cancelWeb() {
-        if (busy || !web?.intent || web.base !== selectedHost?.base || !unified)
-            return;
+        if (busy || !web?.intent || web.base !== selectedHost?.base || !unified) return;
         busy = true;
-        const code = setupCode;
+        let code = setupCode;
         setupCode = "";
         password = "";
-        await web.cancel(code);
-        busy = false;
+        try {
+            if (bundledCreate) code = await readNativeSetupCode(web.base) ?? "";
+            if (active) await web.cancel(code);
+        } catch {
+            error = "Protected setup admission could not be read. Retained setup is unchanged.";
+        } finally { busy = false; }
     }
 
     async function verifyAdmission(event: Event) {
@@ -324,12 +342,12 @@
                 {#key data.hosts}<IndependentSetup hosts={data.hosts} />{/key}
             {:else if observation.state === "ready"}
                 <p>Selected services are ready. Setup does not sign you in.</p>
-                {#if observation.action === "device_setup"}
-                    <a href={resolve("/setup/device")}>Continue Device setup</a>
-                {:else}<a href={resolve("/signin")}>Sign in</a>{/if}
+                <p>Rename this Node in Devices. Choose local data and Residency after signing in; selection starts empty and resource permissions still apply.</p>
+                <a href={resolve("/signin")}>Sign in</a>
             {:else}
                 {#if webStatus?.stage === "installation" && !webStatus.ready && !setupStarted}
                     <p>Create a new Installation or join an existing one.</p>
+                    <a href={resolve("/config")}>Advanced connection settings</a>
                     <label>
                         Installation setup choice
                         <select
@@ -358,6 +376,7 @@
                             class="flex flex-col gap-4"
                         >
                             {#if webStatus?.stage === "installation" && !webStatus.ready}
+                                {#if !bundledCreate}
                                 {#if data.bundled}<button
                                         type="button"
                                         onclick={loadNativeCode}
@@ -391,6 +410,7 @@
                                     file. Keep it private; re-enter it for each
                                     action.
                                 </p>
+                                {/if}
                                 {#if unified}
                                     {#if purpose === "create"}
                                         {#if canCreate || (web?.intent && "administrator" in web.intent)}
@@ -399,16 +419,6 @@
                                                 <input
                                                     bind:value={name}
                                                     autocomplete="username"
-                                                    required
-                                                    disabled={busy ||
-                                                        !!web?.intent}
-                                                />
-                                            </label>
-                                            <label>
-                                                Node name
-                                                <input
-                                                    bind:value={node}
-                                                    autocomplete="off"
                                                     required
                                                     disabled={busy ||
                                                         !!web?.intent}
@@ -428,9 +438,8 @@
                                                 type="submit"
                                                 disabled={busy ||
                                                     !canCreate ||
-                                                    !setupCode ||
+                                                    (!bundledCreate && !setupCode) ||
                                                     !name.trim() ||
-                                                    !node.trim() ||
                                                     !password}
                                             >
                                                 {web?.intent
@@ -515,21 +524,21 @@
                                             <button
                                                 type="button"
                                                 onclick={recoverWeb}
-                                                disabled={busy || !setupCode}
+                                                disabled={busy || (!bundledCreate && !setupCode)}
                                                 >Resume setup</button
                                             >
-                                            <button
+                                            {#if !bundledCreate}<button
                                                 type="button"
                                                 onclick={verifyAdmission}
                                                 disabled={busy || !setupCode}
                                                 >Verify setup code</button
-                                            >
+                                            >{/if}
                                             {#if web?.intent}
                                                 <button
                                                     type="button"
                                                     onclick={cancelWeb}
                                                     disabled={busy ||
-                                                        !setupCode ||
+                                                        (!bundledCreate && !setupCode) ||
                                                         ("peer" in web.intent &&
                                                             web.observationRequired) ||
                                                         (web.intent &&
@@ -563,14 +572,8 @@
                                     <p role="status">Your Node is ready.</p>
                                     <a
                                         class="btn"
-                                        href={resolve(
-                                            data.bundled
-                                                ? "/setup/device"
-                                                : "/signin",
-                                        )}
-                                        >{data.bundled
-                                            ? "Continue Device setup"
-                                            : "Continue to sign in"}</a
+                                        href={resolve("/signin")}
+                                        >Continue to sign in</a
                                     >
                                 {:else}
                                     <p role="status">

@@ -113,7 +113,7 @@ impl NativeHost {
         }
     }
 
-    pub(crate) async fn observation(&self, data: &Path) -> crate::onboarding::HostObservation {
+    pub(crate) async fn observation(&self) -> crate::onboarding::HostObservation {
         use crate::onboarding::{Failure, HostObservation};
         let mut observation = HostObservation {
             base: Some(self.base_url.clone()),
@@ -121,13 +121,8 @@ impl NativeHost {
         };
         match self.status().await {
             Ok(status) => {
-                if status.ready {
-                    match crate::onboarding::login_client(&status).and_then(|client| {
-                        crate::setup_completion::read(data, "device-setup-ready", client)
-                    }) {
-                        Ok(done) => observation.device_setup_required = !done,
-                        Err(_) => observation.failure = Some(Failure::Repair),
-                    }
+                if status.ready && crate::onboarding::login_client(&status).is_err() {
+                    observation.failure = Some(Failure::Repair);
                 }
                 observation.status = Some(status);
             }
