@@ -186,7 +186,9 @@ fn http_setup_create_and_reopen_without_certificates() {
 async fn http_setup_child() {
     idp_service::repo::PrivateKeyKeyringRepo::new_with_store(
         "isolated-http-setup",
-        keyring_core::mock::Store::new().expect("isolated provider"),
+        std::sync::Arc::new(SecretStore(
+            keyring_core::mock::Store::new().expect("isolated provider"),
+        )),
     );
     let root = std::env::temp_dir().join(format!("unified-http-{}", Id::now_v7()));
     let reservation = std::net::TcpListener::bind("127.0.0.1:0").expect("test port");
@@ -403,5 +405,38 @@ async fn wait_status(http: &reqwest::Client, base: &str, ready: bool) {
             "bounded HTTP setup readiness: {last}"
         );
         tokio::time::sleep(Duration::from_millis(30)).await;
+    }
+}
+
+struct SecretStore(std::sync::Arc<keyring_core::mock::Store>);
+
+impl keyring_core::api::CredentialStoreApi for SecretStore {
+    fn vendor(&self) -> String {
+        self.0.vendor()
+    }
+
+    fn id(&self) -> String {
+        self.0.id()
+    }
+
+    fn build(
+        &self,
+        service: &str,
+        user: &str,
+        _: Option<&std::collections::HashMap<&str, &str>>,
+    ) -> keyring_core::Result<keyring_core::Entry> {
+        // The mock has no platform target; IdP's target modifier is not a credential key.
+        self.0.build(service, user, None)
+    }
+
+    fn search(
+        &self,
+        spec: &std::collections::HashMap<&str, &str>,
+    ) -> keyring_core::Result<Vec<keyring_core::Entry>> {
+        self.0.search(spec)
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
