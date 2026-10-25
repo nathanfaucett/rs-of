@@ -6,7 +6,7 @@ import { getDeviceApiUrl } from "./deviceClient.svelte";
 import {
     fetchSetupHosts,
     readSetupStatus,
-    requireSetupUiOrigin,
+    requireCurrentSetupUiOrigin,
     setupBase,
     SetupEvidenceError,
     SetupPrerequisiteError,
@@ -134,9 +134,7 @@ export async function observeOnboarding(): Promise<OnboardingObservation> {
             if (status.owners.length !== 3) return blocked(target, "repair");
             hosts = [{ base: target.idp, status }];
         } else {
-            requireSetupUiOrigin(
-                typeof window === "undefined" ? "" : window.location.origin,
-            );
+            requireCurrentSetupUiOrigin();
             if (!selected.idp) return blocked(target, "prerequisite");
             hosts = await fetchSetupHosts(selected);
             if (!sameSelection(selected)) return blocked(selection(), "retry");

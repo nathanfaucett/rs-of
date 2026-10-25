@@ -1,7 +1,7 @@
 use std::{
     fmt,
     fs::File,
-    io::{Read, Write},
+    io::{self, Read, Write},
     os::unix::fs::MetadataExt,
     path::{Component, Path},
     sync::{Arc, Mutex},
@@ -90,15 +90,16 @@ impl SetupAdmission {
     /// Protected local management only; never expose this capability through HTTP.
     /// Reads existing private state without creating admission or acquiring its worker lock.
     pub fn protected_code(root: &Path) -> Result<Option<String>> {
-        let directory = open_directory(root)?;
-        private(&directory, true)?;
-        let lock = local_file(&directory, "lock", false)?;
+        let directory = open_directory(root).map_err(unavailable)?;
+        private(&directory, true).map_err(unavailable)?;
+        let lock = local_file(&directory, "lock", false).map_err(unavailable)?;
         LocalState {
             directory,
             lock,
             failed: false,
         }
         .read()
+        .map_err(unavailable)
         .map(|retained| retained.code)
     }
 
@@ -108,40 +109,47 @@ impl SetupAdmission {
     /// All path components must be nonsymlink directories. The host must establish
     /// that this admission root belongs to a genuinely fresh host, not use a new
     /// root to bypass lost admission or already-provisioned owner state.
-    pub fn open(root: &Path) -> Result<Self> {
-        let name = root.file_name().ok_or(SetupAdmissionError::Unavailable)?;
-        let parent_path = root.parent().ok_or(SetupAdmissionError::Unavailable)?;
+    /// Host opening preserves IO kinds; authorization methods redact local failures.
+    pub fn open(root: &Path) -> io::Result<Self> {
+        let name = root.file_name().ok_or_else(invalid_state)?;
+        let parent_path = root.parent().ok_or_else(invalid_state)?;
         let parent = open_directory(parent_path)?;
         private(&parent, true)?;
         let fresh = match mkdirat(&parent, name, Mode::from_raw_mode(0o700)) {
             Ok(()) => {
-                parent.sync_all().map_err(unavailable)?;
+                parent.sync_all()?;
                 true
             }
             Err(rustix::io::Errno::EXIST) => false,
-            Err(_) => return Err(SetupAdmissionError::Unavailable),
+            Err(error) => return Err(error.into()),
         };
-        let directory: File = openat(&parent, name, directory_flags(), Mode::empty())
-            .map_err(unavailable)?
-            .into();
+        let directory: File = openat(&parent, name, directory_flags(), Mode::empty())?.into();
         private(&directory, true)?;
         let lock = local_file(&directory, "lock", fresh)?;
-        lock.try_lock().map_err(unavailable)?;
+        lock.try_lock().map_err(|error| match error {
+            std::fs::TryLockError::WouldBlock => io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "another setup operation owns admission",
+            ),
+            std::fs::TryLockError::Error(error) => error,
+        })?;
         let mut local = LocalState {
             directory,
             lock,
             failed: false,
         };
         if fresh {
-            local.lock.sync_all().map_err(unavailable)?;
-            local.directory.sync_all().map_err(unavailable)?;
+            local.lock.sync_all()?;
+            local.directory.sync_all()?;
             let mut bytes = [0u8; 32];
-            getrandom::fill(&mut bytes).map_err(unavailable)?;
+            getrandom::fill(&mut bytes).map_err(|error| io::Error::other(error.to_string()))?;
             let code = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-            local.persist(&Retained {
-                code: Some(code),
-                intent: String::new(),
-            })?;
+            local
+                .persist(&Retained {
+                    code: Some(code),
+                    intent: String::new(),
+                })
+                .map_err(io::Error::other)?;
         }
         local.read()?;
         Ok(Self {
@@ -157,7 +165,7 @@ impl SetupAdmission {
         if local.failed {
             return Err(SetupAdmissionError::Unavailable);
         }
-        let result = local.read().map(|_| ());
+        let result = local.read().map_err(unavailable).map(|_| ());
         if result.is_err() {
             local.failed = true;
         }
@@ -206,7 +214,7 @@ impl SetupAdmission {
         if local.failed {
             return Err(SetupAdmissionError::Unavailable);
         }
-        match local.read() {
+        match local.read().map_err(unavailable) {
             Ok(retained) => Ok((!retained.intent.is_empty()).then_some(retained.intent)),
             Err(error) => {
                 local.failed = true;
@@ -221,7 +229,7 @@ impl SetupAdmission {
         if local.failed {
             return Err(SetupAdmissionError::Unavailable);
         }
-        match local.read() {
+        match local.read().map_err(unavailable) {
             Ok(retained) => Ok(retained.code.is_none()),
             Err(error) => {
                 local.failed = true;
@@ -238,7 +246,7 @@ impl SetupAdmission {
         if local.failed {
             return Err(SetupAdmissionError::Unavailable);
         }
-        match local.read() {
+        match local.read().map_err(unavailable) {
             Ok(retained) => Ok(retained.code.is_none() && retained.intent == intent),
             Err(error) => {
                 local.failed = true;
@@ -271,7 +279,7 @@ impl SetupAdmission {
             return Err(SetupAdmissionError::Unavailable);
         }
         let result = (|| {
-            let mut retained = local.read()?;
+            let mut retained = local.read().map_err(unavailable)?;
             let expected = retained.code.as_ref().ok_or(SetupAdmissionError::Denied)?;
             if !bool::from(expected.as_bytes().ct_eq(code.as_bytes())) {
                 return Err(SetupAdmissionError::Denied);
@@ -302,48 +310,44 @@ pub async fn setup_admission_middleware(
 }
 
 impl LocalState {
-    fn read(&self) -> Result<Retained> {
+    fn read(&self) -> io::Result<Retained> {
         private(&self.directory, true)?;
         let lock = local_file(&self.directory, "lock", false)?;
-        let held = self.lock.metadata().map_err(unavailable)?;
-        let current = lock.metadata().map_err(unavailable)?;
+        let held = self.lock.metadata()?;
+        let current = lock.metadata()?;
         if held.ino() != current.ino() || held.dev() != current.dev() {
-            return Err(SetupAdmissionError::Unavailable);
+            return Err(invalid_state());
         }
         match statat(&self.directory, "pending", AtFlags::SYMLINK_NOFOLLOW) {
             Err(rustix::io::Errno::NOENT) => (),
-            _ => return Err(SetupAdmissionError::Unavailable),
+            Ok(_) => return Err(invalid_state()),
+            Err(error) => return Err(error.into()),
         }
         let file = local_file(&self.directory, "state", false)?;
         let mut text = String::new();
-        file.take(1200)
-            .read_to_string(&mut text)
-            .map_err(unavailable)?;
+        file.take(1200).read_to_string(&mut text)?;
         let mut parts = text.splitn(3, '\n');
         if parts.next() != Some("setup-admission-v1") {
-            return Err(SetupAdmissionError::Unavailable);
+            return Err(invalid_state());
         }
-        let code = parts.next().ok_or(SetupAdmissionError::Unavailable)?;
-        let intent = parts
-            .next()
-            .ok_or(SetupAdmissionError::Unavailable)?
-            .to_owned();
+        let code = parts.next().ok_or_else(invalid_state)?;
+        let intent = parts.next().ok_or_else(invalid_state)?.to_owned();
         if !intent.is_empty() && valid_intent(&intent).is_err() {
-            return Err(SetupAdmissionError::Unavailable);
+            return Err(invalid_state());
         }
         let code = if code == "retired" && !intent.is_empty() {
             None
         } else if valid_code(code) {
             Some(code.to_owned())
         } else {
-            return Err(SetupAdmissionError::Unavailable);
+            return Err(invalid_state());
         };
         Ok(Retained { code, intent })
     }
 
     fn persist(&mut self, retained: &Retained) -> Result<()> {
         let result = (|| {
-            let mut file = local_file(&self.directory, "pending", true)?;
+            let mut file = local_file(&self.directory, "pending", true).map_err(unavailable)?;
             write!(
                 file,
                 "setup-admission-v1\n{}\n{}",
@@ -392,8 +396,8 @@ fn valid_intent(intent: &str) -> Result<()> {
     }
 }
 
-fn private(file: &File, directory: bool) -> Result<()> {
-    let metadata = file.metadata().map_err(unavailable)?;
+fn private(file: &File, directory: bool) -> io::Result<()> {
+    let metadata = file.metadata()?;
     if metadata.uid() != rustix::process::geteuid().as_raw()
         || metadata.mode() & 0o077 != 0
         || if directory {
@@ -402,12 +406,12 @@ fn private(file: &File, directory: bool) -> Result<()> {
             !metadata.is_file() || metadata.nlink() != 1 || metadata.len() > 1190
         }
     {
-        return Err(SetupAdmissionError::Unavailable);
+        return Err(invalid_state());
     }
     Ok(())
 }
 
-fn local_file(directory: &File, name: &str, fresh: bool) -> Result<File> {
+fn local_file(directory: &File, name: &str, fresh: bool) -> io::Result<File> {
     let flags = OFlags::RDWR
         | OFlags::NOFOLLOW
         | OFlags::CLOEXEC
@@ -417,9 +421,7 @@ fn local_file(directory: &File, name: &str, fresh: bool) -> Result<File> {
         } else {
             OFlags::empty()
         };
-    let file: File = openat(directory, name, flags, Mode::from_raw_mode(0o600))
-        .map_err(unavailable)?
-        .into();
+    let file: File = openat(directory, name, flags, Mode::from_raw_mode(0o600))?.into();
     private(&file, false)?;
     Ok(file)
 }
@@ -428,24 +430,20 @@ fn directory_flags() -> OFlags {
     OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC
 }
 
-fn open_directory(path: &Path) -> Result<File> {
+fn open_directory(path: &Path) -> io::Result<File> {
     let absolute = if path.is_absolute() {
         path.to_owned()
     } else {
-        std::env::current_dir().map_err(unavailable)?.join(path)
+        std::env::current_dir()?.join(path)
     };
-    let mut directory: File = open("/", directory_flags(), Mode::empty())
-        .map_err(unavailable)?
-        .into();
+    let mut directory: File = open("/", directory_flags(), Mode::empty())?.into();
     for component in absolute.components() {
         match component {
             Component::RootDir | Component::CurDir => (),
             Component::Normal(name) => {
-                directory = openat(&directory, name, directory_flags(), Mode::empty())
-                    .map_err(unavailable)?
-                    .into();
+                directory = openat(&directory, name, directory_flags(), Mode::empty())?.into();
             }
-            _ => return Err(SetupAdmissionError::Unavailable),
+            _ => return Err(invalid_state()),
         }
     }
     Ok(directory)
@@ -453,4 +451,11 @@ fn open_directory(path: &Path) -> Result<File> {
 
 fn unavailable<T>(_: T) -> SetupAdmissionError {
     SetupAdmissionError::Unavailable
+}
+
+fn invalid_state() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        "invalid retained setup admission evidence",
+    )
 }

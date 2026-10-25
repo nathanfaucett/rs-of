@@ -83,7 +83,7 @@ impl SetupHost {
         if fresh {
             host.begin_setup()?;
         }
-        let admission = Arc::new(SetupAdmission::open(&admission_root).map_err(io::Error::other)?);
+        let admission = Arc::new(SetupAdmission::open(&admission_root)?);
         let tls = if !https {
             None
         } else if fresh {

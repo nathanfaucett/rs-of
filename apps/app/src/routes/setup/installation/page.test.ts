@@ -335,3 +335,37 @@ it("allows deferred Device preferences after verified readiness", async () => {
         action: "sign_in",
     });
 });
+
+
+it.each(["matching", "nonce", "issuer", "base", "login"])(
+    "renders completed independent owners using correlated public evidence: %s",
+    async (variation) => {
+        host.native = false;
+        const bases = { idp: host.idp!, device: host.device, storage: "https://data.test/api" };
+        const operation = { purpose: "create", operation_nonce: "1".repeat(32), administrator: "Alice", node: "Node", ...bases, issuer: bases.idp, peer: null };
+        host.fetch.mockImplementation(async (url: string, init: RequestInit) => {
+            expect(init.headers).not.toHaveProperty("Authorization");
+            if (url === bases.idp + "/setup/status") return new Response(null, { status: 404 });
+            const owner = (["idp", "device", "storage"] as const).find(owner => url.startsWith(bases[owner] + "/"))!;
+            if (url.endsWith("/status")) return Response.json({ stage: "installation", state: "ready", ready: true, owners: [owner] });
+            const exact = { ...operation };
+            if (owner === "storage") {
+                if (variation === "nonce") exact.operation_nonce = "2".repeat(32);
+                if (variation === "issuer") exact.issuer = "https://wrong.test/idp";
+                if (variation === "base") exact.device = "https://wrong.test/device";
+            }
+            return Response.json({ operation: exact, owner, clients: [], registered: [], facts: owner === "idp" && variation !== "login" ? { login_client: login.client_id } : {} });
+        });
+        const data = await load();
+        const { body } = render(Installation, { props: { data } });
+        if (variation === "matching") {
+            expect(data.observation).toMatchObject({ state: "ready", action: "sign_in", loginClient: login });
+            expect(body).toContain('href="/signin"');
+            expect(body).not.toContain("needs repair");
+        } else {
+            expect(data.observation.state).toBe("blocked");
+            expect(body).not.toContain('href="/signin"');
+        }
+        expect(host.invoke).not.toHaveBeenCalled();
+    },
+);

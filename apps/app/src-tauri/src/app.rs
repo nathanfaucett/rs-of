@@ -201,13 +201,18 @@ pub async fn reset_device(app: AppHandle<Wry>) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn recover_reset_references(app: AppHandle<Wry>) -> Result<(), String> {
-    let _operation = LIFECYCLE.stop(false).await;
-    close_host(&app).await.map_err(|error| error.to_string())?;
     let data = app
         .path()
         .app_data_dir()
         .map_err(|error| error.to_string())?;
-    reset::recover(&data).map_err(|error| error.to_string())
+    LIFECYCLE
+        .recover_references(
+            &data,
+            &app.state::<Mutex<Option<NativeHost>>>(),
+            &app.state::<Mutex<Option<crate::onboarding::Failure>>>(),
+        )
+        .await
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

@@ -9,12 +9,13 @@ use unified_server::{BootstrapConfig, BootstrapPurpose, LocalTls, SetupHost};
 #[cfg(unix)]
 pub(crate) fn prepare(root: &Path) -> io::Result<SetupHost> {
     match fs::symlink_metadata(root) {
-        Ok(_) => (|| SetupHost::open(BootstrapConfig::open(root)?))().map_err(|error| {
-            if error.kind() == io::ErrorKind::PermissionDenied {
-                error
-            } else {
-                io::Error::new(io::ErrorKind::InvalidData, error)
-            }
+        Ok(_) => (|| SetupHost::open(BootstrapConfig::open(root)?))().map_err(|error| match error
+            .kind()
+        {
+            io::ErrorKind::NotFound
+            | io::ErrorKind::NotADirectory
+            | io::ErrorKind::IsADirectory => io::Error::new(io::ErrorKind::InvalidData, error),
+            _ => error,
         }),
         Err(error) if error.kind() == io::ErrorKind::NotFound => SetupHost::create(
             BootstrapConfig::create(root, BootstrapPurpose::AwaitingChoice, None)?,
