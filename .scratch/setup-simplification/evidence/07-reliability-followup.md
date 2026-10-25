@@ -1,6 +1,8 @@
 # Ticket 07: HTTPS reliability follow-up
 
-## Disposition
+Latest result: the [focused lifecycle follow-up](#focused-lifecycle-follow-up-deterministic-red--green) proves and fixes the router/admission shutdown-ownership gap. The original qualification runs below remain historical; ticket07 is still open because transport/request reliability is not established.
+
+## Initial investigation disposition
 
 **Blocked qualification; ticket07 remains open, both integrated durability boxes unchecked.** No backend patch is justified by the evidence collected here. Seven serial three-scenario suites produced **20 passes / 1 failure**; a separate syscall-traced interruption pair produced **1 pass / 1 failure**. The untraced failure is admission-lock contention immediately after successful coordinated shutdown. The traced failure reproduces the ordinary authorized source-approval request timeout. Neither a common root cause nor a reliable baseline has been established. Do not accept later green repetitions as erasing either failure.
 
@@ -117,3 +119,80 @@ These local disposable logs are not delivery files. Relevant actual failures and
 | `/tmp/07-reliability-lock-trace-2.log` | `43bba39cbbecc01aa618dcde4f0d0b14d72a950c4bda58f180862dfd13b4d427` |
 
 Only ticket07 and this new evidence file are delivery changes. Documentation validation: `git diff --check`; no new implementation to lint or feature-matrix qualify. Integration tip must be merged on this branch before handoff; no merge back to integration is authorized.
+
+
+## Focused lifecycle follow-up: deterministic red → green
+
+### Scope and source investigation
+
+User requested continued diagnosis of the admission `WouldBlock` **after awaited shutdown**, a deterministic regression and a minimal fix only if proven. Reclaimed ticket07 before work on the same branch, starting at `2c0ed384ff27f827a323768dfb478a61b9e16be6`. Invoked TDD and ponytail again. Read source first while the independent validation build ran; did not launch a concurrent full HTTPS repeat suite. The first focused Cargo command waited on the shared target lock before compiling. All Cargo commands retained the main target cache, `CARGO_BUILD_JOBS=2` and `RUST_MIN_STACK=67108864`.
+
+Proven ownership path:
+
+1. `SetupHost::into_worker` transfers the exclusive `BootstrapConfig` host guard to `RuntimeSetupOwners`, and admission to the shared hosted worker.
+2. `HostedSetup::router` / `build_setup_router` / the normal fallback retain `Arc<Shared>`. `Shared.admission` retains `Arc<SetupAdmission>`; its `LocalState.lock: File` holds the kernel lock until final destruction. No explicit unlock or durable admission retirement is appropriate during interrupted shutdown.
+3. `SetupHost::serve` / `serve_verified` and native `NativeHost` await their listener and then the worker. The old `HostedSetup::run` only withdrew published owners and awaited owner shutdown; it could return even when router/control references still held admission. Its concrete owners/host guard were then destroyed, making the host operation lock available before the admission lock.
+4. Axum 0.8.9 `handle_connection` drops its `close_rx` completion notification before the pinned connection/service locals leave scope. The listener can therefore finish waiting for that notification while connection-owned router destruction is still outstanding. Awaiting the worker did not previously close that ownership gap.
+
+This source ordering and the deterministic regression prove a **real lifecycle defect** consistent with the recorded failure. They do not retroactively provide a syscall trace of the earlier failing process, and do not establish a shared cause for pending-offer or approval-request timeouts.
+
+### Regression and minimal fix
+
+Authorized public lifecycle seam: `SetupHost` → `into_worker` → `router` → `run` cancellation → existing-only reopen. New `setup_host_tests::shutdown_joins_router_teardown_before_releasing_host_and_admission` uses a neutral HTTP host, no domain provisioning, provider, OS trust or Iroh.
+
+The test deliberately retains one connection-equivalent router clone during teardown. It cancels the worker and polls its shutdown future once; no scheduler race, delay or retry is involved. Shutdown must stay pending with **both** the host guard and admission exclusion intact. Dropping the last router must wake shutdown; after awaiting it, a single immediate `BootstrapConfig::open` plus `SetupHost::open_http` must succeed with byte-identical retained admission. The five-second test bound detects a lost wakeup; it does not delay or retry reopen.
+
+**Red:** added only this test, ran:
+
+```sh
+cargo test --manifest-path /home/nathan/code/rust/aicacia/of-setup-qualification/Cargo.toml -p unified-server --lib shutdown_joins_router_teardown_before_releasing_host_and_admission -- --nocapture --test-threads=1
+```
+
+With the documented shared-target environment, Cargo waited on the validation build lock, then finished in **16m06s**. The test failed in **0.05s**, exit **101**:
+
+```text
+panicked at crates/unified-server/src/setup_host_tests.rs:36:5:
+shutdown must join outstanding router teardown
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 61 filtered out; finished in 0.05s
+```
+
+**Fix:** add a private watch-channel teardown fence to `Shared`, declared **last** so closure follows destruction of admission and all preceding shared fields. After unpublishing and owner shutdown, `HostedSetup::run` subscribes, drops its own shared reference and awaits channel closure. Concrete owners and their host guard remain owned by the shutdown future until the teardown join completes. It awaits destruction rather than changing admission, unlocking a live handle, testing reference counts in a loop, or sleeping. The channel is never sent on and no sender is exposed/cloned outside `Shared`.
+
+The worker API now documents that callers drop issued routers/controls before joining shutdown. Audited all actual `run` callers: shared HTTPS/HTTP and native hosts already end listener/router serving first. One direct-router integration fixture held its router while awaiting the owner; moved that fixture drop **before** the join, without changing any of its retained-state/security assertions. No native implementation rewrite was needed. Existing Shared unit-test fixtures initialize the private notification field.
+
+**Green:** reran the exact regression command; **1 passed**, **1.55s** (3m28s rebuild). No dependency or admission API change. Production implementation is confined to `crates/idp-server/src/hosted_setup.rs`; regression/caller fixture changes are in unified-server tests.
+
+### Focused validation and actual lock destruction
+
+| Command / scenario | Actual result |
+| --- | --- |
+| `cargo test -p unified-server --lib setup_host_tests -- --nocapture --test-threads=1` (worktree manifest/shared target) | **4 passed / 1 deliberately parent-launched child ignore**, 0.39s; parent actually ran both isolated TLS child modes, both passed. Final-source rerun: **4 passed / 1 child ignore**, 0.38s, rebuild 16.86s. |
+| `cargo test -p idp-server --no-default-features --lib hosted_setup::tests -- --nocapture --test-threads=1` | **2 passed**, 2.59s (5m22s feature-graph build). Existing cancellation/retirement exclusion and request-disconnect versus explicit cancellation remain valid. |
+| Execution-only `retired_join_reopen_refuses_mismatched_or_missing_intent_without_owner_mutation` | **1 passed**, 0.29s, including all five retained-fault variants. |
+| Execution-only `partial_credentials_reopen_preserves_recovery_for_create_and_join` | **1 passed**, 0.52s, existing exact-recovery/refusal variants. |
+| Exact new lifecycle test, 50 serial execution-only repetitions | **50 passed**, 2.09s total. Each subprocess bounded at 30s; no full HTTPS repetition or compilation in that loop. |
+| One execution-only `production_api_join_interruption_preserves_private_host_intent --nocapture --test-threads=1` | **1 parent/child passed**, child 79.33s / parent 79.39s. `BUILD_SNAPSHOT []` immediately before these focused executions; no observed Cargo/rustc at start. Not a globally idle-host certification or repeat reliability result. |
+| `cargo clippy -p idp-server -p unified-server --no-default-features --lib --no-deps -- -D warnings` | **Passed**, 23.46s, scoped production libraries only. |
+| `cargo fmt --all -- --check`; `git diff --check` | **Passed** on final source. An initial formatting check found only the new test layout; applied rustfmt before final validation. |
+
+Commands used explicit worktree manifest or the freshly built main-cache `unified_server-f38d95073d23ab7e` executable. All were bounded (Cargo at 1200000ms, focused execution group at 600000ms, HTTPS child command at 400s); none exhausted its bound. Cargo emitted the same three unused shared test-support function warnings. Initial compilation wait is contention evidence, not a runtime failure attribution. No expensive feature matrix/CRAP run was added alongside the independent validation effort; those results remain separate.
+
+One final **0.08s** syscall-traced exact regression proves the intended lock ordering. Command used only `flock,close,openat` tracing (no request data), same final executable, 30000ms tool bound. Relevant actual trace events:
+
+```text
+2718283 1792957754.977230 flock(12<.../setup-admission/lock>, LOCK_EX|LOCK_NB) = 0
+2718283 1792957755.014335 flock(14<.../setup-admission/lock>, LOCK_EX|LOCK_NB) = -1 EAGAIN (Resource temporarily unavailable)
+2718283 1792957755.014391 close(14<.../setup-admission/lock>) = 0
+2718283 1792957755.016300 close(12<.../setup-admission/lock>) = 0
+2718283 1792957755.023867 flock(12<.../setup-admission/lock>, LOCK_EX|LOCK_NB) = 0
+```
+
+The deliberate competing open is excluded while the router lives, the original descriptor actually closes after router release, then the **single** reopen obtains the lock. No `LOCK_UN` shortcut was added. Local trace `/tmp/07-admission-lifecycle-fixed.trace`, SHA-256 **01f7896688349b3b04118fd6fbf52413ca3230f35ff6ef0def3cf8b4137893a1**. Final test executable SHA-256 **5c8af934b71b32937e2802badbecd522cfa561810eb0a705c2392a1843456459**. Earlier repeated-executable hash above intentionally describes pre-fix code.
+
+### Delivery boundary
+
+The demonstrated **router/admission shutdown ownership gap is fixed**, with deterministic failing-before/passing-after evidence. Host shutdown now includes shared router/control teardown; retaining a control/router deliberately postpones shutdown rather than allowing a second lifecycle owner to race it. There is no timeout inflation, reopen retry, forced unlock, replacement identity, or permission/readiness relaxation.
+
+Ticket07 stays **open**, both integrated durability boxes unchecked. One interruption smoke pass is not the requested repeatable integrated finalization/interruption/offline qualification; source-offer and ordinary HTTPS request timeouts still have no established root cause. Historical failures above are retained and no baseline/environment-only attribution is made.
+
+Sibling revisions throughout this focused follow-up were observed as `ofdb` **e3242170c94d5fc4bcc121db812310c8106c7ab6**, `ofnet` **dbea925a0a3f99053fffc02618baccc2a1cbea9f**, `offs` **df4c696a910296635473ec296d9235acbaa60d9b**. No sibling modifications. Main lock hash still **bb7e608f57a6167612acac7d247e51eb2c6efbe449b95208c7a1862b78dd3a3f**; worktree-only Cargo lock refresh is not delivery. No main source, existing other receipts, spec/map, real profiles or OS trust changes. Integration tip is to be merged before handoff, never merged back by this agent.

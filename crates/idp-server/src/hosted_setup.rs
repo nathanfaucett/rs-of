@@ -1,3 +1,12 @@
+use std::{
+    fs,
+    future::Future,
+    io::{self, Write},
+    path::PathBuf,
+    pin::Pin,
+    sync::{Arc, Mutex},
+};
+
 use api::{
     SetupAdmission, SetupAdmissionError,
     setup_files::{present, private_options, read_private, require_absent, sync_ancestry},
@@ -11,15 +20,7 @@ use axum::{
     routing::{MethodFilter, get, on, post},
 };
 use serde::{Deserialize, Serialize};
-use std::{
-    fs,
-    future::Future,
-    io::{self, Write},
-    path::PathBuf,
-    pin::Pin,
-    sync::{Arc, Mutex},
-};
-use tokio::sync::{RwLock, mpsc, oneshot};
+use tokio::sync::{RwLock, mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
 use tower_http::cors::CorsLayer;
@@ -266,6 +267,8 @@ struct Shared {
     readiness: RwLock<Option<SetupReadiness>>,
     active: Mutex<Option<Active>>,
     shutdown: CancellationToken,
+    // Last field: channel closure must follow admission and router-state destruction.
+    released: watch::Sender<()>,
 }
 
 impl Shared {
@@ -369,6 +372,7 @@ impl HostedSetupControl {
                 readiness: RwLock::new(None),
                 active: Mutex::new(None),
                 shutdown,
+                released: watch::channel(()).0,
             })),
             receiver,
         )
@@ -513,6 +517,7 @@ impl<B: HostedSetupOwners> HostedSetup<B> {
         }
     }
 
+    /// Joins owner cleanup and router teardown; drop issued routers/controls before joining.
     pub async fn run(mut self) -> io::Result<()> {
         let shutdown = self.shared.shutdown.clone();
         self.initialize().await;
@@ -528,7 +533,11 @@ impl<B: HostedSetupOwners> HostedSetup<B> {
             }
             *self.shared.active.lock().expect("Create cancellation lock") = None;
         }
-        self.unpublish().await
+        let result = self.unpublish().await;
+        let mut released = self.shared.released.subscribe();
+        drop(self.shared);
+        let _ = released.changed().await;
+        result
     }
 
     async fn reopen(&mut self) -> io::Result<()> {
@@ -1261,7 +1270,7 @@ mod tests {
         os::unix::fs::PermissionsExt,
         sync::{Arc, Mutex},
     };
-    use tokio::sync::{RwLock, mpsc};
+    use tokio::sync::{RwLock, mpsc, watch};
     use tokio_util::sync::CancellationToken;
     #[tokio::test]
     async fn cancellation_and_retirement_have_one_winner_and_finalizing_rejects_submissions() {
@@ -1299,6 +1308,7 @@ mod tests {
             readiness: RwLock::new(None),
             active: Mutex::new(None),
             shutdown: CancellationToken::new(),
+            released: watch::channel(()).0,
         });
 
         let cancelled = shared.shutdown.child_token();
@@ -1410,6 +1420,7 @@ mod tests {
             readiness: RwLock::new(None),
             active: Mutex::new(None),
             shutdown: CancellationToken::new(),
+            released: watch::channel(()).0,
         });
         let intent = CreateIntent {
             operation_nonce: "0123456789abcdef0123456789abcdef".into(),
