@@ -647,12 +647,8 @@ async fn assert_no_response(socket: &mut Socket) {
     }
 }
 
-#[path = "policy_cleanup_http_tests.rs"]
-mod policy_cleanup_tests;
 #[path = "native_api_qualification_tests.rs"]
 mod qualification_tests;
-#[path = "residency_http_tests.rs"]
-mod residency_tests;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn native_owner_cutover_captures_initial_secrets_and_reuses_reopened_owner() {

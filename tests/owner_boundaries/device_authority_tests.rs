@@ -1,5 +1,5 @@
 #[cfg(unix)]
-#[path = "remote_device_process_tests.rs"]
+#[path = "device_authority_tests/remote.rs"]
 mod remote;
 
 use std::sync::{Arc, OnceLock};
@@ -78,16 +78,15 @@ async fn device_http_and_storage_share_isolated_authority_and_recheck_revocation
                 },
             ),
     );
-    let router = crate::compose_router(
-        axum::Router::new(),
-        management_server::build_router(
-            identity.client(),
-            "https://node.example",
-            "/management",
-            control.clone(),
-        )
-        .await
-        .expect("Management router"),
+    let router = management_server::build_router(
+        identity.client(),
+        "https://node.example",
+        "/management",
+        control.clone(),
+    )
+    .await
+    .expect("Management router")
+    .merge(
         device_server::build_router(
             identity.clone().client(),
             devices.clone().client(),
@@ -99,7 +98,6 @@ async fn device_http_and_storage_share_isolated_authority_and_recheck_revocation
         )
         .await
         .expect("Device router"),
-        axum::Router::new(),
     );
     let endpoint = iroh::SecretKey::generate().public();
     let request = |method: &str, path: &str, body: String| {
@@ -131,7 +129,7 @@ async fn device_http_and_storage_share_isolated_authority_and_recheck_revocation
         serde_json::from_slice(&body).expect("enrollment");
     assert_eq!(enrollment.state, device_service::DeviceState::Approved);
     let copies = Arc::new(OnceLock::new());
-    let storage = crate::runtime::owner_replication_authorizer(
+    let storage = crate::support::replication::owner_replication_authorizer(
         device_server::DeviceAuthority::new(devices.clone(), control),
         iroh::SecretKey::generate().public(),
         copies,

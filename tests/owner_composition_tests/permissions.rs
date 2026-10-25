@@ -27,7 +27,7 @@ use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
 use reqwest::StatusCode;
 
-use crate::permission_http_tests::{seed_idp, user_token};
+use crate::support::identity::{seed_idp, user_token};
 
 struct TlsConfig {
     root: PathBuf,
@@ -52,7 +52,7 @@ fn independent_permission_production_management_https() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("reserve TLS address");
     let address = listener.local_addr().expect("TLS address");
     let mut bundle = Vec::new();
-    for owner in ["idp", "device"] {
+    for owner in ["idp", "management"] {
         let tls = api::LocalTls::create(&TlsConfig {
             root: root.join(owner),
             address,
@@ -213,11 +213,6 @@ async fn independent_permission_management_https_child() {
             .expect("other Application lookup")
             .expect("other Application")
             .id;
-        let management_directory = owners.join("device");
-        let device_engine = Arc::new(
-            Database::open(management_directory.join("devices.redb"))
-                .expect("Management owner store"),
-        );
         let idp_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("independent IdP listener");
@@ -230,7 +225,7 @@ async fn independent_permission_management_https_child() {
             .expect("Management address");
         let base = format!("https://{idp_address}");
         let idp_base = format!("{base}/idp");
-        let management_base = format!("https://{management_address}/device");
+        let management_base = format!("https://{management_address}/management");
         let mut config = idp_server::AppConfig {
             data_dir: owners.join("idp").to_string_lossy().into_owned(),
             service_audience: Some("idp-services".into()),
@@ -259,22 +254,15 @@ async fn independent_permission_management_https_child() {
         .expect("production independent IdP runtime without local Management policy");
         let control_plane = HostedControlPlane::new_with_services(&idp_base, &idp_base, &issuer)
             .expect("independent Management IdP binding")
-            .with_idp_service_client("device-idp", "device-idp-secret", "idp-services")
+            .with_idp_service_client("management-idp", "management-idp-secret", "idp-services")
             .expect("distinct introspection relationship")
             .with_permission_evaluator("idp-evaluator")
-            .expect("exact evaluator binding")
-            .with_local_devices(Arc::new(device_service::replica::DbDeviceRepo::new(
-                device_engine.clone().client(),
-            )))
-            .with_pairing_acceptance(runtime.pairing_acceptance());
-        let management_router = device_server::build_router(
-            device_engine.clone().client(),
-            device_engine.clone().client(),
+            .expect("exact evaluator binding");
+        let management_router = management_server::build_router(
+            idp_engine.client(),
             &management_base,
-            "/device",
-            "storage-service",
+            "/management",
             Arc::new(control_plane),
-            None,
         )
         .await
         .expect("production Management router");
@@ -284,7 +272,7 @@ async fn independent_permission_management_https_child() {
         })
         .expect("retained IdP TLS");
         let management_tls = api::LocalTls::open(&TlsConfig {
-            root: root.join("device"),
+            root: root.join("management"),
             address: management_address,
         })
         .expect("retained Management TLS");
@@ -324,8 +312,8 @@ async fn independent_permission_management_https_child() {
             StatusCode::FORBIDDEN
         );
         let policy = ManagementService::new(
-            DbPermissionRepo::new(device_engine.client()),
-            DbRoleRepo::new(device_engine.client()),
+            DbPermissionRepo::new(idp_engine.client()),
+            DbRoleRepo::new(idp_engine.client()),
         );
         let role = policy
             .create_role(Id::nil(), "independent application reader", None)

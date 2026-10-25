@@ -16,8 +16,6 @@ mod local_provisioning_tests;
 mod native_api_tests;
 #[cfg(test)]
 mod node_join_bootstrap_tests;
-#[cfg(test)]
-mod permission_http_tests;
 mod runtime;
 #[cfg(test)]
 mod security_history_tests;
@@ -59,11 +57,9 @@ mod bootstrap_config_tests;
 #[cfg(all(test, not(unix)))]
 mod unsupported_bootstrap_tests;
 
-#[cfg(all(test, unix))]
-mod owner_composition_tests;
-
-#[cfg(test)]
-mod device_authority_tests;
-
 #[cfg(test)]
 mod node_bootstrap_interruption_tests;
+
+#[cfg(test)]
+#[path = "../../../tests/support/identity.rs"]
+mod identity_fixture;

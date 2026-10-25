@@ -14,7 +14,7 @@ use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
 use tokio_util::sync::CancellationToken;
 
-use crate::permission_http_tests::{seed_idp, seed_permissions, user_token};
+use crate::identity_fixture::{seed_idp, seed_permissions, user_token};
 
 #[tokio::test]
 async fn authorized_node_bootstrap_imports_both_contexts_and_reopens_offline() {

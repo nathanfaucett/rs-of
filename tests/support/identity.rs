@@ -1,7 +1,3 @@
-#[cfg(unix)]
-#[path = "remote_identity_process_tests.rs"]
-mod remote_identity_process_tests;
-
 use db::Database;
 use device_service::DeviceRepo;
 use device_service::replica::DbDeviceRepo;
@@ -26,291 +22,16 @@ use std::{
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tower::ServiceExt;
-#[test]
-fn normal_permission_http_administration() {
-    run_http_test(false);
-}
-
-#[test]
-fn normal_identity_and_infrastructure_lifecycle() {
-    run_http_test(true);
-}
-
-fn run_http_test(lifecycle_only: bool) {
-    std::thread::Builder::new()
-        .stack_size(16 * 1024 * 1024)
-        .spawn(move || {
-            tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(2)
-                .thread_stack_size(16 * 1024 * 1024)
-                .enable_all()
-                .build()
-                .expect("build HTTP test runtime")
-                .block_on(run_separate_permission_acceptance(lifecycle_only));
-        })
-        .expect("spawn HTTP acceptance")
-        .join()
-        .expect("HTTP acceptance did not panic");
-}
-
-async fn run_separate_permission_acceptance(lifecycle_only: bool) {
-    let root = std::env::temp_dir().join(format!(
-        "permission-http-{}",
-        idp_model::model::Id::now_v7()
-    ));
-    let issuer = format!(
-        "https://permission-{}.example",
-        idp_model::model::Id::now_v7()
-    );
-    let idp_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind IdP listener");
-    let management_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind Management listener");
-    let idp_address = idp_listener.local_addr().expect("IdP address");
-    let management_address = management_listener
-        .local_addr()
-        .expect("Management address");
-    let idp_base = format!("http://{idp_address}");
-    let management_base = format!("http://{management_address}");
-    let secret = iroh::SecretKey::generate();
-    let mut fixture = seed_idp(
-        &root,
-        &issuer,
-        &secret.public().to_string(),
-        &iroh::SecretKey::generate().public().to_string(),
-    )
-    .await;
-    seed_permissions(&root, &mut fixture).await;
-    eprintln!("permission HTTP fixtures ready");
-    let server = iroh_chain::Server::bind_with_secret_key(
-        iroh::endpoint::presets::N0,
-        secret.clone(),
-        iroh_chain::EndpointIdStore::default(),
-    )
-    .await
-    .expect("bind test endpoint");
-    let mut config = idp_server::AppConfig::default();
-    config.oauth2.issuer = issuer.clone();
-    config.oauth2.local_signer = Some(fixture.local_signer.clone());
-    config.service_audience = Some("idp-services".into());
-    config.server.prefix = Some("/idp".into());
-    let idp_engine =
-        Arc::new(Database::open(root.join("idp/idp.redb")).expect("open IdP owner engine"));
-    let device_engine = Arc::new(
-        Database::open(root.join("device/devices.redb")).expect("open Management owner engine"),
-    );
-    let runtime = idp_server::build_runtime(
-        &config,
-        idp_engine.client(),
-        None,
-        Arc::new(
-            device_service::device_identity_from_server(&server, secret.clone())
-                .expect("create local identity"),
-        ),
-        server.clone(),
-        Some(management_service::LocalPermissions::new(
-            idp_engine.client(),
-        )),
-    )
-    .await
-    .expect("build independent IdP runtime");
-    let control_plane = device_service::HostedControlPlane::new_with_services(
-        &format!("{idp_base}/idp"),
-        &format!("{idp_base}/unused-storage"),
-        &issuer,
-    )
-    .expect("normal Management IdP client")
-    .with_idp_service_client("management-idp", "management-idp-secret", "idp-services")
-    .expect("configure introspection relationship")
-    .with_permission_evaluator("idp-evaluator")
-    .expect("pin distinct assertion client")
-    .with_local_devices(Arc::new(DbDeviceRepo::new(device_engine.clone().client())))
-    .with_pairing_acceptance(runtime.pairing_acceptance());
-    let control_plane = Arc::new(control_plane);
-    let router = management_server::build_router(
-        idp_engine.client(),
-        &management_base,
-        "/management",
-        control_plane.clone(),
-    )
-    .await
-    .expect("Management role router")
-    .merge(
-        device_server::build_router(
-            idp_engine.clone().client(),
-            device_engine.client(),
-            &management_base,
-            "/device",
-            "storage-service",
-            control_plane,
-            None,
-        )
-        .await
-        .expect("Device router"),
-    );
-    let idp_router = runtime.router();
-    let mut idp_task = tokio::spawn(async move {
-        axum::serve(idp_listener, idp_router)
-            .await
-            .expect("serve IdP");
-    });
-    let management_task = tokio::spawn(async move {
-        axum::serve(management_listener, router)
-            .await
-            .expect("serve Management");
-    });
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(12))
-        .build()
-        .expect("bounded test client");
-    if lifecycle_only {
-        run_lifecycle_http_checks(&client, &idp_base, &management_base, &fixture).await;
-        let actor = user_token(&client, &idp_base, "administrator", "idp-services").await;
-        let unconfigured = idp_server::build_runtime(
-            &config,
-            idp_engine.client(),
-            None,
-            Arc::new(
-                device_service::device_identity_from_server(&server, secret)
-                    .expect("local identity"),
-            ),
-            server.clone(),
-            None,
-        )
-        .await
-        .expect("build without permission relationship");
-        let response = unconfigured
-            .router()
-            .oneshot(
-                axum::http::Request::builder()
-                    .uri("/idp/applications")
-                    .header("authorization", format!("Bearer {actor}"))
-                    .body(axum::body::Body::empty())
-                    .expect("normal authenticated admin request"),
-            )
-            .await
-            .expect("call unconfigured owner API");
-        assert_eq!(response.status(), http::StatusCode::FORBIDDEN);
-        drop(unconfigured);
-        idp_task.abort();
-        management_task.abort();
-        let _ = idp_task.await;
-        let _ = management_task.await;
-        server.endpoint().close().await;
-        drop(runtime);
-        std::fs::remove_dir_all(root).expect("remove lifecycle fixture data");
-        return;
-    }
-    run_permission_http_checks(
-        &client,
-        &idp_base,
-        &management_base,
-        &fixture,
-        http::StatusCode::OK,
-    )
-    .await;
-    let admin = user_token(&client, &idp_base, "administrator", "idp-services").await;
-    let management_user = user_token(&client, &idp_base, "administrator", "idp-management").await;
-    idp_task.abort();
-    let _ = idp_task.await;
-    let evaluation = PermissionEvaluationRequest {
-        request_id: idp_model::model::Id::now_v7(),
-        subject: PermissionSubject::User {
-            id: fixture.administrator,
-        },
-        action: IdentityAction::ClientsRead,
-        target: PermissionTarget::Application {
-            application_id: fixture.application_id,
-            resource: IdentityResource::Client {
-                client_id: Some("human-client".into()),
-            },
-        },
-    };
-    expect_status(
-        client
-            .post(format!("{management_base}/management/permissions/evaluate"))
-            .bearer_auth(&management_user)
-            .json(&evaluation)
-            .send()
-            .await
-            .expect("IdP outage request"),
-        http::StatusCode::SERVICE_UNAVAILABLE,
-    )
-    .await;
-    let idp_listener = tokio::net::TcpListener::bind(idp_address)
-        .await
-        .expect("restart IdP listener");
-    let idp_router = runtime.router();
-    idp_task = tokio::spawn(async move {
-        axum::serve(idp_listener, idp_router)
-            .await
-            .expect("serve restarted IdP");
-    });
-    management_task.abort();
-    let _ = management_task.await;
-    expect_status(
-        client
-            .get(format!("{idp_base}/idp/oauth2/register/human-client"))
-            .bearer_auth(&admin)
-            .send()
-            .await
-            .expect("Management listener outage does not revoke local policy"),
-        http::StatusCode::OK,
-    )
-    .await;
-    let fresh_user = user_token(&client, &idp_base, "administrator", "idp-services").await;
-    let token = expect_status(
-        client
-            .post(format!("{idp_base}/idp/oauth2/token"))
-            .form(&[
-                ("grant_type", "client_credentials"),
-                ("client_id", "management-idp"),
-                ("client_secret", "management-idp-secret"),
-                ("audience", "idp-services"),
-                ("scope", "idp.token.validate"),
-            ])
-            .send()
-            .await
-            .expect("issue introspection client token without Management"),
-        http::StatusCode::OK,
-    )
-    .await;
-    expect_status(
-        client
-            .post(format!("{idp_base}/idp/oauth2/introspect"))
-            .bearer_auth(token["access_token"].as_str().expect("service token"))
-            .json(&idp_model::contract::IntrospectionRequest {
-                token: fresh_user,
-                token_type_hint: None,
-            })
-            .send()
-            .await
-            .expect("introspection without Management"),
-        http::StatusCode::OK,
-    )
-    .await;
-    idp_task.abort();
-    let _ = idp_task.await;
-    eprintln!("closing permission HTTP endpoint");
-    server.endpoint().close().await;
-    eprintln!("permission HTTP endpoint closed");
-    drop(runtime);
-    std::fs::remove_dir_all(root).expect("remove HTTP fixture data");
-}
-
 #[derive(serde::Deserialize, serde::Serialize)]
 pub(crate) struct PermissionFixture {
     pub(crate) local_signer: idp_service::oauth2::NodeSignerBinding,
-    application_id: idp_model::model::Id,
-    other_application_id: idp_model::model::Id,
+    pub(crate) application_id: idp_model::model::Id,
+    pub(crate) other_application_id: idp_model::model::Id,
     pub(crate) administrator: idp_model::model::Id,
-    app_administrator: idp_model::model::Id,
-    application_role: idp_model::model::Id,
-    unassigned_user: idp_model::model::Id,
-    consent_id: idp_model::model::Id,
+    pub(crate) app_administrator: idp_model::model::Id,
+    pub(crate) application_role: idp_model::model::Id,
+    pub(crate) unassigned_user: idp_model::model::Id,
+    pub(crate) consent_id: idp_model::model::Id,
 }
 
 pub(crate) async fn seed_idp(
@@ -327,7 +48,7 @@ pub(crate) async fn seed_idp(
     seed_idp_with_config(root, &config, endpoint_id, approved_peer_id).await
 }
 
-async fn seed_idp_with_config(
+pub(crate) async fn seed_idp_with_config(
     root: &std::path::Path,
     config: &idp_server::AppConfig,
     endpoint_id: &str,
@@ -407,8 +128,8 @@ async fn seed_idp_with_config(
             vec!["openid"],
         ),
         (
-            "storage-management",
-            "storage-management-secret",
+            "storage-device",
+            "storage-device-secret",
             vec!["storage-service"],
             vec![
                 "management.device.lookup",
@@ -528,27 +249,20 @@ async fn seed_idp_with_config(
         )
         .await
         .expect("seed owner consent");
-    fs::create_dir_all(root.join("device")).expect("create Management fixture directory");
-    let management = Arc::new(
-        Database::open(root.join("device/devices.redb")).expect("Management Device owner"),
-    );
+    fs::create_dir_all(root.join("device")).expect("create Device fixture directory");
+    let management =
+        Arc::new(Database::open(root.join("device/devices.redb")).expect("Device owner"));
     device_service::replica::up(&management)
         .await
-        .expect("Management fixture schema");
+        .expect("Device fixture schema");
     let devices = DbDeviceRepo::new(management.client());
-    let local_device = devices
-        .create(
-            administrator.to_string(),
-            "unified-host".to_owned(),
-            endpoint_id.to_owned(),
-            "test-address".to_owned(),
-            Vec::new(),
-            i64::MAX,
-        )
+    let member_id = idp_model::model::Id::now_v7();
+    devices
+        .enroll_approved_exact(member_id, administrator, "owner-test", endpoint_id, 1)
         .await
-        .expect("approve unified endpoint identity");
+        .expect("Device-owned approved local endpoint");
     let local_signer = idp_service::oauth2::NodeSignerBinding {
-        member_id: local_device.id,
+        member_id,
         key_id: idp_model::model::Id::now_v7(),
         endpoint_id: endpoint_id.into(),
     };
@@ -622,7 +336,7 @@ pub(crate) async fn seed_permissions_at(path: &std::path::Path, fixture: &mut Pe
     seed_permissions_on(engine.client(), fixture).await;
 }
 
-async fn seed_permissions_on(engine: db::Client, fixture: &mut PermissionFixture) {
+pub(crate) async fn seed_permissions_on(engine: db::Client, fixture: &mut PermissionFixture) {
     use management_service::{
         ManagementService,
         replica::{DbPermissionRepo, DbRoleRepo},
@@ -755,7 +469,7 @@ pub(crate) async fn user_token(
         .to_owned()
 }
 
-async fn expect_status(
+pub(crate) async fn expect_status(
     response: reqwest::Response,
     expected: http::StatusCode,
 ) -> serde_json::Value {
@@ -795,7 +509,7 @@ async fn infrastructure_token(
         .to_owned()
 }
 
-async fn run_lifecycle_http_checks(
+pub(crate) async fn run_lifecycle_http_checks(
     client: &reqwest::Client,
     base: &str,
     management_base: &str,
@@ -1677,228 +1391,4 @@ fn test_keyring_store() -> Arc<keyring_core::CredentialStore> {
     Arc::new(ModifierTolerantTestStore {
         inner: keyring_core::mock::Store::new().expect("create test keyring"),
     })
-}
-
-#[test]
-fn shared_identity_management_writes_change_idp_authorization() {
-    std::thread::Builder::new()
-        .stack_size(16 * 1024 * 1024)
-        .spawn(|| {
-            tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(2)
-                .thread_stack_size(16 * 1024 * 1024)
-                .enable_all()
-                .build()
-                .expect("shared identity runtime")
-                .block_on(shared_identity_acceptance());
-        })
-        .expect("shared identity thread")
-        .join()
-        .expect("shared identity acceptance");
-}
-
-async fn shared_identity_acceptance() {
-    let root = std::env::temp_dir().join(format!(
-        "shared-identity-{}",
-        idp_model::model::Id::now_v7()
-    ));
-    let mut config = crate::UnifiedConfig {
-        listen_addr: "127.0.0.1:0".parse().expect("loopback"),
-        endpoint_data_dir: root.join("endpoint"),
-        idp: idp_server::AppConfig::default(),
-        management: management_server::AppConfig::default(),
-        device: device_server::AppConfig::default(),
-        storage: storage_server::AppConfig::default(),
-    };
-    config.idp.data_dir = root.join("idp").to_string_lossy().into_owned();
-    config.device.data_dir = root.join("device").to_string_lossy().into_owned();
-    config.storage.data_dir = root.join("storage").to_string_lossy().into_owned();
-    config.idp.oauth2.issuer = format!(
-        "https://shared-{}.example/idp",
-        idp_model::model::Id::now_v7()
-    );
-    config.idp.service_audience = Some("idp-services".into());
-    config.device.storage_audience = "storage-service".into();
-    let endpoint = crate::UnifiedEndpoint::open_fresh(&config.endpoint_data_dir, &config.idp)
-        .await
-        .expect("fresh endpoint");
-    let mut fixture = seed_idp(
-        &root,
-        &config.idp.oauth2.issuer,
-        &endpoint.endpoint_id().to_string(),
-        &iroh::SecretKey::generate().public().to_string(),
-    )
-    .await;
-    config.idp.oauth2.local_signer = Some(fixture.local_signer.clone());
-    seed_permissions_at(&root.join("idp/idp.redb"), &mut fixture).await;
-    endpoint.close().await;
-    let mut runtime = crate::UnifiedRuntime::build(config.clone())
-        .await
-        .expect("shared host");
-    let base = format!("http://{}", runtime.local_addr());
-    let listener = runtime.take_listener().expect("single HTTP listener");
-    let router = runtime.router();
-    let stop_http = tokio_util::sync::CancellationToken::new();
-    let stopped = stop_http.clone();
-    let task = tokio::spawn(async move {
-        axum::serve(listener, router)
-            .with_graceful_shutdown(stopped.cancelled_owned())
-            .await
-            .expect("serve shared host");
-    });
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(20))
-        .build()
-        .expect("HTTP client");
-    let actor = user_token(
-        &client,
-        &base,
-        "administrator",
-        management_service::MANAGEMENT_APPLICATION_URI,
-    )
-    .await;
-    let subject = user_token(&client, &base, "unassigned", "idp-services").await;
-    let registration = format!("{base}/idp/oauth2/register/human-client");
-    expect_status(
-        client
-            .get(&registration)
-            .bearer_auth(&subject)
-            .send()
-            .await
-            .expect("unassigned request"),
-        http::StatusCode::FORBIDDEN,
-    )
-    .await;
-    let application = format!("{base}/management/applications/{}", fixture.application_id);
-    let permissions = expect_status(
-        client
-            .get(format!("{application}/permissions"))
-            .bearer_auth(&actor)
-            .send()
-            .await
-            .expect("list permissions"),
-        http::StatusCode::OK,
-    )
-    .await;
-    let permission = permissions
-        .as_array()
-        .expect("permissions")
-        .iter()
-        .find(|permission| permission["name"] == "idp.clients.read")
-        .expect("client read permission")["id"]
-        .as_str()
-        .expect("permission ID");
-    let role = expect_status(
-        client
-            .post(format!("{application}/roles"))
-            .bearer_auth(&actor)
-            .json(&serde_json::json!({"name": "Shared identity reader"}))
-            .send()
-            .await
-            .expect("create shared role"),
-        http::StatusCode::OK,
-    )
-    .await;
-    let role = role["id"].as_str().expect("role ID");
-    expect_status(
-        client
-            .post(format!(
-                "{application}/roles/{role}/permissions/{permission}"
-            ))
-            .bearer_auth(&actor)
-            .send()
-            .await
-            .expect("assign permission"),
-        http::StatusCode::OK,
-    )
-    .await;
-    let assignment = format!(
-        "{application}/users/{}/roles/{role}",
-        fixture.unassigned_user
-    );
-    expect_status(
-        client
-            .post(&assignment)
-            .bearer_auth(&actor)
-            .send()
-            .await
-            .expect("assign shared role"),
-        http::StatusCode::OK,
-    )
-    .await;
-    expect_status(
-        client
-            .get(&registration)
-            .bearer_auth(&subject)
-            .send()
-            .await
-            .expect("IdP sees Management grant immediately"),
-        http::StatusCode::OK,
-    )
-    .await;
-    runtime
-        .shutdown()
-        .await
-        .expect("release host without deleting shared rows");
-    expect_status(
-        client
-            .get(&registration)
-            .bearer_auth(&subject)
-            .send()
-            .await
-            .expect("retained router still serves shared identity"),
-        http::StatusCode::OK,
-    )
-    .await;
-    stop_http.cancel();
-    task.await.expect("release shared HTTP connections");
-    let mut reopened = crate::UnifiedRuntime::build(config)
-        .await
-        .expect("reopen shared host");
-    let base = format!("http://{}", reopened.local_addr());
-    let listener = reopened.take_listener().expect("reopened listener");
-    let router = reopened.router();
-    let task = tokio::spawn(async move {
-        axum::serve(listener, router)
-            .await
-            .expect("serve reopened host");
-    });
-    let registration = format!("{base}/idp/oauth2/register/human-client");
-    expect_status(
-        client
-            .get(&registration)
-            .bearer_auth(&subject)
-            .send()
-            .await
-            .expect("shared grant survives reopen"),
-        http::StatusCode::OK,
-    )
-    .await;
-    expect_status(
-        client
-            .delete(format!(
-                "{base}/management/applications/{}/users/{}/roles/{role}",
-                fixture.application_id, fixture.unassigned_user
-            ))
-            .bearer_auth(&actor)
-            .send()
-            .await
-            .expect("revoke shared grant"),
-        http::StatusCode::OK,
-    )
-    .await;
-    expect_status(
-        client
-            .get(&registration)
-            .bearer_auth(&subject)
-            .send()
-            .await
-            .expect("IdP sees Management revocation immediately"),
-        http::StatusCode::FORBIDDEN,
-    )
-    .await;
-    task.abort();
-    let _ = task.await;
-    reopened.shutdown().await.expect("release reopened owners");
-    fs::remove_dir_all(root).expect("shared identity cleanup");
 }

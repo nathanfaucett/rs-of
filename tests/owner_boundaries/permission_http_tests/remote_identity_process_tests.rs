@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use super::{
+use crate::support::identity::{
     PermissionFixture, expect_status, seed_idp_with_config, seed_permissions_on, user_token,
 };
 
