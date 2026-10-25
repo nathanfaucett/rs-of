@@ -4,7 +4,9 @@
 
 **Blocked by:** 02 — Open a filesystem through TanStack DB.
 
-**Status:** ready-for-agent
+**Triage:** ready-for-agent
+
+Status: claimed
 
 ## Parent
 
