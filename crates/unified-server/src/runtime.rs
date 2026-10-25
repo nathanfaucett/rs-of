@@ -1795,8 +1795,8 @@ mod tests {
         let management_device_token = issue_client_token(
             &client,
             &server_address,
-            "storage-management",
-            "storage-management-secret",
+            "storage-device",
+            "storage-device-secret",
             "storage-service",
             "management.device.lookup",
         )
@@ -1819,8 +1819,8 @@ mod tests {
         let storage_token = issue_client_token(
             &client,
             &server_address,
-            "storage-management",
-            "storage-management-secret",
+            "storage-device",
+            "storage-device-secret",
             "storage-service",
             "management.replication.read",
         )

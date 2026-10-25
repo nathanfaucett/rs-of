@@ -173,3 +173,43 @@ No expensive nine-process lifecycle execution, full library/workspace suite,
 feature powerset, CRAP run, new production feature, main/integration merge back,
 or push was performed in this final pass. Genuine private regressions were not
 deleted to manufacture parity or an attractive line-count claim.
+
+
+## Follow-up P2 review: shared fixture credential callers
+
+Review of `95d1d9cf4` found that `tests/support/identity.rs` registers
+`storage-device` / `storage-device-secret`, but the private Unified listener
+acceptance test still requested `storage-management` / `storage-management-secret`
+for endpoint lookup and replication-selection reads. Updated both callers in
+`crates/unified-server/src/runtime.rs` to the registered credentials: four string
+literals, with no compatibility alias or fixture registration change. All existing
+assertions, requested audiences and Management-prefixed permission scopes remain.
+
+A repository-wide search of the remaining old-name uses found no other stale
+callers of this shared fixture. Kept the independent provisioning test's
+`storage-management.json` filenames, the obsolete-config rejection case's
+`storage_management` key, and JavaScript mock token labels. These do not request
+the removed shared-fixture Client. Other actual Management client names remain
+unchanged.
+
+Focused validation on this worktree, after the fix:
+
+```sh
+RUST_MIN_STACK=67108864 cargo test -p unified-server --lib \
+  runtime::tests::builds_three_prefixed_services_with_one_endpoint \
+  --target-dir ../of/target -j8 --offline -- --exact --nocapture
+```
+
+**Passed: 1 test, 102.82 seconds**, with a 600-second subprocess bound. The complete
+listener, endpoint/readiness, Join approval/rejection/replay, service-credential
+and permission assertions ran unchanged. The existing SDK consumer also printed
+`Built Node-join export qualified against actual host-composed router`.
+
+The first attempt stopped earlier at the Node-join consumer because this
+worktree lacked the built Device SDK (`MODULE_NOT_FOUND`); it is not counted as
+a pass. The successful rerun used existing main-checkout build artifacts read-only
+through temporary worktree symlinks at `node_modules` and
+`packages/device-client/esm`, removed in a `finally` block. No main file, staged
+change, package export, test assertion or qualification script was modified.
+Unified package formatting and diff checks also passed. No full suite, CRAP,
+feature powerset, main/integration merge or push was performed for this fix.
