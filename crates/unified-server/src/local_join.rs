@@ -10,6 +10,7 @@ use idp_service::oauth2::NodeSignerBinding;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
+use idp_server::OwnerProvisioner;
 use idp_server::local_provisioning::{
     absolute, create_private_directory, lock, private_options, provisioning_stage, read_private,
     require_absent, require_retained_directory, sync_ancestry,
@@ -357,13 +358,24 @@ impl LocalJoin {
             self.config.device.require_provisioned_device()?;
         }
         let binding = self.binding()?;
-        let (protocol, owner) = SecurityProtocol::open_node_bootstrap(
-            &endpoint,
-            &self.config.idp,
-            Path::new(&self.config.device.data_dir),
-            binding,
-        )
-        .await?;
+        device_service::node_join_owner::check_bootstrap_endpoint(
+            endpoint.endpoint_id(),
+            &binding,
+        )?;
+        let owner = OwnerProvisioner::open(&self.config.idp).await?;
+        let device_directory = Path::new(&self.config.device.data_dir);
+        let devices = device_server::open_local_device_database(device_directory).await?;
+        let idp = owner.node_join_database()?;
+        let protocol = SecurityProtocol::new(
+            endpoint.server().clone(),
+            Arc::clone(&idp),
+            devices,
+            idp,
+            self.config.idp.oauth2.issuer.clone(),
+            Some(binding),
+            device_directory.join("node-bootstrap-staging"),
+            CancellationToken::new(),
+        );
         let clients = [self.journal.login_client];
         if fresh_inventory {
             provisioning_stage(|| {
@@ -395,7 +407,12 @@ impl LocalJoin {
             "Node Join stage=login_client elapsed_ms={}",
             started.elapsed().as_millis()
         );
-        Ok(protocol.into_runtime_owners(endpoint))
+        let (idp, devices) = protocol.into_databases();
+        Ok(RuntimeOwners {
+            endpoint,
+            idp,
+            devices,
+        })
     }
 
     pub async fn build_runtime(&self) -> io::Result<UnifiedRuntime> {

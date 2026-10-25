@@ -2075,8 +2075,14 @@ pub fn compose_protocol_router(
     security: &SecurityProtocol,
 ) -> Option<IrohRouter> {
     storage.data_handler().map(|data_protocol| {
+        let owner = security.clone();
+        let data_protocol =
+            data_protocol.with_additional_stream(move |kind, connection, send, recv| {
+                let owner = owner.clone();
+                async move { owner.accept_data_stream(kind, connection, send, recv).await }
+            });
         server.router_with_protocol(
-            security.attach(data_protocol),
+            data_protocol,
             idp_server::BOOTSTRAP_ALPN,
             security.node_bootstrap_handler(),
         )

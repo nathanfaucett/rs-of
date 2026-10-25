@@ -13,7 +13,6 @@ mod http_server_tests;
 #[cfg(all(test, unix))]
 mod local_provisioning_tests;
 mod runtime;
-mod security_sync;
 mod setup_host;
 #[cfg(all(test, unix))]
 mod setup_host_tests;
@@ -23,9 +22,9 @@ mod setup_runtime;
 #[cfg(feature = "cli")]
 pub use cli::run;
 pub use config::UnifiedConfig;
+pub use device_service::security_protocol::{SecurityContext, SecurityProtocol};
 pub use endpoint::UnifiedEndpoint;
 pub use runtime::{RuntimeOwners, UnifiedRuntime, compose_protocol_router, compose_router};
-pub use security_sync::{SecurityContext, SecurityProtocol};
 #[cfg(unix)]
 pub use setup_host::SetupHost;
 #[cfg(unix)]
