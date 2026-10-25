@@ -1,6 +1,8 @@
-# Ticket 07 validation follow-up: read-only diagnosis
+# Ticket 07 validation follow-up
 
-## Scope and base
+Latest disposition: diagnosis progressed to a guarded Swagger cache repair, a matrix run with 26 owner-boundary failures, and a resource-stopped coverage build. Subsequent isolated checks and pre-spec source comparison distinguish known fixture/prerequisite defects from five readiness/request failures whose causes remain unproven. Later sections record actual execution; the initial read-only proposal below is historical. No complete feature matrix or CRAP score is claimed.
+
+## Initial read-only scope and base
 
 2026-10-25. Isolated worktree `/home/nathan/code/rust/aicacia/of-setup-validation`, branch `setup-simplification-validation`, HEAD `54816fa00764ff81ccc0811f560b77103a4a4253` (requested integration `54816fa00`). Clean at entry. Read AGENTS, spec, ticket07, map, both 07 qualification/review receipts, issue-tracker guidance, justfile, root Cargo.toml and .cargo/config.toml; inspected relevant build scripts, registry Swagger implementation, fingerprints and artifacts.
 
@@ -15,12 +17,12 @@ Installed `utoipa-swagger-ui 9.0.2` build script:
 
 Observed build-script fingerprints enable only `axum`, not `cache`, `reqwest`, `url` or `vendored`. Therefore “cached” means a file inside that build invocation’s OUT_DIR, **not** an OS-wide Swagger cache. Default URL is `https://github.com/swagger-api/swagger-ui/archive/refs/tags/v5.17.14.zip`.
 
-| Artifact | Bytes | SHA-256 | Inspection |
-| --- | ---: | --- | --- |
-| `/home/nathan/code/rust/aicacia/of/target/debug/build/utoipa-swagger-ui-2b6d48cbe457daf8/out/v5.17.14.zip` | 4,388,280 | `481244d0812097b11fbaeef79f71d942b171617f9c9f9514e63acbe13e71ccdc` | Valid ZIP; all 1,097 entries pass CRC (`ZipFile.testzip()` returns None); contains `swagger-ui-5.17.14/dist/swagger-initializer.js`. |
-| `/home/nathan/code/rust/aicacia/of/target/debug/build/utoipa-swagger-ui-7787c518a6cb5c2e/out/v5.17.14.zip` | 4,388,280 | same | Same bytes/hash, valid ZIP directory. |
-| `/home/nathan/code/rust/aicacia/of/target/debug/build/utoipa-swagger-ui-4171541ce4ca67c5/out/v5.17.14.zip` | 4,388,280 | same | Same bytes/hash, valid ZIP directory. |
-| `/home/nathan/code/rust/aicacia/of/target/llvm-cov-target/debug/build/utoipa-swagger-ui-d07eaf3bfcc9abe6/out/v5.17.14.zip` | 970,752 | `5decad6d8c43865922ea2b0705b068875d8d1ba095b9fa2c1ffeb3ba50751800` | Invalid ZIP: **exact byte prefix** of the valid archive. Missing end-of-central-directory. |
+| Artifact                                                                                                                   |     Bytes | SHA-256                                                            | Inspection                                                                                                                           |
+| -------------------------------------------------------------------------------------------------------------------------- | --------: | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `/home/nathan/code/rust/aicacia/of/target/debug/build/utoipa-swagger-ui-2b6d48cbe457daf8/out/v5.17.14.zip`                 | 4,388,280 | `481244d0812097b11fbaeef79f71d942b171617f9c9f9514e63acbe13e71ccdc` | Valid ZIP; all 1,097 entries pass CRC (`ZipFile.testzip()` returns None); contains `swagger-ui-5.17.14/dist/swagger-initializer.js`. |
+| `/home/nathan/code/rust/aicacia/of/target/debug/build/utoipa-swagger-ui-7787c518a6cb5c2e/out/v5.17.14.zip`                 | 4,388,280 | same                                                               | Same bytes/hash, valid ZIP directory.                                                                                                |
+| `/home/nathan/code/rust/aicacia/of/target/debug/build/utoipa-swagger-ui-4171541ce4ca67c5/out/v5.17.14.zip`                 | 4,388,280 | same                                                               | Same bytes/hash, valid ZIP directory.                                                                                                |
+| `/home/nathan/code/rust/aicacia/of/target/llvm-cov-target/debug/build/utoipa-swagger-ui-d07eaf3bfcc9abe6/out/v5.17.14.zip` |   970,752 | `5decad6d8c43865922ea2b0705b068875d8d1ba095b9fa2c1ffeb3ba50751800` | Invalid ZIP: **exact byte prefix** of the valid archive. Missing end-of-central-directory.                                           |
 
 This is an incomplete real archive, not HTML, a rate-limit/error body, an unrelated ZIP or a dependency-source failure. The three normal build outputs report successful download/extraction. The coverage copy has only about 22% of the archive.
 
@@ -102,7 +104,6 @@ CARGO_TARGET_DIR=/home/nathan/code/rust/aicacia/of/target CARGO_BUILD_JOBS=2 RUS
 
 Do not add `--no-clean` or reroute instrumented artifacts into normal debug output without separately understanding llvm-cov behavior. A repaired archive clears only this known build-input blocker; later compilation/tests/CRAP may still fail. No complete matrix, coverage result, score, HTTPS reliability or acceptance is claimed. Await follow-up before executing repair/heavy validation.
 
-
 ## Authorized execution follow-up (2026-10-25)
 
 The user authorized the narrow cache replacement and one attempt each at the exact matrix and `just crap`, generously bounded up to 1,800,000 ms, with resource safety taking precedence. This section supersedes the earlier “not executed” scheduling status, not its historical inspection findings. No source/config/test/profile/lint changes were made. No ponytail/TDD was required because no code fix was attempted.
@@ -138,17 +139,17 @@ Command: `cargo hack test --feature-powerset --all-targets`.
 
 Actionable failure locations from this exact invocation:
 
-| Location | Actual failure |
-| --- | --- |
-| `tests/support/native.rs:515,544` | Native User/storage token requests: HTTP 500, `invalid input: local node private signer is missing`. |
-| `tests/support/native.rs:275` | `independent locally trusted signer`: `InvalidInput("local node private signer is missing")`. |
-| `tests/owner_boundaries/permission_http_tests.rs:109` | Independent IdP runtime construction fails with the same missing private signer; parent reports child panic at line 44. |
-| `tests/owner_boundaries/node_join_bootstrap_tests.rs:286` and `node_bootstrap_interruption_tests.rs:254` | Production approving owner runtime fails with the same missing private signer. |
-| `tests/owner_boundaries/policy_cleanup_http_tests.rs:50` | HTTP 500 with the same missing signer description. |
-| `tests/owner_composition_tests/permissions.rs:310` | `real policy denial` request to HTTPS loopback `/idp/applications`: `reqwest::Error ... source: TimedOut`. Parent fails at line 94. |
-| `tests/owner_composition_tests/create.rs:196` | `bounded independent device readiness` in Create and normal-operation children; remote setup child reports `bounded independent idp readiness`. |
-| `tests/owner_composition_tests/reset.rs:389` | Join child assertion: `local.load("", "", client).expect("partially deleted client").is_none()` is false. Parent fails at `join.rs:114`. |
-| `tests/owner_boundaries/native_api_tests.rs:547` | `built exported SDK operations against actual routers` parent assertion fails. No SDK refactor attempted. |
+| Location                                                                                                 | Actual failure                                                                                                                                  |
+| -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tests/support/native.rs:515,544`                                                                        | Native User/storage token requests: HTTP 500, `invalid input: local node private signer is missing`.                                            |
+| `tests/support/native.rs:275`                                                                            | `independent locally trusted signer`: `InvalidInput("local node private signer is missing")`.                                                   |
+| `tests/owner_boundaries/permission_http_tests.rs:109`                                                    | Independent IdP runtime construction fails with the same missing private signer; parent reports child panic at line 44.                         |
+| `tests/owner_boundaries/node_join_bootstrap_tests.rs:286` and `node_bootstrap_interruption_tests.rs:254` | Production approving owner runtime fails with the same missing private signer.                                                                  |
+| `tests/owner_boundaries/policy_cleanup_http_tests.rs:50`                                                 | HTTP 500 with the same missing signer description.                                                                                              |
+| `tests/owner_composition_tests/permissions.rs:310`                                                       | `real policy denial` request to HTTPS loopback `/idp/applications`: `reqwest::Error ... source: TimedOut`. Parent fails at line 94.             |
+| `tests/owner_composition_tests/create.rs:196`                                                            | `bounded independent device readiness` in Create and normal-operation children; remote setup child reports `bounded independent idp readiness`. |
+| `tests/owner_composition_tests/reset.rs:389`                                                             | Join child assertion: `local.load("", "", client).expect("partially deleted client").is_none()` is false. Parent fails at `join.rs:114`.        |
+| `tests/owner_boundaries/native_api_tests.rs:547`                                                         | `built exported SDK operations against actual routers` parent assertion fails. No SDK refactor attempted.                                       |
 
 These are distinct observed failures, not all attributed to one cause. Missing signer evidence is actionable but no isolated baseline or investigation here proves its origin, relation to the other agent’s lock-release race, or pre-existence. The exact requested invocation uses ordinary default test concurrency; it is not an idle serial HTTPS reliability claim. Existing test bounds/assertions remain unchanged.
 
@@ -214,7 +215,6 @@ Sibling HEADs observed after execution (not pinned snapshots of concurrent dirty
 
 Main lock hash at entry, after matrix and final inspection remains `bb7e608f57a6167612acac7d247e51eb2c6efbe449b95208c7a1862b78dd3a3f`; its pre-existing modification was never reverted. No source, sibling work, OS trust/profile, dependency feature, profile or lint failure was changed. Only this evidence is committed. Ticket07/spec remain open: matrix has actual test failures and CRAP remains resource-blocked. Next action is investigate the concrete failing seams and arrange more available memory before another coverage attempt, not repeat the unchanged expensive graph.
 
-
 ## Failure diagnosis follow-up: source comparison and execution-only isolation
 
 ### Integration, scope and provenance
@@ -229,13 +229,13 @@ Pre-spec source comparison uses **`191962716f3edd7fd0c0ffbd8e8ec6c008511393`**, 
 
 Parsing all 26 top-level `---- <name> stdout ----` blocks gives:
 
-| Count | Actual failure family | Current diagnosis |
-| ---: | --- | --- |
-| 19 | Missing local private signer: 12 native API cases, two permission HTTP cases, policy cleanup, Node Join bootstrap and three bootstrap interruption/orchestration cases | Source-established process-global mock-provider isolation defect; two formerly failing representatives pass alone. Exact concurrent store-switch history for the original matrix was not recorded. |
-| 1 | `generated_rust_and_built_javascript_use_actual_owner_routes` | Concrete missing built-JS prerequisite, not an SDK behavior failure. |
-| 4 | Two Create parents, normal-operation parent, remote-setup parent: bounded independent owner readiness | Ordinary Create parent passes alone. Concurrency/resource sensitivity supported, but no exact cause or baseline equivalence established for all four. |
-| 1 | Independent production Management HTTPS permission parent | Child request timeout in matrix, passes in a fresh isolated serial child. No persistent failure established. |
-| 1 | Independent Join legacy-record reset parent | Reproduces identically in a fresh isolated child; fixture expects deletion from a record that the unchanged parser explicitly refuses. |
+| Count | Actual failure family                                                                                                                                                  | Current diagnosis                                                                                                                                                                                  |
+| ----: | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+|    19 | Missing local private signer: 12 native API cases, two permission HTTP cases, policy cleanup, Node Join bootstrap and three bootstrap interruption/orchestration cases | Source-established process-global mock-provider isolation defect; two formerly failing representatives pass alone. Exact concurrent store-switch history for the original matrix was not recorded. |
+|     1 | `generated_rust_and_built_javascript_use_actual_owner_routes`                                                                                                          | Concrete missing built-JS prerequisite, not an SDK behavior failure.                                                                                                                               |
+|     4 | Two Create parents, normal-operation parent, remote-setup parent: bounded independent owner readiness                                                                  | Ordinary Create parent passes alone. Concurrency/resource sensitivity supported, but no exact cause or baseline equivalence established for all four.                                              |
+|     1 | Independent production Management HTTPS permission parent                                                                                                              | Child request timeout in matrix, passes in a fresh isolated serial child. No persistent failure established.                                                                                       |
+|     1 | Independent Join legacy-record reset parent                                                                                                                            | Reproduces identically in a fresh isolated child; fixture expects deletion from a record that the unchanged parser explicitly refuses.                                                             |
 
 Do **not** describe all 26 as unrelated, all as a signer defect, or all as a setup regression. Full requested matrix remains failed. No ignored assertion, skipped feature, enlarged timeout, weakened test, trust bypass, or environment “fix” is used to change that result.
 
@@ -293,13 +293,13 @@ No builds, no full owner suite, no full matrix/coverage. All serial commands hav
 /home/nathan/code/rust/aicacia/of/target/debug/deps/owner_boundaries-d4b09abcca5a0cbe <exact-test-name> --exact --nocapture --test-threads=1
 ```
 
-| Exact test name | Actual outcome |
-| --- | --- |
-| `native_api_tests::native_owner_cutover_captures_initial_secrets_and_reuses_reopened_owner` | **1 passed**, 8.81 s test time (8.84 s supervised); previously missing signer at native.rs:544. |
-| `permission_http_tests::normal_permission_http_administration` | **1 passed**, 57.14 s test time; previously missing signer at permission_http_tests.rs:109. |
-| `owner_composition_tests::join::production_independent_join_legacy_record_reset` | **Failed**, exit 101, 100.76 s supervised; isolated child reset.rs:389, parent join.rs:114. |
-| `owner_composition_tests::create::production_independent_create_and_offline_reopen` | **Parent and isolated child passed**, exit 0, 123.07 s supervised. The original matrix failed its bounded readiness wait. |
-| `owner_composition_tests::permissions::independent_permission_production_management_https` | **Parent and isolated child passed**, exit 0, 23.42 s supervised. Original matrix timed out on authorized HTTPS `/idp/applications`. |
+| Exact test name                                                                             | Actual outcome                                                                                                                       |
+| ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `native_api_tests::native_owner_cutover_captures_initial_secrets_and_reuses_reopened_owner` | **1 passed**, 8.81 s test time (8.84 s supervised); previously missing signer at native.rs:544.                                      |
+| `permission_http_tests::normal_permission_http_administration`                              | **1 passed**, 57.14 s test time; previously missing signer at permission_http_tests.rs:109.                                          |
+| `owner_composition_tests::join::production_independent_join_legacy_record_reset`            | **Failed**, exit 101, 100.76 s supervised; isolated child reset.rs:389, parent join.rs:114.                                          |
+| `owner_composition_tests::create::production_independent_create_and_offline_reopen`         | **Parent and isolated child passed**, exit 0, 123.07 s supervised. The original matrix failed its bounded readiness wait.            |
+| `owner_composition_tests::permissions::independent_permission_production_management_https`  | **Parent and isolated child passed**, exit 0, 23.42 s supervised. Original matrix timed out on authorized HTTPS `/idp/applications`. |
 
 Two bounded concurrency probes, each in its own new binary process and **not** a full suite:
 

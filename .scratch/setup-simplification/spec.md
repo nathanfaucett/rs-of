@@ -2,7 +2,7 @@
 
 Status: open
 
-Implementation tickets 01–06 are integrated. Final qualification remains open: see [ticket 07 evidence](evidence/07-integrated-qualification.md) and the [review-fix follow-up](evidence/07-review-fixes.md). Review fixes cover independent sign-in routing, retained lock errors, stopped recovery and configured packaged-native remote origins. Final-code serial HTTPS Join/interruption/offline reopen passed, but a repeat failure, incomplete feature matrix and failed coverage build prevent reliable/full qualification. This is not accepted as fully qualified.
+Implementation tickets 01–06 are integrated. Final qualification remains open: see [ticket 07 evidence](evidence/07-integrated-qualification.md), [review fixes](evidence/07-review-fixes.md), [lifecycle reliability follow-up](evidence/07-reliability-followup.md) and [validation diagnosis](evidence/07-validation-followup.md). Review fixes cover independent sign-in routing, retained lock errors, stopped recovery and configured packaged-native remote origins. A demonstrated router/admission shutdown race and its reviewed queued-reply deadlock are fixed with deterministic regressions; final serial HTTPS Join/interruption/offline reopen passed 9/9 scenarios. Earlier offer/request timeout causes remain unproven. The feature matrix reached owner-boundary test failures, and coverage was stopped for insufficient memory after repairing the truncated Swagger cache. This is not accepted as fully qualified.
 
 ## Problem Statement
 

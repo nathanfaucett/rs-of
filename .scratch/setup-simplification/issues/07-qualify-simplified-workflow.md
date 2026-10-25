@@ -8,6 +8,8 @@
 
 **Triage:** ready-for-agent
 
+Latest handoff: reviewed lifecycle fixes and three final serial HTTPS suites (9/9 scenarios) pass; [reliability evidence](../evidence/07-reliability-followup.md). The [matrix now fails owner-boundary tests and coverage is memory-blocked](../evidence/07-validation-followup.md). Earlier offer/request timeout causes remain unproven. Keep qualification open; historical Answer sections below are not the latest validation disposition.
+
 - [x] Verify default bundled first launch has one essential Create/Join choice, minimal required input, no mandatory internal composition, and no completion-only gate before ordinary sign-in.
 - [ ] Exercise the integrated Join flow from request through source acceptance and exact approval/rejection to verified readiness; verify completed reopen without the source peer.
 - [ ] Verify accepted work survives disconnect and restart, exact retry retains identities, required transient credentials are requested again, and returning ready Nodes do not replay onboarding.
@@ -32,7 +34,6 @@
 34 mounted, 180 route/state/client tests, clean app check/build, API 40 plus doc test, native 21 (including provider parent/child), scoped strict Clippy and formatting pass. Workspace Clippy fails generated SDK lints; standalone setup HTTP tests fail. HTTPS Join has individual offline/finalization passes but later approval/Storage/OAuth timeouts; interruption/exact retry is not reliably qualified. Final feature matrix and CRAP each exhausted 600000 ms; no matrix pass/score.
 
 The two unchecked integrated durability/Join items prevent resolution. Resume by reproducing the HTTPS timeouts and completing qualification, not by weakening trust/readiness/authorization assertions or editing real profiles/OS trust. See evidence for unrun process-suite and GUI/platform boundaries. Integration tip was merged before delivery; no main Cargo.lock changes belong to this ticket.
-
 
 ### Review follow-up
 
