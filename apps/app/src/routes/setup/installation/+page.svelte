@@ -10,7 +10,6 @@
         usesRemoteApis,
     } from "$lib/common/state/setupClient.svelte";
 
-    import NativeSetupRecovery from "$lib/common/components/NativeSetupRecovery.svelte";
     import JoinSetup from "$lib/common/components/JoinSetup.svelte";
     import IndependentSetup from "$lib/common/components/IndependentSetup.svelte";
 
@@ -32,7 +31,6 @@
         data.hosts;
         return "";
     });
-    let node = $state("");
     const bundledCreate = $derived(data.bundled && purpose === "create");
     let joinStarted = $state(false);
     let web = $state.raw<WebSetupCreate | null>(null);
@@ -241,7 +239,6 @@
             if (!session.observationRequired) {
                 observedHosts = hosts;
                 if (session.intent) {
-                    node = session.intent.node;
                     if ("administrator" in session.intent) {
                         purpose = "create";
                         name = session.intent.administrator;
@@ -340,7 +337,7 @@
                     <button onclick={() => trustConsent(false)} disabled={busy}>Not now</button>
                 {/if}
                 {#if busy}<p role="status">Checking retained host and HTTPS trust. Waiting for platform work to finish.</p>{/if}
-                {#if observation.action === "repair"}<p>Repair retained evidence before continuing. Reset is not a repair action.</p>{/if}
+                {#if observation.action === "repair"}<p>Repair retained evidence before continuing. Reset is not a repair action.</p>{#if data.bundled}<a href={resolve("/maintenance")}>Open maintenance for exact-reference recovery</a>{/if}{/if}
                 <button onclick={refreshObservation} disabled={busy}>Retry observation</button>
                 {#if data.bundled && observation.action !== "repair"}
                     <button onclick={retryRuntime} disabled={busy}>Retry local services</button>
@@ -595,7 +592,7 @@
                     </p>
                 {/if}
             {/if}
-            {#if data.bundled}<details><summary>Maintenance</summary><NativeSetupRecovery /></details>{/if}
+            {#if data.bundled}<a href={resolve("/maintenance")}>Local Node maintenance</a>{/if}
             {#if error}<p role="alert">{error}</p>{/if}
         </div>
     </div>

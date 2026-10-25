@@ -255,4 +255,3 @@ async fn close_host(app: &AppHandle<Wry>) -> io::Result<()> {
     }
     Ok(())
 }
-

@@ -53,3 +53,9 @@ Focused tests added for shared native HTTPS routing/admission/Origin, one listen
 All cited lifecycle qualification is bounded same-host Ubuntu Linux x86_64, isolated native roots and mock/injected provider/trust commands. No real OS install/provider/profile, rendered GUI, WAN/container, other-platform or production-deployment certification is inferred. Receipt 41's full Svelte check still fails with five inherited built Storage SDK export errors; the historical missing Paraglide outputs are no longer current. This documentation update runs no Cargo/code tests or privileged operations.
 
 The existing unified production Join tests remain the qualification seam for authenticated peer approval/import/offline reopen. This native slice delegates to that worker unchanged; it does not claim a new rendered GUI or physical Join qualification.
+
+## Maintenance presentation
+
+`/maintenance` is separate from normal onboarding and requires bundled desktop selection. Setup and settings link there; onboarding no longer mounts destructive controls. Runtime/prerequisite retry remains on setup, not in maintenance. Reset requires local-consequence disclosure and re-entered `RESET` confirmation on every attempt. Advanced exact-reference recovery is independent and never triggers reset. UI progress/failure projects the existing native commands; native startup, stop/join, journals, provider ordering and locks are unchanged.
+
+Local cleanup success does not acknowledge remote revocation. Retained public targets are refreshed separately; both authorized peer-owner operations must succeed before native acknowledgement. Maintenance requires an explicit User bearer instead of borrowing an ambient session; native issuer pinning and per-owner audiences remain authoritative. No automatic OS CA removal is added.

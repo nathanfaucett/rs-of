@@ -143,7 +143,10 @@ it.each(["retry", "prerequisite", "repair"] as const)(
         expect(body).toContain("Retry observation");
         expect(body).not.toContain("<form");
         expect(body).not.toContain('href="/signin"');
-        expect(body).toContain("Maintenance");
+        expect(body).toContain('href="/maintenance"');
+        expect(body).not.toContain("Type RESET");
+        expect(body).not.toContain("Recover reset references</button>");
+        expect(body).not.toContain("Revoke on surviving peer</button>");
         if (action === "repair")
             expect(body).toContain("Preserve the existing identity");
     },
