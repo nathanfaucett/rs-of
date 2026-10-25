@@ -4,7 +4,9 @@
 
 **Blocked by:** 03 — Save and delete secrets through the collection.
 
-**Status:** ready-for-agent
+**Triage:** ready-for-agent
+
+Status: claimed
 
 ## Parent
 
