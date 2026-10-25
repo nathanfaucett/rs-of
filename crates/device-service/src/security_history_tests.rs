@@ -28,7 +28,7 @@ use crate::{
     security_policy::{SecurityContext, SecurityHistory},
     security_protocol::{
         SecurityProtocol,
-        test_fixtures::{enroll, native_handler, sql},
+        test_fixtures::{StreamPanics, enroll, native_handler, sql},
     },
 };
 
@@ -148,6 +148,7 @@ struct Pair {
     protocol_b: SecurityProtocol,
     cancellation: CancellationToken,
     router: Option<Router>,
+    stream_panics: StreamPanics,
     received: Arc<Mutex<Vec<Vec<u8>>>>,
     recovery: Option<RecoveryAttack>,
 }
@@ -297,6 +298,7 @@ impl Pair {
             protocol_b,
             cancellation,
             router: None,
+            stream_panics: StreamPanics::default(),
             received: Arc::new(Mutex::new(Vec::new())),
             recovery: None,
         }
@@ -311,7 +313,7 @@ impl Pair {
         let recovery = self.recovery.clone();
         let expected_endpoint = self.a.endpoint().id();
         let expected_member = self.member_a;
-        let handler = native_handler(
+        let (handler, stream_panics) = native_handler(
             self.cancellation.clone(),
             move |kind, connection, send, recv| {
                 let protocol = protocol.clone();
@@ -367,6 +369,7 @@ impl Pair {
                 }
             },
         );
+        self.stream_panics = stream_panics;
         self.router = Some(
             Router::builder(self.b.endpoint().clone())
                 .accept(DATA_ALPN, handler)
@@ -390,6 +393,7 @@ impl Pair {
         if let Some(router) = self.router.take() {
             router.shutdown().await.expect("shared router shutdown");
         }
+        self.stream_panics.check();
         self.a.endpoint().close().await;
         self.b.endpoint().close().await;
         let root = self.root.clone();

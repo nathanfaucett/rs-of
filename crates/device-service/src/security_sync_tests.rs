@@ -195,14 +195,15 @@ async fn exchange_history() {
         cancellation.clone(),
     );
     let receiver = protocol_b.clone();
-    let handler = native_handler(cancellation.clone(), move |kind, connection, send, recv| {
-        let receiver = receiver.clone();
-        async move {
-            receiver
-                .accept_data_stream(kind, connection, send, recv)
-                .await
-        }
-    });
+    let (handler, stream_panics) =
+        native_handler(cancellation.clone(), move |kind, connection, send, recv| {
+            let receiver = receiver.clone();
+            async move {
+                receiver
+                    .accept_data_stream(kind, connection, send, recv)
+                    .await
+            }
+        });
     let router = Router::builder(server_b.endpoint().clone())
         .accept(DATA_ALPN, handler)
         .spawn();
@@ -574,6 +575,7 @@ async fn exchange_history() {
     );
     cancellation.cancel();
     router.shutdown().await.expect("shared router shutdown");
+    stream_panics.check();
     server_a.endpoint().close().await;
     server_b.endpoint().close().await;
     drop((
