@@ -865,7 +865,7 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use crate::permission_http_tests::{run_permission_http_checks, seed_idp};
+    use crate::identity_fixture::{run_permission_http_checks, seed_idp};
     use axum::{body::Body, http::Request};
     use tokio::net::TcpListener;
     use tower::ServiceExt;
@@ -1299,7 +1299,7 @@ mod tests {
         )
         .await;
         config.idp.oauth2.local_signer = Some(fixture.local_signer.clone());
-        crate::permission_http_tests::seed_permissions_at(&root.join("idp/idp.redb"), &mut fixture)
+        crate::identity_fixture::seed_permissions_at(&root.join("idp/idp.redb"), &mut fixture)
             .await;
         let device_only_peer = iroh::SecretKey::generate().public();
         let peer_binding =
@@ -1563,7 +1563,7 @@ mod tests {
             .expect("request live Device route with legacy header only");
         assert_eq!(response.status(), http::StatusCode::UNAUTHORIZED);
 
-        let bearer = crate::permission_http_tests::user_token(
+        let bearer = crate::identity_fixture::user_token(
             &client,
             &format!("http://{server_address}"),
             "administrator",
@@ -1618,7 +1618,7 @@ mod tests {
                 .is_err()
         );
         assert!(runtime.pending_node_joins("forged").await.is_err());
-        let ordinary = crate::permission_http_tests::user_token(
+        let ordinary = crate::identity_fixture::user_token(
             &client,
             &format!("http://{server_address}"),
             "unassigned",

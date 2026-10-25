@@ -89,7 +89,7 @@ fn production_independent_signer_free_operation_and_delayed_authority_reopen() {
 #[ignore = "parent supplies private native roots and mock secure provider/trust"]
 async fn operation_child() {
     let root = PathBuf::from(std::env::var_os("OF_OPERATION_ROOT").expect("parent roots"));
-    crate::hosted_setup_integration_tests::capture_setup_timings();
+    crate::support::timing::capture_setup_timings();
     let _provider = crate::owner_composition_tests::reset::Provider::install();
     let addresses: Vec<SocketAddr> =
         serde_json::from_slice(&fs::read(root.join("addresses.json")).expect("addresses"))

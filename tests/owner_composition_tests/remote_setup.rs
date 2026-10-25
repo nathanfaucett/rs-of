@@ -144,7 +144,7 @@ async fn submit(http: &reqwest::Client, root: &Path, intent: &IndependentCreateI
 #[ignore = "parent isolates native roots, protected provider and OS trust tools"]
 async fn remote_setup_child() {
     let root = PathBuf::from(std::env::var_os("OF_REMOTE_SETUP_ROOT").expect("fixture root"));
-    crate::hosted_setup_integration_tests::capture_setup_timings();
+    crate::support::timing::capture_setup_timings();
     let _provider = super::reset::Provider::install();
     let addresses: Vec<SocketAddr> =
         serde_json::from_slice(&fs::read(root.join("addresses.json")).expect("addresses"))

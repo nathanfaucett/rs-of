@@ -137,12 +137,12 @@ strip = true
 
 [dev-dependencies]
 # System-test service entry points
-api = { path = "crates/api", default-features = false }
+api = { path = "crates/api", default-features = false, features = ["test-support"] }
 device-server = { path = "crates/device-server", default-features = false, features = ["cli"] }
 idp-server = { path = "crates/idp-server", default-features = false, features = ["cli"] }
-idp-service = { path = "crates/idp-service", default-features = false, features = ["std"] }
+idp-service = { path = "crates/idp-service", default-features = false, features = ["replica", "std"] }
 management-server = { path = "crates/management-server", default-features = false, features = ["cli"] }
-storage-server = { path = "crates/storage-server", default-features = false, features = ["cli"] }
+storage-server = { path = "crates/storage-server", default-features = false, features = ["cli", "network"] }
 
 # Generated public clients
 of-device-client = { path = "crates/device-client", default-features = false }
@@ -161,3 +161,28 @@ futures-util = { version = "0.3", default-features = false, features = ["sink", 
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 storage-model = { path = "crates/storage-model", default-features = false, features = ["std"] }
 tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake", "rustls-tls-native-roots"] }
+
+# Public owner boundary fixtures
+axum = { version = "0.8", default-features = false, features = ["http1", "http2", "tokio"] }
+db = { package = "idp-db", path = "crates/db", default-features = false, features = ["replica"] }
+device-service = { path = "crates/device-service", default-features = false, features = ["replica", "std", "utoipa"] }
+file-system = { path = "../offs/crates/file-system", default-features = false }
+http = { version = "1.4", default-features = false }
+idp-model = { path = "crates/idp-model", default-features = false, features = ["replica", "std"] }
+iroh = { version = "1.1", default-features = false, features = ["tls-ring"] }
+iroh-chain = { path = "../ofnet/crates/iroh-chain", default-features = false }
+log = { version = "0.4", default-features = false, features = ["std"] }
+management-service = { path = "crates/management-service", default-features = false, features = ["replica", "std"] }
+model = { path = "crates/model", default-features = false, features = ["std"] }
+ofdb-sql = { path = "../ofdb/crates/sql", default-features = false, features = ["native-stage"] }
+serde = { version = "1.0", default-features = false, features = ["derive", "std"] }
+storage-service = { path = "crates/storage-service", default-features = false }
+tokio-util = { version = "0.7", default-features = false }
+tower = { version = "0.5", default-features = false, features = ["util"] }
+
+[[test]]
+name = "owner_boundaries"
+
+[[test]]
+name = "unified_identity_composition"
+required-features = ["cli"]

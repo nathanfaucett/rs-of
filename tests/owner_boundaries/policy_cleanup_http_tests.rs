@@ -17,7 +17,7 @@ use management_service::replica::DbRoleRepo;
 use model::contract::{StorageAuthorizationAction, TokenResponse};
 use storage_server::{RouterState, StorageCopyRetirement, resource_router};
 
-use super::{Fixture, Gate, Listener, registration};
+use crate::support::native::{Fixture, Listener, registration};
 
 async fn actor_token(fixture: &Fixture, audience: &str) -> String {
     user_token(fixture, "administrator", "valid-password", audience, false).await
@@ -91,8 +91,8 @@ async fn require_success(response: reqwest::Response) {
 
 #[tokio::test]
 async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_transfer() {
-    let mut fixture = Fixture::new(Gate::default()).await;
-    let policies = DbSelectionPolicyRepo::new(Arc::clone(&fixture.management).client());
+    let mut fixture = Fixture::new().await;
+    let policies = DbSelectionPolicyRepo::new(Arc::clone(&fixture.devices).client());
     policies
         .set_prevalidated(SelectionPolicy {
             device_id: fixture.device.device_id,
@@ -113,8 +113,8 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
             ))
             .is_ok()
     );
-    let authorizer = crate::runtime::owner_replication_authorizer(
-        device_server::DeviceAuthority::new(fixture.management.clone(), fixture.control.clone()),
+    let authorizer = crate::support::replication::owner_replication_authorizer(
+        device_server::DeviceAuthority::new(fixture.devices.clone(), fixture.control.clone()),
         fixture.identity.endpoint().id(),
         copies.clone(),
     );
@@ -206,13 +206,13 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
     )
     .expect("scoped introspection")
     .with_local_devices(Arc::new(device_service::replica::DbDeviceRepo::new(
-        fixture.management.clone().client(),
+        fixture.devices.clone().client(),
     )));
     let control = Arc::new(control);
     let mut management = Listener::start(
         device_server::build_router(
             fixture.idp.clone().client(),
-            fixture.management.clone().client(),
+            fixture.devices.clone().client(),
             "https://management.test",
             "",
             "storage-service",
@@ -442,11 +442,8 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
     );
     fixture.client = fixture.client.clone().with_local_device_policy(
         fixture.identity.endpoint().id(),
-        crate::runtime::owner_replication_authorizer(
-            device_server::DeviceAuthority::new(
-                fixture.management.clone(),
-                fixture.control.clone(),
-            ),
+        crate::support::replication::owner_replication_authorizer(
+            device_server::DeviceAuthority::new(fixture.devices.clone(), fixture.control.clone()),
             fixture.identity.endpoint().id(),
             copies.clone(),
         ),

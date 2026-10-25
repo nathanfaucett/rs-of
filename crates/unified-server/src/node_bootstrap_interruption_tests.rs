@@ -19,7 +19,7 @@ use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
 use tokio_util::sync::CancellationToken;
 
-use crate::permission_http_tests::{seed_idp, seed_permissions, user_token};
+use crate::identity_fixture::{seed_idp, seed_permissions, user_token};
 
 const BOOTSTRAP_STREAM_KIND: u8 = 4;
 const PURPOSE: &str = "of.equal-node-public-bootstrap.v1";

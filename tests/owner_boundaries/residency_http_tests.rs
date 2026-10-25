@@ -8,7 +8,7 @@ use model::contract::StorageAuthorizationAction;
 use storage_server::{RouterState, StorageCopyRetirement, openapi_router, resource_router};
 use storage_service::ScopedFileSystemRuntime;
 
-use super::{Fixture, Gate, Listener};
+use crate::support::native::{Fixture, Gate, Listener};
 
 async fn start_storage(fixture: &mut Fixture) -> Arc<OnceLock<StorageCopyRetirement>> {
     fixture.storage_listener.stop().await;
@@ -21,8 +21,8 @@ async fn start_storage(fixture: &mut Fixture) -> Arc<OnceLock<StorageCopyRetirem
             ))
             .is_ok()
     );
-    let policy = crate::runtime::owner_replication_authorizer(
-        device_server::DeviceAuthority::new(fixture.management.clone(), fixture.control.clone()),
+    let policy = crate::support::replication::owner_replication_authorizer(
+        device_server::DeviceAuthority::new(fixture.devices.clone(), fixture.control.clone()),
         fixture.identity.endpoint().id(),
         copies.clone(),
     );
@@ -53,8 +53,8 @@ async fn ready_fixture() -> (Fixture, Arc<OnceLock<StorageCopyRetirement>>) {
 async fn ready_fixture_with_gate(
     gate: Option<Gate>,
 ) -> (Fixture, Arc<OnceLock<StorageCopyRetirement>>) {
-    let mut fixture = Fixture::with_catalog_gate(Gate::default(), gate).await;
-    DbSelectionPolicyRepo::new(fixture.management.clone().client())
+    let mut fixture = Fixture::with_catalog_gate(gate).await;
+    DbSelectionPolicyRepo::new(fixture.devices.clone().client())
         .set_prevalidated(SelectionPolicy {
             device_id: fixture.device.device_id,
             owner_subject: fixture.owner.to_string(),
@@ -94,12 +94,40 @@ async fn authorized_whole_filesystem_residency_uses_public_storage_owner() {
     let token = fixture
         .token(
             "storage:filesystems",
-            vec![StorageAuthorizationAction::Write],
+            vec![
+                StorageAuthorizationAction::Read,
+                StorageAuthorizationAction::Write,
+            ],
         )
         .await;
+    let config = of_storage_client::apis::configuration::Configuration {
+        base_path: format!("{}/storage", fixture.storage_listener.base),
+        client: fixture.http.clone(),
+        bearer_access_token: Some(token.clone()),
+        ..Default::default()
+    };
+    of_storage_client::apis::resources_residency_api::put_file_system_residency(
+        &config,
+        of_storage_client::apis::resources_residency_api::PutFileSystemResidencyParams {
+            filesystem_id: fixture.resource.as_uuid().to_string(),
+            resource_residency: of_storage_client::models::ResourceResidency::new(
+                of_storage_client::models::ResidencyMode::Passthrough,
+            ),
+        },
+    )
+    .await
+    .expect("generated public Residency PUT requires 204");
+    let current = of_storage_client::apis::resources_residency_api::get_file_system_residency(
+        &config,
+        of_storage_client::apis::resources_residency_api::GetFileSystemResidencyParams {
+            filesystem_id: fixture.resource.as_uuid().to_string(),
+        },
+    )
+    .await
+    .expect("generated public Residency GET requires 200");
     assert_eq!(
-        put(&fixture, &token, "passthrough").await.status(),
-        reqwest::StatusCode::NO_CONTENT
+        current.mode,
+        of_storage_client::models::ResidencyMode::Passthrough
     );
     assert_eq!(
         fixture
@@ -387,7 +415,7 @@ async fn residency_denials_preserve_mode_and_cleanup_fences() {
     );
     fixture
         .clients
-        .create_client(super::registration(
+        .create_client(crate::support::native::registration(
             "other-application",
             vec![GrantType::Password, GrantType::TokenExchange],
             vec!["openid".into()],
