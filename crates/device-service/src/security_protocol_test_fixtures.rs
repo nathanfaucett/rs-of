@@ -1,6 +1,12 @@
-use std::sync::Arc;
+use std::{
+    any::Any,
+    io,
+    panic::AssertUnwindSafe,
+    sync::{Arc, Mutex},
+};
 
 use db::{Database, SqlTranslator};
+use futures_util::FutureExt;
 use idp_model::{
     contract::{
         IdpSignerRecord, JwkPublic, JwkPublicParameters, JwsAlgorithm, KeyUse, ReplicaMembership,
@@ -55,7 +61,7 @@ pub(super) async fn enroll(idp: Arc<Database>, member: Id, endpoint: iroh::Endpo
 pub(super) fn native_handler<F, U>(
     cancellation: tokio_util::sync::CancellationToken,
     stream: F,
-) -> impl iroh::protocol::ProtocolHandler
+) -> (impl iroh::protocol::ProtocolHandler, StreamPanics)
 where
     F: Fn(
             u8,
@@ -68,15 +74,47 @@ where
         + 'static,
     U: core::future::Future<Output = std::io::Result<()>> + Send + 'static,
 {
-    NativeHandler {
-        cancellation,
-        stream,
+    let panics = StreamPanics::default();
+    (
+        NativeHandler {
+            cancellation,
+            stream,
+            panics: panics.clone(),
+        },
+        panics,
+    )
+}
+
+// Router/JoinSet shutdown may discard task failures; replay stream assertions in the parent test.
+#[derive(Clone, Default)]
+pub(super) struct StreamPanics(Arc<Mutex<Vec<Box<dyn Any + Send>>>>);
+
+impl StreamPanics {
+    async fn capture<U: core::future::Future<Output = io::Result<()>>>(
+        &self,
+        stream: U,
+    ) -> io::Result<()> {
+        match AssertUnwindSafe(stream).catch_unwind().await {
+            Ok(result) => result,
+            Err(panic) => {
+                self.0.lock().expect("stream panic recorder").push(panic);
+                Err(io::Error::other("fixture stream panicked"))
+            }
+        }
+    }
+
+    pub(super) fn check(&self) {
+        let panic = self.0.lock().expect("stream panic recorder").pop();
+        if let Some(panic) = panic {
+            std::panic::resume_unwind(panic);
+        }
     }
 }
 
 struct NativeHandler<F> {
     cancellation: tokio_util::sync::CancellationToken,
     stream: F,
+    panics: StreamPanics,
 }
 
 impl<F> core::fmt::Debug for NativeHandler<F> {
@@ -111,14 +149,51 @@ where
                     let mut kind = [0];
                     recv.read_exact(&mut kind).await.map_err(std::io::Error::other)?;
                     let stream = (self.stream)(kind[0], connection.clone(), send, recv);
-                    streams.spawn(stream);
+                    let panics = self.panics.clone();
+                    streams.spawn(async move { panics.capture(stream).await });
                 }
                 result = streams.join_next(), if !streams.is_empty() => {
-                    let _ = result.expect("active stream task").expect("security stream task must not panic");
+                    match result.expect("active stream task") {
+                        // Protocol rejection is an expected outcome of adversarial streams.
+                        Ok(Ok(())) | Ok(Err(_)) => {},
+                        Err(error) => std::panic::resume_unwind(error.into_panic()),
+                    }
                 }
             }
         }
         streams.shutdown().await;
         Ok(())
     }
+}
+
+#[tokio::test]
+async fn stream_denial_is_not_a_task_panic() {
+    let panics = StreamPanics::default();
+    let error = panics
+        .capture(async { Err(io::Error::new(io::ErrorKind::PermissionDenied, "denied")) })
+        .await
+        .expect_err("protocol denial is retained");
+    assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+    panics.check();
+}
+
+#[tokio::test]
+#[should_panic(expected = "stream assertion must reach parent")]
+async fn stream_panic_survives_task_shutdown() {
+    let panics = StreamPanics::default();
+    let recorder = panics.clone();
+    let mut streams = tokio::task::JoinSet::new();
+    let (finished, completed) = tokio::sync::oneshot::channel();
+    streams.spawn(async move {
+        let result = recorder
+            .capture(async { panic!("stream assertion must reach parent") })
+            .await;
+        finished.send(()).expect("signal completed panic capture");
+        result
+    });
+    completed
+        .await
+        .expect("stream panic captured before shutdown");
+    streams.shutdown().await;
+    panics.check();
 }

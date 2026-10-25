@@ -8,7 +8,10 @@ use std::{
 
 use db::{Database, Row, Value};
 use idp_model::model::Id;
-use ofdb_sql::{SyncMessage, SyncRole};
+use ofdb_sql::{
+    AutomergeRowCodec, Engine, InMemoryKernel, Kernel, KernelTransaction, RowCodec, SyncKey,
+    SyncMessage, SyncRole, apply_sync_state_batch_for, export_sync_state_for,
+};
 
 use super::{Pair, Poison, RecoveryAttack, public_jwk, sync_fixture, unvalidated_initiate};
 use crate::{
@@ -309,31 +312,114 @@ async fn marker3_rejects_correlated_rebinding_of_authenticated_session_peer() {
     }).await.expect("bounded genuine pinned session binding matrix");
 }
 
+async fn inject_overwritten_device_state(source: &Database, member: Id) {
+    let kernel = InMemoryKernel::new();
+    let engine = Engine::new(kernel.clone(), AutomergeRowCodec::new());
+    apply_sync_state_batch_for(
+        &engine,
+        source.export_sync_state().await.expect("source history"),
+    )
+    .await
+    .expect("copy Device history into raw fixture");
+    let result = sql(
+        source,
+        &format!("SELECT * FROM devices WHERE id = CAST('{member}' AS UUID)"),
+    )
+    .await;
+    let state = result[0]
+        .columns
+        .iter()
+        .position(|column| column.name == "state")
+        .expect("Device state column");
+    let mut row = result[0].rows[0].clone();
+    let codec = AutomergeRowCodec::new();
+    let mut transaction = kernel.transaction().await.expect("raw history transaction");
+    // Typed SQL rejects this write; the raw codec models an unvalidated peer's retained history.
+    row.values[state] = Value::Text("invalid-historical-state".into());
+    codec
+        .put_row(&mut transaction, "devices", member, row.clone())
+        .await
+        .expect("inject raw text state");
+    assert_eq!(
+        codec
+            .get_row(&transaction, "devices", &member)
+            .await
+            .expect("raw injected row")
+            .expect("Device row")
+            .values[state],
+        Value::Text("invalid-historical-state".into())
+    );
+    row.values[state] = Value::Integer(1);
+    codec
+        .put_row(&mut transaction, "devices", member, row)
+        .await
+        .expect("overwrite with valid current state");
+    transaction
+        .commit()
+        .await
+        .expect("commit overwritten corrupt history");
+    let unit = export_sync_state_for(&engine)
+        .await
+        .expect("raw Device history")
+        .into_iter()
+        .find(|unit| {
+            unit.key
+                == SyncKey::Row {
+                    table: "devices".into(),
+                    row: member,
+                }
+        })
+        .expect("injected Device history unit");
+    source
+        .apply_sync_state(unit)
+        .await
+        .expect("retain corrupt history behind valid current projection");
+}
+
 #[tokio::test]
 async fn management_rejects_overwritten_invalid_device_history_before_export_or_apply() {
     tokio::time::timeout(Duration::from_secs(240), async {
         for deleted in [false, true] {
-            for role in [SyncRole::Initiator, SyncRole::Responder] {
-                let mut pair = Pair::new().await;
-                let (source, target) = match role {
-                    SyncRole::Initiator => (pair.management_b.clone(), pair.management_a.clone()),
-                    SyncRole::Responder => (pair.management_a.clone(), pair.management_b.clone()),
-                };
-                let member = seed_device(&source).await;
-                sql(&source, &format!("UPDATE devices SET state = 'invalid-historical-state' WHERE id = CAST('{member}' AS UUID); UPDATE devices SET state = 1 WHERE id = CAST('{member}' AS UUID)")).await;
-                if deleted {
-                    sql(&source, &format!("DELETE FROM devices WHERE id = CAST('{member}' AS UUID)")).await;
+            for outgoing in [true, false] {
+                for role in [SyncRole::Initiator, SyncRole::Responder] {
+                    let mut pair = Pair::new().await;
+                    let source_is_a = outgoing == matches!(role, SyncRole::Initiator);
+                    let (source, target) = if source_is_a {
+                        (pair.management_a.clone(), pair.management_b.clone())
+                    } else {
+                        (pair.management_b.clone(), pair.management_a.clone())
+                    };
+                    let member = seed_device(&source).await;
+                    inject_overwritten_device_state(&source, member).await;
+                    if deleted {
+                        sql(&source, &format!("DELETE FROM devices WHERE id = CAST('{member}' AS UUID)")).await;
+                        assert!(sql(&source, &format!("SELECT state FROM devices WHERE id = CAST('{member}' AS UUID)")).await[0].rows.is_empty());
+                    } else {
+                        assert_eq!(sql(&source, &format!("SELECT state FROM devices WHERE id = CAST('{member}' AS UUID)")).await[0].rows[0].values,
+                            vec![Value::Integer(1)]);
+                    }
+                    let before = target.sync_manifest().await.expect("pre-import Management manifest");
+                    let source_before = source.sync_manifest().await.expect("corrupt source manifest");
+                    pair.serve(matches!(role, SyncRole::Responder));
+                    let connection = pair.connect().await;
+                    let error = match role {
+                        SyncRole::Initiator => pair.protocol_a.synchronize(&connection, SecurityContext::Device).await,
+                        SyncRole::Responder => super::unvalidated_initiate_context(&pair, &connection, SecurityContext::Device).await,
+                    }.expect_err("overwriting or deleting a row cannot hide invalid public Device history");
+                    if outgoing && matches!(role, SyncRole::Initiator) {
+                        assert!(error.to_string().contains("Invalid historical scoped value type"),
+                            "historical type gate, not incidental integrity rejection: {deleted}/{outgoing}/{role:?}: {error}");
+                    }
+                    assert_eq!(target.sync_manifest().await.expect("unchanged target"), before);
+                    assert_eq!(source.sync_manifest().await.expect("unchanged corrupt source"), source_before);
+                    if outgoing {
+                        assert!(!pair.received.lock().expect("wire frames").iter().any(|frame|
+                            frame.windows(b"invalid-historical-state".len()).any(|bytes| bytes == b"invalid-historical-state")),
+                            "invalid historical state is never disclosed");
+                    }
+                    drop((source, target));
+                    pair.close().await;
                 }
-                let before = target.sync_manifest().await.expect("pre-import Management manifest");
-                pair.serve(matches!(role, SyncRole::Responder));
-                let connection = pair.connect().await;
-                match role {
-                    SyncRole::Initiator => pair.protocol_a.synchronize(&connection, SecurityContext::Device).await,
-                    SyncRole::Responder => super::unvalidated_initiate_context(&pair, &connection, SecurityContext::Device).await,
-                }.expect_err("overwriting or deleting a row cannot hide invalid public Device history");
-                assert_eq!(target.sync_manifest().await.expect("unchanged target"), before);
-                drop((source, target));
-                pair.close().await;
             }
         }
     }).await.expect("bounded Management historical Device validation");
