@@ -468,6 +468,7 @@ dependencies = [
  "hex",
  "hexane",
  "itertools",
+ "js-sys",
  "leb128",
  "rand 0.10.3",
  "rustc-hash",
@@ -478,6 +479,8 @@ dependencies = [
  "tinyvec",
  "tracing",
  "unicode-segmentation",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]
@@ -2878,6 +2881,7 @@ checksum = "8f4ecba0bb4e14df997df7cab6d1b584c6432d8865cf2adfced814706d715a7b"
 dependencies = [
  "leb128",
  "thiserror 2.0.20",
+ "web-sys",
 ]
 
 [[package]]
@@ -5017,6 +5021,7 @@ dependencies = [
  "async-lock",
  "async-stream",
  "futures",
+ "ofdb-platform",
  "thiserror 2.0.20",
  "tokio",
 ]
@@ -5031,6 +5036,7 @@ dependencies = [
  "base64 0.21.7",
  "futures",
  "ofdb-btree",
+ "ofdb-platform",
  "serde",
  "sha2 0.10.9",
  "uuid",
@@ -5062,10 +5068,10 @@ dependencies = [
  "ofdb-btree-redb",
  "ofdb-kv-store",
  "ofdb-kv-sync",
+ "ofdb-platform",
  "ofdb-value",
  "redb",
  "serde_json",
- "tokio",
  "uuid",
 ]
 
@@ -5095,9 +5101,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ofdb-platform"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "gloo-timers",
+ "js-sys",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "ofdb-sql"
 version = "0.1.0"
 dependencies = [
+ "ofdb-platform",
  "ofdb-sql-client",
  "ofdb-sql-engine",
  "ofdb-sql-engine-automerge",
@@ -5136,6 +5154,7 @@ dependencies = [
  "async-stream",
  "futures",
  "ofdb-btree",
+ "ofdb-platform",
  "ofdb-sql-query",
  "ofdb-sql-schema",
  "ofdb-value",
@@ -5156,6 +5175,7 @@ dependencies = [
  "futures",
  "ofdb-btree",
  "ofdb-btree-automerge",
+ "ofdb-platform",
  "ofdb-sql-engine",
  "ofdb-value",
  "postcard",
@@ -5246,6 +5266,7 @@ name = "ofdb-sql-sync"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "ofdb-platform",
  "ofdb-sql-engine",
  "ofdb-sync-runtime",
  "ofdb-value",
@@ -5275,6 +5296,7 @@ name = "ofdb-sync-runtime"
 version = "0.1.0"
 dependencies = [
  "ofdb-btree",
+ "ofdb-platform",
  "tokio",
 ]
 
