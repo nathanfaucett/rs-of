@@ -31,8 +31,8 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 it("lists through the explicit Storage base and exchanges the current User at the configured IdP prefix", async () => {
-    const { listFileSystems } = await import("./storageSocket");
-    expect(await listFileSystems()).toEqual([
+    const { createStorageClient } = await import("./storageSocket");
+    expect(await createStorageClient().listFileSystems()).toEqual([
         { id: "filesystem-id", name: "Vault" },
     ]);
     expect(
@@ -66,8 +66,10 @@ it("creates the Password Manager filesystem with write-only authorization", asyn
                 { status: 201 },
             ),
         );
-    const { createFileSystem } = await import("./storageSocket");
-    expect(await createFileSystem()).toEqual({
+    const { createStorageClient } = await import("./storageSocket");
+    expect(
+        await createStorageClient().createFileSystem("Password Manager"),
+    ).toEqual({
         id: "filesystem-id",
         name: "Password Manager",
     });
@@ -93,8 +95,8 @@ it("opens the selected filesystem on the explicit Storage socket base, not the I
         constructor(readonly url: string) {}
     }
     vi.stubGlobal("WebSocket", Socket);
-    const { openStorageSocket } = await import("./storageSocket");
-    const socket = await openStorageSocket(
+    const { createStorageClient } = await import("./storageSocket");
+    const socket = await createStorageClient().openSocket(
         "01900000-0000-7000-8000-000000000001",
     );
     expect((socket.socket as unknown as Socket).url).toBe(
@@ -113,10 +115,10 @@ it.each(["idp", "storage"])(
     async (service) => {
         if (service === "idp") host.idpBaseUrl = "";
         else host.env.PUBLIC_STORAGE_BASE_URL = "";
-        const { listFileSystems } = await import("./storageSocket");
-        expect(() => listFileSystems()).toThrow(
+        const { createStorageClient } = await import("./storageSocket");
+        expect(() => createStorageClient().listFileSystems()).toThrow(
             service === "idp"
-                ? "LIDP API URL is not configured"
+                ? "IdP API URL is not configured"
                 : "Storage API URL is not configured",
         );
         expect(fetchApi).not.toHaveBeenCalled();

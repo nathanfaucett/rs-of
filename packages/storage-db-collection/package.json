@@ -1,0 +1,31 @@
+{
+    "name": "@aicacia/storage-db-collection",
+    "version": "0.1.0",
+    "type": "module",
+    "main": "esm/index.js",
+    "types": "types/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./types/index.d.ts",
+            "default": "./esm/index.js"
+        }
+    },
+    "scripts": {
+        "build": "tsc --project tsconfig.json",
+        "check": "tsc --project tsconfig.json --noEmit --incremental false",
+        "test": "vitest run",
+        "lint": "biome lint src package.json tsconfig.json",
+        "format": "biome format src package.json tsconfig.json"
+    },
+    "dependencies": {
+        "@aicacia/storage-client": "workspace:*",
+        "@standard-schema/spec": "~1.1.0",
+        "@tanstack/db": "~0.15.2"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "^2.5.3",
+        "typescript": "^5.9.3",
+        "valibot": "^1.4.2",
+        "vitest": "4.1.10"
+    }
+}

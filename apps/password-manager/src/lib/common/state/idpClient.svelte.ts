@@ -13,7 +13,7 @@ import { env } from "$env/dynamic/public";
 import { afterSigninRedirect } from "./afterSigninRedirect.svelte";
 import { getOidcClient } from "./oidc.svelte";
 
-const defaultIdpApiUrl = env.PUBLIC_LIDP_BASE_URL ?? "";
+const defaultIdpApiUrl = env.PUBLIC_IDP_BASE_URL ?? "";
 const idpApiUrl = createStorage<string>("idp-api-url", defaultIdpApiUrl);
 
 if (!isHttpUrl(idpApiUrl.item)) {
@@ -51,15 +51,15 @@ export const defaultConfigurationParameters: ConfigurationParameters = {
     credentials: "same-origin",
 };
 
-export const lidpConfiguration = new Configuration(
+export const idpConfiguration = new Configuration(
     defaultConfigurationParameters,
 );
 
-export const idpApi = new DefaultApi(lidpConfiguration);
+export const idpApi = new DefaultApi(idpConfiguration);
 
 export function setIdpApiUrl(newIdpApiUrl: string) {
     if (!isHttpUrl(newIdpApiUrl)) {
-        throw new Error("LIDP API URL must use HTTP or HTTPS");
+        throw new Error("IdP API URL must use HTTP or HTTPS");
     }
     idpApiUrl.item = newIdpApiUrl;
 }

@@ -11,9 +11,8 @@ let remoteUrl = $state(getIdpApiUrl() ?? "");
 async function signIn(authority: string): Promise<void> {
     error = null;
     const currentAuthority = getIdpApiUrl();
-    setIdpApiUrl(authority);
-
     try {
+        setIdpApiUrl(authority);
         await getOidcClient().signin();
     } catch (cause) {
         if (currentAuthority) {
@@ -34,10 +33,10 @@ async function signInWithRemoteServer(event: Event): Promise<void> {
 }
 </script>
 
-<form class="flex flex-col">
-	<label for="remote-url">LIDP server URL</label>
-	<input id="remote-url" bind:value={remoteUrl} required type="url" placeholder="https://example.com/lidp" />
-	<button class="btn primary mt-2" type="button" onclick={signInWithRemoteServer}>
+<form class="flex flex-col" onsubmit={signInWithRemoteServer}>
+	<label for="remote-url">IdP service base URL</label>
+	<input id="remote-url" bind:value={remoteUrl} required type="url" placeholder="https://example.com/idp" />
+	<button class="btn primary mt-2" type="submit">
 		Sign in
 	</button>
 	{#if error}

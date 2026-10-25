@@ -13,9 +13,7 @@ export const load: LayoutLoad = async (event) => {
         if (currentUserInfo) {
             return { userInfo: currentUserInfo };
         }
-    } catch (error) {
-        console.error(error);
-    }
+    } catch {}
 
     afterSigninRedirect.setURL(event.url);
     redirect(302, resolve("/signin"));
