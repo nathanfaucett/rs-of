@@ -169,11 +169,11 @@ async fn retired_join_reopen_refuses_mismatched_or_missing_intent_without_owner_
             fault != "missing_checkpoint"
         );
         shutdown.cancel();
+        drop(router);
         owner
             .await
             .expect("host task")
             .expect("coordinated cleanup");
-        drop(router);
         fs::remove_dir_all(root).expect("isolated cleanup");
     }
 }

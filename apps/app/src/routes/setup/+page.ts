@@ -1,22 +1,12 @@
-import { error, redirect } from "@sveltejs/kit";
-import { isTauri } from "@tauri-apps/api/core";
-
-import { getSetupStage } from "$lib/common/state/setupClient.svelte";
+import { redirect } from "@sveltejs/kit";
+import { observeOnboarding } from "$lib/common/state/onboarding";
 
 export async function load() {
-  const stage = await getSetupStage().catch((cause) => {
-    if (isTauri()) throw cause;
-    throw error(
-      503,
-      cause instanceof Error ? cause.message : "Setup status unavailable",
+    const observation = await observeOnboarding();
+    throw redirect(
+        302,
+        observation.state === "ready"
+            ? "/signin"
+            : "/setup/installation",
     );
-  });
-  throw redirect(
-    302,
-    stage === "ready"
-      ? "/signin"
-      : stage === "device"
-        ? "/setup/device"
-        : "/setup/installation",
-  );
 }

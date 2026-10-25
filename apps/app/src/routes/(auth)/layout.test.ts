@@ -20,9 +20,32 @@ vi.mock("@tauri-apps/api/core", () => ({
     isTauri: () => host.native,
     invoke: async (command: string) => {
         host.invoke(command);
-        if (command === "get_setup_stage") {
+        if (command === "get_onboarding_host") {
             if (host.stageError) throw host.stageError;
-            return host.stage;
+            return {
+                base: "https://node.test",
+                device_setup_required: host.stage === "device",
+                status: {
+                    stage: "installation",
+                    state:
+                        host.stage === "device"
+                            ? "ready"
+                            : host.stage === "installation"
+                              ? "awaiting_choice"
+                              : host.stage,
+                    ready: ["ready", "device"].includes(host.stage),
+                    owners: ["idp", "device", "storage"],
+                    ...(["ready", "device"].includes(host.stage)
+                        ? {
+                              login_client: {
+                                  client_id:
+                                      "01900000-0000-7000-8000-000000000001",
+                                  scopes: ["openid"],
+                              },
+                          }
+                        : {}),
+                },
+            };
         }
         if (command === "get_localhost_server_base_url")
             return "https://node.test";
@@ -78,6 +101,7 @@ Object.defineProperty(event.url, "hash", {
 beforeEach(() => {
     vi.clearAllMocks();
     fetchApi.mockReset();
+    vi.stubGlobal("window", { location: new URL("https://app.test") });
     host.native = true;
     host.stage = "ready";
     host.stageError = undefined;
@@ -107,7 +131,7 @@ function setupStatus(state: string) {
             stage: "installation",
             state,
             ready: state === "ready",
-            owners: ["idp", "management", "storage"],
+            owners: ["idp", "device", "storage"],
             ...(state === "ready"
                 ? {
                       login_client: {
@@ -159,7 +183,7 @@ it("routes a fresh Installation to setup before owner discovery or credentials",
         status: 302,
         location: "/setup/installation",
     });
-    expect(host.invoke.mock.calls).toEqual([["get_setup_stage"]]);
+    expect(host.invoke.mock.calls).toEqual([["get_onboarding_host"]]);
     expect(host.clientId).not.toHaveBeenCalled();
     expect(fetchApi).not.toHaveBeenCalled();
     expect(host.clear).not.toHaveBeenCalled();
@@ -169,7 +193,6 @@ it("routes a fresh Installation to setup before owner discovery or credentials",
 });
 
 it.each([
-    ["device", "/setup/device"],
     ["unavailable", "/setup/installation"],
 ])(
     "routes %s to its existing setup UI without owner requests or session denial",
@@ -178,7 +201,7 @@ it.each([
         const failure = await load(event).catch((cause: unknown) => cause);
         expect(isRedirect(failure)).toBe(true);
         expect(failure).toMatchObject({ status: 302, location });
-        expect(host.invoke.mock.calls).toEqual([["get_setup_stage"]]);
+        expect(host.invoke.mock.calls).toEqual([["get_onboarding_host"]]);
         expect(host.clientId).not.toHaveBeenCalled();
         expect(fetchApi).not.toHaveBeenCalled();
         expect(host.token?.access_token).toBe("session");
@@ -193,10 +216,8 @@ it("fails closed with explicit retry when setup IPC fails or returns an unknown 
         host.stageError = stageError;
         host.stage = "unknown";
         const failure = await load(event).catch((cause: unknown) => cause);
-        expect(isHttpError(failure, 503)).toBe(true);
-        expect(failure).toMatchObject({
-            body: { message: expect.stringContaining("Retry") },
-        });
+        expect(isRedirect(failure)).toBe(true);
+        expect(failure).toMatchObject({ location: "/setup/installation" });
     }
     expect(host.clientId).not.toHaveBeenCalled();
     expect(fetchApi).not.toHaveBeenCalled();
@@ -218,8 +239,8 @@ it("rechecks local readiness on retry and admits a completed offline Node only a
         userInfo: { sub: "local-user" },
     });
     expect(host.invoke.mock.calls.slice(0, 2)).toEqual([
-        ["get_setup_stage"],
-        ["get_setup_stage"],
+        ["get_onboarding_host"],
+        ["get_onboarding_host"],
     ]);
     expect(host.clientId).toHaveBeenCalledOnce();
     expect(
@@ -243,9 +264,24 @@ it("presents the existing unavailable setup UI with explicit local-service retry
         "../setup/installation/+page.svelte"
     );
     const { body } = render(InstallationSetup, {
-        props: { data: { stage: "unavailable", bundled: true } },
+        props: {
+            data: {
+                observation: {
+                    state: "blocked",
+                    action: "retry",
+                    message: "Retry observation",
+                    hosts: [],
+                    target: {
+                        kind: "bundled",
+                        idp: "",
+                        device: null,
+                        storage: null,
+                    },
+                },
+            },
+        },
     });
-    expect(body).toContain("Shared HTTPS setup is unavailable");
+    expect(body).toContain("Retry observation");
     expect(body).toContain("Retry local services");
     expect(body).not.toContain("Create local Node");
     expect(body).not.toContain("Sign in");
@@ -525,7 +561,7 @@ describe("web startup readiness", () => {
     });
 
     it.each(["network", "http", "malformed"])(
-        "returns 503 for %s setup failure without assuming a fresh node or constructing OIDC",
+        "routes %s setup failure to actionable observation without assuming a fresh node or constructing OIDC",
         async (failureKind) => {
             fetchApi.mockImplementation(async () => {
                 if (failureKind === "network")
@@ -538,10 +574,8 @@ describe("web startup readiness", () => {
                 "$lib/common/state/oidc.svelte"
             );
             const failure = await load(event).catch((cause: unknown) => cause);
-            expect(isHttpError(failure, 503)).toBe(true);
-            expect(failure).toMatchObject({
-                body: { message: expect.stringContaining("Retry") },
-            });
+            expect(isRedirect(failure)).toBe(true);
+            expect(failure).toMatchObject({ location: "/setup/installation" });
             expect(fetchApi).toHaveBeenCalledOnce();
             expect(getOidcClient).not.toHaveBeenCalled();
             expect(host.token?.access_token).toBe("session");
@@ -590,7 +624,7 @@ it("uses selected HTTPS issuer discovery without the removed native intent comma
     );
     expect(
         host.invoke.mock.calls.every(([command]) =>
-            ["get_setup_stage", "get_localhost_server_base_url"].includes(
+            ["get_onboarding_host", "get_localhost_server_base_url"].includes(
                 command,
             ),
         ),
@@ -631,7 +665,7 @@ it("authenticates a desktop remote target without unrelated local setup observat
                   stage: "installation",
                   state: "ready",
                   ready: true,
-                  owners: ["idp", "management", "storage"],
+                  owners: ["idp", "device", "storage"],
                   login_client: {
                       client_id: "01900000-0000-7000-8000-000000000001",
                       scopes: ["openid"],

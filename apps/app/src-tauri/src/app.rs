@@ -5,7 +5,8 @@ use tauri::{AppHandle, Manager, Wry, async_runtime::Mutex};
 
 use crate::{native_host::NativeHost, setup_reset as reset};
 
-static LIFECYCLE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+static LIFECYCLE: std::sync::LazyLock<crate::lifecycle::Lifecycle> =
+    std::sync::LazyLock::new(crate::lifecycle::Lifecycle::default);
 
 pub(crate) fn reject_legacy_state(data: &Path, config: &Path) -> io::Result<()> {
     for path in [
@@ -25,10 +26,13 @@ pub(crate) fn reject_legacy_state(data: &Path, config: &Path) -> io::Result<()> 
     ] {
         match fs::symlink_metadata(&path) {
             Ok(_) => {
-                return Err(io::Error::other(format!(
-                    "legacy native setup state at {}; exact explicit recovery is required, not migration or replacement",
-                    path.display()
-                )));
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "legacy native setup state at {}; exact explicit recovery is required, not migration or replacement",
+                        path.display()
+                    ),
+                ));
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => (),
             Err(error) => return Err(error),
@@ -38,9 +42,26 @@ pub(crate) fn reject_legacy_state(data: &Path, config: &Path) -> io::Result<()> 
 }
 
 pub(crate) async fn start_native_host(app: &AppHandle<Wry>) -> io::Result<()> {
-    let result = start_host(app).await;
-    let error = result.as_ref().err().map(ToString::to_string);
-    if let Some(state) = app.try_state::<Mutex<Option<String>>>() {
+    start_native_host_with_consent(app, false).await
+}
+
+async fn start_native_host_with_consent(app: &AppHandle<Wry>, consent: bool) -> io::Result<()> {
+    let Some((_operation, cancellation)) = LIFECYCLE.start().await else {
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "Application closing",
+        ));
+    };
+    close_host(app).await?;
+    if let Some(state) = app.try_state::<Mutex<Option<crate::onboarding::Failure>>>() {
+        *state.lock().await = None;
+    }
+    let result = start_host(app, consent, cancellation).await;
+    let error = result
+        .as_ref()
+        .err()
+        .map(crate::onboarding::Failure::startup);
+    if let Some(state) = app.try_state::<Mutex<Option<crate::onboarding::Failure>>>() {
         *state.lock().await = error;
     } else {
         app.manage(Mutex::new(error));
@@ -48,13 +69,11 @@ pub(crate) async fn start_native_host(app: &AppHandle<Wry>) -> io::Result<()> {
     result
 }
 
-#[tauri::command]
-pub async fn get_native_host_error(app: AppHandle<Wry>) -> Option<String> {
-    let state = app.try_state::<Mutex<Option<String>>>()?;
-    state.lock().await.clone()
-}
-
-async fn start_host(app: &AppHandle<Wry>) -> io::Result<()> {
+async fn start_host(
+    app: &AppHandle<Wry>,
+    consent: bool,
+    cancellation: tokio_util::sync::CancellationToken,
+) -> io::Result<()> {
     let data = app.path().app_data_dir().map_err(io::Error::other)?;
     let config = app.path().app_config_dir().map_err(io::Error::other)?;
     reject_legacy_state(&data, &config)?;
@@ -63,15 +82,15 @@ async fn start_host(app: &AppHandle<Wry>) -> io::Result<()> {
             "native reset is pending; explicitly retry reset or recover its references",
         ));
     }
-    let host = NativeHost::start(&data.join("node")).await?;
-    if let Some(state) = app.try_state::<Mutex<Option<NativeHost>>>() {
-        let mut guard = state.lock().await;
-        if guard.is_some() {
-            return Err(io::Error::other("native HTTPS host is already running"));
-        }
-        *guard = Some(host);
-    } else {
-        app.manage(Mutex::new(Some(host)));
+    let host = NativeHost::start(&data.join("node"), consent, cancellation.clone()).await?;
+    let state = app.state::<Mutex<Option<NativeHost>>>();
+    let mut guard = state.lock().await;
+    if let Some(mut host) = LIFECYCLE.publish_host(&cancellation, host, &mut guard) {
+        host.close().await?;
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "startup cancelled before publication",
+        ));
     }
     Ok(())
 }
@@ -89,22 +108,44 @@ pub async fn get_localhost_server_base_url(app: AppHandle<Wry>) -> String {
         .unwrap_or_default()
 }
 
-async fn status(app: &AppHandle<Wry>) -> io::Result<Value> {
-    let state = app
-        .try_state::<Mutex<Option<NativeHost>>>()
-        .ok_or_else(|| io::Error::other("native host unavailable"))?;
+#[tauri::command]
+pub async fn get_onboarding_host(app: AppHandle<Wry>) -> crate::onboarding::HostObservation {
+    use crate::onboarding::{Failure, HostObservation};
+    let mut observation = HostObservation::default();
+    let data = match app.path().app_data_dir() {
+        Ok(data) => data,
+        Err(_) => {
+            observation.failure = Some(Failure::Prerequisite);
+            return observation;
+        }
+    };
+    match reset::pending(&data) {
+        Ok(false) => (),
+        _ => {
+            observation.failure = Some(Failure::Repair);
+            return observation;
+        }
+    }
+    if let Some(state) = app.try_state::<Mutex<Option<Failure>>>() {
+        observation.failure = *state.lock().await;
+        if observation.failure.is_some() {
+            return observation;
+        }
+    }
+    let Some(state) = app.try_state::<Mutex<Option<NativeHost>>>() else {
+        return observation;
+    };
     let guard = state.lock().await;
-    guard
-        .as_ref()
-        .ok_or_else(|| io::Error::other("native host stopped"))?
-        .status()
-        .await
+    let Some(host) = guard.as_ref() else {
+        return observation;
+    };
+    host.observation().await
 }
 
 /// Protected local host management only. Never expose this capability through HTTPS status.
 #[tauri::command]
 pub async fn get_native_setup_code(app: AppHandle<Wry>) -> Result<Option<String>, String> {
-    let _operation = LIFECYCLE.lock().await;
+    let _operation = LIFECYCLE.operation.lock().await;
     let data = app
         .path()
         .app_data_dir()
@@ -112,96 +153,42 @@ pub async fn get_native_setup_code(app: AppHandle<Wry>) -> Result<Option<String>
     if reset::pending(&data).map_err(|error| error.to_string())? {
         return Err("native reset is pending".into());
     }
-    let path = data.join("node/setup-admission/state");
-    let bytes = reset::read_optional(&path)
-        .map_err(|error| error.to_string())?
-        .ok_or("native setup capability unavailable")?;
-    let text = std::str::from_utf8(&bytes).map_err(|_| "invalid native setup capability")?;
-    let mut lines = text.splitn(3, '\n');
-    if lines.next() != Some("setup-admission-v1") {
-        return Err("invalid native setup capability".into());
-    }
-    let code = lines.next().ok_or("missing native setup capability")?;
-    let intent = lines.next().ok_or("missing native setup intent")?;
-    if code == "retired" && !intent.is_empty() {
-        return Ok(None);
-    }
-    if code.len() != 64
-        || !code
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    #[cfg(unix)]
     {
-        return Err("invalid native setup capability".into());
+        api::SetupAdmission::protected_code(&data.join("node/setup-admission"))
+            .map_err(|error| error.to_string())
     }
-    Ok(Some(code.to_owned()))
-}
-
-#[tauri::command]
-pub async fn get_setup_stage(app: AppHandle<Wry>) -> Result<String, String> {
-    let data = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?;
-    if reset::pending(&data).map_err(|error| error.to_string())? {
-        return Ok("installation".into());
+    #[cfg(not(unix))]
+    {
+        Err("protected native setup capability unsupported".into())
     }
-    let status = match status(&app).await {
-        Ok(status) => status,
-        Err(_) => return Ok("unavailable".into()),
-    };
-    if status["state"] == "unavailable" {
-        return Ok("unavailable".into());
-    }
-    if status["ready"] != true {
-        return Ok("installation".into());
-    }
-    let client = status["login_client"]["client_id"]
-        .as_str()
-        .ok_or("ready native host has no public login Client")?;
-    crate::setup_completion::read(&data, "device-setup-ready", client)
-        .map(|done| if done { "ready" } else { "device" }.into())
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub async fn get_desktop_client_id(app: AppHandle<Wry>) -> Result<String, String> {
-    let status = status(&app).await.map_err(|error| error.to_string())?;
-    if status["ready"] != true {
-        return Err("native Node is not ready".into());
-    }
-    status["login_client"]["client_id"]
-        .as_str()
-        .map(str::to_owned)
-        .ok_or("ready native host has no public login Client".into())
-}
-
-#[tauri::command]
-pub async fn complete_device_setup(app: AppHandle<Wry>) -> Result<(), String> {
-    let _operation = LIFECYCLE.lock().await;
-    let data = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?;
-    if reset::pending(&data).map_err(|error| error.to_string())? {
-        return Err("native reset is pending".into());
-    }
-    let client = get_desktop_client_id(app.clone()).await?;
-    crate::setup_completion::write(&data, "device-setup-ready", &client)
-        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn retry_local_runtime(app: AppHandle<Wry>) -> Result<(), String> {
-    let _operation = LIFECYCLE.lock().await;
-    close_host(&app).await.map_err(|error| error.to_string())?;
-    start_native_host(&app)
+    start_native_host_with_consent(&app, false)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn set_local_trust_consent(app: AppHandle<Wry>, consent: bool) -> Result<(), String> {
+    if !consent {
+        let _operation = LIFECYCLE.stop(false).await;
+        close_host(&app).await.map_err(|error| error.to_string())?;
+        if let Some(state) = app.try_state::<Mutex<Option<crate::onboarding::Failure>>>() {
+            *state.lock().await = Some(crate::onboarding::Failure::TrustDeclined);
+        }
+        return Ok(());
+    }
+    start_native_host_with_consent(&app, true)
         .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn reset_device(app: AppHandle<Wry>) -> Result<(), String> {
-    let _operation = LIFECYCLE.lock().await;
+    let _operation = LIFECYCLE.stop(false).await;
     close_host(&app).await.map_err(|error| error.to_string())?;
     let data = app
         .path()
@@ -214,13 +201,18 @@ pub async fn reset_device(app: AppHandle<Wry>) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn recover_reset_references(app: AppHandle<Wry>) -> Result<(), String> {
-    let _operation = LIFECYCLE.lock().await;
-    close_host(&app).await.map_err(|error| error.to_string())?;
     let data = app
         .path()
         .app_data_dir()
         .map_err(|error| error.to_string())?;
-    reset::recover(&data).map_err(|error| error.to_string())
+    LIFECYCLE
+        .recover_references(
+            &data,
+            &app.state::<Mutex<Option<NativeHost>>>(),
+            &app.state::<Mutex<Option<crate::onboarding::Failure>>>(),
+        )
+        .await
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -241,7 +233,7 @@ pub async fn revoke_reset_on_peer(
     bearer: String,
     member_id: idp_model::model::Id,
 ) -> Result<(), String> {
-    let _operation = LIFECYCLE.lock().await;
+    let _operation = LIFECYCLE.operation.lock().await;
     let data = app
         .path()
         .app_data_dir()
@@ -255,7 +247,7 @@ pub async fn revoke_reset_on_peer(
 }
 
 pub(crate) async fn close(app: &AppHandle<Wry>) -> io::Result<()> {
-    let _operation = LIFECYCLE.lock().await;
+    let _operation = LIFECYCLE.stop(true).await;
     close_host(app).await
 }
 
@@ -267,16 +259,4 @@ async fn close_host(app: &AppHandle<Wry>) -> io::Result<()> {
         }
     }
     Ok(())
-}
-
-pub(crate) async fn finish_managed_startup<E>(
-    startup: Result<(), E>,
-    cleanup: impl core::future::Future<Output = io::Result<()>>,
-) -> Result<(), E> {
-    if startup.is_err()
-        && let Err(error) = cleanup.await
-    {
-        log::error!("native startup cleanup failed: {error}");
-    }
-    startup
 }

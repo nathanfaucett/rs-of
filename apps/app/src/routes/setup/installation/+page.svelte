@@ -1,29 +1,28 @@
 <script lang="ts">
-    import { isTauri } from "@tauri-apps/api/core";
     import { onDestroy } from "svelte";
+    import { invoke } from "@tauri-apps/api/core";
     import { resolve } from "$app/paths";
     import {
         readNativeSetupCode,
         verifyWebSetupCode,
         isUnifiedSetupHost,
         WebSetupCreate,
+        usesRemoteApis,
     } from "$lib/common/state/setupClient.svelte";
 
-    import NativeSetupRecovery from "$lib/common/components/NativeSetupRecovery.svelte";
+    import JoinSetup from "$lib/common/components/JoinSetup.svelte";
     import IndependentSetup from "$lib/common/components/IndependentSetup.svelte";
 
     import type { SetupHost } from "$lib/common/state/setupApi";
 
-    let {
-        data,
-    }: {
-        data: {
-            stage: string;
-            hosts?: SetupHost[];
-            bundled?: boolean;
-            nativeError?: string;
-        };
-    } = $props();
+    import { observeOnboarding, type OnboardingObservation } from "$lib/common/state/onboarding";
+
+    let { data: loaded }: { data: { observation: OnboardingObservation } } = $props();
+    let observation = $derived(loaded.observation);
+    const data = $derived({
+        hosts: observation.hosts,
+        bundled: observation.target.kind === "bundled",
+    });
     let purpose = $derived<"create" | "join">(
         data.hosts?.[0]?.status.state === "joining" ? "join" : "create",
     );
@@ -32,8 +31,8 @@
         data.hosts;
         return "";
     });
-    let peer = $state("");
-    let node = $state("");
+    const bundledCreate = $derived(data.bundled && purpose === "create");
+    let joinStarted = $state(false);
     let web = $state.raw<WebSetupCreate | null>(null);
     let observedHosts = $state.raw<SetupHost[] | undefined>();
     let busy = $state(false);
@@ -77,19 +76,6 @@
                 (!web?.intent && webStatus.state === "awaiting_choice")),
     );
 
-    const canJoin = $derived(
-        unified &&
-            (!web ||
-                (web.base === selectedHost?.base &&
-                    observedHosts === data.hosts)) &&
-            purpose === "join" &&
-            webStatus?.stage === "installation" &&
-            !webStatus.ready &&
-            !web?.observationRequired &&
-            ((web?.intent && "peer" in web.intent) ||
-                (!web?.intent && webStatus.state === "awaiting_choice")),
-    );
-
     const setupStarted = $derived(
         unified &&
             !webStatus?.ready &&
@@ -118,8 +104,14 @@
     );
 
     $effect(() => {
-        if (!setupStarted || webStatus?.state === "unfinished") return;
+        if (purpose === "join" || !setupStarted || webStatus?.state === "unfinished") return;
         const interval = setInterval(() => void observeWeb(), 3000);
+        return () => clearInterval(interval);
+    });
+
+    $effect(() => {
+        if (observation.state !== "starting") return;
+        const interval = setInterval(() => void refreshObservation(), 500);
         return () => clearInterval(interval);
     });
 
@@ -135,52 +127,89 @@
     async function webSubmit(event: SubmitEvent) {
         event.preventDefault();
         if (
-            !(purpose === "create" ? canCreate : canJoin) ||
+            !canCreate ||
             busy ||
             !selectedHost
         )
             return;
         web ??= new WebSetupCreate(selectedHost);
         observedHosts = data.hosts;
+        error = "";
         busy = true;
-        const code = setupCode;
+        let code = setupCode;
         const credential = password;
         setupCode = "";
         password = "";
         try {
-            if (purpose === "join") await web.join(code, node, peer);
-            else await web.submit(code, name, node, credential);
+            if (bundledCreate) {
+                code = await readNativeSetupCode(selectedHost.base) ?? "";
+                if (!active) return;
+            }
+            await web.submit(code, name, web.intent?.node ?? "My Node", credential);
+        } catch {
+            error = "Protected bundled setup admission is unavailable. Retry without changing the retained identity.";
         } finally {
             setupCode = "";
             password = "";
             busy = false;
         }
+        if (active && web?.status?.ready) await observeWeb();
+    }
+
+    async function trustConsent(consent: boolean) {
+        if (busy || observation.target.kind !== "bundled" || usesRemoteApis()) return;
+        busy = true;
+        error = "";
+        try { await invoke("set_local_trust_consent", { consent }); }
+        catch { error = "Trust installation or HTTPS verification failed. Check platform prerequisites, then retry; retained identity is unchanged."; }
+        finally { busy = false; }
+        await refreshObservation();
+    }
+
+    async function retryRuntime() {
+        if (busy || observation.target.kind !== "bundled" || usesRemoteApis()) return;
+        busy = true;
+        setupCode = "";
+        password = "";
+        try { await invoke("retry_local_runtime"); }
+        catch { error = "Local services could not restart. Check prerequisites; retained identity is unchanged."; }
+        finally { busy = false; }
+        await refreshObservation();
+    }
+
+    async function refreshObservation() {
+        if (busy) return;
+        busy = true;
+        try { const next = await observeOnboarding(); if (active) observation = next; }
+        finally { busy = false; }
     }
 
     async function observeWeb() {
         if (busy || !selectedHost) return;
-        if (web && web.base !== selectedHost.base) {
-            error =
-                "The configured target changed. This session cannot transfer its retained intent to another host.";
+        const base = selectedHost.base;
+        if (web && web.base !== base) {
+            error = "The configured target changed. This session cannot transfer its retained intent to another host.";
             setupCode = "";
             password = "";
             return;
         }
         web ??= new WebSetupCreate(selectedHost);
-        const hosts = data.hosts;
         busy = true;
-        await web.observe();
-        if (!web.observationRequired) observedHosts = hosts;
-        if (web.status?.ready) {
+        try {
+            const snapshot = await observeOnboarding();
+            if (!active) return;
             setupCode = "";
             password = "";
-        }
-        busy = false;
+            const host = snapshot.hosts.find(host => host.base === base);
+            if (snapshot.state !== "blocked" && host) await web.observe(host.status);
+            observedHosts = snapshot.hosts;
+            observation = snapshot;
+        } finally { busy = false; }
     }
 
     async function recoverWeb() {
         if (busy || !unified || !selectedHost) return;
-        const code = setupCode;
+        let code = setupCode;
         setupCode = "";
         password = "";
         admissionVerified = false;
@@ -196,7 +225,12 @@
         const hosts = data.hosts;
         busy = true;
         try {
+            if (bundledCreate) code = await readNativeSetupCode(session.base) ?? "";
+            if (!active) return;
             await session.recover(code);
+            if (bundledCreate && session.intent && !session.observationRequired) {
+                session.message = "Exact Create recovered. Re-enter the original administrator password to retry. Closing this page does not cancel accepted work.";
+            }
             if (
                 !active ||
                 web !== session ||
@@ -206,32 +240,36 @@
             if (!session.observationRequired) {
                 observedHosts = hosts;
                 if (session.intent) {
-                    node = session.intent.node;
                     if ("administrator" in session.intent) {
                         purpose = "create";
                         name = session.intent.administrator;
                     } else {
                         purpose = "join";
-                        peer = session.intent.peer;
                     }
                 }
             }
+        } catch {
+            error = "Protected setup admission could not be read. Retained setup is unchanged.";
         } finally {
             setupCode = "";
             password = "";
             busy = false;
         }
+        if (active && session.status?.ready) await observeWeb();
     }
 
     async function cancelWeb() {
-        if (busy || !web?.intent || web.base !== selectedHost?.base || !unified)
-            return;
+        if (busy || !web?.intent || web.base !== selectedHost?.base || !unified) return;
         busy = true;
-        const code = setupCode;
+        let code = setupCode;
         setupCode = "";
         password = "";
-        await web.cancel(code);
-        busy = false;
+        try {
+            if (bundledCreate) code = await readNativeSetupCode(web.base) ?? "";
+            if (active) await web.cancel(code);
+        } catch {
+            error = "Protected setup admission could not be read. Retained setup is unchanged.";
+        } finally { busy = false; }
     }
 
     async function verifyAdmission(event: Event) {
@@ -289,11 +327,34 @@
             <h1 class="text-2xl font-semibold">
                 {setupStarted ? progressTitle : "Installation setup"}
             </h1>
-            {#if data.hosts?.length === 3}
+            {#if observation.state === "blocked" && data.hosts.some(host => host.status.state === "unfinished")}<p role="alert">{observation.message}</p>{/if}
+            {#if observation.state === "starting"}
+                <p role="status">Starting bundled services. Readiness has not yet been verified.</p>
+                <button onclick={refreshObservation}>Refresh status</button>
+            {:else if observation.state === "blocked" && !data.hosts.some(host => host.status.state === "unfinished")}
+                <p role="alert">{observation.message}</p>
+                {#if data.bundled && observation.action === "trust_consent"}
+                    <p>Allow the operating system to trust this Node's retained localhost certificate authority for HTTPS. This adds a trust anchor, may request administrator elevation, and can affect other applications using the OS trust store. It does not replace your certificate or sign you in. Reset does not remove installed OS trust.</p>
+                    <button onclick={() => trustConsent(true)} disabled={busy}>Allow certificate trust</button>
+                    <button onclick={() => trustConsent(false)} disabled={busy}>Not now</button>
+                {/if}
+                {#if busy}<p role="status">Checking retained host and HTTPS trust. Waiting for platform work to finish.</p>{/if}
+                {#if observation.action === "repair"}<p>Repair retained evidence before continuing. Reset is not a repair action.</p>{#if data.bundled}<a href={resolve("/maintenance")}>Open maintenance for exact-reference recovery</a>{/if}{/if}
+                <button onclick={refreshObservation} disabled={busy}>Retry observation</button>
+                {#if data.bundled && observation.action !== "repair"}
+                    <button onclick={retryRuntime} disabled={busy}>Retry local services</button>
+                {/if}
+                {#if ["prerequisite", "trust_consent", "trust_declined"].includes(observation.action)}<a href={resolve("/config")}>Connection settings</a>{/if}
+            {:else if observation.state === "ready"}
+                <p>Selected services are ready. Setup does not sign you in.</p>
+                <p>Rename this Node in Devices. Choose local data and Residency after signing in; selection starts empty and resource permissions still apply.</p>
+                <a href={resolve("/signin")}>Sign in</a>
+            {:else if data.hosts?.length === 3}
                 {#key data.hosts}<IndependentSetup hosts={data.hosts} />{/key}
-            {:else if !isTauri() || data.hosts}
+            {:else}
                 {#if webStatus?.stage === "installation" && !webStatus.ready && !setupStarted}
                     <p>Create a new Installation or join an existing one.</p>
+                    <a href={resolve("/config")}>Advanced connection settings</a>
                     <label>
                         Installation setup choice
                         <select
@@ -304,7 +365,7 @@
                                 verifiedBase = "";
                                 password = "";
                             }}
-                            disabled={busy || !!web?.intent}
+                            disabled={busy || !!web?.intent || joinStarted}
                         >
                             <option value="create"
                                 >Create an Installation</option
@@ -315,13 +376,16 @@
                         </select>
                     </label>
                 {/if}
-                {#if data.hosts?.length}
+                {#if purpose === "join" && unified}
+                    {#key selectedHost?.base}<JoinSetup {observation} onworking={() => { joinStarted = true; }} />{/key}
+                {:else if data.hosts?.length}
                     {#snippet setupForm()}
                         <form
                             onsubmit={unified ? webSubmit : verifyAdmission}
                             class="flex flex-col gap-4"
                         >
                             {#if webStatus?.stage === "installation" && !webStatus.ready}
+                                {#if !bundledCreate}
                                 {#if data.bundled}<button
                                         type="button"
                                         onclick={loadNativeCode}
@@ -355,6 +419,7 @@
                                     file. Keep it private; re-enter it for each
                                     action.
                                 </p>
+                                {/if}
                                 {#if unified}
                                     {#if purpose === "create"}
                                         {#if canCreate || (web?.intent && "administrator" in web.intent)}
@@ -363,16 +428,6 @@
                                                 <input
                                                     bind:value={name}
                                                     autocomplete="username"
-                                                    required
-                                                    disabled={busy ||
-                                                        !!web?.intent}
-                                                />
-                                            </label>
-                                            <label>
-                                                Node name
-                                                <input
-                                                    bind:value={node}
-                                                    autocomplete="off"
                                                     required
                                                     disabled={busy ||
                                                         !!web?.intent}
@@ -392,9 +447,8 @@
                                                 type="submit"
                                                 disabled={busy ||
                                                     !canCreate ||
-                                                    !setupCode ||
+                                                    (!bundledCreate && !setupCode) ||
                                                     !name.trim() ||
-                                                    !node.trim() ||
                                                     !password}
                                             >
                                                 {web?.intent
@@ -408,61 +462,6 @@
                                                 Resume setup below. Retrying
                                                 Create also requires the
                                                 original password.
-                                            </p>
-                                        {/if}
-                                    {:else}
-                                        <p>
-                                            Verify the peer's endpoint ID with
-                                            its administrator. On the source
-                                            Node, enable and approve joining in
-                                            Devices → Equal-Node joining.
-                                        </p>
-                                        {#if canJoin || (web?.intent && "peer" in web.intent)}
-                                            <label>
-                                                Node name
-                                                <input
-                                                    bind:value={node}
-                                                    autocomplete="off"
-                                                    required
-                                                    disabled={busy ||
-                                                        !!web?.intent}
-                                                />
-                                            </label>
-                                            <label>
-                                                Trusted peer endpoint ID
-                                                <input
-                                                    bind:value={peer}
-                                                    autocomplete="off"
-                                                    spellcheck="false"
-                                                    pattern="[a-f0-9]{64}"
-                                                    required
-                                                    disabled={busy ||
-                                                        !!web?.intent}
-                                                />
-                                            </label>
-                                            {#if web?.intent && "peer" in web.intent && web.intent.issuer}
-                                                <p>
-                                                    Recovered Installation
-                                                    issuer: {web.intent.issuer}
-                                                </p>
-                                            {/if}
-                                            <button
-                                                type="submit"
-                                                disabled={busy ||
-                                                    !canJoin ||
-                                                    !setupCode ||
-                                                    !node ||
-                                                    !peer}
-                                            >
-                                                {web?.intent
-                                                    ? "Retry exact Join"
-                                                    : "Request approval and join"}
-                                            </button>
-                                        {:else}
-                                            <p role="alert">
-                                                Setup is already in progress.
-                                                Enter your setup code and use
-                                                Resume setup below.
                                             </p>
                                         {/if}
                                     {/if}
@@ -479,21 +478,21 @@
                                             <button
                                                 type="button"
                                                 onclick={recoverWeb}
-                                                disabled={busy || !setupCode}
+                                                disabled={busy || (!bundledCreate && !setupCode)}
                                                 >Resume setup</button
                                             >
-                                            <button
+                                            {#if !bundledCreate}<button
                                                 type="button"
                                                 onclick={verifyAdmission}
                                                 disabled={busy || !setupCode}
                                                 >Verify setup code</button
-                                            >
+                                            >{/if}
                                             {#if web?.intent}
                                                 <button
                                                     type="button"
                                                     onclick={cancelWeb}
                                                     disabled={busy ||
-                                                        !setupCode ||
+                                                        (!bundledCreate && !setupCode) ||
                                                         ("peer" in web.intent &&
                                                             web.observationRequired) ||
                                                         (web.intent &&
@@ -524,18 +523,7 @@
                                 {/if}
                             {:else if webStatus?.ready && !web?.observationRequired}
                                 {#if unified}
-                                    <p role="status">Your Node is ready.</p>
-                                    <a
-                                        class="btn"
-                                        href={resolve(
-                                            data.bundled
-                                                ? "/setup/device"
-                                                : "/signin",
-                                        )}
-                                        >{data.bundled
-                                            ? "Continue Device setup"
-                                            : "Continue to sign in"}</a
-                                    >
+                                    <p role="status">Verifying current selected services and public login before sign-in.</p>
                                 {:else}
                                     <p role="status">
                                         This owner's readiness does not
@@ -600,16 +588,8 @@
                         established; no code can be submitted.
                     </p>
                 {/if}
-            {:else}
-                <p role="alert">
-                    Shared HTTPS setup is unavailable. Restore the selected host
-                    prerequisites; no replacement identity is created.
-                </p>
             {/if}
-            {#if data.bundled}<NativeSetupRecovery
-                    stage={data.stage}
-                    nativeError={data.nativeError}
-                />{/if}
+            {#if data.bundled}<a href={resolve("/maintenance")}>Local Node maintenance</a>{/if}
             {#if error}<p role="alert">{error}</p>{/if}
         </div>
     </div>

@@ -9,6 +9,177 @@ fn root() -> PathBuf {
     ))
 }
 
+#[tokio::test]
+async fn shutdown_joins_router_teardown_before_releasing_host_and_admission() {
+    use std::{future::Future, task::Poll, time::Duration};
+
+    use tokio_util::sync::CancellationToken;
+
+    let root = root();
+    let host = BootstrapConfig::create(&root, BootstrapPurpose::AwaitingChoice, None)
+        .expect("isolated neutral host");
+    let setup = SetupHost::create_http(host).expect("neutral host without trust installation");
+    let admission = setup.admission_path();
+    let retained = fs::read(&admission).expect("retained admission before shutdown");
+    let shutdown = CancellationToken::new();
+    let worker = setup.into_worker(shutdown.clone());
+    let router = worker.router().expect("host-owned setup router");
+    let connection_router = router.clone();
+    drop(router);
+    let mut stopping = Box::pin(worker.run());
+    shutdown.cancel();
+
+    let pending =
+        std::future::poll_fn(|cx| Poll::Ready(stopping.as_mut().poll(cx).is_pending())).await;
+    assert!(pending, "shutdown must join outstanding router teardown");
+    assert!(
+        BootstrapConfig::open(&root).is_err(),
+        "host lifecycle guard remains held until router teardown"
+    );
+    assert_eq!(
+        api::SetupAdmission::open(admission.parent().expect("admission directory"))
+            .expect_err("connection router still owns admission")
+            .kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+
+    drop(connection_router);
+    tokio::time::timeout(Duration::from_secs(5), stopping)
+        .await
+        .expect("router teardown wakes shutdown without retry")
+        .expect("coordinated shutdown");
+    let reopened = SetupHost::open_http(
+        BootstrapConfig::open(&root).expect("host guard released after joined shutdown"),
+    )
+    .expect("admission immediately reusable after joined shutdown");
+    assert_eq!(
+        fs::read(reopened.admission_path()).expect("retained admission"),
+        retained
+    );
+    drop(reopened);
+    fs::remove_dir_all(root).expect("isolated cleanup");
+}
+
+#[tokio::test]
+async fn shutdown_rejects_queued_request_before_joining_router_teardown() {
+    use std::time::Duration;
+
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use tokio_util::sync::CancellationToken;
+    use tower::ServiceExt;
+
+    let root = root();
+    let host = BootstrapConfig::create(&root, BootstrapPurpose::AwaitingChoice, None)
+        .expect("isolated neutral host");
+    let setup = SetupHost::create_http(host).expect("neutral host without trust installation");
+    let retained = fs::read(setup.admission_path()).expect("retained admission");
+    let code = api::SetupAdmission::protected_code(
+        setup
+            .admission_path()
+            .parent()
+            .expect("admission directory"),
+    )
+    .expect("protected admission retrieval")
+    .expect("unretired code");
+    let shutdown = CancellationToken::new();
+    let worker = setup.into_worker(shutdown.clone());
+    let router = worker.router().expect("setup router");
+    let request = |nonce| {
+        Request::post("/idp/setup/create")
+            .header("Authorization", format!("Setup {code}"))
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "operation_nonce": nonce,
+                    "administrator": "operator",
+                    "node": "Queued Node",
+                    "password": "transient-test-password",
+                })
+                .to_string(),
+            ))
+            .expect("authorized Create request")
+    };
+    let mut first = tokio::spawn(
+        router
+            .clone()
+            .oneshot(request("0123456789abcdef0123456789abcdef")),
+    );
+    let mut second = tokio::spawn(
+        router
+            .clone()
+            .oneshot(request("fedcba9876543210fedcba9876543210")),
+    );
+    let (occupied, queued) = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::select! {
+            response = &mut first => (response, second),
+            response = &mut second => (response, first),
+        }
+    })
+    .await
+    .expect("one request fills the unconsumed command queue");
+    assert_eq!(
+        occupied
+            .expect("request task")
+            .expect("setup route")
+            .status(),
+        StatusCode::CONFLICT,
+        "worker has never been polled: the other authorized request is queued"
+    );
+    let connection_router = router.clone();
+    shutdown.cancel();
+    drop(router);
+    let mut stopping = Box::pin(worker.run());
+    let response = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::select! {
+            response = queued => response,
+            result = &mut stopping => panic!("shutdown finished before router teardown: {result:?}"),
+        }
+    })
+    .await
+    .expect("queued reply and worker shutdown must not retain each other");
+    assert_eq!(
+        response
+            .expect("queued request task")
+            .expect("setup response")
+            .status(),
+        StatusCode::SERVICE_UNAVAILABLE,
+        "unconsumed work is rejected, never reported accepted"
+    );
+    assert!(
+        BootstrapConfig::open(&root).is_err(),
+        "host guard remains held after rejecting queued work"
+    );
+    assert_eq!(
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            connection_router.oneshot(request("ffffffffffffffffffffffffffffffff")),
+        )
+        .await
+        .expect("closed command queue rejects new work without waiting")
+        .expect("setup route")
+        .status(),
+        StatusCode::CONFLICT
+    );
+    tokio::time::timeout(Duration::from_secs(5), stopping)
+        .await
+        .expect("request and router teardown wake worker shutdown")
+        .expect("coordinated shutdown");
+    let reopened = SetupHost::open_http(
+        BootstrapConfig::open(&root).expect("host guard released after joined shutdown"),
+    )
+    .expect("admission immediately reusable after queued-request shutdown");
+    assert_eq!(
+        fs::read(reopened.admission_path()).expect("unchanged admission"),
+        retained,
+        "unconsumed Create must not bind or retire admission"
+    );
+    drop(reopened);
+    fs::remove_dir_all(root).expect("isolated cleanup");
+}
+
 #[test]
 fn neutral_production_history_is_required_without_changing_active_host_metadata() {
     let root = root();

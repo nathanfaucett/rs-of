@@ -24,56 +24,53 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .invoke_handler(tauri::generate_handler![
             app::get_localhost_server_base_url,
-            app::get_setup_stage,
-            app::get_desktop_client_id,
+            app::get_onboarding_host,
             app::get_native_setup_code,
-            app::get_native_host_error,
             app::retry_local_runtime,
+            app::set_local_trust_consent,
             app::reset_device,
             app::recover_reset_references,
             app::revoke_reset_on_peer,
             app::pending_reset_revocations,
-            app::complete_device_setup
         ])
         .setup(|app| {
-            let startup = (|| -> Result<(), Box<dyn std::error::Error>> {
-                if cfg!(debug_assertions) {
-                    app.handle().plugin(
-                        tauri_plugin_log::Builder::default()
-                            .level(log::LevelFilter::Warn)
-                            .level_for("lidp", log::LevelFilter::Debug)
-                            .build(),
-                    )?;
-                }
-                if cfg!(any(windows, target_os = "linux")) {
-                    app.deep_link().register_all()?;
-                }
+            if cfg!(debug_assertions) {
+                app.handle().plugin(
+                    tauri_plugin_log::Builder::default()
+                        .level(log::LevelFilter::Warn)
+                        .level_for("lidp", log::LevelFilter::Debug)
+                        .build(),
+                )?;
+            }
+            if cfg!(any(windows, target_os = "linux")) {
+                app.deep_link().register_all()?;
+            }
 
-                let app_handle = app.handle().clone();
-                if let Err(error) =
-                    tauri::async_runtime::block_on(app::start_native_host(&app_handle))
-                {
+            let window =
+                WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                    .title("Local")
+                    .inner_size(800.0, 600.0)
+                    .resizable(true)
+                    .fullscreen(false)
+                    .build()?;
+            if cfg!(debug_assertions) {
+                window.open_devtools();
+            }
+            app.manage(tauri::async_runtime::Mutex::new(
+                None::<crate::native_host::NativeHost>,
+            ));
+            app.manage(tauri::async_runtime::Mutex::new(
+                None::<crate::onboarding::Failure>,
+            ));
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = app::start_native_host(&handle).await {
                     log::error!(
-                        "native HTTPS host unavailable; retained state was not replaced: {error}"
+                        "native HTTPS startup failed; retained identity unchanged: {error}"
                     );
                 }
-
-                let window =
-                    WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                        .title("Local")
-                        .inner_size(800.0, 600.0)
-                        .resizable(true)
-                        .fullscreen(false)
-                        .build()?;
-                if cfg!(debug_assertions) {
-                    window.open_devtools();
-                }
-                Ok(())
-            })();
-            tauri::async_runtime::block_on(app::finish_managed_startup(
-                startup,
-                app::close(app.handle()),
-            ))
+            });
+            Ok(())
         })
         .on_window_event(on_window_event)
         .run(tauri::generate_context!())

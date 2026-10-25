@@ -15,7 +15,7 @@ import {
     ensureOidcClientId,
     getOidcClient,
 } from "$lib/common/state/oidc.svelte";
-import { getSetupStage } from "$lib/common/state/setupClient.svelte";
+import { observeOnboarding } from "$lib/common/state/onboarding";
 import type { LayoutLoad } from "./$types";
 
 export const prerender = false;
@@ -23,49 +23,22 @@ export const prerender = false;
 export const load = (async (event) => {
     await event.parent();
 
+    if (!isTauri() && !getIdpApiUrl())
+        redirect(302, resolve("/setup/installation"));
+    const observation = await observeOnboarding();
+    if (observation.state !== "ready")
+        redirect(302, resolve("/setup/installation"));
     if (isTauri()) {
-        const stage = await getSetupStage().catch(() =>
-            error(
-                503,
-                "Unable to determine local setup readiness. Retry to check it again.",
-            ),
-        );
-        if (stage === "installation" || stage === "unavailable") {
-            redirect(302, resolve("/setup/installation"));
-        }
-        if (stage === "device") {
-            redirect(302, resolve("/setup/device"));
-        }
-        if (stage !== "ready") {
-            error(
-                503,
-                "Unable to determine local setup readiness. Retry to check it again.",
-            );
-        }
         await ensureTauriIdpApiUrl();
-        await ensureOidcClientId();
         await ensureTauriManagementApiUrl();
         await ensureTauriDeviceApiUrl();
-    } else {
-        if (!getIdpApiUrl()) {
-            redirect(302, resolve("/setup/installation"));
-        }
-        const stage = await getSetupStage().catch(() =>
-            error(
-                503,
-                "Unable to determine setup readiness. Retry when the configured services are reachable.",
-            ),
-        );
-        if (stage !== "ready") {
-            redirect(302, resolve("/setup/installation"));
-        }
-        await ensureOidcClientId().catch(() =>
-            error(
-                503,
-                "Verified public login Client is unavailable. Retry when the configured services are reachable.",
-            ),
-        );
     }
+    await ensureOidcClientId(observation).catch(() =>
+        error(
+            503,
+            "Verified public login Client is unavailable. Retry observation.",
+        ),
+    );
 
     if (!getIdpApiUrl()) {
         afterSigninRedirect.setURL(new URL(event.url.href));

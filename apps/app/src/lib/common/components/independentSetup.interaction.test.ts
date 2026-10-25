@@ -119,7 +119,8 @@ it.each(["create", "join"] as const)(
                 owners[index] + " host setup code",
                 String.fromCharCode(97 + index).repeat(64),
             );
-        enter("Node name", "Interactive Node");
+        if (purpose === "join") enter("Node name", "Interactive Node");
+        else expect(target.textContent).not.toContain("Node name");
         if (purpose === "create") {
             enter("Administrator name", "Alice");
             enter("IdP administrator password", "protected-password");
@@ -153,11 +154,14 @@ it.each(["create", "join"] as const)(
         );
         for (let index = 0; index < requests.length; index++) {
             const [url, init] = requests[index];
-            expect(url).toBe(bases[owners[index]] + "/setup/" + purpose);
+            expect(url).toBe(
+                bases[owners[index]] + "/independent/setup/" + purpose,
+            );
             expect((init.headers as Record<string, string>).Authorization).toBe(
                 "Setup " + String.fromCharCode(97 + index).repeat(64),
             );
             const body = JSON.parse(init.body as string);
+            expect(body.node).toBe(purpose === "create" ? "My Node" : "Interactive Node");
             expect(body.administrator).toBe(
                 purpose === "create" ? "Alice" : "",
             );
@@ -186,8 +190,33 @@ it.each(["create", "join"] as const)(
         const { default: Installation } = await import(
             "../../../routes/setup/installation/+page.svelte"
         );
+        let ready = false;
         native.invoke.mockImplementation(async (command) => {
             if (command === "pending_reset_revocations") return [];
+            if (command === "get_onboarding_host")
+                return {
+                    base: "https://localhost:4100",
+
+                    status: {
+                        stage: "installation",
+                        state: ready
+                            ? "ready"
+                            : purpose === "join"
+                              ? "joining"
+                              : "creating",
+                        ready,
+                        owners: ["idp", "device", "storage"],
+                        ...(ready
+                            ? {
+                                  login_client: {
+                                      client_id:
+                                          "01900000-0000-7000-8000-000000000001",
+                                      scopes: ["openid"],
+                                  },
+                              }
+                            : {}),
+                    },
+                };
             if (command === "get_localhost_server_base_url")
                 return "https://localhost:4100";
             if (command === "get_native_setup_code") return "a".repeat(64);
@@ -195,7 +224,6 @@ it.each(["create", "join"] as const)(
         });
         target = document.createElement("div");
         document.body.append(target);
-        let ready = false;
         const fetchApi = vi.fn(async (url: string, _init?: RequestInit) => {
             const status = {
                 stage: "installation",
@@ -233,7 +261,21 @@ it.each(["create", "join"] as const)(
         ];
         component = mount(Installation, {
             target,
-            props: { data: { stage: "installation", hosts, bundled: true } },
+            props: {
+                data: {
+                    observation: {
+                        state: "needs_setup",
+                        action: "choose",
+                        hosts,
+                        target: {
+                            kind: "bundled",
+                            idp: hosts[0].base,
+                            device: "https://localhost:4100/device",
+                            storage: "https://localhost:4100/storage",
+                        },
+                    },
+                },
+            },
         });
         flushSync();
         enter("Installation setup choice", purpose);
@@ -241,20 +283,24 @@ it.each(["create", "join"] as const)(
             enter("Administrator name", "Alice");
             enter("Password", "protected-password");
         } else enter("Trusted peer endpoint ID", "d".repeat(64));
-        enter("Node name", "Bundled Node");
-        expect(input("Host setup code").value).toBe("");
-        button("Get bundled host code").click();
-        flushSync();
-        await vi.waitFor(() =>
-            expect(input("Host setup code").value).toBe("a".repeat(64)),
-        );
+        expect(target.textContent).not.toContain("Host setup code");
+        expect(target.textContent).not.toContain("Node name");
+        if (purpose === "create") {
+            expect(target.querySelector("a[href=\"/config\"]")?.textContent).toContain("Advanced");
+        }
         target
             .querySelector("form")!
             .dispatchEvent(
                 new Event("submit", { bubbles: true, cancelable: true }),
             );
         flushSync();
-        await vi.waitFor(() => expect(fetchApi).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() =>
+            expect(
+                fetchApi.mock.calls.some(([url]) =>
+                    url.endsWith("/" + purpose),
+                ),
+            ).toBe(true),
+        );
         expect(fetchApi.mock.calls[0][0]).toBe(
             "https://localhost:4100/idp/setup/" + purpose,
         );
@@ -263,28 +309,299 @@ it.each(["create", "join"] as const)(
             "Setup " + "a".repeat(64),
         );
         const body = JSON.parse(init.body as string);
-        expect(body.node).toBe("Bundled Node");
+        expect(body.node).toBe("My Node");
         expect("password" in body).toBe(purpose === "create");
-        expect(input("Host setup code").value).toBe("");
         expect(target.querySelector('a[href="/signin"]')).toBeNull();
         ready = true;
         await vi.waitFor(() =>
-            expect(button("Observe host status").disabled).toBe(false),
+            expect(button("Refresh status").disabled).toBe(false),
         );
-        button("Observe host status").click();
+        button("Refresh status").click();
         flushSync();
         await vi.waitFor(() =>
             expect(
-                target.querySelector('a[href="/setup/device"]'),
+                target.querySelector('a[href="/signin"]'),
             ).not.toBeNull(),
         );
         expect(
             native.invoke.mock.calls.every(([command]) =>
                 [
+                    "get_onboarding_host",
                     "pending_reset_revocations",
                     "get_localhost_server_base_url",
                     "get_native_setup_code",
                 ].includes(command),
+            ),
+        ).toBe(true);
+    },
+);
+
+it("retries a failed bundled runtime without resetting retained identity", async () => {
+    native.desktop = true;
+    const { default: Installation } = await import(
+        "../../../routes/setup/installation/+page.svelte"
+    );
+    native.invoke.mockImplementation(async (command) => {
+        if (command === "pending_reset_revocations") return [];
+        if (command === "retry_local_runtime") return;
+        if (command === "get_onboarding_host")
+            return {
+                base: "https://localhost:4100",
+                status: {
+                    stage: "installation",
+                    state: "awaiting_choice",
+                    ready: false,
+                    owners: ["idp", "device", "storage"],
+                },
+            };
+        throw new Error("Unexpected command: " + command);
+    });
+    target = document.createElement("div");
+    document.body.append(target);
+    component = mount(Installation, {
+        target,
+        props: {
+            data: {
+                observation: {
+                    state: "blocked",
+                    action: "retry",
+                    message: "Unable to verify current readiness.",
+                    hosts: [],
+                    target: {
+                        kind: "bundled",
+                        idp: "https://localhost:4100/idp",
+                        device: null,
+                        storage: null,
+                    },
+                },
+            },
+        },
+    });
+    flushSync();
+    button("Retry local services").click();
+    flushSync();
+    await vi.waitFor(() =>
+        expect(target.textContent).toContain(
+            "Create a new Installation or join an existing one.",
+        ),
+    );
+    expect(native.invoke.mock.calls.map(([command]) => command)).toContain(
+        "retry_local_runtime",
+    );
+    expect(native.invoke.mock.calls.map(([command]) => command)).not.toContain(
+        "reset_device",
+    );
+});
+
+
+it("recovers an accepted Create after closure and retries the retained identity with a newly entered password", async () => {
+    native.desktop = true;
+    const { default: Installation } = await import("../../../routes/setup/installation/+page.svelte");
+    let retained: Record<string, string> | undefined;
+    const requests: Record<string, string>[] = [];
+    const status = () => ({
+        stage: "installation", state: retained ? "creating" : "awaiting_choice",
+        ready: false, owners: ["idp", "device", "storage"],
+    });
+    native.invoke.mockImplementation(async (command) => {
+        if (command === "pending_reset_revocations") return [];
+        if (command === "get_native_setup_code") return "a".repeat(64);
+        if (command === "get_localhost_server_base_url") return "https://localhost:4100";
+        if (command === "get_onboarding_host") return { base: "https://localhost:4100", status: status() };
+        throw new Error("Unexpected native command: " + command);
+    });
+    const fetchApi = vi.fn(async (url: string, init: RequestInit = {}) => {
+        if (url.endsWith("/intent")) return Response.json(retained);
+        if (url.endsWith("/status")) return Response.json(status());
+        if (!url.endsWith("/create")) throw new Error("Unexpected owner mutation: " + url);
+        const body = JSON.parse(init.body as string);
+        requests.push(body);
+        const { password: _password, ...intent } = body;
+        retained = intent;
+        if (requests.length === 1) throw new Error("response lost after durable acceptance");
+        return Response.json(status(), { status: 202 });
+    });
+    vi.stubGlobal("fetch", fetchApi);
+    target = document.createElement("div");
+    document.body.append(target);
+    const open = () => {
+        const hosts: SetupHost[] = [{ base: "https://localhost:4100/idp", status: status() as SetupHost["status"] }];
+        component = mount(Installation, { target, props: { data: { observation: {
+            ...(retained ? { state: "working" as const, action: "observe" as const } : { state: "needs_setup" as const, action: "choose" as const }), hosts,
+            target: { kind: "bundled", idp: hosts[0].base, device: null, storage: null },
+        } } } });
+        flushSync();
+    };
+    open();
+    enter("Administrator name", "Alice");
+    enter("Password", "original-password");
+    target.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    await vi.waitFor(() => expect(button("Resume setup").disabled).toBe(false));
+    expect(target.querySelector('a[href="/signin"]')).toBeNull();
+    await unmount(component);
+    target.replaceChildren();
+    open();
+    expect(target.textContent).toContain("Creating your Node");
+    expect(target.querySelector('input[autocomplete="new-password"]')).toBeNull();
+    button("Resume setup").click();
+    await vi.waitFor(() => expect(input("Administrator name").value).toBe("Alice"));
+    expect(input("Password").value).toBe("");
+    expect(button("Retry exact Create").disabled).toBe(true);
+    enter("Password", "original-password");
+    target.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    expect(requests[1]).toEqual(requests[0]);
+    expect(retained).not.toHaveProperty("password");
+    expect(input("Password").value).toBe("");
+    expect(target.querySelector('a[href="/signin"]')).toBeNull();
+});
+
+it("shows startup before host completion and requires explained trust consent before installation", async () => {
+    native.desktop = true;
+    let failure: string | undefined = "trust_consent";
+    native.invoke.mockImplementation(async (command, args) => {
+        if (command === "pending_reset_revocations") return [];
+        if (command === "get_onboarding_host") return failure ? { failure } : {
+            base: "https://localhost:4100",
+            status: { stage: "installation", state: "awaiting_choice", ready: false, owners: ["idp", "device", "storage"] },
+        };
+        if (command === "set_local_trust_consent") {
+            failure = args.consent ? undefined : "trust_declined";
+            return;
+        }
+        if (command === "retry_local_runtime") { failure = "trust_consent"; return; }
+        throw new Error("Unexpected command " + command);
+    });
+    const { default: Installation } = await import("../../../routes/setup/installation/+page.svelte");
+    target = document.createElement("div");
+    document.body.append(target);
+    component = mount(Installation, { target, props: { data: { observation: {
+        state: "starting", action: "observe", hosts: [],
+        target: { kind: "bundled", idp: "", device: null, storage: null },
+    } } } });
+    flushSync();
+    expect(target.textContent).toContain("Starting bundled services");
+    expect(native.invoke.mock.calls.some(([command]) => command === "set_local_trust_consent")).toBe(false);
+    await vi.waitFor(() => expect(target.textContent).toContain("operating system"), { timeout: 3000 });
+    expect(target.textContent).toContain("certificate authority");
+    button("Not now").click();
+    flushSync();
+    await vi.waitFor(() => expect(target.textContent).toContain("declined"));
+    expect(native.invoke).toHaveBeenCalledWith("set_local_trust_consent", { consent: false });
+    button("Retry local services").click();
+    flushSync();
+    await vi.waitFor(() => expect(button("Allow certificate trust")).toBeDefined());
+    button("Allow certificate trust").click();
+    flushSync();
+    await vi.waitFor(() => expect(target.textContent).toContain("Create a new Installation"));
+    expect(native.invoke).toHaveBeenCalledWith("set_local_trust_consent", { consent: true });
+    expect(native.invoke.mock.calls.some(([command]) => command === "reset_device")).toBe(false);
+});
+
+it.each([true, false])(
+    "rechecks current public login after completed Create recovery, valid login=%s",
+    async (validLogin) => {
+        native.desktop = true;
+        const { default: Installation } = await import(
+            "../../../routes/setup/installation/+page.svelte"
+        );
+        const status = {
+            stage: "installation",
+            state: "ready",
+            ready: true,
+            owners: ["idp", "device", "storage"],
+            login_client: {
+                client_id: "01900000-0000-7000-8000-000000000001",
+                scopes: ["openid"],
+            },
+        };
+        let releaseObservation: (() => void) | undefined;
+        native.invoke.mockImplementation(async (command) => {
+            if (command === "get_native_setup_code") return "a".repeat(64);
+            if (command === "get_onboarding_host")
+                return new Promise((resolve) => {
+                    releaseObservation = () =>
+                        resolve({
+                            base: "https://localhost:4100",
+                            status: {
+                                ...status,
+                                login_client: validLogin
+                                    ? status.login_client
+                                    : undefined,
+                            },
+                        });
+                });
+            if (command === "get_localhost_server_base_url")
+                return "https://localhost:4100";
+            throw new Error("Unexpected native command: " + command);
+        });
+        const fetchApi = vi.fn(async (url: string) => {
+            if (url.endsWith("/intent"))
+                return Response.json({
+                    operation_nonce: "b".repeat(32),
+                    node: "My Node",
+                    administrator: "Alice",
+                });
+            if (url.endsWith("/status")) return Response.json(status);
+            throw new Error("Unexpected HTTP operation: " + url);
+        });
+        vi.stubGlobal("fetch", fetchApi);
+        target = document.createElement("div");
+        document.body.append(target);
+        component = mount(Installation, {
+            target,
+            props: {
+                data: {
+                    observation: {
+                        state: "working",
+                        action: "observe",
+                        target: {
+                            kind: "bundled",
+                            idp: "https://localhost:4100/idp",
+                            device: null,
+                            storage: null,
+                        },
+                        hosts: [
+                            {
+                                base: "https://localhost:4100/idp",
+                                status: {
+                                    stage: "installation",
+                                    state: "unfinished",
+                                    ready: false,
+                                    owners: ["idp", "device", "storage"],
+                                },
+                            },
+                        ],
+                    },
+                },
+            },
+        });
+        flushSync();
+        expect(target.querySelector("a[href$=signin]")).toBeNull();
+        button("Resume setup").click();
+        await vi.waitFor(() => expect(releaseObservation).toBeDefined());
+        expect(target.querySelector("a[href$=signin]")).toBeNull();
+        releaseObservation!();
+        if (validLogin) {
+            await vi.waitFor(() =>
+                expect(target.textContent).toContain(
+                    "Selected services are ready",
+                ),
+            );
+            expect(target.querySelector("a[href$=signin]")).not.toBeNull();
+            expect(target.textContent).toContain("Setup does not sign you in");
+        } else {
+            await vi.waitFor(() =>
+                expect(target.textContent).toContain(
+                    "Retained setup evidence needs repair",
+                ),
+            );
+            expect(target.querySelector("a[href$=signin]")).toBeNull();
+        }
+        expect(
+            fetchApi.mock.calls.every(
+                ([url]) => url.endsWith("/intent") || url.endsWith("/status"),
             ),
         ).toBe(true);
     },

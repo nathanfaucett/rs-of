@@ -39,7 +39,9 @@ An independent IdP can use `management_permissions` with verified HTTPS and its 
 
 ## Setup, join and readiness
 
-The existing web app supports unified and independent-owner Create/Join without Tauri. Desktop bundled selection uses the same HTTPS setup client/shared worker; selected remote bases must never be replaced by bundled bases. Native retains protected code retrieval, trust/elevation, host observation, retry/reset/reference recovery and Device marker completion, not separate Create/Join/approval orchestration. `/setup/bootstrap`, the old `/lidp/setup/status` probe and native mutation commands are removed, with no wrappers.
+Application routing consumes the typed, selected-target-bound `OnboardingObservation` rather than separate native stage, startup-error and login-Client reads. Bundled `get_onboarding_host` returns safe platform failure categories, typed shared status and the existing Client-bound Device preference requirement; browser/remote observation remains direct generated HTTPS. The native observation never contains a Setup code. See the [input, action and failure table](setup-workers.md#onboarding-observation-and-recovery-routing).
+
+The existing web app supports unified and independent-owner Create/Join without Tauri. Desktop bundled selection uses the same HTTPS setup client/shared worker; selected remote bases must never be replaced by bundled bases. Native retains protected code retrieval, trust/elevation, host observation, retry/reset/reference recovery—not Device marker completion or separate Create/Join/approval orchestration. `/setup/bootstrap`, the old `/lidp/setup/status` probe and native mutation commands are removed, with no wrappers.
 
 Normal protected APIs always enforce their own authentication and exact authorization. Listener/status/approval/completion markers, sign-in and Residency acknowledgements are not readiness or resource authority. Current owner trust, protected signing capability and retained state must verify; no global authentication-enable switch or peer freshness lease exists.
 
@@ -180,3 +182,10 @@ Storage exports resolve through `esm`/`types`. Build explicitly before publicati
 - Unified setup worker/runtime: `crates/unified-server/src/setup_runtime.rs`, `local_provisioning.rs`, `local_join.rs`, `runtime.rs`. Source approval belongs to `crates/device-server/src/node_join_source.rs`.
 - Native lifecycle boundary: [NATIVE-SETUP.md](../apps/app/src-tauri/NATIVE-SETUP.md).
 - Frontend setup transport: `apps/app/src/lib/common/state/setupApi.ts`, `independentSetupApi.ts`.
+
+
+### Protected host opening and configured native UI origins
+
+`api::SetupAdmission::open` returns `std::io::Result<SetupAdmission>` so a host can preserve operational error kinds (`WouldBlock`, `PermissionDenied`, and other I/O failures), distinguish missing retained files from malformed evidence, and offer a safe retry without replacing identity. Admission checks, protected code retrieval and HTTP responses retain their redacted `SetupAdmissionError` contract; no filesystem errors or codes are added to public status. Unified/independent host and reset consumers propagate the constructor's I/O errors directly.
+
+Setup UI origin validation accepts exact HTTPS origins or the explicitly configured packaged-native origins `tauri://localhost` and `http://tauri.localhost`. Each router permits only its configured origin; this does not auto-allow both, accept `null`, or waive admission. Native UI origins do not relax HTTPS API target validation, per-owner setup-code scope or ordinary User authorization.

@@ -45,6 +45,9 @@ pub(crate) struct SetupStatus {
 }
 
 pub fn setup_origin(value: &str) -> io::Result<HeaderValue> {
+    if matches!(value, "tauri://localhost" | "http://tauri.localhost") {
+        return HeaderValue::from_str(value).map_err(io::Error::other);
+    }
     let url =
         reqwest::Url::parse(value).map_err(|_| io::Error::other("setup UI origin is invalid"))?;
     if url.scheme() != "https"
@@ -57,7 +60,7 @@ pub fn setup_origin(value: &str) -> io::Result<HeaderValue> {
         || url.origin().ascii_serialization() != value
     {
         return Err(io::Error::other(
-            "setup UI origin must be an exact HTTPS origin without credentials or path",
+            "setup UI origin must be an exact HTTPS or packaged-native origin without credentials or path",
         ));
     }
     HeaderValue::from_str(value).map_err(|_| io::Error::other("setup UI origin is invalid"))

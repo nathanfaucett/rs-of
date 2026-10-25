@@ -60,6 +60,12 @@ fn health_checks_private_state_without_authorizing_and_failure_is_sticky() {
             }
         }
         assert_eq!(admission.health(), Err(SetupAdmissionError::Unavailable));
+        if fault != "lock" {
+            assert_eq!(
+                SetupAdmission::protected_code(&root),
+                Err(SetupAdmissionError::Unavailable)
+            );
+        }
         match fault {
             "missing" => {
                 fs::rename(root.join("held-state"), &state).expect("external fixture restoration")
@@ -327,8 +333,10 @@ async fn setup_handler_binds_before_work_without_changing_other_routes() {
 fn process_lock_probe() {
     if let Some(root) = std::env::var_os("OF_SETUP_ADMISSION_LOCK_PROBE_PATH") {
         assert_eq!(
-            SetupAdmission::open(std::path::Path::new(&root)).expect_err("other process owns lock"),
-            SetupAdmissionError::Unavailable
+            SetupAdmission::open(std::path::Path::new(&root))
+                .expect_err("other process owns lock")
+                .kind(),
+            std::io::ErrorKind::WouldBlock
         );
     }
 }
@@ -337,8 +345,10 @@ fn process_lock_probe() {
 fn live_handle_holds_exclusive_lock_until_drop() {
     let (_parent, root, admission, headers, _code) = fixture();
     assert_eq!(
-        SetupAdmission::open(&root).expect_err("second handle must deny"),
-        SetupAdmissionError::Unavailable
+        SetupAdmission::open(&root)
+            .expect_err("second handle must deny")
+            .kind(),
+        std::io::ErrorKind::WouldBlock
     );
     let child = std::process::Command::new(std::env::current_exe().expect("test executable"))
         .args(["--exact", "setup_admission_tests::process_lock_probe"])
@@ -441,11 +451,14 @@ fn missing_corrupt_and_unsafe_retained_state_is_not_repaired() {
                 metadata.permissions().mode(),
             )
         });
-        assert_eq!(
-            SetupAdmission::open(&root).expect_err(damage),
-            SetupAdmissionError::Unavailable,
-            "{damage}"
-        );
+        let error = SetupAdmission::open(&root).expect_err(damage);
+        if matches!(damage, "missing-state" | "missing-lock") {
+            assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "{damage}");
+        } else if damage == "directory" {
+            assert_eq!(error.kind(), std::io::ErrorKind::IsADirectory);
+        } else if damage != "symlink" {
+            assert_eq!(error.kind(), std::io::ErrorKind::InvalidData, "{damage}");
+        }
         assert_eq!(
             before,
             fs::symlink_metadata(&state).ok().map(|metadata| (
@@ -613,4 +626,36 @@ async fn setup_http_requires_explicit_exact_code() {
         app.oneshot(request).await.expect("response").status(),
         StatusCode::NO_CONTENT
     );
+}
+
+#[test]
+fn protected_management_reads_existing_capability_and_retirement_without_creating_state() {
+    let (_parent, root, admission, headers, code) = fixture();
+    assert_eq!(
+        SetupAdmission::protected_code(&root).expect("protected read"),
+        Some(code)
+    );
+    admission.bind(&headers, "create:management").expect("bind");
+    admission
+        .retire(&headers, "create:management")
+        .expect("retire");
+    assert_eq!(
+        SetupAdmission::protected_code(&root).expect("retired read"),
+        None
+    );
+    fs::write(
+        root.join("state"),
+        "setup-admission-v1\nretired\ninvalid\nintent",
+    )
+    .expect("corrupt intent");
+    assert_eq!(
+        SetupAdmission::protected_code(&root),
+        Err(SetupAdmissionError::Unavailable)
+    );
+    let missing = root.join("missing");
+    assert_eq!(
+        SetupAdmission::protected_code(&missing),
+        Err(SetupAdmissionError::Unavailable)
+    );
+    assert!(!missing.exists());
 }

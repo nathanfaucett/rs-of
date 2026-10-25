@@ -1,37 +1,32 @@
-import { isHttpError, isRedirect } from "@sveltejs/kit";
 import { render } from "svelte/server";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { SetupHost } from "$lib/common/state/setupApi";
 
 const host = vi.hoisted(() => ({
     native: true,
+    remote: false,
     invoke: vi.fn(),
     fetch: vi.fn(),
-    device: "https://policy.test/api" as string | null,
     idp: "https://node.test/idp" as string | null,
-    oidc: vi.fn(),
+    device: "https://policy.test/api",
     clientId: vi.fn(),
 }));
 vi.mock("@tauri-apps/api/core", () => ({
     isTauri: () => host.native,
     invoke: host.invoke,
 }));
-
-vi.mock("$app/navigation", () => ({ goto: vi.fn() }));
+vi.mock("$app/navigation", () => ({ goto: vi.fn(), invalidateAll: vi.fn() }));
 vi.mock("$app/paths", () => ({ resolve: (path: string) => path }));
 vi.mock("$lib/common/state/oidc.svelte", () => ({
-    getOidcClient: host.oidc,
+    getOidcClient: vi.fn(),
     ensureOidcClientId: host.clientId,
 }));
 vi.mock("$lib/common/state/idpClient.svelte", () => ({
     getIdpApiUrl: () => host.idp,
-    ensureTauriIdpApiUrl: async () => "https://node.test/idp",
-    usesRemoteApis: () => !host.native,
+    ensureTauriIdpApiUrl: async () => host.idp,
+    usesRemoteApis: () => !host.native || host.remote,
 }));
-
 vi.mock("$lib/common/state/deviceClient.svelte", () => ({
     getDeviceApiUrl: () => host.device,
-    ensureTauriDeviceApiUrl: async () => {},
 }));
 vi.mock("$env/dynamic/public", () => ({
     env: { PUBLIC_STORAGE_BASE_URL: "https://data.test/api" },
@@ -39,584 +34,338 @@ vi.mock("$env/dynamic/public", () => ({
 
 const { load } = await import("./+page");
 const { default: Installation } = await import("./+page.svelte");
-
-it.each([
-    [
-        "ready",
-        "/signin",
-        "Local completion does not sign you in or grant permissions.",
-    ],
-    ["device", "/setup/device", "Continue Device setup"],
-])(
-    "shows %s completion navigation without recreating the Installation",
-    (stage, href, message) => {
-        const { body } = render(Installation, {
-            props: { data: { stage, bundled: true } },
-        });
-        expect(body).toContain(`href="${href}"`);
-        expect(body).toContain(message);
-        expect(body).not.toContain("<form");
-        expect(body).not.toContain("Create local Node");
-        expect(body).not.toContain("Request approval and join");
-        expect(body).toContain("Type RESET to confirm");
-        expect(body).toMatch(
-            /<button[^>]*disabled[^>]*>Reset bundled Node explicitly<\/button>/,
-        );
-        expect(host.invoke).not.toHaveBeenCalled();
-    },
-);
-
-it("offers bundled Create through the same HTTPS controls and explicit protected local code retrieval", () => {
-    const hosts: SetupHost[] = [
-        {
-            base: "https://node.test/idp",
-            status: {
-                stage: "installation",
-                state: "awaiting_choice",
-                ready: false,
-                owners: ["idp", "device", "storage"],
-            },
-        },
-    ];
-    const { body } = render(Installation, {
-        props: { data: { stage: "installation", bundled: true, hosts } },
-    });
-    expect(body).toContain("Create an Installation");
-    expect(body).toContain("Get bundled host code");
-    expect(body).toContain("Resume setup");
-    expect(body).toContain("Refresh status");
-    expect(body).toContain("Administrator name");
-    expect(body).not.toContain("Create local Node");
-    expect(host.invoke).not.toHaveBeenCalled();
-});
-
-it("offers unified web Create with protected credentials and explicit observation without native reset controls", () => {
-    host.native = false;
-    const { body } = render(Installation, {
-        props: {
-            data: {
-                stage: "installation",
-                hosts: [
-                    {
-                        base: "https://node.test/idp",
-                        status: {
-                            stage: "installation",
-                            state: "awaiting_choice",
-                            ready: false,
-                            owners: ["idp", "device", "storage"],
-                        },
-                    },
-                ],
-            },
-        },
-    });
-    expect(body).toContain("Create an Installation");
-    expect(body).toContain("Join through a trusted peer");
-    expect(body).not.toContain(
-        "Unified API Create and Join controls are available",
-    );
-    expect(body).not.toContain("Setup host / exact API base");
-    expect(body).not.toContain("Your deployment must install");
-    expect(body).toMatch(
-        /<details>\s*<summary>Recovery and diagnostics<\/summary>/,
-    );
-    expect(body).toMatch(/<details>\s*<summary>Connection details<\/summary>/);
-    expect(body).toContain("Administrator name");
-    expect(body).toContain("Node name");
-    expect(body).toContain("Password");
-    expect(body).toContain("Refresh status");
-    expect(body).toContain("Resume setup");
-    expect(body).toContain("Keep it private");
-    expect(body).toMatch(
-        /<button[^>]*disabled[^>]*>\s*Create Node\s*<\/button>/,
-    );
-    expect(body).toContain("Host setup code");
-    expect(body).toContain("Verify setup code");
-    expect(body).not.toContain(
-        "Installation is available only in the desktop app.",
-    );
-    expect(body).not.toContain("Reset this local Node");
-    expect(body).toContain("<form");
-});
-
-function readyNative(stage: unknown) {
-    host.invoke.mockImplementation(async (command) =>
-        command === "get_native_host_error" ? null : stage,
-    );
-    host.fetch.mockImplementation(async () =>
-        Response.json({
-            stage: "installation",
-            state: "ready",
-            ready: true,
-            owners: ["idp", "device", "storage"],
-            login_client: {
-                client_id: "01900000-0000-7000-8000-000000000001",
-                scopes: ["openid"],
-            },
-        }),
-    );
-}
-it.each([null, undefined, "unknown", "desktop-only", { stage: "ready" }])(
-    "refuses invalid native completion observation %j after HTTPS readiness",
-    async (stage) => {
-        readyNative(stage);
-        await expect(load()).resolves.toMatchObject({
-            stage: "unavailable",
-            bundled: true,
-        });
-    },
-);
-it("shows native host prerequisite failure without probing or inventing fresh setup", async () => {
-    host.invoke.mockResolvedValue("OS trust installation refused");
-    await expect(load()).resolves.toEqual({
-        stage: "unavailable",
-        bundled: true,
-        nativeError: "OS trust installation refused",
-    });
-    expect(host.fetch).not.toHaveBeenCalled();
-});
-
-it.each([null, ""])(
-    "routes missing web endpoint %j to configuration without setup probes",
-    async (base) => {
-        host.native = false;
-        host.idp = base;
-        const failure = await load().catch((cause: unknown) => cause);
-        expect(isRedirect(failure)).toBe(true);
-        expect(failure).toMatchObject({ status: 302, location: "/config" });
-        expect(host.fetch).not.toHaveBeenCalled();
-        expect(host.invoke).not.toHaveBeenCalled();
-        expect(host.oidc).not.toHaveBeenCalled();
-    },
-);
-
-it("keeps configured web setup transport failures as 503 instead of configuration or fresh setup", async () => {
-    host.native = false;
-    host.fetch.mockRejectedValue(new TypeError("Failed to fetch"));
-    expect(
-        isHttpError(await load().catch((cause: unknown) => cause), 503),
-    ).toBe(true);
-    expect(host.invoke).not.toHaveBeenCalled();
-});
-
-it("reads web setup evidence from the API without invoking native controls", async () => {
-    host.native = false;
-    host.fetch.mockResolvedValue(
-        Response.json({
-            stage: "installation",
-            state: "awaiting_choice",
-            ready: false,
-            owners: ["idp", "device", "storage"],
-        }),
-    );
-    await expect(load()).resolves.toEqual({
+const login = {
+    client_id: "01900000-0000-7000-8000-000000000001",
+    scopes: ["openid"],
+};
+function status(state = "awaiting_choice") {
+    return {
         stage: "installation",
-        hosts: [
-            {
-                base: "https://node.test/idp",
-                status: {
-                    stage: "installation",
-                    state: "awaiting_choice",
-                    ready: false,
-                    owners: ["idp", "device", "storage"],
-                },
-            },
-        ],
-    });
-    expect(host.invoke).not.toHaveBeenCalled();
-    expect(host.fetch).toHaveBeenCalledWith(
-        "https://node.test/idp/setup/status",
-        expect.objectContaining({
-            credentials: "omit",
-            redirect: "error",
-            cache: "no-store",
-        }),
-    );
-});
-
-it("does not turn a local evidence failure into readiness or a redirect", async () => {
-    const failure = new Error("Local secure storage unavailable");
-    host.invoke.mockRejectedValue(failure);
-    await expect(load()).resolves.toMatchObject({
-        stage: "unavailable",
-        bundled: true,
-        nativeError: expect.stringContaining("observation unavailable"),
-    });
-    expect(host.fetch).not.toHaveBeenCalled();
-});
-
+        state,
+        ready: state === "ready",
+        owners: ["idp", "device", "storage"],
+        ...(state === "ready" ? { login_client: login } : {}),
+    };
+}
+function native(state = "awaiting_choice", device = false) {
+    return {
+        base: "https://node.test",
+        status: status(state),
+        device_setup_required: device,
+    };
+}
 beforeEach(() => {
+    vi.clearAllMocks();
     host.native = true;
-    host.device = "https://policy.test/api";
+    host.remote = false;
     host.idp = "https://node.test/idp";
-    host.clientId.mockReset().mockResolvedValue("verified-client");
-    vi.stubGlobal("window", { location: new URL("https://app.test") });
-    host.invoke.mockReset().mockResolvedValue(null);
-    host.oidc.mockReset();
     host.fetch.mockReset();
+    host.invoke.mockReset().mockResolvedValue(native());
     vi.stubGlobal("fetch", host.fetch);
+    vi.stubGlobal("window", {
+        location: new URL("https://app.test"),
+        localStorage: { getItem: () => null },
+    });
 });
-
 afterEach(() => vi.unstubAllGlobals());
 
-it("keeps a locally ready Node's Installation reset page reachable without signing in", async () => {
-    readyNative("ready");
-    await expect(load()).resolves.toMatchObject({
-        stage: "ready",
-        bundled: true,
-        hosts: expect.any(Array),
+it("observes bundled setup through one secret-free target-bound snapshot", async () => {
+    const data = await load();
+    expect(data.observation).toMatchObject({
+        state: "needs_setup",
+        target: { kind: "bundled", idp: "https://node.test/idp" },
+        action: "choose",
     });
-    expect(host.invoke.mock.calls).toEqual([
-        ["get_native_host_error"],
-        ["get_setup_stage"],
-    ]);
+    expect(host.invoke.mock.calls).toEqual([["get_onboarding_host"]]);
+    expect(host.fetch).not.toHaveBeenCalled();
+    expect(JSON.stringify(data.observation)).not.toContain("setup_code");
+    const { body } = render(Installation, { props: { data } });
+    expect(body).toContain("Create an Installation");
+    expect(body).toContain("Join through a trusted peer");
+    expect(body).not.toContain("Get bundled host code");
+    expect(body).not.toContain("Node name");
+    expect(body).toContain("Advanced connection settings");
+    expect(body).toContain('type="password"');
 });
 
-it("keeps Device completion reachable from the Installation reset page", async () => {
-    readyNative("device");
-    await expect(load()).resolves.toMatchObject({
-        stage: "device",
-        bundled: true,
-        hosts: expect.any(Array),
-    });
-    expect(host.invoke.mock.calls).toEqual([
-        ["get_native_host_error"],
-        ["get_setup_stage"],
-    ]);
-});
-
-it("shows three independent host scopes and API bases with no native controls", () => {
-    host.native = false;
-    const hosts: SetupHost[] = [
-        {
-            base: "https://node.test/idp",
-            status: {
-                stage: "installation",
-                state: "awaiting_choice",
-                ready: false,
-                owners: ["idp"],
-            },
-        },
-        {
-            base: "https://node.test/policy",
-            status: {
-                stage: "installation",
-                state: "awaiting_choice",
-                ready: false,
-                owners: ["device"],
-            },
-        },
-        {
-            base: "https://store.test/files",
-            status: {
-                stage: "installation",
-                state: "awaiting_choice",
-                ready: false,
-                owners: ["storage"],
-            },
-        },
-    ];
-    const { body } = render(Installation, {
-        props: { data: { stage: "installation", hosts } },
-    });
-    for (const host of hosts) expect(body).toContain(host.base);
-    expect(body).toContain("Each owner requires its own code");
-    expect(body).not.toContain("Type RESET to confirm");
-    expect(body).not.toContain("Independent Create unavailable");
-    expect(body).toContain("Administrator name");
-    expect(body).toContain("Node name");
-    expect(body).toContain("Recover exact operation across owners");
-    expect(host.invoke).not.toHaveBeenCalled();
-});
-
-it.each<{ hosts?: SetupHost[] }>([
-    { hosts: undefined },
-    {
-        hosts: [
-            {
-                base: "https://node.test/idp",
-                status: {
-                    stage: "unavailable",
-                    state: "unavailable",
-                    ready: false,
-                    owners: ["idp", "device", "storage"],
-                },
-            },
-        ],
-    },
-])(
-    "does not offer code submission or completion with missing/unhealthy host evidence",
-    ({ hosts }) => {
-        host.native = false;
-        const { body } = render(Installation, {
-            props: { data: { stage: "unavailable", hosts } },
+it.each(["creating", "joining"])(
+    "shows %s as working, never readiness from acceptance",
+    async (state) => {
+        host.invoke.mockResolvedValue(native(state));
+        const data = await load();
+        expect(data.observation).toMatchObject({
+            state: "working",
+            action: state === "joining" ? "approve" : "observe",
         });
-        expect(body).toContain('role="alert"');
-        expect(body).not.toContain('type="password"');
+        const { body } = render(Installation, { props: { data } });
+        expect(body).toContain('aria-label="Setup in progress"');
         expect(body).not.toContain('href="/signin"');
-        expect(body).not.toContain('href="/setup/device"');
-        expect(host.invoke).not.toHaveBeenCalled();
+        if (state === "joining")
+            expect(body).toContain("Devices → Add a device");
     },
 );
 
-it("reports mismatched independent web owner evidence as a visible 503, not completion", async () => {
-    host.native = false;
-    host.fetch.mockImplementation(async () =>
-        Response.json({
-            stage: "installation",
-            state: "awaiting_choice",
-            ready: false,
-            owners: ["idp"],
-        }),
-    );
-    const failure = await load().catch((cause: unknown) => cause);
-    expect(isHttpError(failure)).toBe(true);
-    expect(failure).toMatchObject({
-        status: 503,
-        body: {
-            message: "Setup scope does not match the configured device service",
-        },
+it.each([false, true])(
+    "preserves verified readiness and Device preferences without authenticating: %s",
+    async (device) => {
+        host.invoke.mockResolvedValue(native("ready", device));
+        const data = await load();
+        expect(data.observation).toMatchObject({
+            state: "ready",
+            action: "sign_in",
+            loginClient: login,
+        });
+        const { body } = render(Installation, { props: { data } });
+        expect(body).toContain(
+            'href="/signin"',
+        );
+        expect(body).not.toContain("<form");
+        expect(host.clientId).not.toHaveBeenCalled();
+    },
+);
+
+it("shows startup without inventing owner readiness", async () => {
+    host.invoke.mockResolvedValue({});
+    const data = await load();
+    expect(data.observation.state).toBe("starting");
+    const { body } = render(Installation, { props: { data } });
+    expect(body).toContain("Starting bundled services");
+    expect(body).not.toContain("<form");
+});
+
+it.each(["retry", "prerequisite", "repair"] as const)(
+    "shows safe %s instructions, not a default destructive recovery",
+    async (action) => {
+        host.invoke.mockResolvedValue({ failure: action });
+        const data = await load();
+        expect(data.observation).toMatchObject({ state: "blocked", action });
+        const { body } = render(Installation, { props: { data } });
+        expect(body).toContain("Retry observation");
+        expect(body).not.toContain("<form");
+        expect(body).not.toContain('href="/signin"');
+        expect(body).toContain('href="/maintenance"');
+        expect(body).not.toContain("Type RESET");
+        expect(body).not.toContain("Recover reset references</button>");
+        expect(body).not.toContain("Revoke on surviving peer</button>");
+        if (action === "repair")
+            expect(body).toContain("Preserve the existing identity");
+    },
+);
+
+it.each([
+    null,
+    { ...status("ready"), login_client: null },
+    { ...status("ready"), login_client: { ...login, scopes: [] } },
+    { ...status(), ready: true },
+    { ...status("ready"), owners: ["idp"] },
+    { ...status(), state: "invented" },
+])(
+    "blocks malformed native evidence without manufacturing readiness: %j",
+    async (evidence) => {
+        host.invoke.mockResolvedValue({
+            base: "https://node.test",
+            status: evidence,
+            device_setup_required: false,
+        });
+        const data = await load();
+        expect(data.observation.state).toBe("blocked");
+        const { body } = render(Installation, { props: { data } });
+        expect(body).not.toContain('href="/signin"');
+        expect(body).not.toContain("<form");
+    },
+);
+
+it.each(["unfinished", "unavailable"])(
+    "routes damaged shared %s evidence to repair",
+    async (state) => {
+        host.invoke.mockResolvedValue(native(state));
+        expect((await load()).observation).toMatchObject({
+            state: "blocked",
+            action: state === "unavailable" ? "prerequisite" : "repair",
+        });
+    },
+);
+
+it.each([true, false])(
+    "honors remote selection independently of failed bundled services, native=%s",
+    async (desktop) => {
+        host.native = desktop;
+        host.remote = true;
+        host.invoke.mockRejectedValue(new Error("bundled host failed"));
+        host.fetch.mockResolvedValue(Response.json(status("ready")));
+        const data = await load();
+        expect(data.observation).toMatchObject({
+            state: "ready",
+            target: { kind: "remote", idp: host.idp },
+            loginClient: login,
+        });
+        const { body } = render(Installation, { props: { data } });
+        expect(body).toContain('href="/signin"');
+        expect(body).not.toContain("Get bundled host code");
+        expect(body).not.toContain("Reset bundled Node");
+        expect(host.invoke).not.toHaveBeenCalled();
+        expect(host.fetch).toHaveBeenCalledTimes(1);
+    },
+);
+
+it("discards readiness from a target changed during HTTP observation", async () => {
+    host.remote = true;
+    host.fetch.mockImplementation(async () => {
+        host.idp = "https://other.test/idp";
+        return Response.json(status("ready"));
     });
-    expect(host.fetch.mock.calls.map(([url]) => url)).toEqual([
-        "https://node.test/idp/setup/status",
-        "https://policy.test/api/independent/setup/status",
-    ]);
+    const data = await load();
+    expect(data.observation).toMatchObject({
+        state: "blocked",
+        action: "retry",
+        target: { idp: "https://other.test/idp" },
+        hosts: [],
+    });
+});
+
+it("discards bundled readiness when remote selection changes during native observation", async () => {
+    host.invoke.mockImplementation(async () => {
+        host.remote = true;
+        host.idp = "https://other.test/idp";
+        return native("ready");
+    });
+    expect((await load()).observation).toMatchObject({
+        state: "blocked",
+        target: { kind: "remote", idp: "https://other.test/idp" },
+        hosts: [],
+    });
+});
+
+it("keeps browser transport failure actionable without native recovery", async () => {
+    host.native = false;
+    host.fetch.mockRejectedValue(new Error("offline"));
+    const data = await load();
+    expect(data.observation).toMatchObject({
+        state: "blocked",
+        action: "retry",
+    });
+    const { body } = render(Installation, { props: { data } });
+    expect(body).toContain("Retry observation");
+    expect(body).not.toContain("Reset bundled Node");
     expect(host.invoke).not.toHaveBeenCalled();
 });
 
-it("routes fresh unified web setup to Installation, never normal OAuth/sign-in completion", async () => {
+it("keeps separate configured independent owner admission scopes", async () => {
     host.native = false;
-    host.fetch.mockResolvedValue(
+    host.fetch.mockImplementation(async (url: string) =>
         Response.json({
-            stage: "installation",
-            state: "awaiting_choice",
-            ready: false,
-            owners: ["idp", "device", "storage"],
+            ...status(),
+            owners: [
+                url.startsWith(host.idp!)
+                    ? "idp"
+                    : url.startsWith(host.device)
+                      ? "device"
+                      : "storage",
+            ],
         }),
     );
-    const { load: routeSetup } = await import("../+page");
-    await expect(routeSetup()).rejects.toMatchObject({
-        status: 302,
+    const data = await load();
+    expect(data.observation.hosts.map((item) => item.status.owners)).toEqual([
+        ["idp"],
+        ["device"],
+        ["storage"],
+    ]);
+    const { body } = render(Installation, { props: { data } });
+    expect(body).toContain("https://policy.test/api");
+    expect(body).toContain("https://data.test/api");
+    expect(host.invoke).not.toHaveBeenCalled();
+});
+
+it("routes direct sign-in using the same observation and passes its verified login evidence", async () => {
+    const { load: signin } = await import("../../signin/+page");
+    host.invoke.mockResolvedValue(native("ready"));
+    await signin();
+    expect(host.clientId).toHaveBeenCalledWith(
+        expect.objectContaining({ state: "ready", loginClient: login }),
+    );
+    expect(host.invoke.mock.calls).toEqual([["get_onboarding_host"]]);
+    host.invoke.mockRejectedValue(new Error("offline"));
+    await expect(signin()).rejects.toMatchObject({
         location: "/setup/installation",
     });
-    expect(host.fetch.mock.calls.map(([url]) => url)).toEqual([
-        "https://node.test/idp/setup/status",
-    ]);
-    expect(host.invoke).not.toHaveBeenCalled();
-    expect(host.oidc).not.toHaveBeenCalled();
 });
 
-it.each([
-    ["creating", "Creating your Node"],
-    ["joining", "Joining the Installation"],
-    ["unfinished", "Setup needs attention"],
-] as const)(
-    "shows a focused %s status after reload without manufacturing a reconnect intent",
-    (state, title) => {
+it("offers retry for a transient remote server failure, not identity repair", async () => {
+    host.native = false;
+    host.fetch.mockResolvedValue(new Response(null, { status: 500 }));
+    expect((await load()).observation).toMatchObject({
+        state: "blocked",
+        action: "retry",
+    });
+});
+
+it("does not disclose embedded credentials or query secrets from invalid selected addresses", async () => {
+    host.remote = true;
+    host.idp =
+        "https://operator:private-password@node.test/idp?setup=private-code";
+    const data = await load();
+    expect(data.observation.state).toBe("blocked");
+    expect(JSON.stringify(data.observation)).not.toContain("private-password");
+    expect(JSON.stringify(data.observation)).not.toContain("private-code");
+    expect(host.fetch).not.toHaveBeenCalled();
+    expect(host.invoke).not.toHaveBeenCalled();
+});
+
+it("discards a stale target's malformed evidence rather than requesting repair of the new target", async () => {
+    host.remote = true;
+    host.fetch.mockImplementation(async () => {
+        host.idp = "https://new.test/idp";
+        return Response.json({ ready: true });
+    });
+    expect((await load()).observation).toMatchObject({
+        state: "blocked",
+        action: "retry",
+        target: { idp: "https://new.test/idp" },
+        hosts: [],
+    });
+});
+
+it("allows deferred Device preferences after verified readiness", async () => {
+    host.invoke.mockResolvedValue({
+        base: "https://node.test",
+        status: status("ready"),
+    });
+    expect((await load()).observation).toMatchObject({
+        state: "ready",
+        action: "sign_in",
+    });
+});
+
+
+it.each(["matching", "nonce", "issuer", "base", "login"])(
+    "renders completed independent owners using correlated public evidence: %s",
+    async (variation) => {
         host.native = false;
-        const { body } = render(Installation, {
-            props: {
-                data: {
-                    stage: "installation",
-                    hosts: [
-                        {
-                            base: "https://node.test/idp",
-                            status: {
-                                stage: "installation",
-                                state,
-                                ready: false,
-                                owners: ["idp", "device", "storage"],
-                            },
-                        },
-                    ],
-                },
-            },
+        const bases = { idp: host.idp!, device: host.device, storage: "https://data.test/api" };
+        const operation = { purpose: "create", operation_nonce: "1".repeat(32), administrator: "Alice", node: "Node", ...bases, issuer: bases.idp, peer: null };
+        host.fetch.mockImplementation(async (url: string, init: RequestInit) => {
+            expect(init.headers).not.toHaveProperty("Authorization");
+            if (url === bases.idp + "/setup/status") return new Response(null, { status: 404 });
+            const owner = (["idp", "device", "storage"] as const).find(owner => url.startsWith(bases[owner] + "/"))!;
+            if (url.endsWith("/status")) return Response.json({ stage: "installation", state: "ready", ready: true, owners: [owner] });
+            const exact = { ...operation };
+            if (owner === "storage") {
+                if (variation === "nonce") exact.operation_nonce = "2".repeat(32);
+                if (variation === "issuer") exact.issuer = "https://wrong.test/idp";
+                if (variation === "base") exact.device = "https://wrong.test/device";
+            }
+            return Response.json({ operation: exact, owner, clients: [], registered: [], facts: owner === "idp" && variation !== "login" ? { login_client: login.client_id } : {} });
         });
-        expect(body).toContain(title);
-        expect(body).toContain("Refresh status");
-        expect(body).toContain("Resume setup");
-        expect(body).toMatch(
-            /<details>\s*<summary>Recovery options<\/summary>/,
-        );
-        expect(body).not.toContain("Installation setup choice");
-        expect(body).not.toContain(
-            "Create a new Installation or join an existing one",
-        );
-        if (state === "unfinished") {
-            expect(body).not.toContain("<progress");
-            expect(body).toContain("Setup did not finish");
+        const data = await load();
+        const { body } = render(Installation, { props: { data } });
+        if (variation === "matching") {
+            expect(data.observation).toMatchObject({ state: "ready", action: "sign_in", loginClient: login });
+            expect(body).toContain('href="/signin"');
+            expect(body).not.toContain("needs repair");
         } else {
-            expect(body).toContain('aria-label="Setup in progress"');
-            expect(body).toContain("Status updates automatically");
+            expect(data.observation.state).toBe("blocked");
+            expect(body).not.toContain('href="/signin"');
         }
-        expect(body).not.toContain("Retained setup cannot be resumed");
-        expect(body).not.toContain("reload cannot recover");
-        expect(body).not.toContain("Administrator name");
-        expect(body).not.toContain("Create Node</button>");
-        expect(body).not.toContain("Cancel exact Create");
-        expect(body).not.toContain('href="/signin"');
-        expect(host.invoke).not.toHaveBeenCalled();
-        expect(host.fetch).not.toHaveBeenCalled();
-    },
-);
-
-it("shows verified unified web readiness without automatic sign-in or code/password entry", () => {
-    host.native = false;
-    const { body } = render(Installation, {
-        props: {
-            data: {
-                stage: "ready",
-                hosts: [
-                    {
-                        base: "https://node.test/idp",
-                        status: {
-                            stage: "ready",
-                            state: "ready",
-                            ready: true,
-                            owners: ["idp", "device", "storage"],
-                            login_client: {
-                                client_id: "public-login",
-                                scopes: ["openid"],
-                            },
-                        },
-                    },
-                ],
-            },
-        },
-    });
-    expect(body).toContain('href="/signin"');
-    expect(body).toContain("Your Node is ready");
-    expect(body).not.toContain('type="password"');
-    expect(body).not.toContain("Resume setup");
-    expect(body).not.toContain("Installation setup choice");
-    expect(host.oidc).not.toHaveBeenCalled();
-    expect(host.invoke).not.toHaveBeenCalled();
-});
-
-it.each([
-    "awaiting_choice",
-    "creating",
-    "joining",
-    "unfinished",
-    "unavailable",
-])(
-    "direct web sign-in redirects %s to setup before login metadata or OIDC",
-    async (state) => {
-        host.native = false;
-        host.fetch.mockResolvedValue(
-            Response.json(
-                {
-                    stage: "installation",
-                    state,
-                    ready: false,
-                    owners: ["idp", "device", "storage"],
-                },
-                { status: state === "unavailable" ? 503 : 200 },
-            ),
-        );
-        const { load: signin } = await import("../../signin/+page");
-        await expect(signin()).rejects.toMatchObject({
-            status: 302,
-            location: "/setup/installation",
-        });
-        expect(host.fetch).toHaveBeenCalledOnce();
-        expect(host.clientId).not.toHaveBeenCalled();
-        expect(host.oidc).not.toHaveBeenCalled();
         expect(host.invoke).not.toHaveBeenCalled();
     },
 );
-
-it.each([null, ""])(
-    "direct web sign-in with missing endpoint %j opens configuration",
-    async (base) => {
-        host.native = false;
-        host.idp = base;
-        const { load: signin } = await import("../../signin/+page");
-        await expect(signin()).rejects.toMatchObject({
-            status: 302,
-            location: "/config",
-        });
-        expect(host.fetch).not.toHaveBeenCalled();
-        expect(host.clientId).not.toHaveBeenCalled();
-        expect(host.oidc).not.toHaveBeenCalled();
-    },
-);
-
-it("direct web sign-in awaits verified login metadata after readiness", async () => {
-    host.native = false;
-    readyNative("ready");
-    const { load: signin } = await import("../../signin/+page");
-    host.clientId.mockImplementationOnce(async () => {
-        await Promise.resolve();
-        expect(host.fetch).toHaveBeenCalledOnce();
-        expect(host.oidc).not.toHaveBeenCalled();
-        return "verified-client";
-    });
-    await expect(signin()).resolves.toBeUndefined();
-    expect(host.clientId).toHaveBeenCalledOnce();
-    expect(host.invoke).not.toHaveBeenCalled();
-});
-
-it.each(["network", "http", "malformed", "login"])(
-    "direct web sign-in reports %s evidence failure as 503, not fresh setup",
-    async (failureKind) => {
-        host.native = false;
-        readyNative("ready");
-        if (failureKind === "network")
-            host.fetch.mockRejectedValue(new TypeError("Failed to fetch"));
-        if (failureKind === "http")
-            host.fetch.mockResolvedValue(new Response(null, { status: 503 }));
-        if (failureKind === "malformed")
-            host.fetch.mockResolvedValue(Response.json({ ready: true }));
-        if (failureKind === "login")
-            host.clientId.mockRejectedValue(
-                new Error("Login evidence unavailable"),
-            );
-        const { load: signin } = await import("../../signin/+page");
-        const failure = await signin().catch((cause: unknown) => cause);
-        expect(isHttpError(failure, 503)).toBe(true);
-        expect(failure).toMatchObject({
-            body: { message: expect.stringContaining("Retry") },
-        });
-        if (failureKind !== "login")
-            expect(host.clientId).not.toHaveBeenCalled();
-        expect(host.oidc).not.toHaveBeenCalled();
-        expect(host.invoke).not.toHaveBeenCalled();
-    },
-);
-
-it.each(["installation", "device", "unavailable", "ready"])(
-    "preserves native direct sign-in behavior for %s",
-    async (stage) => {
-        host.invoke.mockResolvedValue(stage);
-        const { load: signin } = await import("../../signin/+page");
-        if (stage === "ready") await expect(signin()).resolves.toBeUndefined();
-        else
-            await expect(signin()).rejects.toMatchObject({
-                status: 302,
-                location: "/setup",
-            });
-        expect(host.invoke.mock.calls).toEqual([["get_setup_stage"]]);
-        expect(host.fetch).not.toHaveBeenCalled();
-        expect(host.clientId).not.toHaveBeenCalled();
-    },
-);
-
-it("does not accept invented web readiness or send the operator through OAuth on load failure", async () => {
-    host.native = false;
-    host.fetch.mockResolvedValue(
-        Response.json({
-            stage: "ready",
-            state: "ready",
-            ready: true,
-            owners: ["idp", "device", "storage"],
-        }),
-    );
-    const { load: routeSetup } = await import("../+page");
-    await expect(routeSetup()).rejects.toMatchObject({
-        status: 503,
-        body: { message: "Setup evidence is invalid" },
-    });
-    expect(host.invoke).not.toHaveBeenCalled();
-    expect(host.oidc).not.toHaveBeenCalled();
-});

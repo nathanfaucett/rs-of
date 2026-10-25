@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { SetupHost, SetupOwner } from "./setupApi";
 
+const native = vi.hoisted(() => ({ desktop: false }));
+vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => native.desktop }));
+
 const bases = {
     idp: "https://target.test/idp",
     device: "https://target.test/device",
@@ -40,6 +43,7 @@ function hosts(state = "awaiting_choice"): SetupHost[] {
     }));
 }
 beforeEach(() => {
+    native.desktop = false;
     fetchApi.mockReset();
     vi.stubGlobal("fetch", fetchApi);
     vi.stubGlobal("window", { location: new URL("https://app.test") });
@@ -424,4 +428,26 @@ it("never treats three unrelated ready flags as global readiness or sends retire
     expect(
         fetchApi.mock.calls.every(([, init]) => !init.headers?.Authorization),
     ).toBe(true);
+});
+
+
+it("submits exact independent owner codes from a packaged native origin without bundled capability retrieval", async () => {
+    native.desktop = true;
+    vi.stubGlobal("window", { location: new URL("tauri://localhost") });
+    fetchApi.mockImplementation(async (url: string, init: RequestInit) => {
+        if (init.method === "POST") return new Response(null, { status: 202 });
+        const owner = owners.find(owner => url.startsWith(bases[owner] + "/"))!;
+        return Response.json(status(owner));
+    });
+    const { IndependentSetupSession } = await import("./independentSetup.svelte");
+    const session = new IndependentSetupSession(hosts());
+    await session.submit(codes, { purpose: "create", administrator: "Alice", node: "Node" }, "protected-password");
+    const posts = fetchApi.mock.calls.filter(([, init]) => init.method === "POST");
+    expect(posts).toHaveLength(3);
+    for (const [index, [url, init]] of posts.entries()) {
+        const owner = owners[index];
+        expect(url).toBe(bases[owner] + "/independent/setup/create");
+        expect(init.headers.Authorization).toBe("Setup " + codes[owner]);
+        expect(JSON.parse(init.body).password).toBe(owner === "idp" ? "protected-password" : undefined);
+    }
 });

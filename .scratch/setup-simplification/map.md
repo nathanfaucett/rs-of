@@ -1,0 +1,51 @@
+# Setup simplification map
+
+## Notes
+
+- Delivery follows [the spec](spec.md) and numbered tickets. Each worktree owns its assigned slice; source approval UI is ticket 04.
+- Ticket 01 started on `setup-simplification-01` at integration `setup-simplification` / `dfeaf7dbe`; the integration merge was already up to date.
+
+## Decisions-so-far
+
+- [01: Unify onboarding observation and recovery routing](issues/01-unify-onboarding-observation.md) — resolved. All onboarding/authentication routing consumes the target-bound typed observation. Shared worker evidence remains authoritative, remote/browser observation stays direct HTTP, native capability retrieval is separate and admission parsing is shared. Superseded observation commands/functions are deleted. [Validation evidence](evidence/01-onboarding-observation.md).
+- Preserve the Client-bound Device preference step in this observation-only slice. Later tickets may remove its dismissal gate without weakening current readiness or changing actual local selection permissions.
+- Safe failure actions distinguish transient retry, prerequisites and exact retained-identity repair; destructive reset remains explicit maintenance, not automatic recovery.
+- [04: Source approval](issues/04-simplify-source-approval.md) resolved: one Add a device task, existing owner authorization/adapters, exact decisions and retained partial-approval retry. [Focused evidence and validation limits](evidence/04-source-approval.md): 9 rendered/27 owner-client tests pass; Svelte check/autofix clean. Rust lifecycle, feature matrix and CRAP bounded out compiling; broad auth suite is not green.
+
+- [02: Streamline Create](issues/02-streamline-create.md) — resolved. Credentials-only bundled Create, dependency-free default naming with ordinary rename, exact transient-credential recovery, direct verified ordinary sign-in and deferred authenticated Device preferences. Removed dismissal route/command/flag/persistence; actual restrictions, selections and resource authorization are unchanged. [TDD, caller audit and validation evidence](evidence/02-streamline-create.md). This supersedes ticket01’s temporary preservation of the dismissal gate.
+- [03: Guided Join](issues/03-streamline-join.md) — resolved. Dedicated Join UI defaults the name, displays protected authenticated Installation evidence, preserves exact recovery/retry/cancellation and selected remote targets, and gates sign-in on current public login. Parent changes only wire/delete Join; 02/05/06 ownership remains intact. [Evidence](evidence/03-streamline-join.md): 23 rendered/181 auth tests and Svelte check pass; shared HTTPS/matrix/CRAP timed out compiling.
+- [05: Visible startup and trust](issues/05-visible-startup-and-trust.md) — resolved. Window-first asynchronous retained-host startup, current native-root verification before conditional explained consent, refusal/retry, cancellation/join and late-publication fencing. No Create/Join/completion or maintenance presentation rewrite. [Focused evidence and limits](evidence/05-visible-startup-and-trust.md): 22 native, 15 mounted and 181 route/state tests pass; existing provider readiness bound reproduced with original startup, full matrix/CRAP compilation timed out. No real OS trust/profile/GUI qualification.
+- [06: Separate maintenance](issues/06-separate-maintenance.md) — resolved. Dedicated bundled-only `/maintenance`, per-attempt destructive confirmation, distinct advanced exact-reference recovery and explicit-bearer peer revocation. Native reset/runtime internals preserved. [Evidence](evidence/06-maintenance.md): 21 mounted interactions, 28 setup-page cases, build/check pass; broad auth and native/feature/CRAP qualification remain limited.
+
+- [07: Integrated qualification](issues/07-qualify-simplified-workflow.md) — **open, not resolved**. Fixed Create completed-recovery/current-login routing, deleted the premature duplicate sign-in path and repaired a stale native test signature. 34 mounted/180 route-state-client, API 40, native 21 and scoped strict Clippy pass. Mixed HTTPS lifecycle timeouts and incomplete final matrix/CRAP prevent acceptance. [Current evidence and limits](evidence/07-integrated-qualification.md).
+
+## Scoped merge-readiness decision
+
+The user accepted proceeding with a scoped improvement rather than chasing unrelated validation repairs in this branch. A final read-only review of `main...setup-simplification` at `8d94861d1` found no new actionable auth/readiness/shutdown blocker. Local `main` at `ca7a1fc35` has two unrelated scratch-spec commits beyond merge base `dfeaf7dbe`, with no production-code target divergence. This was source review only; no merged-tree test, merge, push, GUI smoke test or full qualification is claimed.
+
+Ticket 07 and the spec remain open. Outstanding work is tracked explicitly:
+
+- [08: Isolate mock-provider fixtures](issues/08-isolate-mock-provider-fixtures.md) — high priority; deterministic isolation regression and concurrent suite checks.
+- [09: Diagnose readiness/request timeouts](issues/09-diagnose-readiness-and-request-timeouts.md) — medium priority, raised if users reproduce; retain security and timeout assertions.
+- [10: Repair fixture/SDK prerequisites](issues/10-repair-validation-fixture-prerequisites.md) — routine maintenance; no historical compatibility layer.
+- [11: Complete provisioned validation](issues/11-complete-provisioned-validation.md) — blocked by 08/10; human runner provisioning, then actual matrix/CRAP completion. Investigate 09 if failures recur.
+
+A packaged desktop disposable-profile Create/sign-in/reopen/Join smoke test remains recommended before a user-facing release. This merge-readiness decision does not replace it or close unchecked acceptance criteria.
+
+## Fog
+
+- Latest final-code HTTPS Join evidence is 9/9 passing scenarios across three serial suites, after deterministic router/admission shutdown and queued-reply fixes. Earlier source-offer/authorized-request timeout causes remain unproven; no blanket baseline or environment attribution. See the reliability follow-up below.
+- Latest Cargo Hack matrix compiled its first all-features run, then owner-boundary tests reported 18 passed / 26 failed / 6 ignored; remaining feature combinations were not reached. The truncated Swagger coverage ZIP is repaired, but CRAP was stopped as memory fell to about 1 GiB with swap full; no complete matrix or score. See validation diagnosis below.
+- Workspace strict Clippy fails 93 generated IdP SDK lints; scoped API/native and latest hosted-worker/unified-library strict Clippy pass. Standalone setup HTTP fixtures still fail; latest frontend evidence is 193 Vitest route/state/client tests and 34 mounted interactions passing.
+- Existing deployment-independent process scenarios were inspected, not rerun; referenced scratch reports are absent. Do not infer their results or duplicate their suite.
+- Real OS trust/elevation/provider profiles, full desktop GUI, physical/WAN and other platforms remain outside isolated same-host injected evidence.
+
+## Review follow-up
+
+Single-implementer `setup-simplification-review` fixes independent ready-page sign-in, preserves operational retained-open errors, publishes stopped/retry after reference recovery, and supports exact configured packaged-native origins for remote HTTPS services without bundled capabilities. [Evidence](evidence/07-review-fixes.md): final frontend 193 + mounted 34, API 41, native 25, scoped strict Clippy/check/build pass. Final-code serial HTTPS Join finalization/offline/interruption **3 passed**, but a preceding repeat had a source-offer timeout; reliability remains open. Latest matrix still timed out; latest CRAP failed on a malformed cached Swagger archive rather than timing out. Earlier receipts retain their historical outcomes. Ticket07/spec remain **open**.
+
+## Reliability and validation follow-up
+
+- [Lifecycle evidence](evidence/07-reliability-followup.md): retained connection routers could keep admission locked after worker shutdown released host ownership. Shutdown now joins shared teardown before releasing that ownership and rejects queued commands first, avoiding the independently reviewed reply/teardown cycle. Both regressions failed before their fixes; 100 final lifecycle executions, focused setup-host/cancellation/retained-state checks and final serial HTTPS suites (9/9 scenarios) pass. Independent re-review found no further actionable issue; it was source review, not independent test execution.
+- [Validation evidence](evidence/07-validation-followup.md): repaired only the hash-guarded truncated Swagger ZIP from a CRC-verified complete local copy. Matrix now reaches actual owner-boundary failures (18 passed / 26 failed / 6 ignored), not a compilation timeout. Diagnosis separates 19 missing-signer failures consistent with pre-existing global mock-provider interference, one missing built SDK, one isolated legacy-reset fixture/parser mismatch, and five readiness/request failures with unproven causes. Isolated representatives pass except the reset mismatch; no blanket unrelated-baseline claim. CRAP compilation was safely stopped for memory pressure, with no score. Those diagnostic executables predate the final lifecycle correction and are not final-code matrix acceptance.
+- Final qualification remains open rather than rewriting unrelated provider/reset fixtures or claiming earlier transport failures disappeared. Real GUI/OS trust/provider/WAN certification remains outside this evidence. The pre-existing main `Cargo.lock` change is preserved and excluded from commits.

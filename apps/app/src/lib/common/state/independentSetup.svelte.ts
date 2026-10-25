@@ -1,5 +1,5 @@
 import type { SetupHost, SetupOwner } from "./setupApi";
-import { requireSetupUiOrigin } from "./setupApi";
+import { requireCurrentSetupUiOrigin } from "./setupApi";
 import {
   cancelIndependentSetup,
   exactIndependentIntent,
@@ -36,11 +36,6 @@ export class IndependentSetupSession {
   constructor(hosts: SetupHost[]) {
     this.bases = Object.freeze(independentBases(hosts));
     this.hosts = hosts;
-  }
-  private origin() {
-    requireSetupUiOrigin(
-      typeof window === "undefined" ? "" : window.location.origin,
-    );
   }
   private requireCodes(codes: OwnerCodes, owners = independentOwners) {
     if (owners.some((owner) => !/^[a-f0-9]{64}$/.test(codes[owner] ?? "")))
@@ -107,7 +102,7 @@ export class IndependentSetupSession {
     if (!this.active || this.busy || this.ready) return;
     this.busy = true;
     try {
-      this.origin();
+      requireCurrentSetupUiOrigin();
       if (this.observationRequired)
         throw new Error("Observe or recover all owners before an exact retry");
       const current = await this.current();
@@ -198,7 +193,7 @@ export class IndependentSetupSession {
     if (!this.active || this.busy) return;
     this.busy = true;
     try {
-      this.origin();
+      requireCurrentSetupUiOrigin();
       await this.current();
       if (!this.active) return;
       this.observationRequired = false;
@@ -220,7 +215,7 @@ export class IndependentSetupSession {
     if (!this.active || this.busy) return;
     this.busy = true;
     try {
-      this.origin();
+      requireCurrentSetupUiOrigin();
       const current = await this.current();
       if (!this.active || this.ready) return;
       this.requireCodes(
@@ -268,7 +263,7 @@ export class IndependentSetupSession {
     if (!this.active || this.busy || !this.intent || this.ready) return;
     this.busy = true;
     try {
-      this.origin();
+      requireCurrentSetupUiOrigin();
       if (this.observationRequired || !this.intent.issuer)
         throw new Error("Recover exact intent before cancellation");
       const current = await this.current();

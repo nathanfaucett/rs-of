@@ -1,15 +1,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { clearOidcSession } from "./oidc.svelte";
-import {
-  getIdpApiUrl,
-  usesRemoteApis,
-  ensureTauriIdpApiUrl,
-} from "./idpClient.svelte";
-import { env } from "$env/dynamic/public";
-import {
-  getDeviceApiUrl,
-  ensureTauriDeviceApiUrl,
-} from "./deviceClient.svelte";
+import { getIdpApiUrl, usesRemoteApis } from "./idpClient.svelte";
+import { observeOnboarding } from "./onboarding";
 import {
   cancelSetupCreate,
   setupBase,
@@ -17,20 +9,16 @@ import {
   exactJoinRequest,
   submitSetupJoin,
   cancelSetupJoin,
-  fetchSetupHosts,
   fetchSetupStatus,
-  requireSetupUiOrigin,
+  requireCurrentSetupUiOrigin,
   submitSetupCreate,
   type SetupSessionIntent,
   type SetupStatus,
   verifySetupCode,
   type SetupHost,
-  type SetupStage,
 } from "./setupApi";
 
 export { usesRemoteApis } from "./idpClient.svelte";
-
-export type { SetupStage } from "./setupApi";
 
 export async function resetDevice(): Promise<void> {
   if (isTauri() && usesRemoteApis())
@@ -39,49 +27,6 @@ export async function resetDevice(): Promise<void> {
     );
   clearOidcSession();
   await invoke("reset_device");
-}
-
-export async function getSetupStage(): Promise<SetupStage> {
-  if (usesRemoteApis()) {
-    const hosts = await getWebSetupHosts();
-    return hosts.every((host) => host.status.ready)
-      ? "ready"
-      : hosts.some((host) => host.status.stage === "unavailable")
-        ? "unavailable"
-        : "installation";
-  }
-
-  return invoke<SetupStage>("get_setup_stage");
-}
-
-export async function getWebSetupHosts(): Promise<SetupHost[]> {
-  requireSharedSetupOrigin();
-  if (isTauri() && !usesRemoteApis()) {
-    await ensureTauriIdpApiUrl();
-    await ensureTauriDeviceApiUrl();
-  }
-  return fetchSetupHosts({
-    idp: getIdpApiUrl() ?? "",
-    device: getDeviceApiUrl(),
-    storage: env.PUBLIC_STORAGE_BASE_URL,
-  });
-}
-
-function requireSharedSetupOrigin(): void {
-  const location = typeof window === "undefined" ? undefined : window.location;
-  const origin =
-    location?.origin === "null" &&
-    location.protocol === "tauri:" &&
-    location.hostname === "localhost"
-      ? "tauri://localhost"
-      : (location?.origin ?? "");
-  if (
-    isTauri() &&
-    !usesRemoteApis() &&
-    ["tauri://localhost", "http://tauri.localhost"].includes(origin)
-  )
-    return;
-  requireSetupUiOrigin(origin);
 }
 
 export async function readNativeSetupCode(
@@ -93,10 +38,16 @@ export async function readNativeSetupCode(
     );
   const origin = await invoke<string>("get_localhost_server_base_url");
   const expected = `${setupBase(origin)}/idp`;
-  if (base !== expected || getIdpApiUrl()?.replace(/\/$/, "") !== expected)
+  const selected = getIdpApiUrl()?.replace(/\/$/, "");
+  if (
+    usesRemoteApis() ||
+    base !== expected ||
+    (selected && selected !== expected)
+  )
     throw new Error("Native capability cannot authorize a remote target");
   const code = await invoke<string | null>("get_native_setup_code");
-  if (usesRemoteApis() || getIdpApiUrl()?.replace(/\/$/, "") !== expected)
+  const current = getIdpApiUrl()?.replace(/\/$/, "");
+  if (usesRemoteApis() || (current && current !== expected))
     throw new Error("Selected host changed during capability retrieval");
   if (code !== null && !/^[a-f0-9]{64}$/.test(code))
     throw new Error("Native setup capability unavailable");
@@ -184,7 +135,7 @@ export class WebSetupCreate {
     this.busy = true;
     this.message = "";
     try {
-      requireSharedSetupOrigin();
+      requireCurrentSetupUiOrigin();
       if (!this.intent) {
         const bytes = crypto.getRandomValues(new Uint8Array(16));
         this.intent = Object.freeze({
@@ -232,7 +183,7 @@ export class WebSetupCreate {
       return;
     }
     try {
-      requireSharedSetupOrigin();
+      requireCurrentSetupUiOrigin();
       if (!/^[a-f0-9]{64}$/.test(code)) throw new Error("Invalid code");
       exactJoinRequest({ operation_nonce: "0".repeat(32), node, peer });
     } catch {
@@ -299,7 +250,7 @@ export class WebSetupCreate {
     this.busy = true;
     this.message = "";
     try {
-      requireSharedSetupOrigin();
+      requireCurrentSetupUiOrigin();
       const recovered = await fetchSetupIntent(this.base, code);
       if (!this.active) return;
       const status = await fetchSetupStatus(this.base);
@@ -346,12 +297,12 @@ export class WebSetupCreate {
     }
   }
 
-  async observe(): Promise<void> {
+  async observe(observed?: SetupStatus): Promise<void> {
     if (!this.active || this.busy) return;
     this.busy = true;
     try {
-      requireSharedSetupOrigin();
-      const status = await fetchSetupStatus(this.base);
+      requireCurrentSetupUiOrigin();
+      const status = observed ?? (await fetchSetupStatus(this.base));
       if (!this.active) return;
       this.accept(status);
       this.observationRequired = false;
@@ -385,7 +336,7 @@ export class WebSetupCreate {
     }
     this.busy = true;
     try {
-      requireSharedSetupOrigin();
+      requireCurrentSetupUiOrigin();
       if (
         !this.status ||
         !isUnifiedSetupHost({ base: this.base, status: this.status })
@@ -428,7 +379,7 @@ export async function verifyWebSetupCode(
   base: string,
   code: string,
 ): Promise<void> {
-  const hosts = await getWebSetupHosts();
+  const { hosts } = await observeOnboarding();
   const host = hosts.find((host) => host.base === base);
   if (!host || host.status.stage !== "installation")
     throw new Error(

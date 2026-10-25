@@ -20,6 +20,7 @@ const host = vi.hoisted(() => ({
     authority: null as string | null,
     device: "https://policy.test/api" as string | null,
     native: true,
+    remote: false,
     invoke: vi.fn(),
     submitCreate: vi.fn(),
     cancelCreate: vi.fn(),
@@ -38,7 +39,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.mock("./idpClient.svelte", () => ({
     getIdpApiUrl: () => host.authority,
     ensureTauriIdpApiUrl: async () => host.authority,
-    usesRemoteApis: () => !host.native,
+    usesRemoteApis: () => host.remote || !host.native,
 }));
 vi.mock("./deviceClient.svelte", () => ({
     getDeviceApiUrl: () => host.device,
@@ -73,6 +74,7 @@ beforeEach(() => {
     host.authority = null;
     host.device = "https://policy.test/api";
     host.native = true;
+    host.remote = false;
     host.invoke.mockReset();
     host.submitCreate.mockReset();
     host.cancelCreate.mockReset();
@@ -238,10 +240,25 @@ it("resets an incomplete native Node with no OIDC authority or live services", a
 
 it("clears the existing native memory session and PKCE state and invalidates desktop client identity", async () => {
     host.authority = "https://node.test/idp";
-    host.invoke.mockResolvedValueOnce("old-client");
+    const ready = {
+        base: "https://node.test",
+
+        status: {
+            stage: "installation",
+            state: "ready",
+            ready: true,
+            owners: ["idp", "device", "storage"],
+            login_client: {
+                client_id: "01900000-0000-7000-8000-000000000001",
+                scopes: ["openid"],
+            },
+        },
+    };
+    host.invoke.mockResolvedValue(ready);
     const { ensureOidcClientId, getOidcClient } = await import("./oidc.svelte");
-    expect(await ensureOidcClientId()).toBe("old-client");
-    expect(await ensureOidcClientId()).toBe("old-client");
+    expect(await ensureOidcClientId()).toBe(
+        ready.status.login_client.client_id,
+    );
     const client = getOidcClient();
     client.setToken({ access_token: "session", refresh_token: "refresh" });
     fetchApi.mockResolvedValue(
@@ -257,7 +274,7 @@ it("clears the existing native memory session and PKCE state and invalidates des
     host.authority = null;
     fetchApi.mockClear();
     host.invoke.mockImplementation(async (command) => {
-        if (command === "get_desktop_client_id") return "new-client";
+        if (command === "get_onboarding_host") return ready;
         expect(command).toBe("reset_device");
         expect(client.getStoredTokenResponse()).toBeNull();
         expect([...entries]).toEqual([["unrelated", "keep"]]);
@@ -270,11 +287,14 @@ it("clears the existing native memory session and PKCE state and invalidates des
             new URL("https://app.test/callback?code=old-code&state=pending"),
         ),
     ).rejects.toMatchObject({ code: "INVALID_STATE" });
-    expect(await ensureOidcClientId()).toBe("new-client");
+    host.authority = "https://node.test/idp";
+    expect(await ensureOidcClientId()).toBe(
+        ready.status.login_client.client_id,
+    );
     expect(host.invoke.mock.calls).toEqual([
-        ["get_desktop_client_id"],
+        ["get_onboarding_host"],
         ["reset_device"],
-        ["get_desktop_client_id"],
+        ["get_onboarding_host"],
     ]);
     expect(fetchApi).not.toHaveBeenCalled();
 });
@@ -292,49 +312,6 @@ it("propagates a real native reset failure and permits an explicit retry", async
         ["reset_device"],
     ]);
     expect(fetchApi).not.toHaveBeenCalled();
-});
-
-it.each(["installation", "device", "ready", "unavailable"])(
-    "obtains durable native setup stage %s independently of HTTP listener availability",
-    async (stage) => {
-        host.invoke.mockResolvedValue(stage);
-        const { getSetupStage } = await import("./setupClient.svelte");
-        expect(await getSetupStage()).toBe(stage);
-        expect(host.invoke.mock.calls).toEqual([["get_setup_stage"]]);
-        expect(fetchApi).not.toHaveBeenCalled();
-    },
-);
-
-it("does not manufacture readiness when native setup evidence is unavailable", async () => {
-    const failure = new Error("setup manifest is invalid");
-    host.invoke.mockRejectedValue(failure);
-    const { getSetupStage } = await import("./setupClient.svelte");
-    await expect(getSetupStage()).rejects.toBe(failure);
-    expect(fetchApi).not.toHaveBeenCalled();
-});
-
-it("reads web setup stage through the configured API without native IPC", async () => {
-    host.native = false;
-    host.authority = "https://node.test/idp";
-    fetchApi.mockResolvedValue(
-        Response.json({
-            stage: "installation",
-            state: "awaiting_choice",
-            ready: false,
-            owners: ["idp", "device", "storage"],
-        }),
-    );
-    const { getSetupStage } = await import("./setupClient.svelte");
-    expect(await getSetupStage()).toBe("installation");
-    expect(host.invoke).not.toHaveBeenCalled();
-    expect(fetchApi).toHaveBeenCalledWith(
-        "https://node.test/idp/setup/status",
-        expect.objectContaining({
-            credentials: "omit",
-            redirect: "error",
-            cache: "no-store",
-        }),
-    );
 });
 
 it("web sign-in discovers the retained public login Client rather than hard-coded idp-web", async () => {
@@ -482,10 +459,11 @@ it("discovers three configured web owners and verifies only the selected host's 
             owners: [["idp"], ["device"], ["storage"]][index],
         });
     });
-    const { getWebSetupHosts, verifyWebSetupCode } = await import(
-        "./setupClient.svelte"
+    const { verifyWebSetupCode } = await import("./setupClient.svelte");
+    const { observeOnboarding } = await import("./onboarding");
+    expect((await observeOnboarding()).hosts.map((host) => host.base)).toEqual(
+        bases,
     );
-    expect((await getWebSetupHosts()).map((host) => host.base)).toEqual(bases);
     await verifyWebSetupCode("https://policy.test/api", "b".repeat(64));
     await verifyWebSetupCode("https://data.test/api", "c".repeat(64));
     const posts = fetchApi.mock.calls.filter(
@@ -529,12 +507,9 @@ it("denies a missing independent base, stale target or unhealthy host without ad
             owners: ["idp"],
         }),
     );
-    const { getWebSetupHosts, verifyWebSetupCode } = await import(
-        "./setupClient.svelte"
-    );
-    await expect(getWebSetupHosts()).rejects.toThrow(
-        "configured Management and Storage",
-    );
+    const { verifyWebSetupCode } = await import("./setupClient.svelte");
+    const { observeOnboarding } = await import("./onboarding");
+    expect((await observeOnboarding()).state).toBe("blocked");
     fetchApi.mockResolvedValue(
         Response.json({
             stage: "installation",
@@ -1236,8 +1211,8 @@ it("uses the actual current HTTPS UI origin rather than PUBLIC_URL", async () =>
         location: new URL("http://app.test"),
         localStorage: storage,
     });
-    const { getWebSetupHosts } = await import("./setupClient.svelte");
-    await expect(getWebSetupHosts()).rejects.toThrow("current HTTPS UI origin");
+    const { observeOnboarding } = await import("./onboarding");
+    expect((await observeOnboarding()).state).toBe("blocked");
     expect(fetchApi).not.toHaveBeenCalled();
     expect(host.invoke).not.toHaveBeenCalled();
 });
@@ -1291,12 +1266,15 @@ it("discovers independent public login Client from IdP facts only after matching
         "01900000-0000-7000-8000-000000000123",
     );
     conflict = true;
-    await expect(ensureOidcClientId()).rejects.toThrow(/disagree/);
+    await expect(ensureOidcClientId()).rejects.toThrow(
+        "Verified public login Client is unavailable",
+    );
     expect(host.invoke).not.toHaveBeenCalled();
 });
 
 it("submits bundled desktop Create through HTTPS rather than removed native mutation commands", async () => {
     host.native = true;
+    host.remote = false;
     host.authority = "https://localhost:4100/idp";
     const { WebSetupCreate } = await import("./setupClient.svelte");
     const session = new WebSetupCreate({
@@ -1327,6 +1305,7 @@ it("submits bundled desktop Create through HTTPS rather than removed native muta
 
 it("retrieves a bundled setup capability only by explicit protected host device for that exact local base", async () => {
     host.native = true;
+    host.remote = false;
     host.authority = "https://localhost:4100/idp";
     host.invoke.mockImplementation(async (command) =>
         command === "get_localhost_server_base_url"
@@ -1351,6 +1330,7 @@ it("retrieves a bundled setup capability only by explicit protected host device 
 
 it("permits only the exact bundled native WebView origin for shared HTTPS setup, never as a remote-origin bypass", async () => {
     host.native = true;
+    host.remote = false;
     host.authority = "https://localhost:4100/idp";
     vi.stubGlobal("window", {
         location: new URL("tauri://localhost"),
@@ -1385,4 +1365,70 @@ it("permits only the exact bundled native WebView origin for shared HTTPS setup,
     );
     expect(host.submitCreate).toHaveBeenCalledTimes(1);
     expect(remote.observationRequired).toBe(true);
+});
+
+it("retrieves the exact bundled capability on fresh launch before owner addresses are initialized", async () => {
+    host.authority = null;
+    host.invoke.mockImplementation(async (command) => {
+        if (command === "get_localhost_server_base_url")
+            return "https://node.test";
+        if (command === "get_native_setup_code") return "a".repeat(64);
+        throw new Error("Unexpected command: " + command);
+    });
+    const { readNativeSetupCode } = await import("./setupClient.svelte");
+    await expect(readNativeSetupCode("https://node.test/idp")).resolves.toBe(
+        "a".repeat(64),
+    );
+    expect(fetchApi).not.toHaveBeenCalled();
+});
+
+
+it.each(["https://app.test", "tauri://localhost", "http://tauri.localhost"])(
+    "offers sign-in for correlated independent owners at the selected UI origin %s without native capability access",
+    async (origin) => {
+        host.native = origin !== "https://app.test";
+        host.remote = true;
+        host.authority = "https://node.test/idp";
+        vi.stubGlobal("window", { location: new URL(origin) });
+        const bases = { idp: host.authority, device: host.device!, storage: "https://data.test/api" };
+        const operation = { purpose: "create", operation_nonce: "1".repeat(32), administrator: "Alice", node: "Node", ...bases, issuer: bases.idp, peer: null };
+        fetchApi.mockImplementation(async (url: string, init: RequestInit) => {
+            expect(init.headers).not.toHaveProperty("Authorization");
+            if (url === bases.idp + "/setup/status") return new Response(null, { status: 404 });
+            const owner = (["idp", "device", "storage"] as const).find(owner => url.startsWith(bases[owner] + "/"))!;
+            if (url.endsWith("/status")) return Response.json({ stage: "installation", state: "ready", ready: true, owners: [owner] });
+            return Response.json({ operation, owner, clients: [], registered: [], facts: owner === "idp" ? { login_client: "01900000-0000-7000-8000-000000000001" } : {} });
+        });
+        const { observeOnboarding } = await import("./onboarding");
+        expect(await observeOnboarding()).toMatchObject({ state: "ready", action: "sign_in", target: { kind: "remote", ...bases }, loginClient: { client_id: "01900000-0000-7000-8000-000000000001", scopes: ["openid"] } });
+        expect(host.invoke).not.toHaveBeenCalled();
+    },
+);
+
+
+it.each(["tauri://localhost:4100", "tauri://unrelated.test", "http://unrelated.test"])(
+    "rejects unrelated native UI origins without requests: %s",
+    async (origin) => {
+        host.native = true;
+        host.remote = true;
+        host.authority = "https://node.test/idp";
+        vi.stubGlobal("window", { location: new URL(origin) });
+        const { observeOnboarding } = await import("./onboarding");
+        expect(await observeOnboarding()).toMatchObject({ state: "blocked", action: "prerequisite" });
+        expect(fetchApi).not.toHaveBeenCalled();
+        expect(host.invoke).not.toHaveBeenCalled();
+    },
+);
+
+it("native remote selection still requires HTTPS targets and cannot retrieve bundled capabilities", async () => {
+    host.native = true;
+    host.remote = true;
+    host.authority = "http://remote.test/idp";
+    vi.stubGlobal("window", { location: new URL("tauri://localhost") });
+    const { observeOnboarding } = await import("./onboarding");
+    expect(await observeOnboarding()).toMatchObject({ state: "blocked", action: "prerequisite" });
+    const { readNativeSetupCode } = await import("./setupClient.svelte");
+    await expect(readNativeSetupCode("https://localhost:4100/idp")).rejects.toThrow("only for the selected bundled host");
+    expect(fetchApi).not.toHaveBeenCalled();
+    expect(host.invoke).not.toHaveBeenCalled();
 });

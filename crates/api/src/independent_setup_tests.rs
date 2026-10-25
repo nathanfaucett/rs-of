@@ -579,3 +579,65 @@ async fn independent_hosts_serve_canonical_openapi_without_provisioning() {
         }
     }
 }
+
+#[tokio::test]
+async fn configured_native_setup_origin_is_exact_and_does_not_grant_admission() {
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use tower::ServiceExt;
+    for origin in ["tauri://localhost", "http://tauri.localhost"] {
+        let root = tempfile::tempdir().expect("isolated native-origin target");
+        let setup = IndependentSetupHost::prepare(
+            "idp",
+            &root.path().join("idp"),
+            "127.0.0.1:3000".parse().expect("address"),
+            origin,
+            "",
+            false,
+        )
+        .expect("explicit native UI origin")
+        .expect("fresh independent target");
+        let router = setup.router();
+        for (request_origin, expected) in [
+            (origin, StatusCode::OK),
+            ("https://unrelated.test", StatusCode::FORBIDDEN),
+            ("null", StatusCode::FORBIDDEN),
+        ] {
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri("/setup/owner/status")
+                        .header("Origin", request_origin)
+                        .body(Body::empty())
+                        .expect("status request"),
+                )
+                .await
+                .expect("status response");
+            assert_eq!(response.status(), expected);
+        }
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/setup/owner/admission")
+                    .header("Origin", origin)
+                    .body(Body::empty())
+                    .expect("unauthorized request"),
+            )
+            .await
+            .expect("admission response");
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        for invalid in [
+            "tauri://unrelated.test",
+            "tauri://localhost:4100",
+            "tauri://localhost/",
+            "http://tauri.localhost:4100",
+            "http://unrelated.test",
+        ] {
+            assert!(crate::setup_origin(invalid).is_err(), "reject {invalid}");
+        }
+    }
+}

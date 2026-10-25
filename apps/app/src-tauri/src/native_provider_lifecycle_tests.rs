@@ -11,7 +11,7 @@ use std::{
 };
 
 use idp_service::repo::PrivateKeyKeyringRepo;
-use serde_json::{Value, json};
+use serde_json::json;
 use unified_server::LocalTls;
 
 use super::NativeHost;
@@ -93,16 +93,16 @@ fn native_shared_create_reopen_and_provider_safe_reset() {
     assert!(status.success(), "native shared worker lifecycle child");
 }
 
-async fn ready(host: &NativeHost) -> Value {
+async fn ready(host: &NativeHost) -> of_idp_client::models::CreateResult {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
     loop {
         let status = host.status().await.expect("real shared status");
-        if status["ready"] == true {
+        if status.ready {
             return status;
         }
         assert!(
-            !matches!(status["state"].as_str(), Some("unavailable" | "unfinished")),
-            "shared worker did not complete: {status}"
+            !matches!(status.state.as_str(), "unavailable" | "unfinished"),
+            "shared worker did not complete: {status:?}"
         );
         assert!(
             tokio::time::Instant::now() < deadline,
@@ -134,13 +134,10 @@ async fn native_shared_create_child() {
         .expect("native one-listener host");
     let bundled_setup =
         super::prepare(&data.join("bundled/node")).expect("unselected desktop host");
-    let mut bundled_host = NativeHost::start_with(
-        bundled_setup,
-        |_| Ok(()),
-        || LocalTls::verification_client(),
-    )
-    .await
-    .expect("neutral bundled host");
+    let mut bundled_host =
+        NativeHost::start_with(bundled_setup, |_| Ok(()), LocalTls::verification_client)
+            .await
+            .expect("neutral bundled host");
     let base = host.base_url().to_owned();
     let body = json!({"operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"operator", "node":"Native Node", "password":"fixture-initial-password"});
     let response = client
@@ -153,11 +150,27 @@ async fn native_shared_create_child() {
     assert_eq!(response.status(), reqwest::StatusCode::ACCEPTED);
     drop(response);
     let status = ready(&host).await;
+    let observed = host.observation().await;
+    assert!(observed.failure.is_none());
+    assert_eq!(
+        observed
+            .status
+            .expect("typed shared observation")
+            .login_client,
+        status.login_client
+    );
+    fs::write(data.join("device-setup-ready"), "foreign-client")
+        .expect("damaged preference marker");
+    let damaged = host.observation().await;
+    assert!(damaged.failure.is_none());
+    assert!(damaged.status.expect("current shared readiness").ready);
+    fs::remove_file(data.join("device-setup-ready")).expect("remove injected damaged marker");
     assert_eq!(
         bundled_host
             .status()
             .await
-            .expect("unselected desktop status")["state"],
+            .expect("unselected desktop status")
+            .state,
         "awaiting_choice"
     );
     for owner in ["idp", "device", "storage", "endpoint"] {
@@ -189,14 +202,10 @@ async fn native_shared_create_child() {
         .await
         .expect("close worker and shared endpoint");
     let setup = super::prepare(&data.join("node")).expect("existing-only reopen");
-    let mut reopened =
-        NativeHost::start_with(setup, |_| Ok(()), || LocalTls::verification_client())
-            .await
-            .expect("source-offline retained Node");
-    assert_eq!(
-        ready(&reopened).await["login_client"],
-        status["login_client"]
-    );
+    let mut reopened = NativeHost::start_with(setup, |_| Ok(()), LocalTls::verification_client)
+        .await
+        .expect("source-offline retained Node");
+    assert_eq!(ready(&reopened).await.login_client, status.login_client);
     assert_eq!(reopened.base_url(), base);
     assert_eq!(
         fs::read(data.join("node/host.json")).expect("same host"),
