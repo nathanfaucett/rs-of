@@ -405,14 +405,28 @@ async fn join_host(
         key_id: Id::now_v7(),
         endpoint_id: endpoint.endpoint_id().to_string(),
     };
-    let (protocol, joining_owner) = SecurityProtocol::open_node_bootstrap(
-        &endpoint,
-        &b.config.idp,
-        std::path::Path::new(&b.config.device.data_dir),
-        binding.clone(),
-    )
-    .await
-    .expect("production public bootstrap owner");
+    device_service::node_join_owner::check_bootstrap_endpoint(endpoint.endpoint_id(), &binding)
+        .expect("bootstrap signer binds the shared local endpoint");
+    let joining_owner = idp_server::OwnerProvisioner::open(&b.config.idp)
+        .await
+        .expect("joining identity owner");
+    let device_directory = std::path::Path::new(&b.config.device.data_dir);
+    let devices = device_server::open_local_device_database(device_directory)
+        .await
+        .expect("joining Device owner");
+    let idp = joining_owner
+        .node_join_database()
+        .expect("joining identity database");
+    let protocol = SecurityProtocol::new(
+        endpoint.server().clone(),
+        Arc::clone(&idp),
+        devices,
+        idp,
+        b.config.idp.oauth2.issuer.clone(),
+        Some(binding.clone()),
+        device_directory.join("node-bootstrap-staging"),
+        tokio_util::sync::CancellationToken::new(),
+    );
     let client_ids: [Id; 0] = [];
     joining_owner
         .prepare_fresh_setup_secret_inventory(owner, &client_ids)
