@@ -59,7 +59,7 @@ function message(cause: unknown): string {
 <div class="mx-auto flex w-full max-w-5xl grow flex-col gap-6 overflow-auto p-6">
     <header>
         <h1>Password Manager</h1>
-        <p>Records belong to your User and Application namespace. This slice is read-only.</p>
+        <p>Records belong to your User and Application namespace. Writes persist to Storage; switching cannot cancel a write already sent.</p>
     </header>
     <section class="card flex flex-wrap items-end gap-3">
         <label for="filesystem">Filesystem Storage Resource

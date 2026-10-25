@@ -303,10 +303,357 @@ it.each([
     expect(fetchApi).not.toHaveBeenCalled();
 });
 
-it("cannot perform a legacy write through the read collection", async () => {
+it("optimistically inserts but settles only after authoritative reconciliation, then reopens persisted CRUD", async () => {
+    const files = new Map<string, unknown>();
+    const held = Promise.withResolvers<StorageResponse>();
+    let hold = true;
+    const respond: Endpoint["respond"] = async (request) => {
+        if (request.type === "write") {
+            files.set(
+                request.path,
+                JSON.parse(
+                    new TextDecoder().decode(new Uint8Array(request.content)),
+                ),
+            );
+            return { type: "written", entry: entry(request.path) };
+        }
+        if (request.type === "delete") {
+            files.delete(request.path);
+            return { type: "deleted" };
+        }
+        if (request.type === "list")
+            return { type: "listed", entries: [...files.keys()].map(entry) };
+        if (hold) return held.promise;
+        return content(files.get(request.path));
+    };
+    const { collection } = setup(respond);
+    await collection.preload();
+    const tx = collection.insert(record);
+    expect(collection.get("one")).toMatchObject(record);
+    await vi.waitFor(() =>
+        expect(
+            Endpoint.sockets[0]?.requests.some(
+                (request) => request.type === "read",
+            ),
+        ).toBe(true),
+    );
+    expect(tx.state).toBe("persisting");
+    hold = false;
+    // The server normalizes a field: the authoritative record must win.
+    const normalized = { ...record, name: "Server Alpha" };
+    files.set("secrets/one.json", normalized);
+    held.resolve(content(normalized));
+    await tx.isPersisted.promise;
+    expect(collection.get("one")).toMatchObject(normalized);
+    await collection.update("one", (draft) => {
+        draft.name = "Edited";
+    }).isPersisted.promise;
+    await collection.cleanup();
+    const reopened = setup(respond).collection;
+    await reopened.preload();
+    expect(reopened.get("one")?.name).toBe("Edited");
+    await reopened.delete("one").isPersisted.promise;
+    expect(reopened.size).toBe(0);
+    const final = setup(respond).collection;
+    await final.preload();
+    expect(final.size).toBe(0);
+});
+
+it("does not overwrite pending optimistic records with an earlier post-write snapshot", async () => {
+    const files = new Map<string, unknown>();
+    const held = Promise.withResolvers<StorageResponse>();
+    let reads = 0;
+    const { collection } = setup(async (request) => {
+        if (request.type === "write") {
+            files.set(
+                request.path,
+                JSON.parse(
+                    new TextDecoder().decode(new Uint8Array(request.content)),
+                ),
+            );
+            return { type: "written", entry: entry(request.path) };
+        }
+        if (request.type === "list")
+            return { type: "listed", entries: [...files.keys()].map(entry) };
+        if (++reads === 1) return held.promise;
+        return content(files.get(request.path));
+    });
+    await collection.preload();
+    const first = collection.insert(record);
+    await vi.waitFor(() => expect(reads).toBe(1));
+    const second = collection.insert({ ...record, id: "two", name: "Pending" });
+    expect(collection.get("two")?.name).toBe("Pending");
+    held.resolve(content(record));
+    await first.isPersisted.promise;
+    expect(collection.get("two")?.name).toBe("Pending");
+    await second.isPersisted.promise;
+    expect([...collection.keys()]).toEqual(["one", "two"]);
+    expect(
+        Endpoint.sockets[0]?.requests
+            .filter((request) => request.type === "write")
+            .map((request) => request.path),
+    ).toEqual(["secrets/one.json", "secrets/two.json"]);
+});
+
+it.each(["insert", "update", "delete"] as const)(
+    "rolls back a rejected %s only after authoritative reconciliation",
+    async (operation) => {
+        const held = Promise.withResolvers<StorageResponse>();
+        let reconcile = false;
+        const { collection } = setup(async (request) => {
+            if (request.type === "write" || request.type === "delete") {
+                reconcile = true;
+                return { type: "error", code: "operationFailed" };
+            }
+            if (reconcile) return held.promise;
+            if (request.type === "list")
+                return {
+                    type: "listed",
+                    entries:
+                        operation === "insert"
+                            ? []
+                            : [entry("secrets/one.json")],
+                };
+            return content(record);
+        });
+        await collection.preload();
+        const tx =
+            operation === "insert"
+                ? collection.insert(record)
+                : operation === "update"
+                  ? collection.update("one", (draft) => {
+                        draft.name = "Optimistic";
+                    })
+                  : collection.delete("one");
+        const settled = tx.isPersisted.promise;
+        await vi.waitFor(() => expect(reconcile).toBe(true));
+        expect(tx.state).toBe("persisting");
+        held.resolve({ type: "listed", entries: [] });
+        await expect(settled).rejects.toThrow(
+            "rejected; authoritative records reloaded",
+        );
+        expect(tx.state).toBe("failed");
+        // Reconciliation is authoritative even if another client deleted the record.
+        expect(collection.size).toBe(0);
+        expect(collection.status).toBe("ready");
+    },
+);
+
+it("never sends a queued mutation explicitly rolled back before transport", async () => {
+    const held = Promise.withResolvers<StorageResponse>();
+    const { collection } = setup(async (request) => {
+        if (request.type === "write") return held.promise;
+        return { type: "listed", entries: [] };
+    });
+    await collection.preload();
+    const first = collection.insert(record);
+    await vi.waitFor(() =>
+        expect(Endpoint.sockets[0]?.requests.at(-1)?.type).toBe("write"),
+    );
+    const second = collection.update("one", (draft) => {
+        draft.name = "Dependent edit";
+    });
+    second.rollback({ error: new Error("Cancelled edit") });
+    held.resolve({ type: "error", code: "operationFailed" });
+    await expect(first.isPersisted.promise).rejects.toThrow("rejected");
+    await expect(second.isPersisted.promise).rejects.toThrow("Cancelled edit");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(
+        Endpoint.sockets[0]?.requests.filter(
+            (request) => request.type === "write",
+        ),
+    ).toHaveLength(1);
+    expect(collection.size).toBe(0);
+});
+
+it.each(["unexpected response", "wrong acknowledgement path"])(
+    "reconciles an unacknowledged but applied write without claiming success (%s)",
+    async (failure) => {
+        let saved = false;
+        const { collection } = setup(async (request) => {
+            if (request.type === "write") {
+                saved = true;
+                return failure === "unexpected response"
+                    ? { type: "authenticated" }
+                    : { type: "written", entry: entry("secrets/other.json") };
+            }
+            if (request.type === "list")
+                return {
+                    type: "listed",
+                    entries: saved ? [entry("secrets/one.json")] : [],
+                };
+            return content(record);
+        });
+        await collection.preload();
+        await expect(
+            collection.insert(record).isPersisted.promise,
+        ).rejects.toThrow("not acknowledged; authoritative records reloaded");
+        expect(collection.get("one")).toMatchObject(record);
+        expect(collection.status).toBe("ready");
+    },
+);
+
+it.each(["disconnect", "malformed"])(
+    "fails closed when an applied write cannot be reconciled (%s)",
+    async (failure) => {
+        let saved = false;
+        const { collection } = setup(async (request) => {
+            if (request.type === "write") {
+                saved = true;
+                if (failure === "disconnect") Endpoint.sockets[0]?.close();
+                return { type: "written", entry: entry(request.path) };
+            }
+            if (request.type === "list")
+                return {
+                    type: "listed",
+                    entries: saved ? [entry("secrets/one.json")] : [],
+                };
+            return content({ invalid: true });
+        });
+        await collection.preload();
+        await expect(
+            collection.insert(record).isPersisted.promise,
+        ).rejects.toThrow(/reopen|Reopen/);
+        expect(saved).toBe(true);
+        expect(collection.status).toBe("error");
+        expect(Endpoint.sockets[0]?.closed).toBe(true);
+        const count = Endpoint.sockets[0]?.requests.length;
+        expect(() => collection.insert({ ...record, id: "other" })).toThrow();
+        expect(Endpoint.sockets[0]?.requests.length).toBe(count);
+    },
+);
+
+it.each(["../escape", "nested/key", "", "%2e%2e"])(
+    "rejects outgoing unsafe key %s without a Storage write",
+    async (id) => {
+        const { collection } = setup();
+        await collection.preload();
+        await expect(
+            collection.insert({ ...record, id }).isPersisted.promise,
+        ).rejects.toThrow("Unsafe record key");
+        expect(collection.size).toBe(0);
+        expect(
+            Endpoint.sockets[0]?.requests.every(
+                (request) => request.type === "list",
+            ),
+        ).toBe(true);
+    },
+);
+
+it("validates outgoing records and refuses multi-record atomicity before transport", async () => {
     const { collection } = setup();
     await collection.preload();
-    expect(() => collection.insert(record)).toThrow();
+    await expect(
+        collection.insert({
+            ...record,
+            favorite: "invalid" as unknown as boolean,
+        }).isPersisted.promise,
+    ).rejects.toThrow("Malformed Storage record");
+    await expect(
+        collection.insert([record, { ...record, id: "two" }]).isPersisted
+            .promise,
+    ).rejects.toThrow("single-record");
+    expect(collection.size).toBe(0);
+    expect(
+        Endpoint.sockets[0]?.requests.every(
+            (request) => request.type === "list",
+        ),
+    ).toBe(true);
+});
+
+it("rejects serialization failure without sending a write or exposing secret content", async () => {
+    const { client } = setup();
+    const collection = createStorageCollection({
+        client,
+        userId: "user",
+        applicationId: "app",
+        filesystemId: "fs",
+        directory: "secrets",
+        schema,
+        getKey: (value) => value.id,
+        serialize: () => {
+            throw new Error("private record contents");
+        },
+    });
+    collections.push(collection);
+    await collection.preload();
+    await expect(collection.insert(record).isPersisted.promise).rejects.toThrow(
+        /^Storage record serialization failed$/,
+    );
+    expect(collection.size).toBe(0);
+    expect(collection.status).toBe("ready");
+    expect(
+        Endpoint.sockets[0]?.requests.every(
+            (request) => request.type === "list",
+        ),
+    ).toBe(true);
+});
+
+it("isolates disposal during a sent write and prevents queued writes or late reconciliation in a replacement scope", async () => {
+    const held = Promise.withResolvers<StorageResponse>();
+    const { collection, client } = setup(async (request) =>
+        request.type === "write"
+            ? held.promise
+            : { type: "listed", entries: [] },
+    );
+    await collection.preload();
+    const tx = collection.insert(record);
+    const queued = collection.insert({ ...record, id: "two" });
+    await vi.waitFor(() =>
+        expect(
+            Endpoint.sockets[0]?.requests.some(
+                (request) => request.type === "write",
+            ),
+        ).toBe(true),
+    );
+    const old = Endpoint.sockets[0];
+    if (!old) throw new Error("Expected the original Storage socket");
+    await collection.cleanup();
+    const replacement = createStorageCollection({
+        client,
+        userId: "other-user",
+        applicationId: "app",
+        filesystemId: "other-fs",
+        directory: "secrets",
+        schema,
+        getKey: (value) => value.id,
+    });
+    collections.push(replacement);
+    await replacement.preload();
+    held.resolve({ type: "written", entry: entry("secrets/one.json") });
+    await expect(tx.isPersisted.promise).rejects.toThrow("disposed");
+    await expect(queued.isPersisted.promise).rejects.toThrow("disposed");
+    expect(old.closed).toBe(true);
+    expect(
+        old.requests.filter((request) => request.type === "write"),
+    ).toHaveLength(1);
+    expect(old.requests.at(-1)?.type).toBe("write");
+    expect(replacement.size).toBe(0);
+    expect(collection.size).toBe(0);
+});
+
+it("does not send a write after disposal during outgoing asynchronous validation", async () => {
+    const { client } = setup();
+    const validation = Promise.withResolvers<{ value: typeof record }>();
+    const validating = vi.fn(() => validation.promise);
+    const collection = createStorageCollection({
+        client,
+        userId: "user",
+        applicationId: "app",
+        filesystemId: "fs",
+        directory: "secrets",
+        getKey: (value: typeof record) => value.id,
+        schema: {
+            "~standard": { version: 1, vendor: "test", validate: validating },
+        },
+    });
+    collections.push(collection);
+    await collection.preload();
+    const tx = collection.insert(record);
+    await vi.waitFor(() => expect(validating).toHaveBeenCalledOnce());
+    await collection.cleanup();
+    validation.resolve({ value: record });
+    await expect(tx.isPersisted.promise).rejects.toThrow("disposed");
     expect(
         Endpoint.sockets[0]?.requests.every(
             (request) => request.type === "list",
