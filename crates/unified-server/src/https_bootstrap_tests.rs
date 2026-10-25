@@ -36,7 +36,7 @@ fn hosted_join_cancellation_exact_retry_and_offline_reopen() {
 }
 
 #[test]
-fn production_api_join_interrupted_retry_and_rejection() {
+fn production_api_join_interruption_preserves_private_host_intent() {
     https_bootstrap(false, "interrupted");
 }
 

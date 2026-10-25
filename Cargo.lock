@@ -3298,6 +3298,7 @@ version = "0.1.0"
 dependencies = [
  "api",
  "device-server",
+ "futures-util",
  "idp-server",
  "idp-service",
  "keyring-core",
@@ -3307,10 +3308,13 @@ dependencies = [
  "of-management-client",
  "of-storage-client",
  "reqwest 0.12.28",
+ "rustls",
  "serde_json",
+ "storage-model",
  "storage-server",
  "tempfile",
  "tokio",
+ "tokio-tungstenite",
  "unified-server",
 ]
 

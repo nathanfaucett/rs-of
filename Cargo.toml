@@ -155,3 +155,9 @@ keyring-core = { version = "1.0", default-features = false }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "rustls-tls-native-roots"] }
 serde_json = { version = "1.0", default-features = false, features = ["std"] }
 tempfile = { version = "3.27", default-features = false }
+
+# Existing native resource protocol clients
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+storage-model = { path = "crates/storage-model", default-features = false, features = ["std"] }
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake", "rustls-tls-native-roots"] }

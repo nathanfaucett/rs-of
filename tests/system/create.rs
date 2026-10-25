@@ -18,6 +18,17 @@ use of_idp_client::{
 use of_storage_client::{apis::resources_api as storage, models::CreateResourceRequest};
 use serde_json::json;
 
+#[path = "authorization.rs"]
+mod authorization;
+#[path = "recovery.rs"]
+mod recovery;
+
+pub use authorization::denial_scenario;
+use recovery::{
+    JoinAdmission, assert_learned_grants, denied_refresh, pending_offer, prepare_learned_grants,
+    refresh_grant, retry_rejected_join,
+};
+
 const PASSWORD: &str = "system-test-initial-password";
 const NONCE: &str = "0123456789abcdef0123456789abcdef";
 
@@ -699,6 +710,10 @@ impl Node {
     }
 
     async fn login(&self) -> String {
+        self.login_response().await.access_token
+    }
+
+    async fn login_response(&self) -> models::TokenResponse {
         idp::token(
             &self.config(&self.idp),
             idp::TokenParams {
@@ -721,7 +736,6 @@ impl Node {
                 }
             )
         })
-        .access_token
     }
 
     async fn exchange(&self, token: &str, audience: &str, scope: &str) -> String {
@@ -918,6 +932,7 @@ pub async fn join_scenario(independent_layout: bool) {
     let source_device = of_device_client::apis::default_api::device(&device_config(&source))
         .await
         .expect("public source endpoint");
+    let grants = prepare_learned_grants(&source).await;
     let session = source.login().await;
     let authority = source.exchange(&session, "idp-management", "").await;
     let resource_token = source.exchange(&session, "storage:filesystems", "").await;
@@ -978,7 +993,7 @@ pub async fn join_scenario(independent_layout: bool) {
     }
     let mut target = Node::new();
     let mut target_authority = None;
-    if independent_layout {
+    let admission = if independent_layout {
         let roots =
             fs::read(source.root.path().join("roots.pem")).expect("source isolated CA trust");
         let capabilities = target.start_independent(true, &roots).await;
@@ -999,6 +1014,7 @@ pub async fn join_scenario(independent_layout: bool) {
             target.storage.clone(),
         );
         request.peer = Some(format!("{}#{}", source.device, source_device.public_key));
+        let mut configs = Vec::new();
         for (i, base) in [
             target.idp.clone(),
             target.device.clone(),
@@ -1018,64 +1034,22 @@ pub async fn join_scenario(independent_layout: bool) {
                 assert!(Instant::now() < deadline, "target worker startup timeout");
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
-            independent::independent_setup_join(
-                &config,
-                independent::IndependentSetupJoinParams {
-                    independent_create_request: request.clone(),
-                },
-            )
-            .await
-            .unwrap_or_else(|_| panic!("target worker {i} admitted Join"));
+            configs.push(config);
         }
+        JoinAdmission::Independent(configs, request)
     } else {
         let config = target.start_unified().await;
-        setup::setup_join(
-            &config,
-            setup::SetupJoinParams {
-                join_request: models::JoinRequest::new(
-                    "Joining System Node".into(),
-                    NONCE.into(),
-                    source_device.public_key.clone(),
-                ),
-            },
+        JoinAdmission::Unified(
+            config,
+            models::JoinRequest::new(
+                "Joining System Node".into(),
+                NONCE.into(),
+                source_device.public_key.clone(),
+            ),
         )
-        .await
-        .unwrap_or_else(|error| {
-            panic!(
-                "target host Join admission failed: {}",
-                match error {
-                    of_idp_client::apis::Error::ResponseError(response) =>
-                        format!("HTTP {}", response.status),
-                    _ => "transport or decoding".into(),
-                }
-            )
-        });
-    }
-    let deadline = Instant::now() + Duration::from_secs(60);
-    let offer = loop {
-        source.alive();
-        target.alive();
-        let offers = if independent_layout {
-            independent_joins::independent_join_pending(&approval)
-                .await
-                .unwrap_or_else(|_| panic!("authorized independent pending list"))
-        } else {
-            joins::node_join_pending(&approval)
-                .await
-                .unwrap_or_else(|_| panic!("authorized pending list"))
-                .as_array()
-                .expect("pending list")
-                .clone()
-        };
-        if let Some(offer) = offers.into_iter().find(|offer| {
-            offer["request"]["name"] == "Joining System Node"
-                || offer["request"]["operation"]["node"] == "Joining System Node"
-        }) {
-            break offer;
-        }
-        assert!(Instant::now() < deadline, "pending authorized Join timeout");
-        tokio::time::sleep(Duration::from_millis(100)).await;
     };
+    admission.submit().await;
+    let offer = pending_offer(&mut source, &mut target, &approval, independent_layout).await;
     assert_eq!(
         offer["authenticated_endpoint"],
         offer["request"]["endpoint_id"]
@@ -1097,6 +1071,15 @@ pub async fn join_scenario(independent_layout: bool) {
             .ready
     };
     assert!(!pending_ready);
+    let offer = retry_rejected_join(
+        &mut source,
+        &mut target,
+        &approval,
+        independent_layout,
+        &admission,
+        offer,
+    )
+    .await;
     let id = offer["offer_id"]
         .as_str()
         .expect("exact pending offer ID")
@@ -1200,6 +1183,19 @@ pub async fn join_scenario(independent_layout: bool) {
         .await
         .unwrap_or_else(|_| panic!("source public User info"))
         .sub;
+    assert_learned_grants(&target, &source.login, &grants).await;
+    let replacement = refresh_grant(&target, &source.login, &grants[2])
+        .await
+        .unwrap_or_else(|_| panic!("unconsumed learned grant remains usable"));
+    assert!(
+        replacement
+            .refresh_token
+            .flatten()
+            .expect("rotated learned grant")
+            != grants[2],
+        "refresh rotation must replace the consumed learned grant"
+    );
+    denied_refresh(refresh_grant(&target, &source.login, &grants[2]).await);
     let resource = use_node(&mut target, Some(&resource_token), None).await;
     target.policy_permission(&authority, &subject).await;
     let endpoint = of_device_client::apis::default_api::device(&device_config(&target))
@@ -1217,6 +1213,8 @@ pub async fn join_scenario(independent_layout: bool) {
             .public_key,
         endpoint.public_key
     );
+    assert_learned_grants(&target, &source.login, &grants).await;
+    denied_refresh(refresh_grant(&target, &source.login, &grants[2]).await);
     use_node(&mut target, Some(&resource_token), Some(&resource)).await;
     target.policy_permission(&authority, &subject).await;
 }

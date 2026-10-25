@@ -393,42 +393,7 @@ pub(super) async fn run(
                 .status(),
             StatusCode::ACCEPTED
         );
-        let pending = pending_node(http, &source, approving).await;
-        assert_eq!(
-            pending["request"], first["request"],
-            "exact retry retains Node, signer and endpoint"
-        );
-        let rejected = pending["offer_id"].as_str().expect("rejected offer ID");
-        assert_eq!(
-            http.post(format!(
-                "{}/device/node-joins/{rejected}/reject",
-                source.base
-            ))
-            .bearer_auth(approving)
-            .send()
-            .await
-            .expect("ordinary source rejection")
-            .status(),
-            StatusCode::NO_CONTENT
-        );
-        let refused = wait_state(http, &base, "unfinished").await;
-        assert_eq!(
-            refused["ready"], false,
-            "rejected membership never completes target"
-        );
-        source.assert_offers_released().await;
-        assert_eq!(
-            post(http, &base, "join", Some(code), Some(&body))
-                .await
-                .status(),
-            StatusCode::ACCEPTED
-        );
-        let pending = pending_node(http, &source, approving).await;
-        assert_eq!(
-            pending["request"], first["request"],
-            "rejection does not replace retained identity"
-        );
-        pending
+        pending_node(http, &source, approving).await
     } else {
         first
     };
