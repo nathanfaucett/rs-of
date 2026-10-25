@@ -2,7 +2,7 @@
 
 Status: open
 
-Implementation tickets 01–06 are integrated. Final qualification remains open: see [ticket 07 evidence](evidence/07-integrated-qualification.md) for passing frontend/native seams, mixed HTTPS lifecycle results, incomplete feature matrix/CRAP and explicit platform limits. This is not accepted as fully qualified.
+Implementation tickets 01–06 are integrated. Final qualification remains open: see [ticket 07 evidence](evidence/07-integrated-qualification.md) and the [review-fix follow-up](evidence/07-review-fixes.md). Review fixes cover independent sign-in routing, retained lock errors, stopped recovery and configured packaged-native remote origins. Final-code serial HTTPS Join/interruption/offline reopen passed, but a repeat failure, incomplete feature matrix and failed coverage build prevent reliable/full qualification. This is not accepted as fully qualified.
 
 ## Problem Statement
 

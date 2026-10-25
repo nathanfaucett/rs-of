@@ -1,5 +1,7 @@
 # Ticket 07: integrated setup qualification
 
+Latest review follow-up: [review fixes and requalification](07-review-fixes.md). Independent ready-page routing, operational lock errors, stopped recovery and packaged-native remote origins are fixed with focused tests. Final-code serial HTTPS Join passed all three selected scenarios, but a repeat failure, incomplete feature matrix and failed coverage build keep qualification open. The original results below remain historical, not the latest run.
+
 ## Disposition
 
 **Incomplete qualification; ticket 07 remains open.** Tickets 01–06 are integrated, but the full HTTPS interruption/approval/retry flow, feature matrix and CRAP result are not reliably qualified. This report is not feature acceptance or a production certification. Do not promote the spec to resolved from the frontend/native passes alone.
