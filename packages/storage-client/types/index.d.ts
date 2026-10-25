@@ -76,7 +76,7 @@ export declare class StorageClient {
     constructor(options: StorageClientOptions);
     listFileSystems(): Promise<FileSystemResource[]>;
     createFileSystem(name?: string): Promise<FileSystemResource>;
-    openSocket(filesystemId: string): Promise<StorageSocket>;
+    openSocket(filesystemId: string, signal?: AbortSignal): Promise<StorageSocket>;
     private exchangeToken;
     private resources;
 }

@@ -112,12 +112,16 @@ export class StorageClient {
         return { id: resource.id, name: resource.name ?? null };
     }
 
-    async openSocket(filesystemId: string): Promise<StorageSocket> {
+    async openSocket(
+        filesystemId: string,
+        signal?: AbortSignal,
+    ): Promise<StorageSocket> {
+        signal?.throwIfAborted();
         if (!filesystemId) {
             throw new Error("Select a filesystem before opening storage");
         }
         const url = parseUrl(this.options.storageBaseUrl);
-        const token = await this.exchangeToken(["read", "write"]);
+        const token = await this.exchangeToken(["read", "write"], signal);
         url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
         // The browser supplies handshake headers; the generated builder owns the URL/query.
         const operation = await new StorageApi(
@@ -132,15 +136,24 @@ export class StorageClient {
         });
         url.pathname = url.pathname.replace(/\/+$/, "") + operation.path;
         url.search = querystring(operation.query ?? {});
+        signal?.throwIfAborted();
         const socket = new WebSocket(url.href);
-        await opened(socket);
+        try {
+            await opened(socket, signal);
+        } catch (error) {
+            socket.close();
+            throw error;
+        }
         return new StorageSocket(socket);
     }
 
     private async exchangeToken(
         actions: ("read" | "write")[],
+        signal?: AbortSignal,
     ): Promise<string> {
+        signal?.throwIfAborted();
         const subjectToken = await this.options.bearerToken();
+        signal?.throwIfAborted();
         if (!subjectToken) {
             throw new Error("Missing OIDC access token");
         }
@@ -153,26 +166,29 @@ export class StorageClient {
                 fetchApi: this.options.fetch ?? fetch,
             }),
         );
-        let result;
-        try {
-            result = await api.token({
-                grantType: "urn:ietf:params:oauth:grant-type:token-exchange",
-                subjectToken,
-                subjectTokenType:
-                    SubjectTokenType.UrnIetfParamsOauthTokenTypeAccessToken,
-                resource: "storage:filesystems",
-                clientId: this.options.clientId,
-                authorizationDetails: JSON.stringify([
-                    { type: "storage", actions },
-                ]),
+        const result = await api
+            .token(
+                {
+                    grantType:
+                        "urn:ietf:params:oauth:grant-type:token-exchange",
+                    subjectToken,
+                    subjectTokenType:
+                        SubjectTokenType.UrnIetfParamsOauthTokenTypeAccessToken,
+                    resource: "storage:filesystems",
+                    clientId: this.options.clientId,
+                    authorizationDetails: JSON.stringify([
+                        { type: "storage", actions },
+                    ]),
+                },
+                signal ? { signal } : undefined,
+            )
+            .catch((error: unknown) => {
+                if (error instanceof IdpResponseError)
+                    throw new Error(
+                        `Storage token exchange failed: ${error.response.status}`,
+                    );
+                throw error;
             });
-        } catch (error) {
-            if (error instanceof IdpResponseError)
-                throw new Error(
-                    `Storage token exchange failed: ${error.response.status}`,
-                );
-            throw error;
-        }
         if (!result.accessToken) {
             throw new Error("Storage token exchange returned no access token");
         }
@@ -207,7 +223,7 @@ function parseUrl(value: URL | string, path = ""): URL {
     return url;
 }
 
-function opened(socket: WebSocket): Promise<void> {
+function opened(socket: WebSocket, signal?: AbortSignal): Promise<void> {
     if (socket.readyState === WebSocket.OPEN) {
         return Promise.resolve();
     }
@@ -215,6 +231,12 @@ function opened(socket: WebSocket): Promise<void> {
         const cleanup = () => {
             socket.removeEventListener("open", onOpen);
             socket.removeEventListener("error", onError);
+            socket.removeEventListener("close", onError);
+            signal?.removeEventListener("abort", onAbort);
+        };
+        const onAbort = () => {
+            cleanup();
+            reject(new Error("Storage socket opening cancelled"));
         };
         const onOpen = () => {
             cleanup();
@@ -224,6 +246,8 @@ function opened(socket: WebSocket): Promise<void> {
             cleanup();
             reject(new Error("Storage socket failed to open"));
         };
+        signal?.addEventListener("abort", onAbort, { once: true });
+        socket.addEventListener("close", onError);
         socket.addEventListener("open", onOpen);
         socket.addEventListener("error", onError);
     });
