@@ -175,6 +175,7 @@ log = { version = "0.4", default-features = false, features = ["std"] }
 management-service = { path = "crates/management-service", default-features = false, features = ["replica", "std"] }
 model = { path = "crates/model", default-features = false, features = ["std"] }
 ofdb-sql = { path = "../ofdb/crates/sql", default-features = false, features = ["native-stage"] }
+postcard = { version = "1.1", default-features = false, features = ["alloc"] }
 serde = { version = "1.0", default-features = false, features = ["derive", "std"] }
 storage-service = { path = "crates/storage-service", default-features = false }
 tokio-util = { version = "0.7", default-features = false }

@@ -53,7 +53,7 @@ async fn ready_fixture() -> (Fixture, Arc<OnceLock<StorageCopyRetirement>>) {
 async fn ready_fixture_with_gate(
     gate: Option<Gate>,
 ) -> (Fixture, Arc<OnceLock<StorageCopyRetirement>>) {
-    let mut fixture = Fixture::with_catalog_gate(gate).await;
+    let mut fixture = Fixture::with_catalog_gate(Gate::default(), gate).await;
     DbSelectionPolicyRepo::new(fixture.devices.clone().client())
         .set_prevalidated(SelectionPolicy {
             device_id: fixture.device.device_id,

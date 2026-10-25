@@ -14,7 +14,7 @@ use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
 use tokio_util::sync::CancellationToken;
 
-use crate::identity_fixture::{seed_idp, seed_permissions, user_token};
+use crate::support::identity::{seed_idp, seed_permissions, user_token};
 
 async fn sql(database: &Database, statement: &str) -> Vec<db::QueryResult> {
     database
@@ -246,7 +246,7 @@ async fn receipt_boundary() {
         cancellation.clone(),
     )
     .expect("existing DATA dispatcher; no resource access authorized");
-    let source_security = crate::SecurityProtocol::new(
+    let source_security = SecurityProtocol::new(
         source.clone(),
         source_idp.clone(),
         source_policy.clone(),
@@ -257,7 +257,10 @@ async fn receipt_boundary() {
         cancellation.clone(),
     );
     let peer_router = source.router_with_protocol(
-        source_security.attach(storage.data_handler().expect("DATA handler")),
+        crate::support::owner_adapters::attach_security(
+            source_security.clone(),
+            storage.data_handler().expect("DATA handler"),
+        ),
         idp_server::BOOTSTRAP_ALPN,
         source_security.node_bootstrap_handler(),
     );
@@ -356,7 +359,7 @@ async fn receipt_boundary() {
         .expect("pinned peer signed reply");
     assert_eq!(approved, received);
     source_allowed.replace(
-        crate::runtime::build_control_plane(
+        crate::support::owner_adapters::build_control_plane(
             Arc::new(runtime),
             Arc::new(device_service::replica::DbDeviceRepo::new(
                 source_policy.clone().client(),

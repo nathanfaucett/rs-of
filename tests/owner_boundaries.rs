@@ -10,3 +10,10 @@ mod policy_cleanup_http_tests;
 #[path = "owner_boundaries/residency_http_tests.rs"]
 mod residency_http_tests;
 mod support;
+
+#[path = "owner_boundaries/native_api_tests.rs"]
+mod native_api_tests;
+#[path = "owner_boundaries/node_bootstrap_interruption_tests.rs"]
+mod node_bootstrap_interruption_tests;
+#[path = "owner_boundaries/node_join_bootstrap_tests.rs"]
+mod node_join_bootstrap_tests;

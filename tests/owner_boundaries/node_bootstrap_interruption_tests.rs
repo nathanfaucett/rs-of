@@ -19,7 +19,7 @@ use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
 use tokio_util::sync::CancellationToken;
 
-use crate::identity_fixture::{seed_idp, seed_permissions, user_token};
+use crate::support::identity::{seed_idp, seed_permissions, user_token};
 
 const BOOTSTRAP_STREAM_KIND: u8 = 4;
 const PURPOSE: &str = "of.equal-node-public-bootstrap.v1";
@@ -31,7 +31,7 @@ struct BootstrapRequest {
     approval: device_service::hosted_join::NodeJoinApproval,
 }
 
-use crate::{SecurityContext, SecurityProtocol};
+use device_service::security_protocol::{SecurityContext, SecurityProtocol};
 use ofdb_sql::{SyncMessage, SyncTransport};
 use storage_server::DatabaseTransport;
 
@@ -223,7 +223,10 @@ async fn interruption_boundary(
         cancellation.clone(),
     );
     let peer_router = source.router_with_protocol(
-        source_security.attach(storage.data_handler().expect("DATA handler")),
+        crate::support::owner_adapters::attach_security(
+            source_security.clone(),
+            storage.data_handler().expect("DATA handler"),
+        ),
         idp_server::BOOTSTRAP_ALPN,
         source_security.node_bootstrap_handler(),
     );
@@ -359,7 +362,7 @@ async fn interruption_boundary(
             .expect("purpose-specific authorized enrollment");
         diagnostic_stage(phase, "approved endpoint allowlist restoration");
         source_allowed.replace(
-            crate::runtime::build_control_plane(
+            crate::support::owner_adapters::build_control_plane(
                 runtime.clone(),
                 Arc::new(device_service::replica::DbDeviceRepo::new(
                     source_policy.clone().client(),

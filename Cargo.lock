@@ -3319,6 +3319,7 @@ dependencies = [
  "of-management-client",
  "of-storage-client",
  "ofdb-sql",
+ "postcard",
  "reqwest 0.12.28",
  "rustls",
  "serde",

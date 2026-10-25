@@ -8,6 +8,7 @@ use std::{
 
 use axum::Router;
 use db::Database;
+use futures_util::{SinkExt, StreamExt};
 use idp_model::{
     contract::{
         ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, GrantType,
@@ -26,11 +27,19 @@ use management_service::LocalPermissions;
 use model::contract::{
     AuthorizationDetail, StorageAuthorizationAction, StorageAuthorizationDetail, TokenResponse,
 };
+use storage_model::{StorageRequest, StorageResponse, StorageSession};
 use storage_service::{DatabaseRuntime, FileSystemId, ScopedFileSystemRuntime};
-use tokio::{net::TcpListener, task::JoinHandle};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    task::JoinHandle,
+};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::Message};
 use tokio_util::sync::CancellationToken;
 
-use storage_server::{IdpClient, RouterState, resource_router};
+use storage_server::{
+    IdpClient, RouterState, StorageSocketAccess, StorageSocketAuthorizationError,
+    StorageSocketAuthorizer, resource_router, scoped_file_system_socket_authorizer, storage_router,
+};
 
 pub(crate) struct StorageNamespace {
     pub(crate) user_sub: String,
@@ -174,9 +183,12 @@ impl Listener {
     }
 }
 
+pub(crate) type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+
 pub(crate) struct Fixture {
     pub(crate) control: Arc<device_service::HostedControlPlane>,
     pub(crate) issuer: String,
+    pub(crate) binding: NodeSignerBinding,
     pub(crate) keys: Arc<KeyService<DbKeyRepo, PrivateKeyKeyringRepo>>,
     pub(crate) idp: Arc<Database>,
     pub(crate) devices: Arc<Database>,
@@ -195,10 +207,17 @@ pub(crate) struct Fixture {
     pub(crate) _directory: TestDirectory,
 }
 impl Fixture {
-    pub(crate) async fn new() -> Self {
-        Self::with_catalog_gate(None).await
+    pub(crate) async fn new(gate: Gate) -> Self {
+        Self::with_catalog_gate(gate, None).await
     }
-    pub(crate) async fn with_catalog_gate(catalog_gate: Option<Gate>) -> Self {
+    pub(crate) async fn with_catalog_gate(gate: Gate, catalog_gate: Option<Gate>) -> Self {
+        Self::with_idp_backend(gate, catalog_gate, false).await
+    }
+    pub(crate) async fn with_idp_backend(
+        gate: Gate,
+        catalog_gate: Option<Gate>,
+        remote: bool,
+    ) -> Self {
         let directory = TestDirectory::new();
         let secret = SecretKey::generate();
         let identity = Server::bind_with_secret_key(
@@ -320,16 +339,16 @@ impl Fixture {
             ))
             .await
             .expect("native human Application client");
-        let devices = Arc::new(
+        let device_database = Arc::new(
             Database::open(directory.0.join("devices.redb")).expect("separate Device store"),
         );
-        device_service::replica::up(&devices)
+        device_service::replica::up(&device_database)
             .await
             .expect("native policy schema");
-        let device_repo = Arc::new(device_service::replica::DbDeviceRepo::new(
-            devices.clone().client(),
+        let devices = Arc::new(device_service::replica::DbDeviceRepo::new(
+            device_database.clone().client(),
         ));
-        device_repo
+        devices
             .enroll_approved_exact(
                 binding.member_id,
                 owner,
@@ -342,7 +361,7 @@ impl Fixture {
         let runtime = idp_server::build_runtime(
             &config,
             idp.client(),
-            Some(device_repo.clone()),
+            Some(devices.clone()),
             Arc::new(
                 device_service::device_identity_from_server(&identity, secret)
                     .expect("injected endpoint identity"),
@@ -353,33 +372,49 @@ impl Fixture {
         .await
         .expect("integrated owner-local IdP runtime");
         let runtime = Arc::new(runtime);
-        let inspect = Arc::clone(&runtime);
-        let active = Arc::clone(&runtime);
         let control = Arc::new(
-            device_service::HostedControlPlane::new_with_services(
+            crate::support::owner_adapters::build_control_plane(
+                runtime.clone(),
+                devices,
                 "http://127.0.0.1:1",
                 "http://127.0.0.1:1",
                 &config.oauth2.issuer,
             )
-            .expect("owner services")
-            .with_local_devices(device_repo)
-            .with_local_idp(
-                move |token| {
-                    let idp = Arc::clone(&inspect);
-                    async move { idp.authorize_management_bearer(&token).await }
-                },
-                move |user| {
-                    let idp = Arc::clone(&active);
-                    async move { idp.active_user(user).await }
-                },
-            ),
+            .expect("bound Device owner"),
         );
         let device = control
             .get_storage_endpoint_identity(&identity.endpoint().id().to_string())
             .await
             .expect("current Device owner");
-        let idp_listener = Listener::start(runtime.router()).await;
-        let client = if let Some(gate) = catalog_gate {
+        let mut idp_router = runtime.router();
+        if let Some(gate) = catalog_gate.clone().filter(|_| remote) {
+            let calls = Arc::new(AtomicUsize::new(0));
+            idp_router = idp_router.layer(axum::middleware::from_fn(
+                move |request: axum::extract::Request, next: axum::middleware::Next| {
+                    let calls = calls.clone();
+                    let gate = gate.clone();
+                    async move {
+                        if request.uri().path() == "/oauth2/introspect"
+                            && calls.fetch_add(1, Ordering::SeqCst) == 1
+                        {
+                            gate.pause().await;
+                        }
+                        next.run(request).await
+                    }
+                },
+            ));
+        }
+        let idp_listener = Listener::start(idp_router).await;
+        let client = if remote {
+            IdpClient::new(
+                &idp_listener.base,
+                &service_client.to_string(),
+                "storage-service-secret",
+                &config.oauth2.issuer,
+                "idp-services",
+            )
+            .expect("independent HTTPS-capable IdP client")
+        } else if let Some(gate) = catalog_gate {
             let inspect = Arc::clone(&runtime);
             let calls = Arc::new(AtomicUsize::new(0));
             IdpClient::local(move |token| {
@@ -393,18 +428,11 @@ impl Fixture {
                     runtime
                         .authorize_storage_bearer(&token)
                         .await
-                        .map_err(storage_introspection_error)
+                        .map_err(crate::support::owner_adapters::storage_introspection_error)
                 }
             })
         } else {
-            IdpClient::local(move |token| {
-                let idp = Arc::clone(&runtime);
-                async move {
-                    idp.authorize_storage_bearer(&token)
-                        .await
-                        .map_err(storage_introspection_error)
-                }
-            })
+            crate::support::owner_adapters::local_storage_idp_client(Arc::clone(&runtime))
         };
         let files = Arc::new(
             ScopedFileSystemRuntime::new(directory.0.join("files"), identity.endpoint().id())
@@ -422,18 +450,22 @@ impl Fixture {
             .await
             .expect("real resource")
             .id;
+        let actual = scoped_file_system_socket_authorizer(client.clone(), files.clone());
+        let gated = storage_router(Arc::new(GatedAuthorizer { actual, gate }));
         let router = resource_router(
             RouterState::new("https://storage.test").with_idp_client(client.clone()),
             Some(databases.clone()),
             Some(files.clone()),
-        );
+        )
+        .nest("/gated", gated);
         let storage_listener = Listener::start(router).await;
         Self {
             control,
             issuer: config.oauth2.issuer,
+            binding,
             keys,
             idp,
-            devices,
+            devices: device_database,
             clients,
             device,
             owner,
@@ -515,6 +547,21 @@ impl Fixture {
             .access_token
             .0
     }
+    pub(crate) fn socket_url(&self, token: &str, gated: bool) -> String {
+        let mut url = reqwest::Url::parse(&self.storage_listener.base.replace("http:", "ws:"))
+            .expect("WebSocket URL");
+        url.set_path(if gated { "/gated/storage" } else { "/storage" });
+        url.query_pairs_mut()
+            .append_pair("access_token", token)
+            .append_pair("filesystem_id", &self.resource.as_uuid().to_string());
+        url.to_string()
+    }
+    pub(crate) async fn socket(&self, token: &str, gated: bool) -> Socket {
+        tokio_tungstenite::connect_async(self.socket_url(token, gated))
+            .await
+            .expect("real authorized WebSocket upgrade")
+            .0
+    }
     pub(crate) async fn file(&self) -> Arc<file_system::FileSystem<iroh::EndpointId>> {
         self.files
             .open_resource(&self.scope, self.resource)
@@ -548,16 +595,66 @@ impl Fixture {
     }
 }
 
-pub(crate) fn storage_introspection_error(
-    error: idp_model::contract::ErrorResponse,
-) -> storage_server::IdpIntrospectionError {
-    use idp_model::contract::ErrorCode;
-    use storage_server::IdpIntrospectionError;
-
-    match error.error {
-        ErrorCode::ServerError | ErrorCode::TemporarilyUnavailable => {
-            IdpIntrospectionError::ServiceUnavailable
+pub(crate) struct GatedAuthorizer<A> {
+    actual: A,
+    gate: Gate,
+}
+pub(crate) struct GatedSession<S> {
+    actual: S,
+    gate: Gate,
+}
+impl<A: StorageSocketAuthorizer> StorageSocketAuthorizer for GatedAuthorizer<A> {
+    type Session = GatedSession<A::Session>;
+    async fn authorize(
+        &self,
+        token: String,
+        resource: String,
+    ) -> Result<StorageSocketAccess<Self::Session>, StorageSocketAuthorizationError> {
+        let access = self.actual.authorize(token, resource).await?;
+        Ok(StorageSocketAccess {
+            subject: access.subject,
+            application_id: access.application_id,
+            read: access.read,
+            write: access.write,
+            expires_at: access.expires_at,
+            session: GatedSession {
+                actual: access.session,
+                gate: self.gate.clone(),
+            },
+        })
+    }
+}
+impl<S: StorageSession> StorageSession for GatedSession<S> {
+    async fn execute_session(&self, request: StorageRequest) -> StorageResponse {
+        let result = self.actual.execute_session(request).await;
+        self.gate.pause().await;
+        result
+    }
+}
+pub(crate) async fn send(socket: &mut Socket, request: StorageRequest) {
+    socket
+        .send(Message::Text(
+            serde_json::to_string(&request).expect("request").into(),
+        ))
+        .await
+        .expect("send established socket request");
+}
+pub(crate) async fn response(socket: &mut Socket) -> StorageResponse {
+    let message = socket
+        .next()
+        .await
+        .expect("socket response")
+        .expect("valid response frame");
+    serde_json::from_str(message.to_text().expect("text response")).expect("resource response")
+}
+pub(crate) async fn assert_no_response(socket: &mut Socket) {
+    while let Some(message) = socket.next().await {
+        match message {
+            Ok(Message::Text(_) | Message::Binary(_)) => {
+                panic!("learned denial must prevent resource response transmission: {message:?}");
+            }
+            Ok(Message::Close(_)) | Err(_) => return,
+            Ok(_) => {}
         }
-        _ => IdpIntrospectionError::InvalidToken,
     }
 }
