@@ -1,4 +1,6 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+#![cfg(unix)]
+
+use std::{sync::Arc, time::Duration};
 
 use device_service::replica::DbSelectionPolicyRepo;
 use futures_util::{SinkExt, StreamExt};
@@ -6,6 +8,7 @@ use idp_model::{
     contract::{GrantType, INSTALLATION_POLICY_ID, IdentityAction},
     model::Id,
 };
+use idp_server::local_provisioning::provisioning_stage;
 use idp_service::{oauth2::NodeSignerBinding, repo::PrivateKeyKeyringRepo};
 use iroh_chain::DATA_ALPN;
 use management_service::ManagementService;
@@ -16,60 +19,27 @@ use storage_model::{StorageRequest, StorageResponse};
 use tokio::{net::TcpStream, task::JoinHandle};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::Message};
 
-use super::{Fixture, rotation_login_client};
-use crate::{LocalProvisioner, SecurityContext, SecurityProtocol, UnifiedEndpoint, UnifiedRuntime};
-
-#[path = "full_node_probe.rs"]
-mod probe;
-
-pub(super) struct NodeStores {
-    pub(super) stores: [(String, Arc<keyring_core::CredentialStore>); 2],
+mod support {
+    pub mod full_node;
 }
 
-impl keyring_core::api::CredentialStoreApi for NodeStores {
-    fn vendor(&self) -> String {
-        "isolated-full-node-test-stores".into()
-    }
-
-    fn id(&self) -> String {
-        self.vendor()
-    }
-
-    fn build(
-        &self,
-        service: &str,
-        user: &str,
-        modifiers: Option<&HashMap<&str, &str>>,
-    ) -> keyring_core::Result<keyring_core::Entry> {
-        let (_, store) = self
-            .stores
-            .iter()
-            .find(|(namespace, _)| user.starts_with(&format!("{namespace}:")))
-            .ok_or(keyring_core::Error::NoEntry)?;
-        keyring_core::api::CredentialStoreApi::build(&**store, service, user, modifiers)
-    }
-
-    fn search(&self, spec: &HashMap<&str, &str>) -> keyring_core::Result<Vec<keyring_core::Entry>> {
-        let mut entries = Vec::new();
-        for (_, store) in &self.stores {
-            entries.extend(store.search(spec)?);
-        }
-        Ok(entries)
-    }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-}
+use support::full_node::NodeStores;
+use support::full_node::{self, Fixture, rotation_login_client};
+use unified_server::{
+    LocalProvisioner, RuntimeOwners, SecurityContext, SecurityProtocol, UnifiedEndpoint,
+    UnifiedRuntime,
+};
 
 struct Host {
     runtime: Option<UnifiedRuntime>,
+    owners: RuntimeOwners,
     listener: Option<JoinHandle<()>>,
     base: String,
 }
 
 impl Host {
-    async fn start(mut runtime: UnifiedRuntime) -> Self {
+    async fn start(config: &unified_server::UnifiedConfig) -> Self {
+        let (mut runtime, owners) = full_node::runtime(config).await;
         assert!(
             runtime
                 .node_public_ready()
@@ -80,21 +50,7 @@ impl Host {
         let listener = runtime
             .take_listener()
             .expect("one production host listener");
-        let router = runtime.router().layer(axum::middleware::from_fn(
-            |request: axum::extract::Request, next: axum::middleware::Next| async move {
-                let started = std::time::Instant::now();
-                let method = request.method().clone();
-                let path = request.uri().path().to_owned();
-                eprintln!("08 HTTP begin: {method} {path}");
-                let response = next.run(request).await;
-                eprintln!(
-                    "08 HTTP end: {method} {path} status={} elapsed={:?}",
-                    response.status(),
-                    started.elapsed()
-                );
-                response
-            },
-        ));
+        let router = runtime.router();
         let cancellation = runtime.cancellation_token();
         let task = tokio::spawn(async move {
             axum::serve(listener, router)
@@ -104,6 +60,7 @@ impl Host {
         });
         let mut host = Self {
             runtime: Some(runtime),
+            owners,
             listener: Some(task),
             base,
         };
@@ -282,18 +239,42 @@ async fn local_winner(http: &reqwest::Client, host: &Host, client: &str, grant: 
     denied_grant(refresh(http, host, client, grant).await).await;
 }
 
+fn idp_client(
+    http: &reqwest::Client,
+    host: &Host,
+    actor: Option<&str>,
+) -> of_idp_client::apis::configuration::Configuration {
+    of_idp_client::apis::configuration::Configuration {
+        client: http.clone(),
+        base_path: format!("{}/idp", host.base),
+        bearer_access_token: actor.map(str::to_owned),
+        ..Default::default()
+    }
+}
+
+fn device_client(
+    http: &reqwest::Client,
+    host: &Host,
+    actor: &str,
+) -> of_device_client::apis::configuration::Configuration {
+    of_device_client::apis::configuration::Configuration {
+        client: http.clone(),
+        base_path: format!("{}/device", host.base),
+        bearer_access_token: Some(actor.to_owned()),
+        ..Default::default()
+    }
+}
+
 async fn restriction(http: &reqwest::Client, host: &Host, actor: &str, device: Id, allowed: bool) {
-    let response = http
-        .put(format!("{}/device/devices/{device}/restriction", host.base))
-        .bearer_auth(actor)
-        .json(&serde_json::json!({"adminAllowed": allowed}))
-        .send()
-        .await
-        .expect("real Device policy mutation");
-    assert!(
-        response.status() == reqwest::StatusCode::NO_CONTENT,
-        "Device restriction mutation must return no content"
-    );
+    of_device_client::apis::default_api::put_device_restriction(
+        &device_client(http, host, actor),
+        of_device_client::apis::default_api::PutDeviceRestrictionParams {
+            device_id: device.to_string(),
+            device_restriction: of_device_client::models::DeviceRestriction::new(allowed),
+        },
+    )
+    .await
+    .expect("authorized Device policy mutation");
 }
 
 async fn assert_restriction(
@@ -303,16 +284,28 @@ async fn assert_restriction(
     device: Id,
     allowed: bool,
 ) {
-    let body = json(
-        http.get(format!("{}/device/devices/{device}/restriction", host.base))
-            .bearer_auth(actor)
-            .send()
-            .await
-            .expect("local policy read"),
-        reqwest::StatusCode::OK,
+    let policy = of_device_client::apis::default_api::get_device_restriction(
+        &device_client(http, host, actor),
+        of_device_client::apis::default_api::GetDeviceRestrictionParams {
+            device_id: device.to_string(),
+        },
     )
-    .await;
-    assert_eq!(body["adminAllowed"], allowed);
+    .await
+    .expect("current Device restriction");
+    assert_eq!(policy.admin_allowed, allowed);
+}
+
+fn storage_client(
+    http: &reqwest::Client,
+    host: &Host,
+    bearer: &str,
+) -> of_storage_client::apis::configuration::Configuration {
+    of_storage_client::apis::configuration::Configuration {
+        client: http.clone(),
+        base_path: format!("{}/storage", host.base),
+        bearer_access_token: Some(bearer.to_owned()),
+        ..Default::default()
+    }
 }
 
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -355,20 +348,17 @@ async fn create_written_resource(
     host: &Host,
     bearer: &str,
 ) -> (String, Socket) {
-    let resource = json(
-        http.post(format!("{}/storage/filesystems", host.base))
-            .bearer_auth(bearer)
-            .json(&serde_json::json!({"name": "offline local copy"}))
-            .send()
-            .await
-            .expect("real independent resource creation"),
-        reqwest::StatusCode::CREATED,
+    let resource = of_storage_client::apis::resources_api::create_file_system(
+        &storage_client(http, host, bearer),
+        of_storage_client::apis::resources_api::CreateFileSystemParams {
+            create_resource_request: of_storage_client::models::CreateResourceRequest {
+                name: Some(Some("offline local copy".into())),
+            },
+        },
     )
-    .await;
-    let resource = resource["id"]
-        .as_str()
-        .expect("stable resource ID")
-        .to_owned();
+    .await
+    .expect("independent resource creation")
+    .id;
     let mut connection = socket(host, bearer, &resource).await;
     send(
         &mut connection,
@@ -439,13 +429,10 @@ async fn join_host(
         request.public_signer.kid,
         journal["key"].as_str().expect("source signer ID")
     );
-    let mut offers = source
-        .runtime()
-        .full_node_test_server()
-        .subscribe_pairing_offers();
+    let mut offers = source.owners.endpoint.server().subscribe_pairing_offers();
     let sender = tokio::spawn({
         let server = endpoint.server().clone();
-        let address = source.runtime().full_node_test_server().endpoint().addr();
+        let address = source.owners.endpoint.server().endpoint().addr();
         let request = request.clone();
         async move { request.send(&server, address).await }
     });
@@ -504,7 +491,7 @@ async fn join_host(
     assert_eq!(approval.owner_subject, owner);
     assert_eq!(approval.request.member_id, binding.member_id);
     assert_eq!(approval.request.endpoint_id, binding.endpoint_id);
-    let policies = DbSelectionPolicyRepo::new(source.runtime().full_node_test_devices().client());
+    let policies = DbSelectionPolicyRepo::new(source.owners.devices.client());
     let policy = policies
         .get(binding.member_id, &owner.to_string(), Id::nil())
         .await
@@ -530,10 +517,7 @@ async fn join_host(
         endpoint
             .server()
             .endpoint()
-            .connect(
-                source.runtime().full_node_test_server().endpoint().addr(),
-                DATA_ALPN
-            )
+            .connect(source.owners.endpoint.server().endpoint().addr(), DATA_ALPN)
             .await
             .is_err(),
         "pairing is not general resource admission"
@@ -542,7 +526,7 @@ async fn join_host(
         .server()
         .endpoint()
         .connect(
-            source.runtime().full_node_test_server().endpoint().addr(),
+            source.owners.endpoint.server().endpoint().addr(),
             idp_server::BOOTSTRAP_ALPN,
         )
         .await
@@ -552,8 +536,7 @@ async fn join_host(
             "08 join: importing {context:?} at {:?}",
             joining_started.elapsed()
         );
-        protocol
-            .receive_node_bootstrap(&bootstrap, &joining_owner, context)
+        provisioning_stage(|| protocol.receive_node_bootstrap(&bootstrap, &joining_owner, context))
             .await
             .expect("real public owner import");
         eprintln!(
@@ -587,16 +570,14 @@ async fn join_host(
     drop(endpoint);
     b.config.idp.oauth2.local_signer = Some(binding.clone());
 
-    let joined_runtime = UnifiedRuntime::build(b.config.clone())
-        .await
-        .expect("complete joined IdP Management Storage composition");
+    let joined = Host::start(&b.config).await;
     assert!(
-        joined_runtime
+        joined
+            .runtime()
             .node_join_public_ready()
             .await
             .expect("durable actual join receipt")
     );
-    let joined = Host::start(joined_runtime).await;
     assert_eq!(
         joined.runtime().endpoint_id().to_string(),
         binding.endpoint_id
@@ -684,6 +665,14 @@ impl Pair {
             .expect("initial signer")
             .parse()
             .expect("key ID");
+        a.config.idp.oauth2.local_signer = Some(NodeSignerBinding {
+            member_id: member_a,
+            key_id: key_a,
+            endpoint_id: journal["endpoint"]
+                .as_str()
+                .expect("source endpoint")
+                .to_owned(),
+        });
         let login = rotation_login_client(
             &a,
             vec![
@@ -731,7 +720,7 @@ impl Pair {
             "08 {slice:?}: source fixture ready at {:?}",
             started.elapsed()
         );
-        let source = Host::start(local.build_runtime().await.expect("completed source host")).await;
+        let source = Host::start(&a.config).await;
         drop(local);
         let password_form = [
             ("grant_type", "password"),
@@ -816,15 +805,12 @@ impl Pair {
         );
         let connection = self
             .joined
-            .runtime()
-            .full_node_test_server()
+            .owners
+            .endpoint
+            .server()
             .endpoint()
             .connect(
-                self.source
-                    .runtime()
-                    .full_node_test_server()
-                    .endpoint()
-                    .addr(),
+                self.source.owners.endpoint.server().endpoint().addr(),
                 DATA_ALPN,
             )
             .await
@@ -834,11 +820,13 @@ impl Pair {
             self.started.elapsed()
         );
         assert_eq!(connection.remote_id(), self.source.runtime().endpoint_id());
-        self.joined
-            .runtime()
-            .synchronize_security(&connection, context)
-            .await
-            .expect("learn current public owner state");
+        provisioning_stage(|| {
+            self.joined
+                .runtime()
+                .synchronize_security(&connection, context)
+        })
+        .await
+        .expect("learn current public owner state");
         connection.close(0u32.into(), b"focused reconciliation complete");
         eprintln!("08: reconciled {context:?} at {:?}", self.started.elapsed());
     }
@@ -849,11 +837,9 @@ impl Pair {
     }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn two_completed_full_hosts_join_partition_reopen_and_learn_denial() {
-    tokio::time::timeout(Duration::from_secs(360), offline_reopen())
-        .await
-        .expect("bounded full-host offline slice");
+#[test]
+fn two_completed_full_hosts_join_partition_reopen_and_learn_denial() {
+    full_node::run(offline_reopen());
 }
 
 async fn offline_reopen() {
@@ -926,8 +912,16 @@ async fn offline_reopen() {
         secrets_b == b.secrets(),
         "joined private inventory must survive offline reopen unchanged"
     );
-    let source = Host::start(runtime_a).await;
-    let joined = Host::start(runtime_b).await;
+    runtime_a
+        .shutdown()
+        .await
+        .expect("validated source reopen cleanup");
+    runtime_b
+        .shutdown()
+        .await
+        .expect("validated joined reopen cleanup");
+    let source = Host::start(&a.config).await;
+    let joined = Host::start(&b.config).await;
     drop(guard_a);
     eprintln!(
         "08 Offline: both reopened without DATA sessions at {:?}",
@@ -941,14 +935,9 @@ async fn offline_reopen() {
         .as_str();
     for host in [&source, &joined] {
         denied_grant(refresh(&http, host, &login_id, grant).await).await;
-        let jwks = json(
-            http.get(format!("{}/idp/.well-known/jwks.json", host.base))
-                .send()
-                .await
-                .expect("local approved JWKS"),
-            reqwest::StatusCode::OK,
-        )
-        .await;
+        let jwks = of_idp_client::apis::default_api::jwks(&idp_client(&http, host, None))
+            .await
+            .expect("local approved JWKS");
         for key in [
             key_a.to_string(),
             b.config
@@ -960,13 +949,7 @@ async fn offline_reopen() {
                 .key_id
                 .to_string(),
         ] {
-            assert!(
-                jwks["keys"]
-                    .as_array()
-                    .expect("JWKS keys")
-                    .iter()
-                    .any(|jwk| jwk["kid"] == key)
-            );
+            assert!(jwks.keys.iter().any(|jwk| jwk.kid == key));
         }
     }
     for (host, fixture, remote, local, label) in [
@@ -1005,17 +988,16 @@ async fn offline_reopen() {
             fixture.config.idp_audience(),
         )
         .await;
-        let updated = json(
-            http.put(format!("{}/idp/users/{owner}", host.base))
-                .bearer_auth(&actor)
-                .json(&serde_json::json!({"name": label}))
-                .send()
-                .await
-                .expect("independent offline identity mutation"),
-            reqwest::StatusCode::OK,
+        let updated = of_idp_client::apis::default_api::update_user(
+            &idp_client(&http, host, Some(&actor)),
+            of_idp_client::apis::default_api::UpdateUserParams {
+                user_id: owner.to_string(),
+                body: serde_json::json!({"name": label}),
+            },
         )
-        .await;
-        assert_eq!(updated["name"], label);
+        .await
+        .expect("independent offline identity mutation");
+        assert_eq!(updated.name.flatten().as_deref(), Some(label));
         let policy = exchange(
             &http,
             host,
@@ -1049,11 +1031,9 @@ async fn offline_reopen() {
     eprintln!("08 Offline: complete at {:?}", started.elapsed());
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn two_completed_full_hosts_reconcile_consumption_and_revocation() {
-    tokio::time::timeout(Duration::from_secs(360), learned_grants())
-        .await
-        .expect("bounded full-host IdP reconciliation slice");
+#[test]
+fn two_completed_full_hosts_reconcile_consumption_and_revocation() {
+    full_node::run(learned_grants());
 }
 
 async fn learned_grants() {
@@ -1119,11 +1099,9 @@ async fn learned_grants() {
     pair.stop().await;
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn two_completed_full_hosts_learn_restrictions_on_retained_sockets() {
-    tokio::time::timeout(Duration::from_secs(360), learned_restrictions())
-        .await
-        .expect("bounded full-host Management reconciliation slice");
+#[test]
+fn two_completed_full_hosts_learn_restrictions_on_retained_sockets() {
+    full_node::run(learned_restrictions());
 }
 
 async fn learned_restrictions() {
@@ -1218,23 +1196,24 @@ async fn learned_restrictions() {
 }
 
 async fn delete_resource(http: &reqwest::Client, host: &Host, bearer: &str, resource: &str) {
-    let url = format!("{}/storage/filesystems/{resource}", host.base);
-    assert_eq!(
-        http.delete(&url)
-            .bearer_auth(bearer)
-            .send()
-            .await
-            .expect("ordinary public owner resource cleanup")
-            .status(),
-        reqwest::StatusCode::NO_CONTENT
-    );
-    assert_eq!(
-        http.get(url)
-            .bearer_auth(bearer)
-            .send()
-            .await
-            .expect("local deletion receipt")
-            .status(),
-        reqwest::StatusCode::NOT_FOUND
+    let client = storage_client(http, host, bearer);
+    of_storage_client::apis::resources_api::delete_file_system(
+        &client,
+        of_storage_client::apis::resources_api::DeleteFileSystemParams {
+            filesystem_id: resource.to_owned(),
+        },
+    )
+    .await
+    .expect("ordinary public resource cleanup");
+    let missing = of_storage_client::apis::resources_api::get_file_system(
+        &client,
+        of_storage_client::apis::resources_api::GetFileSystemParams {
+            filesystem_id: resource.to_owned(),
+        },
+    )
+    .await
+    .expect_err("deleted resource must not remain accessible");
+    assert!(
+        matches!(missing, of_storage_client::apis::Error::ResponseError(response) if response.status == reqwest::StatusCode::NOT_FOUND)
     );
 }

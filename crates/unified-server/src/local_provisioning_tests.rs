@@ -566,26 +566,6 @@ fn fixture_oauth2(
     )
 }
 
-async fn rotation_login_client(
-    fixture: &Fixture,
-    grants: Vec<idp_model::contract::GrantType>,
-    audiences: Vec<String>,
-) -> idp_model::contract::ClientRegistration {
-    let owner = idp_server::OwnerProvisioner::open(&fixture.config.idp)
-        .await
-        .expect("stopped fixture IdP owner");
-    let mut request = crate::local_provisioning::login_registration(&fixture.config, Id::now_v7());
-    request.allowed_grant_types = grants;
-    request.allowed_audiences = audiences;
-    fixture_oauth2(
-        &fixture.config.idp,
-        owner.node_join_database().expect("local identity owner"),
-    )
-    .register_client(request)
-    .await
-    .expect("independent public login fixture")
-}
-
 async fn exercise_running_host(runtime: crate::UnifiedRuntime, user: Id) {
     let permissions = management_service::LocalPermissions::new(
         runtime
@@ -1872,9 +1852,6 @@ fn local_provisioning_rejects_unprotected_input_and_missing_or_conflicting_inten
     );
     secret_files_absent(&fixture.root);
 }
-
-#[path = "full_node_tests.rs"]
-mod full_nodes;
 
 #[test]
 fn concrete_host_settings_preserve_the_durable_intent_when_normalized() {

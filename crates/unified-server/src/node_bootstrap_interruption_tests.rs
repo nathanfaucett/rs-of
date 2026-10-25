@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-use db::Database;
+use db::{Database, SqlTranslator};
 use idp_model::{contract::IdentityAction, model::Id};
 use idp_server::{AppConfig, NodeJoinStage, OwnerProvisioner};
 use idp_service::{oauth2::NodeSignerBinding, replica::DbReplicaSignerRepo};
@@ -30,10 +30,18 @@ struct BootstrapRequest {
     context: SecurityContext,
     approval: device_service::hosted_join::NodeJoinApproval,
 }
-use crate::security_sync_tests::sql;
+
 use crate::{SecurityContext, SecurityProtocol};
 use ofdb_sql::{SyncMessage, SyncTransport};
 use storage_server::DatabaseTransport;
+
+async fn sql(database: &Database, statement: &str) -> Vec<db::QueryResult> {
+    database
+        .client()
+        .translate_and_execute(statement, &SqlTranslator)
+        .await
+        .expect("public SQL fixture")
+}
 
 #[tokio::test]
 async fn bootstrap_current_boundaries_preserve_admitted_import_and_native_retry() {
