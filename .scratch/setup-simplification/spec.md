@@ -1,6 +1,8 @@
 # Simplify Installation Setup and desktop startup
 
-Status: ready-for-agent
+Status: open
+
+Implementation tickets 01–06 are integrated. Final qualification remains open: see [ticket 07 evidence](evidence/07-integrated-qualification.md) for passing frontend/native seams, mixed HTTPS lifecycle results, incomplete feature matrix/CRAP and explicit platform limits. This is not accepted as fully qualified.
 
 ## Problem Statement
 

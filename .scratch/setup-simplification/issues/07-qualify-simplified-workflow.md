@@ -4,17 +4,31 @@
 
 **Blocked by:** 02 — Make Create lead directly to ordinary sign-in; 03 — Make Join a single guided request; 04 — Make adding a Node understandable on the approving device; 05 — Show startup immediately and request trust only when needed; 06 — Separate maintenance from normal onboarding.
 
-**Status:** ready-for-agent
+**Status:** open
 
-- [ ] Verify default bundled first launch has one essential Create/Join choice, minimal required input, no mandatory internal composition, and no completion-only gate before ordinary sign-in.
+**Triage:** ready-for-agent
+
+- [x] Verify default bundled first launch has one essential Create/Join choice, minimal required input, no mandatory internal composition, and no completion-only gate before ordinary sign-in.
 - [ ] Exercise the integrated Join flow from request through source acceptance and exact approval/rejection to verified readiness; verify completed reopen without the source peer.
 - [ ] Verify accepted work survives disconnect and restart, exact retry retains identities, required transient credentials are requested again, and returning ready Nodes do not replay onboarding.
-- [ ] Verify visible asynchronous startup, already-trusted launch, consent refusal, actionable prerequisite failure, and lifecycle contention together with the final setup routing.
-- [ ] Verify selected remote services remain usable without local provisioning or bundled credential forwarding, browser setup never requires Tauri, and independent owners retain separate admission and correlated readiness checks.
-- [ ] Verify optional local data configuration remains editable without changing restrictions or resource authority, and maintenance reports local deletion separately from incomplete remote revocation.
-- [ ] Retain negative coverage for authorization, Origin, wrong peer/issuer, secret disclosure, malformed readiness evidence, and lost identity/TLS/provider material. No historical completion marker can manufacture readiness.
-- [ ] Reuse existing rendered-page and public HTTPS lifecycle scenarios and coordinate with the deployment-independent system-test effort; do not duplicate its scenarios or infer GUI coverage from backend tests.
-- [ ] Inspect the final call graph and remove any remaining superseded commands, markers, routes, stores, screens, wrappers, or duplicate tests belonging to this workflow. Each preceding ticket must already include its own focused tests and local cleanup.
-- [ ] Reconcile current glossary-linked design, interface, operations, and native handoff guidance with delivered behavior; clearly distinguish historical evidence from current instructions.
-- [ ] Run relevant frontend checks/tests, Rust formatting and clippy, then final `cargo hack test --feature-powerset --all-targets` and `just crap`. Record actual commands, outcomes, existing unrelated failures, and any unavailable tooling without claiming unrun checks passed.
-- [ ] Record which rendered/integration scenarios actually ran and their limits. Injected trust/providers do not certify real OS trust installation, physical/WAN pairing, unsupported platforms, or production deployment. Do not modify real profiles or OS trust stores to satisfy automated validation.
+- [x] Verify visible asynchronous startup, already-trusted launch, consent refusal, actionable prerequisite failure, and lifecycle contention together with the final setup routing.
+- [x] Verify selected remote services remain usable without local provisioning or bundled credential forwarding, browser setup never requires Tauri, and independent owners retain separate admission and correlated readiness checks.
+- [x] Verify optional local data configuration remains editable without changing restrictions or resource authority, and maintenance reports local deletion separately from incomplete remote revocation.
+- [x] Retain negative coverage for authorization, Origin, wrong peer/issuer, secret disclosure, malformed readiness evidence, and lost identity/TLS/provider material. No historical completion marker can manufacture readiness.
+- [x] Reuse existing rendered-page and public HTTPS lifecycle scenarios and coordinate with the deployment-independent system-test effort; do not duplicate its scenarios or infer GUI coverage from backend tests.
+- [x] Inspect the final call graph and remove any remaining superseded commands, markers, routes, stores, screens, wrappers, or duplicate tests belonging to this workflow. Each preceding ticket must already include its own focused tests and local cleanup.
+- [x] Reconcile current glossary-linked design, interface, operations, and native handoff guidance with delivered behavior; clearly distinguish historical evidence from current instructions.
+- [x] Run relevant frontend checks/tests, Rust formatting and clippy, then final `cargo hack test --feature-powerset --all-targets` and `just crap`. Record actual commands, outcomes, existing unrelated failures, and any unavailable tooling without claiming unrun checks passed.
+- [x] Record which rendered/integration scenarios actually ran and their limits. Injected trust/providers do not certify real OS trust installation, physical/WAN pairing, unsupported platforms, or production deployment. Do not modify real profiles or OS trust stores to satisfy automated validation.
+
+## Comments
+
+- Claimed on `setup-simplification-07`; qualify the integrated 01–06 implementation at the spec-authorized rendered-page, public HTTPS lifecycle and isolated native provider/trust seams. No real profile or OS trust changes.
+
+## Answer
+
+**Qualification incomplete; not resolved.** [Current integrated evidence](../evidence/07-integrated-qualification.md) records actual passing, failing and bounded commands and the retained limits. Fixed completed-Create readiness re-observation and removed its premature duplicate sign-in link with two mounted regression cases; fixed the stale native observation test call exposed by compilation. Reconciled current design/API/worker/owner/native/operations guidance and deleted the obsolete route inventory entry.
+
+34 mounted, 180 route/state/client tests, clean app check/build, API 40 plus doc test, native 21 (including provider parent/child), scoped strict Clippy and formatting pass. Workspace Clippy fails generated SDK lints; standalone setup HTTP tests fail. HTTPS Join has individual offline/finalization passes but later approval/Storage/OAuth timeouts; interruption/exact retry is not reliably qualified. Final feature matrix and CRAP each exhausted 600000 ms; no matrix pass/score.
+
+The two unchecked integrated durability/Join items prevent resolution. Resume by reproducing the HTTPS timeouts and completing qualification, not by weakening trust/readiness/authorization assertions or editing real profiles/OS trust. See evidence for unrun process-suite and GUI/platform boundaries. Integration tip was merged before delivery; no main Cargo.lock changes belong to this ticket.

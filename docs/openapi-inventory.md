@@ -214,7 +214,6 @@ Host Create has its existing 200 completed retry versus 202 accepted work semant
 - `apps/app/src/lib/common/util/handleDeepLink.ts`
 - `apps/app/src/routes/(auth)/+layout.ts`
 - `apps/app/src/routes/setup/+page.ts`
-- `apps/app/src/routes/setup/device/+page.ts`
 - `apps/app/src/routes/signin/+page.ts`
 - `apps/app/vitest.auth.config.ts`
 - `apps/password-manager/src/lib/collections/secrets/storage.ts`

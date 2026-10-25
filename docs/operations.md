@@ -6,6 +6,8 @@ These are current operational requirements for the [offline-first Node design](d
 
 ## Qualification boundary
 
+Current integrated setup qualification is [ticket 07](../.scratch/setup-simplification/evidence/07-integrated-qualification.md). Frontend and isolated native/provider seams pass; public HTTPS Join has mixed request-timeout results and the final feature matrix/CRAP remain incomplete. The setup simplification spec is not fully accepted. Older receipts below retain their historical scope, not a current-tip guarantee.
+
 The approved qualification scope is reproducible bounded Ubuntu Linux x86_64 evidence. Multiple isolated Nodes on one host can qualify protocol/partition/reopen semantics without physical machines. Historical local qualification includes production authenticated join/completion/offline native reopen, session-provider setup/reset, completion-marker checks, four representative durable boundaries and focused DOM/client-SSR checks. The recorded durable regression took 350.97 seconds under a 360-second internal bound; earlier larger-fixture timeouts are not erased by that result.
 
 **Verified GUI approval, profile-B completion and two-profile GUI offline restart remain deferred and not observed.** Offer display is not approval. Listener/status probes, receipts, markers and Residency acknowledgements never substitute for current trust/readiness or resource authorization. Historical lifecycle, rotation and retained-provider filesystem recovery results retain the narrower boundaries below; they are not current-tip reruns.

@@ -396,7 +396,7 @@ async fn a_host_finishing_after_close_cannot_be_published_as_running() {
         .publish_host(&cancellation, host, &mut slot)
         .expect("reject late host");
     assert!(slot.is_none());
-    assert!(rejected.observation(&root).await.status.is_none());
+    assert!(rejected.observation().await.status.is_none());
     rejected.close().await.expect("join rejected host");
     drop(operation);
     let _stopped = stop.await;
