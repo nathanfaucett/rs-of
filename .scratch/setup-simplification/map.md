@@ -12,6 +12,8 @@
 - Safe failure actions distinguish transient retry, prerequisites and exact retained-identity repair; destructive reset remains explicit maintenance, not automatic recovery.
 - [04: Source approval](issues/04-simplify-source-approval.md) resolved: one Add a device task, existing owner authorization/adapters, exact decisions and retained partial-approval retry. [Focused evidence and validation limits](evidence/04-source-approval.md): 9 rendered/27 owner-client tests pass; Svelte check/autofix clean. Rust lifecycle, feature matrix and CRAP bounded out compiling; broad auth suite is not green.
 
+- [02: Streamline Create](issues/02-streamline-create.md) — resolved. Credentials-only bundled Create, dependency-free default naming with ordinary rename, exact transient-credential recovery, direct verified ordinary sign-in and deferred authenticated Device preferences. Removed dismissal route/command/flag/persistence; actual restrictions, selections and resource authorization are unchanged. [TDD, caller audit and validation evidence](evidence/02-streamline-create.md). This supersedes ticket01’s temporary preservation of the dismissal gate.
+
 ## Fog
 
 - Full Cargo Hack matrix is unqualified: Swagger UI's downloaded/cached archive fails its build script. CRAP coverage compilation exceeded the bounded run; no score is available.

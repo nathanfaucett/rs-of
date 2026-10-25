@@ -20,7 +20,7 @@
     const currentCodes = { ...codes };
     const credential = password;
     clearSecrets();
-    await session.submit(currentCodes, { purpose, administrator, node, peer }, credential);
+    await session.submit(currentCodes, { purpose, administrator, node: purpose === "create" ? session.intent?.node ?? "My Node" : node, peer }, credential);
   }
   async function recover() {
     const currentCodes = { ...codes };
@@ -66,7 +66,7 @@
     {#if purpose === "create"}
       <label>Administrator name<input bind:value={administrator} autocomplete="username" disabled={session.busy || !!session.intent} required /></label>
     {/if}
-    <label>Node name<input bind:value={node} autocomplete="off" disabled={session.busy || !!session.intent} required /></label>
+    {#if purpose === "join"}<label>Node name<input bind:value={node} autocomplete="off" disabled={session.busy || !!session.intent} required /></label>{/if}
     {#if purpose === "join"}
       <label>Trusted source Device HTTPS base#pinned endpoint<input bind:value={peer} autocomplete="off" spellcheck="false" disabled={session.busy || !!session.intent} placeholder="https://source.example/device#…" required /></label>
       <p>The target authenticates the pinned source and discovers its issuer. Do not supply an administrator, issuer or password for Join.</p>

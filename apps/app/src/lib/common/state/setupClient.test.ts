@@ -240,7 +240,7 @@ it("clears the existing native memory session and PKCE state and invalidates des
     host.authority = "https://node.test/idp";
     const ready = {
         base: "https://node.test",
-        device_setup_required: false,
+
         status: {
             stage: "installation",
             state: "ready",

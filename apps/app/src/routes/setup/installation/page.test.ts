@@ -82,7 +82,9 @@ it("observes bundled setup through one secret-free target-bound snapshot", async
     const { body } = render(Installation, { props: { data } });
     expect(body).toContain("Create an Installation");
     expect(body).toContain("Join through a trusted peer");
-    expect(body).toContain("Get bundled host code");
+    expect(body).not.toContain("Get bundled host code");
+    expect(body).not.toContain("Node name");
+    expect(body).toContain("Advanced connection settings");
     expect(body).toContain('type="password"');
 });
 
@@ -110,12 +112,12 @@ it.each([false, true])(
         const data = await load();
         expect(data.observation).toMatchObject({
             state: "ready",
-            action: device ? "device_setup" : "sign_in",
+            action: "sign_in",
             loginClient: login,
         });
         const { body } = render(Installation, { props: { data } });
         expect(body).toContain(
-            device ? 'href="/setup/device"' : 'href="/signin"',
+            'href="/signin"',
         );
         expect(body).not.toContain("<form");
         expect(host.clientId).not.toHaveBeenCalled();
@@ -320,13 +322,13 @@ it("discards a stale target's malformed evidence rather than requesting repair o
     });
 });
 
-it("does not assume Device preference completion from missing native evidence", async () => {
+it("allows deferred Device preferences after verified readiness", async () => {
     host.invoke.mockResolvedValue({
         base: "https://node.test",
         status: status("ready"),
     });
     expect((await load()).observation).toMatchObject({
-        state: "blocked",
-        action: "repair",
+        state: "ready",
+        action: "sign_in",
     });
 });

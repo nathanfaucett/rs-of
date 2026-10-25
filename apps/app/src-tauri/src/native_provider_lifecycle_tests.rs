@@ -150,9 +150,8 @@ async fn native_shared_create_child() {
     assert_eq!(response.status(), reqwest::StatusCode::ACCEPTED);
     drop(response);
     let status = ready(&host).await;
-    let observed = host.observation(&data).await;
+    let observed = host.observation().await;
     assert!(observed.failure.is_none());
-    assert!(observed.device_setup_required);
     assert_eq!(
         observed
             .status
@@ -162,11 +161,9 @@ async fn native_shared_create_child() {
     );
     fs::write(data.join("device-setup-ready"), "foreign-client")
         .expect("damaged preference marker");
-    let damaged = host.observation(&data).await;
-    assert!(matches!(
-        damaged.failure,
-        Some(crate::onboarding::Failure::Repair)
-    ));
+    let damaged = host.observation().await;
+    assert!(damaged.failure.is_none());
+    assert!(damaged.status.expect("current shared readiness").ready);
     fs::remove_file(data.join("device-setup-ready")).expect("remove injected damaged marker");
     assert_eq!(
         bundled_host

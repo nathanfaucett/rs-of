@@ -6,9 +6,7 @@ export async function load() {
     throw redirect(
         302,
         observation.state === "ready"
-            ? observation.action === "device_setup"
-                ? "/setup/device"
-                : "/signin"
+            ? "/signin"
             : "/setup/installation",
     );
 }

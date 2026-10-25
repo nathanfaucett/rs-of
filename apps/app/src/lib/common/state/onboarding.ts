@@ -28,7 +28,7 @@ export type OnboardingObservation = Evidence &
         | { state: "working"; action: "observe" | "approve" }
         | {
               state: "ready";
-              action: "sign_in" | "device_setup";
+              action: "sign_in";
               loginClient: { client_id: string; scopes: string[] };
           }
         | { state: "blocked"; action: OnboardingFailure; message: string }
@@ -37,7 +37,6 @@ export type OnboardingObservation = Evidence &
 type NativeHostObservation = {
     base?: string;
     status?: unknown;
-    device_setup_required?: boolean;
     failure?: OnboardingFailure;
 };
 
@@ -97,7 +96,6 @@ export async function observeOnboarding(): Promise<OnboardingObservation> {
     const selected = selection();
     let target = publicTarget(selected);
     let hosts: SetupHost[];
-    let deviceSetup = false;
     try {
         if (selected.kind === "bundled") {
             const native = await invoke<NativeHostObservation>(
@@ -129,14 +127,8 @@ export async function observeOnboarding(): Promise<OnboardingObservation> {
                 CreateResultFromJSON(native.status),
                 200,
             );
-            if (
-                status.ready &&
-                typeof native.device_setup_required !== "boolean"
-            )
-                return blocked(target, "repair");
             if (status.owners.length !== 3) return blocked(target, "repair");
             hosts = [{ base: target.idp, status }];
-            deviceSetup = native.device_setup_required === true;
         } else {
             requireSetupUiOrigin(
                 typeof window === "undefined" ? "" : window.location.origin,
@@ -167,7 +159,7 @@ export async function observeOnboarding(): Promise<OnboardingObservation> {
             target,
             hosts,
             state: "ready",
-            action: deviceSetup ? "device_setup" : "sign_in",
+            action: "sign_in",
             loginClient,
         };
     }

@@ -25,7 +25,6 @@ impl Failure {
 pub(crate) struct HostObservation {
     pub base: Option<String>,
     pub status: Option<CreateResult>,
-    pub device_setup_required: bool,
     pub failure: Option<Failure>,
 }
 

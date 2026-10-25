@@ -171,10 +171,8 @@ async fn run_with(
         Err(error) => return Err(error),
     }
     drop(host_guard);
-    for name in ["device-setup-ready", EVIDENCE] {
-        if read_optional(&data.join(name))?.is_some() {
-            fs::remove_file(data.join(name))?;
-        }
+    if read_optional(&data.join(EVIDENCE))?.is_some() {
+        fs::remove_file(data.join(EVIDENCE))?;
     }
     fs::File::open(data)?.sync_all()?;
     fs::remove_file(data.join(JOURNAL))?;

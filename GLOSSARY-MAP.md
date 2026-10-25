@@ -8,6 +8,7 @@
 
 - [Shared terms](GLOSSARY.md): Installation, User, Application, Principal, Device, and setup lifecycle.
 - [System design](docs/design.md): equal offline-first Nodes, local authorization, ownership boundaries, and synchronization requirements.
+- [Setup workers and onboarding](docs/setup-workers.md): durable Create/Join ownership, current readiness, default naming, advanced connections and deferred Device preferences.
 - [System API contracts](docs/api.md): owner routes, prefix composition, setup/readiness, and safe client generation.
 - [System security](docs/security.md): actor/subject/signer/endpoint distinctions, local trust, secret separation, and acceptance limits.
 - [Networking composition](docs/design.md#networking-composition-and-trust): `ofnet`/`iroh-chain` reuse, local membership, and source interfaces; [ofnet Endpoint Mesh glossary](../ofnet/GLOSSARY.md) defines Endpoint, Peer, Mesh, Broadcast, Direct Message, and Byte Stream.
