@@ -498,3 +498,111 @@ it("shows startup before host completion and requires explained trust consent be
     expect(native.invoke).toHaveBeenCalledWith("set_local_trust_consent", { consent: true });
     expect(native.invoke.mock.calls.some(([command]) => command === "reset_device")).toBe(false);
 });
+
+it.each([true, false])(
+    "rechecks current public login after completed Create recovery, valid login=%s",
+    async (validLogin) => {
+        native.desktop = true;
+        const { default: Installation } = await import(
+            "../../../routes/setup/installation/+page.svelte"
+        );
+        const status = {
+            stage: "installation",
+            state: "ready",
+            ready: true,
+            owners: ["idp", "device", "storage"],
+            login_client: {
+                client_id: "01900000-0000-7000-8000-000000000001",
+                scopes: ["openid"],
+            },
+        };
+        let releaseObservation: (() => void) | undefined;
+        native.invoke.mockImplementation(async (command) => {
+            if (command === "get_native_setup_code") return "a".repeat(64);
+            if (command === "get_onboarding_host")
+                return new Promise((resolve) => {
+                    releaseObservation = () =>
+                        resolve({
+                            base: "https://localhost:4100",
+                            status: {
+                                ...status,
+                                login_client: validLogin
+                                    ? status.login_client
+                                    : undefined,
+                            },
+                        });
+                });
+            if (command === "get_localhost_server_base_url")
+                return "https://localhost:4100";
+            throw new Error("Unexpected native command: " + command);
+        });
+        const fetchApi = vi.fn(async (url: string) => {
+            if (url.endsWith("/intent"))
+                return Response.json({
+                    operation_nonce: "b".repeat(32),
+                    node: "My Node",
+                    administrator: "Alice",
+                });
+            if (url.endsWith("/status")) return Response.json(status);
+            throw new Error("Unexpected HTTP operation: " + url);
+        });
+        vi.stubGlobal("fetch", fetchApi);
+        target = document.createElement("div");
+        document.body.append(target);
+        component = mount(Installation, {
+            target,
+            props: {
+                data: {
+                    observation: {
+                        state: "working",
+                        action: "observe",
+                        target: {
+                            kind: "bundled",
+                            idp: "https://localhost:4100/idp",
+                            device: null,
+                            storage: null,
+                        },
+                        hosts: [
+                            {
+                                base: "https://localhost:4100/idp",
+                                status: {
+                                    stage: "installation",
+                                    state: "unfinished",
+                                    ready: false,
+                                    owners: ["idp", "device", "storage"],
+                                },
+                            },
+                        ],
+                    },
+                },
+            },
+        });
+        flushSync();
+        expect(target.querySelector("a[href$=signin]")).toBeNull();
+        button("Resume setup").click();
+        await vi.waitFor(() => expect(releaseObservation).toBeDefined());
+        expect(target.querySelector("a[href$=signin]")).toBeNull();
+        releaseObservation!();
+        if (validLogin) {
+            await vi.waitFor(() =>
+                expect(target.textContent).toContain(
+                    "Selected services are ready",
+                ),
+            );
+            expect(target.querySelector("a[href$=signin]")).not.toBeNull();
+            expect(target.textContent).toContain("Setup does not sign you in");
+        } else {
+            await vi.waitFor(() =>
+                expect(target.textContent).toContain(
+                    "Retained setup evidence needs repair",
+                ),
+            );
+            expect(target.querySelector("a[href$=signin]")).toBeNull();
+        }
+        expect(
+            fetchApi.mock.calls.every(
+                ([url]) => url.endsWith("/intent") || url.endsWith("/status"),
+            ),
+        ).toBe(true);
+    },
+);

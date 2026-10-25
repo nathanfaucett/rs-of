@@ -17,9 +17,12 @@
 - [05: Visible startup and trust](issues/05-visible-startup-and-trust.md) — resolved. Window-first asynchronous retained-host startup, current native-root verification before conditional explained consent, refusal/retry, cancellation/join and late-publication fencing. No Create/Join/completion or maintenance presentation rewrite. [Focused evidence and limits](evidence/05-visible-startup-and-trust.md): 22 native, 15 mounted and 181 route/state tests pass; existing provider readiness bound reproduced with original startup, full matrix/CRAP compilation timed out. No real OS trust/profile/GUI qualification.
 - [06: Separate maintenance](issues/06-separate-maintenance.md) — resolved. Dedicated bundled-only `/maintenance`, per-attempt destructive confirmation, distinct advanced exact-reference recovery and explicit-bearer peer revocation. Native reset/runtime internals preserved. [Evidence](evidence/06-maintenance.md): 21 mounted interactions, 28 setup-page cases, build/check pass; broad auth and native/feature/CRAP qualification remain limited.
 
+- [07: Integrated qualification](issues/07-qualify-simplified-workflow.md) — **open, not resolved**. Fixed Create completed-recovery/current-login routing, deleted the premature duplicate sign-in path and repaired a stale native test signature. 34 mounted/180 route-state-client, API 40, native 21 and scoped strict Clippy pass. Mixed HTTPS lifecycle timeouts and incomplete final matrix/CRAP prevent acceptance. [Current evidence and limits](evidence/07-integrated-qualification.md).
+
 ## Fog
 
-- Full Cargo Hack matrix is unqualified: Swagger UI's downloaded/cached archive fails its build script. CRAP coverage compilation exceeded the bounded run; no score is available.
-- The standalone setup HTTP script retains 15 independently reproduced baseline failures; the focused Vitest state/route and rendered interaction suites pass.
-- Real OS trust/elevation/provider profiles, full desktop GUI, WAN and other platforms remain outside injected same-host test evidence.
-- Runtime/security lifecycle, full matrix/CRAP, broad frontend failures and real native GUI qualification remain unverified by ticket 04; see its evidence. No observation/startup/setup implementation was changed by ticket 04.
+- Current ticket07 HTTPS Join runs are inconsistent: individual offline/finalization passes coexist with OAuth, approval and Storage request timeouts; interruption/exact retry remains unqualified. No baseline cause asserted.
+- Final Cargo Hack matrix and CRAP each exhausted 600000 ms compiling; no complete matrix or score. Earlier Swagger archive failure is historical, not the current observed blocker.
+- Workspace strict Clippy fails 93 generated IdP SDK lints; scoped API/native strict Clippy passes. Standalone setup HTTP fixtures still fail; the 180-test Vitest route/state/client suite and 34 mounted interactions pass.
+- Existing deployment-independent process scenarios were inspected, not rerun; referenced scratch reports are absent. Do not infer their results or duplicate their suite.
+- Real OS trust/elevation/provider profiles, full desktop GUI, physical/WAN and other platforms remain outside isolated same-host injected evidence.

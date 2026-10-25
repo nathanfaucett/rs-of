@@ -153,6 +153,7 @@
             password = "";
             busy = false;
         }
+        if (active && web?.status?.ready) await observeWeb();
     }
 
     async function trustConsent(consent: boolean) {
@@ -254,6 +255,7 @@
             password = "";
             busy = false;
         }
+        if (active && session.status?.ready) await observeWeb();
     }
 
     async function cancelWeb() {
@@ -521,12 +523,7 @@
                                 {/if}
                             {:else if webStatus?.ready && !web?.observationRequired}
                                 {#if unified}
-                                    <p role="status">Your Node is ready.</p>
-                                    <a
-                                        class="btn"
-                                        href={resolve("/signin")}
-                                        >Continue to sign in</a
-                                    >
+                                    <p role="status">Verifying current selected services and public login before sign-in.</p>
                                 {:else}
                                     <p role="status">
                                         This owner's readiness does not

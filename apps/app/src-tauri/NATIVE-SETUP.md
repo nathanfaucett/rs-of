@@ -59,3 +59,7 @@ The existing unified production Join tests remain the qualification seam for aut
 `/maintenance` is separate from normal onboarding and requires bundled desktop selection. Setup and settings link there; onboarding no longer mounts destructive controls. Runtime/prerequisite retry remains on setup, not in maintenance. Reset requires local-consequence disclosure and re-entered `RESET` confirmation on every attempt. Advanced exact-reference recovery is independent and never triggers reset. UI progress/failure projects the existing native commands; native startup, stop/join, journals, provider ordering and locks are unchanged.
 
 Local cleanup success does not acknowledge remote revocation. Retained public targets are refreshed separately; both authorized peer-owner operations must succeed before native acknowledgement. Maintenance requires an explicit User bearer instead of borrowing an ambient session; native issuer pinning and per-owner audiences remain authoritative. No automatic OS CA removal is added.
+
+## Current integrated qualification
+
+See [ticket 07 evidence](../../../.scratch/setup-simplification/evidence/07-integrated-qualification.md). The complete isolated native suite passes, including provider Create/reopen/reset, trust/refusal and lifecycle contention. The removed Device-marker argument must not be restored to observation. Mounted startup tests do not certify actual native window drawing or OS trust installation. Public HTTPS Join remains inconsistent; feature-matrix/CRAP completion and production/platform acceptance are not claimed.
