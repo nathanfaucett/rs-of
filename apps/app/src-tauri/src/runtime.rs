@@ -24,10 +24,8 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .invoke_handler(tauri::generate_handler![
             app::get_localhost_server_base_url,
-            app::get_setup_stage,
-            app::get_desktop_client_id,
+            app::get_onboarding_host,
             app::get_native_setup_code,
-            app::get_native_host_error,
             app::retry_local_runtime,
             app::reset_device,
             app::recover_reset_references,

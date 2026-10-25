@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
-import { fetchSetupStage, verifySetupCode } from "./setupApi.ts";
+import { fetchSetupStatus, verifySetupCode } from "./setupApi.ts";
 import * as setup from "./setupApi.ts";
 
 test("authorized recovery reads exact retained Create without sending or persisting secrets", async () => {
@@ -369,7 +369,7 @@ test("web setup reads the configured owner status without cookies or native IPC"
       owners: ["idp", "management", "storage"],
     });
   };
-  assert.equal(await fetchSetupStage("https://node.test/idp/"), "installation");
+  assert.equal((await fetchSetupStatus("https://node.test/idp/")).stage, "installation");
 });
 
 test("missing or malformed setup evidence never manufactures readiness", async () => {
@@ -381,10 +381,10 @@ test("missing or malformed setup evidence never manufactures readiness", async (
     { stage: "unknown", ready: false },
   ]) {
     globalThis.fetch = async () => Response.json(value);
-    await assert.rejects(fetchSetupStage("https://node.test/idp"), /invalid/i);
+    await assert.rejects(fetchSetupStatus("https://node.test/idp"), /invalid/i);
   }
   globalThis.fetch = async () => new Response(null, { status: 404 });
-  await assert.rejects(fetchSetupStage("https://node.test/idp"), /404/);
+  await assert.rejects(fetchSetupStatus("https://node.test/idp"), /404/);
 });
 
 test("web code verification uses an explicit header, never a URL or cookie", async () => {
@@ -429,7 +429,7 @@ test("invalid codes and insecure or ambiguous service bases are refused before a
     "https://node.test/idp?code=secret",
     "https://node.test/idp#fragment",
   ]) {
-    await assert.rejects(fetchSetupStage(base), /HTTPS service base/i);
+    await assert.rejects(fetchSetupStatus(base), /HTTPS service base/i);
   }
   for (const code of [
     "",

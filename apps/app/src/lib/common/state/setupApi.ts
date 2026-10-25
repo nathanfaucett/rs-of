@@ -1,7 +1,7 @@
 import {
     Configuration,
     SetupApi as DefaultApi,
-    CreateResultToJSON,
+    type CreateResult,
     CreateResultFromJSON,
     SetupIntentToJSON,
     JSONApiResponse,
@@ -11,14 +11,15 @@ import {
 import {
     Configuration as IndependentConfiguration,
     IndependentSetupApi as IndependentApi,
-    IndependentSetupStatusToJSON,
+    type IndependentSetupStatus,
     IndependentSetupStatusFromJSON,
     JSONApiResponse as IndependentJSONApiResponse,
     ResponseError as IndependentResponseError,
     FetchError as IndependentFetchError,
 } from "@aicacia/idp-client";
 
-export type SetupStage = "installation" | "device" | "ready" | "unavailable";
+export class SetupEvidenceError extends Error {}
+export class SetupPrerequisiteError extends Error {}
 export type SetupOwner = "idp" | "device" | "storage";
 export type SetupStatus = {
     stage: "installation" | "unavailable" | "ready";
@@ -61,7 +62,9 @@ export function setupBase(base: string): string {
     try {
         url = new URL(base);
     } catch {
-        throw new Error("A verified HTTPS service base is required for setup");
+        throw new SetupPrerequisiteError(
+            "A verified HTTPS service base is required for setup",
+        );
     }
     if (
         url.protocol !== "https:" ||
@@ -70,7 +73,9 @@ export function setupBase(base: string): string {
         url.search ||
         url.hash
     ) {
-        throw new Error("A verified HTTPS service base is required for setup");
+        throw new SetupPrerequisiteError(
+            "A verified HTTPS service base is required for setup",
+        );
     }
     return url.href.replace(/\/$/, "");
 }
@@ -80,10 +85,14 @@ export function requireSetupUiOrigin(origin: string): void {
     try {
         url = new URL(origin);
     } catch {
-        throw new Error("Setup requires the current HTTPS UI origin");
+        throw new SetupPrerequisiteError(
+            "Setup requires the current HTTPS UI origin",
+        );
     }
     if (url.protocol !== "https:" || url.origin !== origin)
-        throw new Error("Setup requires the current HTTPS UI origin");
+        throw new SetupPrerequisiteError(
+            "Setup requires the current HTTPS UI origin",
+        );
 }
 
 const owners: SetupOwner[] = ["idp", "device", "storage"];
@@ -120,7 +129,7 @@ export async function fetchSetupStatus(base: string): Promise<SetupStatus> {
                 if (response.raw.status !== 200)
                     throw new Error("Invalid Setup status");
                 return readSetupStatus(
-                    CreateResultToJSON(await response.value()),
+                    await response.value(),
                     response.raw.status,
                 );
             } catch (error) {
@@ -138,10 +147,7 @@ export async function fetchSetupStatus(base: string): Promise<SetupStatus> {
         const response = await api.independentSetupStatusRaw(setupInit);
         if (response.raw.status !== 200)
             throw new Error("Invalid Setup status");
-        return readSetupStatus(
-            IndependentSetupStatusToJSON(await response.value()),
-            response.raw.status,
-        );
+        return readSetupStatus(await response.value(), response.raw.status);
     } catch (error) {
         if (
             coordinated &&
@@ -149,12 +155,10 @@ export async function fetchSetupStatus(base: string): Promise<SetupStatus> {
             error.response.status === 503
         ) {
             return readSetupStatus(
-                CreateResultToJSON(
-                    await new JSONApiResponse(
-                        error.response,
-                        CreateResultFromJSON,
-                    ).value(),
-                ),
+                await new JSONApiResponse(
+                    error.response,
+                    CreateResultFromJSON,
+                ).value(),
                 503,
             );
         }
@@ -163,12 +167,10 @@ export async function fetchSetupStatus(base: string): Promise<SetupStatus> {
             error.response.status === 503
         ) {
             return readSetupStatus(
-                IndependentSetupStatusToJSON(
-                    await new IndependentJSONApiResponse(
-                        error.response,
-                        IndependentSetupStatusFromJSON,
-                    ).value(),
-                ),
+                await new IndependentJSONApiResponse(
+                    error.response,
+                    IndependentSetupStatusFromJSON,
+                ).value(),
                 503,
             );
         }
@@ -180,14 +182,29 @@ export async function fetchSetupStatus(base: string): Promise<SetupStatus> {
                 "Setup status request failed; verify HTTPS trust and UI origin configuration",
                 { cause: error },
             );
-        throw new Error("Setup evidence is invalid", { cause: error });
+        if (
+            error instanceof ResponseError ||
+            error instanceof IndependentResponseError
+        ) {
+            if (error.response.status >= 500)
+                throw new Error("Setup status unavailable; retry observation");
+            throw new SetupPrerequisiteError(
+                "Check selected service configuration and status access",
+            );
+        }
+        throw new SetupEvidenceError("Setup evidence is invalid", {
+            cause: error,
+        });
     }
 }
 
-function readSetupStatus(status: unknown, responseStatus: number): SetupStatus {
+export function readSetupStatus(
+    status: CreateResult | IndependentSetupStatus,
+    responseStatus: number,
+): SetupStatus {
     if (!status || typeof status !== "object" || Array.isArray(status))
-        throw new Error("Setup evidence is invalid");
-    const value = status as Record<string, unknown>;
+        throw new SetupEvidenceError("Setup evidence is invalid");
+    const value = status;
     if (
         value.stage !== "installation" ||
         typeof value.ready !== "boolean" ||
@@ -203,10 +220,12 @@ function readSetupStatus(status: unknown, responseStatus: number): SetupStatus {
         (responseStatus === 503 && value.state !== "unavailable") ||
         !Array.isArray(value.owners) ||
         (value.owners.length !== 1 && value.owners.length !== 3) ||
-        value.owners.some((owner) => !owners.includes(owner)) ||
+        value.owners.some(
+            (owner) => !owners.some((expected) => expected === owner),
+        ) ||
         new Set(value.owners).size !== value.owners.length
     ) {
-        throw new Error("Setup evidence is invalid");
+        throw new SetupEvidenceError("Setup evidence is invalid");
     }
     let login: SetupStatus["login_client"];
     if (
@@ -214,17 +233,15 @@ function readSetupStatus(status: unknown, responseStatus: number): SetupStatus {
         value.owners.length === 3 &&
         value.owners.includes("idp")
     ) {
-        const client = value.login_client as
-            | Record<string, unknown>
-            | undefined;
+        const client = "loginClient" in value ? value.loginClient : undefined;
         if (
             responseStatus !== 200 ||
             !client ||
-            typeof client.client_id !== "string" ||
+            typeof client.clientId !== "string" ||
             !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(
-                client.client_id,
+                client.clientId,
             ) ||
-            client.client_id === "00000000-0000-0000-0000-000000000000" ||
+            client.clientId === "00000000-0000-0000-0000-000000000000" ||
             !Array.isArray(client.scopes) ||
             !client.scopes.includes("openid") ||
             client.scopes.some(
@@ -233,13 +250,13 @@ function readSetupStatus(status: unknown, responseStatus: number): SetupStatus {
             ) ||
             new Set(client.scopes).size !== client.scopes.length
         )
-            throw new Error("Setup evidence is invalid");
+            throw new SetupEvidenceError("Setup evidence is invalid");
         login = {
-            client_id: client.client_id,
+            client_id: client.clientId,
             scopes: client.scopes as string[],
         };
-    } else if (value.login_client != null) {
-        throw new Error("Setup evidence is invalid");
+    } else if ("loginClient" in value && value.loginClient != null) {
+        throw new SetupEvidenceError("Setup evidence is invalid");
     }
     return {
         stage: value.ready
@@ -256,10 +273,6 @@ function readSetupStatus(status: unknown, responseStatus: number): SetupStatus {
     };
 }
 
-export async function fetchSetupStage(base: string): Promise<SetupStage> {
-    return (await fetchSetupStatus(base)).stage;
-}
-
 export async function fetchSetupHosts(bases: SetupBases): Promise<SetupHost[]> {
     const base = setupBase(bases.idp);
     const status = await fetchSetupStatus(base);
@@ -267,13 +280,15 @@ export async function fetchSetupHosts(bases: SetupBases): Promise<SetupHost[]> {
     if (status.owners[0] !== "idp")
         throw new Error("Primary setup scope must include IdP");
     if (!bases.device || !bases.storage)
-        throw new Error(
+        throw new SetupPrerequisiteError(
             "Independent setup requires configured Management and Storage HTTPS service bases",
         );
     const device = setupBase(bases.device);
     const storage = setupBase(bases.storage);
     if (new Set([base, device, storage]).size !== 3)
-        throw new Error("Independent setup service bases must be distinct");
+        throw new SetupPrerequisiteError(
+            "Independent setup service bases must be distinct",
+        );
     const hosts: SetupHost[] = [{ base, status }];
     for (const [owner, target] of [
         ["device", device],
@@ -284,7 +299,7 @@ export async function fetchSetupHosts(bases: SetupBases): Promise<SetupHost[]> {
             targetStatus.owners.length !== 1 ||
             targetStatus.owners[0] !== owner
         )
-            throw new Error(
+            throw new SetupEvidenceError(
                 `Setup scope does not match the configured ${owner} service`,
             );
         hosts.push({ base: target, status: targetStatus });
@@ -357,7 +372,7 @@ export async function submitSetupCreate(
             `Setup Create rejected (${response.raw.status}); observe status before an exact retry`,
         );
     const status = await readSetupStatus(
-        CreateResultToJSON(await response.value()),
+        await response.value(),
         response.raw.status,
     );
     if (
@@ -366,7 +381,7 @@ export async function submitSetupCreate(
             (status.ready || status.state !== "creating")) ||
         (response.raw.status === 200 && !status.ready)
     )
-        throw new Error("Setup evidence is invalid");
+        throw new SetupEvidenceError("Setup evidence is invalid");
     return status;
 }
 
@@ -460,7 +475,7 @@ export async function submitSetupJoin(
             `Setup Join rejected (${response.raw.status}); observe status before an exact retry`,
         );
     const status = await readSetupStatus(
-        CreateResultToJSON(await response.value()),
+        await response.value(),
         response.raw.status,
     );
     if (
@@ -468,7 +483,7 @@ export async function submitSetupJoin(
         status.ready ||
         status.state !== "joining"
     )
-        throw new Error("Setup evidence is invalid");
+        throw new SetupEvidenceError("Setup evidence is invalid");
     return status;
 }
 

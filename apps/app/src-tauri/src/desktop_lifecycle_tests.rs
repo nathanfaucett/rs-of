@@ -51,6 +51,16 @@ async fn native_host_keeps_one_listener_and_shared_routes_until_coordinated_clos
             "startup must not provision {path}"
         );
     }
+    fs::write(root.join("device-setup-ready"), "historical-marker")
+        .expect("untrusted historical marker");
+    let observed = host.observation(&root).await;
+    let serialized = serde_json::to_value(&observed).expect("public native observation");
+    assert_eq!(serialized["status"]["state"], "awaiting_choice");
+    assert_eq!(serialized["status"]["ready"], false);
+    assert_eq!(serialized["device_setup_required"], false);
+    assert!(serialized["failure"].is_null());
+    assert!(!serialized.to_string().contains("historical-marker"));
+    assert!(!serialized.to_string().contains("setup-admission"));
     let denied = client.post(format!("{}/idp/setup/create", host.base_url()))
         .json(&serde_json::json!({"operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"admin", "node":"Desktop", "password":"not-authorized"}))
         .send().await.expect("real shared Create route");

@@ -1,15 +1,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { clearOidcSession } from "./oidc.svelte";
-import {
-  getIdpApiUrl,
-  usesRemoteApis,
-  ensureTauriIdpApiUrl,
-} from "./idpClient.svelte";
-import { env } from "$env/dynamic/public";
-import {
-  getDeviceApiUrl,
-  ensureTauriDeviceApiUrl,
-} from "./deviceClient.svelte";
+import { getIdpApiUrl, usesRemoteApis } from "./idpClient.svelte";
+import { observeOnboarding } from "./onboarding";
 import {
   cancelSetupCreate,
   setupBase,
@@ -17,7 +9,6 @@ import {
   exactJoinRequest,
   submitSetupJoin,
   cancelSetupJoin,
-  fetchSetupHosts,
   fetchSetupStatus,
   requireSetupUiOrigin,
   submitSetupCreate,
@@ -25,12 +16,9 @@ import {
   type SetupStatus,
   verifySetupCode,
   type SetupHost,
-  type SetupStage,
 } from "./setupApi";
 
 export { usesRemoteApis } from "./idpClient.svelte";
-
-export type { SetupStage } from "./setupApi";
 
 export async function resetDevice(): Promise<void> {
   if (isTauri() && usesRemoteApis())
@@ -39,32 +27,6 @@ export async function resetDevice(): Promise<void> {
     );
   clearOidcSession();
   await invoke("reset_device");
-}
-
-export async function getSetupStage(): Promise<SetupStage> {
-  if (usesRemoteApis()) {
-    const hosts = await getWebSetupHosts();
-    return hosts.every((host) => host.status.ready)
-      ? "ready"
-      : hosts.some((host) => host.status.stage === "unavailable")
-        ? "unavailable"
-        : "installation";
-  }
-
-  return invoke<SetupStage>("get_setup_stage");
-}
-
-export async function getWebSetupHosts(): Promise<SetupHost[]> {
-  requireSharedSetupOrigin();
-  if (isTauri() && !usesRemoteApis()) {
-    await ensureTauriIdpApiUrl();
-    await ensureTauriDeviceApiUrl();
-  }
-  return fetchSetupHosts({
-    idp: getIdpApiUrl() ?? "",
-    device: getDeviceApiUrl(),
-    storage: env.PUBLIC_STORAGE_BASE_URL,
-  });
 }
 
 function requireSharedSetupOrigin(): void {
@@ -93,10 +55,16 @@ export async function readNativeSetupCode(
     );
   const origin = await invoke<string>("get_localhost_server_base_url");
   const expected = `${setupBase(origin)}/idp`;
-  if (base !== expected || getIdpApiUrl()?.replace(/\/$/, "") !== expected)
+  const selected = getIdpApiUrl()?.replace(/\/$/, "");
+  if (
+    usesRemoteApis() ||
+    base !== expected ||
+    (selected && selected !== expected)
+  )
     throw new Error("Native capability cannot authorize a remote target");
   const code = await invoke<string | null>("get_native_setup_code");
-  if (usesRemoteApis() || getIdpApiUrl()?.replace(/\/$/, "") !== expected)
+  const current = getIdpApiUrl()?.replace(/\/$/, "");
+  if (usesRemoteApis() || (current && current !== expected))
     throw new Error("Selected host changed during capability retrieval");
   if (code !== null && !/^[a-f0-9]{64}$/.test(code))
     throw new Error("Native setup capability unavailable");
@@ -346,12 +314,12 @@ export class WebSetupCreate {
     }
   }
 
-  async observe(): Promise<void> {
+  async observe(observed?: SetupStatus): Promise<void> {
     if (!this.active || this.busy) return;
     this.busy = true;
     try {
       requireSharedSetupOrigin();
-      const status = await fetchSetupStatus(this.base);
+      const status = observed ?? (await fetchSetupStatus(this.base));
       if (!this.active) return;
       this.accept(status);
       this.observationRequired = false;
@@ -428,7 +396,7 @@ export async function verifyWebSetupCode(
   base: string,
   code: string,
 ): Promise<void> {
-  const hosts = await getWebSetupHosts();
+  const { hosts } = await observeOnboarding();
   const host = hosts.find((host) => host.base === base);
   if (!host || host.status.stage !== "installation")
     throw new Error(
