@@ -213,3 +213,119 @@ Sibling HEADs observed after execution (not pinned snapshots of concurrent dirty
 - `offs`: `df4c696a910296635473ec296d9235acbaa60d9b`.
 
 Main lock hash at entry, after matrix and final inspection remains `bb7e608f57a6167612acac7d247e51eb2c6efbe449b95208c7a1862b78dd3a3f`; its pre-existing modification was never reverted. No source, sibling work, OS trust/profile, dependency feature, profile or lint failure was changed. Only this evidence is committed. Ticket07/spec remain open: matrix has actual test failures and CRAP remains resource-blocked. Next action is investigate the concrete failing seams and arrange more available memory before another coverage attempt, not repeat the unchanged expensive graph.
+
+
+## Failure diagnosis follow-up: source comparison and execution-only isolation
+
+### Integration, scope and provenance
+
+Merged integration **first** as requested: fast-forward `d249f2c97` → `4ae84f2fc4bbbaf007222859ee48b0e29b641ddf`. This incorporates the other agent’s `0739d5855` router-teardown/ownership fix and reliability evidence. Only this follow-up evidence is edited. Used ponytail for the investigation; no code fix/test modification, so no TDD implementation cycle. No full matrix, coverage or compilation was run in this phase.
+
+All executions below reuse the exact matrix executable `/home/nathan/code/rust/aicacia/of/target/debug/deps/owner_boundaries-d4b09abcca5a0cbe`, cwd this validation worktree, `RUST_MIN_STACK=67108864`, `CARGO_BUILD_JOBS=2`, main `CARGO_TARGET_DIR`. This is the **earlier compiled matrix code**, not a rebuild of the newly merged teardown fix. The binary is appropriate for diagnosing those recorded failures, but its passes cannot qualify final integrated source. New integration changes `hosted_setup.rs`; it does not change the signer fixtures or keyring implementation discussed below.
+
+Pre-spec source comparison uses **`191962716f3edd7fd0c0ffbd8e8ec6c008511393`**, parent of initial spec commit `1a9f3f847`. Retrieved with `git show`, not checkout/build. The root integration-test paths did not exist there: compare their original locations under `crates/unified-server/src/`, not an empty/new-file diff. Tests were subsequently extracted in `78d95df77` and `32b8131aa`. This is **source baseline evidence, not an executed baseline suite**. Mutable sibling dependencies remain a separate reproducibility limit.
+
+### Partition of all 26 matrix failures
+
+Parsing all 26 top-level `---- <name> stdout ----` blocks gives:
+
+| Count | Actual failure family | Current diagnosis |
+| ---: | --- | --- |
+| 19 | Missing local private signer: 12 native API cases, two permission HTTP cases, policy cleanup, Node Join bootstrap and three bootstrap interruption/orchestration cases | Source-established process-global mock-provider isolation defect; two formerly failing representatives pass alone. Exact concurrent store-switch history for the original matrix was not recorded. |
+| 1 | `generated_rust_and_built_javascript_use_actual_owner_routes` | Concrete missing built-JS prerequisite, not an SDK behavior failure. |
+| 4 | Two Create parents, normal-operation parent, remote-setup parent: bounded independent owner readiness | Ordinary Create parent passes alone. Concurrency/resource sensitivity supported, but no exact cause or baseline equivalence established for all four. |
+| 1 | Independent production Management HTTPS permission parent | Child request timeout in matrix, passes in a fresh isolated serial child. No persistent failure established. |
+| 1 | Independent Join legacy-record reset parent | Reproduces identically in a fresh isolated child; fixture expects deletion from a record that the unchanged parser explicitly refuses. |
+
+Do **not** describe all 26 as unrelated, all as a signer defect, or all as a setup regression. Full requested matrix remains failed. No ignored assertion, skipped feature, enlarged timeout, weakened test, trust bypass, or environment “fix” is used to change that result.
+
+### Signer path: precise invalid concurrency contract
+
+`tests/support/native.rs:221–248` creates a unique temporary root and issuer, then a module-static shared mock STORE and `PrivateKeyKeyringRepo::new_with_store`. Provisioning creates a fresh private signer and approved public record; `ensure_initial_node` verifies it (`:273–275`). Later reopen/runtime/token calls (`:297–339`, `:515`, `:544`) must load the same private bytes.
+
+But `PrivateKeyKeyringRepo` **does not retain the supplied store**. It stores only `service_name`. `new_with_store` installs its argument with `keyring_core::set_default_store`; every load/store/delete constructs another `Entry` from the **current process-global default**. The initialization mutex serializes initialization calls only, not a fixture’s complete provisioning/token lifetime.
+
+At the same time, `tests/support/identity.rs:56–61` and `:87–92` invoke `new_with_store(issuer, test_keyring_store())`. `test_keyring_store` at `:1390` creates a **new empty mock backend every call**, not a shared one. Other owner-boundary tests call these seed helpers while native fixtures are live. A legal scheduler interleaving is: fixture A creates its signer in backend A → fixture B installs backend B → fixture A reopens/loads from B and finds no entry. Unique issuers/directories prevent name collisions but do not pin backend ownership. Even replacing it with the native shared backend can strand entries created in B. `keyring-core 1.0.0` explicitly documents global-store replacement as a startup operation; multiple stores should construct entries directly instead.
+
+`KeyService::load_node_signer` in `crates/idp-service/src/oauth2/node_signer.rs:54–68` first locates the matching approved public signer, then returns exactly `local node private signer is missing` when private backend load returns None. Thus this is neither a missing approval message nor a requirement to install a real provider. It is consistent with the original failures occurring at different points: initial node verification (`native.rs:275`) or later User/exchange token signing (`:515/:544`).
+
+Baseline checks:
+
+- `git show 191962716:crates/unified-server/src/native_api_tests.rs`: its static STORE → private provisioner → initial-node block is **identical** to the current extracted fixture’s corresponding block.
+- `git show 191962716:crates/unified-server/src/permission_http_tests.rs`: seed calls also install `test_keyring_store()`, whose fresh-store function is **identical** to the current function extracted into `tests/support/identity.rs`.
+- Entire current `crates/idp-service/src/repo/private_key_keyring_repo.rs`, `crates/idp-service/src/oauth2/node_signer.rs` and `crates/idp-server/src/node_provisioning.rs` are **byte-identical** to pre-spec versions.
+
+The unsafe fixture concurrency contract demonstrably predates the setup spec. Test regrouping/extraction can alter scheduling/exposure, so this does not prove the exact pre-spec suite would fail at the same frequency. It establishes an existing fixture/provider ownership defect, not a new signer-provisioning algorithm introduced by this setup work. No production or fixture code is changed here; repairing it would require separately coordinated test/provider scope, not silently serializing the qualification gate or introducing OS keychain prerequisites.
+
+Dynamic evidence is narrower than a deterministic race reproduction: two individual tests pass, but **both small concurrent pair experiments also passed**. Therefore the global-switch mechanism is established from source and matches the 19 symptoms; no per-event trace proves that it caused every original failure. Do not claim the pair runs reproduced it. No further permutation/retry loop was run.
+
+### SDK prerequisite: exact hidden cause from the full log
+
+Before the SDK parent assertion, Node reported:
+
+```text
+Error: Cannot find module '/home/nathan/code/rust/aicacia/of-setup-validation/packages/idp-client/esm/index.js'
+  at .../scripts/qualify-built-openapi.mjs:6:72
+code: 'MODULE_NOT_FOUND'
+```
+
+That file remains absent. The script resolves the package’s built export before making its first SDK API call. `tests/owner_boundaries/native_api_tests.rs:530–547` launches it and checks exit success. Thus this particular SDK failure is a missing generated/built package prerequisite. Root `package.json` already provides `pnpm packages:build`; earlier qualification receipts explicitly built packages first, whereas this fresh validation worktree did not. No SDK source refactor or dependency feature change is justified. A later authorized prerequisite step would be `pnpm --dir /home/nathan/code/rust/aicacia/of-setup-validation packages:build` after ensuring frozen workspace installation is available; it was **not run** now and no missing package export assertion was bypassed.
+
+### Isolated legacy-reset failure: exact source-level cause
+
+Executed the **parent** `owner_composition_tests::join::production_independent_join_legacy_record_reset`, not the ignored child manually. The parent retains its actual per-run protected root (0700), isolated CA file/directory, injected no-op trust/removal commands, mock provider, loopback HTTPS endpoints and 180-second bound. It spawned its own ignored child using the original environment. No real trust/profile mutation.
+
+In the isolated run, public Join, ordinary Storage use and source-offline reopen succeeded; then the child failed at **the same `tests/owner_composition_tests/reset.rs:389`** after about 100.5 s. This failure is **not** explained by cross-test process-global store replacement.
+
+Root cause from exact code:
+
+1. `qualify_completed` checks `OF_INDEPENDENT_LEGACY_RESET=1` and calls `retain_legacy_cleanup_references`, which rewrites worker `version` to **1**, removes `create` and adds historical `role`/`permissions` fields for Device.
+2. The production `crates/device-server/src/independent_reset.rs` `References` uses `#[serde(deny_unknown_fields)]`, does not contain historical `role`/`permissions`, and requires **version 2** before calling `delete_setup_secrets`.
+3. Therefore reset errors **before** any protected client deletion. The test accepts any error at lines 375/378/385, incorrectly interpreting it as the intended injected provider/endpoint deletion error; line 389 then requires that the Client was already deleted. The error precondition was never reached. The retained Client is consistent with refusal/preservation, not proof reset deleted the wrong slot or a changed endpoint deletion order.
+
+The entire `tests/owner_composition_tests/reset.rs` is byte-identical to its pre-spec `crates/unified-server/src/owner_composition_tests/reset.rs`. The entire production Device reset implementation is also byte-identical to pre-spec. The only pre-spec→current `api/src/independent_reset.rs` diff is removal of an `io::Error::other` wrapper around admission open, not historical-record parsing or secret deletion. Thus the version-1 fixture versus version-2 parser mismatch is pre-existing source evidence, reproduced on the matrix binary; not a demonstrated new setup regression. Do not add migration/legacy compatibility or weaken the assertion here. A separately owned decision should reconcile the legacy-reset fixture’s intended contract with the deliberate retained-record refusal.
+
+### Small execution-only runs
+
+No builds, no full owner suite, no full matrix/coverage. All serial commands have the common prefix:
+
+```text
+/home/nathan/code/rust/aicacia/of/target/debug/deps/owner_boundaries-d4b09abcca5a0cbe <exact-test-name> --exact --nocapture --test-threads=1
+```
+
+| Exact test name | Actual outcome |
+| --- | --- |
+| `native_api_tests::native_owner_cutover_captures_initial_secrets_and_reuses_reopened_owner` | **1 passed**, 8.81 s test time (8.84 s supervised); previously missing signer at native.rs:544. |
+| `permission_http_tests::normal_permission_http_administration` | **1 passed**, 57.14 s test time; previously missing signer at permission_http_tests.rs:109. |
+| `owner_composition_tests::join::production_independent_join_legacy_record_reset` | **Failed**, exit 101, 100.76 s supervised; isolated child reset.rs:389, parent join.rs:114. |
+| `owner_composition_tests::create::production_independent_create_and_offline_reopen` | **Parent and isolated child passed**, exit 0, 123.07 s supervised. The original matrix failed its bounded readiness wait. |
+| `owner_composition_tests::permissions::independent_permission_production_management_https` | **Parent and isolated child passed**, exit 0, 23.42 s supervised. Original matrix timed out on authorized HTTPS `/idp/applications`. |
+
+Two bounded concurrency probes, each in its own new binary process and **not** a full suite:
+
+- Native representative + permission-administration: list names with binary `--list`, pass `--skip <full-name>` for all 48 other names, `--nocapture --test-threads=2`: **2 passed**, 58.71 s supervised.
+- `permission_http_tests::normal_ --nocapture --test-threads=2`: **2 passed**, 63.88 s supervised.
+
+These probes do not waive the default-concurrency matrix. Child tests were invoked only through their parents. Parent isolation remains intact; no injected HTTPS policy, test deadline or assertion was modified. Original four readiness failures and request timeout are timing-sensitive observations, not proven environment-only bugs: the unchanged helper `create.rs:177–201` uses one 60-second deadline across sequential IdP/Device/Storage waits, and concurrent full-suite load can consume that budget. One standalone Create pass supports that explanation but does not prove it for the legacy-Create, operation and remote-setup parents, which were not rerun here. No source-only comparison can assign their runtime root cause conclusively.
+
+### Can jobs=1 safely finish CRAP now?
+
+**Not established; do not promise completion or start another heavy run in this phase.** Current snapshots show 4.0–4.2 GiB MemAvailable, roughly 0.9–1.2 GiB immediately free, 2 GiB swap still full, about 245 GiB disk free. Immediate memory PSI is zero at inspection, so this is not evidence of active thrashing/OOM. But the prior jobs=2 run fell to 1.0 GiB available and triggered the safety guard. No measured per-compiler peak or final coverage-link peak was captured, so halving build jobs is not a justified guarantee of sufficient headroom or completion within 30 minutes.
+
+`CARGO_BUILD_JOBS=1` limits Cargo build parallelism only. It **does not serialize libtest/child fixture execution** and cannot repair the global-provider isolation contract, missing built JS prerequisite, legacy-reset mismatch, or original test failures. `just crap` also proceeds through all workspace tests, not only these passing representatives. More memory would not by itself make the gate green.
+
+A later coordinated attempt could use jobs=1 with the same process-group safety guard and main cache, only after prerequisite/fixture ownership decisions and sufficient stable memory headroom. Do not change dev/test optimization, coverage semantics or assertions to reduce memory. No coverage was run alongside focused tests or at all in this phase, and no other process was stopped.
+
+### Durable evidence and status
+
+Disposable execution logs (hashes below) preserve the original complete outputs. No source fix is claimed; next scoped work is a coordinated fixture-isolation/legacy-contract decision, prerequisite package build when authorized, and separate investigation of remaining readiness timing. Ticket/spec and existing receipts remain unchanged/open. Final source is merged but the reused binary predates its lifecycle fix; this follow-up is diagnosis, not final-code qualification.
+
+- `/tmp/of-setup-validation-native-serial.log`: 215 bytes, SHA-256 `fb49ae50f47024f52ce632c6a3e7930f25860b735c1253a878bdca5df02edffe`.
+- `/tmp/of-setup-validation-permission-serial.log`: 4646 bytes, SHA-256 `c0d7fdbb2369942e2feaee69a71b74e74e91269c37d9efb6d749f9c710c485a3`.
+- `/tmp/of-setup-validation-signer-pair.log`: 4749 bytes, SHA-256 `7d16428644e0d0f80b323d54c89e74ccc4853e35e7c59d35f9659b9b2ecdec71`.
+- `/tmp/of-setup-validation-permission-pair.log`: 7738 bytes, SHA-256 `c735039074f69a20135a0fe4745c1d9f16954c8713bc20ff908b88115eedde2a`.
+- `/tmp/of-setup-validation-join-reset-serial.log`: 5622 bytes, SHA-256 `c98ddb3ceb2e21c8cca5230e137c329d19dabf00484c422868cb460e3bf63834`.
+- `/tmp/of-setup-validation-create-serial.log`: 6951 bytes, SHA-256 `cf1a6e7ae8749b283829284ec0fa2d5e55fad7b51ea5b8809d7fa62c9735b4a8`.
+- `/tmp/of-setup-validation-https-permission-serial.log`: 488 bytes, SHA-256 `e53134a34203ade5b3311f4c52b1229b4436632befc3cb28369bc93a6c141fe4`.
+
+Main Cargo.lock remains SHA-256 `bb7e608f57a6167612acac7d247e51eb2c6efbe449b95208c7a1862b78dd3a3f`; isolated worktree lock was not modified in this execution-only phase. Only this evidence file is delivery.
