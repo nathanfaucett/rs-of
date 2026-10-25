@@ -283,14 +283,10 @@ it.each(["create", "join"] as const)(
             enter("Administrator name", "Alice");
             enter("Password", "protected-password");
         } else enter("Trusted peer endpoint ID", "d".repeat(64));
-        if (purpose === "join") {
-            enter("Node name", "Bundled Node");
-            button("Get bundled host code").click();
-            await vi.waitFor(() => expect(input("Host setup code").value).toBe("a".repeat(64)));
-        } else {
-            expect(target.textContent).not.toContain("Host setup code");
-            expect(target.textContent).not.toContain("Node name");
-            expect(target.querySelector('a[href="/config"]')?.textContent).toContain("Advanced");
+        expect(target.textContent).not.toContain("Host setup code");
+        expect(target.textContent).not.toContain("Node name");
+        if (purpose === "create") {
+            expect(target.querySelector("a[href=\"/config\"]")?.textContent).toContain("Advanced");
         }
         target
             .querySelector("form")!
@@ -298,7 +294,13 @@ it.each(["create", "join"] as const)(
                 new Event("submit", { bubbles: true, cancelable: true }),
             );
         flushSync();
-        await vi.waitFor(() => expect(fetchApi).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() =>
+            expect(
+                fetchApi.mock.calls.some(([url]) =>
+                    url.endsWith("/" + purpose),
+                ),
+            ).toBe(true),
+        );
         expect(fetchApi.mock.calls[0][0]).toBe(
             "https://localhost:4100/idp/setup/" + purpose,
         );
@@ -307,9 +309,8 @@ it.each(["create", "join"] as const)(
             "Setup " + "a".repeat(64),
         );
         const body = JSON.parse(init.body as string);
-        expect(body.node).toBe(purpose === "create" ? "My Node" : "Bundled Node");
+        expect(body.node).toBe("My Node");
         expect("password" in body).toBe(purpose === "create");
-        if (purpose === "join") expect(input("Host setup code").value).toBe("");
         expect(target.querySelector('a[href="/signin"]')).toBeNull();
         ready = true;
         await vi.waitFor(() =>

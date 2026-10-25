@@ -101,7 +101,7 @@ it.each(["creating", "joining"])(
         expect(body).toContain('aria-label="Setup in progress"');
         expect(body).not.toContain('href="/signin"');
         if (state === "joining")
-            expect(body).toContain("approve this Node on the source Node");
+            expect(body).toContain("Devices → Add a device");
     },
 );
 
