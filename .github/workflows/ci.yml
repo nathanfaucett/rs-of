@@ -79,6 +79,19 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Install Node for exported SDK scenarios
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.1
+
+      - name: Install SDK build dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
       - name: Show rustc/cargo
         run: rustc --version && cargo --version
 
