@@ -4,7 +4,9 @@
 
 **Blocked by:** 01 — Sign in and out through @of/sdk.
 
-**Status:** ready-for-agent
+**Triage:** ready-for-agent
+
+**Status:** claimed
 
 - [ ] Supply context-bound filesystem discovery, creation, and opening through the existing Storage client, using the existing OIDC client's token renewal and Storage client's token exchange. Preserve explicit service bases, stable Filesystem IDs, and server-side User/Application authorization; discovery does not grant access.
 - [ ] Compose this capability with the completed Storage collection adapter at its existing Storage seam. The SDK and adapter do not depend on each other; neither imports Svelte or app schemas. Keep resource selection, Secret rules, editor state, and official TanStack Svelte live queries in the app.
