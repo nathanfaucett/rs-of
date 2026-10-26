@@ -1,6 +1,6 @@
 # Ticket09 Storage denial slice
 
-**Current status:** implemented with actual public-API red/green and focused controls. The earlier source proposal, RAM-stop and WIP sections below are historical receipts, superseded only where the [authorized resumption](#authorized-resumption-and-implementation-2026-10-26) supplies actual results. The broader Storage library run failed/aborted; this is not full-suite qualification or ticket09 closure.
+**Current status:** identity-first denial fix implemented with public-API red/green; a separate missing-policy-schema fixture prerequisite is repaired with actual two-test red/green. The 2MiB database replication stack failure is isolated but **unresolved**; exploratory boxing candidates were ineffective and removed. Earlier proposal, RAM-stop and WIP sections are historical receipts, superseded only by actual later results. The broader Storage library run failed/aborted, and full unit-test Clippy has15 unchanged-code diagnostics. This is not full-suite qualification or ticket09 closure.
 
 ## Scope and inputs
 
@@ -218,3 +218,51 @@ All stages above had no monitor guard stop. Prefixes resolve to `/tmp/setup09-qu
 | `storage-stack-invalidation1`   | `2bcb55313d4bc56844f5af34dfc96f9db47e97334dfdee0756fd3257100421fb` |
 | `storage-stack-gdb1`            | `a7947858c842a4366e6e6d10d9461777eefa273eb196c7351abb3044da00fea1` |
 | `storage-stack-frames1`         | `d26bd3edaccf8e6c24dc2105fe3b90e26355452d6feac440ab91dba0be451daf` |
+
+### Validated fixture commit; unsuccessful stack candidates removed
+
+Committed the two-line fixture prerequisite repair plus its evidence separately as **`5befc783b4f1f01d96862469f8a9c26bc08d433e`**, hooks disabled. Denial production fix remains independently committed as `366afcd6e`. The following stack experiments happened afterward and **none is retained or committed as production code**:
+
+| Receipt prefix                  | Changed candidate, before test                                                                                   | Actual test result                               | Supervised seconds |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ | -----------------: |
+| `storage-stack-green1`          | Box only SQL synchronization await in `DatabaseProtocolHandler::exchange`                                        | **still worker stack overflow/SIGABRT/Cargo101** |            136.045 |
+| `storage-stack-green2`          | Box both SQL and KV synchronization awaits in `exchange`                                                         | **still worker stack overflow/SIGABRT/Cargo101** |            126.222 |
+| `storage-stack-dispatch-green1` | Restore original `exchange`; box the three mutually exclusive selected-resource await branches in `run_resource` | **still worker stack overflow/SIGABRT/Cargo101** |            134.096 |
+
+Despite the historical `green` prefix names, **none of these is green**. Each invocation followed a different source candidate derived from the preceding frame/layout evidence, not an unchanged retry to obtain a pass. Stopped after these unsuccessful candidates and restored exact committed production source; no guessed stack fix, allocation layer, stack increase, unrelated architecture change or sibling edit remains.
+
+Read-only GDB DWARF layouts refined and limited the initial hypothesis:
+
+- SQL-only boxing left all four measured sizes unchanged. `exchange::Suspend3.__awaitee` was the subsequent **KV** `synchronize_checked` future, **136,672 bytes**, dominating the enclosing future's layout even during SQL polling. This is why SQL-only boxing did not shrink the measured wrapper.
+- Boxing SQL and KV reduced `exchange` **137,312 ->1,224**, `synchronize_peer_active` **137,696 ->1,608**, `synchronize_peer` **138,192 ->2,072**, but `run_resource` only **138,496 ->113,984**. Its `Suspend2.__awaitee` held the alternative filesystem `StorageProtocolHandler::synchronize_peer` future, **113,680 bytes**. The test still aborted.
+- The dispatch-only candidate restored the original database adapter, reducing `run_resource` to **416 bytes** while the database wrapper sizes returned to their original values. The test still aborted.
+
+These measurements show large inline alternatives and cumulative poll frames, **not a proven sufficient root-cause repair**. Do not equate smaller future storage with a safe poll-stack budget: outer boxing does not by itself remove every callee poll/temporary frame, and sibling SQL/schema reconstruction contributed substantial captured stack. The exact remaining dominant construction/poll boundary needs further isolation before another production change. No combined/all-boundaries candidate or sibling fix was attempted. The explicit2MiB regression remains the correct causal gate; increasing `RUST_MIN_STACK` cannot override that explicit worker stack and is not a fix.
+
+### Final fixture-only source validation and remaining gates
+
+After removing all exploratory production edits, rebuilt the **actual final fixture-only source**:
+
+- **`storage-fixture-final1`**: same common Cargo prefix, `--lib filesystem_transport::execution_authorization_tests:: -- --nocapture`; **2 passed /86 filtered**, exit0,124.704s supervised/4.14s test. This reconfirms the committed prerequisite repair, not a repetition offered as evidence of a stack fix.
+- **`storage-denial-final1`**: same common prefix, `--test identity_policy -- --nocapture`; **4 passed**, exit0,4.978s supervised. Current-policy/wrong-owner/missing-bearer/identity-outage/response-recheck controls remain green.
+- **`storage-fixture-clippy1`**: common Clippy prefix plus `--lib --tests --no-deps -- -D warnings`; **failed**,15 diagnostics in unchanged code, exit101,7.651s. Did not fix unrelated lint or add suppressions. Exact existing locations/categories: `data_protocol.rs:114` items-after-test-module; `database_execution_tests.rs:729,739` drop-non-drop; `device_client.rs:445` cloned-ref-to-slice-refs; `device_client.rs:729,761,795`, `idp_client.rs:600,631,664`, `router/resources.rs:524` unused-IO-amount; `replication_runtime_tests.rs:619,636,654` needless-range-loop; `router/storage_socket.rs:205` manual-async-fn. None names the modified fixture. Retain this full-test-target Clippy failure independently of scoped success.
+- **`storage-fixture-scoped-clippy1`**: common Clippy prefix plus `--lib --test identity_policy --no-deps -- -D warnings`; **passed**, exit0,0.547s. This selects production library/integration target rather than asserting full unit-test Clippy is clean.
+- Rustfmt checks passed for `execution_authorization_tests.rs`, both restored candidate modules, `idp_client.rs` and `tests/identity_policy.rs`; `git diff --check` passed. `database_protocol.rs` and `replication_runtime.rs` are byte-identical to the committed integration versions.
+
+Did **not** rerun the broad88-test lib workload after the isolated stack abort remained unresolved. That would repeat a known abort without a new validated fix. Full feature matrix, CRAP, coverage and SDK/HTTPS workloads remain not run in this follow-up; no broader acceptance or historical-timeout attribution is supplied.
+
+Final binary rebuilt from fixture-only source: `target/debug/deps/storage_server-eeafeffb4be7bf1e`, SHA-256 **`dc4be6140f8185e87067609040c8e74bd175a2c60d12b3ab8c5cc6c5e2ca89ee`**. Cargo.lock hash remains unchanged. Intermediate candidate binaries at that same path were overwritten; stage receipts describe their source deltas/outcomes, not retained executable identities.
+
+Additional log hashes (same receipt/log/sample convention):
+
+| Prefix                           | Log SHA-256                                                        |
+| -------------------------------- | ------------------------------------------------------------------ |
+| `storage-stack-green1`           | `3bb9160cf0350875b8989a14470f1d7a1d893489ba0ca93c538d9a00089054c5` |
+| `storage-stack-green2`           | `c43188bc6f527eb6e78ac4a6fc7f78ec60422140405327972851fc08937b093b` |
+| `storage-stack-dispatch-green1`  | `b0ad147b844976507dc4e5317f140ee995933987cad987385fbcc6f1bc77bbd0` |
+| `storage-fixture-clippy1`        | `b2e743c3ddd36cd3ece47d497df0f1e1e89fc8419d269b591d019c892317c0bc` |
+| `storage-fixture-final1`         | `d33ed7ccfa8df26e860a08bad57e30f3f30c32f4524691d60268c6ac24cdf448` |
+| `storage-denial-final1`          | `821088d2fc070a9aecaa4b7837618b936e4f66acfa5aa304b18c1536bce96f20` |
+| `storage-fixture-scoped-clippy1` | `97c8f8c371a0f488a0f351eed2af1f82b50f31db65964a6c720d45c6db33eaf6` |
+
+All15 follow-up stages completed without a RAM/PSI/stage stop. Minimum available RAM **9,676,760KiB**, peak sampled owned RSS **2,978,844KiB**, largest reported kernel individual-child RSS **3,255,684KiB**; max sampled memory PSI avg10 some/full **4.94/4.20**, below sustained guard thresholds. **Debugger monitoring limit:** GDB placed its inferior in a separate process group, so the saved owned-group RSS samples cover GDB, not combined debugger+inferior RSS; global MemAvailable/PSI guards still measured the host. No debugger resource stop occurred. Explicitly verified both every recorded supervisor-owned PGID and the debugger inferior/thread IDs from both logs absent at final cleanup. No user-tool termination, cache deletion, bound/retry/sleep modification or out-of-scope edit. Release the Rust slot after committing this diagnostic evidence. Keep the worktree; parent must explicitly authorize further stack experiments. Shared ticket09/tracker remains untouched and open.
