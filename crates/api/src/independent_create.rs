@@ -610,14 +610,14 @@ pub(crate) async fn cancel(
     state.view = "unfinished";
     StatusCode::NO_CONTENT.into_response()
 }
-struct RequestObservation<'a> {
+pub(super) struct RequestObservation<'a> {
     phase: &'static str,
     owner: &'a str,
     started: Option<std::time::Instant>,
 }
 
 impl<'a> RequestObservation<'a> {
-    fn start(owner: &'a str, phase: &'static str) -> Self {
+    pub(super) fn start(owner: &'a str, phase: &'static str) -> Self {
         let started = std::env::var_os("OF_SETUP_TIMEOUT_TIMING").map(|_| {
             eprintln!("seam=owner_request phase={phase}_start owner={owner} pid={} thread={:?} wall_ms={}", std::process::id(), std::thread::current().id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("system clock").as_millis());
             std::time::Instant::now()
@@ -656,12 +656,26 @@ pub(crate) async fn status(State(control): State<IndependentCreateControl>) -> R
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     }
     let view = control.0.lifecycle.lock().await.view;
-    if view == "ready"
-        && observe_request(control.check_readiness(), control.owner(), "readiness")
-            .await
-            .is_err()
-    {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"stage":"installation", "state":"unavailable", "ready":false, "owners":[control.owner()]}))).into_response();
+    if std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_some() {
+        eprintln!(
+            "seam=owner_readiness owner={} pid={} phase=lifecycle state={view}",
+            control.owner(),
+            std::process::id()
+        );
+    }
+    if view == "ready" {
+        let result = observe_request(control.check_readiness(), control.owner(), "readiness").await;
+        if std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_some() {
+            eprintln!(
+                "seam=owner_readiness owner={} pid={} phase=current_check error_kind={:?}",
+                control.owner(),
+                std::process::id(),
+                result.as_ref().err().map(io::Error::kind)
+            );
+        }
+        if result.is_err() {
+            return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"stage":"installation", "state":"unavailable", "ready":false, "owners":[control.owner()]}))).into_response();
+        }
     }
     Json(serde_json::json!({"stage":"installation", "state":view, "ready":view == "ready", "owners":[control.owner()]})).into_response()
 }
@@ -690,7 +704,7 @@ async fn normal(State(control): State<IndependentCreateControl>, request: Reques
     }
 }
 
-async fn observe_request<F: Future>(future: F, owner: &str, phase: &str) -> F::Output {
+pub(super) async fn observe_request<F: Future>(future: F, owner: &str, phase: &str) -> F::Output {
     if std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_none() {
         return future.await;
     }

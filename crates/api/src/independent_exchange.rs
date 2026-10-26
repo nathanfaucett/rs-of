@@ -94,6 +94,10 @@ impl IndependentCreateControl {
         recipient: &IndependentOwnerPublic,
         registration: &serde_json::Value,
     ) -> io::Result<()> {
+        let _observation = crate::independent_create::RequestObservation::start(
+            self.owner(),
+            "register_recipient",
+        );
         if self.owner() != "idp"
             || !["device", "storage"].contains(&recipient.owner.as_str())
             || !recipient.clients.contains(registration)
@@ -282,7 +286,16 @@ pub(crate) async fn register(
     State(control): State<IndependentCreateControl>,
     Json(mut reply): Json<Registration>,
 ) -> StatusCode {
+    let _observation =
+        crate::independent_create::RequestObservation::start(control.owner(), "register");
     let mut state = control.0.lifecycle.lock().await;
+    if std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_some() {
+        eprintln!(
+            "seam=owner_registration owner={} pid={} phase=lifecycle_acquired",
+            control.owner(),
+            std::process::id()
+        );
+    }
     if control.owner() != "idp"
         || control.0.admission.is_retired().unwrap_or(true)
         || state
@@ -322,7 +335,21 @@ pub(crate) async fn register(
     };
     let public_registration = reply.registration.clone();
     reply.registration["client_secret"] = secret;
-    match registrar(reply.registration).await {
+    let result = crate::independent_create::observe_request(
+        registrar(reply.registration),
+        control.owner(),
+        "registrar",
+    )
+    .await;
+    if std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_some() {
+        eprintln!(
+            "seam=owner_registration owner={} pid={} phase=registrar_end error_kind={:?}",
+            control.owner(),
+            std::process::id(),
+            result.as_ref().err().map(io::Error::kind)
+        );
+    }
+    match result {
         Ok(()) => {
             if control
                 .confirm_registration(&reply.operation, &public_registration)
