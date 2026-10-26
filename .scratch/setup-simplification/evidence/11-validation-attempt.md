@@ -105,7 +105,7 @@ Final checks: `git diff --check` passed; all three siblings remained clean at th
 
 ## Authorized tracked-artifact cleanup
 
-At the user's subsequent request, restored only the eight tracked generated paths listed above to pre-pass commit `94c60288315075b0b34861a98916e0721e56ceb5`. Before restoration:
+At the integration coordinator's subsequent request, restored only the eight tracked generated paths listed above to pre-pass commit `94c60288315075b0b34861a98916e0721e56ceb5`. Before restoration:
 
 - Verified `/tmp/setup11-inputs.json` against its recorded SHA-256; its pre-build status contained only the agent's ticket claim, with no generated/user edits. The initial entry status had been clean.
 - Verified `/tmp/setup11-generated.patch` against its recorded SHA-256, and required the current entire binary diff under `packages/storage-client` to match it byte-for-byte, with exactly those eight changed paths.

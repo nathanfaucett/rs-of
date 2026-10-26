@@ -14,6 +14,17 @@ The user accepted scoped merge readiness with incomplete qualification retained.
 
 Remaining work has concrete follow-ups: [08: provider fixture isolation](08-isolate-mock-provider-fixtures.md), [09: unexplained readiness/request timeouts](09-diagnose-readiness-and-request-timeouts.md), [10: fixture/SDK prerequisites](10-repair-validation-fixture-prerequisites.md), and [11: provisioned matrix/CRAP](11-complete-provisioned-validation.md). Their completion must feed evidence back into this ticket before qualification is resolved.
 
+## Follow-up integration
+
+The scoped implementation was subsequently merged into local `main`; this follow-up started from newer main `da5bc63419623ab48f93dea14dfce20f3e10ffc9` on `integration/setup-simplification-followup`. The earlier no-merge handoff above is historical.
+
+- [08 provider isolation](../evidence/08-provider-isolation.md) is resolved: deterministic ownership red/green, 16 service unit tests and 35 concurrent owner-boundary tests passed; no claim that every historical signer failure followed the demonstrated sequence.
+- [10 fixture/SDK prerequisites](../evidence/10-fixture-prerequisites.md) is resolved: rebuilt exported-SDK scenario, revised Create/Join reset parents and children, neighboring reopen/reset scenarios, six native reset/recovery tests and one peer-revocation test passed.
+- [09 diagnostics](../evidence/09-timeout-localization.md) remains open: untraced Join cells passed 12/12, traced approval timed out at 5001ms while the handler later completed at 5439ms; concurrent Create hit a stopped-Device Database lock after awaited shutdown. A later traced pair reopened successfully but failed watchdogs. No deterministic causal regression or lifecycle fix is established; do not mark the two durability criteria qualified.
+- [11 resource preflight](../evidence/11-validation-attempt.md) remains open/ready-for-human: SDK prerequisites passed, but approximately 6.8 GiB available RAM and effectively exhausted swap triggered the conservative no-launch gate. Zero matrix combinations and no coverage/CRAP ran in this follow-up. This is not proof that a specific command could not complete.
+
+Independent static review found no further actionable findings after the diagnostic timestamp correction. Focused/scoped passing checks do not establish full workspace, packaged desktop, OS trust, production provider, GUI or WAN acceptance. Ticket07 remains open.
+
 ## Qualification checklist
 
 Latest handoff: reviewed lifecycle fixes and three final serial HTTPS suites (9/9 scenarios) pass; [reliability evidence](../evidence/07-reliability-followup.md). The [matrix now fails owner-boundary tests and coverage is memory-blocked](../evidence/07-validation-followup.md). Earlier offer/request timeout causes remain unproven. Keep qualification open; historical Answer sections below are not the latest validation disposition.

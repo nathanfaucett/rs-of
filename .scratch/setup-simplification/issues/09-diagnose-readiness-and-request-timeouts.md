@@ -2,7 +2,7 @@
 
 **Type:** task
 
-**Status:** claimed
+**Status:** open
 
 **Triage:** ready-for-agent
 
@@ -35,5 +35,7 @@ Claimed by Agent09 on `implement/setup-followup-09` in `.worktrees/setup-09`, co
 **Authorized focused execution, 2026-10-26:** merged integration `e6c72aae991f833670cb4820471ab48ac73b6bfb`, then built and ran fixed-input serial, concurrent and traced cells separately (one each, no retries to green). [Actual results and categorical timeline](../evidence/09-timeout-localization.md#authorized-focused-execution-2026-10-26): untraced HTTPS Join **12/12 passed**; traced interruption **failed**, client approval timeout at **5001ms**, owner handler success at **5439ms** after cumulative enrollment/verification/refresh/reply work, operation-lock wait **0ms**. Independent representatives: S0/S1/C0 **5/5** each; C1 **4/5**, with a distinct stopped-Device Database lock on immediate reopen after awaited shutdown. C1 also observed one recovered IdP readiness request timeout, not a terminal shared-readiness assertion failure. No deterministic causal regression or behavioral fix yet; all acceptance boxes remain unchecked and ticket07 is unchanged. Formatting and strict production-library Clippy pass; test-target Clippy retains documented diagnostics outside the touched helper after one lint-only conditional cleanup. Final owner no-run build passes; execution cells tested the pre-cleanup immutable integration source. No bounds/retries/sleeps/provider/reset-fixture/SDK/OS changes or matrix/coverage.
 
 **P3 review follow-up:** replaced ineffective env_logger humantime-dependent timestamp formatting with explicit std Unix-ms formatting, keeping the fixed categorical-only filter and no new dependency. One actual-logger output check demonstrated red before the formatter change and green afterward. [Ownership investigation and bounded diagnostic](../evidence/09-timeout-localization.md#p3-clock-correction-and-ownership-follow-up): traced real Device-store → embedded-client/NativeResource → redb ownership, including transaction-held locks; one traced concurrent Create pair observed both post-shutdown Device reopens succeeding, then both parents failed their unchanged 180s watchdogs. This is **not** a passing replay or a reproduced Database-lock root cause. No lifecycle/sibling fix or manufactured retained-handle regression. Next blocker is a failing reopen capture identifying the surviving inner native handle/client or write transaction before a deterministic gated regression and fix. Formatting/focused formatter check pass; scoped test Clippy retains documented unrelated diagnostics. Ticket09 remains claimed/unresolved; ticket07 is unchanged.
+
+**Integration handoff:** released the claim after committing the bounded investigation. Independent source review of the integrated follow-up found no further actionable issue; it did not independently run the diagnostic cells. Resume with a failing immediate-reopen capture identifying the retained native handle/client or write transaction, and a deterministic causal regression before changing shutdown behavior. Approval phase timing alone does not establish a root cause or justify changing the request bound.
 
 No real user profile, OS trust store, or production provider changes are authorized by this issue. Passing repetitions alone do not prove the origin of historical failures.

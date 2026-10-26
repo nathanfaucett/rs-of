@@ -32,6 +32,16 @@ Ticket 07 and the spec remain open. Outstanding work is tracked explicitly:
 
 A packaged desktop disposable-profile Create/sign-in/reopen/Join smoke test remains recommended before a user-facing release. This merge-readiness decision does not replace it or close unchecked acceptance criteria.
 
+## Follow-up integration (2026-10-26)
+
+Resumed from clean newer `main` at `da5bc63419623ab48f93dea14dfce20f3e10ffc9` on `integration/setup-simplification-followup`; the scoped setup implementation had already been merged. The merge-readiness text above is a historical receipt, not the current branch state.
+
+- [08 provider isolation](issues/08-isolate-mock-provider-fixtures.md) — **resolved**. Repositories retain their selected backend; explicit injection no longer replaces the startup default, and intentional startup installations are explicit. Deterministic red/green, 16 service unit tests, 35 normal-concurrency owner-boundary tests and isolated HTTP Create/reopen passed. [Evidence](evidence/08-provider-isolation.md).
+- [10 fixture/SDK prerequisites](issues/10-repair-validation-fixture-prerequisites.md) — **resolved**. Test/coverage/CI entry points build required owner SDK exports. Current reset fixtures distinguish unsupported-record refusal from supported cleanup/provider-failure retry; rebuilt SDK scenario, revised reset parents/children and neighboring safety cases passed. No historical compatibility added. [Evidence](evidence/10-fixture-prerequisites.md).
+- [09 timing/ownership diagnosis](issues/09-diagnose-readiness-and-request-timeouts.md) — **open**, claim released. Untraced Join 12/12 passed; traced approval expired at 5001ms before handler success at 5439ms. Concurrent Create reproduced a stopped-Device Database lock after awaited shutdown; a later traced pair reopened but failed watchdogs. Secret-free categorical timing and a reviewed dependency-independent Unix-ms formatter landed. Root causes remain unproven: capture the surviving native owner during a failed reopen and add a deterministic regression before behavioral fixes. [Evidence](evidence/09-timeout-localization.md).
+- [11 provisioned qualification](issues/11-complete-provisioned-validation.md) — **open / ready-for-human**. Dependencies 08/10 are resolved. Frozen install, owner SDK build and five export checks passed, but exhausted swap triggered the conservative no-launch guard with about 6.8 GiB RAM available. No Rust matrix or coverage launched; sufficient runner resources remain an external prerequisite. [Evidence](evidence/11-validation-attempt.md).
+- Independent read-only review found no further actionable findings after the clock correction. Focused runtime checks are recorded per source/artifact receipt; not every experiment ran the final merged tree. Full qualification, ticket07 and the spec stay open. Existing test-target lint failures and historical workspace/standalone-suite failures are not waived.
+
 ## Fog
 
 - Latest final-code HTTPS Join evidence is 9/9 passing scenarios across three serial suites, after deterministic router/admission shutdown and queued-reply fixes. Earlier source-offer/authorized-request timeout causes remain unproven; no blanket baseline or environment attribution. See the reliability follow-up below.
