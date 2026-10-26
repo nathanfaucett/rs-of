@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, io, sync::Arc};
+use std::{collections::BTreeMap, io, sync::Arc, time::Instant};
 
 use api::SecurityAddon;
 use axum::{
@@ -263,8 +263,8 @@ impl NodeJoinSource {
     }
 
     pub async fn approve(&self, bearer: &str, id: Id) -> io::Result<NodeJoinApproval> {
-        #[cfg(test)]
-        let started = std::time::Instant::now();
+        let started = Instant::now();
+        log::debug!(target: "setup_timeout", "seam=approval phase=offer_lookup elapsed_ms=0");
         let queued = match self.queued_offer(id).await {
             Ok(queued) => queued,
             Err(error) => {
@@ -272,21 +272,16 @@ impl NodeJoinSource {
                 return Err(error);
             }
         };
+        log::debug!(target: "setup_timeout", "seam=approval phase=op_lock_wait elapsed_ms={}", started.elapsed().as_millis());
         let _operation = queued.operation.lock().await;
+        log::debug!(target: "setup_timeout", "seam=approval phase=op_lock_acquired elapsed_ms={}", started.elapsed().as_millis());
         self.require_current_offer(id, &queued).await?;
         let offer = &queued.offer;
         self.display(offer)?;
-        #[cfg(test)]
-        eprintln!(
-            "node join approval stage=enrollment_begin elapsed={:?}",
-            started.elapsed()
-        );
+        log::debug!(target: "setup_timeout", "seam=approval phase=enrollment_begin elapsed_ms={}", started.elapsed().as_millis());
         let approval = self.idp.enroll(offer, bearer).await?;
-        #[cfg(test)]
-        eprintln!(
-            "node join approval stage=enrollment_verified elapsed={:?}",
-            started.elapsed()
-        );
+        log::debug!(target: "setup_timeout", "seam=approval phase=enrollment_end elapsed_ms={}", started.elapsed().as_millis());
+        log::debug!(target: "setup_timeout", "seam=approval phase=verification_begin elapsed_ms={}", started.elapsed().as_millis());
         self.require_current_offer(id, &queued).await?;
         self.idp.verify(&approval).await?;
         let identity = DbDeviceRepo::new(self.device.clone().client())
@@ -301,6 +296,7 @@ impl NodeJoinSource {
                 "enrolled Device owner/binding differs from approval",
             ));
         }
+        log::debug!(target: "setup_timeout", "seam=approval phase=policy_begin elapsed_ms={}", started.elapsed().as_millis());
         let policies =
             device_service::replica::DbSelectionPolicyRepo::new(self.device.clone().client());
         if policies
@@ -321,6 +317,7 @@ impl NodeJoinSource {
                 .await
                 .map_err(io::Error::other)?;
         }
+        log::debug!(target: "setup_timeout", "seam=approval phase=peer_refresh_begin elapsed_ms={}", started.elapsed().as_millis());
         let mut peers = self
             .control_plane
             .approved_device_endpoints()
@@ -331,14 +328,12 @@ impl NodeJoinSource {
             .collect::<io::Result<Vec<_>>>()?;
         peers.push(self.server.endpoint().id());
         self.server.peers().replace(peers);
+        log::debug!(target: "setup_timeout", "seam=approval phase=peer_refresh_end elapsed_ms={}", started.elapsed().as_millis());
         self.require_current_offer(id, &queued).await?;
+        log::debug!(target: "setup_timeout", "seam=approval phase=reply_begin elapsed_ms={}", started.elapsed().as_millis());
         self.idp.reply(offer, bearer, &approval).await?;
+        log::debug!(target: "setup_timeout", "seam=approval phase=reply_end elapsed_ms={}", started.elapsed().as_millis());
         self.finish_offer(id, &queued).await;
-        #[cfg(test)]
-        eprintln!(
-            "node join approval stage=reply_published elapsed={:?}",
-            started.elapsed()
-        );
         Ok(approval)
     }
 
@@ -485,10 +480,14 @@ async fn approve(
     Path(id): Path<Id>,
     headers: HeaderMap,
 ) -> Result<Json<NodeJoinApproval>, HttpError> {
+    let started = Instant::now();
+    log::debug!(target: "setup_timeout", "seam=approval_http phase=entry elapsed_ms=0");
     let bearer = bearer(&headers)?;
     let source =
         source.ok_or_else(|| http_error(io::Error::other("hosted join is unavailable")))?;
-    Ok(Json(source.approve(bearer, id).await.map_err(http_error)?))
+    let result = source.approve(bearer, id).await;
+    log::debug!(target: "setup_timeout", "seam=approval_http phase=end elapsed_ms={} successful={} error_kind={:?}", started.elapsed().as_millis(), result.is_ok(), result.as_ref().err().map(io::Error::kind));
+    Ok(Json(result.map_err(http_error)?))
 }
 #[utoipa::path(post, path = "/node-joins/{id}/reject", operation_id = "reject", security(("authorization" = [])), params(("id" = String, Path, description = "Pending offer UUID")), responses((status = 204, description = "Current locally authorized Node-join operation"), (status = 401, description = "Bearer required"), (status = 403, description = "Permission denied"), (status = 404, description = "Offer not found"), (status = 409, description = "Offer changed"), (status = 503, description = "Unavailable")))]
 async fn reject(
