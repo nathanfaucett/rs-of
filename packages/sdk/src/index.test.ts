@@ -181,6 +181,71 @@ it("retries stale userinfo after overlapping same-User renewal without retiring 
         date.mockRestore();
     }
 });
+it.each([200, 401])(
+    "does not retry stale userinfo (%s) or read replacement credentials after disposal",
+    async (status) => {
+        const oldFetch = vi.fn((url: URL | RequestInfo, init?: RequestInit) =>
+            service(url, init),
+        );
+        const sdk = new ApplicationSdk({ ...options(), fetch: oldFetch });
+        await sdk.handleSigninCallback(await callback(sdk));
+        let release!: (response: Response) => void;
+        const held = new Promise<Response>((resolve) => {
+            release = resolve;
+        });
+        oldFetch.mockImplementationOnce(() => held);
+        const pending = sdk.storage().listFileSystems();
+        const rejected = expect(pending).rejects.toThrow("ended");
+        await vi.waitFor(() =>
+            expect(oldFetch.mock.results.at(-1)?.value).toBe(held),
+        );
+        sdk.dispose();
+        subject = "bob";
+        const replacement = new ApplicationSdk({
+            ...options(),
+            fetch: async (url, init) => {
+                if (
+                    new URLSearchParams(init?.body as string).get(
+                        "grant_type",
+                    ) === "authorization_code"
+                )
+                    return Response.json({
+                        access_token: "replacement-token",
+                        refresh_token: "replacement-refresh",
+                        expires_in: 3600,
+                    });
+                return service(url, init);
+            },
+        });
+        await replacement.handleSigninCallback(await callback(replacement));
+        const snapshot = replacement.session;
+        const persisted = [...values];
+        const requests = oldFetch.mock.calls.length;
+        const reads = vi.spyOn(window.localStorage, "getItem");
+        try {
+            release(
+                status === 200
+                    ? Response.json({ sub: "alice" })
+                    : new Response(null, { status }),
+            );
+            await rejected;
+            expect(oldFetch).toHaveBeenCalledTimes(requests);
+            expect(reads).not.toHaveBeenCalled();
+            expect([...values]).toEqual(persisted);
+            expect(replacement.session).toBe(snapshot);
+            expect(replacement.session.identity?.subject).toBe("bob");
+            expect(sdk.session.status).toBe("disposed");
+        } finally {
+            reads.mockRestore();
+        }
+        await expect(replacement.storage().listFileSystems()).resolves.toEqual([
+            { id: "fs-one", name: "Vault" },
+        ]);
+        const reload = new ApplicationSdk(options());
+        await reload.restore();
+        expect(reload.session.identity?.subject).toBe("bob");
+    },
+);
 it("exchanges only the exact userinfo-verified token and retires a rotated different User before Storage", async () => {
     let issued = 0;
     const exchanged: string[] = [];

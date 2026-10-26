@@ -108,6 +108,7 @@ export class OidcClient<
   private readonly memoryOnly: boolean;
   private tokenResponse: OidcTokenResponse | null = null;
   private sessionGeneration = 0;
+  private identityContext = 0;
   private refreshPending: {
     generation: number;
     promise: Promise<OidcTokenResponse>;
@@ -210,10 +211,12 @@ export class OidcClient<
   }
 
   setToken(tokenResponse: OidcTokenResponse) {
+    this.identityContext += 1;
     this.rememberTokenResponse(this.normalizeTokenResponse(tokenResponse));
   }
 
   clearStoredTokenResponse(): void {
+    this.identityContext += 1;
     this.sessionGeneration += 1;
     this.tokenResponse = null;
     this.pkceVerifiersByState.clear();
@@ -527,14 +530,29 @@ export class OidcClient<
     userInfo: UserInfo;
     accessToken: string;
   }> {
+    const context = this.identityContext;
+    const active = () => {
+      if (context !== this.identityContext)
+        throw new OidcClientError(
+          "NO_ACCESS_TOKEN",
+          "Session changed during identity establishment",
+        );
+    };
     while (true) {
+      active();
       const token = await this.getAccessToken();
+      active();
       const generation = this.sessionGeneration;
-      const stale = () =>
-        token !== this.getStoredTokenResponse()?.access_token ||
-        generation !== this.sessionGeneration;
+      const stale = () => {
+        active();
+        return (
+          token !== this.getStoredTokenResponse()?.access_token ||
+          generation !== this.sessionGeneration
+        );
+      };
       try {
         const config = await this.getOidcConfiguration();
+        active();
         const userInfo = await this.requestUserInfo(token);
         if (stale()) continue;
         if (!userInfo.sub)
@@ -695,6 +713,7 @@ export class OidcClient<
       );
     }
 
+    this.identityContext += 1;
     const generation = ++this.sessionGeneration;
     const config = await this.getOidcConfiguration();
     const clientId = await this.getClientId(config);
