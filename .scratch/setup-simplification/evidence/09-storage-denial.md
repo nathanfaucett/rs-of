@@ -154,3 +154,67 @@ Log SHA-256:
 | `storage-library-all-run1`          | `321e51a05c12e284df60760c9e2517eaa86785173baf32106268bacdaa83825d` |
 
 Implementation disposition: commit the focused production fix, expanded public tests and this evidence with hooks disabled, merge current integration tip into this branch before handoff, retain the worktree and release the Rust slot. Do not merge into root/integration or close shared ticket09. This delivers the demonstrated Storage denial-dependency fix with validation limits, not historical common-cause attribution or full setup qualification.
+
+## Validation-follow-up: missing fixture policy schema and isolated stack failure
+
+Parent authorized the specific fixture follow-up and exclusive Rust slot after history diagnostics completed. Fast-forwarded clean `366afcd6e` to requested integration **`bcebfb0fa7aaed5af200846c86f6b6ed576651a7`** before execution. Re-measured about11,055MiB available, memory PSI0/0, full swap. Same supervisor, shared target, jobs1, network-only features, optimized+debuginfo profile and 64MiB environment minimum; no guard/profile/dependency changes. Source/log diagnosis while another agent owned the preceding slot ran no builds/tests and made no edits.
+
+### Fixture red and minimal prerequisite repair
+
+Ran each existing test **individually**, with the common Cargo prefix above and `--lib <fully-qualified-name> -- --exact --nocapture`:
+
+- `filesystem_transport::execution_authorization_tests::admitted_socket_write_finishes_then_next_write_observes_local_denial`, receipt **`storage-fixture-red-admitted1`**, exit101,3.060s supervised/2.38s test.
+- `filesystem_transport::execution_authorization_tests::queued_response_observes_local_grant_revocation_before_authenticated_socket_write`, receipt **`storage-fixture-red-queued1`**, exit101,2.704s supervised/2.26s test.
+
+**Both recovered the same actual panic at `execution_authorization_tests.rs:74:224`:** `explicit actor grant: InvalidInput("Invalid query: Table not found")`. This supplies the assertion evidence lost when the previous full-library process aborted. Neither was a resource stop or a policy/write assertion failure.
+
+The shared fixture opens unique UUID-scoped IdP and Management redb files. It initialized all IdP migrations in the IdP file, but only Device migrations in the Management file, then constructed Management role/permission repositories against the latter. Device migrations intentionally omit policy tables. Provisioning queries `roles` before creating the explicit grant; Management's separate `replica::up` aliases `idp_model::replica::up_policy`. No shared-root/global-backend race is established or needed to explain this missing table.
+
+Minimal fixture-only change in `execution_authorization_tests.rs`: initialize Management policy schema in that same fixture Management file after Device schema initialization; correct the Device schema expect label. No grant, actor/action/target, queue, current-policy, in-flight completion, persisted-denial, timeout or production behavior was changed.
+
+**Green:** receipt **`storage-fixture-green1`**, common Cargo prefix plus `--lib filesystem_transport::execution_authorization_tests:: -- --nocapture`; **2 passed /86 filtered**, exit0,130.129s supervised including compilation/4.08s test. The two tests ran together under default libtest concurrency; their original negative impersonation/target assertions, revocation-before-write, admitted-write completion, next-write denial and offline persisted-denial checks all completed. This prerequisite repair is committed separately from the identity-first denial production fix.
+
+### Three unchanged 2MiB worker tests, each isolated once
+
+Same common Cargo prefix, `--lib replication_runtime::tests::<name> -- --exact --nocapture`; no stack/bounds change:
+
+| Receipt prefix                | Test name                                                                     | Actual result                                                    | Supervised seconds |
+| ----------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------- | -----------------: |
+| `storage-stack-database1`     | `database_changes_from_higher_id_and_new_peers_catch_up_then_stay_idle`       | **worker stack overflow, SIGABRT, Cargo101**, no final aggregate |              2.025 |
+| `storage-stack-responder1`    | `responder_only_peer_removal_cancels_persistent_filesystem_session`           | 1 passed /87 filtered                                            |              0.897 |
+| `storage-stack-invalidation1` | `invalidation_and_feed_closure_fence_sessions_while_configuration_is_blocked` | 1 passed /87 filtered                                            |              0.694 |
+
+The database scenario is now a concrete isolated current-code stack failure, not inferred from completion order. Source `on_two_mib_workers` explicitly sets two workers at2MiB, overriding the supervisor's `RUST_MIN_STACK=67108864` request for those threads. These unchanged files also exist at pre-denial integration; source identity alone still is not a runtime baseline comparison.
+
+### Bounded debugger localization and pre-fix future sizes
+
+Declared two **diagnostic**, not qualification/retry-to-green, debugger captures of that same isolated database failure. Both use the monitor around `gdb -q --nx --batch`, debuginfod disabled, existing test executable and exact same test filter/`--nocapture`; no source instrumentation, secrets, stack setting or external debugger configuration changed. Auto-load protection stayed enabled; no debugger script was trusted to silence warnings.
+
+- **`storage-stack-gdb1`**,5.082s: stopped on worker **SIGSEGV** before Rust's stack-overflow abort handler. Captured backtrace reaches `btree_automerge::reconstruction::ReconstructedDocument::apply` -> `PendingDocument::new` -> reconstruction stream -> SQL catalog-state/schema reconciliation -> staged SQL synchronization. No repeated recursive frame cycle was captured.
+- **`storage-stack-frames1`**,6.340s: captured100 unwind frames with stack pointers and consecutive deltas, avoiding raw arguments/payloads. Major physical SP deltas include **929,616 bytes** between schema reconciliation and its state-transfer caller, **197,424** around SQL sync, **205,392** around Storage exchange, **138,432** around change-subscription polling, **228,768** around Storage run-resource polling, and **139,008** around the spawned job. Inline frames share SPs and are not double-counted. This is cumulative poll-stack pressure, not proof that the top `apply` function alone needs2MiB.
+
+Debugger wrapper exits were0 because batch GDB completed normally after stopping its faulted inferior; they are **not passing test results**. Debugee did not finish the scenario. Read-only DWARF lookup in the same binary measured these pre-fix future layouts, in bytes:
+
+| Future                                             |    Size |
+| -------------------------------------------------- | ------: |
+| `DatabaseProtocolHandler::exchange`                | 137,312 |
+| `DatabaseProtocolHandler::synchronize_peer_active` | 137,696 |
+| `DatabaseProtocolHandler::synchronize_peer`        | 138,192 |
+| `ReplicationHost::run_resource`                    | 138,496 |
+
+`run_resource` is already boxed at its outer admission boundary, but its nested unboxed SQL-sync await contributes a large state propagated through the intermediate Storage futures and large poll frames. Candidate within owned Storage scope: box that heavyweight SQL synchronization future at `DatabaseProtocolHandler::exchange`'s existing await seam, preserving the awaited operation, authorization/apply hooks and cancellation/drop lifetime. Do not raise worker stacks, detach work or edit sibling SQL implementation. Actual isolated red plus size/frame evidence precedes any such change; its efficacy still requires measured future-size reduction and green. No claim yet that a guessed box fixes the observed failure.
+
+### Follow-up receipts so far
+
+All stages above had no monitor guard stop. Prefixes resolve to `/tmp/setup09-qual-<prefix>{.json,.log,-samples.jsonl}`. Fixture-green compilation sampled minimum available9,764,228KiB, max owned RSS2,436,012KiB, memory PSI avg10 some/full4.94/4.20; both debugger captures stayed above10,085,224KiB available. No unrelated process was killed, caches removed, or sibling files changed.
+
+| Prefix                          | Log SHA-256                                                        |
+| ------------------------------- | ------------------------------------------------------------------ |
+| `storage-fixture-red-admitted1` | `d1ae620b26baac7fa3b8ff97b0d6f5c7db97ebd13ee3f0486923852c056c3ec6` |
+| `storage-fixture-red-queued1`   | `99b5d127467ef147615b8dcf048189a821537665e2bb465cf5a31e20924de89a` |
+| `storage-fixture-green1`        | `5b5853969fcfbd111c7aae2679370a6103f4bec4fecf0a232823b51428c36e2e` |
+| `storage-stack-database1`       | `c3ef15afd189bcbccb4db6575326483eb17439e2962ad7b0b92ca84fd2fde374` |
+| `storage-stack-responder1`      | `d27f0fe8de55cfb2548af553587c76c0a0f596fba950089299c121579aa335f0` |
+| `storage-stack-invalidation1`   | `2bcb55313d4bc56844f5af34dfc96f9db47e97334dfdee0756fd3257100421fb` |
+| `storage-stack-gdb1`            | `a7947858c842a4366e6e6d10d9461777eefa273eb196c7351abb3044da00fea1` |
+| `storage-stack-frames1`         | `d26bd3edaccf8e6c24dc2105fe3b90e26355452d6feac440ab91dba0be451daf` |
