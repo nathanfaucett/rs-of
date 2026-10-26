@@ -1,5 +1,9 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { StorageClient, StorageSocket } from "@aicacia/storage-client";
+import type {
+    StorageClient,
+    StorageSocket,
+    StorageRequest,
+} from "@aicacia/storage-client";
 import { createCollection, type MutationFnParams } from "@tanstack/db";
 
 export class UnacknowledgedStorageWriteError extends Error {
@@ -22,6 +26,7 @@ export type StorageCollectionOptions<T extends object> = {
     extension?: string;
     deserialize?: (content: Uint8Array) => unknown;
     serialize?: (record: T) => Uint8Array;
+    requestTimeoutMs?: number;
 };
 
 export function createStorageCollection<T extends object>(
@@ -54,12 +59,51 @@ export function createStorageCollection<T extends object>(
     const serialize =
         options.serialize ??
         ((record: T) => new TextEncoder().encode(JSON.stringify(record)));
+    const requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
+    if (
+        !Number.isInteger(requestTimeoutMs) ||
+        requestTimeoutMs <= 0 ||
+        requestTimeoutMs > 2_147_483_647
+    )
+        throw new Error(
+            "Storage request timeout must be a positive timer-safe integer",
+        );
+    async function deadline<R>(
+        pending: Promise<R>,
+        expire: (error: Error) => void,
+    ): Promise<R> {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+            return await Promise.race([
+                pending,
+                new Promise<never>((_, reject) => {
+                    timer = setTimeout(() => {
+                        const error = new Error(
+                            "Storage request timed out; a sent write may have persisted. Refresh and verify records before retrying",
+                        );
+                        reject(error);
+                        expire(error);
+                    }, requestTimeoutMs);
+                }),
+            ]);
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+    function request(value: StorageRequest) {
+        const connection = active();
+        return deadline(connection.request(value), (error) =>
+            failConnection?.(error),
+        );
+    }
     let disposed = false;
     let failed = false;
+    let failConnection: ((error: Error) => void) | undefined;
     let ready = false;
     let socket: StorageSocket | undefined;
     let persist: ((params: MutationFnParams<T>) => Promise<void>) | undefined;
     let queue = Promise.resolve();
+    let reload: (() => Promise<{ receipt: true | Promise<void> }>) | undefined;
 
     function active() {
         if (disposed)
@@ -68,7 +112,7 @@ export function createStorageCollection<T extends object>(
             );
         if (failed || !socket)
             throw new Error(
-                "Storage connection unavailable; reopen and verify records before retrying",
+                "Storage connection unavailable; a sent write may have persisted. Refresh and verify records before retrying",
             );
         return socket;
     }
@@ -94,10 +138,10 @@ export function createStorageCollection<T extends object>(
         return record;
     }
     async function snapshot(): Promise<T[]> {
-        const connection = active();
+        active();
         let parent = "";
         for (const segment of directory.split("/")) {
-            const listing = await connection.request({
+            const listing = await request({
                 type: "list",
                 path: parent,
             });
@@ -108,7 +152,7 @@ export function createStorageCollection<T extends object>(
             if (!listing.entries.some((entry) => entry.name === parent))
                 return [];
         }
-        const response = await connection.request({
+        const response = await request({
             type: "list",
             path: directory,
         });
@@ -122,7 +166,7 @@ export function createStorageCollection<T extends object>(
             const key = entry.name.slice(prefix.length, -extension.length);
             if (!entry.name.startsWith(prefix))
                 throw new Error("Unsafe record key");
-            const read = await connection.request({
+            const read = await request({
                 type: "read",
                 path: path(key),
             });
@@ -162,7 +206,31 @@ export function createStorageCollection<T extends object>(
             );
         return result;
     }
-    const collection = createCollection<T, string>({
+    const collection = createCollection<
+        T,
+        string,
+        { refresh: () => Promise<void> }
+    >({
+        utils: {
+            refresh: async (): Promise<void> => {
+                if (disposed) throw new Error("Storage collection is disposed");
+                if (collection.status === "idle") return collection.preload();
+                const result = queue.then(() => {
+                    if (disposed || !reload)
+                        throw new Error("Storage collection is disposed");
+                    return reload();
+                });
+                // Release the operation queue before waiting for visibility: a later
+                // optimistic mutation can hold the receipt until its handler settles.
+                queue = result.then(
+                    () => undefined,
+                    () => undefined,
+                );
+                const { receipt } = await result;
+                await receipt;
+                active();
+            },
+        },
         id: JSON.stringify([
             userId,
             applicationId,
@@ -188,7 +256,7 @@ export function createStorageCollection<T extends object>(
                     markError(new Error("Storage collection is disposed"));
                     return;
                 }
-                const controller = new AbortController();
+                let controller = new AbortController();
                 const detach = () => {
                     socket?.socket.removeEventListener("close", disconnected);
                     socket?.socket.removeEventListener("error", disconnected);
@@ -196,14 +264,16 @@ export function createStorageCollection<T extends object>(
                 const fail = (error: Error) => {
                     if (disposed || failed) return;
                     failed = true;
+                    ready = false;
                     detach();
                     socket?.close();
                     markError(error);
                 };
+                failConnection = fail;
                 const disconnected = () =>
                     fail(
                         new Error(
-                            "Storage connection closed; a sent write may have persisted. Reopen and verify records before retrying",
+                            "Storage connection closed; a sent write may have persisted. Refresh and verify records before retrying",
                         ),
                     );
                 const publish = (records: T[]) => {
@@ -212,7 +282,16 @@ export function createStorageCollection<T extends object>(
                     truncate();
                     for (const value of records)
                         write({ type: "insert", value });
-                    return commit();
+                    const receipt = commit();
+                    if (receipt !== true)
+                        void receipt.catch(() =>
+                            fail(
+                                new Error(
+                                    "Storage reconciliation failed; Refresh and verify records before retrying",
+                                ),
+                            ),
+                        );
+                    return receipt;
                 };
                 persist = async ({ transaction }) => {
                     const [mutation] = transaction.mutations;
@@ -234,7 +313,7 @@ export function createStorageCollection<T extends object>(
                             );
                         }
                     }
-                    const connection = active();
+                    active();
                     if (transaction.state !== "persisting")
                         throw new Error(
                             "Storage mutation was rolled back before sending",
@@ -242,7 +321,7 @@ export function createStorageCollection<T extends object>(
                     let outcome: "acknowledged" | "rejected" | "ambiguous" =
                         "ambiguous";
                     try {
-                        const response = await connection.request(
+                        const response = await request(
                             bytes
                                 ? {
                                       type: "write",
@@ -267,18 +346,10 @@ export function createStorageCollection<T extends object>(
                         const records = await snapshot();
                         // Core accepts this sync now but holds visibility until persisting
                         // transactions settle. Awaiting the receipt here would deadlock.
-                        const receipt = publish(records);
-                        if (receipt !== true)
-                            void receipt.catch(() =>
-                                fail(
-                                    new Error(
-                                        "Storage reconciliation failed; reopen and verify records before retrying",
-                                    ),
-                                ),
-                            );
+                        publish(records);
                     } catch {
                         const error = new Error(
-                            "Storage write outcome could not be reconciled; it may have persisted. Reopen and verify records before retrying",
+                            "Storage write outcome could not be reconciled; it may have persisted. Refresh and verify records before retrying",
                         );
                         fail(error);
                         throw error;
@@ -290,33 +361,58 @@ export function createStorageCollection<T extends object>(
                             "Storage write rejected; authoritative records reloaded. Review before retrying",
                         );
                 };
-                void (async () => {
+                reload = async () => {
                     try {
-                        const opened = await client.openSocket(
-                            filesystemId,
-                            controller.signal,
-                        );
-                        if (disposed) {
-                            opened.close();
-                            return;
+                        if (disposed)
+                            throw new Error("Storage collection is disposed");
+                        if (failed || !socket) {
+                            detach();
+                            socket?.close();
+                            socket = undefined;
+                            failed = false;
+                            controller = new AbortController();
+                            const opened = await deadline(
+                                client.openSocket(
+                                    filesystemId,
+                                    controller.signal,
+                                ),
+                                () => controller.abort(),
+                            );
+                            if (disposed) {
+                                opened.close();
+                                throw new Error(
+                                    "Storage collection is disposed",
+                                );
+                            }
+                            socket = opened;
+                            socket.socket.addEventListener(
+                                "close",
+                                disconnected,
+                            );
+                            socket.socket.addEventListener(
+                                "error",
+                                disconnected,
+                            );
                         }
-                        socket = opened;
-                        socket.socket.addEventListener("close", disconnected);
-                        socket.socket.addEventListener("error", disconnected);
                         const records = await snapshot();
-                        await publish(records);
-                        if (!disposed && !failed) {
-                            ready = true;
-                            markReady();
-                        }
+                        const receipt = publish(records);
+                        ready = true;
+                        markReady();
+                        return { receipt };
                     } catch (cause) {
-                        fail(
+                        const error =
                             cause instanceof Error
                                 ? cause
-                                : new Error("Storage initial load failed"),
-                        );
+                                : new Error("Storage snapshot failed");
+                        fail(error);
+                        throw error;
                     }
-                })();
+                };
+                queue = reload()
+                    .then(async ({ receipt }) => {
+                        await receipt;
+                    })
+                    .catch(() => undefined);
                 return () => {
                     disposed = true;
                     controller.abort();

@@ -28,6 +28,8 @@ await collection.update(record.id, (draft) => {
   draft.name = "Edited";
 }).isPersisted.promise;
 await collection.delete(record.id).isPersisted.promise;
+// Explicitly observe external changes, or recover a failed connection.
+await collection.utils.refresh();
 // Dispose dependent queries before disposing their source.
 await collection.cleanup();
 ```
@@ -39,7 +41,7 @@ The caller supplies a Standard Schema (synchronous or asynchronous validation), 
 Verified against installed `@tanstack/db 0.15.2` and `@tanstack/svelte-db 0.5.12` (the latter depends on core `0.15.2`). The lockfile fixes the qualified versions.
 
 - `createCollection`, `getKey`, `gcTime`, and custom `sync.sync` are core APIs.
-- Sync supplies `begin`, `write`, `commit`, `markReady`, and `markError`. We validate the entire snapshot before starting a sync transaction, await its commit receipt, then mark ready. Initial failures reject `preload()` and set the source status to `error`, never `ready`/empty.
+- Sync supplies `begin`, `write`, `commit`, `markReady`, and `markError`. We validate the entire snapshot before starting a sync transaction and commit it before marking ready. Initial failures reject `preload()` and set the source status to `error`, never `ready`/empty.
 - A sync cleanup function owns cancellation, listeners, and the socket. `cleanup()` clears source records. Adapter disposal is terminal, including disposal before the first load; attempting to preload again rejects without opening transport. Use a new collection to reopen.
 - The password manager uses upstream `useLiveQuery` directly, including chained `orderBy`. Its reactive `data`, `isReady`, and `isError` are not destructured. No custom framework binding is required.
 - `onInsert`, `onUpdate`, and `onDelete` receive `transaction.mutations` and persist through Storage. Await `transaction.isPersisted.promise` to observe success/failure, not just the synchronous optimistic change.
@@ -54,7 +56,7 @@ The current Storage service returns **full relative paths** as listing entry nam
 
 Read/validation failure publishes no partial snapshot and closes the owned connection. A disconnect/error after readiness puts the source into error; consumers must gate visible data on status. The adapter does not promise a server-atomic snapshot across multiple file reads. Concurrent external edits can fail a load or produce a mixed-time view.
 
-`StorageClient.openSocket(filesystemId, signal?)` supports cancellation while obtaining a bearer token, exchanging it, and opening the socket. Disposal prevents later requests (including queued writes) and ignores late reads or schema results. A write already sent may still persist: disposal is not server-side cancellation. Its completion cannot publish into a replacement collection. Always clear obsolete views and await/catch mutation promises; do not display a completion belonging to an old identity or filesystem. There are no timers, background retries, polling, push change feeds, or automatic reconnects. `gcTime: Infinity` means the owning application **must** call `cleanup()`, not just unsubscribe.
+`StorageClient.openSocket(filesystemId, signal?)` supports cancellation while obtaining a bearer token, exchanging it, and opening the socket. Disposal prevents later requests (including queued writes) and ignores late reads or schema results. A write already sent may still persist: disposal is not server-side cancellation. Its completion cannot publish into a replacement collection. Always clear obsolete views and await/catch mutation promises; do not display a completion belonging to an old identity or filesystem. Only per-operation deadline timers are used; they are cleared on settlement/disposal. There are no background retries, polling, push change feeds, or automatic reconnects. `gcTime: Infinity` means the owning application **must** call `cleanup()`, not just unsubscribe.
 
 The current Storage client requests read/write socket authorization. Discovery does not grant resource access. A denied/expired token or unavailable content is an error. Browser-offline persistence, decrypted-secret caching, and mutation outboxes are not implemented. Node replication is independent of browser collection freshness.
 
@@ -63,8 +65,17 @@ The current Storage client requests read/write socket authorization. Discovery d
 - An expected `written` acknowledgement for the requested path, or `deleted`, is followed by a complete authoritative reload before the handler settles. The authoritative record may differ from the submitted value, or another client may have changed/deleted it. Storage has no compare-and-swap contract; this is not conflict prevention or a server-atomic snapshot.
 - An explicit Storage error also reloads before rejecting; optimism rolls back to that authoritative state, not a fabricated pre-write copy. Review the resulting records before retrying.
 - Missing, malformed, or unexpected acknowledgement (including the wrong write path) triggers reconciliation. If it succeeds, `UnacknowledgedStorageWriteError` still rejects the transaction even when the write appears in Storage. Verify the visible outcome; do not blindly repeat a create or assume failure means nothing persisted.
-- A disconnect or failed/malformed reconciliation fails the collection closed, closes the owned socket, and rejects the mutation with an uncertain-outcome warning. Hide obsolete records, construct a new collection, and verify Storage before retrying. No automatic retry occurs. The current transport has no request deadline; a silent connected endpoint can keep a write pending until it responds, disconnects, or the owner disposes it.
-- Explicit Refresh/reconnect-in-place is ticket 04. Reopening a new collection already reloads persisted CRUD.
+- A disconnect or failed/malformed reconciliation fails the collection closed, closes the owned socket, and rejects the mutation with an uncertain-outcome warning. Hide obsolete records, explicitly Refresh, and verify Storage before retrying. No automatic retry occurs. A deadline closes a silent connection and rejects a pending write as uncertain, not as proof that nothing persisted.
+
+## Explicit Refresh and recovery
+
+`await collection.utils.refresh()` reloads authoritative additions, updates, and deletions. Healthy sockets are reused. A failed connection is reopened only on this explicit call, with a new token exchange through the supplied client. Correct expired/denied authorization first; Refresh does not grant access. Calling Refresh on an idle collection performs its initial load. Disposal remains terminal: Refresh cannot revive a cleaned-up collection.
+
+Refresh shares the mutation operation queue, waiting for earlier writes, reconciliation, and core settlement. Later optimistic mutations stay visible while the complete refresh snapshot is accepted; their handlers run after that acceptance. The queue is released **before** waiting for the refresh commit's visibility receipt, because a later persisting optimistic transaction can hold that receipt until its handler settles. Refresh resolves after visibility; it never retries a mutation. Consumers may simply disable conflicting controls while awaiting it, as the example does.
+
+A failed, partial, or malformed refresh publishes nothing. The last complete snapshot remains internally available, but the collection enters error and consumers must hide it until successful recovery. Retrying Refresh reopens and loads a complete snapshot. Cleanup during refresh closes/cancels transport and ignores late responses; replacement identities/filesystems cannot receive them.
+
+`requestTimeoutMs` defaults to **30,000 ms**, and must be a positive timer-safe integer. It bounds each socket-open attempt (including bearer-token retrieval/exchange) and each Storage request, not the total duration of a multi-record snapshot or application-supplied async schema validation. A timed-out socket is closed rather than reused: the protocol has no request IDs with which to disambiguate late responses. Open attempts are aborted. There is no automatic reconnect, write retry, or timeout override that disables the deadline. This bound is adapter-local; unrelated direct StorageClient users retain their existing behavior.
 
 ## Checks
 

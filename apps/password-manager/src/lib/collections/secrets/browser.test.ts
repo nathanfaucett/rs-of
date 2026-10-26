@@ -4,19 +4,27 @@ import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { StorageRequest } from "@aicacia/storage-client";
 import Browser from "./Browser.svelte";
+import SignIn from "../../../routes/signin/_SignIn.svelte";
 
 vi.mock("$app/navigation", () => ({ goto: vi.fn(), invalidateAll: vi.fn() }));
 vi.mock("$app/paths", () => ({ resolve: (path: string) => path }));
-const auth = vi.hoisted(() => ({ token: "user-token", clear: vi.fn() }));
+const auth = vi.hoisted(() => ({
+    token: "user-token",
+    clear: vi.fn(),
+    signin: vi.fn(),
+    setAuthority: vi.fn(),
+}));
 vi.mock("$env/dynamic/public", () => ({
     env: { PUBLIC_STORAGE_BASE_URL: "https://storage.test/storage" },
 }));
 vi.mock("$lib/common/state/idpClient.svelte", () => ({
     getIdpApiUrl: () => "https://idp.test/idp",
+    setIdpApiUrl: auth.setAuthority,
 }));
 vi.mock("$lib/common/state/oidc.svelte", () => ({
     getOidcClient: () => ({
         getAccessToken: async () => auth.token,
+        signin: auth.signin,
         clearStoredTokenResponse: auth.clear,
     }),
 }));
@@ -123,6 +131,8 @@ let component: ReturnType<typeof mount>;
 let target: HTMLDivElement;
 const fetchApi = vi.fn();
 beforeEach(() => {
+    vi.clearAllMocks();
+    auth.token = "user-token";
     Endpoint.sockets = [];
     Endpoint.files = new Map();
     Endpoint.rejectWrites = false;
@@ -340,6 +350,172 @@ it("clears an editor after an ambiguous applied delete without reporting success
     await wait("No secrets yet");
 });
 
+it("refreshes external changes, retires stale editor fields, and manually recovers a disconnected collection", async () => {
+    component = mount(Browser, { target, props: { userId: "user-one" } });
+    await wait("Duplicate name");
+    select("first");
+    await wait("First secret");
+    click("First secret");
+    input("name", "Unsaved draft");
+    Endpoint.files
+        .get("first")
+        ?.set(`secrets/${id}.json`, { ...secret, name: "External edit" });
+    click("Refresh");
+    await wait("Refreshed");
+    expect(target.textContent).toContain("External edit");
+    expect(target.querySelector("#secret")).toBeNull();
+    expect(Endpoint.sockets).toHaveLength(1);
+    Endpoint.sockets[0]?.close();
+    await wait("verify records before retrying");
+    expect(target.querySelector("ul")).toBeNull();
+    click("Refresh");
+    await wait("Refreshed");
+    expect(target.textContent).toContain("External edit");
+    expect(target.querySelector('[role="alert"]')).toBeNull();
+    expect(Endpoint.sockets).toHaveLength(2);
+});
+
+it("qualifies sign-in, discovery/create/open, CRUD, app reload, Refresh and context switching as one controlled workflow", async () => {
+    vi.stubGlobal("confirm", () => true);
+    component = mount(SignIn, { target });
+    input("remote-url", "https://idp.test/idp");
+    target
+        .querySelector("form")
+        ?.dispatchEvent(new Event("submit", { cancelable: true }));
+    await vi.waitFor(() => expect(auth.signin).toHaveBeenCalledOnce());
+    expect(auth.setAuthority).toHaveBeenCalledWith("https://idp.test/idp");
+    await unmount(component);
+    const identity = new SvelteMap([["subject", "user-one"]]);
+    const openApp = () =>
+        mount(Page, {
+            target,
+            props: {
+                params: {},
+                get data() {
+                    return { userInfo: { sub: identity.get("subject") } };
+                },
+            },
+        });
+    component = openApp();
+    await wait("Duplicate name");
+    Endpoint.files.set("created", new Map());
+    click("Create filesystem");
+    await wait("No secrets yet");
+    expect(Endpoint.sockets.at(-1)?.url).toContain("filesystem_id=created");
+    click("New secret");
+    input("name", "Workflow secret");
+    input("secret", "first password");
+    click("Save");
+    await wait("Saved");
+    input("name", "Workflow edited");
+    input("secret", "second password");
+    click("Save");
+    await wait("Saved");
+    const files = Endpoint.files.get("created");
+    const saved = [...(files?.values() ?? [])][0] as typeof secret;
+    expect(saved).toMatchObject({
+        name: "Workflow edited",
+        history: [{ secret: "first password", changedAt: expect.any(String) }],
+    });
+    const old = Endpoint.sockets.at(-1);
+    await unmount(component);
+    expect(old?.closed).toBe(true);
+    // A new mounted app/collection has no in-memory secret state to reuse.
+    fetchApi.mockImplementation(async (url: string) =>
+        String(url).endsWith("/oauth2/token")
+            ? Response.json({ access_token: "storage-token" })
+            : Response.json([
+                  { id: "created", name: "Created filesystem" },
+                  { id: "empty", name: "Other filesystem" },
+              ]),
+    );
+    component = openApp();
+    await wait("Created filesystem");
+    select("created");
+    await wait("Workflow edited");
+    click("Open filesystem");
+    await wait("Workflow edited");
+    click("Workflow edited");
+    expect(target.querySelector<HTMLInputElement>("#secret")?.value).toBe(
+        "second password",
+    );
+    files?.set(`secrets/${saved.id}.json`, {
+        ...saved,
+        name: "External workflow edit",
+    });
+    click("Refresh");
+    await wait("Refreshed");
+    expect(target.textContent).toContain("External workflow edit");
+    click("External workflow edit");
+    click("Delete");
+    await wait("Deleted");
+    click("Refresh");
+    await wait("Refreshed");
+    expect(target.textContent).toContain("No secrets yet");
+    expect(files?.size).toBe(0);
+    const refreshing = Endpoint.sockets.at(-1);
+    if (!refreshing) throw new Error("Expected an open Storage connection");
+    refreshing.hold = true;
+    click("Refresh");
+    await wait("Refreshing secrets");
+    expect(
+        [...target.querySelectorAll("button")]
+            .filter((button) =>
+                /^(Refresh|New secret)$/.test(button.textContent?.trim() ?? ""),
+            )
+            .every((button) => button.disabled),
+    ).toBe(true);
+    select("empty");
+    await wait("No secrets yet");
+    expect(refreshing.closed).toBe(true);
+    refreshing.dispatchEvent(
+        new MessageEvent("message", {
+            data: JSON.stringify({
+                type: "listed",
+                entries: [entry("secrets")],
+            }),
+        }),
+    );
+    flushSync(() => identity.set("subject", "user-two"));
+    await wait("Created filesystem");
+    expect(target.querySelector("#secret")).toBeNull();
+    expect(target.textContent).not.toMatch(
+        /Workflow edited|External workflow edit|Refreshed/,
+    );
+    select("empty");
+    await wait("No secrets yet");
+    const signedOut = Endpoint.sockets.at(-1);
+    click("Sign out");
+    flushSync();
+    expect(target.querySelector("select")).toBeNull();
+    expect(signedOut?.closed).toBe(true);
+    expect(auth.clear).toHaveBeenCalledOnce();
+    expect(
+        fetchApi.mock.calls.some(([url]) =>
+            String(url).startsWith("https://storage.test/storage/"),
+        ),
+    ).toBe(true);
+});
+
+it("hides malformed refresh results and recovers only after content repair and explicit retry", async () => {
+    component = mount(Browser, { target, props: { userId: "user-one" } });
+    await wait("Duplicate name");
+    select("first");
+    await wait("First secret");
+    Endpoint.files.get("first")?.set("secrets/broken.json", { invalid: true });
+    click("Refresh");
+    await wait("Malformed Storage record");
+    expect(target.querySelector("ul")).toBeNull();
+    expect(target.textContent).not.toContain("No secrets yet");
+    expect(Endpoint.sockets).toHaveLength(1);
+    Endpoint.files.get("first")?.delete("secrets/broken.json");
+    click("Refresh");
+    await wait("Refreshed");
+    expect(target.textContent).toContain("First secret");
+    expect(target.querySelector('[role="alert"]')).toBeNull();
+    expect(Endpoint.sockets).toHaveLength(2);
+});
+
 it("hides records and prevents blind retries when a write disconnects", async () => {
     component = mount(Browser, { target, props: { userId: "user-one" } });
     await wait("Duplicate name");
@@ -369,6 +545,11 @@ it("does not display a late write completion or error after switching filesystem
     input("name", "Pending edit");
     click("Save");
     await wait("Saving");
+    expect(
+        [...target.querySelectorAll("button")].find(
+            (button) => button.textContent?.trim() === "Refresh",
+        )?.disabled,
+    ).toBe(true);
     await vi.waitFor(() =>
         expect(Endpoint.sockets[0]?.requests.at(-1)?.type).toBe("write"),
     );
