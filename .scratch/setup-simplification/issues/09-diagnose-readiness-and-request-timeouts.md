@@ -2,7 +2,7 @@
 
 **Type:** task
 
-**Status:** resolved
+**Status:** open
 
 **Triage:** ready-for-agent
 
@@ -20,15 +20,17 @@ Read [reliability evidence](../evidence/07-reliability-followup.md), [validation
 
 ## Acceptance criteria
 
-Checked for the bounded current-code ordinary-behavior scope in the Answer below; not an exhaustive causal attribution of archived failures, three idle serial repetitions, feature-matrix or platform qualification.
+Reopened after the broader root matrix reproduced six ordinary response/readiness failures. Earlier checked results remain evidence only for the bounded serial/threads=2 scope in the historical Answer below; they do not qualify the new all-features/default-concurrency failures.
 
-- [x] Reproduce and localize remaining failures with fixed recorded code/dependency inputs; distinguish idle serial execution, concurrent test execution, and tracing overhead.
+- [ ] Reproduce and localize remaining failures with fixed recorded code/dependency inputs; distinguish idle serial execution, concurrent test execution, and tracing overhead.
 - [x] Capture categorical phase/task timing without passwords, setup codes, bearer tokens, or request payload disclosure.
 - [x] Establish each diagnosed root cause with a focused failing regression before changing implementation.
 - [x] Preserve exact intent/identity, authorized approval, pinned-peer trust, current readiness, and existing request bounds; do not mask failures with sleeps, retries, or deadline inflation.
 - [x] Record repeated finalization, interruption/exact retry, and source-offline reopen results plus remaining limits. Update ticket 07 only for criteria supported by evidence.
 
 ## Comments
+
+**Reopened after root matrix, 2026-10-26:** ticket11's [actual fixed-input execution](../evidence/11-validation-attempt.md#authorized-final-execution-2026-10-26) at `12c7fda8e` reproduced six failed parents in root all-features run1/10 with default test concurrency: two invalid-bearer Storage response timeouts, one authenticated Storage response timeout, and three bounded IdP readiness failures. The matrix reported **38 passed / 6 failed / 6 ignored**; no resource guard fired. These are current ordinary failures requiring phase/owner localization, not evidence of a common cause, a fixture defect, or a reason to increase deadlines. Prior serial/threads=2 **16/16** passes and fixed lifecycle regressions remain valid within their recorded boundaries; the closure below is historical and superseded. Keep ticket09 open until the new failures are diagnosed and appropriately qualified; establish any proposed behavioral fix with a focused failing regression. No rerun or behavior change was performed during integration review.
 
 **Current-code qualification claim, 2026-10-26:** resumed same branch/worktree and fast-forwarded integration to `734e65070ec0dfa7dcc1d03934ab7c63ed8ca456`. Exclusive Rust slot; TDD/ponytail reloaded. Predeclare **one serial cell S and one concurrent cell C**, each using the three existing public HTTPS Join parents and five exact independent readiness/permission representatives from evidence09, unified/owner subgroups run separately. S uses threads=1; C uses threads=2. Both untraced, `OF_SETUP_TIMEOUT_TIMING`/`RUST_LOG` unset, `RUST_MIN_STACK=67108864`, same freshly verified binaries/features/dependency inputs. No retry-to-green. On a failing subgroup, preserve evidence and diagnose before deciding further execution. Builds jobs=1, bounded owned process groups with RAM/RSS/PSI monitoring; no matrix/coverage/CRAP or sibling edits. Record this as current runnable qualification, not attribution of every historical failure.
 
@@ -52,9 +54,9 @@ Claimed by Agent09 on `implement/setup-followup-09` in `.worktrees/setup-09`, co
 
 No real user profile, OS trust store, or production provider changes are authorized by this issue. Passing repetitions alone do not prove the origin of historical failures.
 
-## Answer
+## Answer (historical bounded closure; superseded by reopening above)
 
-**Resolved, 2026-10-26**, after merging approved integration `734e65070ec0dfa7dcc1d03934ab7c63ed8ca456` and executing the [predeclared current-code untraced serial/concurrent qualification and causal regressions](../evidence/09-timeout-localization.md#current-code-untraced-qualification-and-bounded-closure-2026-10-26). Same fixed code/dependencies/binaries throughout; no new Rust changes or speculative fixes were needed.
+**Resolved for the then-declared scope, 2026-10-26**, after merging approved integration `734e65070ec0dfa7dcc1d03934ab7c63ed8ca456` and executing the [predeclared current-code untraced serial/concurrent qualification and causal regressions](../evidence/09-timeout-localization.md#current-code-untraced-qualification-and-bounded-closure-2026-10-26). Same fixed code/dependencies/binaries throughout; no new Rust changes or speculative fixes were needed.
 
 - **S / serial:** three public HTTPS Join parents **3/3 passed** (263.323s); five independent readiness/permission representatives **5/5 passed** (394.205s).
 - **C / threads=2:** same Join parents **3/3 passed** (178.320s); same independent representatives **5/5 passed** (229.145s).
