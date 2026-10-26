@@ -4,7 +4,9 @@
 
 **Blocked by:** TanStack DB integration tickets 02–04 — Open a filesystem through TanStack DB; Save and delete secrets through the collection; Refresh and qualify the example. Complete that effort before starting this follow-on migration.
 
-**Status:** ready-for-agent
+**Triage:** ready-for-agent
+
+**Status:** claimed
 
 - [ ] Add the framework-independent `@of/sdk` workspace package and migrate the password manager's authentication workflow with it; do not ship standalone scaffolding without a working consumer.
 - [ ] Accept immutable explicit IdP/Storage service bases, OAuth Client configuration, Application metadata, and redirect configuration. Preserve service prefixes and distinct Application, client, and issuer identities. Keep environment mapping, navigation, safe return-to handling, route guards, and notifications in the application.

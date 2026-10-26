@@ -6,7 +6,7 @@
 - Prerequisite: complete the [TanStack DB integration](../tanstack-db-integration/map.md) before implementing this follow-on effort.
 - [01: Sign in and out through @of/sdk](issues/01-sign-in-and-out-through-sdk.md) — ready-for-agent; blocked by completion of TanStack DB integration tickets 02–04.
 - [02: Use SDK-bound Storage in the password manager](issues/02-use-sdk-bound-storage.md) — ready-for-agent; blocked by 01.
-- Ticket 01 is the first implementation slice once the prerequisite effort is complete. No implementation changes have been made.
+- TanStack DB prerequisite completed at `f16091834`. Implementation branch: `integration/application-sdk`; ticket 01 is the current frontier.
 
 ## Decisions-so-far
 
@@ -20,7 +20,7 @@
 
 ## Fog
 
-- Confirm the proposed public-SDK workflow test seam with the User; include a focused app smoke test using the real collection integration.
+- User approved the public-SDK workflow test seam: real OIDC/Storage clients and TanStack runtime against controlled service/platform responses, with a focused app smoke test. Live-system qualification remains separate.
 - Verify the completed adapter's exact connection/disposal interface before defining SDK interface names or resource handoff types.
 - Choose and document browser credential persistence and callback continuity; memory-only state does not survive full-page redirects.
 - Verify canonical issuer/User/Application identity establishment, client-scoped cache behavior, and terminal versus transient failure classification in the current OIDC client.
