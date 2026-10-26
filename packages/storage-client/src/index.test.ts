@@ -36,6 +36,68 @@ class TestSocket extends EventTarget {
 }
 
 describe("StorageClient", () => {
+    it.each(["list", "create"])(
+        "%s cancellation while obtaining the bearer sends no exchange or resource request",
+        async (operation) => {
+            let release!: (token: string) => void;
+            const token = new Promise<string>((resolve) => {
+                release = resolve;
+            });
+            const bearerToken = vi.fn(() => token);
+            const fetch = vi.fn();
+            const client = new StorageClient({
+                idpBaseUrl: "https://idp.example/idp",
+                storageBaseUrl: "https://storage.example/storage",
+                clientId: "password-manager-web",
+                bearerToken,
+                fetch,
+            });
+            const controller = new AbortController();
+            const pending =
+                operation === "list"
+                    ? client.listFileSystems(controller.signal)
+                    : client.createFileSystem("Example", controller.signal);
+            expect(bearerToken).toHaveBeenCalledOnce();
+            controller.abort();
+            release("obsolete-user-token");
+            await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+            expect(fetch).not.toHaveBeenCalled();
+        },
+    );
+
+    it("passes cancellation to exchange and resource requests without pretending to undo an already-sent creation", async () => {
+        let release!: (response: Response) => void;
+        const held = new Promise<Response>((resolve) => {
+            release = resolve;
+        });
+        const fetch = vi
+            .fn()
+            .mockResolvedValueOnce(
+                Response.json({ access_token: "storage-token" }),
+            )
+            .mockReturnValueOnce(held);
+        const client = new StorageClient({
+            idpBaseUrl: "https://idp.example/idp",
+            storageBaseUrl: "https://storage.example/storage",
+            clientId: "password-manager-web",
+            bearerToken: () => "user-token",
+            fetch,
+        });
+        const controller = new AbortController();
+        const pending = client.createFileSystem("Example", controller.signal);
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+        expect(fetch.mock.calls.map((call) => call[1].signal)).toEqual([
+            controller.signal,
+            controller.signal,
+        ]);
+        controller.abort();
+        release(Response.json({ id: "created", name: "Example" }));
+        await expect(pending).resolves.toEqual({
+            id: "created",
+            name: "Example",
+        });
+        expect(fetch).toHaveBeenCalledTimes(2);
+    });
     it.each([
         {
             name: "missing-user",

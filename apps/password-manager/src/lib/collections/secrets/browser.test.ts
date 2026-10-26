@@ -214,6 +214,44 @@ it("discovers, opens by Filesystem ID, reads through the official live query, cl
     ).toBe(true);
 });
 
+it.each(["discovery", "creation"])(
+    "unmount cancels %s held in token exchange before any resource request",
+    async (operation) => {
+        if (operation === "creation") {
+            component = mount(Browser, {
+                target,
+                props: { userId: "user-one" },
+            });
+            await wait("Duplicate name");
+        }
+        let release!: (response: Response) => void;
+        const held = new Promise<Response>((resolve) => {
+            release = resolve;
+        });
+        const exchange = vi.fn(() => held);
+        fetchApi.mockImplementationOnce(exchange);
+        if (operation === "creation") click("Create filesystem");
+        else
+            component = mount(Browser, {
+                target,
+                props: { userId: "user-one" },
+            });
+        await vi.waitFor(() => expect(exchange).toHaveBeenCalledTimes(1));
+        await unmount(component);
+        // A replacement context must not receive the old operation's result.
+        component = mount(Browser, { target, props: { userId: "user-two" } });
+        await wait("Duplicate name");
+        const callsBeforeRelease = fetchApi.mock.calls.length;
+        release(Response.json({ access_token: "obsolete-storage-token" }));
+        await held;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        flushSync();
+        expect(fetchApi).toHaveBeenCalledTimes(callsBeforeRelease);
+        expect(target.textContent).not.toContain("New filesystem");
+        expect(Endpoint.sockets).toHaveLength(0);
+    },
+);
+
 function click(text: string) {
     const button = [...target.querySelectorAll("button")].find(
         (button) => button.textContent?.trim() === text,

@@ -52,6 +52,87 @@ test("memory sessions remove old plaintext caches and never persist tokens", () 
   }
 });
 
+test.each([
+  ["clear", "persistent"],
+  ["replace", "persistent"],
+  ["other-tab", "persistent"],
+  ["clear-and-restore", "persistent"],
+  ["clear", "memory"],
+  ["replace", "memory"],
+  ["clear-and-restore", "memory"],
+] as const)(
+  "a delayed refresh cannot return or store credentials after %s (%s)",
+  async (change, storage) => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("window", {
+      location: { origin: "https://app.example" },
+      localStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value),
+        removeItem: (key: string) => values.delete(key),
+      },
+    });
+    let release!: (response: Response) => void;
+    const held = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    const fetch = vi.fn(async (url: URL | RequestInfo) =>
+      String(url).endsWith("/oauth/token")
+        ? held
+        : Response.json(createOidcConfiguration()),
+    );
+    const options = {
+      clientConfig: {
+        authority: "https://issuer.example",
+        clientId: "app",
+        redirectUri: "https://app.example/callback",
+      },
+      fetch,
+      ...(storage === "memory" ? { storage: "memory" as const } : {}),
+    };
+    try {
+      const client = new OidcClient(options);
+      const old = {
+        access_token: "expired",
+        refresh_token: "old-refresh",
+      };
+      client.setToken(old);
+      const pending = client.getAccessToken();
+      const rejected = expect(pending).rejects.toThrow(
+        "Session changed during token refresh",
+      );
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+      if (change === "clear" || change === "clear-and-restore")
+        client.clearStoredTokenResponse();
+      if (change === "clear-and-restore") client.setToken(old);
+      if (change === "replace")
+        client.setToken({
+          access_token: "new-user",
+          refresh_token: "new-refresh",
+        });
+      if (change === "other-tab")
+        new OidcClient(options).setToken({
+          access_token: "other-tab-user",
+          refresh_token: "other-tab-refresh",
+        });
+      const expected = client.getStoredTokenResponse();
+      release(
+        Response.json({
+          access_token: "stale-refreshed",
+          refresh_token: "stale-refresh",
+        }),
+      );
+      await rejected;
+      expect(client.getStoredTokenResponse()).toEqual(expected);
+      expect(new OidcClient(options).getStoredTokenResponse()).toEqual(
+        storage === "memory" ? null : expected,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  },
+);
+
 function createClient(): OidcClient {
   return new OidcClient({
     clientConfig: {

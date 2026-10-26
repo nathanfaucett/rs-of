@@ -107,6 +107,7 @@ export class OidcClient<
   private readonly fetch: Fetch;
   private readonly memoryOnly: boolean;
   private tokenResponse: OidcTokenResponse | null = null;
+  private sessionGeneration = 0;
 
   private oidcConfigPromise: Promise<OidcConfiguration> | null = null;
   private readonly pkceVerifiersByState = new Map<string, string>();
@@ -186,6 +187,7 @@ export class OidcClient<
   }
 
   private rememberTokenResponse(tokenResponse: OidcTokenResponse): void {
+    this.sessionGeneration += 1;
     if (this.memoryOnly) {
       this.tokenResponse = tokenResponse;
       return;
@@ -219,6 +221,7 @@ export class OidcClient<
   }
 
   clearStoredTokenResponse(): void {
+    this.sessionGeneration += 1;
     this.tokenResponse = null;
     if (this.memoryOnly) {
       this.pkceVerifiersByState.clear();
@@ -717,7 +720,9 @@ export class OidcClient<
   }
 
   async refreshToken(): Promise<OidcTokenResponse> {
+    const generation = this.sessionGeneration;
     const storedToken = this.getStoredTokenResponse();
+    const snapshot = JSON.stringify(storedToken);
     if (!storedToken?.refresh_token) {
       throw new OidcClientError(
         "NO_REFRESH_TOKEN",
@@ -736,6 +741,15 @@ export class OidcClient<
       ...storedToken,
       ...(await this.requestToken(config.token_endpoint, headers, body)),
     });
+    if (
+      generation !== this.sessionGeneration ||
+      snapshot !== JSON.stringify(this.getStoredTokenResponse())
+    ) {
+      throw new OidcClientError(
+        "NO_ACCESS_TOKEN",
+        "Session changed during token refresh",
+      );
+    }
     this.rememberTokenResponse(refreshed);
     return refreshed;
   }

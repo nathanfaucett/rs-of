@@ -74,8 +74,8 @@ export declare class StorageSocket {
 export declare class StorageClient {
     private readonly options;
     constructor(options: StorageClientOptions);
-    listFileSystems(): Promise<FileSystemResource[]>;
-    createFileSystem(name?: string): Promise<FileSystemResource>;
+    listFileSystems(signal?: AbortSignal): Promise<FileSystemResource[]>;
+    createFileSystem(name?: string, signal?: AbortSignal): Promise<FileSystemResource>;
     openSocket(filesystemId: string, signal?: AbortSignal): Promise<StorageSocket>;
     private exchangeToken;
     private resources;

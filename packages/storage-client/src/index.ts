@@ -83,11 +83,12 @@ export class StorageSocket {
 export class StorageClient {
     constructor(private readonly options: StorageClientOptions) {}
 
-    async listFileSystems(): Promise<FileSystemResource[]> {
-        const token = await this.exchangeToken(["read"]);
+    async listFileSystems(signal?: AbortSignal): Promise<FileSystemResource[]> {
+        const token = await this.exchangeToken(["read"], signal);
+        signal?.throwIfAborted();
         return (
             await this.resources(token)
-                .listFileSystems()
+                .listFileSystems(signal ? { signal } : undefined)
                 .catch((error) => {
                     if (error instanceof ResponseError)
                         throw new Error(
@@ -98,10 +99,17 @@ export class StorageClient {
         ).map((resource) => ({ id: resource.id, name: resource.name ?? null }));
     }
 
-    async createFileSystem(name?: string): Promise<FileSystemResource> {
-        const token = await this.exchangeToken(["write"]);
+    async createFileSystem(
+        name?: string,
+        signal?: AbortSignal,
+    ): Promise<FileSystemResource> {
+        const token = await this.exchangeToken(["write"], signal);
+        signal?.throwIfAborted();
         const resource = await this.resources(token)
-            .createFileSystem({ createResourceRequest: { name: name ?? null } })
+            .createFileSystem(
+                { createResourceRequest: { name: name ?? null } },
+                signal ? { signal } : undefined,
+            )
             .catch((error) => {
                 if (error instanceof ResponseError)
                     throw new Error(

@@ -1,10 +1,17 @@
 <script lang="ts">
-import type { FileSystemResource, StorageClient } from "@aicacia/storage-client";
+import type {
+    FileSystemResource,
+    StorageClient,
+} from "@aicacia/storage-client";
 import { createStorageClient } from "$lib/common/storageSocket";
 import Filesystem from "./Filesystem.svelte";
 
 let { userId }: { userId: string } = $props();
-let context = $state.raw<{ client: StorageClient; userId: string } | null>(null);
+let context = $state.raw<{
+    client: StorageClient;
+    userId: string;
+    signal: AbortSignal;
+} | null>(null);
 let fileSystems = $state.raw<FileSystemResource[]>([]);
 let selectedFileSystemId = $state("");
 let openVersion = $state(0);
@@ -13,6 +20,7 @@ let error = $state<string | null>(null);
 
 $effect(() => {
     const subject = userId;
+    const controller = new AbortController();
     let active = true;
     fileSystems = [];
     selectedFileSystemId = "";
@@ -20,18 +28,28 @@ $effect(() => {
     error = null;
     try {
         const client = createStorageClient();
-        context = { client, userId: subject };
-        void client.listFileSystems().then((resources) => {
-            if (active) fileSystems = resources;
-        }).catch((cause: unknown) => {
-            if (active) error = message(cause);
-        }).finally(() => { if (active) loading = false; });
+        context = { client, userId: subject, signal: controller.signal };
+        void client
+            .listFileSystems(controller.signal)
+            .then((resources) => {
+                if (active) fileSystems = resources;
+            })
+            .catch((cause: unknown) => {
+                if (active) error = message(cause);
+            })
+            .finally(() => {
+                if (active) loading = false;
+            });
     } catch (cause) {
         context = null;
         error = message(cause);
         loading = false;
     }
-    return () => { active = false; context = null; };
+    return () => {
+        active = false;
+        controller.abort();
+        context = null;
+    };
 });
 
 async function newFileSystem(): Promise<void> {
@@ -40,7 +58,10 @@ async function newFileSystem(): Promise<void> {
     loading = true;
     error = null;
     try {
-        const resource = await current.client.createFileSystem("Password Manager");
+        const resource = await current.client.createFileSystem(
+            "Password Manager",
+            current.signal,
+        );
         if (current !== context) return;
         fileSystems = [...fileSystems, resource];
         selectedFileSystemId = resource.id;
