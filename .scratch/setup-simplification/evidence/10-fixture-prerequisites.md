@@ -8,7 +8,7 @@
 - Read root AGENTS, issue-tracker instructions, shared glossary/map, setup-simplification spec and ticket 07 validation diagnosis. Loaded TDD, ponytail and GitHub Actions guidance.
 - Owned SDK prerequisite test/CI entry points, reset fixture tests, ticket 10 and this receipt. No map, other ticket, production provider ownership, real profile, provider or trust changes. Existing newer SDK implementation remains unchanged.
 - Complexity/risk/priority: low implementation complexity, safety-sensitive reset assertions, routine priority. Reuse the existing exported-package/router and isolated Create/Join/reset seams; no new dependencies or migration support.
-- Ticket 08 owns the Rust build slot. **No Cargo build/test/check, matrix or coverage command was intentionally executed.** Changed Rust tests remain uncompiled/unexecuted; the one existing-binary SDK run below does not qualify them.
+- Initial source-only pass: ticket 08 owned the Rust build slot, so changed Rust tests were not compiled/executed then. The later **exclusive-slot follow-up below supersedes that validation limit**; no matrix or coverage was run in either pass.
 
 ## Changes
 
@@ -61,7 +61,7 @@ An initial 30-second combined Node command also included `scripts/generate-opena
 
 Frozen installation/ESM/Vitest commands changed tracked Storage source-map/node_modules artifacts. Restored **only those changes produced by this pass** from the initially clean checkout. No generated output, node_modules, staging tree, lock refresh, main-worktree artifact, or new dependency belongs in the delivery commit.
 
-## Coordinated Rust validation: NOT RUN
+## Initial handoff plan (superseded by executed follow-up below)
 
 **Ready for Rust validation; wait for ticket 08 to release the shared build slot.** Run from setup-10 with `CARGO_TARGET_DIR=/home/nathan/code/rust/aicacia/of/target`, serially. First ensure the frozen JS installation and `pnpm sdk:build` prerequisites. Do not invoke ignored children directly: parents establish private roots, isolated native CA bundles, no-op trust commands, mock providers and 180-second child deadlines.
 
@@ -80,6 +80,52 @@ CARGO_TARGET_DIR=/home/nathan/code/rust/aicacia/of/target cargo test -p lidp --l
 
 After coordinated focused validation, broader gates remain `cargo hack test --feature-powerset --all-targets`, relevant clippy, `just crap`, and full `pnpm openapi:check --committed`. Do not overlap these with ticket 08's builds or infer their success from JS tests. Ticket 07's previously recorded provider/readiness/permission timeout and coverage limits remain unresolved here.
 
-## Acceptance status
+## Initial acceptance status (superseded)
 
-SDK prerequisite and actual exported scenario are exercised, with the existing-binary limit stated above. Fixture repair and safety assertions are implemented, but **both revised reset scenarios and neighboring Rust safety cases have not run**. Ticket remains claimed, not resolved; full acceptance is pending coordinated Rust validation. No historical compatibility or production provider repair was added.
+The source-only handoff left the ticket claimed pending coordinated Rust validation. The following current-source execution closes that ticket-specific gap; the older existing-binary result above is not used as substitute evidence.
+
+## Exclusive Rust-slot follow-up
+
+### Integration and execution boundaries
+
+- User released ticket 08's slot and granted ticket 10 exclusive Rust build/test ownership; agent 09 remained source-only. Merged `integration/setup-simplification-followup` by fast-forward to **`8ee26fb1f8d789840dc246b94cfa22f6fdb7e6a5`**, including ticket 08's provider changes and integrated ticket 10 fixture edits. All runs below rebuilt/used this current setup-10 source; no Node shim or pre-existing-executable workaround.
+- Sibling HEADs observed after execution: ofdb `e3242170c94d5fc4bcc121db812310c8106c7ab6`, ofnet `dbea925a0a3f99053fffc02618baccc2a1cbea9f`, offs `df4c696a910296635473ec296d9235acbaa60d9b`. No sibling edits.
+- Every Cargo invocation used the literal environment prefix `CARGO_TARGET_DIR=/home/nathan/code/rust/aicacia/of/target CARGO_BUILD_JOBS=2 RUST_MIN_STACK=67108864`. Rust commands ran serially, with `--locked` for tests and `--test-threads=1`. No matrix, coverage, CRAP, full OpenAPI generation, or Clippy run in this authorized focused pass.
+- Bounds: SDK rebuild/run and initial native rebuild 600000 ms each; other owner-boundary parents 240000 ms each; corrected native safety groups 180000 ms each; test enumeration and formatting 60000 ms. No command timed out. Parent fixtures retained their own original 180-second child deadlines and launched their ignored children themselves.
+- Native/independent scenarios used their existing private temporary roots, mock credential stores, isolated native CA bundles and injected no-op trust commands. No real profile/provider/trust changes. No production code or tests needed a follow-up repair; assertions were not weakened.
+
+### Current-source results
+
+First ran `pnpm install --frozen-lockfile --ignore-scripts` and `pnpm sdk:build`: both passed. Four owner-client ESM packages built successfully. The rebuilt Rust prerequisite check and actual Node consumer then executed through the ordinary test path.
+
+All owner-boundary commands used `cargo test --locked -p idp-unified --test owner_boundaries <exact-name> -- --exact --nocapture --test-threads=1`, with the environment and bounds above. Exact selected names and actual outcomes:
+
+| Exact selected name                                                                                              | Actual outcome                                                                                                                                                                                                                                                                                                    |
+| ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `native_api_tests::generated_rust_and_built_javascript_use_actual_owner_routes`                                  | **1 passed**, 0 failed/ignored, 49 filtered out; 13.78 s test time after **7m14s current-source build**. Output: `Built package exports and generated operations qualified against actual owner routers`. Executable `target/debug/deps/owner_boundaries-fbdb13f2c672f60d`, compiled from setup-10.               |
+| `owner_composition_tests::create::production_independent_create_unsupported_record_refusal_and_current_reset`    | **Parent and isolated child passed**; parent 128.46 s, child 128.34 s. Unsupported versions, historical unknown fields, malformed records, unchanged evidence/provider inventory, retained-journal conflict fencing, restored-current cleanup and provider/deletion failure retries all reached their assertions. |
+| `owner_composition_tests::join::production_independent_join_unsupported_record_refusal_and_current_reset`        | **Parent and isolated child passed**; parent 102.10 s, child 101.98 s. Includes public Join, Storage use, source-offline reopen, negative retained-record cases and supported-current reset.                                                                                                                      |
+| `owner_composition_tests::create::production_independent_create_and_offline_reopen`                              | **Parent and isolated child passed**; parent 127.86 s, child 127.70 s. Includes normal current-record cleanup and interrupted/provider-failure safety.                                                                                                                                                            |
+| `owner_composition_tests::join::production_independent_join_and_source_offline_reopen`                           | **Parent and isolated child passed**; parent 96.77 s, child 96.58 s.                                                                                                                                                                                                                                              |
+| `owner_composition_tests::remote_setup::remote_create_join_reopen_and_device_reset_preserve_shared_installation` | **Parent and isolated child passed**; parent 66.29 s, child 66.12 s. Remote consumer cleanup preserves shared owner data and other consumer authentication/signing.                                                                                                                                               |
+
+Each owner-boundary parent invocation selected exactly one test (49 filtered out); child runs are additional nested fixture execution, not extra independent parent selections.
+
+Native safety execution:
+
+| Command after common environment prefix                                              | Actual outcome                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cargo test --locked -p lidp --lib setup_reset_tests -- --test-threads=1`            | **0 tests selected**, 26 filtered out, after **7m03s rebuild**. This stale filename-derived filter in the initial handoff was incorrect and is **not counted as passing safety validation**.                                                                                                                                    |
+| `cargo test --locked -p lidp --lib -- --list`                                        | Listed 26 current test names; confirmed actual module prefixes `setup_reset::tests` and `setup_peer_revocation::tests`.                                                                                                                                                                                                         |
+| `cargo test --locked -p lidp --lib setup_reset::tests -- --test-threads=1`           | **6 passed**, 0 failed/ignored, 20 filtered out; 0.23 s. Covers damaged provisioning preservation, failed secret cleanup/retry, data-only retry without provider reuse, lost identity exact-reference recovery, symlink/conflicting recovery evidence refusal, retained Join exact owner IDs without endpoint/provider startup. |
+| `cargo test --locked -p lidp --lib setup_peer_revocation::tests -- --test-threads=1` | **1 passed**, 0 failed/ignored, 25 filtered out; 0.08 s. Verifies issuer pinning, per-audience exchange and acknowledgment only after both owners.                                                                                                                                                                              |
+
+Native executable: `target/debug/deps/lidp-d2096e17d9dad2bb`, rebuilt from setup-10. The initial planned `setup_peer_revocation_tests` filter was corrected before execution; it was not run as a zero-test substitute.
+
+Additional checks: `node --test scripts/generated-package-exports.test.mjs` **5 passed** again; `cargo fmt --all -- --check` and `git diff --check` passed. `Cargo.lock` retained SHA-256 **`bb7e608f57a6167612acac7d247e51eb2c6efbe449b95208c7a1862b78dd3a3f`**. Frozen pnpm installation changed only the seven tracked Storage node_modules launcher/symlink artifacts; restored those pass-owned changes before committing. No generated ESM/type output, lock changes or pnpm artifacts are delivered.
+
+### Final disposition
+
+**Ticket 10 resolved at its stated acceptance boundary:** explicit build prerequisites; current-source rebuilt actual exported SDK scenario; reconciled current reset fixture; distinct safe refusal of unsupported/malformed evidence; provider/deletion retry and exact-reference protection; local deletion distinct from remote revocation; affected scenarios and neighboring safety cases executed and recorded. Six owner-boundary selections plus seven native safety tests passed; all five isolated owner-composition children also passed. No assertion, timeout or compiler failure occurred in this follow-up; the incorrect zero-test selection is recorded above.
+
+No claim that these serial focused runs qualify the default-concurrency matrix, coverage/CRAP, full OpenAPI regeneration, strict Clippy, real OS providers/trust, GUI/WAN or other tickets' readiness/timeouts. Those broader gates remain explicitly outside this authorized pass. No map or other ticket edits; no historical migration/compatibility support.
