@@ -30,11 +30,11 @@ fn production_independent_join_and_source_offline_reopen() {
 }
 
 #[test]
-fn production_independent_join_legacy_record_reset() {
+fn production_independent_join_unsupported_record_refusal_and_current_reset() {
     run_production_join(true);
 }
 
-fn run_production_join(legacy_reset: bool) {
+fn run_production_join(unsupported_reset: bool) {
     let root = std::env::temp_dir().join(format!("independent-join-{}", Id::now_v7()));
     fs::create_dir(&root).expect("isolated fixture");
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).expect("private fixture");
@@ -88,8 +88,8 @@ fn run_production_join(legacy_reset: bool) {
         ])
         .env("OF_INDEPENDENT_JOIN_ROOT", &root)
         .env(
-            "OF_INDEPENDENT_LEGACY_RESET",
-            if legacy_reset { "1" } else { "0" },
+            "OF_INDEPENDENT_UNSUPPORTED_RESET",
+            if unsupported_reset { "1" } else { "0" },
         )
         .env("SSL_CERT_FILE", root.join("roots.pem"))
         .env("SSL_CERT_DIR", root.join("empty-roots"))

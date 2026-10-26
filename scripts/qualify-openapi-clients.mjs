@@ -209,7 +209,16 @@ try {
     ]);
     run("cargo", ["test", "-p", "api", "--lib", "canonical_openapi"]);
     run("cargo", ["test", "-p", "unified-server", "--lib", "openapi"]);
-    run("cargo", ["test", "-p", "unified-server", "--lib", "generated_"]);
+    run("cargo", [
+        "test",
+        "-p",
+        "idp-unified",
+        "--test",
+        "owner_boundaries",
+        "native_api_tests::generated_rust_and_built_javascript_use_actual_owner_routes",
+        "--",
+        "--exact",
+    ]);
     run("cargo", [
         "test",
         "-p",

@@ -12,6 +12,7 @@
     "apps:dev": "pnpm --filter \"./apps/*\" run dev",
     "apps:build": "pnpm --filter \"./apps/*\" run build",
     "apps:desktop": "pnpm --filter \"./apps/*\" run desktop",
+    "sdk:build": "pnpm --filter @aicacia/idp-client --filter @aicacia/management-client --filter @aicacia/device-client --filter @aicacia/storage-client run build:esm",
     "packages:build": "pnpm --filter \"./packages/*\" --filter \"./crates/*\" run build",
     "openapi:idp": "pnpm --filter \"./packages/idp-client\" run openapi",
     "openapi:device": "node scripts/generate-openapi-client.mjs device",
