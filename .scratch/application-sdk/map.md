@@ -2,7 +2,7 @@
 
 ## Notes
 
-- [Specification](spec.md) — Status: ready-for-agent.
+- [Specification](spec.md) — Status: resolved.
 - Prerequisite: complete the [TanStack DB integration](../tanstack-db-integration/map.md) before implementing this follow-on effort.
 - [01: Sign in and out through @of/sdk](issues/01-sign-in-and-out-through-sdk.md) — resolved; see Answer for implementation and checks.
 - [02: Use SDK-bound Storage in the password manager](issues/02-use-sdk-bound-storage.md) — resolved; see Answer for implementation, checks and qualification limits.
@@ -45,6 +45,13 @@ The follow-up starts from confirmed `884206d06` ancestry on the same review bran
 - Added public-SDK regressions for held userinfo returning success and 401 after old-SDK disposal and a different User authenticating in the same credential namespace. Both first failed with an extra old-transport request. They now assert no further old transport requests, no replacement localStorage reads, unchanged replacement persisted credentials/session, working replacement Storage and successful reload restoration. Existing same-User renewal overlap regressions continue to pass.
 - Follow-up validation: 45 SDK, 15 OIDC and 23 password-manager tests pass, including mounted same-User overlap (stale success/401) and the full app workflow. OIDC/SDK no-emit TypeScript checks and focused Biome lint/format pass, preserving existing indentation. No Svelte or Rust implementation changed; prior production-build/Svelte qualification and documented live-system/CRAP limitations remain unchanged. Generated artifacts are restored before commit; no push.
 
+## Final qualification
+
+- Both tickets and the specification are resolved on `integration/application-sdk`. Independent review (the requested `change-review` skill was unavailable) found no remaining concrete blockers after `27ec09ca9`, including verification of the retirement/replacement follow-up.
+- Final package test totals across the completed validation runs: 45 SDK, 15 OIDC, 21 Storage, 59 adapter, 23 app and 2 app-config tests (165 total). The final identity-only follow-up reran SDK/OIDC/app tests and TypeScript/lint checks; prior production-build/Svelte checks remained applicable.
+- `just crap` was rerun from the main integration checkout, where sibling paths resolve, but timed out after 200 seconds compiling Rust before producing a complexity report. No Rust implementation changed; feature-powerset validation was not applicable.
+- No live provider/Installation was available for qualification. Controlled responses do not establish remote logout/revocation, Node replication or production vault security. Nothing pushed or merged into `main` by this effort.
+
 ## Fog
 
 - User approved the public-SDK workflow test seam: real OIDC/Storage clients and TanStack runtime against controlled service/platform responses, with a focused app smoke test. Live-system qualification remains separate.
@@ -54,4 +61,4 @@ The follow-up starts from confirmed `884206d06` ancestry on the same review bran
 - Ticket 01 controlled SDK/app qualification passes; live deployed provider/logout/replication qualification remains manual. See the SDK and password-manager READMEs.
 
 - Ticket 02 qualification: 40 SDK, 14 OIDC, 21 Storage, 59 adapter, 20 app and 2 app-config tests pass; TypeScript/Svelte checks, focused lint/format and production build pass. Full mounted real-client/runtime smoke includes redirect/callback/reload, CRUD/Refresh/switch/sign-out and same-identity renewal retaining editor/socket. Late exchanges/opens/requests and context changes are isolated.
-- `just crap` was attempted but nested worktree Cargo metadata cannot find sibling `ofdb/crates/sql`; rerun the Rust-only coverage recipe from the main checkout after integration if needed. No Rust changes. Live deployed service/browser/provider and replication qualification remains manual as documented.
+- Earlier nested-worktree complexity attempts failed sibling-path resolution; the final main-checkout attempt timed out during compilation as recorded above. Live deployed service/browser/provider and replication qualification remains manual as documented.

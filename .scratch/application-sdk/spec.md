@@ -1,6 +1,6 @@
 # Application SDK: Authenticated Storage Composition
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
