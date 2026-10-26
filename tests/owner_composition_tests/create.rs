@@ -214,37 +214,37 @@ pub(super) async fn wait(http: &Client, intent: &IndependentCreateIntent, ready:
                     ),
                 }
             }
-            if let Ok(response) = response {
-                if response.status() == StatusCode::OK {
-                    let status = response.json::<serde_json::Value>().await;
+            if let Ok(response) = response
+                && response.status() == StatusCode::OK
+            {
+                let status = response.json::<serde_json::Value>().await;
+                if timing {
+                    match &status {
+                        Ok(status) => eprintln!(
+                            "seam=independent_readiness owner={owner} phase=body elapsed_ms={} request_ms={} ready={:?}",
+                            started.elapsed().as_millis(),
+                            request_started.elapsed().as_millis(),
+                            status["ready"].as_bool()
+                        ),
+                        Err(error) => eprintln!(
+                            "seam=independent_readiness owner={owner} phase=body_error elapsed_ms={} request_ms={} timeout={} decode={}",
+                            started.elapsed().as_millis(),
+                            request_started.elapsed().as_millis(),
+                            error.is_timeout(),
+                            error.is_decode()
+                        ),
+                    }
+                }
+                let status = status.expect("status JSON");
+                if status["ready"] == ready {
                     if timing {
-                        match &status {
-                            Ok(status) => eprintln!(
-                                "seam=independent_readiness owner={owner} phase=body elapsed_ms={} request_ms={} ready={:?}",
-                                started.elapsed().as_millis(),
-                                request_started.elapsed().as_millis(),
-                                status["ready"].as_bool()
-                            ),
-                            Err(error) => eprintln!(
-                                "seam=independent_readiness owner={owner} phase=body_error elapsed_ms={} request_ms={} timeout={} decode={}",
-                                started.elapsed().as_millis(),
-                                request_started.elapsed().as_millis(),
-                                error.is_timeout(),
-                                error.is_decode()
-                            ),
-                        }
+                        eprintln!(
+                            "seam=independent_readiness owner={owner} phase=matched elapsed_ms={} owner_ms={}",
+                            started.elapsed().as_millis(),
+                            owner_started.elapsed().as_millis()
+                        );
                     }
-                    let status = status.expect("status JSON");
-                    if status["ready"] == ready {
-                        if timing {
-                            eprintln!(
-                                "seam=independent_readiness owner={owner} phase=matched elapsed_ms={} owner_ms={}",
-                                started.elapsed().as_millis(),
-                                owner_started.elapsed().as_millis()
-                            );
-                        }
-                        break;
-                    }
+                    break;
                 }
             }
             assert!(
@@ -1076,9 +1076,19 @@ pub(super) async fn seed_endpoint_negatives(root: &Path) -> Vec<(String, StatusC
     let owner: Id = serde_json::from_value(record["user"].clone()).expect("setup owner");
     let role: Id = serde_json::from_value(record["create"]["role"].clone())
         .expect("Create administrator role");
-    let engine = Arc::new(
-        db::Database::open(root.join("device/devices.redb")).expect("existing-only stopped owner"),
-    );
+    let opened = db::Database::open(root.join("device/devices.redb"));
+    if std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_some() {
+        let unix_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("current clock")
+            .as_millis();
+        eprintln!(
+            "unix_ms={unix_ms} seam=independent_owner owner=device phase=post_shutdown_reopen successful={} error_kind={:?}",
+            opened.is_ok(),
+            opened.as_ref().err().map(|error| error.kind)
+        );
+    }
+    let engine = Arc::new(opened.expect("existing-only stopped owner"));
     let identity = db::Database::open(root.join("idp/idp.redb")).expect("stopped identity owner");
     let service = ManagementService::new(
         DbPermissionRepo::new(identity.client()),

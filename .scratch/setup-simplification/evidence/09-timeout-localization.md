@@ -1,4 +1,6 @@
-# Ticket 09: timeout localization — observation-only handoff
+# Ticket 09: timeout localization
+
+**Latest disposition:** [P3 clock correction and ownership follow-up](#p3-clock-correction-and-ownership-follow-up) fixes and tests the missing logger timestamps. One additional traced Create-pair diagnostic observed successful post-shutdown Database reopens, then both parents hit unchanged 180s watchdogs; it did not identify the historical surviving owner. [Earlier focused execution](#authorized-focused-execution-2026-10-26) reproduced the approval overrun and a distinct stopped-Database lock failure. No deterministic Database root-cause regression or lifecycle fix yet; ticket09 remains claimed/unresolved. The observation-only handoff below is historical; its NOT RUN labels describe that first pass, not the executed results appended here.
 
 ## Status and ownership
 
@@ -26,7 +28,7 @@ Only four existing source files change:
 3. `crates/unified-server/src/api_join_tests.rs`: existing ordinary authorized approval request gets start/end timing, numeric HTTP status or reqwest timeout/connect/request booleans **before the existing expect/assert**. With feature `cli` and `OF_SETUP_TIMEOUT_TIMING` present, its isolated child installs the existing optional env_logger with fixed `off,setup_timeout=debug`, not `RUST_LOG` or a broad HTTP filter. No new dependency. Without `cli`, client timing can print but the server logger is not installed; diagnostic commands explicitly enable `cli`.
 4. `tests/owner_composition_tests/create.rs`: existing readiness helper optionally reports each request start, headers/status or categorical transport error, JSON/body completion or categorical timeout/decode error, and matching readiness. It records cumulative shared-wait, owner and request milliseconds, expected boolean and parsed readiness boolean only. Original parsing/assertions, sequential owner order, deadline and 50ms polling sleep remain intact. No response body/state string or error Debug/Display is logged.
 
-`OF_SETUP_TIMEOUT_TIMING` is presence-based and is read only in tests; **unset it**, rather than set it to `0`, for control cells. Production logs require an installed logger allowing the dedicated debug target. Timers are local monotonic `Instant`s; elapsed time is relative to each seam, not a globally synchronized clock. Existing log timestamp ordering and adjacent phase deltas aid diagnosis, not proof of task scheduling/CPU attribution.
+`OF_SETUP_TIMEOUT_TIMING` is presence-based and is read only in tests; **unset it**, rather than set it to `0`, for control cells. Production logs require an installed logger allowing the dedicated debug target. Timers are local monotonic `Instant`s; elapsed time is relative to each seam, not a globally synchronized clock. Adjacent phase deltas aid diagnosis, not proof of task scheduling/CPU attribution. The initial `format_timestamp_millis` setting did **not** emit a common timestamp because env_logger's humantime feature is disabled; the P3 follow-up below corrects this. Do not infer absolute timestamps in the earlier logger captures.
 
 No added event contains credentials, codes, bearer headers, URLs, issuer/endpoint/offer/member/operation IDs, request/reply payloads, arbitrary strings from responses, or database values. Existing scenario assertions/other pre-existing diagnostics can still print URLs/retained status on failure: keep raw artifacts private and quote only sanitized categorical evidence. No blanket HTTP logging is enabled. Early bearer/source refusal can exit the HTTP handler after entry but before its end event; panics/cancellation also need not emit end. A missing end alone is not proof of a deadlock. Concurrent child stderr can interleave without correlation IDs; do not pair ambiguous events as one request.
 
@@ -128,3 +130,251 @@ For owner execution use the resolved `owner_boundaries` executable with the five
 This is instrumentation, not a green implementation claim. No regression was written or run without localization, and no known failing behavior was patched. After an actual failure identifies a boundary/mechanism, add the **smallest deterministic public-seam failing regression**, demonstrate red on this observed implementation, then make the root-cause fix and show green. Do not test log strings/private call counts or use delays as a substitute for causality. Reuse existing scenarios to qualify any later fix.
 
 Ticket09 remains **claimed/unresolved**, every acceptance box remains unchecked, ticket07 is untouched. Repeated finalization/interruption/offline results for this observation source are **not yet available**. No common cause, baseline equivalence, environment-only attribution, final readiness qualification, matrix, CRAP score, real platform/provider acceptance, or historical timeout elimination is claimed.
+
+## Authorized focused execution 2026-10-26
+
+### Integration, resource bounds and fixed inputs
+
+After the user released the exclusive Rust slot, fast-forwarded `df45b41ec44c0eb90b4319f54fa1ac69b57937dd` to requested integration **`e6c72aae991f833670cb4820471ab48ac73b6bfb`** before formatting/builds. Reinvoked TDD and ponytail. No competing qualification workload was launched. All builds/lints used `CARGO_BUILD_JOBS=2`, `RUST_MIN_STACK=67108864`, shared `CARGO_TARGET_DIR=/home/nathan/code/rust/aicacia/of/target`, and this worktree as cwd. Each build/tool scenario invocation was bounded at **600000ms**; the disposable process-group supervisor additionally bounded each selected scenario group at 570s, with TERM/KILL/reap on exhaustion. None of those bounds fired; existing scenario parent/request/readiness bounds were unchanged.
+
+Declared **one repetition per cell** before builds, within the earlier maximum-three plan and the user's one-focused-block budget. No failed cell was rerun to green. Cells/groups ran sequentially, not concurrently with compilation, Clippy, or one another; only C0/C1 selected libtest parents ran concurrently (`--test-threads=2`). Once libtest was launched, its selected queued parents ran to completion even if another parent failed: C1 owner's 4 passes/1 failure is one invocation, not a stop/retry loop. Parents continued to launch their own isolated ignored children; no ignored child was invoked directly.
+
+Actual toolchain: `rustc 1.99.1 (58cf8f9c3 2026-10-13)`, `cargo 1.99.1 (5f94df478 2026-08-27)`. Main Cargo.lock hash stayed `bb7e608f57a6167612acac7d247e51eb2c6efbe449b95208c7a1862b78dd3a3f`. All four repositories were clean, with matching HEAD/status at every cell boundary and matching archive hashes before builds and after all cells/linting **before the final lint-only edit**:
+
+| Input repository | Full HEAD                                  | SHA-256 of `git archive HEAD`                                      |
+| ---------------- | ------------------------------------------ | ------------------------------------------------------------------ |
+| of               | `e6c72aae991f833670cb4820471ab48ac73b6bfb` | `a4a357d69590e1506eb05f6248ec0d7c0813ab4937613ee8848015f4c9c96662` |
+| ofdb             | `e3242170c94d5fc4bcc121db812310c8106c7ab6` | `b9c32a875b4c67552ecd9e30461cb381be1418e322664fe8bcb6a402724d3a43` |
+| ofnet            | `dbea925a0a3f99053fffc02618baccc2a1cbea9f` | `bfba0566e795912b15cb555a3f9f724244c950bee11f18a5ea9ca73f031fc582` |
+| offs             | `df4c696a910296635473ec296d9235acbaa60d9b` | `7fe57bb321e805a52c991a299e83aa38e23ac77a637be8d83a100c937a2c97f1` |
+
+Sibling symlinks resolved to the same actual repositories recorded above. None was modified. These receipts establish observed unchanged inputs, not an OS-enforced hermetic snapshot. Per-cell private JSON receipts include UTC, full command argv, permitted environment, before/after source checks, binary hashes, exit status, wall time, process-name-only snapshots, load and memory PSI. Before-cell load averages (1 minute) ranged 2.24–2.70; memory PSI avg10 was 0.00 throughout. Background editor/system processes existed. This is **not global idleness or a resource-cause attribution**.
+
+### Actual builds and artifact identity
+
+Executed both previously proposed `cargo test --locked ... --no-run --message-format=json` commands, replacing jobs=1 with the authorized jobs=2. Both passed within 600000ms:
+
+- Unified: `cargo test --locked -p unified-server --features cli --lib --no-run --message-format=json`, **6m18s**. No Swagger UI feature.
+- Owner: `cargo test --locked -p idp-unified --no-default-features --features cli --test owner_boundaries --no-run --message-format=json`, **5m59s**. No Swagger UI feature.
+
+Selected the executable from each actual Cargo JSON `compiler-artifact`, checked `build-finished.success`, and verified `--list` before executing. The unified filter selects exactly the three predeclared Join parents; the owner command uses the five full names listed above plus `--exact`. Actual artifacts:
+
+| Executable under shared `target/debug/deps/` | SHA-256 used in **every execution cell**                           |
+| -------------------------------------------- | ------------------------------------------------------------------ |
+| `unified_server-f70d87b770f6bdb5`            | `b4dce12f21f4527d0ebbfa9976c523c09316f04213b2f185069979219297da00` |
+| `owner_boundaries-82e9ad7da03710d6`          | `c1e151e65e6d2f95ed0a7dacb80bcdb002f37de6357c1690af55cadcff0a144c` |
+
+Both hashes were asserted before/after every relevant cell; no binary was rebuilt between cells. A later **compile-only** rebuild for the lint-only edit replaced the owner executable at the same filename; its new hash is recorded below. Do not mistake that mutable filename for the original cell bytes.
+
+### Actual results — separate cells, not pooled qualification
+
+All times below are supervisor wall seconds. A group contains the three unified or five owner parents already declared, not the full suite/matrix.
+
+| Cell                                                              | Unified result / seconds       | Independent-owner result / seconds         |
+| ----------------------------------------------------------------- | ------------------------------ | ------------------------------------------ |
+| S0, serial, timing unset, untraced                                | **3 passed**, 257.332          | **5 passed**, 381.919                      |
+| S1, serial, timing enabled, untraced                              | **3 passed**, 258.742          | **5 passed**, 378.006                      |
+| C0, threads=2, timing unset, untraced                             | **3 passed**, 175.943          | **5 passed**, 213.725                      |
+| C1, threads=2, timing enabled, untraced                           | **3 passed**, 177.145          | **4 passed / 1 failed**, 191.065, exit 101 |
+| T1, serial interruption only, timing enabled, futex/flock tracing | **1 failed**, 42.963, exit 101 | not part of this cell                      |
+
+Finalization and source-offline reopen each passed in S0/S1/C0/C1; interruption/exact retry also passed in those four untraced cells, then failed at approval in T1. Thus untraced Join was **12/12**, but traced interruption was **0/1**. Do not turn four different scheduling/logging cells into three idle repetitions or a reliability guarantee. Independent permission HTTPS parent passed in all four owner cells. No 60-second shared-readiness assertion or 15-second pending-offer failure occurred in this block.
+
+### Traced ordinary approval: reproduced and partially localized
+
+T1 actual command: same environment/cwd and verified unified binary, prefixed by `strace -f -ttt -e trace=futex,flock -o /tmp/setup09-T1-unified-1.strace`, exact parent `local_provisioning_tests::https_bootstrap_tests::production_api_join_interruption_preserves_private_host_intent --exact --nocapture --test-threads=1`. Trace excludes HTTP/TLS payload reads/writes and broad network logging. No retry of this failed cell.
+
+The child panicked at `crates/unified-server/src/api_join_tests.rs:457` (`ordinary authorized source approval`), then the parent failed its child-success assertion. Sanitized categorical evidence:
+
+```text
+seam=approval_client phase=start elapsed_ms=0
+seam=approval phase=op_lock_wait elapsed_ms=0
+seam=approval phase=op_lock_acquired elapsed_ms=0
+seam=enrollment phase=authorization_end elapsed_ms=626
+seam=enrollment phase=revalidation_begin elapsed_ms=731
+seam=enrollment phase=transaction_begin elapsed_ms=1464
+seam=enrollment phase=transaction_end elapsed_ms=2502 successful=true error_kind=None
+seam=enrollment phase=verification_end elapsed_ms=3451
+seam=approval phase=policy_begin elapsed_ms=3764
+seam=approval phase=peer_refresh_begin elapsed_ms=3835
+seam=approval phase=peer_refresh_end elapsed_ms=4505
+seam=approval phase=reply_begin elapsed_ms=4505
+seam=reply phase=authorization_begin elapsed_ms=0
+seam=approval_client phase=end elapsed_ms=5001 timeout=true connect=false request=true
+seam=reply phase=verification_begin elapsed_ms=646
+seam=reply phase=verification_end elapsed_ms=933
+seam=reply phase=publish_begin elapsed_ms=933
+seam=reply phase=publish_end elapsed_ms=933 successful=true error_kind=None
+seam=approval phase=reply_end elapsed_ms=5439
+seam=approval_http phase=end elapsed_ms=5439 successful=true error_kind=None
+```
+
+The successful handler completion was observed **after the client timed out**, not inferred from a later passing replay. This run does not stall before the handler, on the offer operation mutex, or in reply publication. The client deadline is crossed during the grouped reply authorization interval after approximately 4.5s of preceding owner work. Enrollment, verification and peer refresh also account for material elapsed time. There is no one five-second blocked await in these category boundaries.
+
+For comparison, S1 interruption's cumulative server phases were enrollment end **2564ms**, policy begin **2769ms**, peer refresh begin/end **2816/3313ms**, reply end **3995ms**; client got HTTP 200 in **4078ms**. Other S1 approvals completed at the client in **3774/3898ms**; C1 approvals returned 200 in **4288/4347/4240ms** (do not map the first two overlapping children to a particular parent). T1's larger elapsed work is measured under syscall tracing; one paired observation cannot distinguish tracer cost from every source of scheduling/owner latency or attribute the historical untraced failures.
+
+**Localization boundary, not a behavioral root cause:** cumulative owner-side request processing overran the unchanged 5s client bound under this traced execution. The per-query cost, executor scheduling, backend workload and trace perturbation were not separately measured; do not infer an Iroh hang, operation-lock contention, authorization bug, DB bug, common timeout cause, or a warranted deadline change. Existing reauthorization/current trust checks must not be removed to fit a budget. No focused deterministic causal regression has yet been established, so **no behavioral fix was attempted**. A future fix still requires such a regression, not an arbitrary injected sleep or an assertion on these timing/log values.
+
+### Independent readiness and the separate stopped-owner failure
+
+S1 readiness emitted only 200 statuses in complete parsed header lines, plus 14 startup connection-error lines; no body errors or request timeouts. Maximum complete shared-wait match was **24357ms**, maximum owner interval **12781ms**, maximum request-to-headers **4582ms**. These are client observations; 200 does not alone assert readiness—the original JSON readiness comparison still determines success.
+
+C1 captured this complete additional line:
+
+```text
+seam=independent_readiness owner=idp phase=request_error elapsed_ms=12656 request_ms=5001 timeout=true connect=false request=true
+```
+
+The existing helper recovered through its original polling behavior; no new retry was added. Complete C1 match lines reached at most **25792ms** shared / **17612ms** one owner, with maximum complete request-to-headers **4904ms**. No body error or terminal readiness assertion failed. Multiple isolated children write to inherited stderr, and some C1 lines interleave **within** formatted output, so these extrema/counts are over intact lines only. This IdP status timeout cannot safely be assigned to one of the two overlapping Create parents. Its exact internal readiness check is not instrumented; client-side timing alone does not identify the server-side cause. The original four matrix 60-second failures remain unlocalized.
+
+The **terminal** C1 owner failure instead was ordinary Create's child at `tests/owner_composition_tests/create.rs:1080`, after approximately **52.97s**:
+
+```text
+existing-only stopped owner: QueryError { kind: Storage, message: "Database already open. Cannot acquire lock." }
+```
+
+That is `seed_endpoint_negatives` reopening the isolated Device Database after `shutdown.cancel()` and successful awaits of all three independent owner servers (`create.rs:949–956`), **not** a timeout of an HTTPS approval or readiness assertion. The unsupported-record/current-reset Create parent, operation parent, permission parent and remote-setup parent passed in that same invocation. The isolated root was removed by its existing parent; no live production data/provider was touched.
+
+Source follow-up (no speculative patch): Device `independent_create::run` awaits `IndependentDeviceRuntime::shutdown`, then closes its endpoint. Runtime shutdown joins its offer task and Iroh protocol; the control also owns normal routers and a readiness callback capturing the Device store (`independent_create.rs::observe`). `api::IndependentCreateHost::serve` delegates to generic `serve_setup`, whose Axum graceful-shutdown task is awaited but has no shared-router destruction fence equivalent to the earlier unified-host fix. These are concrete ownership paths worth instrumenting, **not proof of which reference held the failed DB lock**. The actual lock holder/destruction order was not traced in C1. The appropriate next regression seam is immediate existing-only Database reopen after independent owner stop, with deterministic ownership/drop evidence before choosing any fence/cleanup fix. Do not delete a lock, force unlock, sleep/retry reopen, rewrite provider/reset fixtures, or claim the previous unified fix diagnoses this independent failure automatically.
+
+### Formatting, scoped Clippy and final lint-only cleanup
+
+`cargo fmt --all -- --check` passed immediately after integration, before builds. Strict production-library Clippy **passed** in 21.16s:
+
+```sh
+CARGO_TARGET_DIR=/home/nathan/code/rust/aicacia/of/target CARGO_BUILD_JOBS=2 RUST_MIN_STACK=67108864 cargo clippy --locked -p device-server -p idp-server -p unified-server --features unified-server/cli --lib --no-deps -- -D warnings
+```
+
+Strict test-target Clippy did not pass:
+
+- `cargo clippy --locked -p unified-server --features cli --lib --tests --no-deps -- -D warnings`: **failed**, 14 lib-test diagnostics and one `full_node` integration-target diagnostic. Locations are existing `config.rs`, `endpoint.rs`, `hosted_setup_integration_tests.rs`, `local_provisioning_tests.rs`, `runtime.rs`, `tests/support/identity.rs`, and `tests/support/full_node.rs`; no diagnostic in changed `api_join_tests.rs`. Includes unused support functions, items-after-test-module, unnecessary `to_vec`, collapsible conditions, field-reassign-with-default, single-element loop and needless borrow. No unrelated lint cleanup.
+- `cargo clippy --locked -p idp-unified --no-default-features --features cli --test owner_boundaries --no-deps -- -D warnings`: initially **failed with seven** diagnostics, including a collapsible response/status conditional in the touched readiness helper. Collapsed that one conditional to an equivalent let-chain and ran `cargo fmt --all` plus `cargo fmt --all -- --check` and `git diff --check`, all passed. This is **lint-only**, not a timeout/ownership fix; no await, deadline, retry, sleep, ordering or assertion changed.
+- Reran the same owner Clippy after that focused cleanup: **six remain**, all outside the changed helper: `review_transfer_restart_tests.rs:112`, `create.rs:1563`, `operation.rs:491`, `remote_setup.rs:368` (collapsible conditions), `tests/support/identity.rs:59` (needless borrow), `node_bootstrap_interruption_tests.rs:804` (drop_non_drop). They were not modified or suppressed.
+
+All execution cells precede this lint-only edit and tested the immutable e6c72aae9 source, not the final edited source. Final `create.rs` SHA-256 is `b5acc714244da2af92c702959ea33171ecd2428ab5c500172888d635c0f798a2`. A final same-flags owner **no-run compilation passed in 26.70s**; it replaced `owner_boundaries-82e9ad7da03710d6` with SHA-256 `f7fccfcbe8993bf700af88cf22408dffc44fc94774424397131902deed9a1c2c`. No test was executed from that rebuilt owner binary and no failure was retried to claim green. The unified source/artifact was not changed. There is no final-code complete-system qualification claim.
+
+### Durable artifact receipts and disposition
+
+Raw logs are private disposable local artifacts, not committed transcripts. Their existing assertions can contain URLs/IDs; only categorical sanitized excerpts are copied here. Added timing was inspected: static phase/owner labels, durations, booleans, numeric status and error-kind enums only. No passwords, setup codes, bearer tokens, request/reply bodies, issuer/endpoint/offer IDs or arbitrary response strings were added to instrumentation. All 32 owned capture files were restricted to mode 0600 at finalization; no real OS/profile/provider changes, package/SDK changes, matrix or coverage was run.
+
+| Private local log                                 | SHA-256                                                            |
+| ------------------------------------------------- | ------------------------------------------------------------------ |
+| `/tmp/setup09-S0-unified-1.log`                   | `1ba6621e0650fbec001b4f1342ce1921db85a417b40ff53e9cd7afe9e855356b` |
+| `/tmp/setup09-S0-owner-1.log`                     | `4d4ffc31b62b794adfa1e9495c7d263ddab63258694273b8f37f92a9ac421e90` |
+| `/tmp/setup09-S1-unified-1.log`                   | `81a498de955fd7cbbbf30d10031c9231ded0d6d1ed3ca649dc7b6caa6e2c1384` |
+| `/tmp/setup09-S1-owner-1.log`                     | `2045bac5562eaa71339755a860adad380694cc9dc9f39a20a101d629e36a24ab` |
+| `/tmp/setup09-C0-unified-1.log`                   | `487a0f5a32ce094275e744f09eaa4044597b545fda0fee561b8ff7ef11d55dee` |
+| `/tmp/setup09-C0-owner-1.log`                     | `c8677727502922ba3d3153357bb4bebc53f4f57f66f766af3974c43070063f7a` |
+| `/tmp/setup09-C1-unified-1.log`                   | `8671ac4f78191b37b3bc9fd81878aa8972d388a2abcf3392b7bfc7aa1c1b4e3b` |
+| `/tmp/setup09-C1-owner-1.log`                     | `5e5ec152365504437bc8905560251358c7184621208724f4b3f8cbfee657eea7` |
+| `/tmp/setup09-T1-unified-1.log`                   | `edc25d5fc1e92061ce74736142564f29429247a4c62426d9f7f5816a03b284ee` |
+| `/tmp/setup09-T1-unified-1.strace` (506096 bytes) | `5483afd20a0a3304acd815718fc1cdfeb99b4c3604b8fd090e765261f469e977` |
+| `/tmp/setup09-clippy-unified.log`                 | `9c239dd9bc220a1377405877f85bf2b30a5cbd009f8a083c548c9fbb5da6ba3c` |
+| `/tmp/setup09-clippy-production.log`              | `216403eb6d50b07155d88349de7cd16d1096b05601e4ca34bbcc9984253db20c` |
+| `/tmp/setup09-clippy-owner-after.log`             | `c1cbc403e9f013f1c7d92eea25f91bea4a8e43d83b4b1bd6b8c070ee77fc8737` |
+
+Private `/tmp/setup09-artifact-manifest.json` SHA-256 **`a353cd3cc986b0a9255fc70080d44c70ba8d4485c1de0f70f7dfcb0c5dc06302`** records all capture sizes/hashes, including Cargo JSON/build logs, initial/final source receipts, per-cell JSON, lint logs and disposable 5081-byte supervisor (`/tmp/setup09-run-cell.py`, SHA-256 `4c0fe0ce37d8e8a2734fb3b0b5c9067f95f9e72b803d4931ba22e103a6ab6a36`). No new test suite/harness was added to the repository. This supervisor only selects the existing tests, enforces the outer process-group bound, and captures provenance; it does not inject behavior or retries.
+
+**Ticket09 stays claimed/open in the work sense (unresolved).** All acceptance boxes remain unchecked; ticket07 is unchanged. Traced approval overrun is now reproduced and narrowed to cumulative owner processing, but there is no deterministic implementation root-cause regression/fix. Historical terminal readiness/permission/pending-offer failures are not eliminated or assigned a common cause; the recovered IdP status timeout and distinct stopped-Database failure remain follow-up evidence. Passing controls, one traced failure and one concurrent lock failure are not enough to assert tracing-only, concurrency-only, baseline-equivalent or environment-only causation. Slot is released back after the evidence commit and final integration check; no further qualification workload is left running by this agent.
+
+## P3 clock correction and ownership follow-up
+
+### Scope and verified clock correction
+
+Continued under the user's exclusive Rust slot at `c5779ad446e42424942d7d3fef4b05409fc4ba99`; integration was still `e6c72aae991f833670cb4820471ab48ac73b6bfb`. No sibling edits, provider/reset-fixture/SDK changes, matrix or coverage. All Rust commands retained shared target, jobs=2, stack=67108864 and a 600000ms tool bound.
+
+**P3 confirmed:** `env_logger` is declared with `default-features=false` and no humantime feature. Consequently the earlier `.format_timestamp_millis()` setting emitted lines such as `[DEBUG setup_timeout] ...`, without timestamps. Earlier per-seam `elapsed_ms` observations and syscall trace timestamps remain valid; a common logger clock must not be retroactively inferred from them.
+
+`api_join_tests.rs` now uses one local `timing_logger()` builder with the existing fixed `off,setup_timeout=debug` filter and an explicit std formatter:
+
+```text
+unix_ms=<SystemTime since UNIX_EPOCH in milliseconds> <categorical message>
+```
+
+It uses `std::time::SystemTime`, `std::time::UNIX_EPOCH` and `std::io::Write`; no dependency/feature was added and no broad logger was enabled. Pre-epoch clock failure returns an IO formatting error rather than manufacturing an epoch. Existing monotonic per-seam elapsed fields remain the duration source. Unix time is a **wall clock**, may jump, and has millisecond granularity: it is not an ordering/causality guarantee, a request identifier, or a solution for overlapping children/interleaved stderr. Only messages routed through this logger gain the prefix; existing client/readiness `eprintln!` events still have their original per-seam elapsed times. The new specific owner-reopen event below also has an explicit Unix-ms prefix for syscall comparison.
+
+One focused output-seam check, `categorical_timing_logger_emits_common_clock_without_humantime`, builds this actual logger locally with a captured writer, without initializing/mutating the global logger. It emits one static categorical record, requires an integer `unix_ms=` prefix and **exact** categorical suffix/newline, and checks that the timestamp lies between the surrounding std clock observations. No credentials, headers, bodies, IDs or arbitrary error messages are introduced.
+
+TDD: first extracted the existing builder unchanged and added the focused check. Running it **failed** at the required common-clock prefix/suffix, not compilation (red build 49.19s). Replaced the ineffective timestamp setting with the explicit formatter; the **same check passed** (green build 45.18s). Final formatted-source invocation also passed, **1 passed / 0 failed**, 1.02s Cargo time, test time <0.01s. Command, with the shared environment described above:
+
+```sh
+cargo test --locked -p unified-server --features cli --lib categorical_timing_logger_emits_common_clock_without_humantime -- --nocapture --test-threads=1
+```
+
+No HTTPS timing-cell family was rerun to qualify the clock correction. The check exercises the actual logger/output path with humantime still disabled.
+
+### Ownership investigation: what actually keeps a Device Database open
+
+Read-only trace through current source, rather than assuming the outer Arc or the earlier unified fix explains C1:
+
+1. `device-server::database_client::DeviceStore` contains both an embedded `db::Client` and `Option<Arc<db::Database>>`. Independent Device `run` retains a store; `observe` captures another store in its current-readiness callback; normal/Join-history routers also retain query clients and, for history, an owner Arc.
+2. The callback is held by `api::CreateShared.readiness`; normal routes are held by `CreateShared.normal`. Issued setup/connection routers retain `IndependentCreateControl(Arc<CreateShared>)`. These are concrete application ownership paths. The callback takes the control as an argument rather than capturing it, so its shown construction does not establish a self-cycle.
+3. `ofdb_sql::Client` embeds a **cloned Database value**, not necessarily the same outer `Arc<Database>`. The clone's file backend shares `NativeResource.inner: Arc<Inner<...>>`; its backend holds `RedbKernel → RedbDatabase → Arc<redb::Database>`. Therefore an outer `Weak<Database>` reaching zero would **not prove** the native file handle was released. Observing only that Weak would produce misleading evidence.
+4. Read installed locked `redb 4.3.0` source as well: its `Database` documentation explicitly states that live write transactions defer close and keep the database file locked after the Database is dropped. Its open maps conflicting storage locks to `DatabaseAlreadyOpen`; this is a real locking failure, not an inferred missing setup secret. On this Linux build native range locks (`F_OFD_SETLK`) and the legacy flock can both matter, so a flock-only capture is insufficient.
+5. Independent Device shutdown joins its offer task/protocol and endpoint; generic `api::serve_setup_inner` joins the Axum listener task. It does not have the unified worker's shared-destruction fence. This remains a candidate for retained connection/control state, **not a demonstrated identification of the owner in the C1 failure**. No source evidence establishes an ofdb leak or broken close implementation; no sibling change is justified.
+
+A deliberate externally retained test-only router or client could trivially keep the Database locked, but would not identify the reference that survived the real awaited shutdown. No such manufactured causal regression or speculative fence/unlock patch was added.
+
+### One bounded native-lock diagnostic — not a passing replay
+
+Added only a categorical diagnostic at the existing immediate Device reopen in `create.rs::seed_endpoint_negatives`, behind the existing presence-based `OF_SETUP_TIMEOUT_TIMING` switch:
+
+```text
+unix_ms=<clock> seam=independent_owner owner=device phase=post_shutdown_reopen successful=<bool> error_kind=<query error kind or None>
+```
+
+The original `Database::open` and subsequent `expect("existing-only stopped owner")` are unchanged semantically. The event reports the actual open result before that assertion; it contains no path, resource ID or arbitrary error text. This helper is reached after the existing caller's shutdown cancellation and successful awaits of owner server tasks. No new retry, sleep, readiness shortcut, timeout or provider hook.
+
+Built `owner_boundaries` with the same locked cli/no-Swagger flags as before; **no-run build passed in 1m21s**. Ran **one** diagnostic invocation of the two existing exact Create parents with `--test-threads=2 --nocapture`, timing enabled, prefixed by:
+
+```sh
+strace -f -ttt -yy -e trace=fcntl,flock,close -o /tmp/setup09-review-owner-locks.strace
+```
+
+Used the actual Cargo-reported `owner_boundaries-82e9ad7da03710d6` artifact, SHA-256 **`ade59bf7ae52bddbe9baed7d64140f4e92b7140f5d671ccf2ac36562cb3f8265`**, verified unchanged after execution. No reads/writes/send/recv payload tracing, no broad HTTP logs. Raw descriptor paths necessarily contain isolated fixture names/IDs and remain private; they are not copied into categorical evidence here. The supervisor retained 570s process-group safety cleanup, but **the existing 180s parent watchdogs fired first**. Actual outcome: **0 passed / 2 failed**, exit 101, **180.467s** supervisor time; not an outer-tool timeout and not another Database-lock reproduction. No rerun to green and no parent deadline inflation.
+
+Before those eventual watchdog failures, both targeted post-shutdown opens succeeded:
+
+```text
+unix_ms=1793023745093 seam=independent_owner owner=device phase=post_shutdown_reopen successful=true error_kind=None
+unix_ms=1793023746839 seam=independent_owner owner=device phase=post_shutdown_reopen successful=true error_kind=None
+```
+
+Grouping the raw trace by exact private Device database file (anonymous A/B here, not a mapping of concurrent parent identity) shows, near these boundaries:
+
+| File group | Prior descriptor unlock (Unix ms) | New exclusive-lock acquisition (Unix ms) | Post-open categorical event (Unix ms) |
+| ---------- | --------------------------------: | ---------------------------------------: | ------------------------------------: |
+| A          |                     1793023745087 |                            1793023745092 |                         1793023745093 |
+| B          |                     1793023746833 |                            1793023746837 |                         1793023746839 |
+
+The prior descriptor close calls are also present near the unlocks; A's close entry is split by strace's unfinished/resumed scheduling and is not treated as an independently timestamped completed close. All observed `flock`/`F_OFD_SETLK` acquisition calls for these two Device files succeeded; no failed native Device lock call was captured. This gives actual native release/acquire evidence **for this run**, not proof of what held the file in the earlier C1 failure. Other phases continued until the parent bounds expired, so do not label these parents passing or call the lock issue fixed. Trace perturbation is a limit, not a reason to change bounds or an established sole cause of the watchdog failures. At diagnostic start loadavg1 was 3.36; memory PSI avg10 some/full 0.27/0.24, recorded without any environment-only attribution.
+
+### Validation, fixed inputs and next blocker
+
+`cargo fmt --all`, final `cargo fmt --all -- --check`, and `git diff --check` pass. Strict scoped test Clippy was run again, serially (no competing Rust qualification):
+
+- Unified cli `--lib --tests --no-deps -- -D warnings`: still fails on the same **14 lib-test plus one full_node-target** diagnostics documented above; none is in the changed formatter/test.
+- Root cli/no-default-features `--test owner_boundaries --no-deps -- -D warnings`: still fails on the same **six** diagnostics outside the changed helper/probe. The later `create.rs::wait_public` location is now line 1573 because of the new event. No unrelated cleanup/suppression.
+
+No production lifecycle implementation was changed. Formatter and probe source were byte-stable during the owner build/diagnostic and final validation; initial/final checks matched `c5779ad44` plus binary diff SHA-256 **`fc37717e2176153b0311b6149244bd94298c0f12b8980fa59e472a9fe2ecb0b9`**. Source byte hashes:
+
+- `crates/unified-server/src/api_join_tests.rs`: `306f75ca6a5c87ecf0b6315d57d4ca77d08fc6bfabc47e2db83abe09adf2a866`.
+- `tests/owner_composition_tests/create.rs`: `ff8c0be73b10b509a1f88d0e84b9605c6a501c24a57e2c7f9263a51a7bfd08f4`.
+- Final formatter-test executable `unified_server-f70d87b770f6bdb5`: `747cb5c5daa7f1195b3e2af1505f07a2fbbe7f5b8757fb030f61df6990c95b72` (new bytes, not the earlier timing-cell artifact).
+
+Cargo.lock remained `bb7e608f57a6167612acac7d247e51eb2c6efbe449b95208c7a1862b78dd3a3f`; siblings remained clean at the exact prior `ofdb=e3242170c94d5fc4bcc121db812310c8106c7ab6`, `ofnet=dbea925a0a3f99053fffc02618baccc2a1cbea9f`, `offs=df4c696a910296635473ec296d9235acbaa60d9b` revisions. No sibling source, package feature/dependency, actual profile, OS trust or provider was modified.
+
+Private mode-0600 receipts:
+
+| Artifact                                                 | SHA-256                                                            |
+| -------------------------------------------------------- | ------------------------------------------------------------------ |
+| `/tmp/setup09-clock-red.log`                             | `dc5736c1787f30f7ed85db2258c513dce3389110bdb69532e51b117e91b0e1e0` |
+| `/tmp/setup09-clock-green.log`                           | `dc04d90d3747b587c0204101f166e99e7f7817d07e3c09d3f95b9e8e124b28c4` |
+| `/tmp/setup09-clock-final.log`                           | `69be587a42520180fbf241e6ff5f9abc77f7db694bfb10681fcb605336655c78` |
+| `/tmp/setup09-review-owner-locks.log`                    | `9d0bae786700325b419c0a0a8d610b7d468d43091b44752e8a9178126cb67261` |
+| `/tmp/setup09-review-owner-locks.strace` (3068960 bytes) | `eb919184a3103ea9b56275ab9ac1aaaa39fcf4cd288b4c516c6144ff5bd73618` |
+| `/tmp/setup09-review-owner-locks.json`                   | `86bd101a46d38c4f2cf1d3f6a556a1760a8b2d92b048757350f67b5cc8f4c3bc` |
+
+`/tmp/setup09-review-artifact-manifest.json` SHA-256 **`1ccb2602ecb13da8e4da7a6d426a95ab850178926c6c297103f0ca0c647c523d`** records all 11 review capture files, including build/Cargo artifact JSON, source-input receipt and both Clippy logs. No matrix/coverage or retry-to-green was run.
+
+**P3 is corrected and focused red/green verified. Ticket09 remains unresolved. Precise next blocker:** capture a failing immediate post-shutdown Device reopen together with the lifetime of the surviving **inner NativeResource/embedded-client handle or redb write transaction**, then construct the corresponding deterministic gated shutdown/reopen regression. Current application-level router/control ownership and native syscall evidence do not distinguish those holders in the failed historical run. There is no evidence yet assigning the defect to ofdb, and no safe basis for changing independent lifecycle ownership or forcing a Database close. The earlier approval overrun and terminal readiness/permission history also remain separate unresolved boundaries. This block leaves only the timestamp correction, focused formatter check, categorical reopen probe and evidence; no speculative Database fix.
