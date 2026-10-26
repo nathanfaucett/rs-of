@@ -912,6 +912,25 @@ where
         request: ClientCredentialsGrantRequest,
         client_auth: Option<&OAuth2ClientAuth>,
     ) -> ErrorResponseResult<TokenResponse> {
+        #[cfg(feature = "std")]
+        let started = std::time::Instant::now();
+        let observe = |_phase: &str| {
+            #[cfg(feature = "std")]
+            if std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_some() {
+                let line = alloc::format!(
+                    "seam=client_credentials phase={_phase} pid={} thread={:?} wall_ms={} elapsed_ms={}\n",
+                    std::process::id(),
+                    std::thread::current().id(),
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .expect("system clock")
+                        .as_millis(),
+                    started.elapsed().as_millis()
+                );
+                let _ = std::io::Write::write_all(&mut std::io::stderr().lock(), line.as_bytes());
+            }
+        };
+        observe("client_lookup");
         let auth = client_auth.as_ref().ok_or_else(|| {
             ErrorResponse::new(ErrorCode::InvalidClient)
                 .with_description("client authentication is required")
@@ -937,7 +956,9 @@ where
             return Err(ErrorResponse::new(ErrorCode::InvalidClient)
                 .with_description("client credentials have expired"));
         }
+        observe("secret_verify");
         self.authenticate_client_for_token_endpoint(&client, Some(auth))?;
+        observe("grant_validation");
         if request.client_id != auth.client_id {
             return Err(ErrorResponse::new(ErrorCode::InvalidClient)
                 .with_description("client_id does not match authenticated client"));
@@ -976,6 +997,7 @@ where
         }
         validate_scopes(&requested_scopes, &client.allowed_scopes)?;
 
+        observe("active_root");
         let key = self
             .key_service
             .key_repo()
@@ -985,18 +1007,23 @@ where
                 ErrorResponse::new(ErrorCode::InvalidClient)
                     .with_description("active client signing key not found")
             })?;
+        observe("principal");
         let principal = self.find_principal(key.id).await?.ok_or_else(|| {
             ErrorResponse::new(ErrorCode::InvalidClient)
                 .with_description("client principal is inactive")
         })?;
-        self.issue_client_credentials_access_token(
-            &client,
-            principal.as_ref(),
-            &requested_scopes,
-            audience,
-            request.resource.as_deref(),
-        )
-        .await
+        observe("issue");
+        let result = self
+            .issue_client_credentials_access_token(
+                &client,
+                principal.as_ref(),
+                &requested_scopes,
+                audience,
+                request.resource.as_deref(),
+            )
+            .await;
+        observe("complete");
+        result
     }
 
     async fn refresh_token(
