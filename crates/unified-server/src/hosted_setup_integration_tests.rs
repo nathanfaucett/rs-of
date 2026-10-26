@@ -6,7 +6,7 @@ use std::{
 };
 
 use idp_model::model::Id;
-use idp_service::repo::PrivateKeyKeyringRepo;
+
 use tokio_util::sync::CancellationToken;
 
 use crate::{BootstrapConfig, LocalTls, SetupHost, UnifiedConfig};
@@ -475,13 +475,12 @@ async fn api_create_child() {
     capture_setup_timings();
     crate::endpoint::use_isolated_address_lookup();
     let root = PathBuf::from(std::env::var_os("OF_API_CREATE_ROOT").expect("parent root"));
-    PrivateKeyKeyringRepo::new_with_store(
-        "isolated-api-create",
-        std::sync::Arc::new(crate::local_provisioning_tests::SecretStore {
+    keyring_core::set_default_store(std::sync::Arc::new(
+        crate::local_provisioning_tests::SecretStore {
             store: keyring_core::mock::Store::new().expect("isolated provider"),
             fail_node_readback: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        }),
-    );
+        },
+    ));
     let address = fs::read_to_string(root.join("fixture-address"))
         .expect("public fixture address")
         .parse()

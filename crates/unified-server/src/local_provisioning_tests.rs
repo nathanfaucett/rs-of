@@ -120,7 +120,7 @@ impl Fixture {
             store: keyring_core::mock::Store::new().expect("credential adapter"),
             fail_node_readback: fail_node_readback.clone(),
         });
-        let _ = PrivateKeyKeyringRepo::new_with_store(&config.idp.oauth2.issuer, store.clone());
+        keyring_core::set_default_store(store.clone());
         Self {
             root,
             config,

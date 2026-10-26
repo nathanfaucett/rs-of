@@ -11,6 +11,8 @@ mod oauth2_user_consent_repo;
 #[cfg(feature = "std")]
 mod private_key_keyring_repo;
 mod private_key_repo;
+#[cfg(all(test, feature = "std"))]
+mod provider_isolation_tests;
 #[cfg(feature = "std")]
 mod raw_keyring_repo;
 
