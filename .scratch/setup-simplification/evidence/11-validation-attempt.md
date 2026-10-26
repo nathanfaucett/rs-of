@@ -2,7 +2,7 @@
 
 ## Disposition
 
-**Open; safety-preflight blocked. No Rust matrix process was launched, no feature combination completed, and no coverage/CRAP result exists from this attempt.** This is not a partial first-combination result, compiler/test failure, timeout, or provisioned-runner qualification. JS prerequisites did execute successfully. The explicit exhausted-swap safety condition prevented the requested root matrix from starting; it was not relaxed merely because available RAM exceeded 2 GiB.
+**Open; safety-preflight blocked. No Rust matrix process was launched, no feature combination completed, and no coverage/CRAP result exists from this attempt.** This is not a partial first-combination result, compiler/test failure, timeout, or provisioned-runner qualification. JS prerequisites did execute successfully. Swap exhaustion prompted a conservative no-launch safety decision; this does **not demonstrate that any specific command could not execute or complete**. Neither matrix nor CRAP executed in this ticket11 attempt. The safety condition was not relaxed merely because available RAM exceeded 2 GiB.
 
 ## Ownership and inputs
 
@@ -83,7 +83,7 @@ Initial worktree was clean. Frozen installation/build caused these **eight track
 - `packages/storage-client/node_modules/.bin/{biome,rolldown,shx,tsc,tsserver,vitest}` (generated launcher paths).
 - `packages/storage-client/node_modules/vitest` (generated peer-dependency symlink).
 
-Ignored installed dependencies and built ESM artifacts also remain available; no generated outputs or caches were deleted. A private binary patch preserves all eight tracked generated changes at `/tmp/setup11-generated.patch`, SHA-256 `46a3a6a704be321dd6e2a8c93ad4139c7cc9cc12126d268bebdb90b64bf92baa`. A dirty generated-artifact worktree after the evidence commit is intentional, not overwritten user work or production edits. Both Cargo locks and pnpm lock retained the hashes above after JS builds.
+Ignored installed dependencies and built ESM artifacts also remain available; no generated outputs or caches were deleted. A private binary patch preserves all eight tracked generated changes at `/tmp/setup11-generated.patch`, SHA-256 `46a3a6a704be321dd6e2a8c93ad4139c7cc9cc12126d268bebdb90b64bf92baa`. Those generated changes were initially left dirty intentionally; the authorized cleanup below supersedes that disposition. Both Cargo locks and pnpm lock retained the hashes above after JS builds.
 
 Python parent supervision used separate sessions for install PGID **3078622** and SDK PGID **3078764**, with RAM/disk/540s safeguards, finally TERM/KILL of only those owned groups and wait/reap. Both children exited 0; a subsequent `killpg(pgid, 0)` found **both groups absent**. The lightweight prerequisites ran before the exhausted-swap heavy-Rust preflight; do not claim a passed Rust safety gate for them. No Cargo/rustc/test/just process was created by this attempt, and no unrelated editor/system process was terminated. Exclusive Rust slot is released with this report.
 
@@ -102,5 +102,15 @@ Mode-0600 local captures (disposable, not repository harness files):
 `/tmp/setup11-manifest.json` lists those hashes and the generated patch. Matrix JSON explicitly records `launched: false`; no Cargo transcript exists because Cargo never ran.
 
 Final checks: `git diff --check` passed; all three siblings remained clean at the recorded HEADs; both Cargo locks and pnpm lock still matched. After the evidence/status commit, `GIT_EDITOR=true git merge --no-edit integration/setup-simplification-followup` returned **Already up to date** against integration `94c60288315075b0b34861a98916e0721e56ceb5`. No integration branch movement was performed. Only the eight documented generated paths remained dirty.
+
+## Authorized tracked-artifact cleanup
+
+At the user's subsequent request, restored only the eight tracked generated paths listed above to pre-pass commit `94c60288315075b0b34861a98916e0721e56ceb5`. Before restoration:
+
+- Verified `/tmp/setup11-inputs.json` against its recorded SHA-256; its pre-build status contained only the agent's ticket claim, with no generated/user edits. The initial entry status had been clean.
+- Verified `/tmp/setup11-generated.patch` against its recorded SHA-256, and required the current entire binary diff under `packages/storage-client` to match it byte-for-byte, with exactly those eight changed paths.
+- Verified each path's committed HEAD bytes matched the pre-pass baseline and that the index was empty. No unknown user changes were found; none were restored.
+
+Used `git restore --source=94c60288315075b0b34861a98916e0721e56ceb5 --worktree -- <eight explicit paths>`. Immediately afterward `git status --porcelain=v1` returned empty. The private generated patch remains available; ignored dependencies/build outputs and caches were not deleted. Cleanup launched **no tests or builds**. Only ticket11/evidence documentation was then changed for the cleanup commit. Triage is now **ready-for-human**, status **open**, because runner provisioning remains an external blocker. The exhausted-swap preflight was a no-launch decision, not an experimentally demonstrated failure or inability of the matrix/CRAP commands.
 
 **Ticket11 remains open.** Resume only with measured safe resource headroom and stable inputs, using the exact root matrix and then a separately gated `just crap`; record full versus partial execution honestly. No runner was provisioned here. No changes to ticket07/spec/map are authorized or justified by these results.
