@@ -214,37 +214,37 @@ pub(super) async fn wait(http: &Client, intent: &IndependentCreateIntent, ready:
                     ),
                 }
             }
-            if let Ok(response) = response {
-                if response.status() == StatusCode::OK {
-                    let status = response.json::<serde_json::Value>().await;
+            if let Ok(response) = response
+                && response.status() == StatusCode::OK
+            {
+                let status = response.json::<serde_json::Value>().await;
+                if timing {
+                    match &status {
+                        Ok(status) => eprintln!(
+                            "seam=independent_readiness owner={owner} phase=body elapsed_ms={} request_ms={} ready={:?}",
+                            started.elapsed().as_millis(),
+                            request_started.elapsed().as_millis(),
+                            status["ready"].as_bool()
+                        ),
+                        Err(error) => eprintln!(
+                            "seam=independent_readiness owner={owner} phase=body_error elapsed_ms={} request_ms={} timeout={} decode={}",
+                            started.elapsed().as_millis(),
+                            request_started.elapsed().as_millis(),
+                            error.is_timeout(),
+                            error.is_decode()
+                        ),
+                    }
+                }
+                let status = status.expect("status JSON");
+                if status["ready"] == ready {
                     if timing {
-                        match &status {
-                            Ok(status) => eprintln!(
-                                "seam=independent_readiness owner={owner} phase=body elapsed_ms={} request_ms={} ready={:?}",
-                                started.elapsed().as_millis(),
-                                request_started.elapsed().as_millis(),
-                                status["ready"].as_bool()
-                            ),
-                            Err(error) => eprintln!(
-                                "seam=independent_readiness owner={owner} phase=body_error elapsed_ms={} request_ms={} timeout={} decode={}",
-                                started.elapsed().as_millis(),
-                                request_started.elapsed().as_millis(),
-                                error.is_timeout(),
-                                error.is_decode()
-                            ),
-                        }
+                        eprintln!(
+                            "seam=independent_readiness owner={owner} phase=matched elapsed_ms={} owner_ms={}",
+                            started.elapsed().as_millis(),
+                            owner_started.elapsed().as_millis()
+                        );
                     }
-                    let status = status.expect("status JSON");
-                    if status["ready"] == ready {
-                        if timing {
-                            eprintln!(
-                                "seam=independent_readiness owner={owner} phase=matched elapsed_ms={} owner_ms={}",
-                                started.elapsed().as_millis(),
-                                owner_started.elapsed().as_millis()
-                            );
-                        }
-                        break;
-                    }
+                    break;
                 }
             }
             assert!(
