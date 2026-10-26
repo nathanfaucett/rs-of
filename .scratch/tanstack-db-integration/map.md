@@ -2,8 +2,8 @@
 
 ## Notes
 
-- [Specification](spec.md) — Status: ready-for-agent.
-- [Existing umbrella ticket 01](issues/01-create-integration-package.md) — unchanged; not an additional prerequisite for the slices below.
+- [Specification](spec.md) — Status: resolved.
+- [Umbrella ticket 01](issues/01-create-integration-package.md#answer) — resolved; all slices and review fixes merged into `integration/tanstack-db-integration`.
 - [02: Open a filesystem through TanStack DB](issues/02-open-filesystem-through-tanstack-db.md) — resolved; read/open slice delivered in `ca92f03cc`.
 - [03: Save and delete secrets through the collection](issues/03-persist-secret-collection-mutations.md) — resolved; persistent CRUD delivered in `ad1c4f32a`.
 - [04: Refresh and qualify the example](issues/04-refresh-and-qualify-example.md) — resolved; explicit refresh/recovery and controlled full-workflow qualification delivered in `3e4c35f65`. Approved slices 02–04 are complete; deployed-system qualification remains manual.
@@ -11,6 +11,8 @@
 - The goal is a current password-manager reference app and a reusable Storage integration, not implementation of the earlier unverified code sample.
 
 ## Decisions-so-far
+
+- [01 resolved](issues/01-create-integration-package.md#answer): all approved implementation slices and independently verified lifecycle fixes are merged. Final integration validation at `90746e61c`: 119 tests passed, relevant TypeScript/Svelte checks and production build passed; adapter and focused changed-source lint/format passed. Existing broad lint/format findings remain documented. `just crap` timed out after 200 seconds compiling the Rust workspace; no complexity result was obtained. No Rust changed. The requested `change-review` skill was unavailable, so an independent review and fix-verification agent performed that step. Deployed-system qualification remains manual.
 
 - Review blockers resolved on `implement/tanstack-db-review`, based on integration `cceeaab7d`, reviewing `main...HEAD` rather than creating a new ticket. Umbrella 01 remains unchanged for coordinator final validation. Priority: critical authenticated-context isolation; complexity: small guards using existing session storage and AbortController, no dependencies or Rust changes.
   - Real OIDC-client regressions hold a refresh across clear, replacement, clear-and-restore, and a newer other-tab session. A local session generation plus current stored-token snapshot comparison rejects the obsolete refresh before storing **or returning** credentials. Covered in both memory and persistent modes; other-tab replacement uses a second real client sharing storage.

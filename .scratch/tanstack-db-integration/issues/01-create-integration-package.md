@@ -1,6 +1,7 @@
 # Restore the password-manager example with a TanStack DB Storage integration
 
-Status: ready-for-agent
+Triage: ready-for-agent
+Status: resolved
 Type: task
 
 ## Goal
@@ -33,3 +34,13 @@ Use the real TanStack DB public collection/live-query API with controlled Storag
 ## Comments
 
 The earlier sample implementation was illustrative and incorrect. Follow the corrected spec and verified library types, not its Database class, observer types, npm feature flags, or storage save/list method assumptions.
+
+## Answer
+
+Implemented all approved slices 02–04 on `integration/tanstack-db-integration`. The framework-independent Storage collection package and official Svelte bindings now drive the example's read, single-record optimistic CRUD, authoritative reconciliation, explicit Refresh/recovery, and lifecycle isolation. Setup, limitations, security boundaries, and real-system qualification are documented in the package and app READMEs.
+
+Independent review identified and verified fixes for delayed OAuth refresh restoring obsolete credentials and context-disposed filesystem creation starting a later resource request (`f012fcd78`, merged as `90746e61c`). The requested `change-review` skill was unavailable; an independent reviewer performed the review instead.
+
+Final post-merge validation: 119 tests passed (14 OIDC, 21 Storage client, 59 collection, 23 app, 2 configuration); relevant TypeScript checks, Svelte check (zero errors/warnings), dependency builds, and app production build passed. Adapter lint/format and focused changed-source checks passed. Broad lint/format remain affected by existing generated-client findings, generated app output, Tailwind CSS parsing configuration, and unchanged formatting issues; no unrelated fixes were made.
+
+`just crap` was attempted from the integration checkout and timed out after 200 seconds while compiling the Rust workspace, before a complexity report. No Rust changed, so Rust feature-powerset validation was not applicable. Live OAuth/service authorization, actual browser navigation/reload, and cross-Node replication remain manual qualification items, not guarantees established by controlled fixtures.
