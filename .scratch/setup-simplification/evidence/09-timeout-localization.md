@@ -1,6 +1,6 @@
 # Ticket 09: timeout localization
 
-**Latest disposition:** [Owner-source resumption](#owner-source-resumption-2026-10-26) identifies a concrete Axum connection notification-before-service-destruction gap and traces it to the actual Device native resource, but does not identify the holder in historical C1. Source/artifact inspection only; no executable run, new diagnostic/test or behavioral edit. Ticket09 is open/released, unresolved. [P3 clock correction](#p3-clock-correction-and-ownership-follow-up) and [earlier focused execution](#authorized-focused-execution-2026-10-26) remain historical results, not new reproductions. Earlier NOT RUN labels describe the initial observation pass only.
+**Latest disposition:** [Native snapshot-batch regression and integrated qualification](#native-snapshot-batch-regression-and-integrated-qualification-2026-10-26) proves repeated full candidate/catalog reconstruction per exported row, fixes it in ofdb `e904a07`, and records deterministic red7/green2 plus148 neighboring tests. The single fresh, untraced, default-concurrency all-features owner suite still fails **38 passed /6 failed /6 ignored**. One Join now completes native history and signer readback before IdP readiness fails; the other has a distinct source-listener `AddrInUse`. Storage readiness, authenticated Storage send and remote IdP readiness failures remain. **09 open/released; Rust slot released.** Earlier dispositions and NOT RUN labels are historical, not the latest result.
 
 ## Status and ownership
 
@@ -848,4 +848,71 @@ Runtime min available **10,374,772KiB**, peak sampled group RSS **961,188KiB**, 
 - `/tmp/setup09-qual-history-run1.json`: full argv, PGID, exit, wall time and resource extrema.
 - Build receipts `/tmp/setup09-qual-history-build{3,4}.{log,json}` and fixed-input manifest above distinguish this artifact from all older mutable-filename binaries.
 
-**09 remains open/released.** Exact public failing operation and CPU-dominated progress are captured; an exact inner native algorithmic root cause and deterministic failing-before/fixed-after regression are **not yet established**. Next action is native SQL history export/staging/apply cost isolation against this capture, not another identical full-suite retry or a callback/signer patch. Storage's separately reviewed fix was not in these diagnostic bytes and requires its own final integrated qualification. No Storage-owned file, sibling, spec/map/07/11 edits. Owned PGID3449909 verified absent; **Rust slot released/available to parent** after collection. Commit contains diagnostic outcome only; no new build/test or behavioral fix after the capture.
+**09 remains open/released.** Exact public failing operation and CPU-dominated progress are captured; an exact inner native algorithmic root cause and deterministic failing-before/fixed-after regression are **not yet established in this historical capture**. The next section records the subsequent profile, causal regression and fix. Storage's separately reviewed fix was not in these diagnostic bytes. Owned PGID3449909 was absent at that handoff.
+
+## Native snapshot-batch regression and integrated qualification, 2026-10-26
+
+### Actual native hot operation, not a guessed crypto/offload fix
+
+Explicit exclusive Rust slot grant; merged integration through `4b7e5f4f5dd7208f7816792c2981206bf6b36e68` before integrated validation. Loaded TDD/ponytail. One separately labeled **reduced public Join profiling diagnostic**, using the existing parent `owner_composition_tests::join::production_independent_join_and_source_offline_reopen`, sampled the SHA-verified history-run1 executable (`8730475bca7b77207235a5d4c7979907648fd13abbf31aa22c4925ce12f0604d`, source1cfe76076). Relevant history source had not changed. GDB ancestor/child tracing required no ptrace/security-policy changes; perf was unavailable under paranoid4. Backtraces omitted arguments/locals; no payloads or secrets were intentionally collected. Private raw log and resource receipt retained under `/tmp/setup09-hot-profile*`.
+
+**11 of12 snapshots contained catalog reconstruction.** Complete stacks included `build_outbound → recovery_snapshots → read_candidate_view → observe_table_state → columns → catalog_states_range → AutoCommit::load/reconstruct_documents`. Source confirmed complete selected-table evidence was rebuilt **per exported snapshot row**. This demonstrates an avoidable repeated native CPU operation in the public Join history path. It does not prove all historical request failures have this cause, or that all remaining catalog work is redundant.
+
+Profile parent/child passed with original180s parent watchdog and original request/readiness bounds:111.023s supervisor; minRAM8,647,892KiB; peak ownedRSS3,083,480KiB; memoryPSI some/full avg10 max0.47/0.47. Twelve interrupt/snapshot points perturb execution: **this is not qualification**. Log SHA-256 `77818ef96e042e387f4d3a6ea9bedffdbfbef94b138f7c7dc852a2d44ae4095a`; `/tmp/setup09-hot-profile-result.json` records exact argv, old artifact hash, PIDs and results. All profile processes exited.
+
+### Owning-module causal regression and minimal fix
+
+Reported sibling scope/design before writing. Only ofdb `crates/sql-sync/src/session.rs` and `crates/sql-engine-automerge/tests/scoped_session.rs` changed; committed **`e904a07a43239b36fcfa70ef83755456fa262b66`** (`fix(sql-sync): batch outgoing snapshot candidate observation`). No Storage-owned source or sibling instrumentation changed.
+
+Existing public `synchronize_tables_with_stage_factory_candidate_validated_checked` seam: actual Automerge transfer of six rows across two selected tables. Regression `outgoing_snapshot_batch_observes_candidate_tables_once` verifies complete selected-table evidence on every outgoing observation and all imported destination rows. Expected observation count is **two**: outgoing preflight plus snapshot export batch, independent of the six exported rows.
+
+- **Red:** baseline transferred rows but observed **seven**, failing7 !=2; test body0.06s. `/tmp/setup09-qual-batch-red.{log,json}`; log SHA `e841863d8b0380ae303896b32231ae815a8634f8c0e64db493d0e6bde46949f5`.
+- **Fix:** collect outbound snapshot requests; export the batch in one existing read transaction and construct one full candidate view for the batch. Retain per-row historical validation, full current candidate/schema checks, recovery validation, byte budgets and pre-commit authorization. No trait/API/cache/executor/dependency addition, timeout/retry/concurrency/security change.
+- First fixed compile needed explicit `used_bytes = 0_usize` after changed inference; recorded as compile error, not a behavioral test failure.
+- **Green:** observed **two**, actual destination rows correct; body0.07s. `/tmp/setup09-qual-batch-green2.{log,json}`; log SHA `2d0dc1a9ee28abefb29a6295ddcfd2bda260ec278a47cd19457bb23208e568a5`.
+- All **seven** scoped-session tests passed, including conflicting historical values, recovery and reverse-direction security. `/tmp/setup09-qual-batch-security.{log,json}`.
+- `cargo test --locked -j 1 -p ofdb-sql-sync -p ofdb-sql-engine-automerge --tests`: **148 passed**; two feature-gated targets had zero tests. `/tmp/setup09-qual-batch-neighbor-tests.{log,json}`; log SHA `f4576d63c860cc027733cf27a4bc316abadd00a1719391cb3e00a5ac9b36ecd7`.
+- `cargo clippy --locked -j 1 -p ofdb-sql-sync -p ofdb-sql-engine-automerge --lib --no-deps -- -D warnings`: passed. `/tmp/setup09-qual-batch-clippy.{log,json}`.
+
+All builds used jobs1, actual MemAvailable/owned-PGID RSS/memoryPSI monitoring,2GiB RAM floor and sustained20s PSI some≥20/full≥10 guards. Red/green2/neighbor/Clippy min available RAM respectively9,807,080 /10,378,752 /10,233,104 /10,580,832KiB; peak sampled ownedRSS1,126,288 /602,360 /753,604 /504,672KiB. Highest memoryPSI among these0.18/0.18. No resource stop. ofdb lock unchanged SHA `7bb748d9a80168782fd632f30f98edf1c4ee6f82dcd33c032d8b1652eb5db0c5`.
+
+### Integrated artifact recovery and fixed inputs
+
+Fresh root command, unchanged profiles/flags/dependencies:
+
+```sh
+cargo test --locked --target-dir /home/nathan/code/rust/aicacia/of/target -j 1 -p idp-unified --all-features --test owner_boundaries --no-run --message-format=json
+```
+
+`batch-owner-build1` hit the550s stage ceiling during healthy compilation. `batch-owner-build2` failed linking with undefined hidden symbols in reused owner CGU objects, not a test failure. Exact object prefix `0c2h3xfflebfebxs8uadxfdtk` matched `target/debug/incremental/owner_boundaries-1u8g86tof19cn`. Preserved this **one** directory by moving it into `target/setup09-incremental-quarantine/`; original/destination and implicated object hashes are `/tmp/setup09-incremental-quarantine.json`. No cache deletion, dependency-cache cleanup or profile/flag changes. The subsequent rebuild passed: consistent with damaged/interrupted incremental state, not proof of the original corruption mechanism.
+
+`batch-owner-build3` continued under the same resource guards with a finite1800s total build ceiling and bounded polling (no termination at a healthy polling boundary): **219.665s, exit0**, minRAM9,266,204KiB, peak sampled groupRSS4,480,700KiB, kernel max childRSS4,887,960KiB, memoryPSI3.11/2.51. No resource stop. `/tmp/setup09-qual-batch-owner-build3.{log,json}`; build log SHA `f51dcfcb48c98eb343645cbe7e019d12bf5baf1b70b32972318ffb959c4c5988`.
+
+Cargo JSON resolved fresh executable `/home/nathan/code/rust/aicacia/of/target/debug/deps/owner_boundaries-fbdb13f2c672f60d`, SHA **`75e4082f11cabf4b7c3d7563961ec7500f5a7b004c9c2d9a9d650fd4275b47a9`**. SDK build outputs/dependencies from the prior completed four-SDK preparation were retained; `node --test scripts/generated-package-exports.test.mjs` rechecked **5/5** immediately before launch. No missing-SDK diagnostic was repeated.
+
+`/tmp/setup09-batch-owner-full-inputs.json`: root4b7e5f4f5 (only ticket09 claim text dirty), ofdb e904a07 (clean), ofnet dbea925a0a3f99053fffc02618baccc2a1cbea9f (clean), offs df4c696a910296635473ec296d9235acbaa60d9b (clean). Root Cargo.lock unchanged `bb7e608f57a6167612acac7d247e51eb2c6efbe449b95208c7a1862b78dd3a3f`; rustc1.99.1 (58cf8f9c3), cargo1.99.1 (5f94df478). All-features target features cli/completions/default/swagger-ui/unified-server. No ambient RUST_TEST_THREADS/RUSTFLAGS/timing/RUST_LOG overrides. Supervisor retained the existing RUST_MIN_STACK67108864, jobs1.
+
+### Exactly one post-fix ordinary full-suite result: still failing
+
+Ran the fresh executable **without a filter, thread override, nocapture, GDB or optional timing instrumentation**, normal default libtest concurrency/capture, unchanged production/request/readiness bounds. Existing unconditional phase messages remain in current code. This is ordinary current-code behavior, not a tracing-overhead failure. **38 passed /6 failed /6 ignored, exit101,267.900s**; no repeated cell or retry-to-green.
+
+| Scenario                           | Actual child failure / phase evidence                                                              |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Create/offline reopen              | create.rs260, bounded independent **Storage readiness**                                            |
+| Create/current reset               | create.rs260, bounded independent **Storage readiness**                                            |
+| Operation/delayed authority reopen | create.rs453, authenticated **Storage request send timeout**                                       |
+| Remote Create/Join                 | create.rs260, bounded independent **IdP readiness**                                                |
+| Join/current reset                 | join.rs389, existing source HTTPS listener bind **AddrInUse**; distinct from history timeout       |
+| Join/offline reopen                | create.rs260, bounded independent **IdP readiness**, despite completed history and signer readback |
+
+The surviving Join's Device native sync SendOnly739ms/ReceiveOnly743ms succeeded; Device public-import4260ms. IdP native sync SendOnly29310ms/ReceiveOnly29308ms succeeded; import end33410ms, signer import end33689ms, retained signer readback end33996ms, public-import33997ms, local-client seed7722ms, serving260ms. These IdP outer import timers are cumulative from one import start, not independent durations to sum. **Both signer steps succeeded; a pending callback or signer-readback error is not this run's failure.** This is progress beyond pre-fix history-run1, but source/base/Storage changes and workload variation prevent assigning every timing difference solely to batching.
+
+Remaining Create Device semantic-seed phases include38,490 /40,447 /37,661 /45,113ms across concurrent children; association must not be invented from interleaved output. The untraced cell does not expose request status/body at failed readiness, so exact remaining readiness cause is **not proven**. Do not turn absence of memory pressure into a CPU/environment-only diagnosis or remove current validation.
+
+Runtime minRAM **10,011,332KiB**, peak sampled ownedRSS **889,748KiB**, kernel max individual childRSS558,432KiB, memoryPSI max **0.01/0.01**. CPU PSI some avg10 max16.56; I/O PSI some avg10 max2.22; peak10 owned processes/82 threads. Samples SHA `6de4181af4363d00ae9e3b81bde1e245fa9c48397c07cbc948edb3b33cec7d37`. After-run main/sibling HEAD checks matched the fixed inputs; only these two main09 documents were dirty, all siblings clean. No resource guard stop. `/tmp/setup09-qual-batch-owner-full.{log,json}` and `-samples.jsonl` retain categorical output and CPU/I/O/memory/scheduler samples; log SHA **`60d95599f076c5011e0dc46e7f5e6d433e157252f9ea4ccbf898a805237fbc15`**. Raw failure logs include pre-existing URLs/temporary paths: private artifacts, not public payload examples.
+
+### Remaining executable work and ownership
+
+**09 remains open, not accepted.** Proven repeated candidate/catalog work is fixed with a deterministic regression, not a complete explanation of every historical failure. Still required: isolate current failed readiness's request/body versus not-ready state and owning CPU operation; diagnose authenticated Storage send with Storage owner; address observed source listener reservation/rebind collision without retries or relaxed bounds; then repeated current-code full-default-concurrency qualification under parent coordination. A future focused regression must target the newly demonstrated cause, not weaken this suite. No full feature matrix/coverage was launched; parent owns11 preparation/qualification.
+
+No additional speculative async-offload/framework/fixture changes. Only authorized ofdb two-file fix and main09 ticket/evidence edits in this slice; Storage files and separate evidence, spec/map/07/11 untouched. All owned profile/build/test processes exited; full-cell PGID3495454 absent. **Rust slot explicitly released/available to parent after collection.**
