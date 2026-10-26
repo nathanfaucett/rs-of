@@ -1,13 +1,20 @@
 import {
+  AuthorizationServerMetadataToJSON,
+  ClientRegistrationFromJSON,
+  ClientRegistrationToJSON,
   Configuration,
   DefaultApi,
   TokenGrantTypeEnum,
   TokenResponseToJSON,
-  AuthorizationServerMetadataToJSON,
   UserInfoToJSON,
-  ClientRegistrationFromJSON,
-  ClientRegistrationToJSON,
 } from "@aicacia/idp-client";
+import {
+  createNativeFetch,
+  generateState,
+  isNativeProtocol,
+  type NativeFetch,
+  openUrl,
+} from "@aicacia/native-fetch";
 import { EventEmitter } from "eventemitter3";
 import type { OidcClientConfig } from "./OidcClientConfig.js";
 import { OidcClientError } from "./OidcClientError.js";
@@ -19,13 +26,6 @@ import {
   type Fetch,
 } from "./util/createFetchWithTimeout.js";
 import { generatePkcePair } from "./util/generatePkcePair.js";
-import {
-  createNativeFetch,
-  generateState,
-  isNativeProtocol,
-  NativeFetch,
-  openUrl,
-} from "@aicacia/native-fetch";
 import { snakeCase, snakeCaseKeys } from "./util/snakeCaseKeys.js";
 
 export type OidcClientEvents = {
@@ -108,10 +108,13 @@ export class OidcClient<
   private readonly memoryOnly: boolean;
   private tokenResponse: OidcTokenResponse | null = null;
   private sessionGeneration = 0;
+  private refreshPending: {
+    generation: number;
+    promise: Promise<OidcTokenResponse>;
+  } | null = null;
 
   private oidcConfigPromise: Promise<OidcConfiguration> | null = null;
   private readonly pkceVerifiersByState = new Map<string, string>();
-  private lastPkceVerifier: string | null = null;
   private readonly pkceStoragePrefix: string;
   private readonly tokenStoragePrefix: string;
 
@@ -119,10 +122,18 @@ export class OidcClient<
     super();
     this.config = OidcClient.validateConfig(options.clientConfig);
     this.projectOwned = options.projectOwned ?? false;
-    this.pkceStoragePrefix = `${PKCE_STORAGE_PREFIX}:${this.config.authority}`;
-    this.tokenStoragePrefix = `${TOKEN_STORAGE_PREFIX}:${this.config.authority}`;
+    const namespace = encodeURIComponent(
+      JSON.stringify([
+        this.config.authority,
+        this.config.clientId ?? this.config.registration,
+        this.getRedirectUri(),
+        this.config.registration,
+      ]),
+    );
+    this.pkceStoragePrefix = `${PKCE_STORAGE_PREFIX}:${namespace}`;
+    this.tokenStoragePrefix = `${TOKEN_STORAGE_PREFIX}:${namespace}`;
     this.memoryOnly = options.storage === "memory";
-    if (this.memoryOnly) this.removePersistentSession();
+
     this.disableNativeRequests = options.disableNativeRequests ?? false;
     this.nativeFetch = createNativeFetch(this.config.authority);
     this.fetch = this.config.requestTimeoutInSeconds
@@ -149,20 +160,6 @@ export class OidcClient<
       throw new Error("Discovery does not match the configured owner endpoint");
   }
 
-  private removePersistentSession(): void {
-    if (typeof window === "undefined") return;
-    const storage = window.localStorage;
-    for (let index = storage.length - 1; index >= 0; index--) {
-      const key = storage.key(index);
-      if (
-        key?.startsWith(`${TOKEN_STORAGE_PREFIX}:`) ||
-        key?.startsWith(`${PKCE_STORAGE_PREFIX}:`)
-      ) {
-        storage.removeItem(key);
-      }
-    }
-  }
-
   private getStorage(): Storage | null {
     if (this.memoryOnly || typeof window === "undefined") {
       return null;
@@ -176,10 +173,6 @@ export class OidcClient<
 
   private getPkceStorageKey(state: string): string {
     return `${this.pkceStoragePrefix}:state:${state}`;
-  }
-
-  private getPkceLastStorageKey(): string {
-    return `${this.pkceStoragePrefix}:last`;
   }
 
   private getTokenStorageKey(): string {
@@ -223,29 +216,25 @@ export class OidcClient<
   clearStoredTokenResponse(): void {
     this.sessionGeneration += 1;
     this.tokenResponse = null;
-    if (this.memoryOnly) {
-      this.pkceVerifiersByState.clear();
-      this.lastPkceVerifier = null;
-      this.removePersistentSession();
-      return;
-    }
+    this.pkceVerifiersByState.clear();
     const storage = this.getStorage();
-    if (!storage) {
-      return;
-    }
+    if (!storage) return;
     storage.removeItem(this.getTokenStorageKey());
+    for (let index = storage.length - 1; index >= 0; index--) {
+      const key = storage.key(index);
+      if (key?.startsWith(`${this.pkceStoragePrefix}:`))
+        storage.removeItem(key);
+    }
   }
 
   private rememberPkceVerifier(state: string, codeVerifier: string): void {
     this.pkceVerifiersByState.set(state, codeVerifier);
-    this.lastPkceVerifier = codeVerifier;
 
     const storage = this.getStorage();
     if (!storage) {
       return;
     }
     storage.setItem(this.getPkceStorageKey(state), codeVerifier);
-    storage.setItem(this.getPkceLastStorageKey(), codeVerifier);
   }
 
   private consumePkceVerifier(state?: string | null): string | undefined {
@@ -256,18 +245,10 @@ export class OidcClient<
       const storageKey = this.getPkceStorageKey(state);
       const storageValue = storage?.getItem(storageKey) ?? null;
       storage?.removeItem(storageKey);
-      storage?.removeItem(this.getPkceLastStorageKey());
-      this.lastPkceVerifier = null;
       return memoryValue ?? storageValue ?? undefined;
     }
 
-    const last =
-      this.lastPkceVerifier ??
-      storage?.getItem(this.getPkceLastStorageKey()) ??
-      null;
-    this.lastPkceVerifier = null;
-    storage?.removeItem(this.getPkceLastStorageKey());
-    return last ?? undefined;
+    return undefined;
   }
 
   private readCallbackParam(
@@ -412,17 +393,6 @@ export class OidcClient<
     return error.message.toLowerCase().includes("timeout");
   }
 
-  private async getResponseText(
-    response: Response,
-  ): Promise<string | undefined> {
-    try {
-      const responseText = await response.clone().text();
-      return responseText ? responseText : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
   async getUserInfo(): Promise<UserInfo> {
     const tokenResponse = this.getStoredTokenResponse();
     const accessToken = tokenResponse?.access_token;
@@ -512,7 +482,6 @@ export class OidcClient<
           status: userInfoResponse.status,
           statusText: userInfoResponse.statusText,
           endpoint: userInfoUrl.toString(),
-          responseText: await this.getResponseText(userInfoResponse),
         },
       );
     }
@@ -546,6 +515,28 @@ export class OidcClient<
     }
 
     return userInfo;
+  }
+
+  async getVerifiedIdentity(): Promise<{
+    issuer: string;
+    subject: string;
+    userInfo: UserInfo;
+  }> {
+    await this.getAccessToken();
+    const generation = this.sessionGeneration;
+    const token = this.getStoredTokenResponse()?.access_token;
+    const config = await this.getOidcConfiguration();
+    const userInfo = await this.getUserInfo();
+    if (
+      !userInfo.sub ||
+      token !== this.getStoredTokenResponse()?.access_token ||
+      generation !== this.sessionGeneration
+    )
+      throw new OidcClientError(
+        "NO_ACCESS_TOKEN",
+        "Session changed during identity establishment",
+      );
+    return { issuer: config.issuer, subject: userInfo.sub, userInfo };
   }
 
   private async requestToken(
@@ -628,6 +619,12 @@ export class OidcClient<
       url = new URL(window.location.href);
     }
 
+    const expected = new URL(this.getRedirectUri());
+    if (url.origin !== expected.origin || url.pathname !== expected.pathname)
+      throw new OidcClientError(
+        "INVALID_STATE",
+        "Callback destination does not match",
+      );
     const queryParams = url.searchParams;
     const hashParams = this.getHashParams(url);
 
@@ -637,7 +634,7 @@ export class OidcClient<
       "error",
     );
     if (callbackError) {
-      throw new Error(callbackError);
+      throw new Error("Authorization was rejected by the provider");
     }
 
     const callbackState = this.readCallbackParam(
@@ -652,32 +649,11 @@ export class OidcClient<
       "access_token",
     );
     const idToken = this.readCallbackParam(queryParams, hashParams, "id_token");
-    if (accessToken || idToken) {
-      const tokenResponse = this.normalizeTokenResponse({
-        access_token: accessToken ?? undefined,
-        id_token: idToken ?? undefined,
-        refresh_token:
-          this.readCallbackParam(queryParams, hashParams, "refresh_token") ??
-          undefined,
-        token_type:
-          this.readCallbackParam(queryParams, hashParams, "token_type") ??
-          undefined,
-        expires_in:
-          this.readCallbackParam(queryParams, hashParams, "expires_in") ??
-          undefined,
-        refresh_token_expires_in:
-          this.readCallbackParam(
-            queryParams,
-            hashParams,
-            "refresh_token_expires_in",
-          ) ?? undefined,
-        scope:
-          this.readCallbackParam(queryParams, hashParams, "scope") ?? undefined,
-        state: callbackState ?? undefined,
-      });
-      this.rememberTokenResponse(tokenResponse);
-      return tokenResponse;
-    }
+    if (accessToken || idToken)
+      throw new OidcClientError(
+        "INVALID_STATE",
+        "Expected an authorization-code callback",
+      );
 
     const authorizationCode = this.readCallbackParam(
       queryParams,
@@ -703,6 +679,7 @@ export class OidcClient<
       );
     }
 
+    const generation = ++this.sessionGeneration;
     const config = await this.getOidcConfiguration();
     const clientId = await this.getClientId(config);
     const { headers, body } = this.buildTokenRequest(
@@ -715,11 +692,32 @@ export class OidcClient<
       ...json,
       state: callbackState ?? json.state,
     });
+    if (generation !== this.sessionGeneration)
+      throw new OidcClientError(
+        "NO_ACCESS_TOKEN",
+        "Session ended during callback",
+      );
     this.rememberTokenResponse(tokenResponse);
     return tokenResponse;
   }
 
-  async refreshToken(): Promise<OidcTokenResponse> {
+  refreshToken(): Promise<OidcTokenResponse> {
+    if (this.refreshPending?.generation === this.sessionGeneration)
+      return this.refreshPending.promise;
+    const pending = {
+      generation: this.sessionGeneration,
+      promise: this.performRefresh(),
+    };
+    this.refreshPending = pending;
+    void pending.promise
+      .finally(() => {
+        if (this.refreshPending === pending) this.refreshPending = null;
+      })
+      .catch(() => {});
+    return pending.promise;
+  }
+
+  private async performRefresh(): Promise<OidcTokenResponse> {
     const generation = this.sessionGeneration;
     const storedToken = this.getStoredTokenResponse();
     const snapshot = JSON.stringify(storedToken);
@@ -785,12 +783,22 @@ export class OidcClient<
   }
 
   static validateConfig(config: OidcClientConfig): OidcClientConfig {
+    config = structuredClone(config);
     if (!config.authority || typeof config.authority !== "string") {
       throw new Error("Invalid authority URL");
     }
-    config.authority = config.authority.endsWith("/")
-      ? config.authority.slice(0, -1)
-      : config.authority;
+    const authority = new URL(config.authority);
+    if (
+      !["http:", "https:"].includes(authority.protocol) ||
+      authority.username ||
+      authority.password ||
+      authority.search ||
+      authority.hash
+    )
+      throw new Error("Invalid authority URL");
+    config.authority = authority.href.endsWith("/")
+      ? authority.href.slice(0, -1)
+      : authority.href;
 
     if (
       config.redirectUri !== undefined &&
@@ -804,6 +812,10 @@ export class OidcClient<
         "Missing redirectUri: set redirectUri or registration.redirectUris[0]",
       );
     }
+
+    const redirect = new URL(OidcClient.resolveRedirectUri(config) ?? "");
+    if (redirect.username || redirect.password || redirect.hash)
+      throw new Error("Invalid redirectUri");
 
     return config;
   }
@@ -870,7 +882,23 @@ export class OidcClient<
 
   async getOidcConfiguration(): Promise<OidcConfiguration> {
     if (!this.oidcConfigPromise) {
-      this.oidcConfigPromise = this.fetchOidcConfiguration();
+      this.oidcConfigPromise = this.fetchOidcConfiguration()
+        .then((config) => {
+          const issuer = new URL(config.issuer);
+          if (
+            !["http:", "https:"].includes(issuer.protocol) ||
+            issuer.username ||
+            issuer.password ||
+            issuer.search ||
+            issuer.hash
+          )
+            throw new Error("Invalid canonical issuer");
+          return config;
+        })
+        .catch((error) => {
+          this.oidcConfigPromise = null;
+          throw error;
+        });
     }
     return this.oidcConfigPromise;
   }
@@ -878,20 +906,20 @@ export class OidcClient<
   async signin(options: SigninOptions = {}): Promise<void> {
     const url = await this.getAuthorizationUrl(options);
 
-    console.debug(
-      "Opening signin URL:",
-      url.toString(),
-      JSON.stringify(options, null, 2),
-    );
-
-    openUrl(url, {
+    await openUrl(url, {
       popup: options.popup,
       windowFeatures: options.windowFeatures,
     });
   }
 
   async signout(options: SignoutOptions = {}): Promise<void> {
+    this.clearStoredTokenResponse();
+    const generation = this.sessionGeneration;
     const config = await this.getOidcConfiguration();
+    if (generation !== this.sessionGeneration)
+      throw new Error("Session ended during provider logout");
+    if (!config.end_session_endpoint)
+      throw new Error("Provider does not support logout");
     if (config.end_session_endpoint) {
       const url = new URL(config.end_session_endpoint);
       if (options.extraParams) {
@@ -903,12 +931,11 @@ export class OidcClient<
         url.searchParams.set("post_logout_redirect_uri", options.redirectUri);
       }
 
-      openUrl(url, {
+      await openUrl(url, {
         popup: options.popup,
         windowFeatures: options.windowFeatures,
       });
     }
-    this.clearStoredTokenResponse();
   }
 
   async getRegistrationUrl(options: RegistrationOptions = {}): Promise<URL> {
@@ -932,8 +959,10 @@ export class OidcClient<
   }
 
   async startRegistration(options: RegistrationOptions = {}): Promise<URL> {
+    const generation = this.sessionGeneration;
     const url = await this.getRegistrationUrl(options);
-
+    if (generation !== this.sessionGeneration)
+      throw new Error("Session ended during registration");
     await openUrl(url, {
       popup: options.popup,
       windowFeatures: options.windowFeatures,
@@ -1041,6 +1070,7 @@ export class OidcClient<
   async getAuthorizationUrl(
     options: AuthorizationUrlOptions = {},
   ): Promise<URL> {
+    const generation = this.sessionGeneration;
     const config = await this.getOidcConfiguration();
     const clientId = await this.getClientId(config);
     const url = new URL(config.authorization_endpoint);
@@ -1080,6 +1110,11 @@ export class OidcClient<
       const pkcePair = await generatePkcePair();
       url.searchParams.set("code_challenge_method", "S256");
       url.searchParams.set("code_challenge", pkcePair.codeChallenge);
+      if (generation !== this.sessionGeneration)
+        throw new OidcClientError(
+          "NO_ACCESS_TOKEN",
+          "Session ended during authorization",
+        );
       this.rememberPkceVerifier(state, pkcePair.codeVerifier);
     }
 

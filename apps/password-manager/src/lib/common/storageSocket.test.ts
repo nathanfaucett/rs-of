@@ -5,11 +5,9 @@ const host = vi.hoisted(() => ({
     env: { PUBLIC_STORAGE_BASE_URL: "https://storage.localhost:1355/storage" },
     getAccessToken: vi.fn(),
 }));
-vi.mock("./state/idpClient.svelte", () => ({
+vi.mock("./state/sdk", () => ({
     getIdpApiUrl: () => host.idpBaseUrl,
-}));
-vi.mock("./state/oidc.svelte", () => ({
-    getOidcClient: () => ({ getAccessToken: host.getAccessToken }),
+    getSdk: () => ({ tokenProvider: () => host.getAccessToken }),
 }));
 vi.mock("$env/dynamic/public", () => ({ env: host.env }));
 const fetchApi = vi.fn();

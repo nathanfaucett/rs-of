@@ -7,12 +7,10 @@ const auth = vi.hoisted(() => ({
     signin: vi.fn(),
     set: vi.fn(),
 }));
-vi.mock("$lib/common/state/idpClient.svelte", () => ({
+vi.mock("$lib/common/state/sdk", () => ({
     getIdpApiUrl: () => auth.authority,
     setIdpApiUrl: auth.set,
-}));
-vi.mock("$lib/common/state/oidc.svelte", () => ({
-    getOidcClient: () => ({ signin: auth.signin }),
+    getSdk: () => ({ signin: auth.signin }),
 }));
 let component: ReturnType<typeof mount>;
 afterEach(async () => {
@@ -45,7 +43,7 @@ it("surfaces rejected authority configuration rather than rejecting outside the 
     await vi.waitFor(() => {
         flushSync();
         expect(document.querySelector('[role="alert"]')?.textContent).toContain(
-            "HTTP or HTTPS",
+            "Unable to sign in",
         );
     });
     expect(auth.signin).not.toHaveBeenCalled();

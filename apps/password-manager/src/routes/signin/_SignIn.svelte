@@ -2,23 +2,19 @@
 import {
     getIdpApiUrl,
     setIdpApiUrl,
-} from "$lib/common/state/idpClient.svelte";
-import { getOidcClient } from "$lib/common/state/oidc.svelte";
+    getSdk,
+} from "$lib/common/state/sdk";
 
 let error = $state<string | null>(null);
 let remoteUrl = $state(getIdpApiUrl() ?? "");
 
 async function signIn(authority: string): Promise<void> {
     error = null;
-    const currentAuthority = getIdpApiUrl();
     try {
         setIdpApiUrl(authority);
-        await getOidcClient().signin();
-    } catch (cause) {
-        if (currentAuthority) {
-            setIdpApiUrl(currentAuthority);
-        }
-        error = cause instanceof Error ? cause.message : String(cause);
+        await getSdk().signin();
+    } catch {
+        error = "Unable to sign in. Check the service configuration and try again.";
     }
 }
 

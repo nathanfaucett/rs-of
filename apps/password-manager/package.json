@@ -18,6 +18,7 @@
         "test": "vitest run"
     },
     "devDependencies": {
+        "@aicacia/native-fetch": "workspace:*",
         "@biomejs/biome": "^2.5.3",
         "@inlang/paraglide-js": "^2.21.0",
         "@standard-schema/spec": "^1.1.0",
@@ -42,12 +43,12 @@
     "dependencies": {
         "@aicacia/idp-client": "workspace:*",
         "@aicacia/management-client": "workspace:*",
-        "@aicacia/oidc-client": "workspace:*",
         "@aicacia/storage-client": "workspace:*",
         "@aicacia/storage-db-collection": "workspace:*",
         "@aicacia/svelte-forms": "^0.1.1",
         "@aicacia/svelte-headless": "workspace:*",
         "@lucide/svelte": "^1.24.0",
+        "@of/sdk": "workspace:*",
         "@tanstack/svelte-db": "0.5.12",
         "valibot": "^1.4.2"
     }

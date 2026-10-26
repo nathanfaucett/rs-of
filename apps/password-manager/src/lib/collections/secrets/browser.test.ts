@@ -1,11 +1,14 @@
-import { SvelteMap } from "svelte/reactivity";
-import Page from "../../../routes/(auth)/+page.svelte";
+import type { StorageRequest } from "@aicacia/storage-client";
+import { ApplicationSdk, type SdkOptions } from "@of/sdk";
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { StorageRequest } from "@aicacia/storage-client";
-import Browser from "./Browser.svelte";
+import Page from "../../../routes/(auth)/+page.svelte";
 import SignIn from "../../../routes/signin/_SignIn.svelte";
+import Browser from "./Browser.svelte";
 
+vi.mock("$lib/common/state/notifications.svelte", () => ({
+    notifications: { add: vi.fn() },
+}));
 vi.mock("$app/navigation", () => ({ goto: vi.fn(), invalidateAll: vi.fn() }));
 vi.mock("$app/paths", () => ({ resolve: (path: string) => path }));
 const auth = vi.hoisted(() => ({
@@ -13,20 +16,31 @@ const auth = vi.hoisted(() => ({
     clear: vi.fn(),
     signin: vi.fn(),
     setAuthority: vi.fn(),
+    sdk: undefined as ApplicationSdk | undefined,
+    navigate: vi.fn(),
 }));
 vi.mock("$env/dynamic/public", () => ({
     env: { PUBLIC_STORAGE_BASE_URL: "https://storage.test/storage" },
 }));
-vi.mock("$lib/common/state/idpClient.svelte", () => ({
+vi.mock("@aicacia/native-fetch", async (original) => ({
+    ...(await original<typeof import("@aicacia/native-fetch")>()),
+    openUrl: auth.navigate,
+}));
+vi.mock("$lib/common/state/sdk", () => ({
     getIdpApiUrl: () => "https://idp.test/idp",
     setIdpApiUrl: auth.setAuthority,
-}));
-vi.mock("$lib/common/state/oidc.svelte", () => ({
-    getOidcClient: () => ({
-        getAccessToken: async () => auth.token,
-        signin: auth.signin,
-        clearStoredTokenResponse: auth.clear,
-    }),
+    getSdk: () =>
+        auth.sdk ?? {
+            session: {
+                status: "authenticated",
+                identity: { subject: "user-one" },
+                generation: 0,
+            },
+            subscribe: () => () => {},
+            tokenProvider: () => async () => auth.token,
+            signin: auth.signin,
+            signout: auth.clear,
+        },
 }));
 
 const id = "01900000-0000-7000-8000-000000000001";
@@ -133,6 +147,18 @@ const fetchApi = vi.fn();
 beforeEach(() => {
     vi.clearAllMocks();
     auth.token = "user-token";
+    auth.sdk = undefined;
+    const credentials = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+        get length() {
+            return credentials.size;
+        },
+        key: (i: number) => [...credentials.keys()][i] ?? null,
+        getItem: (key: string) => credentials.get(key) ?? null,
+        setItem: (key: string, value: string) => credentials.set(key, value),
+        removeItem: (key: string) => credentials.delete(key),
+        clear: () => credentials.clear(),
+    });
     Endpoint.sockets = [];
     Endpoint.files = new Map();
     Endpoint.rejectWrites = false;
@@ -413,24 +439,79 @@ it("refreshes external changes, retires stale editor fields, and manually recove
     expect(Endpoint.sockets).toHaveLength(2);
 });
 
-it("qualifies sign-in, discovery/create/open, CRUD, app reload, Refresh and context switching as one controlled workflow", async () => {
+it("qualifies real SDK redirect/callback, discovery/create/open, CRUD, reload, Refresh and local sign-out", async () => {
     vi.stubGlobal("confirm", () => true);
+    const storageFetch = fetchApi.getMockImplementation();
+    if (!storageFetch) throw new Error("Expected controlled Storage service");
+    const identityFetch = async (
+        url: URL | RequestInfo,
+        init?: RequestInit,
+    ) => {
+        const path = String(url);
+        if (path.endsWith("/.well-known/openid-configuration"))
+            return Response.json({
+                issuer: "https://installation.test",
+                authorization_endpoint: "https://idp.test/idp/authorize",
+                token_endpoint: "https://idp.test/idp/oauth2/token",
+                userinfo_endpoint: "https://idp.test/idp/userinfo",
+            });
+        if (path.endsWith("/userinfo"))
+            return Response.json({ sub: "user-one" });
+        if (
+            path.endsWith("/oauth2/token") &&
+            new URLSearchParams(init?.body as string).get("grant_type") !==
+                "urn:ietf:params:oauth:grant-type:token-exchange"
+        )
+            return Response.json({
+                access_token: "user-token",
+                expires_in: 3600,
+                refresh_token: "refresh",
+            });
+        return storageFetch(url, init);
+    };
+    fetchApi.mockImplementation(identityFetch);
+    window.localStorage.clear();
+    const sdkOptions: SdkOptions = {
+        idpBaseUrl: "https://idp.test/idp",
+        storageBaseUrl: "https://storage.test/storage",
+        client: {
+            clientId: "password-manager-web",
+            redirectUri: "https://app.test/callback",
+            registration: {
+                redirectUris: ["https://app.test/callback"],
+                application: { uri: "password-manager.aicacia.com" },
+                tokenEndpointAuthMethod: "none",
+            },
+        },
+        fetch: fetchApi,
+        disableNativeRequests: true,
+    };
+    auth.sdk = new ApplicationSdk(sdkOptions);
     component = mount(SignIn, { target });
     input("remote-url", "https://idp.test/idp");
     target
         .querySelector("form")
         ?.dispatchEvent(new Event("submit", { cancelable: true }));
-    await vi.waitFor(() => expect(auth.signin).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(auth.navigate).toHaveBeenCalledOnce());
+    const authorization = auth.navigate.mock.calls[0][0] as URL;
+    // Full-page redirect: a fresh OIDC/SDK instance consumes the persisted transaction.
+    auth.sdk = new ApplicationSdk(sdkOptions);
+    await auth.sdk.handleSigninCallback(
+        new URL(
+            `https://app.test/callback?code=once&state=${authorization.searchParams.get("state")}`,
+        ),
+    );
     expect(auth.setAuthority).toHaveBeenCalledWith("https://idp.test/idp");
     await unmount(component);
-    const identity = new SvelteMap([["subject", "user-one"]]);
     const openApp = () =>
         mount(Page, {
             target,
             props: {
                 params: {},
                 get data() {
-                    return { userInfo: { sub: identity.get("subject") } };
+                    return {
+                        userInfo: { sub: auth.sdk?.session.identity?.subject },
+                    };
                 },
             },
         });
@@ -459,14 +540,19 @@ it("qualifies sign-in, discovery/create/open, CRUD, app reload, Refresh and cont
     await unmount(component);
     expect(old?.closed).toBe(true);
     // A new mounted app/collection has no in-memory secret state to reuse.
-    fetchApi.mockImplementation(async (url: string) =>
-        String(url).endsWith("/oauth2/token")
-            ? Response.json({ access_token: "storage-token" })
-            : Response.json([
-                  { id: "created", name: "Created filesystem" },
-                  { id: "empty", name: "Other filesystem" },
-              ]),
+    fetchApi.mockImplementation(async (url: string, init?: RequestInit) =>
+        String(url).endsWith("/userinfo") ||
+        String(url).endsWith("/.well-known/openid-configuration")
+            ? identityFetch(url, init)
+            : String(url).endsWith("/oauth2/token")
+              ? Response.json({ access_token: "storage-token" })
+              : Response.json([
+                    { id: "created", name: "Created filesystem" },
+                    { id: "empty", name: "Other filesystem" },
+                ]),
     );
+    auth.sdk = new ApplicationSdk(sdkOptions);
+    await auth.sdk.restore();
     component = openApp();
     await wait("Created filesystem");
     select("created");
@@ -514,20 +600,15 @@ it("qualifies sign-in, discovery/create/open, CRUD, app reload, Refresh and cont
             }),
         }),
     );
-    flushSync(() => identity.set("subject", "user-two"));
-    await wait("Created filesystem");
-    expect(target.querySelector("#secret")).toBeNull();
-    expect(target.textContent).not.toMatch(
-        /Workflow edited|External workflow edit|Refreshed/,
-    );
-    select("empty");
-    await wait("No secrets yet");
     const signedOut = Endpoint.sockets.at(-1);
     click("Sign out");
     flushSync();
     expect(target.querySelector("select")).toBeNull();
     expect(signedOut?.closed).toBe(true);
-    expect(auth.clear).toHaveBeenCalledOnce();
+    expect(auth.sdk.session.status).toBe("ended");
+    const reload = new ApplicationSdk(sdkOptions);
+    await reload.restore();
+    expect(reload.session.status).toBe("unauthenticated");
     expect(
         fetchApi.mock.calls.some(([url]) =>
             String(url).startsWith("https://storage.test/storage/"),
@@ -681,16 +762,70 @@ it("shows authorization errors without claiming an empty resource", async () => 
 });
 
 it("clears records and editor during writes when the authenticated User changes and on sign out", async () => {
-    const identity = new SvelteMap([["subject", "user-one"]]);
-    component = mount(Page, {
-        target,
-        props: {
-            params: {},
-            get data() {
-                return { userInfo: { sub: identity.get("subject") } };
+    const storageFetch = fetchApi.getMockImplementation();
+    if (!storageFetch) throw new Error("Expected controlled Storage service");
+    let subject = "user-one";
+    fetchApi.mockImplementation(
+        async (url: URL | RequestInfo, init?: RequestInit) => {
+            if (String(url).endsWith("/.well-known/openid-configuration"))
+                return Response.json({
+                    issuer: "https://installation.test",
+                    authorization_endpoint: "https://idp.test/idp/authorize",
+                    token_endpoint: "https://idp.test/idp/oauth2/token",
+                    userinfo_endpoint: "https://idp.test/idp/userinfo",
+                });
+            if (String(url).endsWith("/userinfo"))
+                return Response.json({ sub: subject });
+            if (
+                String(url).endsWith("/oauth2/token") &&
+                new URLSearchParams(init?.body as string).get("grant_type") ===
+                    "authorization_code"
+            )
+                return Response.json({
+                    access_token: "user-token",
+                    expires_in: 3600,
+                });
+            return storageFetch(url, init);
+        },
+    );
+    const sdkOptions: SdkOptions = {
+        idpBaseUrl: "https://idp.test/idp",
+        storageBaseUrl: "https://storage.test/storage",
+        client: {
+            clientId: "password-manager-web",
+            redirectUri: "https://app.test/callback",
+            registration: {
+                redirectUris: ["https://app.test/callback"],
+                application: { uri: "password-manager.aicacia.com" },
+                tokenEndpointAuthMethod: "none",
             },
         },
-    });
+        fetch: fetchApi,
+        disableNativeRequests: true,
+    };
+    async function authenticate() {
+        auth.sdk = new ApplicationSdk(sdkOptions);
+        const url = await auth.sdk.getAuthorizationUrl();
+        await auth.sdk.handleSigninCallback(
+            new URL(
+                `https://app.test/callback?code=once&state=${url.searchParams.get("state")}`,
+            ),
+        );
+    }
+    await authenticate();
+    const openApp = () =>
+        mount(Page, {
+            target,
+            props: {
+                params: {},
+                get data() {
+                    return {
+                        userInfo: { sub: auth.sdk?.session.identity?.subject },
+                    };
+                },
+            },
+        });
+    component = openApp();
     await wait("Duplicate name");
     select("first");
     await wait("First secret");
@@ -705,8 +840,13 @@ it("clears records and editor during writes when the authenticated User changes 
     await vi.waitFor(() =>
         expect(Endpoint.sockets[0]?.requests.at(-1)?.type).toBe("write"),
     );
-    auth.token = "second-user-token";
-    flushSync(() => identity.set("subject", "user-two"));
+    auth.sdk?.dispose();
+    expect(target.querySelector("#secret")).toBeNull();
+    expect(Endpoint.sockets[0]?.closed).toBe(true);
+    await unmount(component);
+    subject = "user-two";
+    await authenticate();
+    component = openApp();
     await wait("Duplicate name");
     expect(target.textContent).not.toContain("First secret");
     expect(target.querySelector("#secret")).toBeNull();
@@ -749,5 +889,8 @@ it("clears records and editor during writes when the authenticated User changes 
     expect(target.textContent).not.toMatch(
         /Saved|Signed out mutation|disposed/,
     );
-    expect(auth.clear).toHaveBeenCalledOnce();
+    expect(auth.sdk.session.status).toBe("ended");
+    const reload = new ApplicationSdk(sdkOptions);
+    await reload.restore();
+    expect(reload.session.status).toBe("unauthenticated");
 });

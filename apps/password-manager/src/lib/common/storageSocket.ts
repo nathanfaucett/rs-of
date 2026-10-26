@@ -8,8 +8,7 @@ import {
 } from "@aicacia/storage-client";
 
 import { env } from "$env/dynamic/public";
-import { getIdpApiUrl } from "./state/idpClient.svelte";
-import { getOidcClient } from "./state/oidc.svelte";
+import { getIdpApiUrl, getSdk } from "./state/sdk";
 
 export type {
     FileSystemResource,
@@ -24,11 +23,11 @@ export function createStorageClient(): StorageClient {
     if (!idpBaseUrl) throw new Error("IdP API URL is not configured");
     const storageBaseUrl = env.PUBLIC_STORAGE_BASE_URL;
     if (!storageBaseUrl) throw new Error("Storage API URL is not configured");
-    const oidc = getOidcClient();
+    const tokenProvider = getSdk().tokenProvider();
     return new StorageClient({
         idpBaseUrl,
         storageBaseUrl,
         clientId: "password-manager-web",
-        bearerToken: () => oidc.getAccessToken(),
+        bearerToken: tokenProvider,
     });
 }

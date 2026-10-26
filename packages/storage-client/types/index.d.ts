@@ -73,6 +73,7 @@ export declare class StorageSocket {
 }
 export declare class StorageClient {
     private readonly options;
+    static validateServiceBase(value: URL | string): void;
     constructor(options: StorageClientOptions);
     listFileSystems(signal?: AbortSignal): Promise<FileSystemResource[]>;
     createFileSystem(name?: string, signal?: AbortSignal): Promise<FileSystemResource>;

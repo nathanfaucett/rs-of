@@ -27,11 +27,11 @@ client.on("registered", (registration) => {
 await client.signin();
 
 // or open a popup
-const { url, window } = await client.signin({ popup: true });
+await client.signin({ popup: true });
 
 // later, after handling the callback, load userinfo explicitly
 const tokenResponse = await client.handleSigninCallback();
-const userInfo = tokenResponse ? await client.getUserInfo() : null;
+const identity = tokenResponse ? await client.getVerifiedIdentity() : null;
 ```
 
 ## Project-owned IdP APIs
@@ -42,9 +42,15 @@ Both project applications select this mode. The default external-provider mode r
 
 ## Session storage
 
-Set `storage: 'memory'` in the client options for an in-memory session. Tokens and PKCE verifiers are not written to browser storage, and existing `oidc.token:` and `oidc.pkce:` caches for all authorities in the same browser storage are removed when the client is constructed or cleared. Cache-removal failures are surfaced, not silently ignored. `clearStoredTokenResponse()` clears the session. Reloading or constructing a new client requires signing in again; redirect flows that replace the client instance cannot retain a memory-only PKCE verifier.
+The default `storage: 'local'` persists tokens and state-bound PKCE transactions in browser localStorage, preserving full-page redirect and reload continuity. Namespaces bind authority service base, OAuth Client identity/configuration, redirect URI, and registration metadata (including Application). Legacy authority-only keys are ignored, not read or migrated; sign in again. Old plaintext entries can be removed manually through browser site-data controls.
 
-The default remains `storage: 'local'` for existing browser clients. The desktop application explicitly selects memory-only storage and clears its session on signout and reset.
+`storage: 'memory'` writes no credentials or PKCE verifiers to browser storage and does not purge other clients' credentials. Reloading or constructing another client loses the session; it cannot continue a full-page redirect. `clearStoredTokenResponse()` clears only this client's credentials and pending transactions. Browser-persisted credentials are exposed to same-origin JavaScript/XSS, extensions, and local inspection; they are not an encrypted vault.
+
+Sign-out clears local state before provider discovery/logout. Provider failure can still reject but cannot restore the local session. Local deletion is not remote revocation or proof of provider logout. Concurrent refresh is coalesced; callback/refresh results cannot persist credentials after local termination.
+
+`getVerifiedIdentity()` obtains/renews an access token, loads userinfo, requires a nonempty subject and unchanged credentials, and returns the discovered canonical issuer, subject, and userinfo. This is a trusted discovery/token/userinfo workflow, not independent ID-token signature verification. Project-owned mode binds credential recipients to generated owner endpoints and refuses redirects. Issuer and service base are unambiguous HTTP(S) URLs, not necessarily the same URL.
+
+Only state-bound authorization-code callbacks are accepted; no-code callbacks return `null`, and token-bearing callbacks are rejected instead of accepting substituted credentials. Sign-in no longer logs authorization URLs or options; userinfo errors do not retain provider response bodies. Applications should expose bounded error messages, never credential-bearing request/response objects.
 
 ## Features
 

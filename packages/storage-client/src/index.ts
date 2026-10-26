@@ -1,11 +1,11 @@
 import {
-    Configuration as IdpConfiguration,
     DefaultApi as IdpApi,
-    SubjectTokenType,
+    Configuration as IdpConfiguration,
     ResponseError as IdpResponseError,
+    SubjectTokenType,
 } from "@aicacia/idp-client";
-import { ResourcesApi } from "./generated/apis/ResourcesApi.js";
 import { DefaultApi as StorageApi } from "./generated/apis/DefaultApi.js";
+import { ResourcesApi } from "./generated/apis/ResourcesApi.js";
 import {
     Configuration,
     querystring,
@@ -81,6 +81,10 @@ export class StorageSocket {
 }
 
 export class StorageClient {
+    static validateServiceBase(value: URL | string): void {
+        parseUrl(value);
+    }
+
     constructor(private readonly options: StorageClientOptions) {}
 
     async listFileSystems(signal?: AbortSignal): Promise<FileSystemResource[]> {

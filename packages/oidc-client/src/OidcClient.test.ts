@@ -3,7 +3,7 @@ import { OidcClient } from "./OidcClient.js";
 import { OidcClientError } from "./OidcClientError.js";
 import type { OidcConfiguration } from "./OidcConfiguration.js";
 
-test("memory sessions remove old plaintext caches and never persist tokens", () => {
+test("memory sessions ignore legacy plaintext caches without purging unrelated credentials", () => {
   const values = new Map<string, string>([
     ["oidc.token:https://issuer.example:response", '{"access_token":"old"}'],
     ["oidc.pkce:https://issuer.example:last", "old-verifier"],
@@ -37,7 +37,9 @@ test("memory sessions remove old plaintext caches and never persist tokens", () 
     };
     const client = new OidcClient(options);
     expect(client.getStoredTokenResponse()).toBeNull();
-    expect([...values]).toEqual([["unrelated", "retain"]]);
+    expect(
+      values.get("oidc.token:https://previous.example:response"),
+    ).toBeDefined();
     client.setToken({ access_token: "access", refresh_token: "refresh" });
     expect(client.getStoredTokenResponse()?.access_token).toBe("access");
     expect(new OidcClient(options).getStoredTokenResponse()).toBeNull();
@@ -46,7 +48,9 @@ test("memory sessions remove old plaintext caches and never persist tokens", () 
     values.set("oidc.pkce:https://previous.example:last", "previous-verifier");
     client.clearStoredTokenResponse();
     expect(client.getStoredTokenResponse()).toBeNull();
-    expect([...values]).toEqual([["unrelated", "retain"]]);
+    expect(
+      values.get("oidc.token:https://previous.example:response"),
+    ).toBeDefined();
   } finally {
     vi.unstubAllGlobals();
   }

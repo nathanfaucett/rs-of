@@ -9,6 +9,10 @@ export default defineConfig({
         conditions: ["browser"],
         alias: {
             $lib: source("./src/lib"),
+            "@of/sdk": source("../../packages/sdk/src/index.ts"),
+            "@aicacia/oidc-client": source(
+                "../../packages/oidc-client/src/index.ts",
+            ),
             "@aicacia/storage-client": source(
                 "../../packages/storage-client/src/index.ts",
             ),

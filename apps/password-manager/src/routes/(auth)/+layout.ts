@@ -1,17 +1,17 @@
 import { redirect } from "@sveltejs/kit";
 import { resolve } from "$app/paths";
 import { afterSigninRedirect } from "$lib/common/state/afterSigninRedirect.svelte";
-import { getOidcClient } from "$lib/common/state/oidc.svelte";
+import { getSdk } from "$lib/common/state/sdk";
 import type { LayoutLoad } from "./$types";
 
 export const load: LayoutLoad = async (event) => {
     await event.parent();
 
     try {
-        const currentUserInfo = await getOidcClient().getUserInfo();
-
-        if (currentUserInfo) {
-            return { userInfo: currentUserInfo };
+        const sdk = getSdk();
+        await sdk.restore();
+        if (sdk.session.status === "authenticated" && sdk.session.identity) {
+            return { userInfo: { sub: sdk.session.identity.subject } };
         }
     } catch {}
 

@@ -10,9 +10,9 @@ var __classPrivateFieldSet = (this && this.__classPrivateFieldSet) || function (
     return (kind === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value)), value;
 };
 var _StorageSocket_queue;
-import { Configuration as IdpConfiguration, DefaultApi as IdpApi, SubjectTokenType, ResponseError as IdpResponseError, } from "@aicacia/idp-client";
-import { ResourcesApi } from "./generated/apis/ResourcesApi.js";
+import { DefaultApi as IdpApi, Configuration as IdpConfiguration, ResponseError as IdpResponseError, SubjectTokenType, } from "@aicacia/idp-client";
 import { DefaultApi as StorageApi } from "./generated/apis/DefaultApi.js";
+import { ResourcesApi } from "./generated/apis/ResourcesApi.js";
 import { Configuration, querystring, ResponseError, } from "./generated/runtime.js";
 export { ResourcesResidencyApi } from "./generated/apis/ResourcesResidencyApi.js";
 export { ResidencyMode } from "./generated/models/ResidencyMode.js";
@@ -37,6 +37,9 @@ export class StorageSocket {
 }
 _StorageSocket_queue = new WeakMap();
 export class StorageClient {
+    static validateServiceBase(value) {
+        parseUrl(value);
+    }
     constructor(options) {
         this.options = options;
     }
