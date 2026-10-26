@@ -1,6 +1,16 @@
-use std::{io, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    convert::Infallible,
+    future::ready,
+    io,
+    net::SocketAddr,
+    path::PathBuf,
+    sync::Arc,
+    task::{Context, Poll},
+    time::Duration,
+};
 
-use axum::{Router, http::StatusCode};
+use axum::{Router, extract::Request, http::StatusCode};
+use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -8,7 +18,7 @@ use crate::{
     setup_install::{CancelInstallation, Installation},
 };
 
-/// Owns the caller's lifecycle guard until the listener has stopped.
+/// Owns the caller's lifecycle guard until the listener and its connection services are destroyed.
 #[cfg_attr(
     not(feature = "test-support"),
     doc = "```compile_fail\nuse api::serve_setup_verified;\n```"
@@ -113,12 +123,7 @@ async fn serve_setup_inner<G: Send + 'static>(
     let shutdown = cancellation.clone();
     let listener = tls.listener(listener);
     let mut server = tokio::task::JoinSet::new();
-    server.spawn(async move {
-        let _guard = guard;
-        axum::serve(listener, router.into_make_service())
-            .with_graceful_shutdown(shutdown.cancelled_owned())
-            .await
-    });
+    server.spawn(async move { serve_listener(guard, listener, router, shutdown).await });
     let verified = async {
         // Verify native TLS and HTTP serving without running current remote readiness.
         let response = client
@@ -163,6 +168,58 @@ async fn serve_setup_inner<G: Send + 'static>(
     };
     verified.and(stopped)
 }
+
+#[derive(Clone)]
+struct SetupConnection {
+    router: Router,
+    // Never sent; last field so closure follows destruction of the real router.
+    _teardown: watch::Sender<()>,
+}
+
+impl tower::Service<Request> for SetupConnection {
+    type Response = axum::response::Response;
+    type Error = Infallible;
+    type Future = <Router as tower::Service<Request>>::Future;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        <Router as tower::Service<Request>>::poll_ready(&mut self.router, cx)
+    }
+
+    fn call(&mut self, request: Request) -> Self::Future {
+        self.router.call(request)
+    }
+}
+
+async fn serve_listener<G, L>(
+    guard: G,
+    listener: L,
+    router: Router,
+    shutdown: CancellationToken,
+) -> io::Result<()>
+where
+    G: Send + 'static,
+    L: axum::serve::Listener,
+    L::Addr: std::fmt::Debug,
+{
+    let _guard = guard;
+    let (teardown, mut destroyed) = watch::channel(());
+    let connection = SetupConnection {
+        router,
+        _teardown: teardown,
+    };
+    let make_service = tower::service_fn(move |_: axum::serve::IncomingStream<'_, L>| {
+        ready(Ok::<_, Infallible>(connection.clone()))
+    });
+    let result = axum::serve(listener, make_service)
+        .with_graceful_shutdown(shutdown.cancelled_owned())
+        .await;
+    let _ = destroyed.changed().await;
+    result
+}
+
+#[cfg(test)]
+#[path = "setup_server_teardown_tests.rs"]
+mod teardown_tests;
 
 #[cfg(test)]
 mod tests {

@@ -437,3 +437,96 @@ After **explicit parent resource/slot authorization**, the smallest useful next 
 ### Disposition and validation
 
 Documentation-only result. `git diff --check` is the only change validation; no Rust validation is claimed or permitted in this pass. No deterministic failing holder capture, red/green regression, lifecycle fix, feature-matrix or CRAP result. Acceptance boxes remain unchecked; ticket09 is **open/released**. Other timeout families remain unresolved and ticket07 is untouched. The source gap warrants the targeted capture above, not an unvalidated behavioral patch.
+
+## Independent connection destruction fence, 2026-10-26
+
+### Claim, authorization and fixed inputs
+
+User explicitly authorized executable progress at the existing independent owner shutdown/reopen seam, including a deterministic real connection teardown gate and the existing lifecycle precedent rather than another source-only handoff. Claimed ticket09 on `implement/setup-09-fence` in `.worktrees/setup-09-fence`; clean entry HEAD, requested base and integration tip were all **`8abf464c800a5750f433bae67177bcc11bef956f`**. Loaded TDD/ponytail; read AGENTS, spec, ticket/evidence09 including latest owner-source resumption, and evidence07's deterministic fence and queued-reply regressions. Complexity/risk/priority: medium implementation complexity, high lifecycle risk; fix the proved destruction ordering without changing worker orchestration or attributing all historical failures to it.
+
+Actual unchanged dependency inputs:
+
+- `ofdb`: `e3242170c94d5fc4bcc121db812310c8106c7ab6`, clean.
+- `ofnet`: `dbea925a0a3f99053fffc02618baccc2a1cbea9f`, clean.
+- `offs`: `df4c696a910296635473ec296d9235acbaa60d9b`, clean.
+- Cargo.lock SHA-256: `bb7e608f57a6167612acac7d247e51eb2c6efbe449b95208c7a1862b78dd3a3f`, unchanged. Actual locked build includes Axum 0.8.9, Hyper 1.11.1, hyper-util 0.1.20, Tokio 1.53.1 and **Iroh 1.2.0**; do not infer Iroh 1.1 from manifest lower bounds or prior prose.
+- `rustc 1.99.1 (58cf8f9c3 2026-10-13)`; unchanged project profiles (`dev` opt-level=1, dependencies opt-level=3, ordinary debug info).
+
+Initial worktree target was absent. The main `of/target` had reappeared at inspection, only **932 MiB**, while an editor-owned `cargo check --workspace --all-targets` was active. It exited before this agent's successful compilation launch; no unrelated process was killed. This was not the old complete target. Builds explicitly used `/home/nathan/code/rust/aicacia/of/target`, preserving whatever artifacts existed and continuing productive compilation in bounded stages. No cache deletion or profile/environment debug/optimization override.
+
+The three supplied `.worktrees/{ofdb,ofnet,offs}` symlinks initially resolved one level too high (`../../../ofdb` → `.../rust/ofdb`). First Cargo invocation failed loading the missing dependency manifest **before compilation**. Corrected only these worktree dependency links to `../../{ofdb,ofnet,offs}`; no sibling repository edits. No spec/map, ticket07/11, provider/profile/OS trust or security changes.
+
+### Deterministic real-connection regression: red before green
+
+Regression: `setup_server::teardown_tests::independent_shutdown_joins_actual_connection_teardown_before_reopen` in `crates/api/src/setup_server_teardown_tests.rs`.
+
+This uses the existing independent `IndependentSetupHost::prepare` → `into_create` → actual `host.router()` → shared serving boundary → shutdown → single retained-host reopen. Its transport is neutral HTTP for deterministic teardown, not production TLS/provider provisioning. A generic-listener extraction initially preserved the old `axum::serve(...).with_graceful_shutdown(...).await` behavior exactly. The production TLS listener and test listener call the same extracted function.
+
+The test makes and fully consumes a **real HTTP/1 keep-alive request** to the installed independent status route. Its accepted TCP IO wrapper gates only that connection's **actual destructor** with a Condvar after cancellation. It does not manufacture or externally retain a database, client, control, router or native transaction. Axum's close notification occurs before this destructor; the gate therefore makes the dependency-level ordering window deterministic. The gate has RAII release, including assertion/timeout unwind, and runs with two Tokio worker threads; the five-second whole-test bound detects hangs, not a wait-before-reopen or increased production deadline.
+
+The test requires serving to remain pending while the actual connection destructor is blocked, requires the existing owner exclusion to remain held, then releases the gate and awaits serving. One immediate `IndependentSetupHost::prepare` must succeed with byte-identical retained admission. No sleeps, retries, scheduler-yield loop or externally held routing/native owner is used.
+
+Command, cwd this worktree (all Cargo commands below use `--locked --target-dir /home/nathan/code/rust/aicacia/of/target -j 1`):
+
+```sh
+cargo test --locked --target-dir /home/nathan/code/rust/aicacia/of/target -j 1 -p api --lib independent_shutdown_joins_actual_connection_teardown_before_reopen -- --nocapture --test-threads=1
+```
+
+**Red, before fence:** exit 101, **0 passed / 1 failed**, **0.09s**:
+
+```text
+shutdown escaped actual connection teardown: Ok(())
+```
+
+Before reaching executable red, the first compilation stage hit its predeclared stage ceiling; the next found two test-plumbing compile errors (missing dev-only multi-thread runtime feature and missing generic listener address Debug bound). Corrected those before the actual failing execution. The executable red build then completed in **4m21s**. Compilation errors/stops are not counted as behavioral red.
+
+### Minimal production fix and ownership review
+
+Only `crates/api/src/setup_server.rs` changes production behavior. `SetupConnection` forwards the same real Router service and owns a private watch sender **after** the router in declaration order. Its clones are the services installed in Axum's actual accepted connections; request dispatch is unchanged. The sender is never sent on or exposed. Shared serving awaits channel closure after Axum's graceful listener future, **while still retaining the original lifecycle guard**. Closure therefore follows destruction of all connection service routers, rather than merely Axum's earlier close notification. The guard is then destroyed before the serving task returns.
+
+Unlike waiting for all independent controls to disappear, this fence does not require a still-running owner worker to release its control before the listener can finish. It fences the actual serving services; existing independent wrappers still cancel and join their owner workers in their original order. No control-cycle cleanup, forced native unlock, premature normal-router clearing or speculative worker rewrite. Existing command admission/cancellation/drain behavior is untouched. The previously fixed unified worker's queued-reply handling is also untouched.
+
+The existing production **10-second** listener shutdown bound still encompasses both graceful shutdown and the destruction fence. An error/timeout is not upgraded to successful shutdown; existing task abort/error handling remains. This does not newly claim to join arbitrary upgraded WebSocket sessions or unrelated native transaction owners. Those are distinct owners and the local Create seam does not invoke the Join-history WebSocket route.
+
+**Green:** exact regression passed, **1/1**, **0.04s**, **29.94s** rebuild. Initial fix compilation required an explicit `IncomingStream<'_, L>` closure annotation; that compile error was corrected, not counted as a failed runtime test. A subsequent lint-only `_teardown` field rename removed the dead-code warning before full API validation. Added only a dev feature on the existing Tokio dependency (`rt-multi-thread`); no new package or lock change.
+
+### Focused validation, including actual production Device reopen
+
+| Command / scenario                                                                                                                                                          | Actual result                                                                                                                                                                                                                                                                                                                                            |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Exact new regression, unfixed implementation                                                                                                                                | **Failed**, 0.09s, exit 101, real shutdown returned before connection destruction.                                                                                                                                                                                                                                                                       |
+| Same regression, fixed implementation                                                                                                                                       | **Passed**, 0.04s, exit 0.                                                                                                                                                                                                                                                                                                                               |
+| `cargo test ... -p api --lib -- --nocapture --test-threads=1`                                                                                                               | **42 passed / 2 child-only ignored**, 8.21s, 26.74s rebuild. Parents actually exercised isolated installation cancellation/future-drop/abort children and native-root delayed-readiness child; all passed. Includes independent admission, cancellation, exact identity/recovery, CORS and trust/reset refusal regressions.                              |
+| `cargo clippy ... -p api --lib --tests --no-deps -- -D warnings`                                                                                                            | **Passed**, 1m18s.                                                                                                                                                                                                                                                                                                                                       |
+| `cargo fmt --all -- --check`; `git diff --check`                                                                                                                            | **Passed**.                                                                                                                                                                                                                                                                                                                                              |
+| `cargo test ... -p idp-unified --no-default-features --features cli --test owner_boundaries --no-run`                                                                       | **Passed** after three productive bounded-stage stops; final stage 7m29s. No Swagger UI/default feature build.                                                                                                                                                                                                                                           |
+| Fresh owner executable, `--exact owner_composition_tests::create::production_independent_create_and_offline_reopen --nocapture --test-threads=1`, `RUST_MIN_STACK=67108864` | **1 parent / 1 child passed**, child **112.60s**, parent **112.76s**. This is the existing production HTTPS Create/current-readiness/normal-use/awaited owner shutdown → immediate Device native Database reopen path, plus its retained restart/negative checks. No test-body changes. One invocation, not a retry or repeat reliability qualification. |
+
+Only rustdoc/field-comment clarification and ticket/evidence text followed executable validation; production behavior and test code were unchanged. Final formatting/diff checks cover these text changes.
+
+The deterministic regression proves the independent serving ownership defect using the actual connection and real host/admission exclusion. The separate existing production scenario supplies an executable check of the real Device embedded-client/native-store path. It is **not** a deterministic before/after reproduction of historical C1's native lock conflict. No native holder in the historical failing process has been retroactively identified.
+
+### Resource protocol and local receipts
+
+Every individual tool call was below **600000ms**; Cargo/scenario children ran in new owned process groups, at jobs=1, supervised by `/tmp/setup09-fence-monitor.py`. The monitor sampled actual MemAvailable, owned-PGID aggregate RSS and memory PSI every 10s (15s in initial build stages). Stop conditions: MemAvailable <2 GiB, some avg10 ≥20 or full avg10 ≥10 for three consecutive samples, or stage elapsed >550s. Stops terminate/reap only the owned PGID, with TERM then KILL if needed. Full swap alone did not prevent productive launches.
+
+- Initial red build stage and owner-build stages 1–3 stopped at the **stage time ceiling**, not a memory/PSI threshold. Completed artifacts were retained for subsequent stages; no concurrent builds/tests.
+- Saved resource receipts across executable red/green, API tests, Clippy and owner build/execution have sampled minimum MemAvailable **5159 MiB**. Owner final-link stage peaked at **4,762,060 KiB aggregate owned RSS**; maximum sampled some/full avg10 **7.59/7.00**, below the sustained stop thresholds. No RAM/PSI stop was triggered. First launch reported 6694 MiB available; initial preflight had only 4426 MiB. This is sampling, not a guarantee about between-sample peaks or global idleness.
+- Build/runtime output: `/tmp/setup09-fence-{red-stage3,green2,api-tests,clippy,owner-build1,owner-build2,owner-build3,owner-build4,owner-create}.log`; corresponding `-resources.log` files preserve samples. Earlier initial-stage output uses `red-build.log`, `red-build-stage2.log` and `red-resources-stage2.log`.
+- Red log SHA-256: `4950a38d1fbaaa418539419d34f427c5a047d4531c6ef04d8d1269cbd0cf96b8`.
+- Green log SHA-256: `f262b5c1981d94911818b045d58bcb5337ed0a79d8d66a3bce58ef14d08f55df`.
+- Full API log SHA-256: `80cdf8e8febb1d095461d666c50cc3aa3af90a9cb72ebc91da1ad9ef2141b2a8`.
+- Production Create log SHA-256: `eac6e2ca61ac8646fa0267718452345d3f59465092dc47c050848e5c50c9f4a4`.
+- Final API test executable `api-27c60d16edd1879f`: SHA-256 `fde37b51d01f026953aa4ad4e6f816ad2fa5c8744aa985b8f891492931a47d80`.
+- Fresh production owner executable `owner_boundaries-82e9ad7da03710d6`: SHA-256 `39e73bf94835b69f6755aca23b85670bde9abda87e822072b5e0bfc29ca01f48`. This mutable filename is **not** the historical C1 executable bytes.
+
+### Disposition: implemented defect, still-open ticket
+
+The actual independent listener/connection destruction gap is now fixed and has executable failing-before/passing-after evidence, plus one passing production native-reopen scenario. This is implementation progress, superseding the preceding source-only handoff for this defect. Preserve the distinction between that proved defect and historical attribution.
+
+Ticket09 remains **open/unresolved**, with aggregate acceptance boxes unchecked. Remaining concrete work:
+
+1. Localize the distinct source-offer/current-readiness terminal timeout family and ordinary authorized HTTPS permission/request failures at fixed inputs, with categorical timing and a causal failing regression before any behavior change. The traced approval path's cumulative >5s work remains only partial localization; operation-lock wait was zero, not a diagnosed lock bottleneck.
+2. Historical C1 attribution, if still required, needs a real failing-holder capture distinguishing connection service, live native transaction and another open/process. The new deterministic fence is not such a capture.
+3. Complete repeated finalization, interruption/exact retry and source-offline qualification with final integrated code, separating serial/concurrent/tracing conditions. A single Create smoke and the earlier Join results do not close these aggregate gates.
+4. Broader feature matrix/coverage/CRAP and platform qualification remain parent-coordinated; **not run here**, per explicit instruction. Ticket07/map/spec/11 remain unchanged. No sleeps/retries/deadline inflation or security relaxation is proposed for these remaining tasks.
