@@ -57,7 +57,7 @@ afterEach(async () => {
     vi.unstubAllGlobals();
 });
 
-function setup(respond?: Endpoint["respond"]) {
+function setup(respond?: Endpoint["respond"], requestTimeoutMs?: number) {
     vi.stubGlobal(
         "WebSocket",
         class extends Endpoint {
@@ -87,6 +87,7 @@ function setup(respond?: Endpoint["respond"]) {
         userId: "user",
         applicationId: "app",
         filesystemId: "fs-one",
+        requestTimeoutMs,
         directory: "secrets",
         schema,
         getKey: (value) => value.id,
@@ -513,7 +514,7 @@ it.each(["disconnect", "malformed"])(
         await collection.preload();
         await expect(
             collection.insert(record).isPersisted.promise,
-        ).rejects.toThrow(/reopen|Reopen/);
+        ).rejects.toThrow(/may have persisted.*Refresh/);
         expect(saved).toBe(true);
         expect(collection.status).toBe("error");
         expect(Endpoint.sockets[0]?.closed).toBe(true);
@@ -660,6 +661,255 @@ it("does not send a write after disposal during outgoing asynchronous validation
         ),
     ).toBe(true);
 });
+
+it("refreshes external additions, updates and deletions without reconnecting a healthy socket", async () => {
+    const files = new Map([["one", record]]);
+    const { collection } = setup(async (request) =>
+        request.type === "list"
+            ? {
+                  type: "listed",
+                  entries: [...files.keys()].map((key) =>
+                      entry(`secrets/${key}.json`),
+                  ),
+              }
+            : content(files.get(request.path.slice(8, -5))),
+    );
+    await collection.preload();
+    files.set("one", { ...record, name: "External edit" });
+    files.set("two", { ...record, id: "two", name: "External addition" });
+    await collection.utils.refresh();
+    expect([...collection.values()].map((value) => value.name)).toEqual([
+        "External edit",
+        "External addition",
+    ]);
+    files.delete("one");
+    await collection.utils.refresh();
+    expect([...collection.keys()]).toEqual(["two"]);
+    expect(Endpoint.sockets).toHaveLength(1);
+});
+
+it.each(["malformed", "read failure", "listing failure"])(
+    "retains the last complete snapshot after %s and recovers only on explicit refresh",
+    async (failure) => {
+        let broken = false;
+        const { collection } = setup(async (request) => {
+            if (request.type === "list")
+                return broken && failure === "listing failure"
+                    ? { type: "error", code: "operationFailed" }
+                    : {
+                          type: "listed",
+                          entries: [
+                              entry("secrets/one.json"),
+                              ...(broken ? [entry("secrets/two.json")] : []),
+                          ],
+                      };
+            if (request.path.endsWith("two.json"))
+                return failure === "read failure"
+                    ? { type: "error", code: "operationFailed" }
+                    : content({ id: "two", name: 42 });
+            return content({
+                ...record,
+                name: broken ? "Partial must not publish" : "Alpha",
+            });
+        });
+        const query = createLiveQueryCollection({
+            query: (q) => q.from({ record: collection }),
+        });
+        collections.push(query);
+        await query.preload();
+        broken = true;
+        await expect(collection.utils.refresh()).rejects.toThrow();
+        expect(collection.status).toBe("error");
+        expect(collection.get("one")?.name).toBe("Alpha");
+        expect(collection.size).toBe(1);
+        expect(Endpoint.sockets[0]?.closed).toBe(true);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(Endpoint.sockets).toHaveLength(1);
+        broken = false;
+        await collection.utils.refresh();
+        expect(collection.status).toBe("ready");
+        await vi.waitFor(() => expect(query.status).toBe("ready"));
+        expect([...query.values()]).toMatchObject([record]);
+        expect(Endpoint.sockets).toHaveLength(2);
+    },
+);
+
+it.each(["refresh first", "write first"])(
+    "serializes pending optimism and refresh without deadlock (%s)",
+    async (order) => {
+        let stored = record;
+        let hold = false;
+        const held = Promise.withResolvers<StorageResponse>();
+        const { collection } = setup(async (request) => {
+            if (request.type === "list")
+                return { type: "listed", entries: [entry("secrets/one.json")] };
+            if (request.type === "write") {
+                stored = JSON.parse(
+                    new TextDecoder().decode(new Uint8Array(request.content)),
+                );
+                return { type: "written", entry: entry(request.path) };
+            }
+            if (hold) {
+                hold = false;
+                return held.promise;
+            }
+            return content(stored);
+        });
+        await collection.preload();
+        hold = true;
+        const update = () =>
+            collection.update("one", (draft) => {
+                draft.name = "Pending edit";
+            });
+        const refresh =
+            order === "refresh first" ? collection.utils.refresh() : undefined;
+        if (refresh) await vi.waitFor(() => expect(hold).toBe(false));
+        const tx = update();
+        const afterWrite = refresh ?? collection.utils.refresh();
+        await vi.waitFor(() => expect(hold).toBe(false));
+        expect(collection.get("one")?.name).toBe("Pending edit");
+        held.resolve(content(order === "refresh first" ? record : stored));
+        await Promise.all([afterWrite, tx.isPersisted.promise]);
+        expect(collection.get("one")?.name).toBe("Pending edit");
+        expect(stored.name).toBe("Pending edit");
+    },
+);
+
+it("ignores a held refresh after disposal and never reopens disposed resources", async () => {
+    let hold = false;
+    const held = Promise.withResolvers<StorageResponse>();
+    const { collection } = setup(async (request) =>
+        request.type === "list"
+            ? { type: "listed", entries: [entry("secrets/one.json")] }
+            : hold
+              ? held.promise
+              : content(record),
+    );
+    await collection.preload();
+    hold = true;
+    const refresh = collection.utils.refresh();
+    const rejected = expect(refresh).rejects.toThrow();
+    await vi.waitFor(() =>
+        expect(Endpoint.sockets[0]?.requests).toHaveLength(6),
+    );
+    await collection.cleanup();
+    const replacement = setup().collection;
+    await replacement.preload();
+    held.resolve(content({ ...record, name: "Late private data" }));
+    await rejected;
+    expect(collection.size).toBe(0);
+    expect(replacement.size).toBe(0);
+    await expect(collection.utils.refresh()).rejects.toThrow("disposed");
+    expect(Endpoint.sockets).toHaveLength(2);
+});
+
+it.each(["write", "refresh", "open"])(
+    "bounds a silent %s, closes the old transport, and allows only explicit recovery",
+    async (operation) => {
+        let silent = false;
+        const held = Promise.withResolvers<StorageResponse>();
+        const { collection, fetchApi } = setup(
+            async (request) =>
+                silent
+                    ? held.promise
+                    : request.type === "list"
+                      ? { type: "listed", entries: [entry("secrets/one.json")] }
+                      : content(record),
+            25,
+        );
+        if (operation === "open") {
+            fetchApi.mockReturnValueOnce(new Promise(() => {}));
+            await expect(collection.preload()).rejects.toThrow();
+        } else {
+            await collection.preload();
+            silent = true;
+            const pending =
+                operation === "write"
+                    ? collection.update("one", (draft) => {
+                          draft.name = "Uncertain edit";
+                      }).isPersisted.promise
+                    : collection.utils.refresh();
+            await expect(pending).rejects.toThrow();
+            expect(Endpoint.sockets[0]?.closed).toBe(true);
+        }
+        expect(collection.status).toBe("error");
+        const count = Endpoint.sockets.length;
+        await new Promise((resolve) => setTimeout(resolve, 35));
+        expect(Endpoint.sockets).toHaveLength(count);
+        silent = false;
+        await collection.utils.refresh();
+        expect(collection.status).toBe("ready");
+        expect(collection.get("one")?.name).toBe("Alpha");
+        expect(Endpoint.sockets).toHaveLength(count + 1);
+        held.resolve(content({ ...record, name: "Late response" }));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(collection.get("one")?.name).toBe("Alpha");
+    },
+);
+
+it("fails a timed-out write at its deadline without waiting for the browser close event", async () => {
+    let silent = false;
+    const { collection } = setup(
+        async (request) =>
+            silent
+                ? new Promise(() => {})
+                : request.type === "list"
+                  ? { type: "listed", entries: [entry("secrets/one.json")] }
+                  : content(record),
+        25,
+    );
+    await collection.preload();
+    const endpoint = Endpoint.sockets[0];
+    if (!endpoint) throw new Error("Expected an open socket");
+    endpoint.close = () => {
+        endpoint.closed = true;
+        endpoint.readyState = 2;
+    };
+    silent = true;
+    vi.useFakeTimers();
+    try {
+        const tx = collection.update("one", (draft) => {
+            draft.name = "Uncertain";
+        });
+        const settled = tx.isPersisted.promise.catch(() => undefined);
+        await vi.advanceTimersByTimeAsync(25);
+        expect(collection.status).toBe("error");
+        expect(tx.state).toBe("failed");
+        await settled;
+    } finally {
+        vi.useRealTimers();
+    }
+});
+
+it("allows Refresh as the initial load but never as revival after disposal", async () => {
+    const { collection } = setup();
+    await collection.utils.refresh();
+    expect(collection.status).toBe("ready");
+    expect(Endpoint.sockets).toHaveLength(1);
+    await collection.cleanup();
+    await expect(collection.utils.refresh()).rejects.toThrow("disposed");
+    expect(Endpoint.sockets).toHaveLength(1);
+});
+
+it("retries denied authorization only when Refresh is requested", async () => {
+    const { collection, fetchApi } = setup();
+    fetchApi.mockResolvedValueOnce(new Response(null, { status: 403 }));
+    await expect(collection.preload()).rejects.toThrow("403");
+    expect(fetchApi).toHaveBeenCalledTimes(1);
+    expect(Endpoint.sockets).toHaveLength(0);
+    await collection.utils.refresh();
+    expect(collection.status).toBe("ready");
+    expect(fetchApi).toHaveBeenCalledTimes(2);
+    expect(Endpoint.sockets).toHaveLength(1);
+});
+
+it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, 2_147_483_648])(
+    "rejects unsafe request deadline %s before transport",
+    (requestTimeoutMs) => {
+        expect(() => setup(undefined, requestTimeoutMs)).toThrow("timeout");
+        expect(Endpoint.sockets).toHaveLength(0);
+    },
+);
 
 it("does not exchange a late bearer token after disposal", async () => {
     const { fetchApi } = setup();
