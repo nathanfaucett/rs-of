@@ -141,6 +141,8 @@ export class ApplicationSdk {
                 throw new Error("Identity changed; sign in again");
             }
             if (!old) this.#publish("authenticated", identity);
+            this.#active(epoch);
+            return verified.accessToken;
         } catch (error) {
             if (epoch === this.#epoch && this.#terminal(error))
                 this.#end("ended");
@@ -272,9 +274,7 @@ export class ApplicationSdk {
         const epoch = this.#epoch;
         return async () => {
             this.#active(epoch);
-            await this.#identity(epoch);
-            this.#active(epoch);
-            const token = await this.#oidc.getAccessToken();
+            const token = await this.#identity(epoch);
             this.#active(epoch);
             return token;
         };

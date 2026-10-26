@@ -164,6 +164,37 @@ function createOidcConfiguration(
   };
 }
 
+test("refresh recalculates access-token expiry instead of retaining the expired deadline", async () => {
+  const fetch = vi.fn(async (url: URL | RequestInfo) =>
+    String(url).endsWith("/oauth/token")
+      ? Response.json({ access_token: "renewed", expires_in: 3600 })
+      : Response.json(createOidcConfiguration()),
+  );
+  const client = new OidcClient({
+    storage: "memory",
+    fetch,
+    clientConfig: {
+      authority: "https://issuer.example",
+      clientId: "app",
+      redirectUri: "https://app.example/callback",
+    },
+  });
+  client.setToken({
+    access_token: "expired",
+    access_token_expires_at: 1,
+    refresh_token: "refresh",
+  });
+  const before = Date.now();
+  await expect(client.getAccessToken()).resolves.toBe("renewed");
+  expect(
+    client.getStoredTokenResponse()?.access_token_expires_at,
+  ).toBeGreaterThanOrEqual(before + 3600000);
+  await expect(client.getAccessToken()).resolves.toBe("renewed");
+  expect(
+    fetch.mock.calls.filter(([url]) => String(url).endsWith("/oauth/token")),
+  ).toHaveLength(1);
+});
+
 test("getUserInfo throws NO_ACCESS_TOKEN when token is missing", async () => {
   const client = createClient();
 

@@ -136,9 +136,21 @@ class Endpoint extends EventTarget {
 let component: ReturnType<typeof mount>;
 let target: HTMLDivElement;
 const fetchApi = vi.fn();
+const userinfo = vi.fn();
+const renewal = vi.fn();
 beforeEach(async () => {
     vi.clearAllMocks();
     auth.sdk = undefined;
+    userinfo
+        .mockReset()
+        .mockImplementation(async () => Response.json({ sub: "user-one" }));
+    renewal.mockReset().mockImplementation(async () =>
+        Response.json({
+            access_token: "renewed-user-token",
+            refresh_token: "refresh",
+            expires_in: 3600,
+        }),
+    );
     const credentials = new Map<string, string>();
     vi.stubGlobal("localStorage", {
         get length() {
@@ -190,8 +202,12 @@ beforeEach(async () => {
                     token_endpoint: "https://idp.test/idp/oauth2/token",
                     userinfo_endpoint: "https://idp.test/idp/userinfo",
                 });
-            if (String(url).endsWith("/userinfo"))
-                return Response.json({ sub: "user-one" });
+            if (String(url).endsWith("/userinfo")) return userinfo(url, init);
+            if (
+                new URLSearchParams(init?.body as string).get("grant_type") ===
+                "refresh_token"
+            )
+                return renewal(url, init);
             if (
                 new URLSearchParams(init?.body as string).get("grant_type") ===
                 "authorization_code"
@@ -825,6 +841,93 @@ it("shows authorization errors without claiming an empty resource", async () => 
     expect(target.textContent).not.toContain("No secrets yet");
     expect(Endpoint.sockets).toHaveLength(0);
 });
+
+it("offers sign-in recovery after terminal userinfo failure synchronously clears the mounted editor and socket", async () => {
+    component = mount(Page, {
+        target,
+        props: { params: {}, data: { userInfo: { sub: "user-one" } } },
+    });
+    await wait("Duplicate name");
+    select("first");
+    await wait("First secret");
+    click("First secret");
+    expect(target.querySelector("#secret")).not.toBeNull();
+    userinfo.mockImplementationOnce(
+        async () => new Response(null, { status: 401 }),
+    );
+    await expect(auth.sdk?.storage().listFileSystems()).rejects.toThrow(
+        "ended",
+    );
+    expect(target.querySelector("#secret")).toBeNull();
+    expect(target.textContent).not.toContain("First secret");
+    expect(Endpoint.sockets[0]?.closed).toBe(true);
+    const recovery =
+        target.querySelector<HTMLAnchorElement>('a[href="/signin"]');
+    expect(recovery?.textContent).toContain("Sign in");
+    expect(auth.sdk?.session.status).toBe("ended");
+    expect(window.localStorage.length).toBe(0);
+});
+
+it.each([200, 401])(
+    "keeps the mounted collection/editor and persisted session when stale userinfo (%s) overlaps renewal",
+    async (status) => {
+        component = mount(Page, {
+            target,
+            props: { params: {}, data: { userInfo: { sub: "user-one" } } },
+        });
+        await wait("Duplicate name");
+        select("first");
+        await wait("First secret");
+        click("First secret");
+        input("name", "Unsaved renewal draft");
+        const editor = target.querySelector("#secret");
+        const socket = Endpoint.sockets[0];
+        const snapshot = auth.sdk?.session;
+        let release!: (response: Response) => void;
+        const held = new Promise<Response>((resolve) => {
+            release = resolve;
+        });
+        userinfo.mockImplementationOnce(() => held);
+        const access = auth.sdk?.storage();
+        if (!access) throw new Error("Expected authenticated Storage");
+        const calls = userinfo.mock.calls.length;
+        const first = access.listFileSystems();
+        await vi.waitFor(() =>
+            expect(userinfo.mock.calls.length).toBe(calls + 1),
+        );
+        const date = vi
+            .spyOn(Date, "now")
+            .mockReturnValue(Date.now() + 3600000);
+        try {
+            await access.listFileSystems();
+            expect(renewal).toHaveBeenCalledOnce();
+            release(
+                status === 200
+                    ? Response.json({ sub: "user-one" })
+                    : new Response(null, { status }),
+            );
+            await first;
+            flushSync();
+            expect(auth.sdk?.session).toBe(snapshot);
+            expect(target.querySelector("#secret")).toBe(editor);
+            expect(target.querySelector<HTMLInputElement>("#name")?.value).toBe(
+                "Unsaved renewal draft",
+            );
+            expect(Endpoint.sockets).toHaveLength(1);
+            expect(socket.closed).toBe(false);
+            expect(
+                window.localStorage.getItem(
+                    Array.from({ length: window.localStorage.length }, (_, i) =>
+                        window.localStorage.key(i),
+                    ).find((key) => key?.includes("oidc.token")) ?? "",
+                ),
+            ).toContain("renewed-user-token");
+            expect(target.textContent).toContain("First secret");
+        } finally {
+            date.mockRestore();
+        }
+    },
+);
 
 it("clears records and editor during writes when the authenticated User changes and on sign out", async () => {
     const storageFetch = fetchApi.getMockImplementation();

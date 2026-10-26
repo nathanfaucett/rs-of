@@ -152,6 +152,74 @@ it("refreshes through OIDC without retiring the same verified context, but ends 
         vi.restoreAllMocks();
     }
 });
+it("retries stale userinfo after overlapping same-User renewal without retiring persisted authentication", async () => {
+    const sdk = new ApplicationSdk(options());
+    await sdk.handleSigninCallback(await callback(sdk));
+    const storage = sdk.storage();
+    const snapshot = sdk.session;
+    let release!: (response: Response) => void;
+    const held = new Promise<Response>((resolve) => {
+        release = resolve;
+    });
+    service.mockImplementationOnce(() => held);
+    const first = storage.listFileSystems();
+    await vi.waitFor(() =>
+        expect(service.mock.results.at(-1)?.value).toBe(held),
+    );
+    const date = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 3600000);
+    try {
+        await expect(storage.listFileSystems()).resolves.toEqual([
+            { id: "fs-one", name: "Vault" },
+        ]);
+        release(Response.json({ sub: "alice" }));
+        await expect(first).resolves.toEqual([{ id: "fs-one", name: "Vault" }]);
+        expect(sdk.session).toBe(snapshot);
+        const reload = new ApplicationSdk(options());
+        await reload.restore();
+        expect(reload.session.identity?.subject).toBe("alice");
+    } finally {
+        date.mockRestore();
+    }
+});
+it("exchanges only the exact userinfo-verified token and retires a rotated different User before Storage", async () => {
+    let issued = 0;
+    const exchanged: string[] = [];
+    const verified: string[] = [];
+    const controlled = async (url: URL | RequestInfo, init?: RequestInit) => {
+        const grant = new URLSearchParams(init?.body as string);
+        if (String(url).endsWith("/userinfo")) {
+            const token =
+                new Headers(init?.headers).get("Authorization")?.slice(7) ?? "";
+            verified.push(token);
+            return Response.json({
+                sub: token === "token-4" ? "bob" : "alice",
+            });
+        }
+        if (
+            grant.get("grant_type") ===
+            "urn:ietf:params:oauth:grant-type:token-exchange"
+        ) {
+            exchanged.push(grant.get("subject_token") ?? "");
+            return Response.json({ access_token: "storage-token" });
+        }
+        if (String(url).endsWith("/oauth2/token"))
+            return Response.json({
+                access_token: `token-${++issued}`,
+                refresh_token: "refresh",
+                expires_in: 1,
+            });
+        return service(url, init);
+    };
+    const sdk = new ApplicationSdk({ ...options(), fetch: controlled });
+    await sdk.handleSigninCallback(await callback(sdk));
+    const storage = sdk.storage();
+    await storage.listFileSystems();
+    expect(exchanged).toEqual([verified.at(-1)]);
+    expect(exchanged).toEqual(["token-3"]);
+    await expect(storage.listFileSystems()).rejects.toThrow("ended");
+    expect(sdk.session.status).toBe("ended");
+    expect(exchanged).toEqual(["token-3"]);
+});
 it("clears local credentials and notifies before failed provider discovery, without purging another client", async () => {
     const sdk = new ApplicationSdk(options());
     await sdk.handleSigninCallback(await callback(sdk));
@@ -506,6 +574,45 @@ function sockets() {
     BrowserSocket.connecting = false;
     vi.stubGlobal("WebSocket", BrowserSocket);
 }
+it("isolates lifecycle event target, currentTarget and listener receiver from the raw credential-bearing transport", async () => {
+    sockets();
+    const sdk = new ApplicationSdk(options());
+    await sdk.handleSigninCallback(await callback(sdk));
+    const connection = await sdk.storage().openSocket("fs-one");
+    const endpoint = BrowserSocket.instances[0];
+    const observed: unknown[] = [];
+    const listener = function (this: unknown, event: Event) {
+        observed.push(this, event.target, event.currentTarget);
+        expect(event.composedPath()).not.toContain(endpoint);
+        expect("data" in event).toBe(false);
+        expect("error" in event).toBe(false);
+    };
+    const removed = vi.fn();
+    connection.socket.addEventListener("error", removed);
+    connection.socket.removeEventListener("error", removed);
+    connection.socket.addEventListener("error", listener, { once: true });
+    endpoint.dispatchEvent(
+        Object.assign(new Event("error"), { error: endpoint }),
+    );
+    endpoint.dispatchEvent(new Event("error"));
+    expect(observed).toHaveLength(3);
+    expect(removed).not.toHaveBeenCalled();
+    connection.socket.addEventListener("close", listener);
+    await sdk.signout();
+    connection.close();
+    expect(observed).toHaveLength(6);
+    for (const value of observed) {
+        expect(value).not.toBe(endpoint);
+        expect(value).not.toHaveProperty("send");
+        expect(value).not.toHaveProperty("url");
+    }
+    endpoint.dispatchEvent(new Event("error"));
+    expect(observed).toHaveLength(6);
+    await expect(
+        connection.request({ type: "list", path: "" }),
+    ).rejects.toThrow("ended");
+    expect(endpoint.sent).toHaveLength(0);
+});
 it("guards adopted requests and queued work after retirement; only the recipient closes an adopted connection, once", async () => {
     sockets();
     const sdk = new ApplicationSdk(options());

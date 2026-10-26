@@ -403,6 +403,10 @@ export class OidcClient<
       );
     }
 
+    return this.requestUserInfo(accessToken);
+  }
+
+  private async requestUserInfo(accessToken: string): Promise<UserInfo> {
     const config = await this.getOidcConfiguration();
     if (!config.userinfo_endpoint) {
       throw new OidcClientError(
@@ -521,22 +525,34 @@ export class OidcClient<
     issuer: string;
     subject: string;
     userInfo: UserInfo;
+    accessToken: string;
   }> {
-    await this.getAccessToken();
-    const generation = this.sessionGeneration;
-    const token = this.getStoredTokenResponse()?.access_token;
-    const config = await this.getOidcConfiguration();
-    const userInfo = await this.getUserInfo();
-    if (
-      !userInfo.sub ||
-      token !== this.getStoredTokenResponse()?.access_token ||
-      generation !== this.sessionGeneration
-    )
-      throw new OidcClientError(
-        "NO_ACCESS_TOKEN",
-        "Session changed during identity establishment",
-      );
-    return { issuer: config.issuer, subject: userInfo.sub, userInfo };
+    while (true) {
+      const token = await this.getAccessToken();
+      const generation = this.sessionGeneration;
+      const stale = () =>
+        token !== this.getStoredTokenResponse()?.access_token ||
+        generation !== this.sessionGeneration;
+      try {
+        const config = await this.getOidcConfiguration();
+        const userInfo = await this.requestUserInfo(token);
+        if (stale()) continue;
+        if (!userInfo.sub)
+          throw new OidcClientError(
+            "INVALID_USERINFO_RESPONSE",
+            "Userinfo response did not include a valid sub claim",
+          );
+        return {
+          issuer: config.issuer,
+          subject: userInfo.sub,
+          userInfo,
+          accessToken: token,
+        };
+      } catch (error) {
+        if (stale()) continue;
+        throw error;
+      }
+    }
   }
 
   private async requestToken(
@@ -737,6 +753,9 @@ export class OidcClient<
     const headers = this.addClientAuthentication(clientId, body);
     const refreshed = this.normalizeTokenResponse({
       ...storedToken,
+      access_token: undefined,
+      expires_in: undefined,
+      access_token_expires_at: undefined,
       ...(await this.requestToken(config.token_endpoint, headers, body)),
     });
     if (

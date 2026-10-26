@@ -11,17 +11,25 @@ export class ContextSocket implements StorageConnection {
     readonly #active: () => void;
     #pending = Promise.resolve();
     #closed = false;
+    readonly #lifecycle = new AbortController();
     constructor(connection: StorageSocket, active: () => void) {
         this.#connection = connection;
         this.#active = active;
+        const events = new EventTarget();
         this.socket = Object.freeze({
-            addEventListener: connection.socket.addEventListener.bind(
-                connection.socket,
-            ),
-            removeEventListener: connection.socket.removeEventListener.bind(
-                connection.socket,
-            ),
+            addEventListener: events.addEventListener.bind(events),
+            removeEventListener: events.removeEventListener.bind(events),
         });
+        for (const type of ["close", "error"]) {
+            connection.socket.addEventListener(
+                type,
+                () => {
+                    events.dispatchEvent(new Event(type));
+                    if (type === "close") this.#lifecycle.abort();
+                },
+                { signal: this.#lifecycle.signal },
+            );
+        }
     }
     #check() {
         this.#active();
@@ -49,6 +57,10 @@ export class ContextSocket implements StorageConnection {
     close(): void {
         if (this.#closed) return;
         this.#closed = true;
-        this.#connection.close();
+        try {
+            this.#connection.close();
+        } finally {
+            this.#lifecycle.abort();
+        }
     }
 }
