@@ -176,7 +176,17 @@ pub(super) async fn start(
 }
 pub(super) async fn wait(http: &Client, intent: &IndependentCreateIntent, ready: bool) {
     let timing = std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_some();
+    let pid = std::process::id();
     let started = Instant::now();
+    if timing {
+        eprintln!(
+            "seam=independent_readiness pid={pid} phase=wait_start wall_ms={}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock")
+                .as_millis()
+        );
+    }
     let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
     for owner in ["idp", "device", "storage"] {
         let owner_started = Instant::now();
@@ -184,7 +194,7 @@ pub(super) async fn wait(http: &Client, intent: &IndependentCreateIntent, ready:
             let request_started = Instant::now();
             if timing {
                 eprintln!(
-                    "seam=independent_readiness owner={owner} phase=request_start expected_ready={ready} elapsed_ms={} owner_ms={}",
+                    "seam=independent_readiness pid={pid} owner={owner} phase=request_start expected_ready={ready} elapsed_ms={} owner_ms={}",
                     started.elapsed().as_millis(),
                     owner_started.elapsed().as_millis()
                 );
@@ -199,13 +209,13 @@ pub(super) async fn wait(http: &Client, intent: &IndependentCreateIntent, ready:
             if timing {
                 match &response {
                     Ok(response) => eprintln!(
-                        "seam=independent_readiness owner={owner} phase=headers elapsed_ms={} request_ms={} status={}",
+                        "seam=independent_readiness pid={pid} owner={owner} phase=headers elapsed_ms={} request_ms={} status={}",
                         started.elapsed().as_millis(),
                         request_started.elapsed().as_millis(),
                         response.status().as_u16()
                     ),
                     Err(error) => eprintln!(
-                        "seam=independent_readiness owner={owner} phase=request_error elapsed_ms={} request_ms={} timeout={} connect={} request={}",
+                        "seam=independent_readiness pid={pid} owner={owner} phase=request_error elapsed_ms={} request_ms={} timeout={} connect={} request={}",
                         started.elapsed().as_millis(),
                         request_started.elapsed().as_millis(),
                         error.is_timeout(),
@@ -221,13 +231,13 @@ pub(super) async fn wait(http: &Client, intent: &IndependentCreateIntent, ready:
                 if timing {
                     match &status {
                         Ok(status) => eprintln!(
-                            "seam=independent_readiness owner={owner} phase=body elapsed_ms={} request_ms={} ready={:?}",
+                            "seam=independent_readiness pid={pid} owner={owner} phase=body elapsed_ms={} request_ms={} ready={:?}",
                             started.elapsed().as_millis(),
                             request_started.elapsed().as_millis(),
                             status["ready"].as_bool()
                         ),
                         Err(error) => eprintln!(
-                            "seam=independent_readiness owner={owner} phase=body_error elapsed_ms={} request_ms={} timeout={} decode={}",
+                            "seam=independent_readiness pid={pid} owner={owner} phase=body_error elapsed_ms={} request_ms={} timeout={} decode={}",
                             started.elapsed().as_millis(),
                             request_started.elapsed().as_millis(),
                             error.is_timeout(),
@@ -239,7 +249,7 @@ pub(super) async fn wait(http: &Client, intent: &IndependentCreateIntent, ready:
                 if status["ready"] == ready {
                     if timing {
                         eprintln!(
-                            "seam=independent_readiness owner={owner} phase=matched elapsed_ms={} owner_ms={}",
+                            "seam=independent_readiness pid={pid} owner={owner} phase=matched elapsed_ms={} owner_ms={}",
                             started.elapsed().as_millis(),
                             owner_started.elapsed().as_millis()
                         );

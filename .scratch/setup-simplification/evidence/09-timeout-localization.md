@@ -618,3 +618,84 @@ Historical uncertainty remains explicitly unresolved: this does **not** identify
 The earlier **instrumented** approval failure remains a recorded failure: client deadline 5001ms, server handler success 5439ms, operation-lock wait 0ms, cumulative enrollment/verification/refresh/reply work. That phase evidence demonstrates where the instrumented request crossed the existing client bound, **not** that tracing is the sole cause of all historic timeouts or that ordinary approval needs a larger bound. Current normal serial/concurrent approval succeeds without tracing; no current traced pass is claimed, tracing was not repeated here, and no bound was relaxed. Further tracing-induced slowdown alone is not authorization for a production behavior change. A new ordinary failure would need its actual phase/owner evidence and a focused deterministic failing regression before a fix.
 
 Broader matrix/coverage/CRAP, GUI/native platform acceptance and parent integration gates remain separate. Ticket07/map/spec/11 are untouched by this slice; the parent can reconcile their criteria using this bounded evidence. Resolution of09 does not declare the entire setup effort qualified.
+
+## Reopened default-concurrency diagnosis, 2026-10-26
+
+### Inputs and scope
+
+The preceding bounded closure is **superseded**, not extended to the newly failing matrix. Merged requested integration **`9f54bf4447622aabbd4c45565bfc3f10da6f7ad8`** into the same branch/worktree and claimed09 before work. Loaded TDD/ponytail; read ticket11's new execution evidence, `/tmp/setup11-final-matrix.log`, `-resources.jsonl`, and `-result.json`. Verified archived log SHA-256 **`74a753c9e73d098347cf68d8842822b70b8bb3579aeb7258563e3c7b71170c78`**. Exclusive Rust slot; parent source review read-only. No sibling/source instrumentation outside the stated root paths, provider/profile/trust, spec/map/07/11 or assertion/bounds changes.
+
+Root Rust/config/test trees at matrix base `12c7fda8e97f3ec0e2c8e4000e193122e692b296` and current integration had **no diff** before observations. Lock SHA-256 remains `bb7e608f57a6167612acac7d247e51eb2c6efbe449b95208c7a1862b78dd3a3f`; same clean sibling revisions as above. Toolchain/profiles unchanged. The observed-source patch is saved as `/tmp/setup09-default-observation.patch`, SHA-256 **`01c4a68053e7293053b9b934c7db972939e9227b773580f519529421d8c17b3d`**. Final instrumentation cleanup only borrows the owner label instead of allocating it and bypasses the poll observer entirely when the flag is unset; it is not a behavior fix or another default-concurrency execution.
+
+### Source and archived-resource inspection before launch
+
+- Archived resources measured memory pressure/free space/RSS only; **no archived CPU, run-queue, disk-I/O or CPU/I/O PSI samples exist**. Runtime archived minimum MemAvailable was about4.66GiB and peak sampled group RSS about0.95GiB; memory guard absence does not diagnose these failures.
+- Failing Storage requests go through `storage-server/src/idp_client.rs`: service-token acquisition/cache, then authenticated IdP introspection; runtime policy checks can involve a second service client. Its internal HTTP bound is10s while the existing external verification client has5s. This is source ordering, not permission to change either bound.
+- `idp-service/src/util.rs` invokes synchronous Argon2 inside async service/repository paths; default secret hash parameters remain47MiB/3 iterations/4 lanes. No crypto settings changed. Async repository/service code also calls the embedded native database synchronously; a long handler poll is not automatically all password hashing.
+- Independent IdP ready-state validation checks current signer/login/user/relationship metadata and private reference evidence. However, a host with `view != ready` returns its ordinary `ready:false` projection **without invoking that callback**. This distinction matters in the actual diagnostic below.
+- Create/Join/operation/remote isolated child fixtures use four Tokio worker threads; permission child uses two. The full libtest suite also has many concurrently running native fixtures. No duplicate fixture work was deleted: the two Create/Join variants qualify distinct retained/reset refusal behavior, and their common setup prefix is not proof of obsolete coverage.
+- The on-upgrade history path and embedded query execution remain distinct possible owners of elapsed time. No unmeasured attribution to SDK, signer, native-lock, DB contention, thread explosion, stdout capture or the environment was made before execution.
+
+### Observations and one diagnostic invocation
+
+Added opt-in, categorical observations controlled by the **existing** `OF_SETUP_TIMEOUT_TIMING` flag:
+
+- `crates/api/src/independent_create.rs`: owner request entry/exit for readiness/normal/token/introspection/databases, and synchronous `Future::poll` wall time >=50ms at the actual serving seam. No raw URL, ID, header, token, payload or password is logged.
+- `crates/idp-service/src/util.rs`: std-only password hash/verify begin/end wall times and thread/process IDs. No secrets, hash parameters or verifiers are emitted; no_std code path remains unchanged.
+- `crates/idp-server/src/independent_create.rs`: categorical subphases of current IdP ready-state validation.
+- Existing test timing logger/readiness helper: PID/Unix-ms correlation for categorical output. No request construction, retry, assertion or deadline changed.
+
+Built exactly the failing suite's **all-features** root target, jobs=1:
+
+```sh
+cargo test --locked --target-dir /home/nathan/code/rust/aicacia/of/target -j 1 -p idp-unified --all-features --test owner_boundaries --no-run --message-format=json
+```
+
+Initial compile attempt exposed a diagnostic placement error (the status route's existing utoipa attribute had attached to the new private struct); corrected before execution. Build stage2 stopped at its predeclared550s ceiling, retaining artifacts. Stage3 passed in327.679s. No RAM/PSI stop. Resolved executable from successful Cargo JSON, verified its50-test listing: `owner_boundaries-fbdb13f2c672f60d`, SHA-256 **`1686f000aa1a3937318f34cd27e37bdcf2d7ab9dbc0f65a8b05bd2ce1d67044c`**.
+
+**One diagnostic run only**: whole owner executable, no filters, no `--test-threads`, no `RUST_TEST_THREADS`/Tokio-worker override, **no `--nocapture`**. Environment adds `OF_SETUP_TIMEOUT_TIMING=1`; same stack67108864 and jobs1. This preserves default concurrency and libtest capture, but is explicitly an **observed diagnostic**, not uninstrumented qualification.
+
+Actual result **exit101**, **36 passed / 8 failed / 6 ignored**, **271.219s** supervised. No retry-to-green or second default workload invocation.
+
+- Both Create parents failed the same invalid-bearer Storage send, now line782 only because the observation added lines.
+- Operation failed the same authenticated Storage send, now create.rs453.
+- Both Join parents failed bounded IdP readiness, now create.rs260.
+- Remote failed bounded **Storage** readiness this time, not the archived IdP readiness phase.
+- Permission parent additionally failed an ordinary IdP applications policy-denial request send at permissions.rs310.
+- The eighth failure is a **separate prerequisite miss**: `native_api_tests::generated_rust_and_built_javascript_use_actual_owner_routes` reports missing built `idp-client/esm/index.js` in **this** worktree. Ticket11 had prepared its different worktree. This omission means the run cannot be presented as equivalent prerequisite-complete matrix qualification. It is recorded rather than fixed/skipped/retried; no SDK/sibling/generated-source changes made. The five matching ordinary failures and other observed request/readiness failures still occurred in the actual full default-concurrency suite.
+
+### What the captured failing paths establish
+
+**Storage request chain, not just a passing subset:** intact correlated records for one Create process show Storage handler entry at wall_ms1793042017649; two IdP token handler entries at1793042017651 and1793042017656. Token calls completed after1546ms and3411ms; synchronous token polls included1546ms and1465ms. Storage handler ended at1793042022650, elapsed5000ms, with the client's actual invalid-bearer send timeout. The other Create process has the same pattern: first token1510ms, overlapping token3381ms, Storage5001ms. These are real service spans; an absent token or database-lock error is not inferred.
+
+For the operation failure, Storage entry1793042034641; token entries1793042034643/1793042034645; token completions1677ms/**4220ms**. One synchronous token poll took1624ms. The Storage handler's span ended at1793042039642 (**5001ms**) with its authenticated send timeout. The spans narrow work to the dependent IdP/policy chain, but do not fully decompose every token query/JWT/policy/response-body stage. They **do not** demonstrate that offloading Argon2 alone would fix the5s request.
+
+There were79 intact password end records: maximum hash **445ms**, verify **409ms**. Concurrent stderr formatting interleaved some records; only complete records are used for these maxima, not reconstructed/mangled fields. Actual synchronous IdP ready-state polls reached **3404ms**, and token polls around1.5–2s. These identify substantial synchronous work on Tokio workers beyond the measured password span, **not a deterministic causal fix**. A further root repository/query/signing breakdown is needed before deciding which operation to move/rewrite.
+
+**Join readiness is not demonstrated ongoing ready-state DB-check contention:** the two failed Join processes repeatedly received HTTP200 JSON `ready:false`, including ~0–4ms responses late in the unchanged60s budget. There are **zero entered `idp_readiness` callback spans** for them. Both reached approval-wait completion (~11.49s/11.18s); Device public import completed4311/4691ms, but IdP's `public-import` completion log never appeared. Source narrows the blocked interval to `idp-server/src/independent_join_worker.rs:189–214`: history challenge/request, authenticated history synchronization/import, then signer readback. This does not yet distinguish which nested await/operation stalled. A readiness timeout must not be relabeled a slow readiness SQL checker when that checker never ran.
+
+Remote's changed Storage failure and the additional ordinary permission timeout remain distinct pending diagnosis. No missing-signer/native-lock error was the reproduced failure. Shutdown endpoint warnings following parent panics are consequences, not identified causes.
+
+### CPU, disk, scheduler and capture measurements
+
+`/tmp/setup09-default-monitor.py` extended the existing owned-PGID monitor with approximately one-second samples: global CPU counters, CPU/I/O/memory PSI, diskstats, load, per-process CPU/I/O/output FD targets, and per-thread schedstat/comm/wchan. No perf/ptrace/syscall tracing was used (`perf_event_paranoid=4`); no payload observations. Sampling/extra logging perturb execution and are not silently equated to ordinary execution.
+
+- Maximum observed owned concurrency: **10 processes / 86 threads**. This demonstrates concurrent runtimes, not an unbounded per-process default-runtime explosion.
+- Sampled host CPU busy was about97–99.9% through representative41–121s samples. Owned group CPU consumption over measured20–40/60–80/90–110s windows was about**9.95/14.03/12.39 core-equivalents**, using verified CLK_TCK100 on the16-logical-CPU host. Maximum CPU PSI some avg10 **14.58**. This is actual CPU pressure, not proof that every failure is solely runner capacity.
+- For the operation's failing request window, nearest samples span4.480s. Four Tokio workers consumed about1.891/1.109/0.473/0.159s CPU and accumulated0.418/0.272/0.082/0.067s runnable wait respectively. Run-queue wait accounts for some time but **does not account for the whole failed request**. Snapshot alignment is approximate; the first Create process exited before an end sample, so no invented complete per-thread delta is reported for it.
+- Max sampled I/O PSI some avg10 **2.87**; representative iowait around0.1–1.8%. Wait-channel samples included18 `folio_wait_bit_common`,13 `submit_bio_wait`,12 `jbd2_log_wait_commit`; most samples were futex/event polling/running. This is insufficient to prove or exclude DB disk cost or a particular lock wait.
+- **Zero sampled pipe-write wait channels**. Existing stderr records from separate processes nevertheless interleaved, and stdout/stderr sampling cannot exclude between-sample capture stalls. No blanket stdout-capture cause or exoneration.
+- Runtime min MemAvailable **4,568,912KiB**, max sampled owned RSS **915,256KiB**, kernel max individual child RSS **670,064KiB**, max memory PSI some/full avg10 **0.14/0.12**. No resource guard fired. Full swap did not veto launch.
+- Successful build stage sampled group RSS peak **4,794,072KiB**, kernel max child **4,669,760KiB**, min available **4,017,428KiB**, max memory PSI **9.84/8.96**; no sustained threshold fired. Only the earlier compilation stage's550s ceiling fired. Owned PGIDs were verified absent afterward; no unrelated kill/cache deletion/profile change.
+
+Local artifacts: `/tmp/setup09-qual-default-run1.log` SHA-256 **`315268be3af2e0826ba673995e754d7df3b8268d00cac769b986a947bdb7fec3`**; `-samples.jsonl` (6,737,737bytes) SHA-256 **`e515bd2212510776282a97da3dcf2922009fa5761deafb4fa3fcf4d65cde528a`**; `-run1.json` full argv/exit/resources; `/tmp/setup09-default-artifact.json` Cargo artifact; observation patch hash above. Build/validation receipts use `/tmp/setup09-qual-default-{build1,build2,build3,clippy,clippy-final,api-tests,service-check}.{log,json}`. All individual tool calls <600000ms. Live telemetry includes CPU/I/O/scheduler data absent from ticket11's archived memory-only samples.
+
+### Validation and remaining causal gate
+
+- Full all-features existing default-concurrency suite: **failed as above**, not qualification and not retried.
+- `cargo test ... -p api --lib -- --test-threads=1`: **42 passed / 2 child-only ignored**, parents exercised isolated children,8.62s test/42.057s supervised. This validates changed instrumentation/lifecycle behavior, **not** default-workload reliability.
+- `cargo clippy ... -p api -p idp-service -p idp-server --lib --no-deps -- -D warnings`: passed; final-source repeat3.975s. Scoped libraries, not whole-workspace/test Clippy.
+- `cargo check ... -p idp-service --no-default-features`: passed71.671s; retained unrelated unused-import warnings in oauth2 authorization/scope modules. Confirms std-gated observations do not break the no_std build; no dependency/features added.
+- Formatting and diff checks passed. No production behavioral fix or new deterministic causal regression is claimed. TDD gate remains: establish the actual root mechanism with a focused deterministic regression **before** changing implementation. Instrumentation is not a fix.
+
+**Ticket09 stays open.** Actual next tasks, not another passing subset: (1) decompose the measured long synchronous IdP token polls into repository/native query versus signing/policy work, using root-owned seams first; sibling instrumentation requires explicit ownership/authorization; (2) capture the nested history request/synchronization/readback stage in the failed Join import interval, not more ready-state checker timing; (3) retain remote Storage and ordinary permission failures separately until their actual dependent stage is identified; (4) prepare/verify this worktree's SDK prerequisites before any further same-suite qualification. A future reproduction is a separately declared diagnostic, not an automatic retry. No available evidence justifies offloading a guessed operation, changing password cost, reducing concurrency, extending deadlines, caching current readiness, skipping a scenario or deleting shared fixture setup.
