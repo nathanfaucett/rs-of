@@ -186,15 +186,23 @@ pub(super) async fn provision(
         if config.identity_database.is_some() {
             approval.verify_current("idp").await?;
         } else {
+            log::debug!("Join history owner=idp phase=challenge_start");
             let challenge = control
                 .request_history(
                     &approval.request.source.idp,
                     serde_json::to_value(&approval)?,
                     &command.cancellation,
                 )
-                .await?;
+                .await;
+            log::debug!(
+                "Join history owner=idp phase=challenge_end elapsed_ms={} error_kind={:?}",
+                import_at.elapsed().as_millis(),
+                challenge.as_ref().err().map(io::Error::kind)
+            );
+            let challenge = challenge?;
 
-            import_join_history(
+            log::debug!("Join history owner=idp phase=import_start");
+            let imported = import_join_history(
                 opened.node_join_database()?,
                 JoinHistoryContext::Idp,
                 &approval,
@@ -204,14 +212,34 @@ pub(super) async fn provision(
                 control.directory().join("join-history"),
                 &command.cancellation,
             )
-            .await?;
+            .await;
+            log::debug!(
+                "Join history owner=idp phase=import_end elapsed_ms={} error_kind={:?}",
+                import_at.elapsed().as_millis(),
+                imported.as_ref().err().map(io::Error::kind)
+            );
+            imported?;
         }
-        opened.verify_node_signer(&binding(record)?).await?;
+        log::debug!("Join history owner=idp phase=import_signer_start");
+        let verified = opened.verify_node_signer(&binding(record)?).await;
+        log::debug!(
+            "Join history owner=idp phase=import_signer_end elapsed_ms={} error_kind={:?}",
+            import_at.elapsed().as_millis(),
+            verified.as_ref().err().map(io::Error::kind)
+        );
+        verified?;
         record.imported = true;
         record.user = approval.owner_subject;
         control.write_record(record)?;
     }
-    opened.verify_node_signer(&binding(record)?).await?;
+    log::debug!("Join history owner=idp phase=retained_signer_start");
+    let verified = opened.verify_node_signer(&binding(record)?).await;
+    log::debug!(
+        "Join history owner=idp phase=retained_signer_end elapsed_ms={} error_kind={:?}",
+        import_at.elapsed().as_millis(),
+        verified.as_ref().err().map(io::Error::kind)
+    );
+    verified?;
     log::debug!(
         "Independent setup owner=idp purpose=join phase=public-import elapsed_ms={}",
         import_at.elapsed().as_millis()

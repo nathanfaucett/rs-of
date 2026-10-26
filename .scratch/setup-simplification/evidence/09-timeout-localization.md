@@ -699,3 +699,68 @@ Local artifacts: `/tmp/setup09-qual-default-run1.log` SHA-256 **`315268be3af2e08
 - Formatting and diff checks passed. No production behavioral fix or new deterministic causal regression is claimed. TDD gate remains: establish the actual root mechanism with a focused deterministic regression **before** changing implementation. Instrumentation is not a fix.
 
 **Ticket09 stays open.** Actual next tasks, not another passing subset: (1) decompose the measured long synchronous IdP token polls into repository/native query versus signing/policy work, using root-owned seams first; sibling instrumentation requires explicit ownership/authorization; (2) capture the nested history request/synchronization/readback stage in the failed Join import interval, not more ready-state checker timing; (3) retain remote Storage and ordinary permission failures separately until their actual dependent stage is identified; (4) prepare/verify this worktree's SDK prerequisites before any further same-suite qualification. A future reproduction is a separately declared diagnostic, not an automatic retry. No available evidence justifies offloading a guessed operation, changing password cost, reducing concurrency, extending deadlines, caching current readiness, skipping a scenario or deleting shared fixture setup.
+
+## Nested history preparation and measured RAM stop, 2026-10-26
+
+### Ownership and prerequisites actually completed
+
+Merged clean integration **`aec614b32b7288bd714d8b7b33d72c4fdf3f5bde`** into the same worktree/branch, claimed09 and loaded TDD/ponytail. This slice owns main09 evidence/ticket and relevant root API/IdP/Device history/crypto; the separate Storage agent owns **only** `crates/storage-server` and its separate denial evidence. No overlapping Storage edits, sibling instrumentation, generic task framework, new dependency, profile, deadline, retry, trust or identity changes.
+
+Before any proposed full-suite diagnostic, executed the existing prerequisites **in this worktree**, using the existing cached pnpm store rather than assuming ticket11's other worktree artifacts apply:
+
+```sh
+pnpm install --frozen-lockfile --ignore-scripts --offline && pnpm sdk:build && node --test scripts/generated-package-exports.test.mjs
+```
+
+**Passed**,3.896s supervised.465 packages reused, zero downloads, all four owner-client ESM builds passed, built exports **5/5 passed** (including Storage generated export). No root node_modules replacement. Own worktree dependencies and completed SDK outputs retained. The same eight pass-generated tracked map/bin/symlink paths were saved as `/tmp/setup09-history-prereq.patch` plus an exact path list, required to match that saved entire binary diff before restoring only those paths to HEAD. No unknown changes restored. Restoring those generated tracked paths does not delete the built ESM exports or caches.
+
+### Nested observations now implemented
+
+Plain categorical observations, no task-management abstraction:
+
+- `api/src/independent_history.rs`: challenge HTTP request start/completion, typed timeout/connect/HTTP-status failure, then callback-channel receive start/completion. Does not print source URLs, approval bodies, nonces or capabilities.
+- `idp-server/src/independent_join_worker.rs`: challenge, import, imported signer readback and retained signer readback separately, with result ErrorKind and elapsed time. Existing cancellation/error propagation remains unchanged.
+- `device-service/src/join_history.rs`: source callback timing; client WebSocket connect; transport send/receive; source/recipient synchronization and each current authorization recheck. Native `SyncError` is exhaustively classified into fixed categories (pre_apply/engine/transport/staging/configuration/protocol/limits/version/unexpected_message/remote_abort), without raw error strings that could disclose history values.
+- Source WebSocket upgrade no longer **silently discards** synchronization failure: native category and source-sync ErrorKind are observable via warnings. It still returns/cleans up exactly as before; this is error observability, not a claimed protocol fix.
+- `idp-service/src/oauth2/service.rs`: client-credentials lookup, secret verification, active-root lookup, principal lookup and issuance phase markers, to distinguish the previously measured1.5–2s poll from password verification alone. Std-only optional output, no crypto settings changed.
+- Existing timing logger admits only the added API/history categorical targets. Flag-enabled logger records are formatted into one buffer and written through stderr's locked writer, avoiding the previous multi-piece formatting for **these** records. No packet/payload/header tracing or raw URI/identity output.
+
+The exact phase instrumentation is ready to distinguish the previously narrowed `independent_join_worker.rs184–214` interval. **No newly captured failing nested operation/error is claimed**, because the prerequisite-complete test binary did not finish building below the measured safety guard. Likewise, no demonstrated crypto responsiveness defect or deterministic behavioral regression/fix exists from this slice. Do not infer a fix from these observations being implemented.
+
+### Actual builds, safe stop and validation
+
+Proposed cell remains one full existing `owner_boundaries` suite, root all-features, default libtest concurrency/capture, timing flag enabled, no filters/retries/deadline changes. Build command actually attempted at jobs1, normal profiles/shared target:
+
+```sh
+cargo test --locked --target-dir /home/nathan/code/rust/aicacia/of/target -j 1 -p idp-unified --all-features --test owner_boundaries --no-run --message-format=json
+```
+
+| Attempt                       | Actual outcome                                                   | Seconds | Min MemAvailable KiB | Peak sampled owned RSS KiB | Max memory PSI avg10 some/full |
+| ----------------------------- | ---------------------------------------------------------------- | ------: | -------------------: | -------------------------: | ------------------------------ |
+| `history-build1`, PGID3360563 | Guarded stage-ceiling stop; completed library artifacts retained | 551.064 |            3,626,796 |                  1,829,704 | 0.38/0.38                      |
+| `history-build2`, PGID3364587 | **RAM-floor stop**, not compile/test error or swap veto          |  99.808 |        **2,086,616** |                  1,878,588 | 0.69/0.69                      |
+| `history-clippy`, PGID3365939 | **Passed**, strict changed-library Clippy                        |  12.353 |            3,180,980 |                    688,652 | 0.18/0                         |
+
+The RAM stop is below the declared2GiB floor (**2,097,152KiB**). It terminated/reaped only the owned PGID; no unrelated kills. After the compiler exited, available RAM remained about3.4–3.5GiB. Process snapshots showed newly present unrelated browser processes; they were neither killed nor declared the cause of any ordinary request failure. Full swap alone did **not** prevent the initial guarded launches. Relentlessly relaunching the same memory-heavy compile under the lower baseline would not be productive causal diagnosis.
+
+Strict library validation actually passed:
+
+```sh
+cargo clippy --locked --target-dir /home/nathan/code/rust/aicacia/of/target -j 1 -p api -p idp-service -p idp-server -p device-service --lib --no-deps -- -D warnings
+```
+
+This compiles/checks the new observations in all four relevant libraries; it is **not** a completed root test build or runtime regression. `cargo fmt --all -- --check` and `git diff --check` passed. No full-suite diagnostic, reduced-concurrency substitute, behavioral regression test, coverage, matrix or CRAP ran. No current no_std build result is added for this slice's std-gated token markers.
+
+Receipts `/tmp/setup09-qual-history-{prereq,build1,build2,clippy}.{json,log}` and `-samples.jsonl` retain commands, exits, one-second memory/RSS/PSI observations and hashes. Important SHA-256:
+
+- Prerequisite log: `b60713dd18cacbc9152928fc5aa8d2de8726bf251f4868c9582e3a390faf685c`.
+- RAM-stopped build log: `5a2063be757ccfc97ad80d9fd1f523233476beb96bacf7bdaf9daa65a667ac96`.
+- Strict library Clippy log: `c09f9697dc32b7b31f03ab79a0e74cc083b50ffedcfd489648224692d70cef8a`.
+- Root Rust/test diff before documentation: `417579786f28872a7a339fba8764c7bcfffe00a96f7a9cdb71eb3a98c47d00b7`.
+- Cargo.lock unchanged: `bb7e608f57a6167612acac7d247e51eb2c6efbe449b95208c7a1862b78dd3a3f`.
+
+### Handoff and actual remaining gate
+
+**Ticket09 open/released. Rust slot explicitly released to the Storage agent after the passed low-memory checks; no further builds/tests in this slice.** Owned compilation groups were verified absent. Main09 and source-synchronization observations do not modify the Storage agent's owned files/evidence. Parent coordinates broader11; no07/spec/map/11 edits.
+
+The blocker is concrete: finish the same root all-features test build with adequate measured headroom, then execute the **still-unrun, one prerequisite-complete default-concurrency diagnostic**. SDK preparation is now done. Use the nested operation/error records, not another undifferentiated readiness duration, to locate the Join stall; separately use client-credentials phase evidence before deciding on any bounded crypto execution change. Only an actual causal mechanism plus deterministic public-seam failing regression authorizes a behavioral fix. The existing ordinary failures remain unresolved; no new cause or passing qualification is invented to compensate for the resource stop.
