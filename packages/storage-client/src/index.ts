@@ -57,6 +57,12 @@ export type StorageClientOptions = {
     fetch?: FetchFunction;
 };
 
+export type StorageConnection = Readonly<{
+    socket: Pick<EventTarget, "addEventListener" | "removeEventListener">;
+    request(request: StorageRequest): Promise<StorageResponse>;
+    close(): void;
+}>;
+
 export class StorageSocket {
     #queue = Promise.resolve();
 

@@ -7,7 +7,18 @@ import {
     type SigninOptions,
 } from "@aicacia/oidc-client";
 
-import { StorageClient } from "@aicacia/storage-client";
+import { StorageClient, type StorageConnection } from "@aicacia/storage-client";
+
+import { ContextSocket } from "./storage.js";
+
+export type StorageAccess = Readonly<
+    Pick<StorageClient, "listFileSystems" | "createFileSystem"> & {
+        openSocket(
+            filesystemId: string,
+            signal?: AbortSignal,
+        ): Promise<StorageConnection>;
+    }
+>;
 
 export type SdkOptions = {
     idpBaseUrl: string;
@@ -42,15 +53,18 @@ export type Session = Readonly<{
 export class ApplicationSdk {
     readonly #oidc: OidcClient;
     readonly #options: SdkOptions;
+    readonly #fetch: SdkOptions["fetch"];
     #session: Session = Object.freeze({
         status: "initializing",
         generation: 0,
     });
     #listeners = new Set<(session: Session) => void>();
     #epoch = 0;
+    #controller = new AbortController();
     #restore: Promise<void> | undefined;
     constructor(options: SdkOptions) {
         this.#options = structuredClone({ ...options, fetch: undefined });
+        this.#fetch = options.fetch;
         if (
             !options.client.clientId ||
             !options.client.registration?.application?.uri
@@ -154,6 +168,8 @@ export class ApplicationSdk {
     async handleSigninCallback(url: URL): Promise<void> {
         this.#active();
         const epoch = ++this.#epoch;
+        this.#controller.abort();
+        this.#controller = new AbortController();
         this.#publish("initializing");
         try {
             if (!(await this.#oidc.handleSigninCallback(url)))
@@ -198,8 +214,58 @@ export class ApplicationSdk {
             throw new Error("Unable to start registration");
         }
     }
-    // Transitional app Storage composition captures this provider, never a mutable global client.
-    tokenProvider(): () => Promise<string> {
+    storage(): StorageAccess {
+        this.#active();
+        if (this.#session.status !== "authenticated")
+            throw new Error("Sign in before using Storage");
+        const epoch = this.#epoch;
+        const active = () => this.#active(epoch);
+        const contextSignal = this.#controller.signal;
+        const combined = (signal?: AbortSignal) =>
+            signal ? AbortSignal.any([contextSignal, signal]) : contextSignal;
+        const client = new StorageClient({
+            idpBaseUrl: this.#options.idpBaseUrl,
+            storageBaseUrl: this.#options.storageBaseUrl,
+            clientId: this.#options.client.clientId,
+            bearerToken: this.#tokenProvider(),
+            fetch: this.#fetch,
+        });
+        async function result<T>(pending: () => Promise<T>): Promise<T> {
+            active();
+            try {
+                const value = await pending();
+                active();
+                return value;
+            } catch (error) {
+                active();
+                throw error;
+            }
+        }
+        return Object.freeze({
+            listFileSystems: (signal?: AbortSignal) =>
+                result(() => client.listFileSystems(combined(signal))),
+            createFileSystem: (name?: string, signal?: AbortSignal) =>
+                result(() => client.createFileSystem(name, combined(signal))),
+            openSocket: async (id: string, signal?: AbortSignal) => {
+                active();
+                const opened = await client
+                    .openSocket(id, combined(signal))
+                    .catch((error) => {
+                        active();
+                        throw error;
+                    });
+                try {
+                    active();
+                    signal?.throwIfAborted();
+                    return new ContextSocket(opened, active);
+                } catch (error) {
+                    opened.close();
+                    throw error;
+                }
+            },
+        });
+    }
+    #tokenProvider(): () => Promise<string> {
         this.#active();
         if (this.#session.status !== "authenticated")
             throw new Error("Sign in before using Storage");
@@ -215,6 +281,7 @@ export class ApplicationSdk {
     }
     #end(status: "ended" | "disposed") {
         ++this.#epoch;
+        this.#controller.abort();
         try {
             this.#oidc.clearStoredTokenResponse();
         } catch {

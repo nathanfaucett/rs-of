@@ -34,6 +34,8 @@ await collection.utils.refresh();
 await collection.cleanup();
 ```
 
+The `client` seam requires only `openSocket(filesystemId, signal?)`, returning the Storage owner's `StorageConnection` (`socket` lifecycle events, `request`, `close`). A lower-level `StorageClient` or a context-bound SDK capability can be supplied structurally; this package does not import or depend on the SDK. Successful opening transfers connection cleanup to the adapter; failed/obsolete untransferred opens remain the provider's responsibility. The application must synchronously dispose its view and adapter when its authenticated context retires.
+
 The caller supplies a Standard Schema (synchronous or asynchronous validation), a stable string key, and authenticated User/Application/Filesystem ID scope. These scope labels identify the browser collection; they do **not** select or grant a server namespace. Storage derives ownership from the token. Create new clients/collections when the authenticated context or service bases change; never reuse a collection across identities.
 
 ## Installed API contract

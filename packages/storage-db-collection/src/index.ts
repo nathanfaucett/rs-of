@@ -1,7 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type {
-    StorageClient,
-    StorageSocket,
+    StorageConnection,
     StorageRequest,
 } from "@aicacia/storage-client";
 import { createCollection, type MutationFnParams } from "@tanstack/db";
@@ -16,7 +15,12 @@ export class UnacknowledgedStorageWriteError extends Error {
 }
 
 export type StorageCollectionOptions<T extends object> = {
-    client: StorageClient;
+    client: {
+        openSocket(
+            filesystemId: string,
+            signal?: AbortSignal,
+        ): Promise<StorageConnection>;
+    };
     userId: string;
     applicationId: string;
     filesystemId: string;
@@ -100,7 +104,7 @@ export function createStorageCollection<T extends object>(
     let failed = false;
     let failConnection: ((error: Error) => void) | undefined;
     let ready = false;
-    let socket: StorageSocket | undefined;
+    let socket: StorageConnection | undefined;
     let persist: ((params: MutationFnParams<T>) => Promise<void>) | undefined;
     let queue = Promise.resolve();
     let reload: (() => Promise<{ receipt: true | Promise<void> }>) | undefined;

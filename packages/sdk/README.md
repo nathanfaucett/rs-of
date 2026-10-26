@@ -1,6 +1,6 @@
 # @of/sdk
 
-Framework-independent browser application authentication, composing the existing OIDC client. Workspace-only package; registry publication and SSR/native/confidential-client qualification are not included. The password manager is the working consumer.
+Framework-independent authenticated browser Storage access, composing the existing OIDC and Storage clients. Workspace-only package; registry publication and SSR/native/confidential-client qualification are not included. The password manager is the working consumer.
 
 ```ts
 import { ApplicationSdk } from '@of/sdk';
@@ -49,7 +49,7 @@ Callback/restoration uses OIDC's `getVerifiedIdentity()`: obtain/renew an access
 
 Renewal is demand-driven in the OIDC client; concurrent renewal is coalesced there. Same-identity renewal retains the exact session snapshot/context. A changed issuer/subject, missing credentials, invalid userinfo, or terminal authentication rejection retires the context and requires sign-in. Connectivity failures and resource/userinfo authorization denials do not indiscriminately erase an established session. Errors exposed by the SDK are bounded messages without provider bodies, callback parameters, or credential-bearing causes.
 
-Local sign-out clears this client's credentials and pending transactions, invalidates retained token providers, and notifies listeners **before** provider network work. `signout({ provider: true, redirectUri })` additionally delegates provider logout and returns `providerLogout: 'initiated' | 'failed' | 'not-requested'`. A provider failure cannot undo local termination. Initiating logout is not proof of provider-session termination or token revocation. Already-sent requests/writes are not canceled. No polling, background renewal, reconnect loop, cross-tab synchronization, or remote revocation promise is added.
+Local sign-out clears this client's credentials and pending transactions, invalidates retained Storage capabilities and connection requests, and notifies listeners **before** provider network work. `signout({ provider: true, redirectUri })` additionally delegates provider logout and returns `providerLogout: 'initiated' | 'failed' | 'not-requested'`. A provider failure cannot undo local termination. Initiating logout is not proof of provider-session termination or token revocation. Already-sent requests/writes are not canceled. No polling, background renewal, reconnect loop, cross-tab synchronization, or remote revocation promise is added.
 
 ## Persistence and redirect continuity
 
@@ -57,14 +57,38 @@ The SDK explicitly uses the OIDC client's `local` policy: access/refresh tokens 
 
 Browser storage must be available for this redirect policy. Credentials are plaintext to same-origin JavaScript and exposed to XSS, browser extensions, and local inspection; this is not a secure vault or an encrypted token store. No decrypted secrets or secret mutations are stored there. OIDC's separate memory mode does not persist credentials and cannot continue a full-page redirect in a new runtime. If browser storage removal fails, the instance and visible authentication still retire, but sign-out reports a bounded error requiring browser site-data cleanup; persisted deletion cannot be claimed. Local sign-out cannot establish deletion of data by the provider or defeat a compromised browser.
 
-## Ticket 01 Storage handoff
+## Context-bound Storage and ownership
 
-For the existing collection-backed application during the auth slice, `tokenProvider()` captures the verified instance generation and revalidates identity/renews through OIDC before supplying the bearer token to the existing Storage client. Retained providers cannot follow a replacement SDK. The app still constructs its Storage client and owns collection/query disposal, filesystem selection, and editor state. Session retirement synchronously unmounts/disposes those views. No collection implementation was copied into the SDK.
+After callback/restoration establishes authentication, `sdk.storage()` returns a frozen, generation-bound `StorageAccess` with only `listFileSystems(signal?)`, `createFileSystem(name?, signal?)`, and `openSocket(filesystemId, signal?)`. It never exposes the mutable Storage client or a bearer-token provider. OIDC owns identity verification and demand-driven access-token renewal; the existing Storage client owns action-specific token exchange, resource HTTP requests, and WebSocket protocol. There is no SDK token cache. Explicit IdP/Storage prefixes and the configured OAuth Client ID are preserved. A catalog entry is not permission to open a filesystem; authorization remains server-side.
 
-Ticket 02 replaces this transitional composition with the small SDK-bound Storage capability and qualifies stale list/open results, retained connection guards, and connection handoff. Do not treat `tokenProvider()` as a guarantee that raw retained Storage sockets are lifecycle-guarded: the ticket 01 reference app closes them through the adapter on retirement. The collection adapter remains the sole owner of adopted sockets and record reconciliation.
+```ts
+const storage = sdk.storage();
+const resources = await storage.listFileSystems();
+const created = await storage.createFileSystem('Example');
+// Pass this capability directly to the existing collection adapter:
+const collection = createStorageCollection({
+  client: storage,
+  userId: sdk.session.identity!.subject,
+  applicationId: sdk.session.identity!.application,
+  filesystemId: created.id,
+  directory: 'records', schema: recordSchema, getKey: record => record.id,
+});
+await collection.preload();
+// Application session subscriber: synchronously retire views and invoke cleanup.
+// Dispose dependent live queries before their source collection.
+await collection.cleanup();
+```
+
+`createStorageCollection` above is imported by the application from `@aicacia/storage-db-collection`, **not** by the SDK. The adapter consumes the Storage owner's structural connection seam (`socket` events, `request`, `close`); it retains all schema/path validation, optimistic settlement, reconciliation, deadlines, explicit Refresh, and collection cleanup logic. The app owns Filesystem ID selection, schemas, editor state, navigation, subscriptions, and official TanStack Svelte bindings. Neither package depends on the other, and there is no SDK collection registry or Svelte wrapper.
+
+**Handoff:** the SDK owns an open attempt until `openSocket()` successfully resolves. Failed, canceled, or obsolete opens are closed by the Storage client/SDK before rejection, including a socket that finishes opening after retirement. Successful resolution transfers cleanup responsibility to the recipient; when the adapter awaits this capability, the adapter owns the adopted connection and closes it through its existing `cleanup()` (including disposal racing adoption). A direct caller must likewise close every successfully returned connection. Do not open a connection separately and then open another for the adapter. SDK disposal does not close an already transferred connection a second time; its synchronous notification lets the application dispose the adapter. Close is idempotent.
+
+The connection guard exposes only lifecycle event subscription, guarded `request`, and `close`, not raw `send` or the credential-bearing socket URL. Requests check the captured context before enqueueing, before sending queued work, and after completion; ended handles cannot initiate work or return late results as current success. Pending opens share a context abort signal, combined with the caller's optional signal. This is local cancellation, not proof that a remote create/write was canceled. List/create late results and failures cannot become successes in a replacement context. Already-sent mutations are never automatically replayed.
+
+Renewal for the same verified identity retains the session and open collections. Filesystem-only switching is app/adapter cleanup, not an authentication reset. Retire the view/adapter synchronously on any generation or authenticated-state change; create a new SDK instance when changing configuration or after ending/disposal. Storage denials (including 401/403) and transient network failures reject the resource operation without automatically ending authentication. Terminal OIDC credential/identity failure still ends it. Refresh reuses a healthy connection or explicitly reopens a failed one; it is not polling, push synchronization, or token revocation.
 
 ## Checks and limits
 
-`pnpm --filter @of/sdk test` runs real OIDC workflows against controlled HTTP/browser responses. Tests cover fresh-runtime redirect continuity, reload, metadata/prefixes, invalid/no-op/substituted callbacks, client isolation, renewal/concurrency, identity changes, missing credentials, denial versus transient/terminal failures, local logout with failed provider discovery, unsubscribe, and disposal during discovery/callback/renewal. The password manager's mounted smoke additionally uses the real SDK, OIDC and Storage clients, collection adapter, and official TanStack binding for CRUD/Refresh/reload and teardown.
+`pnpm --filter @of/sdk test` runs real OIDC workflows against controlled HTTP/browser responses. Tests cover guarded list/create/open, obsolete token exchanges/discovery/create/open completions, queued and late connection requests, one-owner/idempotent cleanup, caller cancellation, callback-generation replacement, Storage denial versus transient failure, fresh-runtime redirect continuity, reload, metadata/prefixes, invalid/no-op/substituted callbacks, client isolation, renewal/concurrency, identity changes, missing credentials, denial versus transient/terminal failures, local logout with failed provider discovery, unsubscribe, and disposal during discovery/callback/renewal. The password manager's mounted smoke additionally uses the real SDK, OIDC and Storage clients, collection adapter, and official TanStack binding for sign-in/callback, discovery/create/open, CRUD/Refresh/reload, filesystem switching, same-identity renewal retaining its editor/socket, pending-mutation context changes, and local sign-out teardown.
 
 Controlled responses do not qualify a deployed provider, provider logout, cross-Node authorization convergence/replication, or production password-vault security. Follow the password manager's manual real-system qualification procedure with non-sensitive test records.

@@ -1,14 +1,12 @@
 <script lang="ts">
-import type {
-    FileSystemResource,
-    StorageClient,
-} from "@aicacia/storage-client";
-import { createStorageClient } from "$lib/common/storageSocket";
+import type { FileSystemResource } from "@aicacia/storage-client";
+import type { StorageAccess } from "@of/sdk";
+import { getSdk } from "$lib/common/state/sdk";
 import Filesystem from "./Filesystem.svelte";
 
 let { userId }: { userId: string } = $props();
 let context = $state.raw<{
-    client: StorageClient;
+    client: StorageAccess;
     userId: string;
     signal: AbortSignal;
 } | null>(null);
@@ -27,7 +25,7 @@ $effect(() => {
     loading = true;
     error = null;
     try {
-        const client = createStorageClient();
+        const client = getSdk().storage();
         context = { client, userId: subject, signal: controller.signal };
         void client
             .listFileSystems(controller.signal)

@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { StorageClient } from "@aicacia/storage-client";
+import type { StorageAccess } from "@of/sdk";
 import {
     createStorageCollection,
     UnacknowledgedStorageWriteError,
@@ -13,7 +13,7 @@ let {
     client,
     userId,
     filesystemId,
-}: { client: StorageClient; userId: string; filesystemId: string } = $props();
+}: { client: StorageAccess; userId: string; filesystemId: string } = $props();
 const collection = untrack(() =>
     createStorageCollection({
         client,

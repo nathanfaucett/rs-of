@@ -64,6 +64,11 @@ export type StorageClientOptions = {
     bearerToken: () => string | Promise<string>;
     fetch?: FetchFunction;
 };
+export type StorageConnection = Readonly<{
+    socket: Pick<EventTarget, "addEventListener" | "removeEventListener">;
+    request(request: StorageRequest): Promise<StorageResponse>;
+    close(): void;
+}>;
 export declare class StorageSocket {
     #private;
     readonly socket: WebSocket;

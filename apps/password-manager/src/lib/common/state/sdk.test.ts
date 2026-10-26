@@ -79,11 +79,11 @@ it("persists the selected IdP before redirect, restores through the real app con
             application: "password-manager.aicacia.com",
         },
     });
-    const token = sdk.tokenProvider();
+    const storage = sdk.storage();
     returning.setIdpApiUrl("https://other.test/idp");
     expect(sdk.session.status).toBe("disposed");
     const calls = service.mock.calls.length;
-    await expect(token()).rejects.toThrow("ended");
+    await expect(storage.listFileSystems()).rejects.toThrow("ended");
     expect(service.mock.calls).toHaveLength(calls);
     expect(returning.getSdk()).not.toBe(sdk);
 });

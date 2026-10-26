@@ -12,9 +12,6 @@ vi.mock("$lib/common/state/notifications.svelte", () => ({
 vi.mock("$app/navigation", () => ({ goto: vi.fn(), invalidateAll: vi.fn() }));
 vi.mock("$app/paths", () => ({ resolve: (path: string) => path }));
 const auth = vi.hoisted(() => ({
-    token: "user-token",
-    clear: vi.fn(),
-    signin: vi.fn(),
     setAuthority: vi.fn(),
     sdk: undefined as ApplicationSdk | undefined,
     navigate: vi.fn(),
@@ -29,18 +26,11 @@ vi.mock("@aicacia/native-fetch", async (original) => ({
 vi.mock("$lib/common/state/sdk", () => ({
     getIdpApiUrl: () => "https://idp.test/idp",
     setIdpApiUrl: auth.setAuthority,
-    getSdk: () =>
-        auth.sdk ?? {
-            session: {
-                status: "authenticated",
-                identity: { subject: "user-one" },
-                generation: 0,
-            },
-            subscribe: () => () => {},
-            tokenProvider: () => async () => auth.token,
-            signin: auth.signin,
-            signout: auth.clear,
-        },
+    getSdk: () => {
+        if (!auth.sdk)
+            throw new Error("Test must authenticate through the real SDK");
+        return auth.sdk;
+    },
 }));
 
 const id = "01900000-0000-7000-8000-000000000001";
@@ -70,6 +60,7 @@ class Endpoint extends EventTarget {
     static holdWrites = false;
     readyState = 1;
     closed = false;
+    closes = 0;
     requests: StorageRequest[] = [];
     hold = false;
     constructor(readonly url: string) {
@@ -137,6 +128,7 @@ class Endpoint extends EventTarget {
         );
     }
     close() {
+        ++this.closes;
         this.closed = true;
         this.dispatchEvent(new Event("close"));
     }
@@ -144,9 +136,8 @@ class Endpoint extends EventTarget {
 let component: ReturnType<typeof mount>;
 let target: HTMLDivElement;
 const fetchApi = vi.fn();
-beforeEach(() => {
+beforeEach(async () => {
     vi.clearAllMocks();
-    auth.token = "user-token";
     auth.sdk = undefined;
     const credentials = new Map<string, string>();
     vi.stubGlobal("localStorage", {
@@ -178,11 +169,53 @@ beforeEach(() => {
                     ]),
         );
     vi.stubGlobal("fetch", fetchApi);
+    auth.sdk = new ApplicationSdk({
+        idpBaseUrl: "https://idp.test/idp",
+        storageBaseUrl: "https://storage.test/storage",
+        disableNativeRequests: true,
+        client: {
+            clientId: "password-manager-web",
+            redirectUri: "https://app.test/callback",
+            registration: {
+                redirectUris: ["https://app.test/callback"],
+                application: { uri: "password-manager.aicacia.com" },
+                tokenEndpointAuthMethod: "none",
+            },
+        },
+        fetch: async (url, init) => {
+            if (String(url).endsWith("/.well-known/openid-configuration"))
+                return Response.json({
+                    issuer: "https://installation.test",
+                    authorization_endpoint: "https://idp.test/idp/authorize",
+                    token_endpoint: "https://idp.test/idp/oauth2/token",
+                    userinfo_endpoint: "https://idp.test/idp/userinfo",
+                });
+            if (String(url).endsWith("/userinfo"))
+                return Response.json({ sub: "user-one" });
+            if (
+                new URLSearchParams(init?.body as string).get("grant_type") ===
+                "authorization_code"
+            )
+                return Response.json({
+                    access_token: "user-token",
+                    refresh_token: "refresh",
+                    expires_in: 3600,
+                });
+            return fetchApi(url, init);
+        },
+    });
+    const authorization = await auth.sdk.getAuthorizationUrl();
+    await auth.sdk.handleSigninCallback(
+        new URL(
+            `https://app.test/callback?code=once&state=${authorization.searchParams.get("state")}`,
+        ),
+    );
     target = document.createElement("div");
     document.body.append(target);
 });
 afterEach(async () => {
     if (component) await unmount(component);
+    auth.sdk?.dispose();
     target.remove();
     vi.unstubAllGlobals();
 });
@@ -440,6 +473,16 @@ it("refreshes external changes, retires stale editor fields, and manually recove
 });
 
 it("qualifies real SDK redirect/callback, discovery/create/open, CRUD, reload, Refresh and local sign-out", async () => {
+    vi.stubGlobal("matchMedia", () => ({
+        matches: false,
+        addEventListener: () => {},
+    }));
+    const { load: callbackLoad } = await import(
+        "../../../routes/callback/+page"
+    );
+    const { load: authenticatedLoad } = await import(
+        "../../../routes/(auth)/+layout"
+    );
     vi.stubGlobal("confirm", () => true);
     const storageFetch = fetchApi.getMockImplementation();
     if (!storageFetch) throw new Error("Expected controlled Storage service");
@@ -496,26 +539,22 @@ it("qualifies real SDK redirect/callback, discovery/create/open, CRUD, reload, R
     const authorization = auth.navigate.mock.calls[0][0] as URL;
     // Full-page redirect: a fresh OIDC/SDK instance consumes the persisted transaction.
     auth.sdk = new ApplicationSdk(sdkOptions);
-    await auth.sdk.handleSigninCallback(
-        new URL(
+    await callbackLoad({
+        parent: async () => ({}),
+        url: new URL(
             `https://app.test/callback?code=once&state=${authorization.searchParams.get("state")}`,
         ),
-    );
+    } as Parameters<typeof callbackLoad>[0]);
     expect(auth.setAuthority).toHaveBeenCalledWith("https://idp.test/idp");
     await unmount(component);
-    const openApp = () =>
-        mount(Page, {
-            target,
-            props: {
-                params: {},
-                get data() {
-                    return {
-                        userInfo: { sub: auth.sdk?.session.identity?.subject },
-                    };
-                },
-            },
-        });
-    component = openApp();
+    const openApp = async () => {
+        const data = await authenticatedLoad({
+            parent: async () => ({}),
+            url: new URL("https://app.test/"),
+        } as Parameters<typeof authenticatedLoad>[0]);
+        return mount(Page, { target, props: { params: {}, data: data ?? {} } });
+    };
+    component = await openApp();
     await wait("Duplicate name");
     Endpoint.files.set("created", new Map());
     click("Create filesystem");
@@ -542,7 +581,10 @@ it("qualifies real SDK redirect/callback, discovery/create/open, CRUD, reload, R
     // A new mounted app/collection has no in-memory secret state to reuse.
     fetchApi.mockImplementation(async (url: string, init?: RequestInit) =>
         String(url).endsWith("/userinfo") ||
-        String(url).endsWith("/.well-known/openid-configuration")
+        String(url).endsWith("/.well-known/openid-configuration") ||
+        (String(url).endsWith("/oauth2/token") &&
+            new URLSearchParams(init?.body as string).get("grant_type") ===
+                "refresh_token")
             ? identityFetch(url, init)
             : String(url).endsWith("/oauth2/token")
               ? Response.json({ access_token: "storage-token" })
@@ -552,8 +594,7 @@ it("qualifies real SDK redirect/callback, discovery/create/open, CRUD, reload, R
                 ]),
     );
     auth.sdk = new ApplicationSdk(sdkOptions);
-    await auth.sdk.restore();
-    component = openApp();
+    component = await openApp();
     await wait("Created filesystem");
     select("created");
     await wait("Workflow edited");
@@ -563,6 +604,27 @@ it("qualifies real SDK redirect/callback, discovery/create/open, CRUD, reload, R
     expect(target.querySelector<HTMLInputElement>("#secret")?.value).toBe(
         "second password",
     );
+    const snapshot = auth.sdk.session;
+    const socketsBeforeRenewal = Endpoint.sockets.length;
+    const date = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 3_600_000);
+    try {
+        await auth.sdk.storage().listFileSystems();
+        expect(auth.sdk.session).toBe(snapshot);
+        expect(Endpoint.sockets).toHaveLength(socketsBeforeRenewal);
+        expect(target.querySelector<HTMLInputElement>("#secret")?.value).toBe(
+            "second password",
+        );
+        expect(
+            fetchApi.mock.calls.some(
+                ([, init]) =>
+                    new URLSearchParams(init?.body as string).get(
+                        "grant_type",
+                    ) === "refresh_token",
+            ),
+        ).toBe(true);
+    } finally {
+        date.mockRestore();
+    }
     files?.set(`secrets/${saved.id}.json`, {
         ...saved,
         name: "External workflow edit",
@@ -592,6 +654,8 @@ it("qualifies real SDK redirect/callback, discovery/create/open, CRUD, reload, R
     select("empty");
     await wait("No secrets yet");
     expect(refreshing.closed).toBe(true);
+    expect(refreshing.closes).toBe(1);
+    expect(auth.sdk.session.status).toBe("authenticated");
     refreshing.dispatchEvent(
         new MessageEvent("message", {
             data: JSON.stringify({
@@ -605,6 +669,7 @@ it("qualifies real SDK redirect/callback, discovery/create/open, CRUD, reload, R
     flushSync();
     expect(target.querySelector("select")).toBeNull();
     expect(signedOut?.closed).toBe(true);
+    expect(signedOut?.closes).toBe(1);
     expect(auth.sdk.session.status).toBe("ended");
     const reload = new ApplicationSdk(sdkOptions);
     await reload.restore();
