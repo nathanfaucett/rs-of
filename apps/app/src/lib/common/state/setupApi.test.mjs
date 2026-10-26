@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
+import { FetchError, ResponseError } from "@aicacia/idp-client";
 import { fetchSetupStatus, verifySetupCode } from "./setupApi.ts";
 import * as setup from "./setupApi.ts";
 
@@ -47,9 +48,16 @@ test("recovery rejects malformed intent and denial without echoing protected dat
       new Response("protected password", { status });
     await assert.rejects(
       setup.fetchSetupIntent("https://node.test/idp", "a".repeat(64)),
-      (error) =>
-        error.message.includes(String(status)) &&
-        !error.message.includes("protected password"),
+      (error) => {
+        if (status === 201) {
+          assert.equal(error.message, "Setup intent recovery rejected (201)");
+        } else {
+          assert.ok(error instanceof ResponseError);
+          assert.equal(error.response.status, status);
+        }
+        assert.ok(!error.message.includes("protected password"));
+        return true;
+      },
     );
   }
   globalThis.fetch = async () => {
@@ -103,7 +111,7 @@ test("Join admits only nonce/node/peer, recovers issuer and cancels the exact au
 });
 
 const originalFetch = globalThis.fetch;
-const scope = ["idp", "management", "storage"];
+const scope = ["idp", "device", "storage"];
 const intent = {
   operation_nonce: "0123456789abcdef0123456789abcdef",
   administrator: "operator",
@@ -141,8 +149,8 @@ test("web observes host-owned Create and verified readiness, not just awaiting c
   });
 });
 
-test("independent status omits login metadata while unified readiness requires it inline", async () => {
-  for (const owner of ["idp", "management", "storage"]) {
+test("independent status cannot supply login authority while unified readiness requires it inline", async () => {
+  for (const owner of ["idp", "device", "storage"]) {
     const status = { ...ready, owners: [owner] };
     delete status.login_client;
     globalThis.fetch = async () => Response.json(status);
@@ -150,14 +158,25 @@ test("independent status omits login metadata while unified readiness requires i
       ...status,
       stage: "ready",
     });
-    globalThis.fetch = async () => Response.json({ ...status, login_client: ready.login_client });
-    await assert.rejects(setup.fetchSetupStatus(`https://${owner}.test`), /invalid/i);
+    globalThis.fetch = async () =>
+      Response.json({ ...status, login_client: ready.login_client });
+    assert.deepEqual(await setup.fetchSetupStatus(`https://${owner}.test`), {
+      ...status,
+      stage: "ready",
+    });
+    await assert.rejects(
+      setup.fetchSetupStatus("https://node.test/idp"),
+      setup.SetupEvidenceError,
+    );
   }
   for (const owners of [scope]) {
     const status = { ...ready, owners };
     delete status.login_client;
     globalThis.fetch = async () => Response.json(status);
-    await assert.rejects(setup.fetchSetupStatus("https://idp.test"), /invalid/i);
+    await assert.rejects(
+      setup.fetchSetupStatus("https://node.test/idp"),
+      /invalid/i,
+    );
   }
 });
 
@@ -213,9 +232,12 @@ test("Create refuses malformed acceptance, owner-only responses and remote secre
       ...intent,
       password: "protected password",
     }),
-    (error) =>
-      error.message.includes("409") &&
-      !error.message.includes("protected password"),
+    (error) => {
+      assert.ok(error instanceof ResponseError);
+      assert.equal(error.response.status, 409);
+      assert.ok(!error.message.includes("protected password"));
+      return true;
+    },
   );
   globalThis.fetch = async () => {
     throw new Error("protected password");
@@ -225,9 +247,11 @@ test("Create refuses malformed acceptance, owner-only responses and remote secre
       ...intent,
       password: "protected password",
     }),
-    (error) =>
-      error.message.includes("host may still be working") &&
-      !error.message.includes("protected password"),
+    (error) => {
+      assert.ok(error instanceof FetchError);
+      assert.ok(!error.message.includes("protected password"));
+      return true;
+    },
   );
 });
 
@@ -366,10 +390,13 @@ test("web setup reads the configured owner status without cookies or native IPC"
       stage: "installation",
       state: "awaiting_choice",
       ready: false,
-      owners: ["idp", "management", "storage"],
+      owners: ["idp", "device", "storage"],
     });
   };
-  assert.equal((await fetchSetupStatus("https://node.test/idp/")).stage, "installation");
+  assert.equal(
+    (await fetchSetupStatus("https://node.test/idp/")).stage,
+    "installation",
+  );
 });
 
 test("missing or malformed setup evidence never manufactures readiness", async () => {
@@ -384,7 +411,10 @@ test("missing or malformed setup evidence never manufactures readiness", async (
     await assert.rejects(fetchSetupStatus("https://node.test/idp"), /invalid/i);
   }
   globalThis.fetch = async () => new Response(null, { status: 404 });
-  await assert.rejects(fetchSetupStatus("https://node.test/idp"), /404/);
+  await assert.rejects(
+    fetchSetupStatus("https://node.test/idp"),
+    setup.SetupPrerequisiteError,
+  );
 });
 
 test("web code verification uses an explicit header, never a URL or cookie", async () => {
@@ -410,7 +440,9 @@ test("admission errors never echo remote bodies or the code", async () => {
   await assert.rejects(
     verifySetupCode("https://node.test/idp", code),
     (error) => {
-      assert.equal(error.message, "Setup admission rejected (401)");
+      assert.ok(error instanceof ResponseError);
+      assert.equal(error.response.status, 401);
+      assert.ok(!error.message.includes(code));
       return true;
     },
   );
@@ -452,23 +484,23 @@ test("unified scope yields one code target at the configured IdP base only", asy
       stage: "installation",
       state: "awaiting_choice",
       ready: false,
-      owners: ["storage", "idp", "management"],
+      owners: ["storage", "idp", "device"],
     });
   };
   const hosts = await setup.fetchSetupHosts({
-    idp: "https://node.test/custom/",
+    idp: "https://node.test/custom/idp/",
   });
   assert.deepEqual(
     hosts.map(({ base, status }) => [base, status.owners]),
-    [["https://node.test/custom", ["idp", "management", "storage"]]],
+    [["https://node.test/custom/idp", ["idp", "device", "storage"]]],
   );
-  assert.deepEqual(calls, ["https://node.test/custom/setup/status"]);
+  assert.deepEqual(calls, ["https://node.test/custom/idp/setup/status"]);
 });
 
 test("independent owners each use their configured base and their own code, even on one origin", async () => {
   const bases = {
     idp: "https://node.test/auth",
-    management: "https://node.test/policy",
+    device: "https://node.test/policy",
     storage: "https://data.test/files",
   };
   const codes = ["a".repeat(64), "b".repeat(64), "c".repeat(64)];
@@ -476,7 +508,7 @@ test("independent owners each use their configured base and their own code, even
   globalThis.fetch = async (url, options) => {
     calls.push([url, options]);
     const index = Object.values(bases).findIndex((base) =>
-      url.startsWith(`${base}/setup/`),
+      url.startsWith(`${base}/independent/setup/`),
     );
     assert.notEqual(index, -1);
     if (options.method === "POST") {
@@ -502,12 +534,14 @@ test("independent owners each use their configured base and their own code, even
     Object.values(bases),
   );
   for (const [index, host] of hosts.entries())
-    await verifySetupCode(host.base, codes[index]);
+    await verifySetupCode(host.base, codes[index], true);
   assert.deepEqual(
     calls.map(([url]) => url),
     [
-      ...Object.values(bases).map((base) => `${base}/setup/status`),
-      ...Object.values(bases).map((base) => `${base}/setup/admission`),
+      ...Object.values(bases).map((base) => `${base}/independent/setup/status`),
+      ...Object.values(bases).map(
+        (base) => `${base}/independent/setup/admission`,
+      ),
     ],
   );
 });
@@ -522,7 +556,9 @@ test("missing, duplicate, partial, unknown scopes and fabricated readiness fail 
     ["unified"],
     ["IDP"],
     "idp",
-    ["idp", "management", "other"],
+    ["idp", "device", "other"],
+    ["management"],
+    ["idp", "management", "storage"],
   ]) {
     globalThis.fetch = async () =>
       Response.json({
@@ -562,14 +598,14 @@ test("missing, duplicate, partial, unknown scopes and fabricated readiness fail 
 test("missing or duplicate independent bases and wrong owner status deny before admission", async () => {
   const bases = {
     idp: "https://node.test/idp",
-    management: "https://node.test/management",
+    device: "https://node.test/management",
     storage: "https://store.test",
   };
   for (const config of [
     { idp: bases.idp },
     { ...bases, storage: undefined },
-    { ...bases, management: `${bases.idp}/` },
-    { ...bases, storage: bases.management },
+    { ...bases, device: `${bases.idp}/` },
+    { ...bases, storage: bases.device },
   ]) {
     let calls = 0;
     globalThis.fetch = async () => {
@@ -584,13 +620,9 @@ test("missing or duplicate independent bases and wrong owner status deny before 
     await assert.rejects(setup.fetchSetupHosts(config), /bases/);
     assert.equal(calls, 1);
   }
-  for (const scope of [
-    ["idp"],
-    ["storage"],
-    ["idp", "management", "storage"],
-  ]) {
+  for (const scope of [["idp"], ["storage"], ["idp", "device", "storage"]]) {
     globalThis.fetch = async (url, options) => {
-      assert.equal(options.method, undefined);
+      assert.equal(options.method, "GET");
       return Response.json({
         stage: "installation",
         state: "awaiting_choice",
@@ -605,7 +637,7 @@ test("missing or duplicate independent bases and wrong owner status deny before 
       stage: "installation",
       state: "awaiting_choice",
       ready: false,
-      owners: ["management"],
+      owners: ["device"],
     });
   await assert.rejects(setup.fetchSetupHosts(bases), /Primary setup scope/);
 });
@@ -617,7 +649,7 @@ test("503 health loss retains explicit scope but never reports readiness", async
         stage: "installation",
         state: "unavailable",
         ready: false,
-        owners: ["idp", "management", "storage"],
+        owners: ["idp", "device", "storage"],
       },
       { status: 503 },
     );
@@ -626,7 +658,7 @@ test("503 health loss retains explicit scope but never reports readiness", async
     stage: "unavailable",
     state: "unavailable",
     ready: false,
-    owners: ["idp", "management", "storage"],
+    owners: ["idp", "device", "storage"],
   });
   globalThis.fetch = async () =>
     Response.json(
@@ -665,7 +697,11 @@ test("transport, JSON and HTTP failures never echo remote data or codes", async 
   globalThis.fetch = async () => new Response(secret, { status: 403 });
   await assert.rejects(
     setup.fetchSetupStatus("https://node.test/idp"),
-    (error) => error.message === "Setup status unavailable (403)",
+    (error) => {
+      assert.ok(error instanceof setup.SetupPrerequisiteError);
+      assert.ok(!error.message.includes(secret));
+      return true;
+    },
   );
 });
 
@@ -698,5 +734,8 @@ test("status requires the actual 200/503 contract, not another successful HTTP s
       },
       { status: 201 },
     );
-  await assert.rejects(setup.fetchSetupStatus("https://node.test/idp"), /201/);
+  await assert.rejects(
+    setup.fetchSetupStatus("https://node.test/idp"),
+    setup.SetupEvidenceError,
+  );
 });
