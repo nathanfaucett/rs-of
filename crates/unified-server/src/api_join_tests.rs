@@ -1,4 +1,9 @@
-use std::{collections::HashMap, fs, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    fs,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use idp_server::local_provisioning::provisioning_stage;
 
@@ -209,6 +214,14 @@ pub(super) async fn run(
     approving: &str,
     storage: &str,
 ) {
+    #[cfg(feature = "cli")]
+    if std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_some() {
+        env_logger::Builder::new()
+            .parse_filters("off,setup_timeout=debug")
+            .format_timestamp_millis()
+            .try_init()
+            .expect("isolated HTTPS child owns its categorical timing logger");
+    }
     let case = Case::selected();
     let expected_issuer = fixture.config.idp.oauth2.issuer.clone();
     let address = fixture.config.listen_addr;
@@ -417,11 +430,30 @@ pub(super) async fn run(
             .status(),
         StatusCode::FORBIDDEN
     );
+    let timing = std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_some();
+    let started = Instant::now();
+    if timing {
+        eprintln!("seam=approval_client phase=start elapsed_ms=0");
+    }
+    let response = http.post(&approval).bearer_auth(approving).send().await;
+    if timing {
+        match &response {
+            Ok(response) => eprintln!(
+                "seam=approval_client phase=end elapsed_ms={} status={}",
+                started.elapsed().as_millis(),
+                response.status().as_u16()
+            ),
+            Err(error) => eprintln!(
+                "seam=approval_client phase=end elapsed_ms={} timeout={} connect={} request={}",
+                started.elapsed().as_millis(),
+                error.is_timeout(),
+                error.is_connect(),
+                error.is_request()
+            ),
+        }
+    }
     assert_eq!(
-        http.post(&approval)
-            .bearer_auth(approving)
-            .send()
-            .await
+        response
             .expect("ordinary authorized source approval")
             .status(),
         StatusCode::OK

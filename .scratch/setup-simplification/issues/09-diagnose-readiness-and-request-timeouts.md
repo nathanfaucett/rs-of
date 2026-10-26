@@ -2,7 +2,7 @@
 
 **Type:** task
 
-**Status:** open
+**Status:** claimed
 
 **Triage:** ready-for-agent
 
@@ -27,5 +27,9 @@ Read [reliability evidence](../evidence/07-reliability-followup.md), [validation
 - [ ] Record repeated finalization, interruption/exact retry, and source-offline reopen results plus remaining limits. Update ticket 07 only for criteria supported by evidence.
 
 ## Comments
+
+Claimed by Agent09 on `implement/setup-followup-09` in `.worktrees/setup-09`, confirmed clean base `8ee26fb1f8d789840dc246b94cfa22f6fdb7e6a5` (integration). Initial pass is source investigation and secret-free categorical timing only; Agent10 owns the Rust slot, so no builds/tests until explicitly released. No provider, reset fixture, SDK, bounds, retry, sleep, or behavioral changes. Localization and focused red regression remain prerequisites to any behavioral fix.
+
+[Observation-only handoff and predeclared diagnostic cells](../evidence/09-timeout-localization.md): dependency-visible categorical approval timing, existing client start/end, and shared-budget independent readiness status/error timing are ready for coordinated testing, **not compile/test verified**. Source/sibling/lock hashes and gated commands are recorded. No failure has been localized, no behavioral fix is claimed, and all acceptance criteria remain unchecked; ticket07 is unchanged.
 
 No real user profile, OS trust store, or production provider changes are authorized by this issue. Passing repetitions alone do not prove the origin of historical failures.

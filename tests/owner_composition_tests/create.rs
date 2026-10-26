@@ -175,20 +175,74 @@ pub(super) async fn start(
     ]
 }
 pub(super) async fn wait(http: &Client, intent: &IndependentCreateIntent, ready: bool) {
+    let timing = std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_some();
+    let started = Instant::now();
     let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
     for owner in ["idp", "device", "storage"] {
+        let owner_started = Instant::now();
         loop {
-            if let Ok(response) = http
+            let request_started = Instant::now();
+            if timing {
+                eprintln!(
+                    "seam=independent_readiness owner={owner} phase=request_start expected_ready={ready} elapsed_ms={} owner_ms={}",
+                    started.elapsed().as_millis(),
+                    owner_started.elapsed().as_millis()
+                );
+            }
+            let response = http
                 .get(format!(
                     "{}/independent/setup/status",
                     intent.base(owner).expect("owner")
                 ))
                 .send()
-                .await
-            {
+                .await;
+            if timing {
+                match &response {
+                    Ok(response) => eprintln!(
+                        "seam=independent_readiness owner={owner} phase=headers elapsed_ms={} request_ms={} status={}",
+                        started.elapsed().as_millis(),
+                        request_started.elapsed().as_millis(),
+                        response.status().as_u16()
+                    ),
+                    Err(error) => eprintln!(
+                        "seam=independent_readiness owner={owner} phase=request_error elapsed_ms={} request_ms={} timeout={} connect={} request={}",
+                        started.elapsed().as_millis(),
+                        request_started.elapsed().as_millis(),
+                        error.is_timeout(),
+                        error.is_connect(),
+                        error.is_request()
+                    ),
+                }
+            }
+            if let Ok(response) = response {
                 if response.status() == StatusCode::OK {
-                    let status: serde_json::Value = response.json().await.expect("status JSON");
+                    let status = response.json::<serde_json::Value>().await;
+                    if timing {
+                        match &status {
+                            Ok(status) => eprintln!(
+                                "seam=independent_readiness owner={owner} phase=body elapsed_ms={} request_ms={} ready={:?}",
+                                started.elapsed().as_millis(),
+                                request_started.elapsed().as_millis(),
+                                status["ready"].as_bool()
+                            ),
+                            Err(error) => eprintln!(
+                                "seam=independent_readiness owner={owner} phase=body_error elapsed_ms={} request_ms={} timeout={} decode={}",
+                                started.elapsed().as_millis(),
+                                request_started.elapsed().as_millis(),
+                                error.is_timeout(),
+                                error.is_decode()
+                            ),
+                        }
+                    }
+                    let status = status.expect("status JSON");
                     if status["ready"] == ready {
+                        if timing {
+                            eprintln!(
+                                "seam=independent_readiness owner={owner} phase=matched elapsed_ms={} owner_ms={}",
+                                started.elapsed().as_millis(),
+                                owner_started.elapsed().as_millis()
+                            );
+                        }
                         break;
                     }
                 }
