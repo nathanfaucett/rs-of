@@ -9,7 +9,7 @@ use idp_model::{
     model::Id,
 };
 use idp_server::local_provisioning::provisioning_stage;
-use idp_service::{oauth2::NodeSignerBinding, repo::PrivateKeyKeyringRepo};
+use idp_service::oauth2::NodeSignerBinding;
 use iroh_chain::DATA_ALPN;
 use management_service::ManagementService;
 use management_service::replica::DbPermissionRepo;
@@ -635,7 +635,7 @@ impl Pair {
                 (b.config.idp.key_namespace.clone(), b.store.clone()),
             ],
         });
-        let _ = PrivateKeyKeyringRepo::new_with_store(&a.config.idp.oauth2.issuer, stores);
+        keyring_core::set_default_store(stores);
         let roots = [
             &a.config.idp.data_dir,
             &a.config.device.data_dir,

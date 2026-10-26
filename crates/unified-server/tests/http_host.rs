@@ -184,12 +184,9 @@ fn http_setup_create_and_reopen_without_certificates() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "parent isolates the mock key provider"]
 async fn http_setup_child() {
-    idp_service::repo::PrivateKeyKeyringRepo::new_with_store(
-        "isolated-http-setup",
-        std::sync::Arc::new(SecretStore(
-            keyring_core::mock::Store::new().expect("isolated provider"),
-        )),
-    );
+    keyring_core::set_default_store(std::sync::Arc::new(SecretStore(
+        keyring_core::mock::Store::new().expect("isolated provider"),
+    )));
     let root = std::env::temp_dir().join(format!("unified-http-{}", Id::now_v7()));
     let reservation = std::net::TcpListener::bind("127.0.0.1:0").expect("test port");
     let address = reservation.local_addr().expect("test address");

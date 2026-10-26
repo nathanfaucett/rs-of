@@ -10,7 +10,6 @@ use std::{
 use idp_server::local_provisioning::provisioning_stage;
 
 use idp_model::model::Id;
-use idp_service::repo::PrivateKeyKeyringRepo;
 
 use model::contract::TokenResponse;
 use tokio::task::JoinHandle;
@@ -160,7 +159,7 @@ async fn production_https_bootstrap_child() {
     let mut unresolved = automatic_host.config();
     unresolved.idp.password.memory_mib = 1;
     unresolved.idp.password.iterations = 1;
-    PrivateKeyKeyringRepo::new_with_store(&unresolved.idp.oauth2.issuer, a.store.clone());
+    keyring_core::set_default_store(a.store.clone());
     let credential_guard = crate::CredentialBootstrap::create(unresolved)
         .expect("ordinary no-config stable host references");
     a.config = credential_guard.load().expect("retained host settings");
@@ -179,7 +178,7 @@ async fn production_https_bootstrap_child() {
     } else {
         nodes
     };
-    PrivateKeyKeyringRepo::new_with_store(&a.config.idp.oauth2.issuer, store);
+    keyring_core::set_default_store(store);
     fs::rename(tls_source, LocalTls::directory(&a.config))
         .expect("retain source TLS from isolated parent");
     fs::rename(tls_join, LocalTls::directory(&b.config))

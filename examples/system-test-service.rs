@@ -1,19 +1,14 @@
 use std::{io, sync::Arc};
 
-use idp_service::repo::PrivateKeyKeyringRepo;
-
 #[path = "system_test/provider.rs"]
 mod provider;
 
 fn main() -> io::Result<()> {
-    PrivateKeyKeyringRepo::new_with_store(
-        "system-test",
-        Arc::new(provider::Store::open(
-            std::env::var_os("OF_SYSTEM_PROVIDER")
-                .expect("private durable provider path")
-                .into(),
-        )?),
-    );
+    keyring_core::set_default_store(Arc::new(provider::Store::open(
+        std::env::var_os("OF_SYSTEM_PROVIDER")
+            .expect("private durable provider path")
+            .into(),
+    )?));
     std::thread::Builder::new()
         .stack_size(64 * 1024 * 1024)
         .spawn(|| {

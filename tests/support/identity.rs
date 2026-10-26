@@ -1387,8 +1387,20 @@ impl keyring_core::api::CredentialStoreApi for ModifierTolerantTestStore {
     }
 }
 
-fn test_keyring_store() -> Arc<keyring_core::CredentialStore> {
-    Arc::new(ModifierTolerantTestStore {
-        inner: keyring_core::mock::Store::new().expect("create test keyring"),
-    })
+pub(crate) fn test_keyring_store() -> Arc<keyring_core::CredentialStore> {
+    // Default-opening owner APIs share one startup backend; unique issuers isolate fixture entries.
+    static STORE: std::sync::OnceLock<Arc<keyring_core::CredentialStore>> =
+        std::sync::OnceLock::new();
+    STORE
+        .get_or_init(|| {
+            if let Some(store) = keyring_core::get_default_store() {
+                return store;
+            }
+            let store: Arc<keyring_core::CredentialStore> = Arc::new(ModifierTolerantTestStore {
+                inner: keyring_core::mock::Store::new().expect("create test keyring"),
+            });
+            keyring_core::set_default_store(store.clone());
+            store
+        })
+        .clone()
 }

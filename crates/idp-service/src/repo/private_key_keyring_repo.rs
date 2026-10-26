@@ -14,6 +14,7 @@ static SET_CREDENTIAL_STORE: Mutex<bool> = Mutex::new(false);
 
 pub struct PrivateKeyKeyringRepo {
     service_name: String,
+    store: Arc<keyring_core::CredentialStore>,
 }
 
 impl PrivateKeyKeyringRepo {
@@ -21,20 +22,18 @@ impl PrivateKeyKeyringRepo {
         init_credential_store()?;
         Ok(Self {
             service_name: service_name.into(),
+            store: keyring_core::get_default_store().expect("initialized credential store"),
         })
     }
 
+    /// Retains this backend without changing the process default; reopen with the same store.
     pub fn new_with_store(
         service_name: impl Into<String>,
         store: Arc<keyring_core::CredentialStore>,
     ) -> Self {
-        let mut initialized = SET_CREDENTIAL_STORE
-            .lock()
-            .expect("credential-store initialization lock is not poisoned");
-        keyring_core::set_default_store(store);
-        *initialized = true;
         Self {
             service_name: service_name.into(),
+            store,
         }
     }
 }
@@ -46,7 +45,7 @@ impl PrivateKeyRepo for PrivateKeyKeyringRepo {
         derivation_path: &DerivationPath,
     ) -> RepoResult<Option<DerivedKey>> {
         let entry_name = derived_key_entry_name(namespace, &derivation_path.to_string());
-        let entry = create_key_entry(&self.service_name, &entry_name)?;
+        let entry = create_key_entry(&*self.store, &self.service_name, &entry_name)?;
 
         match entry.get_secret() {
             Ok(secret_bytes) => {
@@ -62,23 +61,27 @@ impl PrivateKeyRepo for PrivateKeyKeyringRepo {
     fn store(&self, namespace: &str, derived_key: &DerivedKey) -> RepoResult<()> {
         let entry_name =
             derived_key_entry_name(namespace, &derived_key.derivation_path().to_string());
-        let entry = create_key_entry(&self.service_name, &entry_name)?;
+        let entry = create_key_entry(&*self.store, &self.service_name, &entry_name)?;
         entry.set_secret(derived_key.to_xprv_string().as_bytes())?;
         Ok(())
     }
 
     fn delete(&self, namespace: &str, derivation_path: &DerivationPath) -> RepoResult<()> {
         let entry_name = derived_key_entry_name(namespace, &derivation_path.to_string());
-        let entry = create_key_entry(&self.service_name, &entry_name)?;
+        let entry = create_key_entry(&*self.store, &self.service_name, &entry_name)?;
         entry.delete_credential()?;
         Ok(())
     }
 }
 
-pub(crate) fn create_key_entry(service: &str, user: &str) -> keyring_core::Result<Entry> {
+pub(crate) fn create_key_entry(
+    store: &keyring_core::CredentialStore,
+    service: &str,
+    user: &str,
+) -> keyring_core::Result<Entry> {
     let mut modifiers = HashMap::new();
     modifiers.insert("target", "IdP");
-    let entry = Entry::new_with_modifiers(service, user, &modifiers)?;
+    let entry = store.build(service, user, Some(&modifiers))?;
     Ok(entry)
 }
 
@@ -105,6 +108,9 @@ fn initialize_store(
 }
 
 fn set_credential_store() -> keyring_core::Result<()> {
+    if keyring_core::get_default_store().is_some() {
+        return Ok(());
+    }
     #[cfg(target_os = "macos")]
     let store = apple_native_keyring_store::keychain::Store::new()?;
     #[cfg(target_os = "windows")]

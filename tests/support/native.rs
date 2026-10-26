@@ -1,9 +1,6 @@
-use std::{
-    collections::HashMap,
-    sync::{
-        Arc, OnceLock,
-        atomic::{AtomicUsize, Ordering},
-    },
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 
 use axum::Router;
@@ -83,30 +80,6 @@ impl Gate {
     }
     pub(crate) fn release(&self) {
         self.resume.notify_one();
-    }
-}
-
-struct SecretStore(Arc<keyring_core::mock::Store>);
-impl keyring_core::api::CredentialStoreApi for SecretStore {
-    fn vendor(&self) -> String {
-        self.0.vendor()
-    }
-    fn id(&self) -> String {
-        self.0.id()
-    }
-    fn build(
-        &self,
-        service: &str,
-        user: &str,
-        _: Option<&HashMap<&str, &str>>,
-    ) -> keyring_core::Result<keyring_core::Entry> {
-        keyring_core::api::CredentialStoreApi::build(&*self.0, service, user, None)
-    }
-    fn search(&self, spec: &HashMap<&str, &str>) -> keyring_core::Result<Vec<keyring_core::Entry>> {
-        self.0.search(spec)
-    }
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
     }
 }
 
@@ -239,12 +212,7 @@ impl Fixture {
             endpoint_id: identity.endpoint().id().to_string(),
         };
         config.oauth2.local_signer = Some(binding.clone());
-        static STORE: OnceLock<Arc<keyring_core::CredentialStore>> = OnceLock::new();
-        let store = STORE.get_or_init(|| {
-            Arc::new(SecretStore(
-                keyring_core::mock::Store::new().expect("test secret adapter"),
-            ))
-        });
+        let store = crate::support::identity::test_keyring_store();
         let private = PrivateKeyKeyringRepo::new_with_store(&config.oauth2.issuer, store.clone());
         let provisioner = idp_server::OwnerProvisioner::open_with_private_keys(&config, private)
             .await

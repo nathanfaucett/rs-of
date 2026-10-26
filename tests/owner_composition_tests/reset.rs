@@ -13,7 +13,7 @@ use std::{
 
 use api::{IndependentCreateIntent, LocalTls};
 use idp_model::model::Id;
-use idp_service::repo::{PrivateKeyKeyringRepo, RawKeyringRepo};
+use idp_service::repo::RawKeyringRepo;
 use keyring_core::{
     Entry,
     api::{Credential, CredentialApi, CredentialStoreApi},
@@ -161,7 +161,7 @@ impl Provider {
             fail_endpoint_delete: Arc::new(AtomicBool::new(false)),
             fail_node_readback: Arc::new(AtomicBool::new(false)),
         });
-        PrivateKeyKeyringRepo::new_with_store("independent-reset-qualification", provider.clone());
+        keyring_core::set_default_store(provider.clone());
         provider
     }
 
