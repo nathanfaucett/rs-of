@@ -20,7 +20,20 @@ impl log::Log for SetupTimingLog {
 
     fn log(&self, record: &log::Record<'_>) {
         if self.enabled(record.metadata()) {
-            eprintln!("{}", record.args());
+            if std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_some() {
+                eprintln!(
+                    "pid={} wall_ms={} target={} {}",
+                    std::process::id(),
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .expect("system clock")
+                        .as_millis(),
+                    record.target(),
+                    record.args()
+                );
+            } else {
+                eprintln!("{}", record.args());
+            }
         }
     }
 

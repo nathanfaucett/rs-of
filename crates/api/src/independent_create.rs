@@ -610,18 +610,72 @@ pub(crate) async fn cancel(
     state.view = "unfinished";
     StatusCode::NO_CONTENT.into_response()
 }
+struct RequestObservation<'a> {
+    phase: &'static str,
+    owner: &'a str,
+    started: Option<std::time::Instant>,
+}
+
+impl<'a> RequestObservation<'a> {
+    fn start(owner: &'a str, phase: &'static str) -> Self {
+        let started = std::env::var_os("OF_SETUP_TIMEOUT_TIMING").map(|_| {
+            eprintln!("seam=owner_request phase={phase}_start owner={owner} pid={} thread={:?} wall_ms={}", std::process::id(), std::thread::current().id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("system clock").as_millis());
+            std::time::Instant::now()
+        });
+        Self {
+            phase,
+            owner,
+            started,
+        }
+    }
+}
+
+impl Drop for RequestObservation<'_> {
+    fn drop(&mut self) {
+        if let Some(started) = self.started {
+            eprintln!(
+                "seam=owner_request phase={}_end owner={} pid={} thread={:?} wall_ms={} elapsed_ms={}",
+                self.phase,
+                self.owner,
+                std::process::id(),
+                std::thread::current().id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("system clock")
+                    .as_millis(),
+                started.elapsed().as_millis()
+            );
+        }
+    }
+}
+
 #[utoipa::path(get, tag = "default", path = "/independent/setup/status", responses((status = 200, body = crate::independent_openapi::IndependentSetupStatus, description = "Owner-local state; no login Client or secret"), (status = 503, description = "Admission unavailable (empty body), or current owner readiness failed (nonsecret status with ready:false)")))]
 pub(crate) async fn status(State(control): State<IndependentCreateControl>) -> Response {
+    let _observation = RequestObservation::start(control.owner(), "readiness");
     if control.0.admission.health().is_err() {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     }
     let view = control.0.lifecycle.lock().await.view;
-    if view == "ready" && control.check_readiness().await.is_err() {
+    if view == "ready"
+        && observe_request(control.check_readiness(), control.owner(), "readiness")
+            .await
+            .is_err()
+    {
         return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"stage":"installation", "state":"unavailable", "ready":false, "owners":[control.owner()]}))).into_response();
     }
     Json(serde_json::json!({"stage":"installation", "state":view, "ready":view == "ready", "owners":[control.owner()]})).into_response()
 }
 async fn normal(State(control): State<IndependentCreateControl>, request: Request) -> Response {
+    let phase = if request.uri().path().ends_with("/oauth2/token") {
+        "token"
+    } else if request.uri().path().ends_with("/oauth2/introspect") {
+        "introspect"
+    } else if request.uri().path().ends_with("/databases") {
+        "databases"
+    } else {
+        "normal"
+    };
+    let _observation = RequestObservation::start(control.owner(), phase);
     let router = control
         .0
         .normal
@@ -629,12 +683,26 @@ async fn normal(State(control): State<IndependentCreateControl>, request: Reques
         .ok()
         .and_then(|normal| normal.clone());
     match router {
-        Some(router) => router
-            .oneshot(request)
+        Some(router) => observe_request(router.oneshot(request), control.owner(), phase)
             .await
             .expect("owner router is infallible"),
         None => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
+}
+
+async fn observe_request<F: Future>(future: F, owner: &str, phase: &str) -> F::Output {
+    if std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_none() {
+        return future.await;
+    }
+    tokio::pin!(future);
+    std::future::poll_fn(|cx| {
+        let started = std::time::Instant::now();
+        let result = future.as_mut().poll(cx);
+        if started.elapsed().as_millis() >= 50 {
+            eprintln!("seam=owner_poll owner={owner} phase={phase} pid={} thread={:?} wall_ms={} elapsed_ms={} pending={}", std::process::id(), std::thread::current().id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("system clock").as_millis(), started.elapsed().as_millis(), result.is_pending());
+        }
+        result
+    }).await
 }
 
 pub(crate) fn setup_routes() -> utoipa_axum::router::OpenApiRouter<IndependentCreateControl> {
