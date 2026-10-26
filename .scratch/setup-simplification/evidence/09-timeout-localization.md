@@ -530,3 +530,91 @@ Ticket09 remains **open/unresolved**, with aggregate acceptance boxes unchecked.
 2. Historical C1 attribution, if still required, needs a real failing-holder capture distinguishing connection service, live native transaction and another open/process. The new deterministic fence is not such a capture.
 3. Complete repeated finalization, interruption/exact retry and source-offline qualification with final integrated code, separating serial/concurrent/tracing conditions. A single Create smoke and the earlier Join results do not close these aggregate gates.
 4. Broader feature matrix/coverage/CRAP and platform qualification remain parent-coordinated; **not run here**, per explicit instruction. Ticket07/map/spec/11 remain unchanged. No sleeps/retries/deadline inflation or security relaxation is proposed for these remaining tasks.
+
+## Current-code untraced qualification and bounded closure, 2026-10-26
+
+### Predeclared execution and immutable inputs
+
+Resumed the same branch/worktree under the exclusive Rust slot. Fast-forwarded to requested integration **`734e65070ec0dfa7dcc1d03934ab7c63ed8ca456`** before work; reclaimed ticket09 and loaded TDD/ponytail. Parent prepared ticket11 read-only and did not own a competing build. This slice executes existing public scenarios and causal regressions; **no Rust behavior/test/dependency changes** were necessary or made.
+
+Before compilation/execution, declared **one S cell (serial, threads=1)** and **one C cell (concurrent, threads=2)** in ticket09. Each cell contains separate non-overlapping unified/owner subgroups. Order: S-unified → S-owner → C-unified → C-owner. Same binaries, filters, feature choices and environment throughout; no retries or additional diagnostic/tracing cells. A subgroup failure would have stopped automatic progression for diagnosis; none failed. Libtest parents, not ignored children, were selected; all parents exercised their isolated children normally.
+
+- Unified filters: `production_api_join_`, verified by executable `--list` to select exactly `local_provisioning_tests::https_bootstrap_tests::{production_api_join_complete_unretired_finalization,production_api_join_completion_and_offline_reopen,production_api_join_interruption_preserves_private_host_intent}`.
+- Owner filters: the same five exact parent names declared above: production independent Create/offline reopen; unsupported-record refusal/current reset; signer-free operation/delayed-authority reopen; remote Create/Join/reopen/Device reset; ordinary independent permission via production Management HTTPS.
+- Both cells **untraced**. `OF_SETUP_TIMEOUT_TIMING` and `RUST_LOG` explicitly removed from the child environment. Existing default categorical production stage logging remains enabled by the scenarios. `RUST_MIN_STACK=67108864`, `CARGO_BUILD_JOBS=1`; no other optimization, deadline or security override.
+- Main and sibling HEADs, clean sibling status and lock hash matched the preceding fence implementation's recorded dependencies. Main HEAD was `734e65070`; only the ticket claim differed from it during execution. A before/after manifest verified identical source status and all four HEADs. Production `Cargo.toml`, Cargo.lock, `crates/`, `src/`, `tests/` had no diff. Lock SHA-256 remains `bb7e608f57a6167612acac7d247e51eb2c6efbe449b95208c7a1862b78dd3a3f`.
+- Toolchain remains rustc **1.99.1 (58cf8f9c3 2026-10-13)** / cargo **1.99.1 (5f94df478 2026-08-27)**. Main target existed at **19 GiB**; used it explicitly, without deletion/profile changes. No broad feature matrix, coverage, CRAP, real provider/OS trust or sibling edits.
+
+Build commands (cwd this worktree) both passed at jobs=1, ordinary unchanged profiles:
+
+```sh
+cargo test --locked --target-dir /home/nathan/code/rust/aicacia/of/target -j 1 -p unified-server --features cli --lib --no-run --message-format=json
+cargo test --locked --target-dir /home/nathan/code/rust/aicacia/of/target -j 1 -p idp-unified --no-default-features --features cli --test owner_boundaries --no-run --message-format=json
+```
+
+Unified build **539.622s** supervisor wall / Cargo 8m58s; owner build **37.046s** / Cargo 36.84s. Neither hit its resource/stage bound. Unified emitted the same three unused shared test-support warnings. No Clippy rerun was needed for this documentation-only source delta; preceding strict changed-area results stand separately.
+
+Actual artifacts resolved from successful Cargo JSON events, verified with `--list`, hashed before execution and rechecked unchanged after both cells:
+
+| Executable under main `target/debug/deps/` | SHA-256                                                            | Actual target features                           |
+| ------------------------------------------ | ------------------------------------------------------------------ | ------------------------------------------------ |
+| `unified_server-f70d87b770f6bdb5`          | `88b22ad448d01de951e2e5f5761e89855a6374a5789519cc0b08334a1364d75e` | `cli, default` (no Swagger UI)                   |
+| `owner_boundaries-82e9ad7da03710d6`        | `39e73bf94835b69f6755aca23b85670bde9abda87e822072b5e0bfc29ca01f48` | `cli, unified-server` (no root default features) |
+
+### Actual public-scenario results
+
+Commands execute the above binaries directly: unified `production_api_join_ --nocapture --test-threads=N`; owner all five full names with `--exact --nocapture --test-threads=N`. Full argv and process-group/resource/exit receipts are saved per subgroup. Existing scenario parent/request/readiness/listener bounds are unchanged.
+
+| Cell / subgroup | Result                                  | Supervisor wall seconds | Max sampled group RSS KiB | Kernel max individual child RSS KiB | Min available KiB | Max observed memory PSI avg10 some/full |
+| --------------- | --------------------------------------- | ----------------------: | ------------------------: | ----------------------------------: | ----------------: | --------------------------------------- |
+| S / unified     | **3 parents + their 3 children passed** |                 263.323 |                    95,548 |                              80,584 |         6,367,272 | 0.80 / 0.75                             |
+| S / owner       | **5 parents + their 5 children passed** |                 394.205 |                   150,072 |                             135,040 |         6,255,584 | 0 / 0                                   |
+| C / unified     | **3 parents + their 3 children passed** |                 178.320 |                   175,076 |                              80,584 |         6,361,916 | 0 / 0                                   |
+| C / owner       | **5 parents + their 5 children passed** |                 229.145 |                   260,852 |                             134,324 |         6,200,848 | 0 / 0                                   |
+
+Thus **6/6 current-code Join parent executions** cover finalization, interruption/exact retry and completion/source-offline reopen, each once under each scheduling condition. **10/10 independent-owner parent executions** cover the four readiness/deployment representatives plus the separate ordinary HTTPS permission representative under both conditions. Serial child times: Join 89.19/90.39/83.45s; independent owners 116.91/119.90/68.20/22.97/65.73s in test-name order. Concurrent owner completion order differs, as expected. No failed scenario was rerun to obtain these results.
+
+All four runtime logs contain zero reported `panicked`, `timed out`, `timeout` or `Database already open` messages. This supplements, rather than replaces, the scenario assertions. Production Create/Device native reopen assertions actually ran; their optional diagnostic probe text was absent because timing instrumentation was disabled.
+
+Default Join `public_bootstrap` phase timings were **49,827–51,174ms serial** and **50,810–54,875ms concurrent**. These are whole bootstrap stages, **not** the duration of an individual approval HTTP request. Current ordinary authorized approval and permission requests satisfied their existing client assertions/bounds; instrumentation-disabled cells do not supply an exact current per-handler timing decomposition, and none is invented.
+
+### Current causal-regression checks
+
+After the declared cells passed, ran the existing deterministic ownership regressions as separate focused checks, **not additional scenario repetitions**:
+
+- Current unified executable, exact `setup_host_tests::shutdown_joins_router_teardown_before_releasing_host_and_admission` and `setup_host_tests::shutdown_rejects_queued_request_before_joining_router_teardown`: **2 passed**, 0.06s test / 0.090s supervisor. Preserves both the original ownership fence and queued-reply cancellation/drain protection.
+- `cargo test` with the same locked target/jobs=1 flags, `-p api --lib independent_shutdown_joins_actual_connection_teardown_before_reopen -- --nocapture --test-threads=1`: **1 passed**, 0.06s test / 4.758s supervisor (4.55s rebuild). API executable hash remains `fde37b51d01f026953aa4ad4e6f816ad2fa5c8744aa985b8f891492931a47d80`.
+- `cargo fmt --all -- --check` and `git diff --check`: **passed**. Final edits are ticket/evidence only.
+
+These green executions complement the recorded **actual red-before-green** ownership regressions, not a newly inferred cause based solely on passing repetitions. With no failing current-code ordinary scenario in the declared cells, no speculative timeout/performance/security change was made.
+
+### Resource supervision and reproducible receipts
+
+`/tmp/setup09-qual-monitor.py` creates a fresh owned PGID for each build/subgroup, samples MemAvailable, aggregate owned-group RSS and full `/proc/pressure/memory` at approximately **one-second** intervals, and saves samples plus a JSON exit/resource receipt. Also records kernel `RUSAGE_CHILDREN.ru_maxrss`: maximum individual waited child/descendant high-water RSS, **not** simultaneous aggregate group memory. Aggregate RSS peaks in the table are actual sampled peaks; between-sample group peaks and shared-page accounting are not claimed as exact physical RAM usage.
+
+Stops: MemAvailable <2 GiB; some avg10 ≥20 or full avg10 ≥10 sustained ≥20s; or elapsed >550s. TERM then KILL/reap applies only to the owned PGID. All tool calls bounded below 600000ms. **No resource or stage stop fired**, and no unrelated process was killed. Swap remained full, but actual memory/PSI permitted safe jobs=1 compilation and execution.
+
+Build peaks/minima: unified sampled group RSS **4,031,864 KiB**, kernel max child **4,707,392 KiB**, min available **4,854,040 KiB**, max some/full avg10 **6.81/6.39**; owner sampled group RSS **5,237,952 KiB**, kernel max child **4,890,172 KiB**, min available **5,195,508 KiB**, max some/full **4.73/4.55**. Runtime minima/peaks are separate in the table; no resource-cause attribution is made. Background editor/system processes existed, so serial is a no-competing-build control, not a globally idle-machine certification.
+
+Local fixed-input manifest: `/tmp/setup09-qual-artifacts.json`. Each `/tmp/setup09-qual-<name>.json` contains full argv, PGID, exit, wall time, memory/PSI maxima/minima and log hash; `-samples.jsonl` preserves all resource samples. Logs and SHA-256:
+
+| Name                  | Log SHA-256                                                        |
+| --------------------- | ------------------------------------------------------------------ |
+| `S-unified`           | `69959a5333c68761d6c768d7aa6c6b4a238be64813e7b1b324d0dec293e81acb` |
+| `S-owner`             | `6dca8bf5b440e4d5e9a6942ae43747ce246543e45c866c90a3666be18a4e4aec` |
+| `C-unified`           | `01d7df0f59788785391b6be3d0a9cabd9b5be1741f3037a595a5a5efd1d46bc0` |
+| `C-owner`             | `e2ea95691646e03e91e0375ca53c4e2877fd1dd3edc808173a7432aa1aa9e93c` |
+| `unified-regressions` | `62e5b5d262fc2289fb5f0511bb641f3d8be82b1a8ff163df08b88f02232e09e0` |
+| `api-regression`      | `f4b4fd83f35876eb5c764c0209016410e1347bcd46c752022d53a6acf8a85a8c` |
+
+All names use `/tmp/setup09-qual-<name>.log`. Build receipt/log names are `unified-build1` and `owner-build1`. Logs retain ordinary scenario output without enabling payload/header/body tracing or exposing setup codes/passwords/bearer tokens in this evidence.
+
+### Acceptance and residual uncertainty
+
+**Ticket09 resolved for the declared current-code ordinary-behavior investigation/qualification scope.** A concrete lifecycle defect has a demonstrated causal ordering, actual failing regression, minimal fix and current green regression. The public ordinary scenarios requested by the user are now executable **16/16 passing** on one fixed integrated source/artifact set across the predeclared serial/concurrent cells, with **3/3 current lifecycle regression checks** passing. No concrete still-failing current-code ordinary scenario remains in this scope. These are two executions per selected scenario under different schedules, **not three idle serial repetitions**, a complete feature matrix, a statistical reliability guarantee or production platform qualification. Older passes are not pooled into the current counts.
+
+Historical uncertainty remains explicitly unresolved: this does **not** identify C1's historical surviving native holder, prove every old source-offer/readiness/permission timeout shared the fixed destruction defect, or establish a root cause for every archived failure. Those facts cannot be reconstructed by another passing replay; they are retained diagnostic limits, not a fabricated still-failing current scenario or grounds for speculative patches.
+
+The earlier **instrumented** approval failure remains a recorded failure: client deadline 5001ms, server handler success 5439ms, operation-lock wait 0ms, cumulative enrollment/verification/refresh/reply work. That phase evidence demonstrates where the instrumented request crossed the existing client bound, **not** that tracing is the sole cause of all historic timeouts or that ordinary approval needs a larger bound. Current normal serial/concurrent approval succeeds without tracing; no current traced pass is claimed, tracing was not repeated here, and no bound was relaxed. Further tracing-induced slowdown alone is not authorization for a production behavior change. A new ordinary failure would need its actual phase/owner evidence and a focused deterministic failing regression before a fix.
+
+Broader matrix/coverage/CRAP, GUI/native platform acceptance and parent integration gates remain separate. Ticket07/map/spec/11 are untouched by this slice; the parent can reconcile their criteria using this bounded evidence. Resolution of09 does not declare the entire setup effort qualified.

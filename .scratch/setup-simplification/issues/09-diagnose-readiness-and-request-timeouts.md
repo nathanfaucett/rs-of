@@ -2,7 +2,7 @@
 
 **Type:** task
 
-**Status:** open
+**Status:** resolved
 
 **Triage:** ready-for-agent
 
@@ -20,13 +20,17 @@ Read [reliability evidence](../evidence/07-reliability-followup.md), [validation
 
 ## Acceptance criteria
 
-- [ ] Reproduce and localize remaining failures with fixed recorded code/dependency inputs; distinguish idle serial execution, concurrent test execution, and tracing overhead.
-- [ ] Capture categorical phase/task timing without passwords, setup codes, bearer tokens, or request payload disclosure.
-- [ ] Establish each diagnosed root cause with a focused failing regression before changing implementation.
-- [ ] Preserve exact intent/identity, authorized approval, pinned-peer trust, current readiness, and existing request bounds; do not mask failures with sleeps, retries, or deadline inflation.
-- [ ] Record repeated finalization, interruption/exact retry, and source-offline reopen results plus remaining limits. Update ticket 07 only for criteria supported by evidence.
+Checked for the bounded current-code ordinary-behavior scope in the Answer below; not an exhaustive causal attribution of archived failures, three idle serial repetitions, feature-matrix or platform qualification.
+
+- [x] Reproduce and localize remaining failures with fixed recorded code/dependency inputs; distinguish idle serial execution, concurrent test execution, and tracing overhead.
+- [x] Capture categorical phase/task timing without passwords, setup codes, bearer tokens, or request payload disclosure.
+- [x] Establish each diagnosed root cause with a focused failing regression before changing implementation.
+- [x] Preserve exact intent/identity, authorized approval, pinned-peer trust, current readiness, and existing request bounds; do not mask failures with sleeps, retries, or deadline inflation.
+- [x] Record repeated finalization, interruption/exact retry, and source-offline reopen results plus remaining limits. Update ticket 07 only for criteria supported by evidence.
 
 ## Comments
+
+**Current-code qualification claim, 2026-10-26:** resumed same branch/worktree and fast-forwarded integration to `734e65070ec0dfa7dcc1d03934ab7c63ed8ca456`. Exclusive Rust slot; TDD/ponytail reloaded. Predeclare **one serial cell S and one concurrent cell C**, each using the three existing public HTTPS Join parents and five exact independent readiness/permission representatives from evidence09, unified/owner subgroups run separately. S uses threads=1; C uses threads=2. Both untraced, `OF_SETUP_TIMEOUT_TIMING`/`RUST_LOG` unset, `RUST_MIN_STACK=67108864`, same freshly verified binaries/features/dependency inputs. No retry-to-green. On a failing subgroup, preserve evidence and diagnose before deciding further execution. Builds jobs=1, bounded owned process groups with RAM/RSS/PSI monitoring; no matrix/coverage/CRAP or sibling edits. Record this as current runnable qualification, not attribution of every historical failure.
 
 **Fence implementation claim, 2026-10-26:** exclusive Rust slot; branch `implement/setup-09-fence`, clean HEAD and integration base both `8abf464c800a5750f433bae67177bcc11bef956f`. Loaded TDD/ponytail and read the authorized shared lifecycle seam and prior deterministic unified regressions. Implement a deterministic actual independent connection teardown regression, then minimal destruction fence preserving cancellation/drain. Medium complexity, high lifecycle risk/priority; no attribution to all historical timeouts. Bounded jobs=1 validation with MemAvailable/RSS/PSI monitoring; no matrix/coverage or sibling writes.
 
@@ -47,3 +51,17 @@ Claimed by Agent09 on `implement/setup-followup-09` in `.worktrees/setup-09`, co
 **Fence implementation delivery, 2026-10-26:** [actual red/green and production native-reopen validation](../evidence/09-timeout-localization.md#independent-connection-destruction-fence-2026-10-26). Added a deterministic real HTTP/1 accepted-connection destructor gate using the existing independent host/router and single immediate retained-host reopen. Unfixed serving returned `Ok(())` before actual connection destruction (red 0.09s). Minimal shared-listener service-destruction fence retains the original guard until all real connection routers are destroyed (green 0.04s); owner worker cancellation/command semantics and 10s shutdown bound are unchanged. API suite **42 passed / 2 child-only ignored** (parents exercised children), strict API library/test Clippy and formatting pass. Existing production independent Create/offline-reopen **1 parent/child passed**, 112.76s, including immediate Device native-store reopen after awaited owners; not a historical C1 holder capture or repeat qualification. Jobs=1 build stages retained caches; initial red stage and three owner stages stopped at the 550s stage ceiling, not RAM/PSI limits; saved receipts minimum 5159MiB available, max some/full PSI avg10 7.59/7.00. No full matrix/coverage/CRAP, sibling source or spec/map07/11 edits. Corrected only broken worktree dependency symlink targets. This ownership defect is implemented, not another source-only handoff. Aggregate ticket remains **open/released**: distinct approval/source-offer/readiness/permission timeout causes and final repeated Join/interruption/offline qualification still need causal regressions and final-code evidence; no blanket historical attribution or acceptance-box closure.
 
 No real user profile, OS trust store, or production provider changes are authorized by this issue. Passing repetitions alone do not prove the origin of historical failures.
+
+## Answer
+
+**Resolved, 2026-10-26**, after merging approved integration `734e65070ec0dfa7dcc1d03934ab7c63ed8ca456` and executing the [predeclared current-code untraced serial/concurrent qualification and causal regressions](../evidence/09-timeout-localization.md#current-code-untraced-qualification-and-bounded-closure-2026-10-26). Same fixed code/dependencies/binaries throughout; no new Rust changes or speculative fixes were needed.
+
+- **S / serial:** three public HTTPS Join parents **3/3 passed** (263.323s); five independent readiness/permission representatives **5/5 passed** (394.205s).
+- **C / threads=2:** same Join parents **3/3 passed** (178.320s); same independent representatives **5/5 passed** (229.145s).
+- **16/16 parent executions**, their isolated children also passed. Each selected scenario ran once per scheduling condition; no retry-to-green, tracing, timing flag or deadline/security changes. Current reported runtime timeout/native-lock failures: none.
+- **3/3 focused current lifecycle regressions passed**: unified router/admission fence, queued-reply rejection before fencing, actual independent connection teardown before immediate reopen. Their documented causal red-before-green evidence remains distinct from qualification passes.
+- Jobs=1 builds passed with one-second resource supervision. Highest sampled build group RSS **5,237,952 KiB**; highest kernel individual-child RSS **4,890,172 KiB**; lowest available RAM **4,854,040 KiB**; max observed memory PSI some/full avg10 **6.81/6.39**. All below stop thresholds; no resource/stage stop or unrelated kill. Runtime resource data is recorded separately. Full swap did not veto safe execution. Formatting/diff checks pass.
+
+**Acceptance boundary:** the demonstrated independent lifecycle defect is fixed, and no concrete still-failing current-code ordinary scenario remains in the requested representatives. Historical native-holder attribution and the common/individual causes of some older timeouts remain unknown; passing current scenarios do not supply that attribution. The archived traced approval failure (client 5001ms, handler 5439ms, zero operation-lock wait) remains a failure under instrumentation, not proof that ordinary behavior needs a longer deadline. No current traced success is claimed. The two current scheduling cells are repeated per-scenario qualification, not three idle repetitions or statistical reliability certification.
+
+This closes09's bounded investigation with actionable executable evidence, not a promise that arbitrary load/tracing/platform failures cannot recur. Any newly observed ordinary failure needs actual phase/owner localization and a causal regression before a behavior change. Feature matrix/coverage/CRAP and GUI/native/provider acceptance remain parent integration gates; ticket07/map/spec/11 remain untouched for parent reconciliation. No broader setup-effort completion claim.
