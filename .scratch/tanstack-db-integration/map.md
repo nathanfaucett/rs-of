@@ -6,11 +6,13 @@
 - [Existing umbrella ticket 01](issues/01-create-integration-package.md) — unchanged; not an additional prerequisite for the slices below.
 - [02: Open a filesystem through TanStack DB](issues/02-open-filesystem-through-tanstack-db.md) — resolved; read/open slice delivered in `ca92f03cc`.
 - [03: Save and delete secrets through the collection](issues/03-persist-secret-collection-mutations.md) — resolved; persistent CRUD delivered in `ad1c4f32a`.
-- [04: Refresh and qualify the example](issues/04-refresh-and-qualify-example.md) — ready-for-agent; 03 resolved; unblocked current frontier.
+- [04: Refresh and qualify the example](issues/04-refresh-and-qualify-example.md) — resolved; explicit refresh/recovery and controlled full-workflow qualification delivered in `3e4c35f65`. Approved slices 02–04 are complete; deployed-system qualification remains manual.
 - Numbering starts at 02 to preserve the existing umbrella ticket 01 unchanged.
 - The goal is a current password-manager reference app and a reusable Storage integration, not implementation of the earlier unverified code sample.
 
 ## Decisions-so-far
+
+- [04 resolved](issues/04-refresh-and-qualify-example.md#answer): `3e4c35f65` exposes `collection.utils.refresh()` and app Refresh, reuses healthy sockets, explicitly reopens failed connections, serializes with mutation reconciliation/core settlement without visibility-receipt deadlock, retains complete snapshots on refresh failure, and isolates disposal. Adapter-local 30-second per-open/request deadlines prevent silent endpoints blocking recovery indefinitely, including delayed browser close events; no automatic reconnect/write retry. Full controlled sign-in/discovery/create/open/CRUD/fresh-mount reload/refresh/switch/User/sign-out smoke plus recovery tests. 59 adapter, 21 app, 18 Storage-client and 2 config tests passed; type/Svelte checks, focused lint/format/autofixer and production build passed. Based on and explicitly merged integration `1aca2c461` (already up to date). Main-checkout `just crap` remains coordinator-owned; no Rust changes. Seven tracked generated Storage-client shim/cache changes are deliberately uncommitted for safe worktree cleanup; see ticket Answer.
 
 - [03 resolved](issues/03-persist-secret-collection-mutations.md#answer): `ad1c4f32a` adds validated single-record collection mutations, authoritative reconciliation before optimistic settlement, explicit rejection/ambiguity handling, scoped write disposal, form-only CRUD with field/history preservation, and updated documentation. Qualified installed core `0.15.2` settlement behavior with real-runtime controlled Storage tests: 41 adapter tests, 18 app tests, 2 Svelte config tests, type/Svelte checks, build, focused lint/format passed. Based on and explicitly merged integration `f9350db82` (already up to date). 04 is unblocked; main-checkout `just crap` remains coordinator-owned.
 - Mutation sync commits are accepted before handler settlement; visibility receipts may wait for persisting optimism and must not be awaited inside handlers. Missing/unexpected/wrong-path acknowledgements reconcile but still reject, and unreconciled outcomes fail closed. Switching cannot cancel already-sent writes or surface their results in replacement contexts.
@@ -28,8 +30,8 @@
 
 ## Fog
 
-- Initial-load/cleanup/official Svelte APIs and mutation/optimistic settlement verified against installed core `0.15.2` and Svelte `0.5.12`; explicit Refresh/recovery races and complete-workflow qualification remain 04.
-- Current transport has no request deadline: a silent still-connected endpoint can leave a mutation pending until response/disconnect/disposal. No automatic write retry, compare-and-swap, or multi-record server atomicity is promised.
-- Empty-directory/full-path protocol verified in current service/offs source and controlled transport tests. Real composed-service authorization/content availability and manual reconnect/reopen qualification remain; no automatic reconnect is implemented.
+- Initial-load/cleanup/official Svelte APIs, mutation/optimistic settlement, Refresh ordering/recovery/disposal and the full controlled application workflow are verified against core `0.15.2` and Svelte `0.5.12`. The smoke stubs OIDC sign-in and authenticated Page data; actual browser navigation/reload and deployed OAuth remain manual.
+- Adapter requests/opening now have a 30-second default deadline; direct StorageClient users retain existing transport behavior. Deadlines are per request, not total snapshot duration or application-provided async schema validation. No automatic write retry, compare-and-swap, or multi-record server atomicity is promised.
+- Empty-directory/full-path protocol and explicit Refresh/reconnect are verified in controlled transport tests. Real composed-service authorization/content availability and deployed-system qualification remain; follow the app README checklist. No automatic reconnect is implemented.
 - Background synchronization is deferred until a demonstrated need; do not imply push synchronization or durable browser-offline writes.
 - Real-system qualification is needed to establish behavior beyond the controlled transport tests.
