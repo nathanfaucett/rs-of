@@ -216,9 +216,7 @@ pub(super) async fn run(
 ) {
     #[cfg(feature = "cli")]
     if std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_some() {
-        env_logger::Builder::new()
-            .parse_filters("off,setup_timeout=debug")
-            .format_timestamp_millis()
+        timing_logger()
             .try_init()
             .expect("isolated HTTPS child owns its categorical timing logger");
     }
@@ -646,6 +644,80 @@ async fn pending_node(http: &Client, source: &HttpsHost, approving: &str) -> Val
     })
     .await
     .expect("real Iroh offer reaches authorized source API")
+}
+
+#[cfg(feature = "cli")]
+fn timing_logger() -> env_logger::Builder {
+    use std::{
+        io::{self, Write},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    let mut builder = env_logger::Builder::new();
+    builder
+        .parse_filters("off,setup_timeout=debug")
+        .format(|buffer, record| {
+            let unix_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(io::Error::other)?
+                .as_millis();
+            writeln!(buffer, "unix_ms={unix_ms} {}", record.args())
+        });
+    builder
+}
+
+#[cfg(feature = "cli")]
+#[test]
+fn categorical_timing_logger_emits_common_clock_without_humantime() {
+    use std::{
+        io::{self, Write},
+        sync::Mutex,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    struct Capture(Arc<Mutex<Vec<u8>>>);
+    impl Write for Capture {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0
+                .lock()
+                .expect("captured log buffer")
+                .extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let output = Arc::new(Mutex::new(Vec::new()));
+    let logger = timing_logger()
+        .target(env_logger::Target::Pipe(Box::new(Capture(output.clone()))))
+        .build();
+    let before = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("current clock")
+        .as_millis();
+    log::Log::log(
+        &logger,
+        &log::Record::builder()
+            .target("setup_timeout")
+            .level(log::Level::Debug)
+            .args(format_args!("seam=formatter phase=check"))
+            .build(),
+    );
+    let after = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("current clock")
+        .as_millis();
+    let line = String::from_utf8(output.lock().expect("captured log buffer").clone())
+        .expect("timing output is UTF-8");
+    let timestamp = line
+        .strip_prefix("unix_ms=")
+        .and_then(|line| line.strip_suffix(" seam=formatter phase=check\n"))
+        .expect("explicit common-clock timestamp and categorical message only")
+        .parse::<u128>()
+        .expect("integer Unix milliseconds");
+    assert!((before..=after).contains(&timestamp));
 }
 
 async fn authenticated_storage(http: &Client, base: &str, bearer: &str) {

@@ -1,6 +1,6 @@
 # Ticket 09: timeout localization
 
-**Latest disposition:** [authorized focused execution](#authorized-focused-execution-2026-10-26) reproduced a traced approval timeout and observed a recovered readiness request timeout plus a distinct stopped-Database reopen failure. No deterministic root-cause regression or behavioral fix yet; ticket09 remains claimed/unresolved. The observation-only handoff below is historical; its NOT RUN labels describe that first pass, not the executed results appended here.
+**Latest disposition:** [P3 clock correction and ownership follow-up](#p3-clock-correction-and-ownership-follow-up) fixes and tests the missing logger timestamps. One additional traced Create-pair diagnostic observed successful post-shutdown Database reopens, then both parents hit unchanged 180s watchdogs; it did not identify the historical surviving owner. [Earlier focused execution](#authorized-focused-execution-2026-10-26) reproduced the approval overrun and a distinct stopped-Database lock failure. No deterministic Database root-cause regression or lifecycle fix yet; ticket09 remains claimed/unresolved. The observation-only handoff below is historical; its NOT RUN labels describe that first pass, not the executed results appended here.
 
 ## Status and ownership
 
@@ -28,7 +28,7 @@ Only four existing source files change:
 3. `crates/unified-server/src/api_join_tests.rs`: existing ordinary authorized approval request gets start/end timing, numeric HTTP status or reqwest timeout/connect/request booleans **before the existing expect/assert**. With feature `cli` and `OF_SETUP_TIMEOUT_TIMING` present, its isolated child installs the existing optional env_logger with fixed `off,setup_timeout=debug`, not `RUST_LOG` or a broad HTTP filter. No new dependency. Without `cli`, client timing can print but the server logger is not installed; diagnostic commands explicitly enable `cli`.
 4. `tests/owner_composition_tests/create.rs`: existing readiness helper optionally reports each request start, headers/status or categorical transport error, JSON/body completion or categorical timeout/decode error, and matching readiness. It records cumulative shared-wait, owner and request milliseconds, expected boolean and parsed readiness boolean only. Original parsing/assertions, sequential owner order, deadline and 50ms polling sleep remain intact. No response body/state string or error Debug/Display is logged.
 
-`OF_SETUP_TIMEOUT_TIMING` is presence-based and is read only in tests; **unset it**, rather than set it to `0`, for control cells. Production logs require an installed logger allowing the dedicated debug target. Timers are local monotonic `Instant`s; elapsed time is relative to each seam, not a globally synchronized clock. Existing log timestamp ordering and adjacent phase deltas aid diagnosis, not proof of task scheduling/CPU attribution.
+`OF_SETUP_TIMEOUT_TIMING` is presence-based and is read only in tests; **unset it**, rather than set it to `0`, for control cells. Production logs require an installed logger allowing the dedicated debug target. Timers are local monotonic `Instant`s; elapsed time is relative to each seam, not a globally synchronized clock. Adjacent phase deltas aid diagnosis, not proof of task scheduling/CPU attribution. The initial `format_timestamp_millis` setting did **not** emit a common timestamp because env_logger's humantime feature is disabled; the P3 follow-up below corrects this. Do not infer absolute timestamps in the earlier logger captures.
 
 No added event contains credentials, codes, bearer headers, URLs, issuer/endpoint/offer/member/operation IDs, request/reply payloads, arbitrary strings from responses, or database values. Existing scenario assertions/other pre-existing diagnostics can still print URLs/retained status on failure: keep raw artifacts private and quote only sanitized categorical evidence. No blanket HTTP logging is enabled. Early bearer/source refusal can exit the HTTP handler after entry but before its end event; panics/cancellation also need not emit end. A missing end alone is not proof of a deadlock. Concurrent child stderr can interleave without correlation IDs; do not pair ambiguous events as one request.
 
@@ -276,3 +276,105 @@ Raw logs are private disposable local artifacts, not committed transcripts. Thei
 Private `/tmp/setup09-artifact-manifest.json` SHA-256 **`a353cd3cc986b0a9255fc70080d44c70ba8d4485c1de0f70f7dfcb0c5dc06302`** records all capture sizes/hashes, including Cargo JSON/build logs, initial/final source receipts, per-cell JSON, lint logs and disposable 5081-byte supervisor (`/tmp/setup09-run-cell.py`, SHA-256 `4c0fe0ce37d8e8a2734fb3b0b5c9067f95f9e72b803d4931ba22e103a6ab6a36`). No new test suite/harness was added to the repository. This supervisor only selects the existing tests, enforces the outer process-group bound, and captures provenance; it does not inject behavior or retries.
 
 **Ticket09 stays claimed/open in the work sense (unresolved).** All acceptance boxes remain unchecked; ticket07 is unchanged. Traced approval overrun is now reproduced and narrowed to cumulative owner processing, but there is no deterministic implementation root-cause regression/fix. Historical terminal readiness/permission/pending-offer failures are not eliminated or assigned a common cause; the recovered IdP status timeout and distinct stopped-Database failure remain follow-up evidence. Passing controls, one traced failure and one concurrent lock failure are not enough to assert tracing-only, concurrency-only, baseline-equivalent or environment-only causation. Slot is released back after the evidence commit and final integration check; no further qualification workload is left running by this agent.
+
+## P3 clock correction and ownership follow-up
+
+### Scope and verified clock correction
+
+Continued under the user's exclusive Rust slot at `c5779ad446e42424942d7d3fef4b05409fc4ba99`; integration was still `e6c72aae991f833670cb4820471ab48ac73b6bfb`. No sibling edits, provider/reset-fixture/SDK changes, matrix or coverage. All Rust commands retained shared target, jobs=2, stack=67108864 and a 600000ms tool bound.
+
+**P3 confirmed:** `env_logger` is declared with `default-features=false` and no humantime feature. Consequently the earlier `.format_timestamp_millis()` setting emitted lines such as `[DEBUG setup_timeout] ...`, without timestamps. Earlier per-seam `elapsed_ms` observations and syscall trace timestamps remain valid; a common logger clock must not be retroactively inferred from them.
+
+`api_join_tests.rs` now uses one local `timing_logger()` builder with the existing fixed `off,setup_timeout=debug` filter and an explicit std formatter:
+
+```text
+unix_ms=<SystemTime since UNIX_EPOCH in milliseconds> <categorical message>
+```
+
+It uses `std::time::SystemTime`, `std::time::UNIX_EPOCH` and `std::io::Write`; no dependency/feature was added and no broad logger was enabled. Pre-epoch clock failure returns an IO formatting error rather than manufacturing an epoch. Existing monotonic per-seam elapsed fields remain the duration source. Unix time is a **wall clock**, may jump, and has millisecond granularity: it is not an ordering/causality guarantee, a request identifier, or a solution for overlapping children/interleaved stderr. Only messages routed through this logger gain the prefix; existing client/readiness `eprintln!` events still have their original per-seam elapsed times. The new specific owner-reopen event below also has an explicit Unix-ms prefix for syscall comparison.
+
+One focused output-seam check, `categorical_timing_logger_emits_common_clock_without_humantime`, builds this actual logger locally with a captured writer, without initializing/mutating the global logger. It emits one static categorical record, requires an integer `unix_ms=` prefix and **exact** categorical suffix/newline, and checks that the timestamp lies between the surrounding std clock observations. No credentials, headers, bodies, IDs or arbitrary error messages are introduced.
+
+TDD: first extracted the existing builder unchanged and added the focused check. Running it **failed** at the required common-clock prefix/suffix, not compilation (red build 49.19s). Replaced the ineffective timestamp setting with the explicit formatter; the **same check passed** (green build 45.18s). Final formatted-source invocation also passed, **1 passed / 0 failed**, 1.02s Cargo time, test time <0.01s. Command, with the shared environment described above:
+
+```sh
+cargo test --locked -p unified-server --features cli --lib categorical_timing_logger_emits_common_clock_without_humantime -- --nocapture --test-threads=1
+```
+
+No HTTPS timing-cell family was rerun to qualify the clock correction. The check exercises the actual logger/output path with humantime still disabled.
+
+### Ownership investigation: what actually keeps a Device Database open
+
+Read-only trace through current source, rather than assuming the outer Arc or the earlier unified fix explains C1:
+
+1. `device-server::database_client::DeviceStore` contains both an embedded `db::Client` and `Option<Arc<db::Database>>`. Independent Device `run` retains a store; `observe` captures another store in its current-readiness callback; normal/Join-history routers also retain query clients and, for history, an owner Arc.
+2. The callback is held by `api::CreateShared.readiness`; normal routes are held by `CreateShared.normal`. Issued setup/connection routers retain `IndependentCreateControl(Arc<CreateShared>)`. These are concrete application ownership paths. The callback takes the control as an argument rather than capturing it, so its shown construction does not establish a self-cycle.
+3. `ofdb_sql::Client` embeds a **cloned Database value**, not necessarily the same outer `Arc<Database>`. The clone's file backend shares `NativeResource.inner: Arc<Inner<...>>`; its backend holds `RedbKernel → RedbDatabase → Arc<redb::Database>`. Therefore an outer `Weak<Database>` reaching zero would **not prove** the native file handle was released. Observing only that Weak would produce misleading evidence.
+4. Read installed locked `redb 4.3.0` source as well: its `Database` documentation explicitly states that live write transactions defer close and keep the database file locked after the Database is dropped. Its open maps conflicting storage locks to `DatabaseAlreadyOpen`; this is a real locking failure, not an inferred missing setup secret. On this Linux build native range locks (`F_OFD_SETLK`) and the legacy flock can both matter, so a flock-only capture is insufficient.
+5. Independent Device shutdown joins its offer task/protocol and endpoint; generic `api::serve_setup_inner` joins the Axum listener task. It does not have the unified worker's shared-destruction fence. This remains a candidate for retained connection/control state, **not a demonstrated identification of the owner in the C1 failure**. No source evidence establishes an ofdb leak or broken close implementation; no sibling change is justified.
+
+A deliberate externally retained test-only router or client could trivially keep the Database locked, but would not identify the reference that survived the real awaited shutdown. No such manufactured causal regression or speculative fence/unlock patch was added.
+
+### One bounded native-lock diagnostic — not a passing replay
+
+Added only a categorical diagnostic at the existing immediate Device reopen in `create.rs::seed_endpoint_negatives`, behind the existing presence-based `OF_SETUP_TIMEOUT_TIMING` switch:
+
+```text
+unix_ms=<clock> seam=independent_owner owner=device phase=post_shutdown_reopen successful=<bool> error_kind=<query error kind or None>
+```
+
+The original `Database::open` and subsequent `expect("existing-only stopped owner")` are unchanged semantically. The event reports the actual open result before that assertion; it contains no path, resource ID or arbitrary error text. This helper is reached after the existing caller's shutdown cancellation and successful awaits of owner server tasks. No new retry, sleep, readiness shortcut, timeout or provider hook.
+
+Built `owner_boundaries` with the same locked cli/no-Swagger flags as before; **no-run build passed in 1m21s**. Ran **one** diagnostic invocation of the two existing exact Create parents with `--test-threads=2 --nocapture`, timing enabled, prefixed by:
+
+```sh
+strace -f -ttt -yy -e trace=fcntl,flock,close -o /tmp/setup09-review-owner-locks.strace
+```
+
+Used the actual Cargo-reported `owner_boundaries-82e9ad7da03710d6` artifact, SHA-256 **`ade59bf7ae52bddbe9baed7d64140f4e92b7140f5d671ccf2ac36562cb3f8265`**, verified unchanged after execution. No reads/writes/send/recv payload tracing, no broad HTTP logs. Raw descriptor paths necessarily contain isolated fixture names/IDs and remain private; they are not copied into categorical evidence here. The supervisor retained 570s process-group safety cleanup, but **the existing 180s parent watchdogs fired first**. Actual outcome: **0 passed / 2 failed**, exit 101, **180.467s** supervisor time; not an outer-tool timeout and not another Database-lock reproduction. No rerun to green and no parent deadline inflation.
+
+Before those eventual watchdog failures, both targeted post-shutdown opens succeeded:
+
+```text
+unix_ms=1793023745093 seam=independent_owner owner=device phase=post_shutdown_reopen successful=true error_kind=None
+unix_ms=1793023746839 seam=independent_owner owner=device phase=post_shutdown_reopen successful=true error_kind=None
+```
+
+Grouping the raw trace by exact private Device database file (anonymous A/B here, not a mapping of concurrent parent identity) shows, near these boundaries:
+
+| File group | Prior descriptor unlock (Unix ms) | New exclusive-lock acquisition (Unix ms) | Post-open categorical event (Unix ms) |
+| ---------- | --------------------------------: | ---------------------------------------: | ------------------------------------: |
+| A          |                     1793023745087 |                            1793023745092 |                         1793023745093 |
+| B          |                     1793023746833 |                            1793023746837 |                         1793023746839 |
+
+The prior descriptor close calls are also present near the unlocks; A's close entry is split by strace's unfinished/resumed scheduling and is not treated as an independently timestamped completed close. All observed `flock`/`F_OFD_SETLK` acquisition calls for these two Device files succeeded; no failed native Device lock call was captured. This gives actual native release/acquire evidence **for this run**, not proof of what held the file in the earlier C1 failure. Other phases continued until the parent bounds expired, so do not label these parents passing or call the lock issue fixed. Trace perturbation is a limit, not a reason to change bounds or an established sole cause of the watchdog failures. At diagnostic start loadavg1 was 3.36; memory PSI avg10 some/full 0.27/0.24, recorded without any environment-only attribution.
+
+### Validation, fixed inputs and next blocker
+
+`cargo fmt --all`, final `cargo fmt --all -- --check`, and `git diff --check` pass. Strict scoped test Clippy was run again, serially (no competing Rust qualification):
+
+- Unified cli `--lib --tests --no-deps -- -D warnings`: still fails on the same **14 lib-test plus one full_node-target** diagnostics documented above; none is in the changed formatter/test.
+- Root cli/no-default-features `--test owner_boundaries --no-deps -- -D warnings`: still fails on the same **six** diagnostics outside the changed helper/probe. The later `create.rs::wait_public` location is now line 1573 because of the new event. No unrelated cleanup/suppression.
+
+No production lifecycle implementation was changed. Formatter and probe source were byte-stable during the owner build/diagnostic and final validation; initial/final checks matched `c5779ad44` plus binary diff SHA-256 **`fc37717e2176153b0311b6149244bd94298c0f12b8980fa59e472a9fe2ecb0b9`**. Source byte hashes:
+
+- `crates/unified-server/src/api_join_tests.rs`: `306f75ca6a5c87ecf0b6315d57d4ca77d08fc6bfabc47e2db83abe09adf2a866`.
+- `tests/owner_composition_tests/create.rs`: `ff8c0be73b10b509a1f88d0e84b9605c6a501c24a57e2c7f9263a51a7bfd08f4`.
+- Final formatter-test executable `unified_server-f70d87b770f6bdb5`: `747cb5c5daa7f1195b3e2af1505f07a2fbbe7f5b8757fb030f61df6990c95b72` (new bytes, not the earlier timing-cell artifact).
+
+Cargo.lock remained `bb7e608f57a6167612acac7d247e51eb2c6efbe449b95208c7a1862b78dd3a3f`; siblings remained clean at the exact prior `ofdb=e3242170c94d5fc4bcc121db812310c8106c7ab6`, `ofnet=dbea925a0a3f99053fffc02618baccc2a1cbea9f`, `offs=df4c696a910296635473ec296d9235acbaa60d9b` revisions. No sibling source, package feature/dependency, actual profile, OS trust or provider was modified.
+
+Private mode-0600 receipts:
+
+| Artifact                                                 | SHA-256                                                            |
+| -------------------------------------------------------- | ------------------------------------------------------------------ |
+| `/tmp/setup09-clock-red.log`                             | `dc5736c1787f30f7ed85db2258c513dce3389110bdb69532e51b117e91b0e1e0` |
+| `/tmp/setup09-clock-green.log`                           | `dc04d90d3747b587c0204101f166e99e7f7817d07e3c09d3f95b9e8e124b28c4` |
+| `/tmp/setup09-clock-final.log`                           | `69be587a42520180fbf241e6ff5f9abc77f7db694bfb10681fcb605336655c78` |
+| `/tmp/setup09-review-owner-locks.log`                    | `9d0bae786700325b419c0a0a8d610b7d468d43091b44752e8a9178126cb67261` |
+| `/tmp/setup09-review-owner-locks.strace` (3068960 bytes) | `eb919184a3103ea9b56275ab9ac1aaaa39fcf4cd288b4c516c6144ff5bd73618` |
+| `/tmp/setup09-review-owner-locks.json`                   | `86bd101a46d38c4f2cf1d3f6a556a1760a8b2d92b048757350f67b5cc8f4c3bc` |
+
+`/tmp/setup09-review-artifact-manifest.json` SHA-256 **`1ccb2602ecb13da8e4da7a6d426a95ab850178926c6c297103f0ca0c647c523d`** records all 11 review capture files, including build/Cargo artifact JSON, source-input receipt and both Clippy logs. No matrix/coverage or retry-to-green was run.
+
+**P3 is corrected and focused red/green verified. Ticket09 remains unresolved. Precise next blocker:** capture a failing immediate post-shutdown Device reopen together with the lifetime of the surviving **inner NativeResource/embedded-client handle or redb write transaction**, then construct the corresponding deterministic gated shutdown/reopen regression. Current application-level router/control ownership and native syscall evidence do not distinguish those holders in the failed historical run. There is no evidence yet assigning the defect to ofdb, and no safe basis for changing independent lifecycle ownership or forcing a Database close. The earlier approval overrun and terminal readiness/permission history also remain separate unresolved boundaries. This block leaves only the timestamp correction, focused formatter check, categorical reopen probe and evidence; no speculative Database fix.

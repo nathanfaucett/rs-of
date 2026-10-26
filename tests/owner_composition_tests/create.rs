@@ -1076,9 +1076,19 @@ pub(super) async fn seed_endpoint_negatives(root: &Path) -> Vec<(String, StatusC
     let owner: Id = serde_json::from_value(record["user"].clone()).expect("setup owner");
     let role: Id = serde_json::from_value(record["create"]["role"].clone())
         .expect("Create administrator role");
-    let engine = Arc::new(
-        db::Database::open(root.join("device/devices.redb")).expect("existing-only stopped owner"),
-    );
+    let opened = db::Database::open(root.join("device/devices.redb"));
+    if std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_some() {
+        let unix_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("current clock")
+            .as_millis();
+        eprintln!(
+            "unix_ms={unix_ms} seam=independent_owner owner=device phase=post_shutdown_reopen successful={} error_kind={:?}",
+            opened.is_ok(),
+            opened.as_ref().err().map(|error| error.kind)
+        );
+    }
+    let engine = Arc::new(opened.expect("existing-only stopped owner"));
     let identity = db::Database::open(root.join("idp/idp.redb")).expect("stopped identity owner");
     let service = ManagementService::new(
         DbPermissionRepo::new(identity.client()),
