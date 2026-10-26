@@ -764,3 +764,88 @@ Receipts `/tmp/setup09-qual-history-{prereq,build1,build2,clippy}.{json,log}` an
 **Ticket09 open/released. Rust slot explicitly released to the Storage agent after the passed low-memory checks; no further builds/tests in this slice.** Owned compilation groups were verified absent. Main09 and source-synchronization observations do not modify the Storage agent's owned files/evidence. Parent coordinates broader11; no07/spec/map/11 edits.
 
 The blocker is concrete: finish the same root all-features test build with adequate measured headroom, then execute the **still-unrun, one prerequisite-complete default-concurrency diagnostic**. SDK preparation is now done. Use the nested operation/error records, not another undifferentiated readiness duration, to locate the Join stall; separately use client-credentials phase evidence before deciding on any bounded crypto execution change. Only an actual causal mechanism plus deterministic public-seam failing regression authorizes a behavioral fix. The existing ordinary failures remain unresolved; no new cause or passing qualification is invented to compensate for the resource stop.
+
+## Completed prerequisite-complete nested-history diagnostic, 2026-10-26
+
+### Exact execution and interruption recovery
+
+This supersedes the preceding **not-run** status, not its historical resource-stop receipts. Explicit Rust slot grant followed Storage execution and the user-approved analyzer stop. Fixed source for this diagnostic: **`1cfe76076d2441b343546cf966b46972b2f1ca23`**, containing reviewed nested observations, **before** Storage fix `bcebfb0fa`. Rust/config/test inputs were unchanged during build/execution; claim text only was dirty. No production/test/assertion/deadline/concurrency changes in this slice. Lock hash remains `bb7e608f57a6167612acac7d247e51eb2c6efbe449b95208c7a1862b78dd3a3f`.
+
+The exact all-features build resumed at jobs1/shared target/unchanged profiles. `history-build3` stopped at550.914s stage ceiling (not RAM/PSI); `history-build4` **passed**,218.723s. Min available KiB9,899,516/9,509,896; peak sampled owned RSS KiB1,848,740/5,532,252; max memory PSI some/full0.72/0.72 and5.69/5.40 respectively. No unrelated process killed. All tools bounded below600000ms.
+
+A network interruption occurred **after build success, before diagnostic launch**. On resumption, inspected process groups and receipts first: no owner process and **no `history-run1` log/receipt** existed. Only then launched once. Parent subsequently reported an attempted duplicate was rejected by exclusive log creation **before spawning**; no second execution is counted. No retry-to-green.
+
+Before launch: SDK built-export checks re-executed **5/5 passed**; verified no Rust source diff, no inherited test/Tokio thread override, successful Cargo `build-finished` JSON and exactly50 listed owner tests. Actual fresh artifact `owner_boundaries-fbdb13f2c672f60d`, SHA-256 **`8730475bca7b77207235a5d4c7979907648fd13abbf31aa22c4925ce12f0604d`**, is **not** the older `1686f000...` diagnostic bytes. Features `cli, completions, default, swagger-ui, unified-server`. `/tmp/setup09-history-run1-inputs.json` preserves the full Cargo artifact, hash, fixed HEAD, lock hash and test listing.
+
+Executed through `/tmp/setup09-default-monitor.py`, owned PGID **3449909**:
+
+```text
+env OF_SETUP_TIMEOUT_TIMING=1 /home/nathan/code/rust/aicacia/of/target/debug/deps/owner_boundaries-fbdb13f2c672f60d
+```
+
+Whole existing suite, **default concurrency and capture**, no filter/`--test-threads`/`--nocapture`, same stack67108864. Exactly **one** predeclared observed diagnostic, not an uninstrumented qualification cell.
+
+### Actual outcome:38 passed /6 failed /6 ignored
+
+**Exit101**,281.935s supervised /281.86s libtest. No resource stop. SDK/native API scenario **passed**; this time there is no missing SDK prerequisite or ignored failing SDK assertion.
+
+| Failed parent under `owner_composition_tests::`                                         | Actual child failure in this run                                                              |
+| --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `create::production_independent_create_and_offline_reopen`                              | Bounded **Storage readiness**, create.rs260; not the earlier invalid-bearer send.             |
+| `create::production_independent_create_unsupported_record_refusal_and_current_reset`    | Same bounded Storage readiness.                                                               |
+| `operation::production_independent_signer_free_operation_and_delayed_authority_reopen`  | Authenticated Storage `/databases` send timed out, create.rs453.                              |
+| `join::production_independent_join_and_source_offline_reopen`                           | Bounded IdP readiness, create.rs260.                                                          |
+| `join::production_independent_join_unsupported_record_refusal_and_current_reset`        | Same bounded IdP readiness.                                                                   |
+| `remote_setup::remote_create_join_reopen_and_device_reset_preserve_shared_installation` | Bounded IdP readiness **during source Create**, not demonstrated target Join-history failure. |
+
+Both Create readiness helpers matched IdP at23.554/23.087s, then Device at57.052/56.102s of the existing shared60s budget. Their **first Storage request** then timed out after5104/5001ms, failing at62.157/61.104s. Thus this run's Create failures are not evidence that the invalid-bearer denial code executed; they identify late shared readiness budget plus an actual Storage response timeout. Remote's source-Create IdP requests repeatedly timed out around5s, final elapsed63.125s. These remain separate from the two concrete history-import failures and are not retroactively attributed to them.
+
+### Exact Join pending operation, and what it rules out
+
+Failed Join process IDs **3450153** and **3450141** (not subject/operation identifiers):
+
+| Nested observation                                               |                                     PID3450153 |                                     PID3450141 |
+| ---------------------------------------------------------------- | ---------------------------------------------: | ---------------------------------------------: |
+| Challenge HTTP + callback/channel success                        | 1759ms; callback3ms, channel immediately ready | 2579ms; callback7ms, channel immediately ready |
+| WebSocket connection success                                     |                                         2589ms |                                         1813ms |
+| Recipient `sync_start direction=ReceiveOnly` Unix-ms             |                                  1793048755966 |                                  1793048756510 |
+| Source `sync_start direction=SendOnly` Unix-ms                   |                                  1793048755969 |                                  1793048756508 |
+| Later receive wait completed successfully                        |                                       22,765ms |                                       23,274ms |
+| Recipient authorization checks                                   |                    Two checks, both0ms/success |                    Two checks, both0ms/success |
+| Import completion / imported or retained signer readback entered |                                         **No** |                                         **No** |
+
+**The pending await is identified:** `import_join_history` → `synchronize` → `engine.synchronize_tables_with_stage_directory_candidate_validated_checked(...)` at root `crates/device-service/src/join_history.rs:436`, called by the IdP worker after `phase=import_start`. Neither `phase=import_end` nor `phase=import_signer_start` occurs before failure. Challenge callback and connection completed; source and recipient continued transferring frames. No `sync_error`, `source_sync_failed`, or history `error_kind=Some(...)` record appears. This is **not a captured synchronization exception**; it is incomplete progressing synchronization at the readiness deadline. Missing source failure reporting, a callback/channel deadlock, and signer readback are not the failure observed here.
+
+Late readiness remained responsive: PID3450153 received HTTP200 `ready:false` at elapsed60,028ms (request4ms); PID3450141 at60,053ms (request2ms), immediately followed by their unchanged bounded-readiness panics. No ready-state checker was entered for either. Some history work continued during runtime teardown after the panic; later transport records must not be presented as completion within the budget.
+
+### Measured cause of elapsed history time: actual worker CPU, not just queue/disk wait
+
+Nearest saved schedstat samples bracket the following gaps; values are actual per-thread CPU/runnable-wait deltas, not inference from PSI. Source and recipient run in the same process, so transport lines without side/message tags do **not** uniquely name an internal SQL function.
+
+| Gap / process                                 | Sample duration | Dominant Tokio worker CPU | Runnable wait | Process physical read/write deltas |
+| --------------------------------------------- | --------------: | ------------------------: | ------------: | ---------------------------------- |
+| Initial history gap /3450153                  |         22.450s |    **21.501s**,TID3450157 |        0.829s | 0 /65,536bytes                     |
+| Corresponding gap /3450141                    |         23.551s |    **21.976s**,TID3450144 |        1.315s | 0 /118,784bytes                    |
+| After first recipient authorization /3450153  |         11.131s |    **10.576s**,TID3450158 |        0.552s | 0 /172,032bytes                    |
+| After second recipient authorization /3450153 |         15.381s |    **15.192s**,TID3450158 |        0.187s | 0 /430,080bytes                    |
+
+The last interval extends into teardown after the60s readiness assertion; it is not all pre-failure work. The earlier long CPU-dominated intervals occur before that deadline. These measurements demonstrate **substantial CPU-bound work on Tokio workers inside the progressing SQL history synchronization interval**. They do not support a pure wait-cycle, physical-read stall or run-queue-delay-only explanation. They also do not establish that merely moving work to another executor would make the native synchronization fast enough.
+
+Read-only source alignment gives a narrower **hypothesis, not an executed inner-function trace**: sql-sync `session.rs:556–573,1680–1827` builds outbound recovery/history between inventories and transfer; `:2662–2729` finishes staging and applies catalog/data between incoming Done and the next protocol phase. `build_outbound` calls recovery snapshots per missing row; candidate/schema/history validation remains security-relevant. No evidence authorizes deleting validation, shortening table scope, changing sync direction, extending deadlines, caching current trust or manufacturing a fixture shortcut. Exact SQL/codec/allocation hot operation and avoidable repeated work remain to be proven, ideally with native operation/count observations and a deterministic regression. No sibling edits/instrumentation were made.
+
+### Crypto/token decomposition: not all Argon2
+
+31 complete, coherent same-process/thread client-credentials phase sequences were captured. Median/max phase durations in ms: client lookup179/246; secret verify313/492; grant validation0/1; active root82/128; principal lookup350/431; issuance676/793. The operation child's complete token sequences included totals1523/1619/1730ms. Issuance source includes current input validation, local signing-key lookup and JWT encoding (`idp-service/src/oauth2/service.rs:1703–1754`), not only signing arithmetic.
+
+This is actual dependent-work decomposition: password verification is material, but does **not** explain the full1.5–2s token poll. A guessed password-only blocking-pool change would not be a demonstrated fix for the captured history or HTTP failure. No behavioral fix or new deterministic causal regression is claimed in this slice; no further builds/tests after the user's instruction to analyze the existing result only.
+
+### Resource/provenance receipt and disposition
+
+Runtime min available **10,374,772KiB**, peak sampled group RSS **961,188KiB**, kernel max individual child RSS662,196KiB, memory PSI some/full avg10 max **0.54/0.36**. Peak9 processes/81 threads; CPU PSI some avg10 max16.28, I/O PSI some max1.48. Neither memory pressure nor full swap prevented this run; the failures persisted with recovered headroom. This is observed scheduling/CPU evidence, not a universal environment attribution.
+
+- `/tmp/setup09-qual-history-run1.log` SHA-256 **`4c98790b81e8dffd66396e25df09907874ed660320d3b4bf2f557955e96af4eb`**.
+- `/tmp/setup09-qual-history-run1-samples.jsonl`,6,919,566bytes, SHA-256 **`ce2b98e75378b00e43b167074a391850b7d2dc36a451c5f19b6cbaa09523a3ce`**.
+- `/tmp/setup09-qual-history-run1.json`: full argv, PGID, exit, wall time and resource extrema.
+- Build receipts `/tmp/setup09-qual-history-build{3,4}.{log,json}` and fixed-input manifest above distinguish this artifact from all older mutable-filename binaries.
+
+**09 remains open/released.** Exact public failing operation and CPU-dominated progress are captured; an exact inner native algorithmic root cause and deterministic failing-before/fixed-after regression are **not yet established**. Next action is native SQL history export/staging/apply cost isolation against this capture, not another identical full-suite retry or a callback/signer patch. Storage's separately reviewed fix was not in these diagnostic bytes and requires its own final integrated qualification. No Storage-owned file, sibling, spec/map/07/11 edits. Owned PGID3449909 verified absent; **Rust slot released/available to parent** after collection. Commit contains diagnostic outcome only; no new build/test or behavioral fix after the capture.
