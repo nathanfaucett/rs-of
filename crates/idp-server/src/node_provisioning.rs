@@ -62,7 +62,11 @@ impl SetupOperation {
 
 impl Drop for SetupOperation {
     fn drop(&mut self) {
-        drop(self.file.take());
+        if let Some(file) = self.file.take() {
+            // Closing alone leaves a fork-inherited descriptor holding the lock until exec.
+            let _ = file.unlock();
+            drop(file);
+        }
         if let Some(identity) = &self.diagnostic_identity {
             trace_setup_operation("released", self.operation, identity);
         }
