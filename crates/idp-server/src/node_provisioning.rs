@@ -39,10 +39,118 @@ enum NodePreparation {
     },
 }
 
+struct SetupOperation {
+    file: Option<fs::File>,
+    operation: &'static str,
+    diagnostic_identity: Option<String>,
+}
+
+impl SetupOperation {
+    fn new(file: fs::File, operation: &'static str) -> Self {
+        let diagnostic_identity = std::env::var_os("OF_SETUP_SECRET_LOCK_DIAGNOSTIC")
+            .map(|_| setup_operation_identity(&file));
+        if let Some(identity) = &diagnostic_identity {
+            trace_setup_operation("acquired", operation, identity);
+        }
+        Self {
+            file: Some(file),
+            operation,
+            diagnostic_identity,
+        }
+    }
+}
+
+impl Drop for SetupOperation {
+    fn drop(&mut self) {
+        drop(self.file.take());
+        if let Some(identity) = &self.diagnostic_identity {
+            trace_setup_operation("released", self.operation, identity);
+        }
+    }
+}
+
+fn trace_setup_operation(phase: &str, operation: &str, detail: &str) {
+    let line = format!(
+        "seam=setup_secret_operation phase={phase} operation={operation} pid={} thread={:?} {detail}\n",
+        std::process::id(),
+        std::thread::current().id(),
+    );
+    let _ = std::io::stderr().lock().write_all(line.as_bytes());
+}
+
+fn setup_operation_identity(file: &fs::File) -> String {
+    #[cfg(unix)]
+    {
+        use std::os::{fd::AsRawFd, unix::fs::MetadataExt};
+        if let Ok(metadata) = file.metadata() {
+            return format!(
+                "fd={} dev={} inode={}",
+                file.as_raw_fd(),
+                metadata.dev(),
+                metadata.ino()
+            );
+        }
+    }
+    let _ = file;
+    "identity=unavailable".into()
+}
+
+fn trace_setup_operation_holder(file: &fs::File, operation: &str) {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let Ok(identity) = file.metadata() else {
+            return;
+        };
+        if let Ok(locks) = fs::read_to_string("/proc/locks") {
+            for line in locks.lines().filter(|line| {
+                line.split_whitespace().any(|field| {
+                    field.matches(':').count() == 2
+                        && field
+                            .rsplit(':')
+                            .next()
+                            .and_then(|inode| inode.parse::<u64>().ok())
+                            == Some(identity.ino())
+                })
+            }) {
+                trace_setup_operation("kernel_lock", operation, line);
+            }
+        }
+        if let Ok(entries) = fs::read_dir("/proc/self/fd") {
+            for entry in entries.flatten() {
+                let Ok(metadata) = fs::metadata(entry.path()) else {
+                    continue;
+                };
+                if metadata.dev() != identity.dev() || metadata.ino() != identity.ino() {
+                    continue;
+                }
+                let fd = entry.file_name();
+                if let Ok(info) =
+                    fs::read_to_string(std::path::Path::new("/proc/self/fdinfo").join(&fd))
+                {
+                    trace_setup_operation(
+                        "matching_fd",
+                        operation,
+                        &format!("fd={}", fd.to_string_lossy()),
+                    );
+                    for line in info.lines().filter(|line| line.starts_with("lock:")) {
+                        trace_setup_operation(
+                            "fd_lock",
+                            operation,
+                            &format!("fd={} {line}", fd.to_string_lossy()),
+                        );
+                    }
+                }
+            }
+        }
+    }
+    let _ = (file, operation);
+}
+
 impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
     /// Nonblocking, cross-handle/process exclusion on stable owner-controlled ancestry.
     /// The lock inode must remain in place until exclusive owner-data removal.
-    fn setup_operation(&self) -> io::Result<fs::File> {
+    fn setup_operation(&self, operation: &'static str) -> io::Result<SetupOperation> {
         let path = self.data_dir.join("setup-secret-operation.lock");
         match fs::symlink_metadata(&path) {
             Ok(metadata) if !metadata.file_type().is_file() => {
@@ -60,18 +168,26 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             options.mode(0o600);
         }
         let file = options.open(path)?;
-        file.try_lock().map_err(|error| match error {
-            fs::TryLockError::WouldBlock => io::Error::new(
-                io::ErrorKind::WouldBlock,
-                "another setup secret operation owns this directory; retry after it finishes",
-            ),
-            fs::TryLockError::Error(error) => error,
-        })?;
-        Ok(file)
+        if let Err(error) = file.try_lock() {
+            if matches!(&error, fs::TryLockError::WouldBlock)
+                && std::env::var_os("OF_SETUP_SECRET_LOCK_DIAGNOSTIC").is_some()
+            {
+                trace_setup_operation("contended", operation, &setup_operation_identity(&file));
+                trace_setup_operation_holder(&file, operation);
+            }
+            return Err(match error {
+                fs::TryLockError::WouldBlock => io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "another setup secret operation owns this directory; retry after it finishes",
+                ),
+                fs::TryLockError::Error(error) => error,
+            });
+        }
+        Ok(SetupOperation::new(file, operation))
     }
 
     pub async fn ensure_initial_user_root(&self, user: Id) -> io::Result<()> {
-        let _operation = self.setup_operation()?;
+        let _operation = self.setup_operation("ensure_initial_user_root")?;
         if user.is_nil() {
             return Err(invalid("initial User identity is required"));
         }
@@ -127,7 +243,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
     }
 
     pub async fn ensure_client_root(&self, client_id: &str) -> io::Result<()> {
-        let _operation = self.setup_operation()?;
+        let _operation = self.setup_operation("ensure_client_root")?;
         self.ensure_client_root_locked(client_id).await
     }
 
@@ -234,7 +350,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
         &self,
         request: ClientRegistration,
     ) -> io::Result<ClientRegistration> {
-        let _operation = self.setup_operation()?;
+        let _operation = self.setup_operation("ensure_setup_public_login_client")?;
         validate_public_login_client(&request)?;
         let client_id = request
             .client_id
@@ -283,7 +399,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
         owner: Id,
         clients: &[Id],
     ) -> io::Result<()> {
-        let _operation = self.setup_operation()?;
+        let _operation = self.setup_operation("prepare_fresh_setup_secret_inventory")?;
         if owner.is_nil() || clients.iter().any(Id::is_nil) || clients.contains(&owner) {
             return Err(invalid("non-nil distinct setup identities required"));
         }
@@ -389,7 +505,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
     }
 
     pub async fn prepare_setup_client_slots(&self, clients: &[Id]) -> io::Result<()> {
-        let _operation = self.setup_operation()?;
+        let _operation = self.setup_operation("prepare_setup_client_slots")?;
         if self.read_inventory()?["phase"] == "resetting" {
             return Err(invalid(
                 "reset secret cleanup has begun; ordinary preparation is barred",
@@ -482,7 +598,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
     }
 
     pub async fn begin_client_provisioning(&self, external: &str) -> io::Result<()> {
-        let _operation = self.setup_operation()?;
+        let _operation = self.setup_operation("begin_client_provisioning")?;
         self.begin_client_provisioning_locked(external).await
     }
 
@@ -540,7 +656,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
         &self,
         request: ClientRegistration,
     ) -> io::Result<ClientRegistration> {
-        let _operation = self.setup_operation()?;
+        let _operation = self.setup_operation("ensure_setup_infrastructure_client")?;
         if request.client_type != ClientType::Confidential
             || request.allowed_grant_types != [GrantType::ClientCredentials]
             || request
@@ -809,7 +925,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
     }
 
     pub fn prepare_node_signer(&self, binding: &NodeSignerBinding) -> io::Result<JwkPublic> {
-        let _operation = self.setup_operation()?;
+        let _operation = self.setup_operation("prepare_node_signer")?;
         self.prepare_node_signer_locked(binding)
     }
 
@@ -861,7 +977,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
         &self,
         binding: &NodeSignerBinding,
     ) -> io::Result<JwkPublic> {
-        let _operation = self.setup_operation()?;
+        let _operation = self.setup_operation("verify_prepared_node_signer")?;
         self.verify_prepared_node_signer_locked(binding)
     }
 
@@ -931,7 +1047,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
         owner: Id,
         clients: &[Id],
     ) -> io::Result<()> {
-        let _operation = self.setup_operation()?;
+        let _operation = self.setup_operation("delete_local_secrets")?;
         if member_id.is_nil() || key_id.is_nil() || owner.is_nil() || clients.iter().any(Id::is_nil)
         {
             return Err(invalid(
@@ -1103,7 +1219,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
         owner: Id,
         name: &str,
     ) -> io::Result<()> {
-        let _operation = self.setup_operation()?;
+        let _operation = self.setup_operation("ensure_initial_node")?;
         if self.ready_inventory()?["owner"] != json!(owner) {
             return Err(invalid("initial Node owner conflicts with setup inventory"));
         }
