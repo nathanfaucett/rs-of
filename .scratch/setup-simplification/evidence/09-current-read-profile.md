@@ -34,13 +34,13 @@ Build **passed**, 1073.180s. Resolved the executable from the single matching Ca
 
 SDK prerequisites were absent in this worktree. After the Rust build, ran supervised `pnpm install --offline --frozen-lockfile --ignore-scripts` (passed, 1.086s, 465 reused packages, zero downloads), then `pnpm sdk:build` (all four ESM builds passed, 3.096s). Verified all five fixture-required exported files and successfully imported all four ESM SDK entry points with Node. Before installation, backed up the 16 tracked generated SDK paths. Restored only the eight generated tracked changes caused by this installation/build, against that clean-worktree backup; worktree tracked status was clean before tests. No source generation or dependency/lockfile change. The primary worktree's **seven external SDK diffs** were fingerprinted, including the symlink target, and verified byte/target-identical afterward; they were never restored or edited.
 
-| Stage | Exit | Seconds | Minimum available KiB | Peak sampled owned RSS bytes | Max memory PSI some/full avg10 |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Build | 0 | 1073.180 | 2,634,084 | 4,828,909,568 | 7.95 / 7.10 |
-| SDK install | 0 | 1.086 | 5,390,708 | 7,995,392 | 0.38 / 0.38 |
-| Four SDK ESM builds | 0 | 3.096 | 4,791,040 | 53,833,728 | 0 / 0 |
-| Full diagnostic | 101 | 241.366 | 4,492,780 | 909,430,784 | 0 / 0 |
-| Ancestor-GDB profile | 0 | 131.185 | 2,909,984 | 3,286,671,360 | 0.92 / 0.92 |
+| Stage                | Exit |  Seconds | Minimum available KiB | Peak sampled owned RSS bytes | Max memory PSI some/full avg10 |
+| -------------------- | ---: | -------: | --------------------: | ---------------------------: | -----------------------------: |
+| Build                |    0 | 1073.180 |             2,634,084 |                4,828,909,568 |                    7.95 / 7.10 |
+| SDK install          |    0 |    1.086 |             5,390,708 |                    7,995,392 |                    0.38 / 0.38 |
+| Four SDK ESM builds  |    0 |    3.096 |             4,791,040 |                   53,833,728 |                          0 / 0 |
+| Full diagnostic      |  101 |  241.366 |             4,492,780 |                  909,430,784 |                          0 / 0 |
+| Ancestor-GDB profile |    0 |  131.185 |             2,909,984 |                3,286,671,360 |                    0.92 / 0.92 |
 
 Build minimum free disk 412,371,939,328 bytes; diagnostic 412,333,658,112 bytes. SDK and GDB disk samples also remained far above the floor. SDK one-second RSS sampling can miss short process peaks; no claim of exhaustive peak accounting.
 
@@ -64,13 +64,13 @@ Failures:
 
 Coherent, single-PID current IdP checks:
 
-| PID / scenario | Complete current checks, ms | First initial-relationship / subsequent starts, ms |
-| --- | --- | --- |
-| 3933075 / Create | 3157 | 766 / 1364 / 1993 / 2580 |
-| 3933090 / Create-reset | 3258 | 863 / 1463 / 2075 / 2681 |
-| 3933135 / operation | 3205 | 798 / 1406 / 1980 / 2562 |
-| 3933115 / Join | 5676, 6106 | 1437 / 2519 / 3533 / 4596 |
-| 3933125 / Join-reset | 5819, 6209 | 1470 / 2571 / 3657 / 4749 |
+| PID / scenario         | Complete current checks, ms | First initial-relationship / subsequent starts, ms |
+| ---------------------- | --------------------------- | -------------------------------------------------- |
+| 3933075 / Create       | 3157                        | 766 / 1364 / 1993 / 2580                           |
+| 3933090 / Create-reset | 3258                        | 863 / 1463 / 2075 / 2681                           |
+| 3933135 / operation    | 3205                        | 798 / 1406 / 1980 / 2562                           |
+| 3933115 / Join         | 5676, 6106                  | 1437 / 2519 / 3533 / 4596                          |
+| 3933125 / Join-reset   | 5819, 6209                  | 1470 / 2571 / 3657 / 4749                          |
 
 Join current checks still complete successfully **after** the five-second client budget. These are not missing signer/history evidence or a still-joining worker. Remote PID3933179 begins nine coherent checks, only one coherent completion3945ms; partial sequences are not turned into invented completion times. Interleaved/corrupted lines were excluded from phase accounting.
 
@@ -88,7 +88,7 @@ Used the permitted exact-parent fallback rather than attach to an arbitrary chil
 --exact owner_composition_tests::create::production_independent_create_and_offline_reopen --nocapture
 ```
 
-Both diagnostic flags remained enabled. GDB followed the fixture fork/exec into `independent_create_child`, then restored follow-parent behavior; detached the watchdog parent. No external ptrace attach, process arguments, frame arguments, locals, payloads, broad HTTP logging or debugger auto-load scripts. Debuginfod and auto-load were disabled. A single entry breakpoint established child PID3933888. External interrupts began only after current-readiness `idp_readiness phase=record`, or while Storage `databases_start` lacked a later matching `databases_end`; **not schema-open/semantic seeding**. Caps12 readiness and28 Storage snapshots, minimum250ms interruption spacing. Every stop collected frame **names only**, maximum180 frames/thread, then immediately continued. Forty snapshots /272 thread stacks collected. No debugger errors or resource stops.
+Both diagnostic flags remained enabled. GDB followed the fixture fork/exec into `independent_create_child`, then restored follow-parent behavior; detached the watchdog parent. No external ptrace attach, process arguments, frame arguments, locals, payloads, broad HTTP logging or debugger auto-load scripts. Debuginfod and auto-load were disabled. A single entry breakpoint established child PID3933888. External interrupts used a **global log-order heuristic** in `late.py`: compare the latest `rfind` positions of Storage `databases_start`/`databases_end`, otherwise readiness `phase=record`/`phase=complete`. These global positions gated sampling of the selected child PID3933888; they did **not** correlate starts/ends by request or track outstanding requests. Overlapping checks, interleaving, and log visibility therefore limit per-request/overlap precision. The selected windows were late current-readiness/Storage activity, **not schema-open/semantic seeding**. Caps12 readiness and28 Storage snapshots, minimum250ms interruption spacing. Every stop collected frame **names only**, maximum180 frames/thread, then immediately continued. Forty snapshots /272 thread stacks collected. No debugger errors or resource stops.
 
 Parent and child passed (122.51s /121.94s test bodies), supervised131.185s, debugger exit0. **This isolated sampled pass is not qualification and does not cancel the six default-workload failures.** The windows include both initial authorization-negative Storage calls and actual successful authenticated use, then offline-reopen checks. They are explicitly separated below.
 
@@ -103,7 +103,7 @@ Across40 gated snapshots:
 - **4** catch durable `fdatasync` through redb commit. Three retain explicit read-only client-registration SELECT callers; one lacks that owner context in the captured depth.
 - One snapshot is outside those classified buckets. No sampled async-lock mutex acquisition stack. Sleeping Tokio/driver threads are not classified as useful work.
 
-These are **stack-hit counts, not function invocation counts, work-count regression assertions, unbiased CPU percentages or proof that unobserved waits never occurred**. Gating, debugger overhead, frame-depth truncation and the isolated topology limit attribution.
+These are **stack-hit counts, not function invocation counts, work-count regression assertions, unbiased CPU percentages or proof that unobserved waits never occurred**. Gating, debugger overhead, frame-depth truncation and the isolated topology limit attribution. Catalog hits prioritize a next investigation boundary; they do not allocate the default-workload timeout duration to catalog execution.
 
 Representative actual chains (generic/future-poll scaffolding omitted):
 
@@ -114,27 +114,37 @@ Representative actual chains (generic/future-poll scaffolding omitted):
 5. Samples14/26: bearer verification → `principal_for_claims → DbKeyRepo::find_active_entity_root_key → list_by_entity_type_and_id → keys → SELECT → read_columns → catalog_states_range`.
 6. Samples15/19/20/24: bearer verification → `find_public_jwk → trusted_node_signers → read_columns → catalog_states_range`. Existing signer-candidate conflict batching is present; these are remaining catalog reads, not a recommendation to repeat that fix.
 7. Samples21/22/25: nested current User work → `find_user_info / hydrate_user_info → catalog_states_range`; samples31/35 catch the issuance revalidation path again after offline reopen.
-8. Samples2/10/18: read-only `DbClientRepo::registrations` SELECT completion → `NativeWriteTransaction::commit → WriteTransaction::durable_commit → fdatasync`. Durable read-transaction commit overhead is a distinct measured contributor, **not database admission wait**.
+8. Samples2/10/18: read-only `DbClientRepo::registrations` SELECT completion → `NativeWriteTransaction::commit → WriteTransaction::durable_commit → fdatasync`. Durable read-transaction commit is a separately observed execution path, **not database admission wait**; its duration and latency contribution were not quantified.
 
 ### Native CPU versus debugger and elapsed time
 
 Supervisor sampled each owned native thread's `/proc/.../task/.../stat` user/system ticks at about100ms intervals; `SC_CLK_TCK=100`. Values below sum child thread ticks separately from debugger thread ticks using nearest boundary samples. They are coarse process-wide CPU observations, not individual-future CPU accounting. Clock-bracketing errors for the first three rows are at most61ms. Concurrent CPU and wall time are not assumed strictly additive.
 
-| Interval | Wall | Child CPU | GDB CPU | Native snapshots |
-| --- | ---: | ---: | ---: | --- |
-| First current-readiness start to completion | 5.714s | 1.31s | 4.25s | 0–9:7 catalog,2 fdatasync,1 other |
-| Authorization-negative Storage call | 1.022s | 0.80s | 0.23s | 10–13:2 catalog,1 Argon2,1 fdatasync |
-| **First successful authenticated Storage list** | **3.527s** | **2.56s** | **0.85s** | **14–26:11 catalog,1 Argon2,1 fdatasync** |
-| Later Storage list after reopen | 3.695s | 3.26s | 0.29s | 29–39:11 catalog |
-| Subsequent Storage request, no further interrupts | 2.251s | 2.24s | 0.00s | none |
+| Interval                                          |       Wall | Child CPU |   GDB CPU | Native snapshots                          |
+| ------------------------------------------------- | ---------: | --------: | --------: | ----------------------------------------- |
+| First current-readiness start to completion       |     5.714s |     1.31s |     4.25s | 0–9:7 catalog,2 fdatasync,1 other         |
+| Authorization-negative Storage call               |     1.022s |     0.80s |     0.23s | 10–13:2 catalog,1 Argon2,1 fdatasync      |
+| **First successful authenticated Storage list**   | **3.527s** | **2.56s** | **0.85s** | **14–26:11 catalog,1 Argon2,1 fdatasync** |
+| Later Storage list after reopen                   |     3.695s |     3.26s |     0.29s | 29–39:11 catalog                          |
+| Subsequent Storage request, no further interrupts |     2.251s |     2.24s |     0.00s | none                                      |
+
+`phase-cpu-summary.json` contains only `first_readiness` and `first_positive_storage`; its recorded hash below remains unchanged. The other three rows were calculated directly from `late-resources.jsonl`, using these actual request-log boundaries and nearest resource-sample timestamps (Unix wall milliseconds):
+
+| Interval                                          | Request start / end           | Resource sample start / end   |
+| ------------------------------------------------- | ----------------------------- | ----------------------------- |
+| Authorization-negative Storage call               | 1793101566081 / 1793101567103 | 1793101566115 / 1793101567164 |
+| Later Storage list after reopen                   | 1793101589378 / 1793101593073 | 1793101589439 / 1793101593082 |
+| Subsequent Storage request, no further interrupts | 1793101646523 / 1793101648774 | 1793101646532 / 1793101648819 |
+
+Reproduction procedure: select each resource record minimizing `abs(record.wall_ms - boundary_wall_ms)`. At each selected record, sum `user_ticks + system_ticks` over `thread_cpu` entries with `pid=3933888` for child CPU, separately with `pid=3933798` for GDB CPU; subtract start sums from end sums and divide by100 ticks/second. Wall duration is request-log end minus start, not resource-sample spacing. This yields the three CPU rows above without extending the private summary. These are retrospective interval calculations, not evidence that the sampling gate correlated individual requests.
 
 The first profiled readiness request exceeds five seconds largely because debugger CPU dominates its elapsed window; another current check starts at5.053s, before the earlier check completes. Do not attribute all that interval to one serial native check or use it as an untraced readiness failure. The full diagnostic's coherent Join5.676–6.209s observations are the independent current lateness evidence.
 
-The successful Storage window is the third initial database-list request in `create::normal_use` (the earlier two are authorization negatives). It reaches the same real Storage route and nested current IdP/Device work that times out in the default workload. CPU remains high even in a later window after the40-stop cap has been exhausted. This localizes substantial actual execution, rather than an inference from source alone. Short DB-admission/I/O/scheduling waits remain possible; no multi-second admission wait was established. The fdatasync samples separately establish synchronous durable-commit work.
+The successful Storage window is the third initial database-list request in `create::normal_use` (the earlier two are authorization negatives). It reaches the same real Storage route and nested current IdP/Device work that times out in the default workload. CPU remains high even in a later window after the40-stop cap has been exhausted. This localizes substantial actual execution, rather than an inference from source alone. Short DB-admission/I/O/scheduling waits remain possible; no multi-second admission wait was established. The fdatasync samples separately establish a synchronous durable-commit execution path; its duration and contribution to request latency were not quantified.
 
 ## Owning next boundary and limits
 
-The supported next causal target is **repeated complete field-catalog traversal/reconstruction in ordinary SELECT and conflict observations**, reached by readiness relationship validation, current bearer/principal resolution, and issuance revalidation. Actual stacks now distinguish that from Argon2-only cost and from setup-operation-lock contention. Also retain durable SELECT commit cost as a separately measured contributor; do not conflate it with the catalog CPU or change transaction semantics without a dedicated regression.
+The samples prioritize **repeated complete field-catalog traversal/reconstruction in ordinary SELECT and conflict observations** as the next causal investigation boundary, reached by readiness relationship validation, current bearer/principal resolution, and issuance revalidation. Actual stacks identify those execution paths alongside Argon2 and durable commit, while setup-operation diagnostics reported no contention in this run. They do not quantify the catalog share of default-workload timeouts. Retain durable SELECT commit as a separately observed execution path whose duration/latency contribution was not quantified; do not assign it a share of catalog CPU or change transaction semantics without a dedicated regression.
 
 No exact-key SELECT, reconstruction shortcut, invalid-catalog skip, multi-call snapshot/cache API or lock/concurrency change was implemented. `reconstruct_document_values` remains one streaming reconstruction per supplied document/change range; native `AutoCommit::load` hits demonstrate expensive repeated observations, not an internal duplicate-heads bug. Existing field point-read/schema-local stack/index-schema fixes remain integrated, not reopened. **Do not implement per-key batching for this singleton fixture.** All freshness, malformed catalog/row refusals, conflict checks and response reauthorization remain unchanged.
 
@@ -142,16 +152,16 @@ No uninstrumented qualification, feature matrix, coverage, CRAP or Clippy was ru
 
 ## Receipts and handoff
 
-Private command/environment/head/source hashes and resource samples are in `/tmp/setup09-current-profile/{build,sdk-install,sdk-build,full-diagnostic}.{json,log,resources.jsonl}`; executable/compiler JSON is `artifact.json`; native data in `late.log`, `late-resources.jsonl`, `late-result.json`; CPU boundary calculations in `phase-cpu-summary.json`. No raw fixture payloads/log transcripts are committed.
+Private command/environment/head/source hashes and resource samples are in `/tmp/setup09-current-profile/{build,sdk-install,sdk-build,full-diagnostic}.{json,log,resources.jsonl}`; executable/compiler JSON is `artifact.json`; native data in `late.log`, `late-resources.jsonl`, `late-result.json`; two CPU boundary calculations in `phase-cpu-summary.json`, with the other three reproduced from raw resources using the timestamps/procedure above. No raw fixture payloads/log transcripts are committed.
 
-| Receipt | SHA-256 |
-| --- | --- |
-| Build log | `5259c6ec5ebe8134f490e1b14332e57942853406597004afac7e182da96389fa` |
-| Full diagnostic log | `f7bdf25f21ceea169c7e6cbf0f51c8393e0a86cf28cbe895d2483ec5dc9c573b` |
-| Native profile log | `fbca068848f39a9c63f04a4ad0b6a5d96e9113044521cf4d4d58c6e57fc529a5` |
-| Supervisor | `5a7c48e582643a3343c22e91195ab5d1166a52116d2cc98df63b25840710c314` |
+| Receipt                 | SHA-256                                                            |
+| ----------------------- | ------------------------------------------------------------------ |
+| Build log               | `5259c6ec5ebe8134f490e1b14332e57942853406597004afac7e182da96389fa` |
+| Full diagnostic log     | `f7bdf25f21ceea169c7e6cbf0f51c8393e0a86cf28cbe895d2483ec5dc9c573b` |
+| Native profile log      | `fbca068848f39a9c63f04a4ad0b6a5d96e9113044521cf4d4d58c6e57fc529a5` |
+| Supervisor              | `5a7c48e582643a3343c22e91195ab5d1166a52116d2cc98df63b25840710c314` |
 | Late profile supervisor | `ff9fe46a3c86196c22c9eb925c287da37991e7b15d5dacf2985f8d1d3eb12124` |
-| Late GDB commands | `e8cd823e3b851e7581dad13832ca6108893241c18915ff3c87c363764daf4ed0` |
-| CPU boundary summary | `7ed8034022a761b12855564130b9e242dc0f41ef6757f7805899bbe57def47cc` |
+| Late GDB commands       | `e8cd823e3b851e7581dad13832ca6108893241c18915ff3c87c363764daf4ed0` |
+| CPU boundary summary    | `7ed8034022a761b12855564130b9e242dc0f41ef6757f7805899bbe57def47cc` |
 
 All owned run groups exited after collection. Final artifact hash and external seven-diff fingerprints checked unchanged. Integration tip checked at `30b32698a` before handoff; merge/confirmation and evidence commit belong to this investigation branch only. Rust slot released after final checks; no background qualification work remains.
