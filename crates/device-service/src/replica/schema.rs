@@ -85,7 +85,7 @@ pub async fn validate_device(client: &db::Client) -> Result<(), db::QueryError> 
     client
         .row_conflict_values("device_selection_policies", &key)
         .await?;
-    let transaction = client.transaction().await?;
+    let mut transaction = client.transaction().await?;
     transaction.row_conflicts("devices", &key).await?;
     transaction
         .row_conflict_values("device_selection_policies", &key)

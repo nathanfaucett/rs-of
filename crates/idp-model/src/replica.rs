@@ -73,7 +73,7 @@ pub async fn validate_identity(client: &db::Client) -> Result<(), db::QueryError
         .row_conflicts_batch("credentials", core::slice::from_ref(&key))
         .await?;
     client.row_conflict_values("credentials", &key).await?;
-    let transaction = client.transaction().await?;
+    let mut transaction = client.transaction().await?;
     transaction.row_conflicts("credentials", &key).await?;
     transaction.row_conflict_values("credentials", &key).await?;
     transaction.rollback().await
