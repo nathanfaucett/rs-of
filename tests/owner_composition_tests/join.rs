@@ -45,21 +45,15 @@ fn run_production_join(unsupported_reset: bool) {
         fs::create_dir(&directory).expect("separate deployment roots");
         fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))
             .expect("private deployment");
+        if side == "source" {
+            continue;
+        }
         for owner in ["idp", "device", "storage"] {
             let reservation =
                 std::net::TcpListener::bind("127.0.0.1:0").expect("reserve owner address");
             let address = reservation.local_addr().expect("owner address");
-            if side == "source" {
-                let tls = LocalTls::create(&SourceTls {
-                    directory: directory.join(format!("{owner}-tls")),
-                    address,
-                })
-                .expect("existing source TLS prerequisite");
-                bundle.extend(fs::read(tls.ca_path()).expect("source native CA"));
-            } else {
-                let host = setup(&directory, owner, address);
-                bundle.extend(fs::read(host.tls().ca_path()).expect("target native CA"));
-            }
+            let host = setup(&directory, owner, address);
+            bundle.extend(fs::read(host.tls().ca_path()).expect("target native CA"));
             addresses.push(address);
             drop(reservation);
         }
@@ -127,6 +121,19 @@ impl api::LocalTlsConfig for SourceTls {
     }
 }
 
+fn assert_source_addresses_reserved(addresses: &[SocketAddr]) {
+    for address in &addresses[..3] {
+        assert_ne!(
+            address.port(),
+            0,
+            "source uses its actual bound HTTPS address"
+        );
+        let error = std::net::TcpListener::bind(address)
+            .expect_err("actual source HTTPS address stays owned throughout provisioning");
+        assert_eq!(error.kind(), io::ErrorKind::AddrInUse);
+    }
+}
+
 struct ExistingSource {
     idp: String,
     device: String,
@@ -137,9 +144,14 @@ struct ExistingSource {
     management_runtime: device_server::IndependentDeviceRuntime,
     storage_runtime: storage_server::StorageRuntime,
     tls: Vec<LocalTls>,
+    listeners: Vec<tokio::net::TcpListener>,
 }
 impl ExistingSource {
-    async fn provision(root: &Path, addresses: &[SocketAddr]) -> Self {
+    async fn provision(
+        root: &Path,
+        addresses: &[SocketAddr],
+        listeners: Vec<tokio::net::TcpListener>,
+    ) -> Self {
         let tls = ["idp", "device", "storage"]
             .iter()
             .zip(addresses)
@@ -151,6 +163,7 @@ impl ExistingSource {
                 .expect("existing source TLS, no setup worker admission")
             })
             .collect();
+        assert_source_addresses_reserved(addresses);
         let idp = format!("https://{}/idp", addresses[0]);
         let device = format!("https://{}/device", addresses[1]);
         let storage = format!("https://{}/storage", addresses[2]);
@@ -361,6 +374,7 @@ impl ExistingSource {
             CancellationToken::new(),
         )
         .expect("existing source Storage serving");
+        assert_source_addresses_reserved(addresses);
         Self {
             idp,
             device,
@@ -371,22 +385,19 @@ impl ExistingSource {
             management_runtime,
             storage_runtime,
             tls,
+            listeners,
         }
     }
     async fn serve(
-        &self,
-        addresses: &[SocketAddr],
+        &mut self,
         cancellation: &CancellationToken,
     ) -> Vec<tokio::task::JoinHandle<io::Result<()>>> {
         let mut tasks = Vec::new();
-        for ((tls, address), router) in self.tls.iter().zip(addresses).zip([
+        for ((tls, listener), router) in self.tls.iter().zip(self.listeners.drain(..)).zip([
             self.idp_runtime.router(),
             self.management_runtime.router(),
             self.storage_runtime.router(),
         ]) {
-            let listener = tokio::net::TcpListener::bind(address)
-                .await
-                .expect("separate existing source HTTPS listener");
             let listener = tls.listener(listener);
             let cancellation = cancellation.child_token();
             tasks.push(tokio::spawn(async move {
@@ -568,12 +579,32 @@ async fn independent_join_child() {
     let root = PathBuf::from(std::env::var_os("OF_INDEPENDENT_JOIN_ROOT").expect("fixture roots"));
     crate::support::timing::capture_setup_timings();
     let reset_provider = crate::owner_composition_tests::reset::Provider::install();
-    let addresses: Vec<SocketAddr> =
+    let target_addresses: Vec<SocketAddr> =
         serde_json::from_slice(&fs::read(root.join("addresses.json")).expect("addresses"))
             .expect("fixture metadata");
-    let source = ExistingSource::provision(&root.join("source"), &addresses).await;
+    let mut addresses = Vec::new();
+    let mut listeners = Vec::new();
+    let mut bundle = fs::read(root.join("roots.pem")).expect("target native roots");
+    for owner in ["idp", "device", "storage"] {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("own actual source HTTPS listener");
+        let address = listener.local_addr().expect("bound source address");
+        let tls = LocalTls::create(&SourceTls {
+            directory: root.join("source").join(format!("{owner}-tls")),
+            address,
+        })
+        .expect("existing source TLS prerequisite");
+        bundle.extend(fs::read(tls.ca_path()).expect("source native CA"));
+        addresses.push(address);
+        listeners.push(listener);
+    }
+    addresses.extend(target_addresses);
+    fs::write(root.join("roots.pem"), bundle)
+        .expect("all native roots before verification clients");
+    let mut source = ExistingSource::provision(&root.join("source"), &addresses, listeners).await;
     let source_shutdown = CancellationToken::new();
-    let source_servers = source.serve(&addresses[..3], &source_shutdown).await;
+    let source_servers = source.serve(&source_shutdown).await;
     let http = LocalTls::verification_client().expect("native verified HTTPS");
     let (management_token, storage_token) = source_tokens(&http, &source).await;
     assert_eq!(
