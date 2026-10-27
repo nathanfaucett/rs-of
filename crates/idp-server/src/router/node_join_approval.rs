@@ -285,7 +285,7 @@ impl RouterState {
                 let [row] = results[0].rows.as_slice() else {
                     return Err(invalid("join enrollment is not unique"));
                 };
-                require_clear(&transaction, table, row).await?;
+                require_clear(&mut transaction, table, row).await?;
             }
             Ok(())
         }
@@ -342,7 +342,7 @@ async fn persist_join_intent(
     .await
 }
 
-async fn require_clear(transaction: &Transaction, table: &str, key: &Row) -> io::Result<()> {
+async fn require_clear(transaction: &mut Transaction, table: &str, key: &Row) -> io::Result<()> {
     if !transaction
         .row_conflicts(table, key)
         .await

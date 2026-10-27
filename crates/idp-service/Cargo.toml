@@ -95,9 +95,15 @@ android-native-keyring-store = { version = "1.0", default-features = false, feat
 ] }
 
 [dev-dependencies]
+# Native SQL observation controls
+futures = { version = "0.3", default-features = false, features = ["std"] }
+ofdb-sql = { path = "../../../ofdb/crates/sql", default-features = false, features = ["redb", "remote", "server", "sql"] }
 
+# Existing test dependencies
 idp-model = { path = "../idp-model", default-features = false, features = ["std"] }
 tokio = { version = "1.4", default-features = false, features = [
   "macros",
   "rt",
+  "sync",
+  "time",
 ] }
