@@ -32,7 +32,18 @@ impl DbReplicaSignerRepo {
         issuer: &str,
         now: i64,
     ) -> RepoResult<Vec<(ReplicaMembership, IdpSignerRecord)>> {
-        let mut results = self.engine.translate_and_execute(
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
+        let result = Self::trusted_signers_in(&mut transaction, issuer, now).await;
+        let rollback = transaction.rollback().await.map_err(db_error);
+        result.and_then(|trusted| rollback.map(|()| trusted))
+    }
+
+    async fn trusted_signers_in(
+        transaction: &mut Transaction,
+        issuer: &str,
+        now: i64,
+    ) -> RepoResult<Vec<(ReplicaMembership, IdpSignerRecord)>> {
+        let mut results = transaction.translate_and_execute(
             "SELECT id, installation_id, member_id, endpoint_id, issuer, approved_at, revoked_at FROM idp_replica_members; SELECT id, member_id, active_member_id, key_id, issuer, public_jwk, approved_at, revoked_at, expires_at FROM idp_replica_signers", &SqlTranslator,
         ).await.map_err(db_error)?;
         if results.len() != 2 {
@@ -112,9 +123,29 @@ impl DbReplicaSignerRepo {
                 pairs.push((*row_id, *member_row_id));
             }
         }
-        let clearance = idp_model::replica::allows_signer_trust_batch(&self.engine, &pairs)
-            .await
-            .map_err(db_error)?;
+        let mut clearance = Vec::with_capacity(pairs.len());
+        for (signer, _) in &pairs {
+            let clear = transaction
+                .row_conflicts(
+                    "idp_replica_signers",
+                    &db::Row::new(vec![Value::Uuid(*signer)]),
+                )
+                .await
+                .map_err(db_error)?
+                .is_empty();
+            clearance.push(clear);
+        }
+        for ((_, member), clear) in pairs.iter().zip(&mut clearance) {
+            let member_clear = transaction
+                .row_conflicts(
+                    "idp_replica_members",
+                    &db::Row::new(vec![Value::Uuid(*member)]),
+                )
+                .await
+                .map_err(db_error)?
+                .is_empty();
+            *clear &= member_clear;
+        }
         let trusted = candidates
             .into_iter()
             .zip(clearance)

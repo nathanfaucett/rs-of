@@ -39,19 +39,40 @@ impl DbKeyRepo {
     }
 
     async fn keys(&self) -> RepoResult<Vec<Key>> {
-        let mut results = self
+        let results = self
             .engine
             .execute(vec![Statement::Query(select(None))])
             .await
             .map_err(db_error)?;
-        results
-            .pop()
-            .ok_or_else(|| RepoError::InvalidInput("missing key query result".into()))?
-            .rows_as::<KeyRow>()
-            .map_err(row_error)?
-            .into_iter()
-            .map(Key::try_from)
-            .collect()
+        decode_keys(results)
+    }
+
+    async fn read_keys(&self, selected: impl Fn(&Key) -> bool) -> RepoResult<Vec<Key>> {
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
+        let result = async {
+            let results = transaction
+                .execute(vec![Statement::Query(select(None))])
+                .await
+                .map_err(db_error)?;
+            let keys = decode_keys(results)?
+                .into_iter()
+                .filter(selected)
+                .collect::<Vec<_>>();
+            for key in &keys {
+                if !transaction
+                    .row_conflicts(TABLE, &Row::new(vec![Value::Uuid(key.id)]))
+                    .await
+                    .map_err(db_error)?
+                    .is_empty()
+                {
+                    return Err(RepoError::InvalidInput("conflicted key".into()));
+                }
+            }
+            Ok(keys)
+        }
+        .await;
+        let rollback = transaction.rollback().await.map_err(db_error);
+        result.and_then(|keys| rollback.map(|()| keys))
     }
 
     async fn ensure_clear(&self, id: Id) -> RepoResult<()> {
@@ -121,16 +142,7 @@ impl KeyRepo for DbKeyRepo {
 
     async fn list_active(&self) -> RepoResult<Vec<Key>> {
         let now = Utc::now();
-        let keys = self
-            .keys()
-            .await?
-            .into_iter()
-            .filter(|key| active(key, now))
-            .collect::<Vec<_>>();
-        for key in &keys {
-            self.ensure_clear(key.id).await?;
-        }
-        Ok(keys)
+        self.read_keys(|key| active(key, now)).await
     }
 
     async fn list_by_entity_type_and_id(
@@ -139,30 +151,18 @@ impl KeyRepo for DbKeyRepo {
         entity_id: Id,
     ) -> RepoResult<Vec<Key>> {
         let now = Utc::now();
-        let keys = self
-            .keys()
-            .await?
-            .into_iter()
-            .filter(|key| {
-                key.entity_type == entity_type && key.entity_id == entity_id && active(key, now)
-            })
-            .collect::<Vec<_>>();
-        for key in &keys {
-            self.ensure_clear(key.id).await?;
-        }
-        Ok(keys)
+        self.read_keys(|key| {
+            key.entity_type == entity_type && key.entity_id == entity_id && active(key, now)
+        })
+        .await
     }
 
     async fn find_by_id(&self, id: Id) -> RepoResult<Option<Key>> {
-        let key = self
-            .keys()
+        Ok(self
+            .read_keys(|key| key.id == id && active(key, Utc::now()))
             .await?
             .into_iter()
-            .find(|key| key.id == id && active(key, Utc::now()));
-        if let Some(key) = key.as_ref() {
-            self.ensure_clear(key.id).await?;
-        }
-        Ok(key)
+            .next())
     }
 
     async fn find_by_entity_type_and_id(
@@ -385,6 +385,17 @@ impl From<KeyRow> for Row {
             row.public_jwk.map_or(Value::Null, Value::Text),
         ])
     }
+}
+
+fn decode_keys(mut results: Vec<db::QueryResult>) -> RepoResult<Vec<Key>> {
+    results
+        .pop()
+        .ok_or_else(|| RepoError::InvalidInput("missing key query result".into()))?
+        .rows_as::<KeyRow>()
+        .map_err(row_error)?
+        .into_iter()
+        .map(Key::try_from)
+        .collect()
 }
 
 fn active(key: &Key, now: DateTime<Utc>) -> bool {
