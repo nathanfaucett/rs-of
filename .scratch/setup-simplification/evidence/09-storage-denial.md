@@ -1,6 +1,6 @@
 # Ticket09 Storage denial slice
 
-**Current status:** identity-first denial fix implemented with public-API red/green; a separate missing-policy-schema fixture prerequisite is repaired with actual two-test red/green. The 2MiB database replication stack failure is isolated but **unresolved**; exploratory boxing candidates were ineffective and removed. Earlier proposal, RAM-stop and WIP sections are historical receipts, superseded only by actual later results. The broader Storage library run failed/aborted, and full unit-test Clippy has15 unchanged-code diagnostics. This is not full-suite qualification or ticket09 closure.
+**Current status:** identity-first denial and fixture prerequisite fixes retain their recorded validation. The original 2MiB database replication regression now has **current red -> green** with the owner-local schema execution-stage fix committed on ofdb branch `implement/setup-engine-cost` as `7aeb114`; primary ofdb is restored and awaits parent review/merge. The prior unresolved-stack sections and failed outer-boxing experiments remain historical evidence, not current closure claims. Full-suite qualification, the previously recorded full unit-test Clippy diagnostics, and shared ticket09 remain separate gates.
 
 ## Scope and inputs
 
@@ -266,3 +266,83 @@ Additional log hashes (same receipt/log/sample convention):
 | `storage-fixture-scoped-clippy1` | `97c8f8c371a0f488a0f351eed2af1f82b50f31db65964a6c720d45c6db33eaf6` |
 
 All15 follow-up stages completed without a RAM/PSI/stage stop. Minimum available RAM **9,676,760KiB**, peak sampled owned RSS **2,978,844KiB**, largest reported kernel individual-child RSS **3,255,684KiB**; max sampled memory PSI avg10 some/full **4.94/4.20**, below sustained guard thresholds. **Debugger monitoring limit:** GDB placed its inferior in a separate process group, so the saved owned-group RSS samples cover GDB, not combined debugger+inferior RSS; global MemAvailable/PSI guards still measured the host. No debugger resource stop occurred. Explicitly verified both every recorded supervisor-owned PGID and the debugger inferior/thread IDs from both logs absent at final cleanup. No user-tool termination, cache deletion, bound/retry/sleep modification or out-of-scope edit. Release the Rust slot after committing this diagnostic evidence. Keep the worktree; parent must explicitly authorize further stack experiments. Shared ticket09/tracker remains untouched and open.
+
+## Approved engine-local stage fix: current red/green (2026-10-27 UTC receipts)
+
+### Handoff, inputs and temporary-primary safety
+
+Parent explicitly granted the Rust slot and ofdb schema ownership after the point-lookup slice, including temporary application of our exact candidate diff to **tracked-clean primary ofdb**, conditional on reversing only that diff and verifying restoration. Merged ofdb integration into existing `ofdb/.worktrees/setup-engine-cost` / `implement/setup-engine-cost`: fast-forward `0404c945c7c589609b7c37c741d2d8c48d692029` -> **`2b40a4ef62f9012a1e9f9a6494159a3442ce50c5`**. Merged of integration into existing Storage worktree before baseline: **`ca1f3f0755bf3f98b1e770e26d8a2850b175f801`**. No branch was created, primary switched, dependency patched or symlink repointed. Storage resolves its existing `.worktrees/ofdb` symlink to primary `/home/nathan/code/rust/aicacia/ofdb`.
+
+Primary had **no tracked/staged modifications**. Its pre-existing untracked `.worktrees/` directory is worktree infrastructure and was preserved unchanged, not represented as a newly clean/removed user file. Primary schema SHA-256 before every application and after every reversal: **`e2e5cc0f9edabf5e6c0fa364c0e8086ae28ed066a6b02b3b050d2b2d12076c59`**. Each temporary application checked primary HEAD, source hash and tracked/index diffs, ran `git apply --check`, then applied only the saved one-file schema patch. A Python `finally` block checked and reversed only that patch, verified the exact original hash and empty tracked diff. This happened for all three candidates, including both failed ones. Final primary HEAD remains `2b40a4ef62`; no candidate was merged into primary/root.
+
+Candidate source is owned only in `ofdb/.worktrees/setup-engine-cost/crates/sql-engine/src/schema.rs`. Candidate final schema hash **`cada63d1ca590a4747944b0095a161b92555fd129dd775b88df3b3f87d8e9f4a`**. Of lock SHA-256 remains `bb7e608f57a6167612acac7d247e51eb2c6efbe449b95208c7a1862b78dd3a3f`; candidate ofdb lock SHA-256 **`7bb748d9a80168782fd632f30f98edf1c4ee6f82dcd33c032d8b1652eb5db0c5`**. Both unchanged. Loaded owner AGENTS/glossary and TDD/ponytail. Low code complexity, high transaction/validation risk; preserve every rejection and rollback path. No new dependency, helper, task, test-stack/profile/timeout/retry change or repeated outer boxing.
+
+### Actual current red and measured live-frame baseline
+
+All Storage runs used the previously recorded common network-only Cargo prefix and exact unchanged `replication_runtime::tests::database_changes_from_higher_id_and_new_peers_catch_up_then_stay_idle -- --exact --nocapture`, under the same jobs1/root-target/RAM2GiB-floor/PSI supervisor. Original `on_two_mib_workers` still explicitly uses **two workers, 2MiB each**; `RUST_MIN_STACK=67108864` in the supervisor does not override that explicit setting.
+
+**`storage-schema-current-red1`** ran unmodified primary ofdb `2b40a4ef62` (includes `e904a07` snapshot batching plus `0404c94` point reads), rebuilt and actually aborted with worker stack overflow/SIGABRT, Cargo101,293.121s including compilation. Not a memory/stage stop. Baseline executable SHA-256 **`56ffb3245f33fb6c7bd0a462eeb970fc095b9781ed1ad594cbe98064907e6232`**.
+
+Fresh machine code, not old-source inference: native/Automerge `reconcile_schema_names` poll prologue reserved **`0xe2000 + 0xe58 = 929,368 bytes`**, plus saved registers/return. Its stored future was244,800 bytes, namespace-validation child194,944 bytes. Thus batching/point reads had not eliminated the live reconciliation poll-frame problem. The earlier929,560-byte historical frame was not silently reused as the current baseline.
+
+### Three source-distinct engine candidates, not retries to green
+
+| Prefix                            | Candidate                                                                                                                                           | Actual result                                                                  |                                      Supervised seconds |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------: |
+| `storage-schema-namespace-green1` | Only `execution_stage(                                                                                                                              |                                                                                | validate_storage_namespace(...))` inside reconciliation | **overflow/SIGABRT/Cargo101**; poll frame unchanged929,368 | 206.901 |
+| `storage-schema-phases-green1`    | Extend that existing helper to related heavy reconciliation phases (dependent cleanup, index discovery/validation, active table/schema enumeration) | **overflow/SIGABRT/Cargo101**, but progressed past catalog into data apply     |                                                 260.135 |
+| `storage-schema-columns-green1`   | Above plus existing `table_schema_for` -> `columns` await boundary                                                                                  | **1 passed /87 filtered**, exit0, original idle assertion retained; test11.76s |                                                 205.796 |
+
+The first two `green` prefixes denote intended attempts, **not passing results**. Each changed source based on newly measured frames; no unchanged invocation was retried to obtain green. All existing Storage source/tests, including the2MiB regression, remain unchanged in this slice.
+
+Bounded diagnostic debugger captures **`storage-schema-namespace-frame1`** and **`storage-schema-phases-frame1`** ran each corresponding already-failing executable, not new uninstrumented qualification. Both batch GDB wrappers returned0 after stopping a SIGSEGV inferior; neither is a passing test. Namespace-only kept the244,800-byte reconciliation future and929,368-byte physical poll allocation. Related phase boundaries reduced reconciliation to **147,352 bytes of poll-frame locals** (`0x23000 + 0xf98`), **147,408** including saved registers/return, and97,872-byte stored future. The second capture showed a later data-apply fault at `lookup_table_id` under `columns` and `table_schema_for`, with a **293,328-byte unwind delta** at table-schema polling, plus195,600 in its columns child. This concrete new live frame justified the additional one-line columns boundary within the same schema module.
+
+Final machine code and DWARF confirm the reduction, not just successful scheduling:
+
+| Measurement                                       |                                      Current baseline / observed failing phase |                                                                                                        Final |
+| ------------------------------------------------- | -----------------------------------------------------------------------------: | -----------------------------------------------------------------------------------------------------------: |
+| Native reconciliation poll-frame local allocation |                                                                        929,368 |                                                                                                  **147,352** |
+| Reconciliation stored future                      |                                                                        244,800 |                                                                                                   **97,872** |
+| Table-schema poll frame                           |                            captured293,328-byte delta including frame overhead | native codegen clones reserve **152 /120 bytes** locally (208 /176 including six saved registers and return) |
+| `table_schema_for` stored future                  | not separately recorded before final boundary; large poll delta captured above |                                                                                                **104 bytes** |
+
+The existing `executor::execution_stage` is non-inlined and returns an erased boxed future: it separates construction and nested polling at the **actual schema phases**, unlike the previously unsuccessful generic outer Storage boxes. The final diff is36 lines in one module (23 insertions/13 deletions), with no helper/architecture addition. It preserves operation ordering, same borrowed transaction, validation, errors and commit/rollback ownership. There are bounded per-invocation heap-allocation/dynamic-dispatch costs at these heavy phases; no throughput benchmark claim is made.
+
+### Candidate-worktree semantic controls and strict validation
+
+After actual Storage green, all following commands ran directly in **candidate ofdb worktree**, not restored primary, using `--locked --target-dir /home/nathan/code/rust/aicacia/of/target -j 1` and the same monitor. This proves the candidate source independently of temporary-primary application. Parent network interruption did not cause any duplicate red/green/control rerun; saved receipts established completed results before resumption.
+
+- **`schema-stage-catalog-controls1`**, `cargo test ... -p ofdb-sql-engine-automerge --test catalog_snapshot --test index_schema --test scoped_session --test session --test schema_observation`: **36 passed** (8/2/7/12/7 per respective suite),0 failed/ignored/filtered,454.074s including compilation. Covers malformed/tombstoned/current catalog rejection, index identity validation, hostile catalog/history/recovery fail-closed semantics, retained prior rows on rejected import, same-name schema convergence, dependency ordering, deletion, flexible primary keys and existing outgoing snapshot batching.
+- **`schema-stage-rollback-controls1`**, `cargo test ... -p ofdb-sql-engine-automerge --test kernel -- --exact failed_table_lifecycle_batch_rolls_back_complete_state rollback_discards_catalog_and_logical_row_changes catalog_batch_validation_fails_without_partial_mutation`: **3 passed /47 filtered**,50.152s including compilation. All three requested exact tests actually ran; no zero-test selection.
+- **`schema-stage-clippy1`**, `cargo clippy ... -p ofdb-sql-engine -p ofdb-sql-engine-automerge --lib --no-deps -- -D warnings`: **passed**,20.797s. Scoped engine/codec libraries, not blanket test/workspace Clippy.
+- **`schema-stage-nostd-check1`**, `cargo check ... -p ofdb-sql-engine --no-default-features --lib`: **passed**,55.676s; no dependency/features changed to obtain it.
+- `rustfmt --edition 2024 --check crates/sql-engine/src/schema.rs` and diff checks: **passed**.
+
+Committed candidate as **`7aeb1148298f28d087501fc044826f32cb12016e`**, `fix(sql-engine): isolate heavy schema reconciliation poll stages`, hooks disabled, on existing `implement/setup-engine-cost`. Merged/confirmed candidate's integration tip `2b40a4ef62` before handoff. Only schema implementation changed in that commit. The original meaningful public2MiB regression is retained in of, not duplicated or weakened to add a same-shape internal test.
+
+No full Storage88-test rerun, full feature-powerset matrix, CRAP, coverage or broader setup/HTTPS workload was run in this boundary slice. Prior unrelated full-test Clippy diagnostics and historical response/readiness attribution remain independent parent gates. Passing this current deterministic regression and the39 owner semantic controls does not diagnose every earlier timeout or qualify the entire setup matrix.
+
+### Durable provenance, resource supervision and disposition
+
+Saved patches `/tmp/setup09-schema-stage-candidate{1,2,3}.patch` SHA-256 respectively **`08670c032e6ff26e3e7283843fd5ae2229e2b5decc09c479b3a4cefe3ffaeacc`**, **`8a5c39986664de22015ea297a78d104f58b50b813290db24964cd41bddf93a53`**, **`f1603cc5126208512e7f793cfe5e4415b593b3823c9545e055c40a2476a0207d`**. Last patch is byte-identical to committed candidate schema diff against `2b40a4ef62`.
+
+Green Storage executable `target/debug/deps/storage_server-eeafeffb4be7bf1e` SHA-256 **`8a2976d0ac918a387e9f1227c21f98c1a118bcc7adbf3142c036eefcfbc2b8e6`**; final disassembly receipt `/tmp/setup09-schema-final-layout.txt` SHA-256 **`adc501fb95cc60503e2bb26ec2a95589019057edb7d7238dd21cc031df2fbec8`**. That executable was built with the temporary identical primary patch; primary source was then restored. Running Cargo against restored primary before parent merges the candidate would build baseline again, not silently use the candidate as current primary source.
+
+All10 monitored stages completed with **no RAM/PSI/stage stop**; min available RAM **8,814,580KiB**, max sampled owned RSS **2,669,980KiB**, max reported kernel individual-child RSS **3,254,416KiB**, peak memory PSI avg10 some/full **3.16/2.61**. Same550s stage ceiling,2GiB RAM floor and sustained PSI guard, full swap not a veto. Debugger own-group RSS excludes its separately grouped inferior, as previously disclosed; host memory/PSI guards remained global. Verified no active owned groups or saved debugger inferiors before final handoff. No user-tool kill, cache deletion, symlink/config/dependency/profile change, primary commit/switch or out-of-scope edit.
+
+Receipts use `/tmp/setup09-qual-<prefix>{.json,.log,-samples.jsonl}`; exact argv/PGID/exit/resources are in JSON. Log SHA-256:
+
+| Prefix                            | SHA-256                                                            |
+| --------------------------------- | ------------------------------------------------------------------ |
+| `storage-schema-current-red1`     | `3fcfbc97c421b2d758f51b5dc9605ce31a4f400fa11a659465cc238a66f11bdd` |
+| `storage-schema-namespace-green1` | `4fa4d86e28c199bbe3e5d9144fc920abbe5b8607d3a981d802a0fab7b0f87a59` |
+| `storage-schema-namespace-frame1` | `29e154dfc65de4bfd317b95334d3b081ee1c15a8bac3c4863596fa68ada69a90` |
+| `storage-schema-phases-green1`    | `6b8b13b2950fd56fa6465c34b89b2730f94b3d2fa5a968a76d06d1e6b3ead2ad` |
+| `storage-schema-phases-frame1`    | `d49a2ed1ac8aa74b9b425f1c74e8602d7772cc43a83f01d47b07772c86b84b33` |
+| `storage-schema-columns-green1`   | `0dc29b3e6b5410570d72ca4d6c54964dc6c82c837d0e91977da604a08fe78560` |
+| `schema-stage-catalog-controls1`  | `2b5a8bb52c74f776d609520000adab9eeb137f65a92eedfbacbd55f975f7f5d7` |
+| `schema-stage-rollback-controls1` | `14fd51a2a87dde86c52da4ce0028fb7b505ef386575144547543a789062a04af` |
+| `schema-stage-clippy1`            | `faab407fcb94dcc438bf78ef0dedafa9f668d0344dbc6469940a27ffaf7c3b37` |
+| `schema-stage-nostd-check1`       | `c4094f821770fa4233ccc69e1bf20f5b9f0f166b57b6f8cc9499aa5956e4d1d5` |
+
+Disposition: validated owner-local fix ready for parent review. Commit this append-only execution evidence on the Storage branch, merge/confirm of integration tip there, retain both worktrees, and release the Rust slot. **Do not merge candidate into primary ofdb or root of**; parent owns review/integration and any broader qualification. Shared ticket/evidence09, map and spec remain untouched by this slice.
