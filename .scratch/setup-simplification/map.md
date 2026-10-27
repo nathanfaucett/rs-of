@@ -1,5 +1,11 @@
 # Setup simplification map
 
+## Current integration status (2026-10-27)
+
+**[07](issues/07-qualify-simplified-workflow.md), [09](issues/09-diagnose-readiness-and-request-timeouts.md), [11](issues/11-complete-provisioned-validation.md) and the [spec](spec.md) remain open.** Integrated changes include shared/independent teardown fences, Storage identity-first denial, Management policy-schema and standalone HTTP fixture repairs, continuous child-owned source HTTPS sockets, and complete-catalog initial synchronization in the Device conflict fixture (**6/6 focused**). The optional protected-lock probe changes observations, not lock behavior. Application-owned AGENTS guidance (`1cfe76076`) is included. ofdb integration **`a8c23a54540e591aa024396a5674dc016b6cce3a`** contains candidate batching, exact field point reads, schema-local stack boundaries and same-transaction schema reuse, with separate recorded causal/semantic controls. See [09 evidence](evidence/09-timeout-localization.md), [Storage evidence](evidence/09-storage-denial.md) and [Device fixture evidence](evidence/11-device-contract-fixture.md).
+
+[Latest supported gates](evidence/11-validation-attempt.md#supported-qualification-on-current-inputs-2026-10-27): root combination **1/10 failed36p/8f/6ignored**, nine combinations unrun, zero successful combinations; workspace instrumented compilation completed but `device_contract` failed5p/1f. The new focused fixture pass is **not a coverage rerun**. No complete matrix, fresh coverage report or CRAP score; neither gate stopped for resources/time. A separate exact lock parent passed78.2s with282 paired acquisitions/releases and zero contention, not historical-holder attribution or a behavior fix. Current readiness/nested authorization failures and the initial-driver secret-operation contention still require causal work before integrated reruns; full GUI/platform/provider/trust/WAN acceptance is also outstanding. All older handoffs, Fog and dated results below are historical snapshots, not current gate status; no acceptance criterion is closed here.
+
 ## Notes
 
 - Delivery follows [the spec](spec.md) and numbered tickets. Each worktree owns its assigned slice; source approval UI is ticket 04.

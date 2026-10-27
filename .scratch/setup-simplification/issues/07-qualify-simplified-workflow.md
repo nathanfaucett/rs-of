@@ -8,6 +8,12 @@
 
 **Triage:** ready-for-agent
 
+## Current integration status (2026-10-27)
+
+**07, [09](09-diagnose-readiness-and-request-timeouts.md), [11](11-complete-provisioned-validation.md) and the [spec](../spec.md) remain open.** Reviewed changes now include shared-worker/queued-reply and independent connection teardown fences; Storage identity-first denial preserving current policy/response checks; Management policy-schema, standalone HTTP and continuously bound source-HTTPS fixture fixes; and the Device conflict fixture's complete-catalog initial sync (**6/6 focused**, unchanged negative assertions). Application-owned AGENTS guidance (`1cfe76076`) is integrated. Sibling ofdb integration **`a8c23a54540e591aa024396a5674dc016b6cce3a`** includes batched candidate observation, exact field lookup, measured schema stack boundaries and operation-local same-transaction schema reuse with their recorded focused regressions/controls. These are implemented fixes, not whole-workflow acceptance.
+
+The [latest supported root matrix](../evidence/11-validation-attempt.md#supported-qualification-on-current-inputs-2026-10-27) failed combination **1/10 with36p/8f/6ignored**; nine combinations did not run, zero succeeded. Instrumented workspace compilation completed, then `device_contract` failed5p/1f on incomplete catalog import. The [new fixture6/6 pass](../evidence/11-device-contract-fixture.md) is focused only: **matrix/coverage/CRAP have not been rerun**, no fresh report/score exists, and neither supported gate hit a resource/time guard. [Lock-probe evidence](../evidence/09-timeout-localization.md#protected-setup-secret-lock-probe-2026-10-27-utc) records one exact parent passing78.2s with282 acquisition/release pairs and zero contention; it neither identifies the historical initial-driver holder nor implements a behavior fix. Remaining work is causal current-readiness/nested authorization and actual contention-holder diagnosis, followed by unchanged-bound integrated qualification; generated dependency Clippy and GUI/platform/provider/trust/WAN limits remain unwaived. No acceptance boxes change. Older handoff/Answer sections below remain historical receipts.
+
 ## Scoped merge handoff
 
 The user accepted scoped merge readiness with incomplete qualification retained. Final source review of local `main...setup-simplification` at `8d94861d1` found no new code-level blocker; it did not test a merged tree or certify a packaged desktop release. No merge/push was performed as part of this handoff. Ticket 07 stays open and its unchecked acceptance criteria are not silently waived.
@@ -27,7 +33,7 @@ Independent static review found no further actionable findings after the diagnos
 
 ## Qualification checklist
 
-Latest handoff: reviewed lifecycle fixes and three final serial HTTPS suites (9/9 scenarios) pass; [reliability evidence](../evidence/07-reliability-followup.md). The [matrix now fails owner-boundary tests and coverage is memory-blocked](../evidence/07-validation-followup.md). Earlier offer/request timeout causes remain unproven. Keep qualification open; historical Answer sections below are not the latest validation disposition.
+Latest disposition is the current integration summary above: focused fixes pass their recorded controls, but the supported matrix failed and coverage stopped on an actual Device contract test failure, not a resource guard. The fixture has since passed6/6 focused; broad gates remain unrerun. Preserve both unchecked integrated durability criteria and all historical evidence below.
 
 - [x] Verify default bundled first launch has one essential Create/Join choice, minimal required input, no mandatory internal composition, and no completion-only gate before ordinary sign-in.
 - [ ] Exercise the integrated Join flow from request through source acceptance and exact approval/rejection to verified readiness; verify completed reopen without the source peer.
