@@ -1,6 +1,6 @@
 # Ticket 11: validation execution attempt
 
-Latest result: [authorized final execution](#authorized-final-execution-2026-10-26) actually launched both gates: root matrix failed 38/6/6 in run1/10; workspace coverage stopped on sustained PSI after55 minutes, without a score. Ticket11 remains open. The original no-launch attempt below is historical.
+Latest result: [supported qualification on current inputs](#supported-qualification-on-current-inputs-2026-10-27) actually launched both gates at root `d35a961fb` / ofdb `a8c23a545`: root run1/10 failed 36/8/6; workspace instrumented compilation completed, then Device contract integration failed on missing catalog definition. Neither gate hit a resource/time stop. No complete matrix, coverage report or CRAP score; ticket11 remains open. Earlier attempts below remain historical.
 
 ## Original attempt disposition
 
@@ -210,3 +210,124 @@ Private mode0600 receipt set `/tmp/setup11-final-manifest.json` includes hashes/
 Historical generated `of-idp-client` strict Clippy93 errors and standalone setupApi9-pass/15-fail receipt remain **not rerun here**, not waived or claimed current. The separate JS-fixture agent owns any new standalone qualification; no result from its separate worktree is incorporated without evidence. API-only historical Clippy success does not certify generated workspace/test targets. No full workspace Clippy launched after the sustained-pressure stop. No GUI/WAN/platform/provider certification.
 
 Ticket11 remains **open**, triage **ready-for-human** for coordination of the six concrete ordinary failures and a pressure-safe coverage continuation/runner. The previously speculative no-launch concern is replaced by actual launched-gate results. Source/lock/sibling inputs remained stable; no implementation fix, assertion change, retry-to-green, map/spec/07 edit or accepted feature qualification. Final documentation validation uses `git diff --check`; commit hooks are disabled and the current integration tip is merged before handoff.
+
+## Supported qualification on current inputs, 2026-10-27
+
+**Actual final supported attempt, not a promised pass.** Both gates ran without resource stops. Exact root matrix failed its first combination; workspace coverage compiled successfully then failed a Device contract integration test. No complete10-run matrix, coverage report or CRAP score. Prior failure receipts are retained; none is retrospectively declared solved by the new commits.
+
+### First merge, ownership and immutable provenance
+
+First operation in recreated `.worktrees/setup-11-final` was a hooks-disabled fast-forward merge of `integration/setup-simplification-followup`, from branch `implement/setup-11-final` at `80da0a99a27db5c9bedf7b48be5ca98b06ffa7d9` to **`d35a961fb89df254f20dbf958be37cc6cf5b9784`**. Verified clean **after that merge**, before claiming11 (`ready-for-agent`). Parent granted the exclusive Rust slot. No additional editor/system processes stopped by this agent; parent had already stopped the two Rust analyzers. Qualification only: low implementation complexity, material lifecycle/security qualification risk; no source implementation/test changes or new TDD cycle.
+
+Observed source inputs, verified unchanged between gates and at final cleanup:
+
+| Repository | Full HEAD                                  | SHA-256 of git archive HEAD                                        |
+| ---------- | ------------------------------------------ | ------------------------------------------------------------------ |
+| of         | `d35a961fb89df254f20dbf958be37cc6cf5b9784` | `2f1ea3006adc540e0e04bf84ffb62e71b77c10f98627ead689d1cd60504cc4ee` |
+| ofdb       | `a8c23a54540e591aa024396a5674dc016b6cce3a` | `cf2714fe88a28684c9b122a0164c40a8aa3b4f36e81d836d753aad8e0ce67062` |
+| ofnet      | `dbea925a0a3f99053fffc02618baccc2a1cbea9f` | `bfba0566e795912b15cb555a3f9f724244c950bee11f18a5ea9ca73f031fc582` |
+| offs       | `df4c696a910296635473ec296d9235acbaa60d9b` | `7fe57bb321e805a52c991a299e83aa38e23ac77a637be8d83a100c937a2c97f1` |
+
+ofdb had no tracked changes; existing untracked `.worktrees/` recorded and preserved. Other siblings clean. The four new ofdb implementation families (batch candidate observation, exact field point reads, measured stack boundaries, transaction-local validated-schema reuse) are included through this immutable sibling revision; their independent validation receipts are **not rerun or pooled** here. Current root includes the supplied Storage identity-first denial, Management fixture schema and retained source socket changes; inclusion is not proof they solve every prior failure.
+
+Cargo.toml/Cargo.lock/pnpm-lock/toolchain/config/justfile hashes match the preceding receipt and `/tmp/setup11-supported-inputs.json`; verified unchanged through execution. Cargo.lock remains SHA-256 `bb7e608f57a6167612acac7d247e51eb2c6efbe449b95208c7a1862b78dd3a3f`. Source tree/archive hashes recorded in `/tmp/setup11-supported-source-receipt.json`. Same actual tool versions as prior attempt; no inherited CARGO/RUST/SWAGGER/OF_SETUP overrides. No profiles, features, flags, assertions, test deadlines, provider/trust state or dependencies altered.
+
+### Actual prerequisites, commands and supervision
+
+Worktree-local `pnpm install --frozen-lockfile --ignore-scripts && pnpm sdk:build && node --test scripts/generated-package-exports.test.mjs` **passed**, exit0,8.01s supervised. All465 packages reused, zero downloads; four owner ESM builds passed; exports **5/5 passed**. No root node_modules replacement. Recipe SDK prerequisite passed again before coverage.
+
+Both actual gates used cwd `/home/nathan/code/rust/aicacia/of/.worktrees/setup-11-final` and exactly:
+
+```sh
+CARGO_TARGET_DIR=/home/nathan/code/rust/aicacia/of/target CARGO_BUILD_JOBS=1 RUST_MIN_STACK=67108864 cargo hack test --feature-powerset --all-targets
+CARGO_TARGET_DIR=/home/nathan/code/rust/aicacia/of/target CARGO_BUILD_JOBS=1 RUST_MIN_STACK=67108864 just crap
+```
+
+Sequential, normal libtest concurrency; no test filtering, thread overrides, feature/profile changes or retry-to-green. Root matrix is **root package only**, not workspace. `just crap` remains SDK prerequisite then workspace llvm-cov (default feature resolution, cfg(coverage),23 packages), then cargo-crap **only on success**. Existing55-minute partial coverage cache retained and reused where fingerprints permitted. No cache deletion, no warmup, no archive repair, no short-stage restart.
+
+Supervisor `/tmp/setup11-supported-run.py` used fresh owned PGIDs, five-second resource samples and independent7200s per-gate ceilings. Every launch/poll tool call <=600000ms; commands continued across polls. Same guards: RAM<2GiB; disk<30GiB; PSI some avg10>=20 or full avg10>=10 for three consecutive samples. Full swap alone no veto. Initial available RAM **9.3GiB**, disk **324GiB**, PSI avg10 **0/0**; no Rust workload present. **No resource/time guard fired in either gate.**
+
+### Root10-run matrix: per-combination aggregate
+
+Start UTC `2026-10-27T02:56:14.061774+00:00`; PGID3592912; cargo-hack exit1, inner Cargo exit101; supervisor **1137.64s**. First compilation finished **15m04s**. Root main target0 tests succeeded. Owner-boundary target **36 passed /8 failed /6 existing child-only ignored**, no filtering, **232.09s**. Nested child summaries are not double-counted as independent parent results.
+
+| Combination | Command/result                                                                          | Completed successfully |
+| ----------- | --------------------------------------------------------------------------------------- | ---------------------- |
+| 1/10        | `cargo test --all-targets --all-features`; compiled, then owner_boundaries failed36/8/6 | No                     |
+| 2–10/10     | Not launched because combination1 failed                                                | No                     |
+
+**One attempted/failed combination; zero successful combinations; nine unexecuted.** `/tmp/setup11-supported-combinations.json` contains an individual entry for each of the10 runs. No later target/combination qualification and no workspace-matrix claim.
+
+Exact failed parents and underlying failure lines observed in their children:
+
+| Parent name (owner_composition_tests prefix unless shown)                                                                                 | Actual failure                                                                                                                                                                       |
+| ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `create::production_independent_create_and_offline_reopen`                                                                                | create.rs:453 `authenticated Storage`: HTTPS `/storage/databases`, reqwest TimedOut.                                                                                                 |
+| `create::production_independent_create_unsupported_record_refusal_and_current_reset`                                                      | Same authenticated Storage timeout, before reset qualification.                                                                                                                      |
+| `operation::production_independent_signer_free_operation_and_delayed_authority_reopen`                                                    | Same create.rs:453 authenticated Storage timeout.                                                                                                                                    |
+| `permissions::independent_permission_production_management_https`                                                                         | permissions.rs:310 `real policy denial`: HTTPS `/idp/applications`, reqwest TimedOut.                                                                                                |
+| `remote_setup::remote_create_join_reopen_and_device_reset_preserve_shared_installation`                                                   | create.rs:260 `bounded independent storage readiness`.                                                                                                                               |
+| `join::production_independent_join_and_source_offline_reopen`                                                                             | create.rs:260 `bounded independent idp readiness`.                                                                                                                                   |
+| `join::production_independent_join_unsupported_record_refusal_and_current_reset`                                                          | Same bounded IdP readiness, before reset qualification.                                                                                                                              |
+| `node_bootstrap_interruption_tests::desktop_bootstrap_orchestration_completes_both_public_contexts_and_retries_offline` (no owner prefix) | node_bootstrap_interruption_tests.rs:390 `production driver or pinned peer signed reply`: WouldBlock, `another setup secret operation owns this directory; retry after it finishes`. |
+
+Current source confirms create.rs:453 is an authenticated normal-use response assertion, not the invalid-bearer denial assertion from the prior run. Bootstrap line390 unwraps the production driver's result after `tokio::join!(sending, approving)`; the actual contending owner is **not identified** by this wrapper. No missing-private-signer or Database-already-open message in this log. These are real current ordinary HTTPS/readiness/secret-operation failures associated with the setup seams, not evidence of a compiler or resource-stop failure. Peak CPU activity does not establish a scheduling cause. No causal regression/fix attempted; coordinate actual owner/phase evidence before changing current API setup code. Prior scoped passes are not pooled to waive these failures.
+
+### Workspace just crap: successful instrumented compilation, concrete test blocker
+
+Start UTC `2026-10-27T03:16:07.813905+00:00`; PGID3603679; **exit101**, supervisor **2703.61s**. No safety/time stop. Instrumented test compilation actually finished **40m54s**, optimized+debuginfo, including desktop dependencies/root tests. Existing unused-support warnings were not suppressed.
+
+Completed top-level test targets before Cargo stopped (child-entry results not double-counted):
+
+| Workspace target                                | Actual result                             |
+| ----------------------------------------------- | ----------------------------------------- |
+| api lib                                         | 42 passed /0 failed /2 child-only ignored |
+| cli lib                                         | 0 tests, successful                       |
+| device-server lib                               | 37 passed /0 failed /1 child-only ignored |
+| device-server device-database and main binaries | 0 tests each, successful                  |
+| device-server hosted_node_join integration      | 2 passed /0 failed                        |
+| device-service lib                              | 87 passed /0 failed,235.39s               |
+| device-service device_contract integration      | 5 passed /1 failed,0.16s                  |
+
+Exact concrete blocker:
+
+```text
+approved_enrollment_denies_unresolved_owner_conflicts_even_with_exact_visible_binding
+crates/device-service/tests/device_contract.rs:225:14
+replicated Management state: QueryError { kind: Storage,
+  message: "Error: Incomplete catalog: data table devices has no definition" }
+```
+
+Source-only diagnosis: the test initializes Management schema on `left`, enrolls a device, creates a fresh empty `right`, then applies `left.export_sync_state()` one unit at a time to `right`; it fails at that import **before concurrent updates or intended owner-conflict denial assertions**. `right` does not call Management schema initialization in this fixture. This localizes a fixture/catalog-import contract seam; it does not prove whether the fixture or backend import contract must change. It is a concrete separate integration blocker, not authorization to add schema/suppressions or claim a production fix. No retry or source change.
+
+Cargo stopped at this failing target, so remaining workspace targets were not qualified. **llvm-cov did not complete; cargo-crap was not reached. No fresh LCOV report, percentage or CRAP score.** Existing `/tmp/lcov.info` was unchanged (mtime1792952336.3300025,size135599), not consumed as a current report.
+
+### Actual CPU, RSS and PSI
+
+Five-second summed owned-PGID RSS samples; CPU is the sampled sum of live member utime/stime deltas (100%=one core), excluding the subsecond startup sample from peak interpretation. Short-lived processes disappearing between samples can be missed. Waited-child CPU totals include supervisor sampling `ps` overhead; they are not claimed exact production-only CPU. Kernel child maximum RSS is maximum **individual** waited child, not simultaneous aggregate physical memory. No resource peak is guaranteed between samples.
+
+| Metric                                  |             Root matrix | Workspace coverage recipe |
+| --------------------------------------- | ----------------------: | ------------------------: |
+| Minimum MemAvailable bytes              |           8,362,168,320 |             7,919,919,104 |
+| Minimum disk-free bytes                 |         344,061,648,896 |           321,081,700,352 |
+| Peak sampled owned RSS bytes            |           5,130,428,416 |             5,590,016,000 |
+| Kernel maximum individual child RSS KiB |               4,877,656 |                 5,678,216 |
+| Peak sampled owned CPU %                |                 1493.71 |                   1474.91 |
+| Waited-child user/system CPU seconds    | 2989.864937 /147.302223 |   4530.389672 /352.397232 |
+| Max memory PSI some/full avg10          |              3.15 /2.94 |                9.52 /8.27 |
+
+### Preservation, receipts and release
+
+Both owned groups verified absent after commands; no further processes terminated. Existing caches preserved. Recorded clean post-merge baseline and claim-only status before install. Saved exact eight generated Storage path hashes/symlink state and full binary patch immediately after SDK setup. At final cleanup, required unchanged source/lock/sibling inputs, empty index, exact path set, matching per-path content/symlink hashes and byte-identical entire packages diff before restoring **only those eight pass-owned paths** from `d35a961fb`. No unknown user changes restored. Only11 ticket/evidence remained dirty; no map/spec/07 or production edits.
+
+Private mode0600 receipts under `/tmp/setup11-supported-*`: `inputs.json`, `source-receipt.json`, `combinations.json`, `run.py`, `generated.json`, `generated.patch`, prerequisite/matrix/crap logs, per-gate `-result.json`, complete `-resources.jsonl`, and hash/size index `manifest.json`.
+
+| Log                                 | SHA-256                                                            |
+| ----------------------------------- | ------------------------------------------------------------------ |
+| `/tmp/setup11-supported-prereq.log` | `90dcc38f18c702cbb874980b59e52316f96ac18f4c2ebeb08ee1d690bf937689` |
+| `/tmp/setup11-supported-matrix.log` | `b63b47eb37bc02010a2216afb817658f104fdd75377696f4ed207113f886c7ff` |
+| `/tmp/setup11-supported-crap.log`   | `126fa458748a74dd3721dc4950b1136c5dbdf56b3d18d751572cbcd64d05f41b` |
+
+No new Clippy/standalone frontend run. Generated strict-Clippy93-error history remains unwaived; the old standalone9/15 receipt is superseded at its separate fixture boundary by the integrated [24/24 standalone fixture qualification](07-http-fixture-requalification.md), **not rerun here**. Neither that result nor SDK exports certifies backend gates.
+
+Ticket11 remains **open**, triage **ready-for-agent** for coordinated causal follow-up, not a claimed completion or resource no-launch blocker. Current attempts reached actual test failures with adequate measured headroom. Final documentation validation: `git diff --check`; hooks-disabled results commit and integration-tip merge before clean handoff. Exclusive Rust slot released after both owned groups were verified absent. No additional qualification or retry is running.
