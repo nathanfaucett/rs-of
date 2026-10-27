@@ -1,22 +1,13 @@
-use std::{
-    ops::Bound,
-    path::PathBuf,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
-    time::Duration,
-};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use chrono::Utc;
-use futures::Stream;
 use idp_model::{
     contract::{ClientProfile, ClientType, GrantType, TokenEndpointAuthMethod},
     model::{Client, Id},
 };
 use ofdb_sql::{
-    AutomergeRowCodec, Engine, EngineExecutor, EngineResult, Kernel, KernelTransaction, RedbKernel,
-    RowCodec, Server, redb,
+    AutomergeRowCodec, Engine, EngineExecutor, Kernel, KernelTransaction, RedbKernel, RowCodec,
+    Server, redb,
 };
 use tokio::{sync::oneshot, task::JoinHandle};
 
@@ -25,108 +16,12 @@ use crate::{
     repo::{ClientRepo, KeyService},
 };
 
+use super::super::observation_test_kernel::{CatalogReads, CountingKernel};
+
 use super::{
     ClientRow, DbClientRepo, Query, QueryInsert, Row, Statement, Value, local_credential_insert,
     tests::TestPrivateKeyRepo,
 };
-
-#[derive(Default)]
-struct CatalogReads {
-    tables: AtomicUsize,
-    fields: AtomicUsize,
-}
-
-impl CatalogReads {
-    fn reset(&self) {
-        self.tables.store(0, Ordering::Relaxed);
-        self.fields.store(0, Ordering::Relaxed);
-    }
-
-    fn totals(&self) -> [usize; 2] {
-        [
-            self.tables.load(Ordering::Relaxed),
-            self.fields.load(Ordering::Relaxed),
-        ]
-    }
-}
-
-#[derive(Clone)]
-struct CountingKernel {
-    inner: RedbKernel,
-    reads: Arc<CatalogReads>,
-}
-
-struct CountingTransaction {
-    inner: <RedbKernel as Kernel>::Transaction,
-    reads: Arc<CatalogReads>,
-}
-
-impl Kernel for CountingKernel {
-    type Transaction = CountingTransaction;
-
-    async fn transaction(&self) -> EngineResult<Self::Transaction> {
-        Ok(CountingTransaction {
-            inner: self.inner.transaction().await?,
-            reads: Arc::clone(&self.reads),
-        })
-    }
-}
-
-impl KernelTransaction for CountingTransaction {
-    async fn ensure_table(&mut self, table: &str) -> EngineResult<()> {
-        self.inner.ensure_table(table).await
-    }
-
-    async fn drop_table(&mut self, table: &str) -> EngineResult<()> {
-        self.inner.drop_table(table).await
-    }
-
-    async fn get_bytes(&self, table: &str, key: &[u8]) -> EngineResult<Option<Vec<u8>>> {
-        self.inner.get_bytes(table, key).await
-    }
-
-    fn scan_bytes<'a>(
-        &'a self,
-        table: &'a str,
-    ) -> impl Stream<Item = EngineResult<(Vec<u8>, Vec<u8>)>> + Send + 'a {
-        self.scan_bytes_range(table, (Bound::Unbounded, Bound::Unbounded))
-    }
-
-    fn scan_bytes_range<'a>(
-        &'a self,
-        table: &'a str,
-        range: (Bound<Vec<u8>>, Bound<Vec<u8>>),
-    ) -> impl Stream<Item = EngineResult<(Vec<u8>, Vec<u8>)>> + Send + 'a {
-        if matches!(range, (Bound::Unbounded, Bound::Unbounded)) {
-            match table {
-                "tables" => {
-                    self.reads.tables.fetch_add(1, Ordering::Relaxed);
-                }
-                "table_fields" => {
-                    self.reads.fields.fetch_add(1, Ordering::Relaxed);
-                }
-                _ => {}
-            }
-        }
-        self.inner.scan_bytes_range(table, range)
-    }
-
-    async fn put_bytes(&mut self, table: &str, key: Vec<u8>, value: Vec<u8>) -> EngineResult<()> {
-        self.inner.put_bytes(table, key, value).await
-    }
-
-    async fn remove_bytes(&mut self, table: &str, key: &[u8]) -> EngineResult<Option<Vec<u8>>> {
-        self.inner.remove_bytes(table, key).await
-    }
-
-    async fn commit(self) -> EngineResult<()> {
-        self.inner.commit().await
-    }
-
-    async fn rollback(self) -> EngineResult<()> {
-        self.inner.rollback().await
-    }
-}
 
 struct Fixture {
     directory: PathBuf,

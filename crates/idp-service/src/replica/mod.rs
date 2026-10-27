@@ -1,3 +1,8 @@
+#[cfg(test)]
+mod authority_observation_tests;
+#[cfg(test)]
+mod observation_test_kernel;
+
 mod application_repo;
 mod client_repo;
 mod key_repo;
