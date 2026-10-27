@@ -96,7 +96,7 @@ Private resumed log SHA-256 **`e650291b9e28b614776cc3795d8c8dfa19edf2d24fcb8c727
 
 ## Approved owner-target quarantine and successful unchanged build
 
-User explicitly approved renaming **only** `of/target/debug/incremental/owner_boundaries-1u8g86tof19cn` to a unique sibling quarantine path, retaining artifacts/metadata and all dependency/other-target caches. Recorded the failed object and linker diagnostic before the rename:
+Parent explicitly approved renaming **only** `of/target/debug/incremental/owner_boundaries-1u8g86tof19cn` to a unique sibling quarantine path, retaining artifacts/metadata and all dependency/other-target caches. Recorded the failed object and linker diagnostic before the rename:
 
 - Referenced object `target/debug/deps/owner_boundaries-fbdb13f2c672f60d.axnwbwhuiz3vyrn7bpnrnus0v.1wbcu4i.rcgu.o`, inode10015846, SHA-256 **`ada54d491771cb308e8b3fd2178f2c1de9a94dbaddeacf107c539e3f3d1c2e3f`**.
 - Full linker diagnostic text SHA-256 **`2f7fc07a13aa4b0ffafa005304d1ebdd536bbe94ae6e014b7c628f17472a75af`**, including the test-local hidden symbols described above. No source/flags/dependency repair.
