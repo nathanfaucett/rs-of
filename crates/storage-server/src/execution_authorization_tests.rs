@@ -64,7 +64,8 @@ async fn queued_write_fixture(in_flight: bool) {
         let idp = Arc::new(Database::open(root.join("idp.redb")).expect("open IdP"));
         let management = Arc::new(Database::open(root.join("management.redb")).expect("open Management"));
         idp_model::replica::up(&idp).await.expect("IdP schema");
-        device_service::replica::up(&management).await.expect("Management schema");
+        device_service::replica::up(&management).await.expect("Device schema");
+        management_service::replica::up(&management).await.expect("Management policy schema");
         let actor = Id::now_v7();
         let member = Id::now_v7();
         let role = Id::now_v7();

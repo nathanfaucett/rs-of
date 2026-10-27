@@ -19,6 +19,8 @@ pub fn random_bytes(size: usize) -> Vec<u8> {
 }
 
 pub fn encrypt_password(config: &PasswordConfig, input: &str) -> argon2::Result<String> {
+    #[cfg(feature = "std")]
+    let _observation = PasswordObservation::start("hash");
     argon2::hash_encoded(
         input.as_bytes(),
         random_bytes(config.salt_length).as_slice(),
@@ -30,7 +32,49 @@ pub fn verify_password(input: &str, encrypted_password: &str) -> argon2::Result<
     if encrypted_password.is_empty() {
         return Ok(false);
     }
+    #[cfg(feature = "std")]
+    let _observation = PasswordObservation::start("verify");
     argon2::verify_encoded(encrypted_password, input.as_bytes())
+}
+
+#[cfg(feature = "std")]
+struct PasswordObservation(Option<(&'static str, std::time::Instant)>);
+
+#[cfg(feature = "std")]
+impl PasswordObservation {
+    fn start(phase: &'static str) -> Self {
+        let started = std::env::var_os("OF_SETUP_TIMEOUT_TIMING").map(|_| {
+            eprintln!(
+                "seam=password phase={phase}_start pid={} thread={:?} wall_ms={}",
+                std::process::id(),
+                std::thread::current().id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("system clock")
+                    .as_millis()
+            );
+            (phase, std::time::Instant::now())
+        });
+        Self(started)
+    }
+}
+
+#[cfg(feature = "std")]
+impl Drop for PasswordObservation {
+    fn drop(&mut self) {
+        if let Some((phase, started)) = self.0 {
+            eprintln!(
+                "seam=password phase={phase}_end pid={} thread={:?} wall_ms={} elapsed_ms={}",
+                std::process::id(),
+                std::thread::current().id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("system clock")
+                    .as_millis(),
+                started.elapsed().as_millis()
+            );
+        }
+    }
 }
 
 fn argon2_config(config: &PasswordConfig) -> argon2::Config<'_> {

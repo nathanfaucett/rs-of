@@ -1,4 +1,9 @@
-use std::{collections::HashMap, fs, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    fs,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use idp_server::local_provisioning::provisioning_stage;
 
@@ -209,6 +214,12 @@ pub(super) async fn run(
     approving: &str,
     storage: &str,
 ) {
+    #[cfg(feature = "cli")]
+    if std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_some() {
+        timing_logger()
+            .try_init()
+            .expect("isolated HTTPS child owns its categorical timing logger");
+    }
     let case = Case::selected();
     let expected_issuer = fixture.config.idp.oauth2.issuer.clone();
     let address = fixture.config.listen_addr;
@@ -417,11 +428,30 @@ pub(super) async fn run(
             .status(),
         StatusCode::FORBIDDEN
     );
+    let timing = std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_some();
+    let started = Instant::now();
+    if timing {
+        eprintln!("seam=approval_client phase=start elapsed_ms=0");
+    }
+    let response = http.post(&approval).bearer_auth(approving).send().await;
+    if timing {
+        match &response {
+            Ok(response) => eprintln!(
+                "seam=approval_client phase=end elapsed_ms={} status={}",
+                started.elapsed().as_millis(),
+                response.status().as_u16()
+            ),
+            Err(error) => eprintln!(
+                "seam=approval_client phase=end elapsed_ms={} timeout={} connect={} request={}",
+                started.elapsed().as_millis(),
+                error.is_timeout(),
+                error.is_connect(),
+                error.is_request()
+            ),
+        }
+    }
     assert_eq!(
-        http.post(&approval)
-            .bearer_auth(approving)
-            .send()
-            .await
+        response
             .expect("ordinary authorized source approval")
             .status(),
         StatusCode::OK
@@ -614,6 +644,80 @@ async fn pending_node(http: &Client, source: &HttpsHost, approving: &str) -> Val
     })
     .await
     .expect("real Iroh offer reaches authorized source API")
+}
+
+#[cfg(feature = "cli")]
+fn timing_logger() -> env_logger::Builder {
+    use std::{
+        io::{self, Write},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    let mut builder = env_logger::Builder::new();
+    builder
+        .parse_filters("off,setup_timeout=debug")
+        .format(|buffer, record| {
+            let unix_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(io::Error::other)?
+                .as_millis();
+            writeln!(buffer, "unix_ms={unix_ms} {}", record.args())
+        });
+    builder
+}
+
+#[cfg(feature = "cli")]
+#[test]
+fn categorical_timing_logger_emits_common_clock_without_humantime() {
+    use std::{
+        io::{self, Write},
+        sync::Mutex,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    struct Capture(Arc<Mutex<Vec<u8>>>);
+    impl Write for Capture {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0
+                .lock()
+                .expect("captured log buffer")
+                .extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let output = Arc::new(Mutex::new(Vec::new()));
+    let logger = timing_logger()
+        .target(env_logger::Target::Pipe(Box::new(Capture(output.clone()))))
+        .build();
+    let before = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("current clock")
+        .as_millis();
+    log::Log::log(
+        &logger,
+        &log::Record::builder()
+            .target("setup_timeout")
+            .level(log::Level::Debug)
+            .args(format_args!("seam=formatter phase=check"))
+            .build(),
+    );
+    let after = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("current clock")
+        .as_millis();
+    let line = String::from_utf8(output.lock().expect("captured log buffer").clone())
+        .expect("timing output is UTF-8");
+    let timestamp = line
+        .strip_prefix("unix_ms=")
+        .and_then(|line| line.strip_suffix(" seam=formatter phase=check\n"))
+        .expect("explicit common-clock timestamp and categorical message only")
+        .parse::<u128>()
+        .expect("integer Unix milliseconds");
+    assert!((before..=after).contains(&timestamp));
 }
 
 async fn authenticated_storage(http: &Client, base: &str, bearer: &str) {

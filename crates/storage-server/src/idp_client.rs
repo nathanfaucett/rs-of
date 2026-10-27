@@ -135,19 +135,19 @@ impl IdpClient {
         &self,
         token: &str,
     ) -> Result<IntrospectionResponse, IdpIntrospectionError> {
+        let response = self.inspect_identity(token).await?;
         #[cfg(feature = "network")]
         if let Some((endpoint, policy)) = &self.local_device_policy {
-            let (response, owner) =
-                tokio::join!(self.inspect_identity(token), policy.local_owner(*endpoint));
-            let response = response?;
-            let owner = owner.map_err(|_| IdpIntrospectionError::InvalidToken)?;
+            let owner = policy
+                .local_owner(*endpoint)
+                .await
+                .map_err(|_| IdpIntrospectionError::InvalidToken)?;
 
             if response.claims.sub != owner {
                 return Err(IdpIntrospectionError::InvalidToken);
             }
-            return Ok(response);
         }
-        self.inspect_identity(token).await
+        Ok(response)
     }
 
     async fn inspect_identity(

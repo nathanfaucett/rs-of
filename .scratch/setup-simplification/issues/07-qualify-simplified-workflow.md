@@ -8,15 +8,32 @@
 
 **Triage:** ready-for-agent
 
+## Current integration status (2026-10-27)
+
+**07, [09](09-diagnose-readiness-and-request-timeouts.md), [11](11-complete-provisioned-validation.md) and the [spec](../spec.md) remain open.** Reviewed changes now include shared-worker/queued-reply and independent connection teardown fences; Storage identity-first denial preserving current policy/response checks; Management policy-schema, standalone HTTP and continuously bound source-HTTPS fixture fixes; and the Device conflict fixture's complete-catalog initial sync (**6/6 focused**, unchanged negative assertions). Application-owned AGENTS guidance (`1cfe76076`) is integrated. Sibling ofdb integration **`a8c23a54540e591aa024396a5674dc016b6cce3a`** includes batched candidate observation, exact field lookup, measured schema stack boundaries and operation-local same-transaction schema reuse with their recorded focused regressions/controls. These are implemented fixes, not whole-workflow acceptance.
+
+The [latest supported root matrix](../evidence/11-validation-attempt.md#supported-qualification-on-current-inputs-2026-10-27) failed combination **1/10 with36p/8f/6ignored**; nine combinations did not run, zero succeeded. Instrumented workspace compilation completed, then `device_contract` failed5p/1f on incomplete catalog import. The [new fixture6/6 pass](../evidence/11-device-contract-fixture.md) is focused only: **matrix/coverage/CRAP have not been rerun**, no fresh report/score exists, and neither supported gate hit a resource/time guard. [Lock-probe evidence](../evidence/09-timeout-localization.md#protected-setup-secret-lock-probe-2026-10-27-utc) records one exact parent passing78.2s with282 acquisition/release pairs and zero contention; it neither identifies the historical initial-driver holder nor implements a behavior fix. Remaining work is causal current-readiness/nested authorization and actual contention-holder diagnosis, followed by unchanged-bound integrated qualification; generated dependency Clippy and GUI/platform/provider/trust/WAN limits remain unwaived. No acceptance boxes change. Older handoff/Answer sections below remain historical receipts.
+
 ## Scoped merge handoff
 
 The user accepted scoped merge readiness with incomplete qualification retained. Final source review of local `main...setup-simplification` at `8d94861d1` found no new code-level blocker; it did not test a merged tree or certify a packaged desktop release. No merge/push was performed as part of this handoff. Ticket 07 stays open and its unchecked acceptance criteria are not silently waived.
 
 Remaining work has concrete follow-ups: [08: provider fixture isolation](08-isolate-mock-provider-fixtures.md), [09: unexplained readiness/request timeouts](09-diagnose-readiness-and-request-timeouts.md), [10: fixture/SDK prerequisites](10-repair-validation-fixture-prerequisites.md), and [11: provisioned matrix/CRAP](11-complete-provisioned-validation.md). Their completion must feed evidence back into this ticket before qualification is resolved.
 
+## Follow-up integration
+
+The scoped implementation was subsequently merged into local `main`; this follow-up started from newer main `da5bc63419623ab48f93dea14dfce20f3e10ffc9` on `integration/setup-simplification-followup`. The earlier no-merge handoff above is historical.
+
+- [08 provider isolation](../evidence/08-provider-isolation.md) is resolved: deterministic ownership red/green, 16 service unit tests and 35 concurrent owner-boundary tests passed; no claim that every historical signer failure followed the demonstrated sequence.
+- [10 fixture/SDK prerequisites](../evidence/10-fixture-prerequisites.md) is resolved: rebuilt exported-SDK scenario, revised Create/Join reset parents and children, neighboring reopen/reset scenarios, six native reset/recovery tests and one peer-revocation test passed.
+- [09 diagnostics](../evidence/09-timeout-localization.md) remains open: untraced Join cells passed 12/12, traced approval timed out at 5001ms while the handler later completed at 5439ms; concurrent Create hit a stopped-Device Database lock after awaited shutdown. A later traced pair reopened successfully but failed watchdogs. No deterministic causal regression or lifecycle fix is established; do not mark the two durability criteria qualified.
+- [11 resource preflight](../evidence/11-validation-attempt.md) remains open/ready-for-human: SDK prerequisites passed, but approximately 6.8 GiB available RAM and effectively exhausted swap triggered the conservative no-launch gate. Zero matrix combinations and no coverage/CRAP ran in this follow-up. This is not proof that a specific command could not complete.
+
+Independent static review found no further actionable findings after the diagnostic timestamp correction. Focused/scoped passing checks do not establish full workspace, packaged desktop, OS trust, production provider, GUI or WAN acceptance. Ticket07 remains open.
+
 ## Qualification checklist
 
-Latest handoff: reviewed lifecycle fixes and three final serial HTTPS suites (9/9 scenarios) pass; [reliability evidence](../evidence/07-reliability-followup.md). The [matrix now fails owner-boundary tests and coverage is memory-blocked](../evidence/07-validation-followup.md). Earlier offer/request timeout causes remain unproven. Keep qualification open; historical Answer sections below are not the latest validation disposition.
+Latest disposition is the current integration summary above: focused fixes pass their recorded controls, but the supported matrix failed and coverage stopped on an actual Device contract test failure, not a resource guard. The fixture has since passed6/6 focused; broad gates remain unrerun. Preserve both unchecked integrated durability criteria and all historical evidence below.
 
 - [x] Verify default bundled first launch has one essential Create/Join choice, minimal required input, no mandatory internal composition, and no completion-only gate before ordinary sign-in.
 - [ ] Exercise the integrated Join flow from request through source acceptance and exact approval/rejection to verified readiness; verify completed reopen without the source peer.

@@ -3,7 +3,8 @@ use std::sync::Arc;
 use chrono::{DateTime, Timelike, Utc};
 use db::{
     FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue, QueryFrom,
-    QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid, Value,
+    QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Transaction,
+    Uuid, Value,
 };
 use idp_model::{
     contract::{
@@ -163,7 +164,7 @@ where
     }
 
     async fn registrations(
-        &self,
+        transaction: &mut Transaction,
         predicate: Option<QueryExpr>,
     ) -> RepoResult<Vec<(Client, Option<Id>)>> {
         let revoked_at = QueryExpr::Value(QueryExprValue::Column(column("revoked_at")));
@@ -180,8 +181,7 @@ where
             Some(predicate) => QueryExpr::And(Box::new(predicate), Box::new(active)),
             None => active,
         });
-        let mut results = self
-            .engine
+        let mut results = transaction
             .execute(vec![Statement::Query(select(predicate))])
             .await
             .map_err(db_error)?;
@@ -199,12 +199,14 @@ where
         Ok(clients)
     }
 
-    async fn clients(&self, predicate: Option<QueryExpr>) -> RepoResult<Vec<Client>> {
-        let mut clients = self.registrations(predicate).await?;
+    async fn clients(
+        transaction: &mut Transaction,
+        predicate: Option<QueryExpr>,
+    ) -> RepoResult<Vec<Client>> {
+        let mut clients = Self::registrations(transaction, predicate).await?;
         for (client, revision) in &mut clients {
             let key = Row::new(vec![Value::Uuid(client.id)]);
-            if !self
-                .engine
+            if !transaction
                 .row_conflicts("local_client_credentials", &key)
                 .await
                 .map_err(db_error)?
@@ -214,10 +216,10 @@ where
                     "conflicted local client credential".into(),
                 ));
             }
-            let result = self.engine.translate_and_execute(
-                &format!("SELECT secret_hash, credential_id FROM local_client_credentials WHERE client_id = CAST('{}' AS UUID)", client.id),
-                &db::SqlTranslator,
-            ).await.map_err(db_error)?;
+            let result = transaction
+                .execute(vec![Statement::Query(local_credential_select(client.id))])
+                .await
+                .map_err(db_error)?;
             if let Some(row) = result[0]
                 .rows
                 .first()
@@ -228,6 +230,36 @@ where
             }
         }
         Ok(clients.into_iter().map(|(client, _)| client).collect())
+    }
+
+    async fn find(&self, predicate: QueryExpr) -> RepoResult<Option<Client>> {
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
+        let result = async {
+            let client = Self::clients(&mut transaction, Some(predicate))
+                .await?
+                .into_iter()
+                .next();
+            if let Some(client) = client.as_ref() {
+                Self::ensure_clear_in(&mut transaction, client.id).await?;
+            }
+            Ok(client)
+        }
+        .await;
+        let rollback = transaction.rollback().await.map_err(db_error);
+        result.and_then(|client| rollback.map(|()| client))
+    }
+
+    async fn ensure_clear_in(transaction: &mut Transaction, id: Id) -> RepoResult<()> {
+        if transaction
+            .row_conflicts(TABLE, &Row::new(vec![Value::Uuid(id)]))
+            .await
+            .map_err(db_error)?
+            .is_empty()
+        {
+            Ok(())
+        } else {
+            Err(RepoError::InvalidInput("conflicted client".into()))
+        }
     }
 
     async fn ensure_clear(&self, id: Id) -> RepoResult<()> {
@@ -313,53 +345,52 @@ where
     P: PrivateKeyRepo + Send + Sync,
 {
     async fn find_client_by_id(&self, id: Id) -> RepoResult<Option<Client>> {
-        let client = self
-            .clients(Some(equals("id", Value::Uuid(id))))
-            .await?
-            .into_iter()
-            .next();
-        if let Some(client) = client.as_ref() {
-            self.ensure_clear(client.id).await?;
-        }
-        Ok(client)
+        self.find(equals("id", Value::Uuid(id))).await
     }
 
     async fn find_client_by_client_id(&self, client_id: &str) -> RepoResult<Option<Client>> {
-        let client = self
-            .clients(Some(equals("client_id", Value::Text(client_id.into()))))
-            .await?
-            .into_iter()
-            .next();
-        if let Some(client) = client.as_ref() {
-            self.ensure_clear(client.id).await?;
-        }
-        Ok(client)
+        self.find(equals("client_id", Value::Text(client_id.into())))
+            .await
     }
 
     async fn find_client_registration(&self, client_id: &str) -> RepoResult<Option<Client>> {
-        let client = self
-            .registrations(Some(equals("client_id", Value::Text(client_id.into()))))
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
+        let result = async {
+            let client = Self::registrations(
+                &mut transaction,
+                Some(equals("client_id", Value::Text(client_id.into()))),
+            )
             .await?
             .into_iter()
             .next()
             .map(|(client, _)| client);
-        if let Some(client) = client.as_ref() {
-            self.ensure_clear(client.id).await?;
+            if let Some(client) = client.as_ref() {
+                Self::ensure_clear_in(&mut transaction, client.id).await?;
+            }
+            Ok(client)
         }
-        Ok(client)
+        .await;
+        let rollback = transaction.rollback().await.map_err(db_error);
+        result.and_then(|client| rollback.map(|()| client))
     }
 
     async fn list_clients(&self, offset: u32, limit: u32) -> RepoResult<Vec<Client>> {
-        let clients = self.clients(None).await?;
-        let clients = clients
-            .into_iter()
-            .skip(offset as usize)
-            .take(limit as usize)
-            .collect::<Vec<_>>();
-        for client in &clients {
-            self.ensure_clear(client.id).await?;
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
+        let result = async {
+            let clients = Self::clients(&mut transaction, None)
+                .await?
+                .into_iter()
+                .skip(offset as usize)
+                .take(limit as usize)
+                .collect::<Vec<_>>();
+            for client in &clients {
+                Self::ensure_clear_in(&mut transaction, client.id).await?;
+            }
+            Ok(clients)
         }
-        Ok(clients)
+        .await;
+        let rollback = transaction.rollback().await.map_err(db_error);
+        result.and_then(|clients| rollback.map(|()| clients))
     }
 
     fn create_client(
@@ -896,6 +927,10 @@ fn select(predicate: Option<QueryExpr>) -> Query {
 #[cfg(test)]
 use db::Database;
 
+#[cfg(all(test, unix))]
+#[path = "client_observation_tests.rs"]
+mod observation_tests;
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -921,7 +956,7 @@ mod tests {
     use super::*;
 
     #[derive(Default)]
-    struct TestPrivateKeyRepo(Mutex<HashMap<(String, String), key::DerivedKey>>);
+    pub(super) struct TestPrivateKeyRepo(Mutex<HashMap<(String, String), key::DerivedKey>>);
     impl PrivateKeyRepo for TestPrivateKeyRepo {
         fn load(
             &self,

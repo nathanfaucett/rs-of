@@ -41,6 +41,11 @@ impl IndependentCreateControl {
         }
         let body =
             serde_json::json!({"approval":approval,"recipient":self.owner(),"return_nonce":nonce});
+        let requested_at = std::time::Instant::now();
+        log::debug!(
+            "Join history context={} phase=challenge_request_start",
+            self.owner()
+        );
         match self.owner() {
             "idp" => {
                 let configuration = of_idp_client::apis::configuration::Configuration {
@@ -55,7 +60,16 @@ impl IndependentCreateControl {
                     },
                 )
                 .await
-                .map_err(|_| io::Error::other("source public history unavailable or denied"))?;
+                .map_err(|error| {
+ let (category, status) = match &error {
+ of_idp_client::apis::Error::Reqwest(error) if error.is_timeout() => ("timeout", None),
+ of_idp_client::apis::Error::Reqwest(error) if error.is_connect() => ("connect", None),
+ of_idp_client::apis::Error::ResponseError(response) => ("response", Some(response.status.as_u16())),
+ _ => ("request", None),
+ };
+ log::warn!("Join history context={} phase=challenge_request_error category={category} status={status:?}", self.owner());
+ io::Error::other("source public history unavailable or denied")
+ })?;
             }
             "device" => {
                 let configuration = of_device_client::apis::configuration::Configuration {
@@ -70,15 +84,39 @@ impl IndependentCreateControl {
                     },
                 )
                 .await
-                .map_err(|_| io::Error::other("source public history unavailable or denied"))?;
+                .map_err(|error| {
+ let (category, status) = match &error {
+ of_device_client::apis::Error::Reqwest(error) if error.is_timeout() => ("timeout", None),
+ of_device_client::apis::Error::Reqwest(error) if error.is_connect() => ("connect", None),
+ of_device_client::apis::Error::ResponseError(response) => ("response", Some(response.status.as_u16())),
+ _ => ("request", None),
+ };
+ log::warn!("Join history context={} phase=challenge_request_error category={category} status={status:?}", self.owner());
+ io::Error::other("source public history unavailable or denied")
+ })?;
             }
             _ => return Err(io::Error::other("unsupported public history owner")),
         }
+        log::debug!(
+            "Join history context={} phase=challenge_request_end elapsed_ms={}",
+            self.owner(),
+            requested_at.elapsed().as_millis()
+        );
+        log::debug!(
+            "Join history context={} phase=challenge_receive_start",
+            self.owner()
+        );
         let result = tokio::select! {
             biased;
             () = cancellation.cancelled() => Err(io::Error::new(io::ErrorKind::Interrupted, "history import cancelled")),
             challenge = receiver.recv() => challenge.ok_or_else(|| io::Error::other("history challenge unavailable")),
         };
+        log::debug!(
+            "Join history context={} phase=challenge_receive_end elapsed_ms={} error_kind={:?}",
+            self.owner(),
+            requested_at.elapsed().as_millis(),
+            result.as_ref().err().map(io::Error::kind)
+        );
         self.0.lifecycle.lock().await.history = None;
         result
     }

@@ -13,7 +13,7 @@ use std::{
 
 use api::{IndependentCreateIntent, LocalTls};
 use idp_model::model::Id;
-use idp_service::repo::{PrivateKeyKeyringRepo, RawKeyringRepo};
+use idp_service::repo::RawKeyringRepo;
 use keyring_core::{
     Entry,
     api::{Credential, CredentialApi, CredentialStoreApi},
@@ -161,7 +161,7 @@ impl Provider {
             fail_endpoint_delete: Arc::new(AtomicBool::new(false)),
             fail_node_readback: Arc::new(AtomicBool::new(false)),
         });
-        PrivateKeyKeyringRepo::new_with_store("independent-reset-qualification", provider.clone());
+        keyring_core::set_default_store(provider.clone());
         provider
     }
 
@@ -301,8 +301,8 @@ pub(super) async fn qualify_completed(root: &Path, provider: &Provider, issuer: 
         fs::read(Path::new(&commands).join("trust")).expect("mock trust command"),
         b"#!/bin/sh\nexit 0\n"
     );
-    if std::env::var("OF_INDEPENDENT_LEGACY_RESET").as_deref() == Ok("1") {
-        retain_legacy_cleanup_references(root).await;
+    if std::env::var("OF_INDEPENDENT_UNSUPPORTED_RESET").as_deref() == Ok("1") {
+        qualify_unsupported_records(root, provider).await;
     }
     let device = root.join("device");
     let worker_path = root.join("device.setup-host/worker.json");
@@ -372,19 +372,32 @@ pub(super) async fn qualify_completed(root: &Path, provider: &Provider, issuer: 
         .into_iter()
         .filter(|(reference, _)| !removed.contains(reference))
         .collect::<HashMap<_, _>>();
-    assert!(reset("device", &device, false).await.is_err());
-    provider.unavailable.store(true, Ordering::SeqCst);
-    assert!(
-        reset("device", &device, true).await.is_err(),
-        "provider absence is not successful cleanup"
+    assert_eq!(
+        worker["version"], 2,
+        "cleanup uses the current worker contract"
     );
+    let before_refusal = provider.snapshot();
+    let error = reset("device", &device, false)
+        .await
+        .expect_err("trust removal requires explicit consent");
+    assert!(error.to_string().contains("--remove-os-trust"));
+    provider.unavailable.store(true, Ordering::SeqCst);
+    let error = reset("device", &device, true)
+        .await
+        .expect_err("provider absence is not successful cleanup");
+    assert!(error.to_string().contains("isolated provider unavailable"));
     provider.unavailable.store(false, Ordering::SeqCst);
+    assert_eq!(provider.snapshot(), before_refusal);
     assert_eq!(fs::read(&worker_path).expect("preserved worker"), bytes);
     assert!(device.exists());
     provider.fail_endpoint_delete.store(true, Ordering::SeqCst);
+    let error = reset("device", &device, true)
+        .await
+        .expect_err("actual provider deletion failure");
     assert!(
-        reset("device", &device, true).await.is_err(),
-        "actual provider deletion failure"
+        error
+            .to_string()
+            .contains("isolated protected delete failure")
     );
     assert!(
         local
@@ -481,67 +494,116 @@ pub(super) async fn qualify_completed(root: &Path, provider: &Provider, issuer: 
     }
 }
 
-async fn retain_legacy_cleanup_references(root: &Path) {
+async fn qualify_unsupported_records(root: &Path, provider: &Provider) {
     for owner in ["idp", "device"] {
-        let path = root.join(format!("{owner}.setup-host/worker.json"));
-        let mut record: Value =
-            serde_json::from_slice(&fs::read(&path).expect("completed current record"))
-                .expect("record");
-        record["version"] = serde_json::json!(1);
-        if owner == "idp" {
-            if record.get("credential").is_none() {
-                record["credential"] = serde_json::json!(Id::now_v7());
+        let domain = root.join(owner);
+        let directory = root.join(format!("{owner}.setup-host"));
+        let path = directory.join("worker.json");
+        let current = fs::read(&path).expect("completed current record");
+        let record: Value = serde_json::from_slice(&current).expect("current worker");
+        assert_eq!(record["version"], 2);
+        let host = fs::read(directory.join("host.json")).expect("retained host");
+        let ca = fs::read(directory.join("tls/ca.pem")).expect("retained CA");
+        let sentinel = domain.join("reset-refusal-sentinel");
+        fs::write(&sentinel, b"retained local data").expect("isolated local data");
+        let before = provider.snapshot();
+        let mut unsupported = record.clone();
+        unsupported["version"] = serde_json::json!(if owner == "device" { 1 } else { 255 });
+        let mut historical = record;
+        historical["role"] = serde_json::json!(Id::now_v7());
+        historical["permissions"] = serde_json::json!([]);
+        for (bytes, reason) in [
+            (
+                serde_json::to_vec(&unsupported).expect("unsupported fixture"),
+                if owner == "device" {
+                    "unsupported Device reset record"
+                } else {
+                    "invalid retained IdP reset inventory"
+                },
+            ),
+            (
+                serde_json::to_vec(&historical).expect("unknown-field fixture"),
+                "unknown field",
+            ),
+            (b"{malformed".to_vec(), "key must be a string"),
+        ] {
+            let journal = root.join(format!("{owner}.setup-reset.json"));
+            assert!(
+                !journal.exists(),
+                "each negative fixture starts without a journal"
+            );
+            fs::write(&path, &bytes).expect("isolated unsupported evidence");
+            let settings: Value = serde_json::from_slice(&host).expect("retained host settings");
+            let address = settings["address"]
+                .as_str()
+                .expect("retained listener")
+                .parse()
+                .expect("address");
+            let setup = setup(root, owner, address);
+            let shutdown = CancellationToken::new();
+            let result = if owner == "idp" {
+                let mut config = idp_server::AppConfig {
+                    data_dir: domain.to_string_lossy().into_owned(),
+                    ..Default::default()
+                };
+                config.server.prefix = Some("/idp".into());
+                idp_server::serve_independent_create(Arc::new(config), setup, shutdown).await
+            } else {
+                let mut config = device_server::AppConfig {
+                    data_dir: domain.to_string_lossy().into_owned(),
+                    ..Default::default()
+                };
+                config.server.prefix = Some("/device".into());
+                device_server::serve_independent_create(Arc::new(config), setup, shutdown).await
+            };
+            assert!(
+                result.is_err(),
+                "ordinary startup refuses unsupported {owner} evidence"
+            );
+            let error = reset(owner, &domain, true)
+                .await
+                .expect_err("unsupported/malformed evidence must refuse before deletion");
+            assert!(error.to_string().contains(reason), "{owner}: {error}");
+            assert_eq!(provider.snapshot(), before, "protected material preserved");
+            assert_eq!(fs::read(&path).expect("worker preserved"), bytes);
+            assert_eq!(
+                fs::read(directory.join("host.json")).expect("host preserved"),
+                host
+            );
+            assert_eq!(
+                fs::read(directory.join("tls/ca.pem")).expect("CA preserved"),
+                ca
+            );
+            assert_eq!(
+                fs::read(&sentinel).expect("local data preserved"),
+                b"retained local data"
+            );
+            if journal.exists() {
+                let retained: Value =
+                    serde_json::from_slice(&fs::read(&journal).expect("refused reset inventory"))
+                        .expect("reset journal");
+                assert_eq!(retained["phase"], "secrets");
+                assert_eq!(
+                    retained["worker"],
+                    serde_json::from_slice::<Value>(&bytes).expect("captured evidence")
+                );
+                let journal_bytes = fs::read(&journal).expect("retained refused inventory");
+                fs::write(&path, &current)
+                    .expect("inject a conflicting worker against retained reset");
+                let error = reset(owner, &domain, true)
+                    .await
+                    .expect_err("current worker cannot overwrite retained reset references");
+                assert!(error.to_string().contains("retained setup changed"));
+                assert_eq!(
+                    fs::read(&journal).expect("inventory unchanged"),
+                    journal_bytes
+                );
+                assert_eq!(provider.snapshot(), before);
+                // Discard only this injected fixture's journal, not a production recovery path.
+                fs::remove_file(&journal).expect("discard isolated negative fixture journal");
             }
-        } else {
-            let seed = record
-                .as_object_mut()
-                .expect("worker object")
-                .remove("create");
-            record["role"] = seed
-                .as_ref()
-                .map(|seed| seed["role"].clone())
-                .unwrap_or_else(|| serde_json::json!(Id::now_v7()));
-            record["permissions"] =
-                seed.map(|seed| seed["permissions"].clone())
-                    .unwrap_or_else(|| {
-                        serde_json::json!((0..25).map(|_| Id::now_v7()).collect::<Vec<_>>())
-                    });
+            fs::write(&path, &current).expect("restore exact current test fixture, not migration");
         }
-        let bytes = serde_json::to_vec(&record).expect("historical exact references");
-        fs::write(&path, &bytes).expect("historical cleanup fixture, not an ordinary migration");
-        let host: Value = serde_json::from_slice(
-            &fs::read(root.join(format!("{owner}.setup-host/host.json"))).expect("host"),
-        )
-        .expect("host JSON");
-        let address = host["address"]
-            .as_str()
-            .expect("retained listener")
-            .parse()
-            .expect("address");
-        let setup = crate::owner_composition_tests::create::setup(root, owner, address);
-        let shutdown = tokio_util::sync::CancellationToken::new();
-        let result = if owner == "idp" {
-            let mut config = idp_server::AppConfig {
-                data_dir: root.join(owner).to_string_lossy().into_owned(),
-                ..Default::default()
-            };
-            config.server.prefix = Some("/idp".into());
-            idp_server::serve_independent_create(Arc::new(config), setup, shutdown).await
-        } else {
-            let mut config = device_server::AppConfig {
-                data_dir: root.join(owner).to_string_lossy().into_owned(),
-                ..Default::default()
-            };
-            config.server.prefix = Some("/device".into());
-            device_server::serve_independent_create(Arc::new(config), setup, shutdown).await
-        };
-        assert!(
-            result.is_err(),
-            "ordinary startup must refuse historical {owner} records without migration"
-        );
-        assert_eq!(
-            fs::read(&path).expect("historical references intact"),
-            bytes
-        );
+        fs::remove_file(sentinel).expect("remove only isolated sentinel");
     }
 }

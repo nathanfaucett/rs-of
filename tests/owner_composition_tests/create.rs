@@ -35,11 +35,11 @@ fn production_independent_create_and_offline_reopen() {
 }
 
 #[test]
-fn production_independent_create_legacy_record_reset() {
+fn production_independent_create_unsupported_record_refusal_and_current_reset() {
     run_production_create(true);
 }
 
-fn run_production_create(legacy_reset: bool) {
+fn run_production_create(unsupported_reset: bool) {
     let root = std::env::temp_dir().join(format!("independent-create-{}", Id::now_v7()));
     fs::create_dir(&root).expect("isolated roots");
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).expect("private roots");
@@ -82,8 +82,8 @@ fn run_production_create(legacy_reset: bool) {
         ])
         .env("OF_INDEPENDENT_CREATE_ROOT", &root)
         .env(
-            "OF_INDEPENDENT_LEGACY_RESET",
-            if legacy_reset { "1" } else { "0" },
+            "OF_INDEPENDENT_UNSUPPORTED_RESET",
+            if unsupported_reset { "1" } else { "0" },
         )
         .env("SSL_CERT_FILE", root.join("roots.pem"))
         .env("SSL_CERT_DIR", root.join("empty-roots"))
@@ -175,22 +175,86 @@ pub(super) async fn start(
     ]
 }
 pub(super) async fn wait(http: &Client, intent: &IndependentCreateIntent, ready: bool) {
+    let timing = std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_some();
+    let pid = std::process::id();
+    let started = Instant::now();
+    if timing {
+        eprintln!(
+            "seam=independent_readiness pid={pid} phase=wait_start wall_ms={}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock")
+                .as_millis()
+        );
+    }
     let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
     for owner in ["idp", "device", "storage"] {
+        let owner_started = Instant::now();
         loop {
-            if let Ok(response) = http
+            let request_started = Instant::now();
+            if timing {
+                eprintln!(
+                    "seam=independent_readiness pid={pid} owner={owner} phase=request_start expected_ready={ready} elapsed_ms={} owner_ms={}",
+                    started.elapsed().as_millis(),
+                    owner_started.elapsed().as_millis()
+                );
+            }
+            let response = http
                 .get(format!(
                     "{}/independent/setup/status",
                     intent.base(owner).expect("owner")
                 ))
                 .send()
-                .await
+                .await;
+            if timing {
+                match &response {
+                    Ok(response) => eprintln!(
+                        "seam=independent_readiness pid={pid} owner={owner} phase=headers elapsed_ms={} request_ms={} status={}",
+                        started.elapsed().as_millis(),
+                        request_started.elapsed().as_millis(),
+                        response.status().as_u16()
+                    ),
+                    Err(error) => eprintln!(
+                        "seam=independent_readiness pid={pid} owner={owner} phase=request_error elapsed_ms={} request_ms={} timeout={} connect={} request={}",
+                        started.elapsed().as_millis(),
+                        request_started.elapsed().as_millis(),
+                        error.is_timeout(),
+                        error.is_connect(),
+                        error.is_request()
+                    ),
+                }
+            }
+            if let Ok(response) = response
+                && response.status() == StatusCode::OK
             {
-                if response.status() == StatusCode::OK {
-                    let status: serde_json::Value = response.json().await.expect("status JSON");
-                    if status["ready"] == ready {
-                        break;
+                let status = response.json::<serde_json::Value>().await;
+                if timing {
+                    match &status {
+                        Ok(status) => eprintln!(
+                            "seam=independent_readiness pid={pid} owner={owner} phase=body elapsed_ms={} request_ms={} ready={:?}",
+                            started.elapsed().as_millis(),
+                            request_started.elapsed().as_millis(),
+                            status["ready"].as_bool()
+                        ),
+                        Err(error) => eprintln!(
+                            "seam=independent_readiness pid={pid} owner={owner} phase=body_error elapsed_ms={} request_ms={} timeout={} decode={}",
+                            started.elapsed().as_millis(),
+                            request_started.elapsed().as_millis(),
+                            error.is_timeout(),
+                            error.is_decode()
+                        ),
                     }
+                }
+                let status = status.expect("status JSON");
+                if status["ready"] == ready {
+                    if timing {
+                        eprintln!(
+                            "seam=independent_readiness pid={pid} owner={owner} phase=matched elapsed_ms={} owner_ms={}",
+                            started.elapsed().as_millis(),
+                            owner_started.elapsed().as_millis()
+                        );
+                    }
+                    break;
                 }
             }
             assert!(
@@ -1022,9 +1086,19 @@ pub(super) async fn seed_endpoint_negatives(root: &Path) -> Vec<(String, StatusC
     let owner: Id = serde_json::from_value(record["user"].clone()).expect("setup owner");
     let role: Id = serde_json::from_value(record["create"]["role"].clone())
         .expect("Create administrator role");
-    let engine = Arc::new(
-        db::Database::open(root.join("device/devices.redb")).expect("existing-only stopped owner"),
-    );
+    let opened = db::Database::open(root.join("device/devices.redb"));
+    if std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_some() {
+        let unix_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("current clock")
+            .as_millis();
+        eprintln!(
+            "unix_ms={unix_ms} seam=independent_owner owner=device phase=post_shutdown_reopen successful={} error_kind={:?}",
+            opened.is_ok(),
+            opened.as_ref().err().map(|error| error.kind)
+        );
+    }
+    let engine = Arc::new(opened.expect("existing-only stopped owner"));
     let identity = db::Database::open(root.join("idp/idp.redb")).expect("stopped identity owner");
     let service = ManagementService::new(
         DbPermissionRepo::new(identity.client()),

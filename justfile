@@ -32,7 +32,10 @@ build-release:
 check:
     cargo check --workspace
 
-test:
+sdk-build:
+    pnpm sdk:build
+
+test: sdk-build
     cargo hack test --feature-powerset --workspace --all-targets
 
 clippy:
@@ -41,13 +44,13 @@ clippy:
 clippy-fix:
     cargo clippy --workspace --all-targets --fix --allow-dirty --broken-code -- -D warnings
 
-crap *args:
+crap *args: sdk-build
     RUST_MIN_STACK=67108864 cargo llvm-cov --workspace --lcov --output-path /tmp/lcov.info && cargo crap --workspace --lcov /tmp/lcov.info  {{ args }}
 
 crap-summary:
     just crap --summary
 
-cov:
+cov: sdk-build
     RUST_MIN_STACK=67108864 cargo llvm-cov --workspace --open
 
 fmt:

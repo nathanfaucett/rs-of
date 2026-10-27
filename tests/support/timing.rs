@@ -8,6 +8,8 @@ impl log::Log for SetupTimingLog {
                     || metadata.target() == "idp_server::hosted_setup")
             || metadata.level() == log::Level::Debug
                 && [
+                    "api::independent_history",
+                    "device_service::join_history",
                     "idp_server::independent",
                     "device_server::independent",
                     "storage_server::independent",
@@ -20,7 +22,21 @@ impl log::Log for SetupTimingLog {
 
     fn log(&self, record: &log::Record<'_>) {
         if self.enabled(record.metadata()) {
-            eprintln!("{}", record.args());
+            if std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_some() {
+                let line = format!(
+                    "pid={} wall_ms={} target={} {}\n",
+                    std::process::id(),
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .expect("system clock")
+                        .as_millis(),
+                    record.target(),
+                    record.args()
+                );
+                let _ = std::io::Write::write_all(&mut std::io::stderr().lock(), line.as_bytes());
+            } else {
+                eprintln!("{}", record.args());
+            }
         }
     }
 

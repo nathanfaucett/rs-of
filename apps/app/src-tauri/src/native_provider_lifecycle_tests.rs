@@ -10,7 +10,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use idp_service::repo::PrivateKeyKeyringRepo;
 use serde_json::json;
 use unified_server::LocalTls;
 
@@ -118,13 +117,10 @@ async fn native_shared_create_child() {
     let data =
         PathBuf::from(std::env::var_os("OF_NATIVE_HOST_TEST_ROOT").expect("isolated parent root"));
     let unavailable = Arc::new(AtomicBool::new(false));
-    PrivateKeyKeyringRepo::new_with_store(
-        "isolated-native-host",
-        Arc::new(IsolatedProvider {
-            store: keyring_core::mock::Store::new().expect("mock protected provider"),
-            unavailable: unavailable.clone(),
-        }),
-    );
+    keyring_core::set_default_store(Arc::new(IsolatedProvider {
+        store: keyring_core::mock::Store::new().expect("mock protected provider"),
+        unavailable: unavailable.clone(),
+    }));
     let setup = super::prepare(&data.join("node")).expect("retained neutral prerequisites");
     let state = fs::read_to_string(setup.admission_path()).expect("protected local code retrieval");
     let code = state.lines().nth(1).expect("host-generated code");

@@ -21,7 +21,7 @@ use axum::{
 use db::{Database, Value};
 use futures_util::{SinkExt, StreamExt};
 use ofdb_sql::{
-    SessionConfig, SyncCandidateView, SyncDirection, SyncRole, SyncTransport,
+    SessionConfig, SyncCandidateView, SyncDirection, SyncError, SyncRole, SyncTransport,
     SyncValidationDirection,
 };
 use serde::{Deserialize, Serialize};
@@ -174,6 +174,11 @@ async fn request(
             },
         );
     }
+    log::debug!(
+        "Join history context={} phase=callback_start",
+        source.context.role()
+    );
+    let callback_at = Instant::now();
     let result = async {
         let configuration = of_idp_client::apis::configuration::Configuration {
             base_path: base, client: api::LocalTls::verification_client()?, ..Default::default()
@@ -183,6 +188,12 @@ async fn request(
                 body: serde_json::json!({"approval":body.approval,"return_nonce":body.return_nonce,"capability":nonce}),
             }).await.map_err(|_| io::Error::other("history callback denied"))
     }.await;
+    log::debug!(
+        "Join history context={} phase=callback_end elapsed_ms={} error_kind={:?}",
+        source.context.role(),
+        callback_at.elapsed().as_millis(),
+        result.as_ref().err().map(io::Error::kind)
+    );
     if result.is_ok() {
         StatusCode::ACCEPTED
     } else {
@@ -216,8 +227,8 @@ async fn stream(
         .max_message_size(1024 * 1024)
         .max_frame_size(1024 * 1024)
         .on_upgrade(move |socket| async move {
-            let mut transport = HistorySocket::Server(Box::new(socket));
-            let _ = synchronize(
+            let mut transport = HistorySocket::Server(Box::new(socket), source.context);
+            let result = synchronize(
                 &source.engine,
                 &mut transport,
                 source.context,
@@ -228,12 +239,29 @@ async fn stream(
                 &source.cancellation,
             )
             .await;
+            if let Err(error) = result {
+                log::warn!(
+                    "Join history context={} phase=source_sync_failed error_kind={:?}",
+                    source.context.role(),
+                    error.kind()
+                );
+            }
         })
 }
 
 enum HistorySocket {
-    Server(Box<WebSocket>),
-    Client(Box<WebSocketStream<MaybeTlsStream<TcpStream>>>),
+    Server(Box<WebSocket>, JoinHistoryContext),
+    Client(
+        Box<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+        JoinHistoryContext,
+    ),
+}
+impl HistorySocket {
+    fn context(&self) -> JoinHistoryContext {
+        match self {
+            Self::Server(_, context) | Self::Client(_, context) => *context,
+        }
+    }
 }
 impl SyncTransport for HistorySocket {
     type Error = io::Error;
@@ -241,26 +269,43 @@ impl SyncTransport for HistorySocket {
         if frame.len() > 1024 * 1024 {
             return Err(io::Error::other("history frame too large"));
         }
-        match self {
-            Self::Server(socket) => socket
+        log::debug!(
+            "Join history context={} phase=send_start",
+            self.context().role()
+        );
+        let sent_at = Instant::now();
+        let result = match self {
+            Self::Server(socket, _) => socket
                 .send(Message::Binary(frame.into()))
                 .await
                 .map_err(io::Error::other),
-            Self::Client(socket) => socket
+            Self::Client(socket, _) => socket
                 .send(ClientMessage::Binary(frame.into()))
                 .await
                 .map_err(io::Error::other),
-        }
+        };
+        log::debug!(
+            "Join history context={} phase=send_end elapsed_ms={} error_kind={:?}",
+            self.context().role(),
+            sent_at.elapsed().as_millis(),
+            result.as_ref().err().map(io::Error::kind)
+        );
+        result
     }
     async fn receive(&mut self) -> io::Result<Vec<u8>> {
+        log::debug!(
+            "Join history context={} phase=receive_start",
+            self.context().role()
+        );
+        let received_at = Instant::now();
         loop {
             let frame = match self {
-                Self::Server(socket) => match socket.next().await {
+                Self::Server(socket, _) => match socket.next().await {
                     Some(Ok(Message::Binary(frame))) => Some(frame.to_vec()),
                     Some(Ok(Message::Ping(_) | Message::Pong(_))) => None,
                     _ => return Err(io::Error::other("history stream closed")),
                 },
-                Self::Client(socket) => match socket.next().await {
+                Self::Client(socket, _) => match socket.next().await {
                     Some(Ok(ClientMessage::Binary(frame))) => Some(frame.to_vec()),
                     Some(Ok(ClientMessage::Ping(_) | ClientMessage::Pong(_))) => None,
                     _ => return Err(io::Error::other("history stream closed")),
@@ -270,6 +315,11 @@ impl SyncTransport for HistorySocket {
                 if frame.len() > 1024 * 1024 {
                     return Err(io::Error::other("history frame too large"));
                 }
+                log::debug!(
+                    "Join history context={} phase=receive_end elapsed_ms={}",
+                    self.context().role(),
+                    received_at.elapsed().as_millis()
+                );
                 return Ok(frame);
             }
         }
@@ -337,9 +387,19 @@ pub async fn import_join_history(
         .into_client_request()
         .map_err(io::Error::other)?;
     handshake.headers_mut().extend(request.headers().clone());
+    log::debug!(
+        "Join history context={} phase=connect_start",
+        context.role()
+    );
+    let connected_at = Instant::now();
     let (socket, _) = tokio::select! { biased; () = cancellation.cancelled() => return Err(io::Error::new(io::ErrorKind::Interrupted,"history cancelled")), result = tokio_tungstenite::connect_async(handshake) => result.map_err(|_| io::Error::other("authenticated public history stream unavailable"))? };
+    log::debug!(
+        "Join history context={} phase=connect_end elapsed_ms={}",
+        context.role(),
+        connected_at.elapsed().as_millis()
+    );
     let check: CheckJoinHistory = Arc::new(|approval| Box::pin(async move { approval.verify() }));
-    let mut transport = HistorySocket::Client(Box::new(socket));
+    let mut transport = HistorySocket::Client(Box::new(socket), context);
     synchronize(
         &engine,
         &mut transport,
@@ -363,6 +423,11 @@ async fn synchronize(
     check: CheckJoinHistory,
     cancellation: &CancellationToken,
 ) -> io::Result<()> {
+    log::debug!(
+        "Join history context={} phase=sync_start direction={direction:?}",
+        context.role()
+    );
+    let sync_at = Instant::now();
     let config = SessionConfig {
         direction,
         ..Default::default()
@@ -402,13 +467,41 @@ async fn synchronize(
                 if cancellation.is_cancelled() {
                     return Err("history cancelled".into());
                 }
-                check(approval)
-                    .await
-                    .map_err(|_| "current owner Join authorization denied".into())
+                log::debug!("Join history context={} phase=authorization_start direction={direction:?}", context.role());
+                let checked_at = Instant::now();
+                let result = check(approval).await;
+                log::debug!("Join history context={} phase=authorization_end direction={direction:?} elapsed_ms={} error_kind={:?}", context.role(), checked_at.elapsed().as_millis(), result.as_ref().err().map(io::Error::kind));
+                result.map_err(|_| "current owner Join authorization denied".into())
             }
         },
     );
-    tokio::select! { biased; () = cancellation.cancelled() => Err(io::Error::new(io::ErrorKind::Interrupted,"history cancelled")), result = result => result.map(|_| ()).map_err(|error| io::Error::other(format!("validated owner public history import failed: {error}"))) }
+    let result = tokio::select! { biased; () = cancellation.cancelled() => Err(io::Error::new(io::ErrorKind::Interrupted,"history cancelled")), result = result => result.map(|_| ()).map_err(|error| {
+        log::warn!("Join history context={} phase=sync_error direction={direction:?} category={}", context.role(), sync_error_category(&error));
+        io::Error::other(format!("validated owner public history import failed: {error}"))
+    }) };
+    log::debug!(
+        "Join history context={} phase=sync_end direction={direction:?} elapsed_ms={} error_kind={:?}",
+        context.role(),
+        sync_at.elapsed().as_millis(),
+        result.as_ref().err().map(io::Error::kind)
+    );
+    result
+}
+
+fn sync_error_category<E>(error: &SyncError<E>) -> &'static str {
+    match error {
+        SyncError::PreApply(_) => "pre_apply",
+        SyncError::Engine(_) => "engine",
+        SyncError::Transport(_) => "transport",
+        SyncError::Staging(_) => "staging",
+        SyncError::InvalidConfiguration => "configuration",
+        SyncError::Protocol(_) => "protocol",
+        SyncError::MessageTooLarge { .. } => "message_limit",
+        SyncError::SessionTooLarge { .. } => "session_limit",
+        SyncError::IncompatibleProtocol(_) => "version",
+        SyncError::UnexpectedMessage => "unexpected_message",
+        SyncError::RemoteAbort(_) => "remote_abort",
+    }
 }
 
 fn validate_candidate(

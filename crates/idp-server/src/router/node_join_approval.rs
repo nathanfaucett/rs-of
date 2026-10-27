@@ -1,4 +1,4 @@
-use std::io;
+use std::{io, time::Instant};
 
 use db::{Row, SqlTranslator, Transaction, Value};
 use device_service::DeviceRepo;
@@ -60,19 +60,10 @@ impl RouterState {
         offer: &PairingOffer,
         bearer: &str,
     ) -> io::Result<NodeJoinApproval> {
-        #[cfg(test)]
-        let started = std::time::Instant::now();
-        #[cfg(test)]
-        eprintln!(
-            "IdP join enrollment stage=authorization_begin elapsed={:?}",
-            started.elapsed()
-        );
+        let started = Instant::now();
+        log::debug!(target: "setup_timeout", "seam=enrollment phase=authorization_begin elapsed_ms=0");
         let owner = self.authorize_node_join_approver(bearer).await?;
-        #[cfg(test)]
-        eprintln!(
-            "IdP join enrollment stage=authorization_complete elapsed={:?}",
-            started.elapsed()
-        );
+        log::debug!(target: "setup_timeout", "seam=enrollment phase=authorization_end elapsed_ms={}", started.elapsed().as_millis());
         let request: NodeJoinRequest = serde_json::from_slice(&offer.payload)?;
         request.validate()?;
         let issuer = self.oauth2_service.metadata().issuer;
@@ -105,25 +96,19 @@ impl RouterState {
             reached.notify_one();
             resume.notified().await;
         }
-        #[cfg(test)]
-        eprintln!(
-            "IdP join enrollment stage=transaction_begin elapsed={:?}",
-            started.elapsed()
-        );
+        log::debug!(target: "setup_timeout", "seam=enrollment phase=revalidation_begin elapsed_ms={}", started.elapsed().as_millis());
         if self.authorize_node_join_approver(bearer).await? != owner {
             return Err(invalid("enrollment approver differs from approved owner"));
         }
         self.verify_node_join_approving_device(&approval.request.approving_peer)
             .await?;
+        log::debug!(target: "setup_timeout", "seam=enrollment phase=transaction_begin elapsed_ms={}", started.elapsed().as_millis());
         let result = self.enroll_node_join(&approval.request, owner, now).await;
-        #[cfg(test)]
-        eprintln!(
-            "IdP join enrollment stage=transaction_returned successful={} elapsed={:?}",
-            result.is_ok(),
-            started.elapsed()
-        );
+        log::debug!(target: "setup_timeout", "seam=enrollment phase=transaction_end elapsed_ms={} successful={} error_kind={:?}", started.elapsed().as_millis(), result.is_ok(), result.as_ref().err().map(io::Error::kind));
         result?;
+        log::debug!(target: "setup_timeout", "seam=enrollment phase=verification_begin elapsed_ms={}", started.elapsed().as_millis());
         self.verify_node_join_enrollment(&approval).await?;
+        log::debug!(target: "setup_timeout", "seam=enrollment phase=verification_end elapsed_ms={}", started.elapsed().as_millis());
         Ok(approval)
     }
 
@@ -207,6 +192,8 @@ impl RouterState {
         bearer: &str,
         approval: &NodeJoinApproval,
     ) -> io::Result<()> {
+        let started = Instant::now();
+        log::debug!(target: "setup_timeout", "seam=reply phase=authorization_begin elapsed_ms=0");
         if self.authorize_node_join_approver(bearer).await? != approval.owner_subject {
             return Err(invalid("reply approver differs from enrolled owner"));
         }
@@ -216,12 +203,17 @@ impl RouterState {
                 "pairing reply does not bind the exact enrolled offer",
             ));
         }
+        log::debug!(target: "setup_timeout", "seam=reply phase=verification_begin elapsed_ms={}", started.elapsed().as_millis());
         self.verify_node_join_enrollment(approval).await?;
+        log::debug!(target: "setup_timeout", "seam=reply phase=verification_end elapsed_ms={}", started.elapsed().as_millis());
         let reply = serde_json::to_vec(approval)?;
         if reply.len() > MAX_PAIRING_PAYLOAD_LENGTH {
             return Err(invalid("signed join reply exceeds pairing payload limit"));
         }
-        offer.reply(&reply).await
+        log::debug!(target: "setup_timeout", "seam=reply phase=publish_begin elapsed_ms={}", started.elapsed().as_millis());
+        let result = offer.reply(&reply).await;
+        log::debug!(target: "setup_timeout", "seam=reply phase=publish_end elapsed_ms={} successful={} error_kind={:?}", started.elapsed().as_millis(), result.is_ok(), result.as_ref().err().map(io::Error::kind));
+        result
     }
 
     async fn enroll_node_join(
@@ -293,7 +285,7 @@ impl RouterState {
                 let [row] = results[0].rows.as_slice() else {
                     return Err(invalid("join enrollment is not unique"));
                 };
-                require_clear(&transaction, table, row).await?;
+                require_clear(&mut transaction, table, row).await?;
             }
             Ok(())
         }
@@ -350,7 +342,7 @@ async fn persist_join_intent(
     .await
 }
 
-async fn require_clear(transaction: &Transaction, table: &str, key: &Row) -> io::Result<()> {
+async fn require_clear(transaction: &mut Transaction, table: &str, key: &Row) -> io::Result<()> {
     if !transaction
         .row_conflicts(table, key)
         .await

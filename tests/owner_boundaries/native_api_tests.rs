@@ -408,6 +408,20 @@ fn generated_token_params() -> of_idp_client::apis::default_api::TokenParams {
 #[tokio::test]
 async fn generated_rust_and_built_javascript_use_actual_owner_routes() {
     use of_idp_client::apis::{configuration::Configuration, default_api};
+
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    for export in [
+        "idp-client/esm/index.js",
+        "management-client/esm/index.js",
+        "device-client/esm/index.js",
+        "storage-client/esm/index.js",
+        "storage-client/esm/generated/index.js",
+    ] {
+        assert!(
+            root.join("packages").join(export).is_file(),
+            "missing built SDK export {export}; run `pnpm install --frozen-lockfile --ignore-scripts && pnpm sdk:build` before Cargo tests (or use `just test`)"
+        );
+    }
     let fixture = Fixture::new(Gate::default()).await;
     let document: serde_json::Value = fixture
         .http
@@ -527,7 +541,6 @@ async fn generated_rust_and_built_javascript_use_actual_owner_routes() {
         .is_err(),
         "published worker handoff remains operation-bound"
     );
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let status = tokio::task::spawn_blocking({
         let idp = fixture.idp_listener.base.clone();
         let storage = fixture.storage_listener.base.clone();

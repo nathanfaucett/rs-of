@@ -303,6 +303,21 @@ fn observe(
             secret.clone(),
         );
         async move {
+            let started = Instant::now();
+            let observe = |phase: &str| {
+                if std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_some() {
+                    eprintln!(
+                        "seam=idp_readiness phase={phase} pid={} wall_ms={} elapsed_ms={}",
+                        std::process::id(),
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .expect("system clock")
+                            .as_millis(),
+                        started.elapsed().as_millis()
+                    );
+                }
+            };
+            observe("record");
             let current: Record = control
                 .read_record()?
                 .ok_or_else(|| io::Error::other("IdP worker evidence missing"))?;
@@ -312,15 +327,19 @@ fn observe(
             {
                 return Err(io::Error::other("retained IdP setup evidence changed"));
             }
+            observe("signer");
             owner.verify_node_signer(&binding(&record)?).await?;
+            observe("login_client");
             owner
                 .verify_public_login_client(login(&intent, record.login))
                 .await?;
+            observe("user");
             owner
                 .oauth2
                 .find_user_info(record.user)
                 .await
                 .map_err(|_| io::Error::other("current setup owner is inactive"))?;
+            observe("initial_relationship");
             owner
                 .verify_setup_infrastructure_registration(
                     &SetupRelationship::IdpManagement.registration(
@@ -332,10 +351,12 @@ fn observe(
                 )
                 .await?;
             for registration in &record.registrations {
+                observe("relationship");
                 owner
                     .verify_setup_infrastructure_registration(registration)
                     .await?;
             }
+            observe("complete");
             Ok(())
         }
     })

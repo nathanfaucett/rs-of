@@ -1,4 +1,4 @@
-use alloc::{borrow::ToOwned, format, string::String, vec::Vec};
+use alloc::{borrow::ToOwned, format, string::String, sync::Arc, vec::Vec};
 
 use super::{
     RepoResult,
@@ -7,6 +7,7 @@ use super::{
 
 pub struct RawKeyringRepo {
     service_name: String,
+    store: Arc<keyring_core::CredentialStore>,
 }
 
 impl RawKeyringRepo {
@@ -14,6 +15,7 @@ impl RawKeyringRepo {
         init_credential_store()?;
         Ok(Self {
             service_name: service_name.into(),
+            store: keyring_core::get_default_store().expect("initialized credential store"),
         })
     }
 
@@ -24,6 +26,7 @@ impl RawKeyringRepo {
         key_name: &str,
     ) -> RepoResult<Option<Vec<u8>>> {
         let entry = create_key_entry(
+            &*self.store,
             &self.service_name,
             &entry_name(user_sub, client_id, key_name),
         )?;
@@ -42,6 +45,7 @@ impl RawKeyringRepo {
         bytes: &[u8],
     ) -> RepoResult<()> {
         let entry = create_key_entry(
+            &*self.store,
             &self.service_name,
             &entry_name(user_sub, client_id, key_name),
         )?;
@@ -51,6 +55,7 @@ impl RawKeyringRepo {
 
     pub fn delete(&self, user_sub: &str, client_id: &str, key_name: &str) -> RepoResult<()> {
         let entry = create_key_entry(
+            &*self.store,
             &self.service_name,
             &entry_name(user_sub, client_id, key_name),
         )?;
