@@ -6,9 +6,15 @@
 
 **Triage:** ready-for-agent
 
-**Priority:** medium; raise if reproduced by users
+**Priority:** deferred for parallel independent workloads; raise if reproduced in single-device setup
 
 **Blocked by:** none
+
+## Current scope disposition (2026-10-28)
+
+The user prioritizes one device undergoing setup at a time. Remaining failures demonstrated only under parallel independent workloads are **deferred and do not block ticket 07's single-device milestone**. This ticket remains open to preserve the failures and investigation; no parallel reliability fix or passing default-concurrency result is claimed. Earlier instructions making full-workload diagnosis a prerequisite to ticket 07 closure are superseded by this decision.
+
+Resume active diagnosis if Create, a single Join with source approval, startup, cancellation, exact retry, or retained-state reopen fails in sequential single-device qualification. Internal owner coordination on one device is not deferred. Preserve existing bounds and security/durability checks; do not infer a common cause from historical failures or erase their receipts.
 
 ## Problem
 

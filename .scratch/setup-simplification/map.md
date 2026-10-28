@@ -1,6 +1,14 @@
 # Setup simplification map
 
-## Current ticket 07 retry (2026-10-28)
+## Current plan: single-device milestone (2026-10-28)
+
+- User decision: prioritize **one device undergoing setup at a time**, primarily bundled desktop Create/sign-in/startup/recovery. A single Join still includes its approving source device and subsequent source-offline reopen.
+- [07](issues/07-qualify-simplified-workflow.md): reconcile existing sequential evidence with workflow criteria, fill single-device gaps, and report GUI/platform/provider/trust limits. Internal owner coordination, exact identity, cancellation and current readiness remain required. No criteria are automatically checked by this scope change.
+- [09](issues/09-diagnose-readiness-and-request-timeouts.md): parallel independent workload failures remain open but deferred/non-blocking for this milestone. Resume active diagnosis for failures reproduced on the single-device path. Do not erase failures, inflate deadlines, or claim concurrency is fixed.
+- [11](issues/11-complete-provisioned-validation.md): retain broad matrix/CRAP reporting; sequential independent scenarios are permitted with explicit scheduling and scope. No full-matrix or coverage success is implied.
+- This plan and the [spec's current acceptance scope](spec.md#current-acceptance-scope-2026-10-28) supersede historical requirements for default-concurrency success before ticket 07 acceptance. Tickets remain open pending their scoped evidence review.
+
+## Previous ticket 07 retry (2026-10-28; before scope decision)
 
 On `integration/setup-07-completion`, the retry restores request-timeout coverage, makes HTTPS verification cancellation-responsive, and releases the lifecycle mutex during registrar work with late-completion revalidation. A gated registrar regression fails before the fix and passes after it. Unified HTTPS Join qualification passes **3/3** serial scenarios; ordinary default-concurrency owner qualification still fails **39 passed / 5 failed / 6 ignored** after the lock fix. A separate timed diagnostic fails **40 passed / 4 failed / 6 ignored**. These are not pooled into acceptance: ticket 07, its two integrated durability criteria, and the spec remain open. [Current retry evidence](evidence/07-completion-retry.md).
 
@@ -16,6 +24,8 @@ On `integration/setup-07-completion`, the retry restores request-timeout coverag
 - Ticket 01 started on `setup-simplification-01` at integration `setup-simplification` / `dfeaf7dbe`; the integration merge was already up to date.
 
 ## Decisions-so-far
+
+- 2026-10-28: narrow current acceptance to one device undergoing setup at a time. Defer parallel independent workload qualification; preserve all security, readiness, recovery and durability requirements. See the current plan above.
 
 - [01: Unify onboarding observation and recovery routing](issues/01-unify-onboarding-observation.md) — resolved. All onboarding/authentication routing consumes the target-bound typed observation. Shared worker evidence remains authoritative, remote/browser observation stays direct HTTP, native capability retrieval is separate and admission parsing is shared. Superseded observation commands/functions are deleted. [Validation evidence](evidence/01-onboarding-observation.md).
 - Preserve the Client-bound Device preference step in this observation-only slice. Later tickets may remove its dismissal gate without weakening current readiness or changing actual local selection permissions.

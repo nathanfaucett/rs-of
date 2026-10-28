@@ -2,7 +2,15 @@
 
 Status: open
 
-## Current integration status (2026-10-27)
+## Current acceptance scope (2026-10-28)
+
+The current milestone is **a working single-device experience: one device undergoing setup at a time**, primarily the default bundled desktop. Qualify Create through ordinary sign-in, returning-user startup, interruption/exact retry, cancellation, and retained-identity reopen. Join remains in scope as one joining device with its approving source device; “single-device” does not remove authenticated source approval or require Join to work without a source during initial setup.
+
+Simultaneous independent Create/Join operations and default-concurrency test-suite throughput/reliability are **deferred**, not acceptance blockers for this milestone. Running independent scenarios sequentially is valid evidence for this explicitly narrowed scope, not proof of parallel reliability. Preserve the existing concurrent failures and diagnostics as unresolved follow-up evidence; do not report them as fixed or the default-concurrency suite as passing. No request/readiness deadline, security assertion, or production behavior is changed by this scope decision.
+
+Ticket [07](issues/07-qualify-simplified-workflow.md) should assess the single-device workflow and its remaining evidence gaps. Ticket [09](issues/09-diagnose-readiness-and-request-timeouts.md) retains the deferred parallel-workload investigation; reopen active diagnosis if a failure reproduces in the single-device path. Ticket [11](issues/11-complete-provisioned-validation.md) retains broad validation reporting, with sequential scenario execution permitted and its scheduling recorded. GUI/platform/provider/trust limits remain explicit; backend passes do not establish an actual desktop smoke test. This scope change alone closes no ticket or checklist item.
+
+## Previous integration status (2026-10-27; historical)
 
 **Tickets 07, 09, 11 and this spec remain open.** Implementation tickets 01–06 and follow-ups 08/10 are integrated. Reviewed fixes include shared-worker/queued-reply and independent connection destruction fences; Storage identity-first rejection with current-policy/response rechecks retained; Management policy-schema, standalone setup HTTP, and continuous source-HTTPS-listener fixture repairs. The Device conflict fixture now imports its initial complete catalog/data through the public sync session; its focused suite passes **6/6**, with security-negative assertions unchanged. Optional setup-secret lock diagnostics are observation-only. Application-owned AGENTS guidance from `1cfe76076` is included, not a qualification result.
 
@@ -90,6 +98,7 @@ Keep supported remote-service and browser workflows available through a clearly 
 
 ## Testing Decisions
 
+- Qualify one device undergoing setup at a time. Execute independent lifecycle scenarios sequentially and record scheduling, exact inputs, commands, and outcomes. Internal owner coordination and lifecycle contention within that device remain in scope; parallel independent setup stress does not. A failure reproduced in this single-device scope remains a blocker.
 - Test externally observable workflow and authorization behavior, not command counts, private helper structure, JSON projection internals, or incidental file layout.
 - Prefer the existing rendered setup-page seam for onboarding acceptance: operate visible controls, supply existing HTTP/native adapters, and assert the resulting screens and permitted actions. This is the highest practical seam for the user's complaint. Do not introduce a second orchestration-only fake framework.
 - Reuse the existing shared HTTPS Create/Join lifecycle seam for durable identity, authenticated approval, exact retry, current readiness, and source-offline reopen. Keep native trust/provider injection as a narrow platform seam because a rendered-page test cannot qualify actual process ownership or OS trust.
@@ -106,6 +115,8 @@ Keep supported remote-service and browser workflows available through a clearly 
 - Check the existing deployment-independent system-test effort before moving or duplicating lifecycle scenarios. Reuse its public-interface scenarios where available rather than creating competing suites.
 
 ## Out of Scope
+
+- For this milestone: simultaneous independent device setup, default-concurrency suite reliability, and parallel-workload performance optimization. Their known failures remain unresolved follow-up work, not waived security or durability requirements.
 
 - Replacing domain-owner authorization or introducing a global authentication-enable switch.
 - Removing browser support, remote connections, or independent-owner deployments to simplify the bundled desktop screen.
@@ -128,6 +139,8 @@ Keep supported remote-service and browser workflows available through a clearly 
 6. Isolate maintenance presentation, remove obsolete code, update current documentation, and run final validation.
 
 ### Acceptance criteria
+
+Apply these criteria to one device undergoing setup at a time, including the source device needed to approve a single Join. Do not require parallel independent scenario qualification to accept this milestone.
 
 - Default bundled first launch offers one essential Create/Join choice and no mandatory internal service configuration.
 - Create uses required administrator credentials and a default Node name; Join uses one trusted peer input with clear source approval instructions.

@@ -10,6 +10,12 @@
 
 **Blocked by:** 08, 10
 
+## Current scheduling and milestone scope (2026-10-28)
+
+The current milestone is one device undergoing setup at a time, per the [spec](../spec.md#current-acceptance-scope-2026-10-28). Broad feature-matrix and CRAP reporting remain tracked here, but default-concurrency independent setup qualification is not a prerequisite to ticket 07 acceptance. Independent scenarios may run sequentially; record the exact test-thread setting, feature/workspace scope, inputs, and command. Do not disable concurrency internal to a single-device scenario, omit assertions/features, increase deadlines, or label sequential success as parallel reliability.
+
+Previous default-concurrency failures remain valid unresolved evidence under [09](09-diagnose-readiness-and-request-timeouts.md). A future sequential matrix/CRAP pass must be reported with its scheduling boundary, not as a correction of those historical results. This documentation change neither runs these gates nor resolves this ticket.
+
 ## Problem
 
 The feature-matrix attempt reached owner-boundary tests (18 passed / 26 failed / 6 ignored child entry points), then stopped before remaining feature combinations. Coverage compilation was safely stopped when available memory fell to approximately 1 GiB with swap full; no CRAP score exists. The previously truncated Swagger ZIP has been narrowly repaired from a CRC-verified complete local copy.

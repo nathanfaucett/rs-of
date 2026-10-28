@@ -8,7 +8,15 @@
 
 **Triage:** ready-for-agent
 
-## Current retry (2026-10-28)
+## Current acceptance scope (2026-10-28)
+
+Per the user's scope decision, qualify **one device undergoing setup at a time**, primarily the bundled desktop. Create/sign-in, startup, cancellation, interruption/exact retry, and retained-identity reopen remain required. Join includes one joining device and its approving source; source-offline reopen remains required after completion. Internal owner coordination and lifecycle contention on that device remain in scope.
+
+Default-concurrency failures from simultaneous independent test scenarios are deferred to [09](09-diagnose-readiness-and-request-timeouts.md), not blockers for this milestone. Sequential execution is the intended qualification mode, not a claim that parallel reliability is fixed. Keep the existing deadlines and all authorization/trust/readiness/durability assertions. Assess the checklist below against current single-device evidence; this decision alone checks no box or resolves this ticket. Explicitly report desktop GUI/provider/trust limits and remaining broad checks under [11](11-complete-provisioned-validation.md).
+
+This section supersedes earlier statements requiring default-concurrency success for ticket 07 closure. Historical outcomes below remain unchanged.
+
+## Previous retry (2026-10-28; before scope decision)
 
 Retry checkpoint on `integration/setup-07-completion`, based on `main` at `31ced611f`; claim released with unresolved failures recorded. The previous single passing operation test did not qualify this ticket. The retry restores a request-local timeout regression without restoring the five-second production budget; fixes cancellation during native HTTPS verification; and releases the lifecycle mutex during registrar work, with post-await exact-operation/cancellation/admission revalidation. It also enforces the existing readiness budget across response-body reads. Concurrent qualification still fails; both durability checklist items remain unchecked. See [retry evidence](../evidence/07-completion-retry.md).
 
@@ -37,7 +45,7 @@ Independent static review found no further actionable findings after the diagnos
 
 ## Qualification checklist
 
-Latest disposition is the current integration summary above: focused fixes pass their recorded controls, but the supported matrix failed and coverage stopped on an actual Device contract test failure, not a resource guard. The fixture has since passed6/6 focused; broad gates remain unrerun. Preserve both unchecked integrated durability criteria and all historical evidence below.
+Apply the current single-device acceptance scope above. Existing serial HTTPS and focused owner passes are relevant evidence; reconcile them with each workflow criterion and any remaining single-device gaps before closing it. Both integrated durability criteria remain unchecked pending that reconciliation, not pending default-concurrency suite success. Broad matrix/coverage outcomes and all historical evidence remain recorded separately; no fresh broad pass is claimed.
 
 - [x] Verify default bundled first launch has one essential Create/Join choice, minimal required input, no mandatory internal composition, and no completion-only gate before ordinary sign-in.
 - [ ] Exercise the integrated Join flow from request through source acceptance and exact approval/rejection to verified readiness; verify completed reopen without the source peer.
