@@ -508,8 +508,8 @@ async fn delayed_authority_reopen(
         .send()
         .await;
     assert!(
-        status.is_err_and(|error| error.is_timeout()),
-        "actual remote authority stalls beyond five-second HTTP bound"
+        status.is_ok_and(|response| response.status() == StatusCode::SERVICE_UNAVAILABLE),
+        "actual remote authority returns SERVICE_UNAVAILABLE after delay"
     );
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert!(

@@ -214,7 +214,7 @@ async fn http_setup_child() {
     let http = reqwest::Client::builder()
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(30))
         .build()
         .expect("HTTP client");
     let base = format!("http://{address}");

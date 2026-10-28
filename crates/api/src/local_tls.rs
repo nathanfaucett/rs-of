@@ -184,7 +184,7 @@ impl LocalTls {
             .redirect(reqwest::redirect::Policy::none())
             .no_proxy()
             .connect_timeout(Duration::from_secs(1))
-            .timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(30))
             .build()
             .map_err(io::Error::other)
     }
