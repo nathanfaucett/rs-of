@@ -8,7 +8,11 @@
 
 **Triage:** ready-for-agent
 
-## Current acceptance scope (2026-10-28)
+## Latest user scope decision (2026-10-28)
+
+The milestone requires only the single-device Create/sign-in/startup/recovery experience. Multi-device testing (including a single Join with its source), `cargo hack` feature-powerset testing and CRAP/coverage are not required. Ticket 11 is resolved as dropped by user decision, not passed; ticket 09's parallel/multi-device investigation remains deferred and non-blocking. Existing qualification and implemented Join/security behavior are preserved. This supersedes the broader requirements and ticket11-open references below; no additional multi-device or broad gate runs are needed to keep ticket07 resolved.
+
+## Previous acceptance scope (2026-10-28; superseded where broader)
 
 Per the user's scope decision, qualify **one device undergoing setup at a time**, primarily the bundled desktop. Create/sign-in, startup, cancellation, interruption/exact retry, and retained-identity reopen remain required. Join includes one joining device and its approving source; source-offline reopen remains required after completion. Internal owner coordination and lifecycle contention on that device remain in scope.
 

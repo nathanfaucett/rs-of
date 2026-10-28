@@ -1,18 +1,22 @@
 # Simplify Installation Setup and desktop startup
 
-Status: open
+Status: resolved
 
 ## Current acceptance scope (2026-10-28)
 
-The current milestone is **a working single-device experience: one device undergoing setup at a time**, primarily the default bundled desktop. Qualify Create through ordinary sign-in, returning-user startup, interruption/exact retry, cancellation, and retained-identity reopen. Join remains in scope as one joining device with its approving source device; “single-device” does not remove authenticated source approval or require Join to work without a source during initial setup.
+The current milestone is **a working single-device experience**, primarily the default bundled desktop. Qualify Create through ordinary sign-in, returning-user startup, interruption/exact retry, cancellation, and retained-identity reopen. Multi-device testing, including a Join with an approving source device, is not required for this milestone. Keep the implemented Join functionality and its authorization/trust requirements; existing Join test results remain evidence, not a requirement to run more multi-device scenarios.
 
 Simultaneous independent Create/Join operations and default-concurrency test-suite throughput/reliability are **deferred**, not acceptance blockers for this milestone. Running independent scenarios sequentially is valid evidence for this explicitly narrowed scope, not proof of parallel reliability. Preserve the existing concurrent failures and diagnostics as unresolved follow-up evidence; do not report them as fixed or the default-concurrency suite as passing. No request/readiness deadline, security assertion, or production behavior is changed by this scope decision.
 
 Ticket [07](issues/07-qualify-simplified-workflow.md) is **resolved for the automated single-device workflow scope**. [Single-device qualification evidence](evidence/07-single-device-qualification.md) records the complete sequential owner suite **44 passed / 0 failed / 6 existing child-entry ignores**, fresh unified HTTPS Join **3/3**, and setup HTTP client **24/24**. Existing mounted/injected evidence is reused at its stated seams; no live GUI or release pass is inferred.
 
-Ticket [09](issues/09-diagnose-readiness-and-request-timeouts.md) remains **open, deferred** for parallel independent workloads; resume active diagnosis if a failure reproduces in the single-device path. Ticket [11](issues/11-complete-provisioned-validation.md) remains **open / ready-for-human**: [bounded validation evidence](evidence/11-single-device-validation.md) records **4/10 root feature combinations completed successfully**, the fifth interrupted at the **7200s** ceiling, and five unrun. Separate workspace CRAP stopped during instrumented compilation, **before tests**, when available RAM fell below **2 GiB**; no fresh coverage report or CRAP score exists. These sequential results do not establish parallel reliability or full-matrix/workspace completion.
+Ticket [09](issues/09-diagnose-readiness-and-request-timeouts.md) remains **open, deferred and non-blocking** for parallel/multi-device investigation; resume active diagnosis only for an in-scope single-device failure. Ticket [11](issues/11-complete-provisioned-validation.md) is **resolved as dropped by user scope decision**, not as passed. `cargo hack` feature-powerset testing and CRAP/coverage are not required and should not be rerun for this milestone. [Prior bounded attempts](evidence/11-single-device-validation.md) remain historical evidence; no full-matrix or coverage pass is claimed.
 
-**This spec remains open** for ticket 11's broad validation and actual desktop qualification limits: packaged desktop/GUI, production provider, real OS trust/elevation, physical/WAN and platform/release checks remain unqualified. Next actions are human coordination of sufficient sustained resources and an authorized time budget for the broad gates, plus actual desktop qualification before release—not reopening ticket 07 absent a reproduced in-scope failure.
+## Answer — single-device milestone complete (2026-10-28)
+
+Resolved for the agreed automated single-device implementation and qualification scope, ready to merge into local `main`. Implementation tickets 01–08 and 10 are resolved; ticket 11 is resolved as dropped. Ticket 09 remains a deferred, non-blocking follow-up, not a claim that historical parallel failures are fixed. The existing focused qualification and review are recorded in the linked ticket evidence.
+
+Actual packaged desktop GUI and real provider/OS trust behavior remain unverified by the automated evidence; this closure is not production/platform certification. No remaining in-scope single-device defect is identified in the current evidence. Do not spend further effort on feature-powerset, CRAP/coverage, multi-device, physical/WAN or parallel-load qualification for this milestone. Future failures on actual single-device Create, ordinary sign-in, startup or reopen/recovery should be investigated without weakening security or readiness requirements.
 
 ## Previous integration status (2026-10-27; historical)
 
@@ -102,25 +106,25 @@ Keep supported remote-service and browser workflows available through a clearly 
 
 ## Testing Decisions
 
-- Qualify one device undergoing setup at a time. Execute independent lifecycle scenarios sequentially and record scheduling, exact inputs, commands, and outcomes. Internal owner coordination and lifecycle contention within that device remain in scope; parallel independent setup stress does not. A failure reproduced in this single-device scope remains a blocker.
+- Qualify one device's Create/sign-in/startup/recovery path with focused checks. No multi-device or parallel independent setup testing is required. Internal owner coordination and lifecycle contention within that device remain in scope; a failure reproduced in this single-device scope remains a blocker.
 - Test externally observable workflow and authorization behavior, not command counts, private helper structure, JSON projection internals, or incidental file layout.
 - Prefer the existing rendered setup-page seam for onboarding acceptance: operate visible controls, supply existing HTTP/native adapters, and assert the resulting screens and permitted actions. This is the highest practical seam for the user's complaint. Do not introduce a second orchestration-only fake framework.
 - Reuse the existing shared HTTPS Create/Join lifecycle seam for durable identity, authenticated approval, exact retry, current readiness, and source-offline reopen. Keep native trust/provider injection as a narrow platform seam because a rendered-page test cannot qualify actual process ownership or OS trust.
 - These seams are proposed from existing test prior art; no additional user confirmation was collected during this synthesis. Their use does not imply prior GUI or production-platform acceptance.
 - Prior art includes rendered Installation setup and auth-layout tests, shared setup-client HTTP contract tests, native one-listener/trust-failure tests, isolated provider lifecycle tests, exact reset/recovery tests, and shared production HTTPS Join/offline-reopen scenarios.
-- Cover fresh Create with only required inputs, default naming, progress, verified readiness, and ordinary sign-in. Cover Join input validation, authenticated issuer discovery, source acceptance/approval/rejection, completion, and offline reopen.
+- Cover fresh Create with only required inputs, default naming, progress, verified readiness, and ordinary sign-in. Retain existing Join validation and approval coverage, but defer further multi-device qualification.
 - Cover interruption after durable acceptance, reload/restart, exact intent recovery, required credential re-entry, retry without replacement identity, and cancellation without premature success.
 - Cover deferred Device Setup: sign-in is not blocked by wizard dismissal; editing local data preferences remains possible; existing restrictions, selections, and authorization are not broadened.
 - Cover bundled versus remote selection, including local startup failure with an otherwise usable remote target. Remote setup must never receive the bundled setup code or provision bundled owners. Browser setup must not invoke native commands; independent owners must retain separate admission scopes.
 - Cover visible startup before host completion, already-trusted launch without unnecessary installation, consent refusal, trust-verification failure, retry, and close/reset contention during startup. Use injected commands and isolated roots/providers, not real profile or OS trust changes.
 - Preserve negative coverage for unauthorized Create/Join, incorrect Origin, wrong issuer/peer, secret disclosure, malformed or missing readiness evidence, and lost retained host/TLS/provider state. An old completion marker must never manufacture readiness.
 - Preserve reset safety cases: provider refusal retains data, exact reference recovery never overwrites conflicts, data-only cleanup does not repeat successful secret deletion, and remote revocation is acknowledged only after the required owner operations.
-- Start with focused changed-area tests, then formatting, relevant frontend checks and Rust clippy. Final implementation validation includes `cargo hack test --feature-powerset --all-targets` and `just crap`; record commands, outcomes, failures, and qualification limits truthfully.
+- Use focused changed-area tests, formatting, relevant frontend checks and scoped Rust clippy. `cargo hack` feature-powerset testing and `just crap`/coverage are explicitly excluded from this milestone by user decision. Preserve prior results without treating incomplete runs as passes.
 - Check the existing deployment-independent system-test effort before moving or duplicating lifecycle scenarios. Reuse its public-interface scenarios where available rather than creating competing suites.
 
 ## Out of Scope
 
-- For this milestone: simultaneous independent device setup, default-concurrency suite reliability, and parallel-workload performance optimization. Their known failures remain unresolved follow-up work, not waived security or durability requirements.
+- For this milestone: feature-powerset testing, CRAP/coverage, all multi-device qualification (including sequential two-device Join tests), default-concurrency suite reliability, and parallel-workload performance optimization. Known failures remain recorded, not fixed or waived security/durability requirements.
 
 - Replacing domain-owner authorization or introducing a global authentication-enable switch.
 - Removing browser support, remote connections, or independent-owner deployments to simplify the bundled desktop screen.
@@ -144,7 +148,7 @@ Keep supported remote-service and browser workflows available through a clearly 
 
 ### Acceptance criteria
 
-Apply these criteria to one device undergoing setup at a time, including the source device needed to approve a single Join. Do not require parallel independent scenario qualification to accept this milestone.
+Apply these criteria to the single-device Create/sign-in/startup/recovery milestone. Existing Join behavior remains implemented, but multi-device testing, feature-powerset testing and CRAP/coverage are not completion gates.
 
 - Default bundled first launch offers one essential Create/Join choice and no mandatory internal service configuration.
 - Create uses required administrator credentials and a default Node name; Join uses one trusted peer input with clear source approval instructions.

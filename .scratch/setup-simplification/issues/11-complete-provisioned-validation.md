@@ -2,7 +2,7 @@
 
 **Type:** task
 
-**Status:** open
+**Status:** resolved
 
 **Triage:** ready-for-human
 
@@ -10,7 +10,11 @@
 
 **Blocked by:** 08, 10
 
-## Current scheduling and milestone scope (2026-10-28)
+## Answer — dropped by user scope decision (2026-10-28)
+
+The user explicitly removed `cargo hack` feature-powerset testing and CRAP/coverage from the milestone. This ticket is **resolved as dropped, not completed or passed**. Do not provision a runner, extend budgets, or rerun these gates for this effort. Unchecked historical criteria below remain unfulfilled and are no longer acceptance requirements. Prior command receipts and incomplete results are preserved. Focus on one device's Create/sign-in/startup/recovery path; multi-device qualification is also excluded.
+
+## Previous scheduling and milestone scope (2026-10-28; superseded)
 
 The current milestone is one device undergoing setup at a time, per the [spec](../spec.md#current-acceptance-scope-2026-10-28). Broad feature-matrix and CRAP reporting remain tracked here, but default-concurrency independent setup qualification is not a prerequisite to ticket 07 acceptance. Independent scenarios may run sequentially; record the exact test-thread setting, feature/workspace scope, inputs, and command. Do not disable concurrency internal to a single-device scenario, omit assertions/features, increase deadlines, or label sequential success as parallel reliability.
 
@@ -22,7 +26,7 @@ The feature-matrix attempt reached owner-boundary tests (18 passed / 26 failed /
 
 Read [validation evidence and commands](../evidence/07-validation-followup.md) and [qualification ticket 07](07-qualify-simplified-workflow.md). Human triage is for arranging runner resources and stable inputs, not for changing assertions. Coordinate [09](09-diagnose-readiness-and-request-timeouts.md) if unexplained readiness/request failures recur.
 
-## Acceptance criteria
+## Historical acceptance criteria (withdrawn, not passed)
 
 - [x] Provide adequate measured memory/disk headroom and record immutable source, sibling dependency, toolchain, and lockfile inputs. Do not overwrite user changes to manufacture a clean snapshot.
 - [x] Build required workspace SDK artifacts before their test scenarios.

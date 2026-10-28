@@ -12,9 +12,9 @@
 
 ## Current scope disposition (2026-10-28)
 
-The user prioritizes one device undergoing setup at a time. Remaining failures demonstrated only under parallel independent workloads are **deferred and do not block ticket 07's single-device milestone**. This ticket remains open to preserve the failures and investigation; no parallel reliability fix or passing default-concurrency result is claimed. Earlier instructions making full-workload diagnosis a prerequisite to ticket 07 closure are superseded by this decision.
+The user prioritizes a single device's Create/sign-in/startup/recovery path. All multi-device testing, including sequential Join with a source device, and parallel independent workload qualification are **deferred and do not block this milestone**. This ticket remains open to preserve the failures and investigation; no parallel reliability fix or passing default-concurrency result is claimed. Earlier instructions making full-workload diagnosis a prerequisite to ticket 07 closure are superseded by this decision.
 
-Resume active diagnosis if Create, a single Join with source approval, startup, cancellation, exact retry, or retained-state reopen fails in sequential single-device qualification. Internal owner coordination on one device is not deferred. Preserve existing bounds and security/durability checks; do not infer a common cause from historical failures or erase their receipts.
+Resume active diagnosis if Create, startup, cancellation, exact retry, or retained-state reopen fails on the single-device path. Do not run further multi-device/Join qualification for this milestone. Internal owner coordination on one device is not deferred. Preserve existing bounds and security/durability checks; do not infer a common cause from historical failures or erase their receipts.
 
 ## Problem
 
