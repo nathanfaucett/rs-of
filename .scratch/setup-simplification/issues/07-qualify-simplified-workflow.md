@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Make Create lead directly to ordinary sign-in; 03 — Make Join a single guided request; 04 — Make adding a Node understandable on the approving device; 05 — Show startup immediately and request trust only when needed; 06 — Separate maintenance from normal onboarding.
 
-**Status:** open
+**Status:** resolved
 
 **Triage:** ready-for-agent
 
@@ -15,6 +15,12 @@ Per the user's scope decision, qualify **one device undergoing setup at a time**
 Default-concurrency failures from simultaneous independent test scenarios are deferred to [09](09-diagnose-readiness-and-request-timeouts.md), not blockers for this milestone. Sequential execution is the intended qualification mode, not a claim that parallel reliability is fixed. Keep the existing deadlines and all authorization/trust/readiness/durability assertions. Assess the checklist below against current single-device evidence; this decision alone checks no box or resolves this ticket. Explicitly report desktop GUI/provider/trust limits and remaining broad checks under [11](11-complete-provisioned-validation.md).
 
 This section supersedes earlier statements requiring default-concurrency success for ticket 07 closure. Historical outcomes below remain unchanged.
+
+## Current single-device result (2026-10-28)
+
+**Resolved for the current single-device automated workflow scope**, not GUI/platform or release certification. [Single-device evidence](../evidence/07-single-device-qualification.md) records a complete sequential root `owner_boundaries --all-features -- --test-threads=1` pass: **44 passed / 0 failed / 6 existing child-entry ignores**, with the isolated children actually launched by their parents. Both Create/reset variants, both Join/reset variants, and the delayed-authority operation parent passed. A fresh sequential unified HTTPS Join run passed **3/3**, and the setup HTTP client suite passed **24/24**. All supervised workloads exited 0 with no resource stop. No production/test/deadline/assertion edits were needed.
+
+These current passes fill the two integrated single-device gaps below, together with the existing mounted routing/recovery evidence. Historical failures below remain historical, not claims of current parallel reliability. Default-concurrency diagnosis stays deferred under 09; broad matrix/coverage/CRAP remains open under 11. No actual desktop GUI, real provider/OS trust, WAN or packaged release pass is inferred. The spec/map and tickets09/11 are outside this task's write set and remain unchanged.
 
 ## Previous retry (2026-10-28; before scope decision)
 
@@ -45,11 +51,11 @@ Independent static review found no further actionable findings after the diagnos
 
 ## Qualification checklist
 
-Apply the current single-device acceptance scope above. Existing serial HTTPS and focused owner passes are relevant evidence; reconcile them with each workflow criterion and any remaining single-device gaps before closing it. Both integrated durability criteria remain unchecked pending that reconciliation, not pending default-concurrency suite success. Broad matrix/coverage outcomes and all historical evidence remain recorded separately; no fresh broad pass is claimed.
+Apply the current single-device acceptance scope above. The [current reconciliation](../evidence/07-single-device-qualification.md#checklist-reconciliation) combines the fresh complete sequential owner suite and unified HTTPS pass with prior mounted/injected evidence. Both integrated durability criteria are now qualified at those seams. Existing checked UI/startup/cleanup criteria retain their prior evidence; they are not new GUI runs. The validation-reporting box records actual attempts and limitations, not completion of the separately tracked broad gates under 11. No fresh broad pass is claimed.
 
 - [x] Verify default bundled first launch has one essential Create/Join choice, minimal required input, no mandatory internal composition, and no completion-only gate before ordinary sign-in.
-- [ ] Exercise the integrated Join flow from request through source acceptance and exact approval/rejection to verified readiness; verify completed reopen without the source peer.
-- [ ] Verify accepted work survives disconnect and restart, exact retry retains identities, required transient credentials are requested again, and returning ready Nodes do not replay onboarding.
+- [x] Exercise the integrated Join flow from request through source acceptance and exact approval/rejection to verified readiness; verify completed reopen without the source peer.
+- [x] Verify accepted work survives disconnect and restart, exact retry retains identities, required transient credentials are requested again, and returning ready Nodes do not replay onboarding.
 - [x] Verify visible asynchronous startup, already-trusted launch, consent refusal, actionable prerequisite failure, and lifecycle contention together with the final setup routing.
 - [x] Verify selected remote services remain usable without local provisioning or bundled credential forwarding, browser setup never requires Tauri, and independent owners retain separate admission and correlated readiness checks.
 - [x] Verify optional local data configuration remains editable without changing restrictions or resource authority, and maintenance reports local deletion separately from incomplete remote revocation.
@@ -57,14 +63,24 @@ Apply the current single-device acceptance scope above. Existing serial HTTPS an
 - [x] Reuse existing rendered-page and public HTTPS lifecycle scenarios and coordinate with the deployment-independent system-test effort; do not duplicate its scenarios or infer GUI coverage from backend tests.
 - [x] Inspect the final call graph and remove any remaining superseded commands, markers, routes, stores, screens, wrappers, or duplicate tests belonging to this workflow. Each preceding ticket must already include its own focused tests and local cleanup.
 - [x] Reconcile current glossary-linked design, interface, operations, and native handoff guidance with delivered behavior; clearly distinguish historical evidence from current instructions.
-- [x] Run relevant frontend checks/tests, Rust formatting and clippy, then final `cargo hack test --feature-powerset --all-targets` and `just crap`. Record actual commands, outcomes, existing unrelated failures, and any unavailable tooling without claiming unrun checks passed.
+- [x] Record relevant frontend checks/tests, Rust formatting and scoped Clippy outcomes, and actual broad `cargo hack test --feature-powerset --all-targets` / `just crap` attempts and limitations. Fresh HTTP-client/format checks pass; prior scoped Clippy/frontend checks remain historical. Broad matrix/coverage/CRAP completion remains incomplete under 11, not a ticket07 pass or closure prerequisite under the current scope.
 - [x] Record which rendered/integration scenarios actually ran and their limits. Injected trust/providers do not certify real OS trust installation, physical/WAN pairing, unsupported platforms, or production deployment. Do not modify real profiles or OS trust stores to satisfy automated validation.
 
 ## Comments
 
+- 2026-10-28: Completed single-device qualification on `qualify/setup07-single-device-20261028`. Full root owner suite 44/0/6 existing child ignores, fresh unified HTTPS Join 3/3, HTTP client 24/24, formatting and whitespace checks passed. All launch receipts were polled to actual exit code 0; no resource guards fired. No bug reproduced or code edit needed. Merged current integration tip into the branch before delivery (already up to date at `f2ac31f1d`). Resolution and limitations are in the new evidence and current Answer; no map/spec/09/11 edits.
+
+- 2026-10-28: Claimed on `qualify/setup07-single-device-20261028`, worktree `.worktrees/setup07-single-device-20261028`, based on integration `f2ac31f1da7806929fef1b97c800da894b83c94e` (confirmed merge-base). Qualify the new single-device scope using existing sequential public lifecycle scenarios and unchanged deadlines/assertions; write set is this ticket and new single-device evidence only unless a demonstrated bug is reported first. Parallel failures remain deferred to 09; broad gates remain with 11. No real profile/provider/OS trust changes.
+
 - Claimed on `setup-simplification-07`; qualify the integrated 01–06 implementation at the spec-authorized rendered-page, public HTTPS lifecycle and isolated native provider/trust seams. No real profile or OS trust changes.
 
 ## Answer
+
+**Resolved under the new single-device scope.** [Current qualification evidence](../evidence/07-single-device-qualification.md) records exact commands, immutable revisions/lockfile, scheduling, resource receipts, child outcomes and criterion-by-criterion reconciliation. The complete all-features root owner suite passed **44/0/6 existing child-entry ignores** in 1151.89s; fresh unified HTTPS Join passed **3/3** in 180.93s; standalone setup HTTP passed **24/24**; formatting and whitespace checks passed. Existing deadlines, features, security assertions and per-device coordination are unchanged. No demonstrated single-device bug required a production fix.
+
+This closes the two integrated Join/durability evidence gaps for one device undergoing setup at a time, including its approving source. It does not close 09's deferred parallel failures, 11's broad matrix/coverage/CRAP work, the overall spec, or actual packaged desktop GUI/provider/OS trust/WAN qualification. Prior mounted/native/cleanup evidence is reused at its stated seam, not promoted to a new live GUI pass. Only this ticket and the new evidence are delivery changes; map updates were expressly excluded by the user.
+
+## Historical answer (before current scope qualification)
 
 **Qualification incomplete; not resolved.** [Current integrated evidence](../evidence/07-integrated-qualification.md) records actual passing, failing and bounded commands and the retained limits. Fixed completed-Create readiness re-observation and removed its premature duplicate sign-in link with two mounted regression cases; fixed the stale native observation test call exposed by compilation. Reconciled current design/API/worker/owner/native/operations guidance and deleted the obsolete route inventory entry.
 
