@@ -124,7 +124,7 @@ async fn serve_setup_inner<G: Send + 'static>(
     let listener = tls.listener(listener);
     let mut server = tokio::task::JoinSet::new();
     server.spawn(async move { serve_listener(guard, listener, router, shutdown).await });
-    let verified = async {
+    let verification = async {
         // Verify native TLS and HTTP serving without running current remote readiness.
         let response = client
             .request(reqwest::Method::OPTIONS, format!("{base}{status_path}"))
@@ -139,9 +139,14 @@ async fn serve_setup_inner<G: Send + 'static>(
         }
 
         Ok(())
-    }
-    .await;
-    if verified.is_ok() {
+    };
+    let verified = tokio::select! {
+        biased;
+        () = cancellation.cancelled() => Ok(()),
+        result = server.join_next() => return result.expect("one setup listener task").map_err(io::Error::other)?,
+        result = verification => result,
+    };
+    if verified.is_ok() && !cancellation.is_cancelled() {
         if announce {
             println!("Local setup HTTPS: {base}");
             println!(

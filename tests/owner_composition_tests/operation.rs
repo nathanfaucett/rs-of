@@ -486,30 +486,30 @@ async fn delayed_authority_reopen(
         setup(root, "storage", addresses[2]),
         shutdown.clone(),
     ));
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
-    loop {
-        if let Ok(response) = http
-            .get(format!("{}/databases", intent.storage))
-            .send()
-            .await
-        {
-            if response.status() == StatusCode::UNAUTHORIZED {
-                break;
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if let Ok(response) = http
+                .get(format!("{}/databases", intent.storage))
+                .send()
+                .await
+            {
+                if response.status() == StatusCode::UNAUTHORIZED {
+                    break;
+                }
             }
+            tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "completed router restored before authority responds"
-        );
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    })
+    .await
+    .expect("completed router restored before authority responds");
     let status = http
         .get(format!("{}/independent/setup/status", intent.storage))
+        .timeout(Duration::from_secs(1))
         .send()
         .await;
     assert!(
-        status.is_ok_and(|response| response.status() == StatusCode::SERVICE_UNAVAILABLE),
-        "actual remote authority returns SERVICE_UNAVAILABLE after delay"
+        status.is_err_and(|error| error.is_timeout()),
+        "readiness observation times out without stopping the completed Storage host"
     );
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert!(
@@ -518,6 +518,10 @@ async fn delayed_authority_reopen(
     );
     delayed_stop.cancel();
     delayed.await.expect("join delayed").expect("stop delayed");
+    assert!(
+        !server.is_finished(),
+        "completed Storage listener survives the delayed authority failure"
+    );
     drop(host);
     current_status(http, &intent.storage, false).await;
     assert_eq!(

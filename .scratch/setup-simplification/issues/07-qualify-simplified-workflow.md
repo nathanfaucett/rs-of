@@ -8,7 +8,11 @@
 
 **Triage:** ready-for-agent
 
-## Current integration status (2026-10-27)
+## Current retry (2026-10-28)
+
+Retry checkpoint on `integration/setup-07-completion`, based on `main` at `31ced611f`; claim released with unresolved failures recorded. The previous single passing operation test did not qualify this ticket. The retry restores a request-local timeout regression without restoring the five-second production budget; fixes cancellation during native HTTPS verification; and releases the lifecycle mutex during registrar work, with post-await exact-operation/cancellation/admission revalidation. It also enforces the existing readiness budget across response-body reads. Concurrent qualification still fails; both durability checklist items remain unchecked. See [retry evidence](../evidence/07-completion-retry.md).
+
+## Current integration status (2026-10-27; historical)
 
 **07, [09](09-diagnose-readiness-and-request-timeouts.md), [11](11-complete-provisioned-validation.md) and the [spec](../spec.md) remain open.** Reviewed changes now include shared-worker/queued-reply and independent connection teardown fences; Storage identity-first denial preserving current policy/response checks; Management policy-schema, standalone HTTP and continuously bound source-HTTPS fixture fixes; and the Device conflict fixture's complete-catalog initial sync (**6/6 focused**, unchanged negative assertions). Application-owned AGENTS guidance (`1cfe76076`) is integrated. Sibling ofdb integration **`a8c23a54540e591aa024396a5674dc016b6cce3a`** includes batched candidate observation, exact field lookup, measured schema stack boundaries and operation-local same-transaction schema reuse with their recorded focused regressions/controls. These are implemented fixes, not whole-workflow acceptance.
 

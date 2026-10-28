@@ -1,6 +1,10 @@
 # Setup simplification map
 
-## Current integration status (2026-10-27)
+## Current ticket 07 retry (2026-10-28)
+
+On `integration/setup-07-completion`, the retry restores request-timeout coverage, makes HTTPS verification cancellation-responsive, and releases the lifecycle mutex during registrar work with late-completion revalidation. A gated registrar regression fails before the fix and passes after it. Unified HTTPS Join qualification passes **3/3** serial scenarios; ordinary default-concurrency owner qualification still fails **39 passed / 5 failed / 6 ignored** after the lock fix. A separate timed diagnostic fails **40 passed / 4 failed / 6 ignored**. These are not pooled into acceptance: ticket 07, its two integrated durability criteria, and the spec remain open. [Current retry evidence](evidence/07-completion-retry.md).
+
+## Current integration status (2026-10-27; historical)
 
 **[07](issues/07-qualify-simplified-workflow.md), [09](issues/09-diagnose-readiness-and-request-timeouts.md), [11](issues/11-complete-provisioned-validation.md) and the [spec](spec.md) remain open.** Integrated changes include shared/independent teardown fences, Storage identity-first denial, Management policy-schema and standalone HTTP fixture repairs, continuous child-owned source HTTPS sockets, and complete-catalog initial synchronization in the Device conflict fixture (**6/6 focused**). The optional protected-lock probe changes observations, not lock behavior. Application-owned AGENTS guidance (`1cfe76076`) is included. ofdb integration **`a8c23a54540e591aa024396a5674dc016b6cce3a`** contains candidate batching, exact field point reads, schema-local stack boundaries and same-transaction schema reuse, with separate recorded causal/semantic controls. See [09 evidence](evidence/09-timeout-localization.md), [Storage evidence](evidence/09-storage-denial.md) and [Device fixture evidence](evidence/11-device-contract-fixture.md).
 

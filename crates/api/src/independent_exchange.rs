@@ -333,6 +333,12 @@ pub(crate) async fn register(
     let Some(registrar) = state.registrar.clone() else {
         return StatusCode::CONFLICT;
     };
+    let active = state
+        .active
+        .as_ref()
+        .expect("validated active operation")
+        .clone();
+    drop(state);
     let public_registration = reply.registration.clone();
     reply.registration["client_secret"] = secret;
     let result = crate::independent_create::observe_request(
@@ -349,6 +355,18 @@ pub(crate) async fn register(
             result.as_ref().err().map(io::Error::kind)
         );
     }
+    let state = control.0.lifecycle.lock().await;
+    if active.is_cancelled()
+        || control.0.shutdown.is_cancelled()
+        || control.0.admission.is_retired().unwrap_or(true)
+        || state.intent.as_ref() != Some(&reply.operation)
+        || state
+            .active
+            .as_ref()
+            .is_none_or(|active| active.is_cancelled())
+    {
+        return StatusCode::FORBIDDEN;
+    }
     match result {
         Ok(()) => {
             if control
@@ -363,6 +381,10 @@ pub(crate) async fn register(
         Err(_) => StatusCode::CONFLICT,
     }
 }
+
+#[cfg(test)]
+#[path = "independent_exchange_lifecycle_tests.rs"]
+mod lifecycle_tests;
 
 #[cfg(test)]
 mod tests {

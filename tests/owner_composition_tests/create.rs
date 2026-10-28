@@ -188,6 +188,7 @@ pub(super) async fn wait(http: &Client, intent: &IndependentCreateIntent, ready:
         );
     }
     let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    tokio::time::timeout_at(deadline, async {
     for owner in ["idp", "device", "storage"] {
         let owner_started = Instant::now();
         loop {
@@ -264,6 +265,7 @@ pub(super) async fn wait(http: &Client, intent: &IndependentCreateIntent, ready:
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
     }
+    }).await.expect("bounded independent owner readiness, including response bodies");
 }
 pub(super) async fn normal_use(
     http: &Client,

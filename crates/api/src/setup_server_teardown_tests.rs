@@ -23,6 +23,18 @@ struct TeardownGate {
     wake: Condvar,
 }
 
+impl TeardownGate {
+    fn wait(&self) {
+        if let Some(entered) = self.entered.lock().expect("teardown notification").take() {
+            let _ = entered.send(());
+        }
+        let mut released = self.released.lock().expect("teardown gate");
+        while !*released {
+            released = self.wake.wait(released).expect("release teardown");
+        }
+    }
+}
+
 struct Release(Arc<TeardownGate>);
 
 impl Drop for Release {
@@ -39,19 +51,7 @@ struct GatedIo {
 
 impl Drop for GatedIo {
     fn drop(&mut self) {
-        if let Some(entered) = self
-            .gate
-            .entered
-            .lock()
-            .expect("teardown notification")
-            .take()
-        {
-            let _ = entered.send(());
-        }
-        let mut released = self.gate.released.lock().expect("teardown gate");
-        while !*released {
-            released = self.gate.wake.wait(released).expect("release teardown");
-        }
+        self.gate.wait();
     }
 }
 
@@ -110,6 +110,108 @@ impl Listener for GatedListener {
     fn local_addr(&self) -> io::Result<Self::Addr> {
         self.listener.local_addr()
     }
+}
+
+#[cfg(feature = "test-support")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cancellation_interrupts_pending_https_verification_before_owner_reopen() {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let root = tempfile::tempdir().expect("isolated independent owner");
+        let domain = root.path().join("device");
+        let reserved = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("reserve address");
+        let address = reserved.local_addr().expect("address");
+        let prepare = || {
+            IndependentSetupHost::prepare(
+                "device",
+                &domain,
+                address,
+                "https://localhost:5173",
+                "",
+                false,
+            )
+        };
+        let host = prepare().expect("prepare").expect("independent host");
+        let admission_path = host.admission_path();
+        let admission = std::fs::read(&admission_path).expect("retained admission");
+        let tls = host.tls().clone();
+        let ca = std::fs::read(tls.ca_path()).expect("retained CA");
+        let client = reqwest::Client::builder()
+            .tls_built_in_root_certs(false)
+            .add_root_certificate(reqwest::Certificate::from_pem(&ca).expect("test CA"))
+            .no_proxy()
+            .http1_only()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .expect("isolated test CA client");
+        let (entered, mut verification) = oneshot::channel();
+        let gate = Arc::new(TeardownGate {
+            entered: Mutex::new(Some(entered)),
+            released: Mutex::new(false),
+            wake: Condvar::new(),
+        });
+        let release = Release(gate.clone());
+        let router = axum::Router::new().route(
+            "/independent/setup/status",
+            axum::routing::options(move || {
+                let gate = gate.clone();
+                async move {
+                    gate.wait();
+                    axum::http::StatusCode::SERVICE_UNAVAILABLE
+                }
+            }),
+        );
+        let shutdown = CancellationToken::new();
+        drop(reserved);
+        let serving = super::serve_setup_verified(
+            host,
+            tls,
+            address,
+            router,
+            "/independent/setup/status".into(),
+            admission_path,
+            shutdown.clone(),
+            client,
+            false,
+        );
+        tokio::pin!(serving);
+        tokio::select! {
+            result = &mut serving => panic!("listener ended before gated OPTIONS: {result:?}"),
+            result = &mut verification => result.expect("HTTPS OPTIONS entered verification gate"),
+        }
+        shutdown.cancel();
+        poll_fn(|cx| {
+            assert!(
+                serving.as_mut().poll(cx).is_pending(),
+                "shutdown must retain the owner while OPTIONS is executing"
+            );
+            Poll::Ready(())
+        })
+        .await;
+        assert!(
+            prepare().is_err(),
+            "owner exclusion remains held during OPTIONS teardown"
+        );
+        // A late failing response must not become a verification error after cancellation.
+        drop(release);
+        serving
+            .await
+            .expect("cancellation interrupted verification and joined cleanup");
+        let reopened = prepare()
+            .expect("single immediate owner reopen")
+            .expect("retained host");
+        assert_eq!(
+            std::fs::read(reopened.admission_path()).expect("reopened admission"),
+            admission
+        );
+        assert_eq!(
+            std::fs::read(reopened.tls().ca_path()).expect("reopened CA"),
+            ca
+        );
+    })
+    .await
+    .expect("bounded verification cancellation regression");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
