@@ -1,6 +1,6 @@
 import { ApplicationSdk, type SdkOptions } from "@of/sdk";
-import { flushSync, mount, unmount } from "svelte";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { flushSync, mount, tick, unmount } from "svelte";
+import { afterEach, beforeEach, expect, it, onTestFinished, vi } from "vitest";
 import Page from "../../../routes/(auth)/+page.svelte";
 import SignIn from "../../../routes/signin/_SignIn.svelte";
 import Browser from "./Browser.svelte";
@@ -313,6 +313,8 @@ it("keeps the local draft bindings after a rejected Save", async () => {
 });
 
 it("wires real SDK redirect/callback, filesystem discovery/create/open and local sign-out", async () => {
+    const warn = vi.spyOn(console, "warn");
+    onTestFinished(() => warn.mockRestore());
     vi.stubGlobal("matchMedia", () => ({
         matches: false,
         addEventListener: () => {},
@@ -404,6 +406,7 @@ it("wires real SDK redirect/callback, filesystem discovery/create/open and local
     await wait("First secret");
     click("First secret");
     input("secret", "Unsaved private draft");
+    await tick();
     const signedOut = Endpoint.sockets.at(-1);
     click("Sign out");
     flushSync();
@@ -416,6 +419,7 @@ it("wires real SDK redirect/callback, filesystem discovery/create/open and local
     const reload = new ApplicationSdk(sdkOptions);
     await reload.restore();
     expect(reload.session.status).toBe("unauthenticated");
+    expect(warn.mock.calls.flat().join("\n")).not.toContain("derived_inert");
     expect(
         fetchApi.mock.calls.some(([url]) =>
             String(url).startsWith("https://storage.test/storage/"),

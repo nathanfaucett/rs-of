@@ -254,8 +254,9 @@ export function createSecretWorkflow(options: {
             error = null;
             notice = "";
             unsubscribe();
+            const queryCollection = query.collection;
             stop();
-            void query.collection?.cleanup();
+            void queryCollection?.cleanup();
             void collection.cleanup();
         },
     };
