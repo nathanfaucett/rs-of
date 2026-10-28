@@ -3,12 +3,12 @@
 ## Current plan: single-device milestone (2026-10-28)
 
 - User decision: prioritize **one device undergoing setup at a time**, primarily bundled desktop Create/sign-in/startup/recovery. A single Join still includes its approving source device and subsequent source-offline reopen.
-- [07](issues/07-qualify-simplified-workflow.md): reconcile existing sequential evidence with workflow criteria, fill single-device gaps, and report GUI/platform/provider/trust limits. Internal owner coordination, exact identity, cancellation and current readiness remain required. No criteria are automatically checked by this scope change.
+- [07](issues/07-qualify-simplified-workflow.md): **resolved for automated single-device workflow qualification**. [Current evidence](evidence/07-single-device-qualification.md): complete sequential owner suite **44 passed / 0 failed / 6 existing child-entry ignores**, fresh unified HTTPS Join **3/3**, HTTP client **24/24**. Existing mounted/injected evidence retains its stated limits; no live desktop GUI or release pass is inferred.
 - [09](issues/09-diagnose-readiness-and-request-timeouts.md): parallel independent workload failures remain open but deferred/non-blocking for this milestone. Resume active diagnosis for failures reproduced on the single-device path. Do not erase failures, inflate deadlines, or claim concurrency is fixed.
-- [11](issues/11-complete-provisioned-validation.md): retain broad matrix/CRAP reporting; sequential independent scenarios are permitted with explicit scheduling and scope. No full-matrix or coverage success is implied.
-- This plan and the [spec's current acceptance scope](spec.md#current-acceptance-scope-2026-10-28) supersede historical requirements for default-concurrency success before ticket 07 acceptance. Tickets remain open pending their scoped evidence review.
+- [11](issues/11-complete-provisioned-validation.md): **open / ready-for-human**. [Bounded validation evidence](evidence/11-single-device-validation.md): **4/10 root feature combinations completed successfully**, fifth interrupted at the **7200s** ceiling, five unrun. Separate workspace CRAP stopped during instrumented compilation, **before tests**, at available RAM **below 2 GiB**; no fresh coverage report or CRAP score. Sequential scheduling is not parallel qualification or full-matrix/workspace completion.
+- Next actions: coordinate sufficient sustained resources and an authorized time budget for ticket 11's broad gates; perform actual packaged desktop/GUI/provider/OS trust/platform/WAN qualification before release. The [spec remains open](spec.md#current-acceptance-scope-2026-10-28) for broad validation and these desktop limits. This plan supersedes historical ticket07-open/default-concurrency acceptance statements; 09 remains deferred, not fixed.
 
-## Previous ticket 07 retry (2026-10-28; before scope decision)
+## Previous ticket 07 retry (2026-10-28; historical, before scope decision)
 
 On `integration/setup-07-completion`, the retry restores request-timeout coverage, makes HTTPS verification cancellation-responsive, and releases the lifecycle mutex during registrar work with late-completion revalidation. A gated registrar regression fails before the fix and passes after it. Unified HTTPS Join qualification passes **3/3** serial scenarios; ordinary default-concurrency owner qualification still fails **39 passed / 5 failed / 6 ignored** after the lock fix. A separate timed diagnostic fails **40 passed / 4 failed / 6 ignored**. These are not pooled into acceptance: ticket 07, its two integrated durability criteria, and the spec remain open. [Current retry evidence](evidence/07-completion-retry.md).
 
@@ -37,9 +37,9 @@ On `integration/setup-07-completion`, the retry restores request-timeout coverag
 - [05: Visible startup and trust](issues/05-visible-startup-and-trust.md) — resolved. Window-first asynchronous retained-host startup, current native-root verification before conditional explained consent, refusal/retry, cancellation/join and late-publication fencing. No Create/Join/completion or maintenance presentation rewrite. [Focused evidence and limits](evidence/05-visible-startup-and-trust.md): 22 native, 15 mounted and 181 route/state tests pass; existing provider readiness bound reproduced with original startup, full matrix/CRAP compilation timed out. No real OS trust/profile/GUI qualification.
 - [06: Separate maintenance](issues/06-separate-maintenance.md) — resolved. Dedicated bundled-only `/maintenance`, per-attempt destructive confirmation, distinct advanced exact-reference recovery and explicit-bearer peer revocation. Native reset/runtime internals preserved. [Evidence](evidence/06-maintenance.md): 21 mounted interactions, 28 setup-page cases, build/check pass; broad auth and native/feature/CRAP qualification remain limited.
 
-- [07: Integrated qualification](issues/07-qualify-simplified-workflow.md) — **open, not resolved**. Fixed Create completed-recovery/current-login routing, deleted the premature duplicate sign-in path and repaired a stale native test signature. 34 mounted/180 route-state-client, API 40, native 21 and scoped strict Clippy pass. Mixed HTTPS lifecycle timeouts and incomplete final matrix/CRAP prevent acceptance. [Current evidence and limits](evidence/07-integrated-qualification.md).
+- [07: Integrated qualification](issues/07-qualify-simplified-workflow.md) — **resolved for the current automated single-device scope**. [Current qualification evidence](evidence/07-single-device-qualification.md): complete sequential owner suite **44/0/6 existing child-entry ignores**, fresh unified HTTPS Join **3/3**, HTTP client **24/24**. This fills the integrated Join/durability gaps using existing mounted/injected evidence at its stated seams. Earlier [integrated results](evidence/07-integrated-qualification.md) remain historical; no GUI/release or parallel-reliability pass is claimed. [09](issues/09-diagnose-readiness-and-request-timeouts.md) stays open/deferred; [11](issues/11-complete-provisioned-validation.md) stays open/ready-for-human with [partial broad validation](evidence/11-single-device-validation.md), and the spec remains open.
 
-## Scoped merge-readiness decision
+## Scoped merge-readiness decision (historical)
 
 The user accepted proceeding with a scoped improvement rather than chasing unrelated validation repairs in this branch. A final read-only review of `main...setup-simplification` at `8d94861d1` found no new actionable auth/readiness/shutdown blocker. Local `main` at `ca7a1fc35` has two unrelated scratch-spec commits beyond merge base `dfeaf7dbe`, with no production-code target divergence. This was source review only; no merged-tree test, merge, push, GUI smoke test or full qualification is claimed.
 
@@ -52,7 +52,7 @@ Ticket 07 and the spec remain open. Outstanding work is tracked explicitly:
 
 A packaged desktop disposable-profile Create/sign-in/reopen/Join smoke test remains recommended before a user-facing release. This merge-readiness decision does not replace it or close unchecked acceptance criteria.
 
-## Follow-up integration (2026-10-26)
+## Follow-up integration (2026-10-26; historical)
 
 Resumed from clean newer `main` at `da5bc63419623ab48f93dea14dfce20f3e10ffc9` on `integration/setup-simplification-followup`; the scoped setup implementation had already been merged. The merge-readiness text above is a historical receipt, not the current branch state.
 
@@ -62,7 +62,7 @@ Resumed from clean newer `main` at `da5bc63419623ab48f93dea14dfce20f3e10ffc9` on
 - [11 provisioned qualification](issues/11-complete-provisioned-validation.md) — **open / ready-for-human**. Dependencies 08/10 are resolved. Frozen install, owner SDK build and five export checks passed, but exhausted swap triggered the conservative no-launch guard with about 6.8 GiB RAM available. No Rust matrix or coverage launched; sufficient runner resources remain an external prerequisite. [Evidence](evidence/11-validation-attempt.md).
 - Independent read-only review found no further actionable findings after the clock correction. Focused runtime checks are recorded per source/artifact receipt; not every experiment ran the final merged tree. Full qualification, ticket07 and the spec stay open. Existing test-target lint failures and historical workspace/standalone-suite failures are not waived.
 
-## Fog
+## Fog (historical validation snapshot)
 
 - Latest final-code HTTPS Join evidence is 9/9 passing scenarios across three serial suites, after deterministic router/admission shutdown and queued-reply fixes. Earlier source-offer/authorized-request timeout causes remain unproven; no blanket baseline or environment attribution. See the reliability follow-up below.
 - Latest Cargo Hack matrix compiled its first all-features run, then owner-boundary tests reported 18 passed / 26 failed / 6 ignored; remaining feature combinations were not reached. The truncated Swagger coverage ZIP is repaired, but CRAP was stopped as memory fell to about 1 GiB with swap full; no complete matrix or score. See validation diagnosis below.
@@ -70,11 +70,11 @@ Resumed from clean newer `main` at `da5bc63419623ab48f93dea14dfce20f3e10ffc9` on
 - Existing deployment-independent process scenarios were inspected, not rerun; referenced scratch reports are absent. Do not infer their results or duplicate their suite.
 - Real OS trust/elevation/provider profiles, full desktop GUI, physical/WAN and other platforms remain outside isolated same-host injected evidence.
 
-## Review follow-up
+## Review follow-up (historical)
 
 Single-implementer `setup-simplification-review` fixes independent ready-page sign-in, preserves operational retained-open errors, publishes stopped/retry after reference recovery, and supports exact configured packaged-native origins for remote HTTPS services without bundled capabilities. [Evidence](evidence/07-review-fixes.md): final frontend 193 + mounted 34, API 41, native 25, scoped strict Clippy/check/build pass. Final-code serial HTTPS Join finalization/offline/interruption **3 passed**, but a preceding repeat had a source-offer timeout; reliability remains open. Latest matrix still timed out; latest CRAP failed on a malformed cached Swagger archive rather than timing out. Earlier receipts retain their historical outcomes. Ticket07/spec remain **open**.
 
-## Reliability and validation follow-up
+## Reliability and validation follow-up (historical)
 
 - [Lifecycle evidence](evidence/07-reliability-followup.md): retained connection routers could keep admission locked after worker shutdown released host ownership. Shutdown now joins shared teardown before releasing that ownership and rejects queued commands first, avoiding the independently reviewed reply/teardown cycle. Both regressions failed before their fixes; 100 final lifecycle executions, focused setup-host/cancellation/retained-state checks and final serial HTTPS suites (9/9 scenarios) pass. Independent re-review found no further actionable issue; it was source review, not independent test execution.
 - [Validation evidence](evidence/07-validation-followup.md): repaired only the hash-guarded truncated Swagger ZIP from a CRC-verified complete local copy. Matrix now reaches actual owner-boundary failures (18 passed / 26 failed / 6 ignored), not a compilation timeout. Diagnosis separates 19 missing-signer failures consistent with pre-existing global mock-provider interference, one missing built SDK, one isolated legacy-reset fixture/parser mismatch, and five readiness/request failures with unproven causes. Isolated representatives pass except the reset mismatch; no blanket unrelated-baseline claim. CRAP compilation was safely stopped for memory pressure, with no score. Those diagnostic executables predate the final lifecycle correction and are not final-code matrix acceptance.
