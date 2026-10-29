@@ -143,7 +143,12 @@ impl BootstrapConfig {
             issuer: peer_issuer.map_or_else(
                 || match purpose {
                     BootstrapPurpose::AwaitingChoice => String::new(),
-                    _ => installation_issuer(key_namespace),
+                    _ => format!(
+                        "{}/idp",
+                        http.as_ref()
+                            .map(|(_, base)| base.clone())
+                            .unwrap_or_else(|| format!("https://{listen}"))
+                    ),
                 },
                 |(_, issuer)| issuer.to_owned(),
             ),
@@ -158,6 +163,9 @@ impl BootstrapConfig {
     }
 
     fn retain(host: Host, explicit_config: Option<UnifiedConfig>) -> io::Result<Self> {
+        if host.purpose != BootstrapPurpose::AwaitingChoice {
+            validate_host_issuer(&host.issuer)?;
+        }
         let root = &host.root;
         create_private_directory(root, true)?;
         let operation = lock(root, true)?;
@@ -197,7 +205,10 @@ impl BootstrapConfig {
         let host: Host = serde_json::from_slice(&bytes)?;
         crate::LocalTls::api_base(host.listen)?;
         if host.purpose != BootstrapPurpose::AwaitingChoice {
-            validate_issuer(&host.issuer)?;
+            validate_host_issuer(&host.issuer)?;
+            if host.purpose == BootstrapPurpose::Join {
+                validate_issuer(&host.issuer)?;
+            }
         }
         if host.version != 1
             || host.root != root
@@ -208,8 +219,6 @@ impl BootstrapConfig {
             || (host.purpose == BootstrapPurpose::AwaitingChoice && !host.issuer.is_empty())
             || (host.explicit.is_some() && host.setup_attempted.is_none())
             || (host.purpose == BootstrapPurpose::Join) != host.trusted_peer.is_some()
-            || (host.purpose == BootstrapPurpose::Create
-                && host.issuer != installation_issuer(host.key_namespace))
             || serde_json::to_value(&host)? != serde_json::from_slice::<serde_json::Value>(&bytes)?
         {
             return Err(invalid(
@@ -274,13 +283,23 @@ impl BootstrapConfig {
         }
         let mut selected: Host = serde_json::from_slice(&serde_json::to_vec(&self.host)?)?;
         selected.purpose = BootstrapPurpose::Create;
-        selected.issuer = installation_issuer(selected.key_namespace);
+        selected.issuer = match &self.host.explicit {
+            Some(identity) => identity["issuer"]
+                .as_str()
+                .ok_or_else(|| {
+                    invalid("retained explicit issuer is missing; exact recovery required")
+                })?
+                .to_owned(),
+            None => self.config().idp.api_public_uri,
+        };
+        validate_host_issuer(&selected.issuer)?;
         self.retain_selection(selected)
     }
 
     pub fn select_join(&mut self, peer: &str, issuer: &str) -> io::Result<()> {
         device_service::hosted_join::NodeJoinRequest::validate_trusted_peer(peer)?;
         validate_issuer(issuer)?;
+        validate_host_issuer(issuer)?;
         if self.host.purpose == BootstrapPurpose::Join
             && self.setup_attempted()
             && self.host.trusted_peer.as_deref() == Some(peer)
@@ -335,14 +354,13 @@ impl BootstrapConfig {
         Self::create_explicit_host(config, false)
     }
 
-    fn create_explicit_host(mut config: UnifiedConfig, https: bool) -> io::Result<Self> {
+    fn create_explicit_host(config: UnifiedConfig, https: bool) -> io::Result<Self> {
         require_unix_bootstrap()?;
         crate::config::require_fresh_roots(&config, true, https)?;
         let root = absolute(&Self::explicit_directory(&config))?;
         crate::config::require_host_separation(&config, &root)?;
         require_absent(&root)?;
         let explicit = explicit_identity(&config)?;
-        config.idp.oauth2.issuer.clear();
         Self::retain(
             Host {
                 version: 1,
@@ -360,16 +378,17 @@ impl BootstrapConfig {
         )
     }
 
-    pub fn open_explicit(mut config: UnifiedConfig) -> io::Result<Self> {
+    pub fn open_explicit(config: UnifiedConfig) -> io::Result<Self> {
         let mut host = Self::read(&Self::explicit_directory(&config))?;
         if host.host.explicit.as_ref() != Some(&explicit_identity(&config)?)
             || host.host.listen != config.listen_addr
+            || (host.host.purpose == BootstrapPurpose::Create
+                && host.host.issuer != configured_issuer(&config))
         {
             return Err(invalid(
-                "explicit configuration conflicts with retained neutral host",
+                "explicit configuration conflicts with retained host identity; restore the exact configuration",
             ));
         }
-        config.idp.oauth2.issuer.clear();
         host.explicit_config = Some(config);
         Ok(host)
     }
@@ -435,6 +454,14 @@ impl BootstrapConfig {
     }
 }
 
+fn configured_issuer(config: &UnifiedConfig) -> &str {
+    if config.idp.oauth2.issuer.is_empty() {
+        &config.idp.api_public_uri
+    } else {
+        &config.idp.oauth2.issuer
+    }
+}
+
 fn explicit_identity(config: &UnifiedConfig) -> io::Result<serde_json::Value> {
     if config.idp.oauth2.local_signer.is_some() {
         return Err(invalid(
@@ -442,6 +469,7 @@ fn explicit_identity(config: &UnifiedConfig) -> io::Result<serde_json::Value> {
         ));
     }
     crate::LocalTls::api_base(config.listen_addr)?;
+    validate_host_issuer(configured_issuer(config))?;
     Ok(serde_json::json!({
         "roots": [
             absolute(Path::new(&config.idp.data_dir))?,
@@ -451,14 +479,39 @@ fn explicit_identity(config: &UnifiedConfig) -> io::Result<serde_json::Value> {
         ],
         "listen": config.listen_addr,
         "key_namespace": config.idp.key_namespace,
+        "issuer": configured_issuer(config),
         "applications": [config.idp.api_public_uri, config.device.api_public_uri, config.storage.api_public_uri],
         "ui_origin": config.idp.ui_public_uri,
         "audiences": [config.idp.service_audience, Some(config.device.storage_audience.clone())],
     }))
 }
 
-fn installation_issuer(id: Id) -> String {
-    format!("https://{id}.installation.invalid/idp")
+fn validate_host_issuer(issuer: &str) -> io::Result<()> {
+    if issuer.trim() != issuer {
+        return Err(invalid(
+            "configured issuer must not contain surrounding whitespace",
+        ));
+    }
+    let url = reqwest::Url::parse(issuer).map_err(|_| invalid("invalid configured issuer URI"))?;
+    if url.host_str().is_some_and(|host| {
+        host == "installation.invalid" || host.ends_with(".installation.invalid")
+    }) {
+        return Err(invalid(
+            "fabricated installation.invalid issuer is unsupported; stop this installation and recover its original configured issuer and matching identity from backup, or explicitly provision a separate fresh installation; existing data and tokens must not be rewritten",
+        ));
+    }
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(invalid(
+            "configured issuer must be an HTTP(S) URI without credentials, query or fragment",
+        ));
+    }
+    Ok(())
 }
 
 pub fn present(path: &Path) -> io::Result<bool> {

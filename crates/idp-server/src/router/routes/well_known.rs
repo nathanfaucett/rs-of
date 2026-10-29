@@ -13,5 +13,5 @@ pub(crate) async fn jwks(State(state): State<RouterState>) -> Result<Json<Jwks>,
 pub(crate) async fn openid_configuration(
     State(state): State<RouterState>,
 ) -> Result<Json<AuthorizationServerMetadata>, ErrorResponse> {
-    Ok(Json(state.oauth2_service.metadata()))
+    Ok(Json(state.oauth2_service.metadata(&state.api_base_uri)))
 }

@@ -472,6 +472,14 @@ pub(super) fn capture_setup_timings() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "parent supplies isolated native roots and mock provider; no real trust/provider updates"]
 async fn api_create_child() {
+    use reqwest::{
+        Method, StatusCode,
+        header::{
+            ACCESS_CONTROL_ALLOW_CREDENTIALS, ACCESS_CONTROL_ALLOW_HEADERS,
+            ACCESS_CONTROL_ALLOW_METHODS, ACCESS_CONTROL_ALLOW_ORIGIN,
+        },
+    };
+
     capture_setup_timings();
     crate::endpoint::use_isolated_address_lookup();
     let root = PathBuf::from(std::env::var_os("OF_API_CREATE_ROOT").expect("parent root"));
@@ -745,6 +753,71 @@ async fn api_create_child() {
     );
     assert!(!result.to_string().contains(&code));
     assert!(!result.to_string().contains("fixture-initial-password"));
+    for origin in ["https://untrusted.example", "null"] {
+        let discovery = http
+            .get(format!("{base}/idp/.well-known/openid-configuration"))
+            .header("Origin", origin)
+            .send()
+            .await
+            .expect("foreign-origin normal discovery");
+        assert_eq!(discovery.status(), StatusCode::OK);
+        assert_eq!(discovery.headers()[ACCESS_CONTROL_ALLOW_ORIGIN], origin);
+        let metadata: serde_json::Value = discovery.json().await.expect("OIDC discovery JSON");
+        assert_eq!(metadata["issuer"], config.idp.oauth2.issuer);
+
+        let preflight = http
+            .request(Method::OPTIONS, format!("{base}/idp/userinfo"))
+            .header("Origin", origin)
+            .header("Access-Control-Request-Method", "GET")
+            .header(
+                "Access-Control-Request-Headers",
+                "authorization,content-type",
+            )
+            .header("Access-Control-Request-Private-Network", "true")
+            .send()
+            .await
+            .expect("foreign-origin protected API preflight");
+        assert_eq!(preflight.status(), StatusCode::OK);
+        assert_eq!(preflight.headers()[ACCESS_CONTROL_ALLOW_ORIGIN], origin);
+        assert_eq!(preflight.headers()[ACCESS_CONTROL_ALLOW_METHODS], "GET");
+        assert_eq!(
+            preflight.headers()[ACCESS_CONTROL_ALLOW_HEADERS],
+            "authorization,content-type"
+        );
+        assert_eq!(
+            preflight.headers()[ACCESS_CONTROL_ALLOW_CREDENTIALS],
+            "true"
+        );
+        assert_eq!(
+            preflight.headers()["access-control-allow-private-network"],
+            "true"
+        );
+
+        let unauthorized = http
+            .get(format!("{base}/idp/userinfo"))
+            .header("Origin", origin)
+            .send()
+            .await
+            .expect("foreign origin does not authenticate normal API");
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(unauthorized.headers()[ACCESS_CONTROL_ALLOW_ORIGIN], origin);
+
+        for method in [Method::GET, Method::OPTIONS] {
+            let denied = http
+                .request(method, format!("{base}/idp/setup/status"))
+                .header("Origin", origin)
+                .header("Access-Control-Request-Method", "GET")
+                .header("Access-Control-Request-Private-Network", "true")
+                .send()
+                .await
+                .expect("setup remains origin-protected after readiness");
+            assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+            assert!(
+                !denied.headers().contains_key(ACCESS_CONTROL_ALLOW_ORIGIN),
+                "setup denial must not grant foreign-origin CORS access"
+            );
+        }
+    }
     let session = http
         .post(format!("{base}/idp/oauth2/token"))
         .form(&[
@@ -760,6 +833,18 @@ async fn api_create_child() {
     assert_eq!(session.status(), reqwest::StatusCode::OK);
     let token: model::contract::TokenResponse = session.json().await.expect("normal token");
     assert!(!token.access_token.0.is_empty());
+    let authorized = http
+        .get(format!("{base}/idp/userinfo"))
+        .header("Origin", "https://untrusted.example")
+        .bearer_auth(&token.access_token.0)
+        .send()
+        .await
+        .expect("authenticated foreign-origin normal API");
+    assert_eq!(authorized.status(), StatusCode::OK);
+    assert_eq!(
+        authorized.headers()[ACCESS_CONTROL_ALLOW_ORIGIN],
+        "https://untrusted.example"
+    );
     let retry = http
         .post(format!("{base}/idp/setup/create"))
         .json(&body)

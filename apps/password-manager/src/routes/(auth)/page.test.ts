@@ -1,16 +1,15 @@
 import { ApplicationSdk, type SdkOptions } from "@of/sdk";
 import { flushSync, mount, tick, unmount } from "svelte";
 import { afterEach, beforeEach, expect, it, onTestFinished, vi } from "vitest";
-import Page from "../../../routes/(auth)/+page.svelte";
-import SignIn from "../../../routes/signin/_SignIn.svelte";
-import Browser from "./Browser.svelte";
+import Page from "./+page.svelte";
+import SignIn from "../signin/_SignIn.svelte";
 import {
     Endpoint,
     entry,
     id,
     required,
     resetTransport,
-} from "./transport.fixture";
+} from "$lib/components/secrets/transport.fixture";
 
 vi.mock("$lib/common/state/notifications.svelte", () => ({
     notifications: { add: vi.fn() },
@@ -150,9 +149,18 @@ function select(id: string) {
         select.dispatchEvent(new Event("change"));
     });
 }
+function mountPage() {
+    return mount(Page, {
+        target,
+        props: {
+            params: {},
+            data: { userInfo: { sub: "user-one" } },
+        },
+    });
+}
 
 it("discovers, opens by Filesystem ID, reads through the official live query, clears selection on switch, and creates", async () => {
-    component = mount(Browser, { target, props: { userId: "user-one" } });
+    component = mountPage();
     await wait("Duplicate name");
     select("first");
     await wait("First secret");
@@ -195,10 +203,7 @@ it.each(["discovery", "creation"])(
     "unmount cancels %s held in token exchange before any resource request",
     async (operation) => {
         if (operation === "creation") {
-            component = mount(Browser, {
-                target,
-                props: { userId: "user-one" },
-            });
+            component = mountPage();
             await wait("Duplicate name");
         }
         let release!: (response: Response) => void;
@@ -208,15 +213,11 @@ it.each(["discovery", "creation"])(
         const exchange = vi.fn(() => held);
         fetchApi.mockImplementationOnce(exchange);
         if (operation === "creation") click("Create filesystem");
-        else
-            component = mount(Browser, {
-                target,
-                props: { userId: "user-one" },
-            });
+        else component = mountPage();
         await vi.waitFor(() => expect(exchange).toHaveBeenCalledTimes(1));
         await unmount(component);
         // A replacement context must not receive the old operation's result.
-        component = mount(Browser, { target, props: { userId: "user-two" } });
+        component = mountPage();
         await wait("Duplicate name");
         const callsBeforeRelease = fetchApi.mock.calls.length;
         release(Response.json({ access_token: "obsolete-storage-token" }));
@@ -248,7 +249,7 @@ function input(id: string, value: string) {
 it("wires local draft bindings, Save, Clear, Refresh and confirmed Delete to the workflow", async () => {
     const confirm = vi.fn(() => false);
     vi.stubGlobal("confirm", confirm);
-    component = mount(Browser, { target, props: { userId: "user-one" } });
+    component = mountPage();
     await wait("Duplicate name");
     select("first");
     await wait("First secret");
@@ -298,7 +299,7 @@ it("wires local draft bindings, Save, Clear, Refresh and confirmed Delete to the
 });
 
 it("keeps the local draft bindings after a rejected Save", async () => {
-    component = mount(Browser, { target, props: { userId: "user-one" } });
+    component = mountPage();
     await wait("Duplicate name");
     select("first");
     await wait("First secret");
@@ -319,12 +320,8 @@ it("wires real SDK redirect/callback, filesystem discovery/create/open and local
         matches: false,
         addEventListener: () => {},
     }));
-    const { load: callbackLoad } = await import(
-        "../../../routes/callback/+page"
-    );
-    const { load: authenticatedLoad } = await import(
-        "../../../routes/(auth)/+layout"
-    );
+    const { load: callbackLoad } = await import("../callback/+page");
+    const { load: authenticatedLoad } = await import("./+layout");
     vi.stubGlobal("confirm", () => true);
     const storageFetch = fetchApi.getMockImplementation();
     if (!storageFetch) throw new Error("Expected controlled Storage service");
@@ -430,7 +427,7 @@ it("wires real SDK redirect/callback, filesystem discovery/create/open and local
 it.each(["switch", "reopen", "teardown"])(
     "removes records and drafts immediately and ignores late writes on filesystem %s",
     async (operation) => {
-        component = mount(Browser, { target, props: { userId: "user-one" } });
+        component = mountPage();
         await wait("Duplicate name");
         select("first");
         await wait("First secret");
@@ -455,10 +452,7 @@ it.each(["switch", "reopen", "teardown"])(
             await unmount(component);
             expect(target.textContent).toBe("");
             expect(old.closed).toBe(true);
-            component = mount(Browser, {
-                target,
-                props: { userId: "user-one" },
-            });
+            component = mountPage();
             await wait("Duplicate name");
             select("empty");
         }
@@ -484,7 +478,7 @@ it.each(["switch", "reopen", "teardown"])(
 );
 
 it("ignores a late listing after a rapid Filesystem ID switch", async () => {
-    component = mount(Browser, { target, props: { userId: "user-one" } });
+    component = mountPage();
     await wait("Duplicate name");
     const original = Endpoint.prototype.send;
     let stale: Endpoint | undefined;
@@ -521,7 +515,7 @@ it("ignores a late listing after a rapid Filesystem ID switch", async () => {
 
 it("shows authorization errors without claiming an empty resource", async () => {
     fetchApi.mockResolvedValueOnce(new Response(null, { status: 401 }));
-    component = mount(Browser, { target, props: { userId: "user-one" } });
+    component = mountPage();
     await wait("Storage token exchange failed: 401");
     expect(target.textContent).not.toContain("No secrets yet");
     expect(Endpoint.sockets).toHaveLength(0);

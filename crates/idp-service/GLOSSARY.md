@@ -12,7 +12,7 @@ An approved token-signing identity held independently by one Node. It identifies
 _Avoid_: Replica Signer
 
 **Canonical Issuer**:
-The stable issuer identity shared by an Installation's Nodes, independent of their listener addresses.
+The stable public IdP URL identifying an Installation in OAuth/OIDC metadata and tokens, shared by its Nodes. A Node may serve requests at a different listener address without changing the Canonical Issuer.
 
 **OAuth Client**:
 A concrete web, native, or machine integration for an Application, with a client identity, redirect URIs, grant and response types, allowed scopes, and authentication configuration. Multiple clients may access the Application's resources when authorized by the same User.

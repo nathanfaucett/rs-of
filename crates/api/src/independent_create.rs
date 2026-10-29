@@ -163,7 +163,7 @@ impl IndependentCreateHost {
     }
     pub fn router(&self) -> Router {
         let origin = setup_origin(&self.host.settings.origin).expect("validated host origin");
-        let normal_cors = CorsLayer::new()
+        let setup_cors = CorsLayer::new()
             .allow_origin(origin.clone())
             .allow_methods([
                 Method::GET,
@@ -182,16 +182,19 @@ impl IndependentCreateHost {
                 self.control.owner(),
                 &self.control.0.base,
             ))
+            .layer(setup_cors)
             .layer(middleware::from_fn_with_state(origin, setup_origin_guard));
         let setup = if self.host.settings.prefix.is_empty() {
             setup
         } else {
             Router::new().nest(&self.host.settings.prefix, setup)
         };
-        setup
-            .fallback(normal)
-            .with_state(self.control.clone())
-            .layer(normal_cors)
+        setup.fallback_service(
+            Router::new()
+                .fallback(normal)
+                .with_state(self.control.clone())
+                .layer(CorsLayer::very_permissive().allow_private_network(true)),
+        )
     }
     pub async fn serve(self) -> io::Result<()> {
         let router = self.router();

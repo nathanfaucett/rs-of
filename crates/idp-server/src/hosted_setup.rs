@@ -473,11 +473,6 @@ impl<B: HostedSetupOwners> HostedSetup<B> {
         Ok(self
             .owners
             .service_router(HostedSetupControl(self.shared.clone()))
-            .fallback_service(
-                Router::new()
-                    .fallback(normal)
-                    .with_state(self.shared.clone()),
-            )
             .layer(
                 CorsLayer::new()
                     .allow_origin(origin.clone())
@@ -499,7 +494,13 @@ impl<B: HostedSetupOwners> HostedSetup<B> {
             .layer(middleware::from_fn_with_state(
                 origin,
                 api::setup_origin_guard,
-            )))
+            ))
+            .fallback_service(
+                Router::new()
+                    .fallback(normal)
+                    .with_state(self.shared.clone())
+                    .layer(CorsLayer::very_permissive().allow_private_network(true)),
+            ))
     }
     pub async fn initialize(&mut self) {
         let reopen = Box::pin(self.reopen()).await;

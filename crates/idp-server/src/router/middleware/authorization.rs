@@ -102,7 +102,11 @@ async fn authorize_bearer_with_principal(
     };
     if claims.r#type != TokenType::Bearer
         || claims.r#use != TokenUse::Access
-        || claims.iss != router_state.oauth2_service.metadata().issuer
+        || claims.iss
+            != router_state
+                .oauth2_service
+                .metadata(&router_state.api_base_uri)
+                .issuer
         || claims.exp <= now
         || claims.nbf > now
         || claims.iat > now

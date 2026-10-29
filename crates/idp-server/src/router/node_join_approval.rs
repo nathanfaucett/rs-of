@@ -66,7 +66,7 @@ impl RouterState {
         log::debug!(target: "setup_timeout", "seam=enrollment phase=authorization_end elapsed_ms={}", started.elapsed().as_millis());
         let request: NodeJoinRequest = serde_json::from_slice(&offer.payload)?;
         request.validate()?;
-        let issuer = self.oauth2_service.metadata().issuer;
+        let issuer = self.oauth2_service.metadata(&self.api_base_uri).issuer;
         if request.installation != issuer
             || request.endpoint_id != offer.remote_id.to_string()
             || request.approving_peer != self.transport_identity()?.endpoint_id().to_string()
@@ -115,7 +115,7 @@ impl RouterState {
     pub async fn verify_node_join_enrollment(&self, approval: &NodeJoinApproval) -> io::Result<()> {
         let request = &approval.request;
         approval.verify(request)?;
-        if request.installation != self.oauth2_service.metadata().issuer
+        if request.installation != self.oauth2_service.metadata(&self.api_base_uri).issuer
             || request.approving_peer != self.transport_identity()?.endpoint_id().to_string()
         {
             return Err(invalid(

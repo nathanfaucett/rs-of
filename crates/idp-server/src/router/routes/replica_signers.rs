@@ -64,7 +64,7 @@ pub(crate) async fn enroll_replica_signer(
         .kid
         .parse::<Id>()
         .map_err(|_| ErrorResponse::new(ErrorCode::InvalidRequest))?;
-    let issuer = state.oauth2_service.metadata().issuer;
+    let issuer = state.oauth2_service.metadata(&state.api_base_uri).issuer;
     let approved_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|_| ErrorResponse::new(ErrorCode::ServerError))?
@@ -128,7 +128,7 @@ pub(crate) async fn rotate_replica_signer(
         .kid
         .parse::<Id>()
         .map_err(|_| ErrorResponse::new(ErrorCode::InvalidRequest))?;
-    let issuer = state.oauth2_service.metadata().issuer;
+    let issuer = state.oauth2_service.metadata(&state.api_base_uri).issuer;
     let approved_at = unix_time()?;
     let signer = IdpSignerRecord {
         member_id,
@@ -174,7 +174,7 @@ pub(crate) async fn revoke_replica_signer(
         .replica_signers
         .revoke(
             member_id,
-            &state.oauth2_service.metadata().issuer,
+            &state.oauth2_service.metadata(&state.api_base_uri).issuer,
             unix_time()?,
         )
         .await

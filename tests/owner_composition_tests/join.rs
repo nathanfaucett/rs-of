@@ -167,7 +167,7 @@ impl ExistingSource {
         let idp = format!("https://{}/idp", addresses[0]);
         let device = format!("https://{}/device", addresses[1]);
         let storage = format!("https://{}/storage", addresses[2]);
-        let issuer = format!("https://existing-{}.installation.invalid/idp", Id::now_v7());
+        let issuer = idp.clone();
         let secret = iroh::SecretKey::generate();
         let endpoint = iroh::Endpoint::builder(iroh::endpoint::presets::Minimal)
             .secret_key(secret.clone())

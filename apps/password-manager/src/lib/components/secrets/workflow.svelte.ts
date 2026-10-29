@@ -1,11 +1,9 @@
-import {
-    createStorageCollection,
-    UnacknowledgedStorageWriteError,
-} from "@aicacia/storage-db-collection";
+import { UnacknowledgedStorageWriteError } from "@aicacia/storage-db-collection";
 import type { StorageAccess } from "@of/sdk";
 import { useLiveQuery } from "@tanstack/svelte-db";
 import { SvelteDate } from "svelte/reactivity";
 import * as v from "valibot";
+import { createSecretCollection } from "$lib/collections/secrets/collection";
 import { type Secret, SecretSchema } from "$lib/models/secret";
 
 export type SecretDraft = {
@@ -58,13 +56,7 @@ export function createSecretWorkflow(options: {
     userId: string;
     filesystemId: string;
 }) {
-    const collection = createStorageCollection({
-        ...options,
-        applicationId: "password-manager.aicacia.com",
-        directory: "secrets",
-        schema: SecretSchema,
-        getKey: (secret) => secret.id,
-    });
+    const collection = createSecretCollection(options);
     let editor = $state.raw<{ record: Secret | null } | null>(null);
     let loadError = $state<string | null>(null);
     let error = $state<string | null>(null);

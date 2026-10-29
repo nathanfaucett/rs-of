@@ -26,6 +26,26 @@ it.each([
   expect(goto).toHaveBeenCalledWith("/devices?view=local#details");
 });
 
+it("reads a URL that rejects direct hash access", async () => {
+  const goto = vi.fn(async (_path: string) => {});
+  const returnTo = createReturnTo({
+    id: "tracked-url",
+    goto,
+    defaultPath: "/",
+  });
+  const tracked = new URL("https://app.test/devices?view=local#details");
+  Object.defineProperty(tracked, "hash", {
+    get() {
+      throw new Error("Cannot access event.url.hash");
+    },
+  });
+
+  returnTo.setURL(tracked);
+  await returnTo.onReturn();
+
+  expect(goto).toHaveBeenCalledWith("/devices?view=local#details");
+});
+
 it("accepts an application path from a native location", async () => {
   vi.stubGlobal("location", new URL("tauri://localhost/signin"));
   const goto = vi.fn(async (_path: string) => {});

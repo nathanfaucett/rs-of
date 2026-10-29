@@ -118,7 +118,7 @@ async fn independent_normal_fallback_keeps_browser_cors_and_authentication() {
                 Request::builder()
                     .method(method)
                     .uri("/oauth2/token")
-                    .header("Origin", "https://localhost:5173")
+                    .header("Origin", "https://password-manager.localhost:1355")
                     .header("Access-Control-Request-Method", "POST")
                     .header(
                         "Access-Control-Request-Headers",
@@ -142,7 +142,7 @@ async fn independent_normal_fallback_keeps_browser_cors_and_authentication() {
                 .headers()
                 .get("access-control-allow-origin")
                 .expect("normal browser CORS"),
-            "https://localhost:5173"
+            "https://password-manager.localhost:1355"
         );
     }
 }

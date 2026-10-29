@@ -309,7 +309,7 @@ mod tests {
         host.select_create().expect("app chooses Create");
         let issuer = host.config().idp.oauth2.issuer.clone();
         assert!(!issuer.is_empty());
-        assert_ne!(issuer, config.idp.api_public_uri);
+        assert_eq!(issuer, config.idp.api_public_uri);
         drop(host);
         let host = crate::BootstrapConfig::open_explicit(config.clone())
             .expect("reopen selected installation");

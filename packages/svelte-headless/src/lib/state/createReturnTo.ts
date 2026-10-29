@@ -10,7 +10,8 @@ export function createReturnTo({ id, goto, defaultPath }: ReturnToOptions) {
   const returnTo = createStorage<string | null>(`return-to:${id}`, null);
 
   function setURL(url: URL) {
-    returnTo.item = `${url.pathname}${url.search}${url.hash}`;
+    const { pathname, search, hash } = new URL(url.href);
+    returnTo.item = `${pathname}${search}${hash}`;
   }
 
   function setPath(path: string) {

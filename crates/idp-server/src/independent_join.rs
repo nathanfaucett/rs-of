@@ -87,7 +87,12 @@ impl Source {
         if approval.request.source.endpoint != self.endpoint
             || approval.request.source.device != self.device
             || approval.request.source.idp != self.state.api_base_uri
-            || approval.request.operation.issuer != self.state.oauth2_service.metadata().issuer
+            || approval.request.operation.issuer
+                != self
+                    .state
+                    .oauth2_service
+                    .metadata(&self.state.api_base_uri)
+                    .issuer
         {
             return Err(io::Error::other("source Join binding mismatch"));
         }

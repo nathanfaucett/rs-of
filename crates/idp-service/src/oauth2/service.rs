@@ -1527,8 +1527,8 @@ where
         Ok(claims)
     }
 
-    pub fn metadata(&self) -> AuthorizationServerMetadata {
-        self.oauth_config.to_metadata()
+    pub fn metadata(&self, endpoint_base: &str) -> AuthorizationServerMetadata {
+        self.oauth_config.to_metadata(endpoint_base)
     }
 
     pub fn device_authorization(
