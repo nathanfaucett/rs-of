@@ -8,6 +8,14 @@ use unified_server::{BootstrapConfig, BootstrapPurpose, UnifiedConfig};
 #[path = "../src/host_store.rs"]
 mod host_store;
 
+fn retained_config(root: &Path) -> serde_json::Value {
+    host_store::HostStore::open(root)
+        .expect("existing host database")
+        .get("config")
+        .expect("read retained configuration")
+        .expect("retained configuration")
+}
+
 fn explicit_config(root: &Path) -> UnifiedConfig {
     UnifiedConfig {
         listen_addr: "127.0.0.1:49152".parse().expect("local listener"),
@@ -169,7 +177,7 @@ fn empty_explicit_issuer_retains_public_api_fallback_and_accepts_equivalent_conf
         }
         .expect("empty issuer uses public API URI");
         assert!(host.config().idp.oauth2.issuer.is_empty());
-        let path = host.directory().join("host.redb");
+        let host_root = host.directory().to_path_buf();
         assert_eq!(host.config().idp.api_public_uri, config.idp.api_public_uri);
         host.begin_setup().expect("retain setup production");
         drop(host);
@@ -186,13 +194,13 @@ fn empty_explicit_issuer_retains_public_api_fallback_and_accepts_equivalent_conf
             .expect("select retained resolved issuer");
         assert_eq!(host.config().idp.oauth2.issuer, config.idp.api_public_uri);
         drop(host);
-        let retained = fs::read(&path).expect("selected identity");
+        let retained = retained_config(&host_root);
         for equivalent in [&config, &resolved] {
             let host = BootstrapConfig::open_explicit(equivalent.clone())
                 .expect("equivalent selected configuration");
             assert_eq!(host.config().idp.oauth2.issuer, config.idp.api_public_uri);
             drop(host);
-            assert_eq!(fs::read(&path).expect("unchanged identity"), retained);
+            assert!(retained_config(&host_root) == retained, "persisted host configuration changed");
         }
         fs::remove_dir_all(root).expect("isolated cleanup");
     }
@@ -229,7 +237,7 @@ fn explicit_issuer_conflicts_are_refused_without_changing_identity_or_database()
     ));
     let config = explicit_config(&root);
     let mut host = BootstrapConfig::create_explicit_http(config.clone()).expect("neutral host");
-    let path = host.directory().join("host.redb");
+    let host_root = host.directory().to_path_buf();
     host.begin_setup().expect("retain setup production");
     drop(host);
     let mut conflicting = config.clone();
@@ -243,7 +251,7 @@ fn explicit_issuer_conflicts_are_refused_without_changing_identity_or_database()
         fs::create_dir_all(&config.idp.data_dir).expect("isolated database root");
         let database = Path::new(&config.idp.data_dir).join("existing.db");
         fs::write(&database, b"existing installation data").expect("isolated database");
-        let retained = fs::read(&path).expect("retained bytes");
+        let retained = retained_config(&host_root);
         let error = BootstrapConfig::open_explicit(conflicting.clone())
             .err()
             .expect("issuer mismatch rejected");
@@ -252,10 +260,10 @@ fn explicit_issuer_conflicts_are_refused_without_changing_identity_or_database()
                 .to_string()
                 .contains("conflicts with retained host identity")
         );
-        assert_eq!(fs::read(&path).expect("unchanged identity"), retained);
-        assert_eq!(
-            fs::read(&database).expect("database preserved"),
-            b"existing installation data"
+        assert!(retained_config(&host_root) == retained, "persisted host configuration changed");
+        assert!(
+            fs::read(&database).expect("database preserved") == b"existing installation data",
+            "rejected configuration changed existing owner database bytes"
         );
         assert!(BootstrapConfig::create_explicit_http(conflicting.clone()).is_err());
     }
@@ -308,7 +316,6 @@ fn legacy_fabricated_issuer_is_rejected_without_rewriting_identity_or_database()
     fs::create_dir(&database_root).expect("isolated database root");
     let database = Path::new(&database_root).join("existing.db");
     fs::write(&database, b"existing installation data").expect("isolated database");
-    let path = root.join("host.redb");
     let store = host_store::HostStore::open(&root).expect("SQL fault seam");
     let mut retained: serde_json::Value = store.get("config").expect("read config").expect("config");
     retained["issuer"] = serde_json::json!(format!(
@@ -318,16 +325,16 @@ fn legacy_fabricated_issuer_is_rejected_without_rewriting_identity_or_database()
             .expect("retained namespace")
     ));
     store.put("config", &retained).expect("inject unsupported retained issuer");
-    let bytes = fs::read(&path).expect("fault evidence");
+    let retained = retained_config(&root);
     let error = BootstrapConfig::open(&root)
         .err()
         .expect("legacy issuer rejected");
     assert!(error.to_string().contains("installation.invalid"));
     assert!(error.to_string().contains("backup"));
-    assert_eq!(fs::read(&path).expect("unchanged identity"), bytes);
-    assert_eq!(
-        fs::read(&database).expect("database preserved"),
-        b"existing installation data"
+    assert!(retained_config(&root) == retained, "rejected issuer changed persisted host configuration");
+    assert!(
+        fs::read(&database).expect("database preserved") == b"existing installation data",
+        "rejected issuer changed existing owner database bytes"
     );
     assert!(BootstrapConfig::create(&root, BootstrapPurpose::Create, None).is_err());
     fs::remove_dir_all(root).expect("isolated cleanup");

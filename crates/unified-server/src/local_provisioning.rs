@@ -1,5 +1,5 @@
 use std::{
-    fs::{self, File},
+    fs::File,
     io::{self},
     path::{Path, PathBuf},
     sync::Arc,
@@ -11,14 +11,14 @@ use idp_model::{
 };
 use idp_server::OwnerProvisioner;
 use idp_server::local_provisioning::{
-    LocalPasswordVerifier, absolute, create_private_directory, lock,
-    provisioning_stage, read_password, reject_symlinks, require_absent,
-    require_directory, require_file, require_retained_directory, require_unix_bootstrap,
+    LocalPasswordVerifier, absolute, create_private_directory, lock, provisioning_stage,
+    read_password, reject_symlinks, require_absent, require_directory, require_unix_bootstrap,
     validate_password,
 };
 use management_server::InitialAdministratorGrant;
 use serde::{Deserialize, Serialize};
 
+use crate::endpoint_secret::EndpointSecret;
 use crate::{RuntimeOwners, UnifiedConfig, UnifiedEndpoint, UnifiedRuntime};
 
 #[derive(Serialize, Deserialize, PartialEq)]
@@ -47,6 +47,7 @@ struct Journal {
     administrator_grant: InitialAdministratorGrant,
     password_verifier: LocalPasswordVerifier,
     endpoint_attempted: bool,
+    endpoint_secret: Option<EndpointSecret>,
     endpoint: Option<String>,
     inventory_attempted: bool,
     node_attempted: bool,
@@ -83,53 +84,9 @@ impl LocalProvisioner {
         config: UnifiedConfig,
         https: bool,
     ) -> io::Result<(UnifiedRuntime, Option<Self>)> {
-        match fs::symlink_metadata(config.local_provisioning_directory()) {
-            Ok(_) => {
-                let local = Self::open(config)?;
-                let runtime = local.build_runtime_for_transport(https).await?;
-                Ok((runtime, Some(local)))
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                crate::config::validate_config(&config)?;
-                let binding = config.idp.oauth2.local_signer.as_ref().ok_or_else(|| {
-                    invalid("existing host requires an explicit retained Node signer binding")
-                })?;
-                for root in [
-                    Path::new(&config.idp.data_dir),
-                    Path::new(&config.device.data_dir),
-                    Path::new(&config.storage.data_dir),
-                    &config.endpoint_data_dir,
-                ] {
-                    require_retained_directory(root)?;
-                }
-                config.idp.require_provisioned_identity()?;
-                config.device.require_provisioned_device()?;
-                require_file(&config.endpoint_data_dir.join("endpoint.key"), true)?;
-                config.storage.require_provisioned_storage()?;
-                if UnifiedEndpoint::persisted_endpoint_id(&config.endpoint_data_dir)?.to_string()
-                    != binding.endpoint_id
-                {
-                    return Err(invalid(
-                        "existing endpoint conflicts with retained Node signer binding",
-                    ));
-                }
-
-                let runtime = if https {
-                    UnifiedRuntime::build_https(config).await?
-                } else {
-                    UnifiedRuntime::build(config).await?
-                };
-                match runtime.node_public_ready().await {
-                    Ok(true) => Ok((runtime, None)),
-                    result => {
-                        runtime.shutdown().await?;
-                        result?;
-                        Err(invalid("existing host is not currently locally ready"))
-                    }
-                }
-            }
-            Err(error) => Err(error),
-        }
+        let local = Self::open(config)?;
+        let runtime = local.build_runtime_for_transport(https).await?;
+        Ok((runtime, Some(local)))
     }
 
     /// Publishes a new exact intent, without creating endpoint or owner private material.
@@ -186,6 +143,7 @@ impl LocalProvisioner {
             administrator_grant: InitialAdministratorGrant::fresh(),
             password_verifier: LocalPasswordVerifier::capture(&config.idp.password, password)?,
             endpoint_attempted: false,
+            endpoint_secret: None,
             endpoint: None,
             inventory_attempted: false,
             node_attempted: false,
@@ -388,16 +346,8 @@ impl LocalProvisioner {
             require_directory(Path::new(&self.config.storage.data_dir))?;
             self.config.storage.require_provisioned_storage()?;
         }
-        let endpoint = if journal.endpoint_attempted {
-            UnifiedEndpoint::open(&self.config.endpoint_data_dir, &self.config.idp).await?
-        } else {
-            for root in &journal.intent.roots {
-                require_absent(root)?;
-            }
-            journal.endpoint_attempted = true;
-            self.write(&journal)?;
-            UnifiedEndpoint::open_fresh(&self.config.endpoint_data_dir, &self.config.idp).await?
-        };
+        let endpoint = self.prepare_endpoint().await?;
+        journal = self.read()?;
         let endpoint = Arc::new(endpoint);
         let result = async {
             let endpoint_id = endpoint.endpoint_id().to_string();
@@ -600,7 +550,6 @@ impl LocalProvisioner {
         }
         self.config.idp.require_provisioned_identity()?;
         self.config.device.require_provisioned_device()?;
-        require_file(&self.config.endpoint_data_dir.join("endpoint.key"), true)?;
         self.config.storage.require_provisioned_storage()?;
         let binding = self.config.idp.retained_node_signer_binding(
             journal.member,
@@ -684,6 +633,30 @@ impl LocalProvisioner {
         }
     }
 
+    /// Prepares this retained operation's endpoint; every retry is existing-only.
+    pub async fn prepare_endpoint(&self) -> io::Result<UnifiedEndpoint> {
+        let mut journal = self.read()?;
+        if journal.endpoint_attempted {
+            return UnifiedEndpoint::open(&self.config.endpoint_data_dir, &self.config.idp).await;
+        }
+        for root in &journal.intent.roots {
+            require_absent(root)?;
+        }
+        let secret = iroh::SecretKey::generate();
+        let reference = EndpointSecret::fresh();
+        journal.endpoint = Some(secret.public().to_string());
+        journal.endpoint_secret = Some(reference.clone());
+        journal.endpoint_attempted = true;
+        self.write(&journal)?;
+        UnifiedEndpoint::create_prepared(
+            &self.config.endpoint_data_dir,
+            &self.config.idp,
+            &reference,
+            secret,
+        )
+        .await
+    }
+
     pub fn reset_references(&self) -> io::Result<serde_json::Value> {
         let journal = self.read()?;
         Ok(serde_json::json!({
@@ -692,6 +665,7 @@ impl LocalProvisioner {
             "owner_id": journal.user,
             "clients": [journal.login_client],
             "inventory_attempted": journal.inventory_attempted,
+            "endpoint_secret": journal.endpoint_secret,
         }))
     }
 
@@ -708,8 +682,8 @@ impl LocalProvisioner {
         let journal: Journal = self.store.get("create")?.ok_or_else(|| invalid("missing Create operation"))?;
         if journal.version != 1
             || journal.intent != intent(&self.config)?
-
-            || journal.endpoint.is_some() && !journal.endpoint_attempted
+            || journal.endpoint.is_some() != journal.endpoint_attempted
+            || journal.endpoint_secret.is_some() != journal.endpoint_attempted
             || journal.inventory_attempted && journal.endpoint.is_none()
             || journal.node_attempted && !journal.inventory_attempted
             || journal.public_signer.is_some() && !journal.node_attempted
@@ -845,4 +819,29 @@ pub fn normalized_config(mut config: UnifiedConfig) -> io::Result<UnifiedConfig>
 
 fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
+}
+
+pub(crate) fn endpoint_reference(store: &crate::host_store::HostStore) -> io::Result<(EndpointSecret, iroh::EndpointId)> {
+    let canonical: String = store.get("operation")?.ok_or_else(|| invalid("missing Create binding"))?;
+    if !matches!(
+        idp_server::hosted_setup::SetupIntent::decode(&canonical).map_err(|_| invalid("invalid Create binding"))?,
+        idp_server::hosted_setup::SetupIntent::Create(_)
+    ) {
+        return Err(invalid("Create operation conflicts with Join"));
+    }
+    let journal: Journal = store.get("create")?.ok_or_else(|| invalid("missing Create operation"))?;
+    if journal.version != 1 || !journal.endpoint_attempted
+    {
+        return Err(invalid("invalid endpoint owner metadata"));
+    }
+    Ok((
+        journal
+            .endpoint_secret
+            .ok_or_else(|| invalid("missing endpoint provider reference"))?,
+        journal
+            .endpoint
+            .ok_or_else(|| invalid("missing endpoint public identity"))?
+            .parse()
+            .map_err(io::Error::other)?,
+    ))
 }

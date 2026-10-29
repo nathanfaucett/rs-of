@@ -143,6 +143,7 @@ pub async fn rotation_login_client(
 
 pub struct NodeStores {
     pub stores: [(String, Arc<keyring_core::CredentialStore>); 2],
+    pub endpoints: Arc<keyring_core::CredentialStore>,
 }
 
 impl keyring_core::api::CredentialStoreApi for NodeStores {
@@ -160,6 +161,9 @@ impl keyring_core::api::CredentialStoreApi for NodeStores {
         user: &str,
         _: Option<&HashMap<&str, &str>>,
     ) -> keyring_core::Result<keyring_core::Entry> {
+        if service == "of-unified-endpoint" {
+            return self.endpoints.build(service, user, None);
+        }
         let (_, store) = self
             .stores
             .iter()
@@ -173,6 +177,7 @@ impl keyring_core::api::CredentialStoreApi for NodeStores {
         for (_, store) in &self.stores {
             entries.extend(store.search(spec)?);
         }
+        entries.extend(self.endpoints.search(spec)?);
         Ok(entries)
     }
 
@@ -270,6 +275,7 @@ fn node_stores_ignore_modifiers_without_crossing_namespaces() {
     let left = keyring_core::mock::Store::new().expect("left private provider");
     let right = keyring_core::mock::Store::new().expect("right private provider");
     let stores = NodeStores {
+        endpoints: keyring_core::mock::Store::new().expect("isolated endpoint provider"),
         stores: [
             ("left".into(), left.clone()),
             ("right".into(), right.clone()),

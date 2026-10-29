@@ -3273,11 +3273,8 @@ dependencies = [
 name = "idp-service"
 version = "0.1.0"
 dependencies = [
- "android-native-keyring-store",
- "apple-native-keyring-store",
  "base64 0.22.1",
  "chrono",
- "dbus-secret-service-keyring-store",
  "futures",
  "getrandom 0.3.4",
  "idp-db",
@@ -3285,7 +3282,6 @@ dependencies = [
  "k256",
  "key",
  "keyring-core",
- "linux-keyutils-keyring-store",
  "log",
  "model",
  "ofdb-sql",
@@ -3295,7 +3291,6 @@ dependencies = [
  "sha2 0.10.9",
  "thiserror 2.0.20",
  "tokio",
- "windows-native-keyring-store",
 ]
 
 [[package]]
@@ -3829,12 +3824,18 @@ dependencies = [
 name = "key"
 version = "0.1.0"
 dependencies = [
+ "android-native-keyring-store",
+ "apple-native-keyring-store",
  "bip32",
  "bip39",
+ "dbus-secret-service-keyring-store",
  "getrandom 0.4.3",
  "k256",
+ "keyring-core",
+ "linux-keyutils-keyring-store",
  "ripemd 0.2.0",
  "thiserror 2.0.20",
+ "windows-native-keyring-store",
  "zeroize",
 ]
 
@@ -8487,6 +8488,7 @@ dependencies = [
  "idp-service",
  "iroh",
  "iroh-chain",
+ "key",
  "keyring-core",
  "log",
  "management-server",

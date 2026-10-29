@@ -19,6 +19,7 @@ use crate::{LocalJoin, LocalProvisioner, LocalTls, UnifiedRuntime};
 
 struct NodeStores {
     stores: [(String, Arc<keyring_core::CredentialStore>); 2],
+    endpoints: Arc<keyring_core::CredentialStore>,
 }
 
 impl keyring_core::api::CredentialStoreApi for NodeStores {
@@ -36,6 +37,9 @@ impl keyring_core::api::CredentialStoreApi for NodeStores {
         user: &str,
         modifiers: Option<&HashMap<&str, &str>>,
     ) -> keyring_core::Result<keyring_core::Entry> {
+        if service == "of-unified-endpoint" {
+            return self.endpoints.build(service, user, None);
+        }
         let (_, store) = self
             .stores
             .iter()
@@ -49,6 +53,7 @@ impl keyring_core::api::CredentialStoreApi for NodeStores {
         for (_, store) in &self.stores {
             entries.extend(store.search(spec)?);
         }
+        entries.extend(self.endpoints.search(spec)?);
         Ok(entries)
     }
 
@@ -166,6 +171,7 @@ async fn production_https_bootstrap_child() {
     b.config.listen_addr = unused_address().await;
     b.config.idp.key_namespace = format!("https-joining-{}", Id::now_v7());
     let nodes: Arc<keyring_core::CredentialStore> = Arc::new(NodeStores {
+        endpoints: keyring_core::mock::Store::new().expect("isolated shared endpoint provider"),
         stores: [
             (a.config.idp.key_namespace.clone(), a.store.clone()),
             (b.config.idp.key_namespace.clone(), b.store.clone()),

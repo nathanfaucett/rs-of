@@ -142,6 +142,17 @@ impl Fixture {
         .expect("public intent format")
     }
 
+    fn endpoint_entry(&self) -> keyring_core::Entry {
+        let reference = &self.journal()["endpoint_secret"];
+        self.store
+            .build(
+                reference["service"].as_str().expect("service"),
+                reference["entry"].as_str().expect("exact entry"),
+                None,
+            )
+            .expect("injected endpoint entry")
+    }
+
     fn secrets(&self) -> Vec<Vec<u8>> {
         let mut secrets = self
             .store
@@ -159,6 +170,45 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         fs::remove_dir_all(&self.root).expect("remove only isolated fixture");
     }
+}
+
+#[tokio::test]
+async fn endpoint_private_material_is_provider_owned_and_stable_on_reopen() {
+    let fixture = Fixture::new();
+    let mut local = LocalProvisioner::create_with_password(
+        fixture.config.clone(),
+        "operator",
+        "Node",
+        "fixture-initial-password",
+    )
+    .expect("fresh host intent");
+    let runtime = local
+        .prepare_hosted_runtime(
+            "fixture-initial-password",
+            false,
+            &tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+        .expect("prepare host");
+    let endpoint = runtime.endpoint_id();
+    local
+        .mark_complete()
+        .expect("record completed owner preparation");
+    runtime.shutdown().await.expect("stop prepared host");
+    assert!(
+        !fixture
+            .config
+            .endpoint_data_dir
+            .join("endpoint.key")
+            .exists()
+    );
+    assert!(fixture.secrets().iter().any(|secret| secret.len() == 32));
+    let reopened = local
+        .reopen_hosted_runtime(false)
+        .await
+        .expect("reopen exact endpoint");
+    assert_eq!(reopened.endpoint_id(), endpoint);
+    reopened.shutdown().await.expect("stop reopened host");
 }
 
 #[test]
@@ -958,8 +1008,7 @@ async fn local_provisioning_restores_stopped_same_node_filesystem_with_retained_
         fs::read(&endpoint_key).expect("rejected endpoint retained")
             == b"invalid-current-format-endpoint"
     );
-    fs::copy(snapshot.join("3/endpoint.key"), &endpoint_key)
-        .expect("recover exact fixture endpoint");
+    fs::remove_file(&endpoint_key).expect("remove injected unsupported layout");
     fs::write(&journal_path, b"invalid-current-format-journal")
         .expect("corrupt only restored journal");
     assert!(
@@ -1162,8 +1211,10 @@ async fn local_provisioning_creates_exact_host_and_reopens_offline() {
         intent == fixture.journal(),
         "startup must preserve exact completed intent"
     );
-    fs::remove_file(fixture.root.join("endpoint/endpoint.key"))
-        .expect("simulate canonical identity loss");
+    fixture
+        .endpoint_entry()
+        .delete_credential()
+        .expect("simulate endpoint provider loss");
     assert!(
         host.build_runtime().await.is_err(),
         "completed startup never falls back to fresh identity"
@@ -1269,217 +1320,41 @@ async fn local_provisioning_continues_retained_attempt_and_refuses_changed_ident
 }
 
 #[tokio::test]
-async fn local_provisioning_existing_cli_host_without_journal_starts_and_reopens() {
-    use std::os::unix::fs::PermissionsExt;
-
-    use idp_service::oauth2::NodeSignerBinding;
-    let mut fixture = Fixture::new();
+async fn local_provisioning_lost_journal_refuses_even_with_ready_owner_state() {
+    let fixture = Fixture::new();
     let mut host = LocalProvisioner::create(
         fixture.config.clone(),
         "operator",
-        "Local Node",
+        "Node",
         &fixture.password,
     )
-    .expect("explicit public owner provisioning");
+    .expect("fresh intent");
     host.provision(&fixture.password)
         .await
-        .expect("actual current host");
-    let retained = fixture.journal();
-    fixture.config.idp.oauth2.local_signer = Some(NodeSignerBinding {
-        endpoint_id: retained["endpoint"].as_str().expect("endpoint").to_owned(),
-        member_id: retained["member"]
-            .as_str()
-            .expect("member")
-            .parse()
-            .expect("ID"),
-        key_id: retained["key"].as_str().expect("key").parse().expect("ID"),
-    });
-    let user = retained["user"]
-        .as_str()
-        .expect("User")
-        .parse()
-        .expect("ID");
+        .expect("complete host");
     let secrets = fixture.secrets();
     drop(host);
     let directory = fixture.config.local_provisioning_directory();
-    let journal_path = directory.join("intent.json");
-    let mut incomplete = retained.clone();
-    incomplete["complete"] = false.into();
-    fs::write(
-        &journal_path,
-        serde_json::to_vec(&incomplete).expect("incomplete intent"),
-    )
-    .expect("retained incomplete fixture");
-    assert!(
-        LocalProvisioner::open_runtime(fixture.config.clone())
-            .await
-            .is_err(),
-        "present incomplete journal is authoritative despite ready owner state"
-    );
-    fs::write(&journal_path, b"{}").expect("malformed journal");
-    assert!(
-        LocalProvisioner::open_runtime(fixture.config.clone())
-            .await
-            .is_err(),
-        "present malformed journal cannot fall through"
-    );
-    fs::remove_file(&journal_path).expect("lost journal within present directory");
-    assert!(
-        LocalProvisioner::open_runtime(fixture.config.clone())
-            .await
-            .is_err(),
-        "present directory with missing intent cannot fall through"
-    );
-    fs::remove_dir_all(&directory).expect("host retains owner state, not a CLI journal");
-    let storage_root = Path::new(&fixture.config.storage.data_dir);
-    fs::set_permissions(storage_root, fs::Permissions::from_mode(0o755))
-        .expect("retained Storage permissions from ordinary 0022 umask");
-    let runtime = crate::UnifiedRuntime::build(fixture.config.clone())
-        .await
-        .expect("public runtime supports retained 0755 Storage");
-    assert!(
-        runtime
-            .node_public_ready()
-            .await
-            .expect("retained public readiness")
-    );
-    runtime.shutdown().await.expect("retained runtime shutdown");
-    for _ in 0..2 {
-        let (runtime, guard) = LocalProvisioner::open_runtime(fixture.config.clone())
-            .await
-            .expect("CLI existing-only decision accepts current explicit evidence");
-        assert!(guard.is_none(), "no synthesized journal guard");
-        assert!(
-            runtime
-                .node_public_ready()
-                .await
-                .expect("current readiness")
-        );
-        exercise_running_host(runtime, user).await;
-        assert!(!directory.exists(), "no journal migration or synthesis");
-        assert!(secrets == fixture.secrets(), "no private replacement");
-        assert_eq!(
-            fs::metadata(storage_root)
-                .expect("retained Storage root")
-                .permissions()
-                .mode()
-                & 0o777,
-            0o755,
-            "existing startup must not chmod retained Storage"
-        );
-    }
-    // The desktop's public composition seam remains independent of CLI intent.
-    let runtime = crate::UnifiedRuntime::build(fixture.config.clone())
-        .await
-        .expect("desktop composition remains public");
-    assert!(
-        runtime
-            .node_public_ready()
-            .await
-            .expect("preprovisioned readiness")
-    );
-    runtime.shutdown().await.expect("joined shutdown");
-    let endpoint = fs::read(fixture.root.join("endpoint/endpoint.key")).expect("retained endpoint");
-
-    let device_database = device_server::open_device_database(&fixture.config.device)
-        .await
-        .expect("retained Device owner");
-    let devices = device_service::replica::DbDeviceRepo::new(device_database.client());
-    let devices_before = device_service::DeviceRepo::list(&devices)
-        .await
-        .expect("retained Device records");
-    let mut unbound = fixture.config.clone();
-    unbound.idp.oauth2.local_signer = None;
-    assert!(
-        LocalProvisioner::open_runtime(unbound).await.is_err(),
-        "missing explicit signer is never inferred"
-    );
-    let mut untrusted = fixture.config.clone();
-    untrusted
-        .idp
-        .oauth2
-        .local_signer
-        .as_mut()
-        .expect("binding")
-        .key_id = Id::now_v7();
-    assert!(
-        LocalProvisioner::open_runtime(untrusted.clone())
-            .await
-            .is_err(),
-        "missing trust cannot provision a new signer"
-    );
-    assert_eq!(
-        endpoint,
-        fs::read(fixture.root.join("endpoint/endpoint.key")).expect("unchanged endpoint")
-    );
-    assert!(secrets == fixture.secrets());
-    let owner = idp_server::OwnerProvisioner::open(&fixture.config.idp)
-        .await
-        .expect("retained owner");
-    let public = owner
-        .verify_node_signer(
-            fixture
-                .config
-                .idp
-                .oauth2
-                .local_signer
-                .as_ref()
-                .expect("binding"),
-        )
-        .await
-        .expect("original approved signer survives denied startup");
-    assert_eq!(
-        serde_json::to_value(public).expect("public signer"),
-        retained["public_signer"]
-    );
-    assert!(
-        owner
-            .verify_node_signer(
-                untrusted
-                    .idp
-                    .oauth2
-                    .local_signer
-                    .as_ref()
-                    .expect("missing binding")
-            )
-            .await
-            .is_err()
-    );
-    drop(owner);
-    let devices_after = device_service::DeviceRepo::list(&devices)
-        .await
-        .expect("Device records after denied startup");
-    assert!(
-        devices_before == devices_after,
-        "denied startup must preserve Device records"
-    );
-    drop(devices);
-    drop(device_database);
-    let endpoint_path = fixture.root.join("endpoint/endpoint.key");
-    fs::set_permissions(&endpoint_path, fs::Permissions::from_mode(0o644))
-        .expect("unprotected endpoint fixture");
-    assert!(
-        LocalProvisioner::open_runtime(fixture.config.clone())
-            .await
-            .is_err(),
-        "retained directory policy must not weaken endpoint key security"
-    );
-    assert_eq!(
-        fs::metadata(&endpoint_path)
-            .expect("retained endpoint")
-            .permissions()
-            .mode()
-            & 0o777,
-        0o644
-    );
-    fs::remove_file(endpoint_path).expect("lost endpoint");
+    fs::rename(&directory, directory.with_extension("lost")).expect("simulate metadata loss");
     assert!(
         LocalProvisioner::open_runtime(fixture.config.clone())
             .await
             .is_err()
     );
-    assert!(!fixture.root.join("endpoint/endpoint.key").exists());
+    assert!(
+        crate::UnifiedRuntime::build(fixture.config.clone())
+            .await
+            .is_err()
+    );
+    assert_eq!(fixture.secrets(), secrets);
     assert!(!directory.exists());
+    assert!(
+        !fixture
+            .config
+            .endpoint_data_dir
+            .join("endpoint.key")
+            .exists()
+    );
 }
 
 #[tokio::test]
@@ -1952,6 +1827,7 @@ fn retained_create_journal_keeps_its_flat_schema_and_exact_retry_checks() {
         "node",
         "password_verifier",
         "endpoint_attempted",
+        "endpoint_secret",
         "endpoint",
         "inventory_attempted",
         "node_attempted",
@@ -2001,3 +1877,6 @@ fn retained_create_journal_keeps_its_flat_schema_and_exact_retry_checks() {
     }
     secret_files_absent(&fixture.root);
 }
+
+#[path = "endpoint_provider_tests.rs"]
+mod endpoint_provider_tests;

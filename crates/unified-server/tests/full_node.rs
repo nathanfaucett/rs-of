@@ -26,8 +26,7 @@ mod support {
 use support::full_node::NodeStores;
 use support::full_node::{self, Fixture, rotation_login_client};
 use unified_server::{
-    LocalProvisioner, RuntimeOwners, SecurityContext, SecurityProtocol, UnifiedEndpoint,
-    UnifiedRuntime,
+    LocalProvisioner, RuntimeOwners, SecurityContext, SecurityProtocol, UnifiedRuntime,
 };
 
 struct Host {
@@ -397,7 +396,14 @@ async fn join_host(
 ) -> Host {
     let joining_started = std::time::Instant::now();
     let endpoint_a = source.runtime().endpoint_id();
-    let endpoint = UnifiedEndpoint::open_fresh(&b.config.endpoint_data_dir, &b.config.idp)
+    let mut local_join = unified_server::LocalJoin::create(
+        b.config.clone(),
+        &endpoint_a.to_string(),
+        "Joining Node",
+    )
+    .expect("retain Join endpoint attempt owner");
+    let endpoint = local_join
+        .prepare_endpoint()
         .await
         .expect("independent joining endpoint");
     let binding = NodeSignerBinding {
@@ -630,6 +636,7 @@ impl Pair {
         a.config.idp.key_namespace = format!("full-node-a-{}", Id::now_v7());
         b.config.idp.key_namespace = format!("full-node-b-{}", Id::now_v7());
         let stores = Arc::new(NodeStores {
+            endpoints: keyring_core::mock::Store::new().expect("isolated endpoint provider"),
             stores: [
                 (a.config.idp.key_namespace.clone(), a.store.clone()),
                 (b.config.idp.key_namespace.clone(), b.store.clone()),
