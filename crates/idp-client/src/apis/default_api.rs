@@ -29,7 +29,11 @@ pub struct AuthorizeJsonParams {
 #[derive(Clone, Debug)]
 pub struct AuthorizeQueryParams {
     pub response_type: models::ResponseType,
-    pub client_id: String,
+    pub client_id: Option<String>,
+    /// Logical Application URI for onboarding, not an Application database UUID.
+    pub application_id: Option<String>,
+    /// JSON registration metadata supplied for permission-gated onboarding in the UI.
+    pub registration: Option<String>,
     /// redirect URI is optional if the client has only one registered redirect URI
     pub redirect_uri: Option<String>,
     pub scope: Option<String>,
@@ -83,6 +87,12 @@ pub struct DeviceAuthParams {
 #[derive(Clone, Debug)]
 pub struct GetApplicationParams {
     pub application_id: String,
+}
+
+/// struct for passing parameters to the method [`get_client`]
+#[derive(Clone, Debug)]
+pub struct GetClientParams {
+    pub client_id: String,
 }
 
 /// struct for passing parameters to the method [`get_register`]
@@ -286,6 +296,13 @@ pub enum DeviceVerifyError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum GetApplicationError {
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`get_client`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum GetClientError {
     UnknownValue(serde_json::Value),
 }
 
@@ -577,7 +594,15 @@ pub async fn authorize_query(
     let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
 
     req_builder = req_builder.query(&[("response_type", &params.response_type.to_string())]);
-    req_builder = req_builder.query(&[("client_id", &params.client_id.to_string())]);
+    if let Some(ref param_value) = params.client_id {
+        req_builder = req_builder.query(&[("client_id", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = params.application_id {
+        req_builder = req_builder.query(&[("application_id", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = params.registration {
+        req_builder = req_builder.query(&[("registration", &param_value.to_string())]);
+    }
     if let Some(ref param_value) = params.redirect_uri {
         req_builder = req_builder.query(&[("redirect_uri", &param_value.to_string())]);
     }
@@ -907,6 +932,62 @@ pub async fn get_application(
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<GetApplicationError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+pub async fn get_client(
+    configuration: &configuration::Configuration,
+    params: GetClientParams,
+) -> Result<models::ClientConsentMetadata, Error<GetClientError>> {
+    let uri_str = format!(
+        "{}/oauth2/client/{client_id}",
+        configuration.base_path,
+        client_id = crate::apis::urlencode(params.client_id)
+    );
+    let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    if let Some(ref token) = configuration.bearer_access_token {
+        req_builder = req_builder.bearer_auth(token.to_owned());
+    };
+
+    let req = req_builder.build()?;
+    configuration::check_request(&req, configuration.request_limit)?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    let content_type = super::ContentType::from(content_type);
+
+    if status.as_u16() == 200 || false {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        match content_type {
+            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
+            ContentType::Text => {
+                return Err(Error::from(serde_json::Error::custom(
+                    "Received `text/plain` content type response that cannot be converted to `models::ClientConsentMetadata`",
+                )));
+            }
+            ContentType::Unsupported(unknown_type) => {
+                return Err(Error::from(serde_json::Error::custom(format!(
+                    "Received `{unknown_type}` content type response that cannot be converted to `models::ClientConsentMetadata`"
+                ))));
+            }
+        }
+    } else {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        let entity: Option<GetClientError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
             content,

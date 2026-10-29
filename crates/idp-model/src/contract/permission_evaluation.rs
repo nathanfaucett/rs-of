@@ -24,6 +24,7 @@ pub enum PermissionSubject {
 #[serde(rename_all = "snake_case")]
 pub enum IdentityAction {
     ClientsRead,
+    ClientsRegister,
     ClientsCreate,
     ClientsUpdate,
     ClientsDelete,
@@ -64,6 +65,7 @@ impl IdentityAction {
     pub const fn permission(self) -> &'static str {
         match self {
             Self::ClientsRead => "idp.clients.read",
+            Self::ClientsRegister => "idp.clients.register",
             Self::ClientsCreate => "idp.clients.create",
             Self::ClientsUpdate => "idp.clients.update",
             Self::ClientsDelete => "idp.clients.delete",
@@ -184,7 +186,7 @@ impl PermissionEvaluationRequest {
         };
         let valid = match (self.action, resource) {
             (
-                A::ClientsCreate | A::InfrastructureClientsCreate,
+                A::ClientsRegister | A::ClientsCreate | A::InfrastructureClientsCreate,
                 IdentityResource::Client { client_id: None },
             ) => true,
             (
@@ -286,8 +288,8 @@ pub struct PermissionEvaluationResponse {
 #[cfg(test)]
 mod tests {
     use super::{
-        IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
-        PermissionTarget,
+        INSTALLATION_POLICY_ID, IdentityAction, IdentityResource, PermissionEvaluationRequest,
+        PermissionSubject, PermissionTarget,
     };
     use crate::model::Id;
 
@@ -428,6 +430,31 @@ mod tests {
             request.action = action;
             assert!(request.policy_namespace().is_none());
         }
+    }
+
+    #[test]
+    fn client_onboarding_requires_an_installation_target() {
+        let mut request = PermissionEvaluationRequest {
+            request_id: Id::now_v7(),
+            subject: PermissionSubject::User { id: Id::now_v7() },
+            action: IdentityAction::ClientsRegister,
+            target: PermissionTarget::Installation {
+                resource: IdentityResource::Client { client_id: None },
+            },
+        };
+        assert_eq!(request.action.permission(), "idp.clients.register");
+        assert_eq!(request.policy_namespace(), Some(INSTALLATION_POLICY_ID));
+        request.target = PermissionTarget::Application {
+            application_id: Id::now_v7(),
+            resource: IdentityResource::Client { client_id: None },
+        };
+        assert!(request.policy_namespace().is_none());
+        request.target = PermissionTarget::Installation {
+            resource: IdentityResource::Client {
+                client_id: Some("caller-chosen".into()),
+            },
+        };
+        assert!(request.policy_namespace().is_none());
     }
 
     #[test]

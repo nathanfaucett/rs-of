@@ -3,34 +3,36 @@
 Framework-independent authenticated browser Storage access, composing the existing OIDC and Storage clients. Workspace-only package; registry publication and SSR/native/confidential-client qualification are not included. The password manager is the working consumer.
 
 ```ts
-import { ApplicationSdk } from '@of/sdk';
+import { ApplicationSdk } from "@of/sdk";
 
 const sdk = new ApplicationSdk({
-  idpBaseUrl: 'https://node.example/idp',
-  storageBaseUrl: 'https://files.example/storage',
+  idpBaseUrl: "https://node.example/idp",
+  storageBaseUrl: "https://files.example/storage",
   disableNativeRequests: true,
   client: {
-    clientId: 'example-web',
-    redirectUri: 'https://app.example/callback',
-    responseType: 'code',
+    redirectUri: "https://app.example/callback",
+    responseType: "code",
     registration: {
-      application: { uri: 'example.application', name: 'Example' },
-      clientId: 'example-web',
-      redirectUris: ['https://app.example/callback'],
-      scope: 'openid offline storage',
-      tokenEndpointAuthMethod: 'none',
-      clientType: 'public',
-      grantTypes: ['authorization_code', 'refresh_token', 'urn:ietf:params:oauth:grant-type:token-exchange'],
-      responseTypes: ['code'],
+      application: { uri: "example.application", name: "Example" },
+      redirectUris: ["https://app.example/callback"],
+      scope: "openid offline storage",
+      tokenEndpointAuthMethod: "none",
+      clientType: "public",
+      grantTypes: [
+        "authorization_code",
+        "refresh_token",
+        "urn:ietf:params:oauth:grant-type:token-exchange",
+      ],
+      responseTypes: ["code"],
     },
   },
 });
-const unsubscribe = sdk.subscribe(session => {
+const unsubscribe = sdk.subscribe((session) => {
   // Tokens are never delivered here. Retire context-bound views synchronously
   // when the session ends; navigation remains the application's responsibility.
 });
-await sdk.restore();                  // Ordinary load, not the callback route
-await sdk.signin();                   // Existing OIDC authorization navigation
+await sdk.restore(); // Ordinary load, not the callback route
+await sdk.signin(); // Existing OIDC authorization navigation
 // On the configured callback route (including a fresh browser runtime):
 await sdk.handleSigninCallback(new URL(window.location.href));
 // Local-only, synchronous retirement before the returned promise settles:
@@ -39,7 +41,7 @@ unsubscribe();
 sdk.dispose();
 ```
 
-`getAuthorizationUrl()` delegates to OIDC for applications/platforms that own navigation. `startRegistration()` delegates the existing registration navigation; neither is a new OAuth flow. Configuration is copied, immutable per instance, and requires distinct Application URI, OAuth Client ID, IdP base, Storage base, and callback URI. Project-owned generated IdP requests are the default; service prefixes are retained. The configured IdP's discovery supplies the canonical issuer, which can differ from its listener address.
+`getAuthorizationUrl()` delegates to OIDC for applications/platforms that own navigation. `startRegistration()` delegates the existing registration navigation; neither is a new OAuth flow. Configuration is copied, immutable per instance, and requires an Application URI, IdP base, Storage base, and callback URI. `clientId` is optional: project-owned onboarding supplies logical `registration.application.uri` as `application_id`, not a chosen Client ID. The authorization UI registers on Accept under the permitted User's authentication and returns the IdP-issued `client_id` with `code`, `state`, and `iss`. OIDC validates PKCE/state, destination, issuer, and any known ID. After exchange, it authenticates the generated owner `getClient({ clientId })` call with the obtained access token and requires the returned Client ID and server-owned Application URI to match before retaining the issued ID or tokens. Fixed-ID callbacks, refreshes, and verified identity establishment (including reload and Storage access) also validate this mapping. A confirmed mismatch retires SDK authentication; metadata request failures never establish a new authenticated identity. SDK identity and Storage use that actual ID; preprovisioned fixed IDs remain supported. Project-owned generated IdP requests are the default; service prefixes are retained. The configured IdP's discovery supplies the canonical issuer, which can differ from its listener address.
 
 ## Identity and lifecycle
 
@@ -53,25 +55,27 @@ Local sign-out clears this client's credentials and pending transactions, invali
 
 ## Persistence and redirect continuity
 
-The SDK explicitly uses the OIDC client's `local` policy: access/refresh tokens and pending state-bound PKCE verifiers persist in localStorage across full-page authorization redirects and reloads. A new runtime can consume the pending transaction once. Cache namespaces bind the IdP base, OAuth Client, redirect URI, and registration metadata (including Application). One client clearing its state does not purge other clients. Unsafe old authority-only keys are ignored, not read or migrated; users must sign in again. Old plaintext legacy entries can be removed manually through browser site-data controls.
+The SDK explicitly uses the OIDC client's `local` policy: access/refresh tokens and pending state-bound PKCE verifiers persist in localStorage across full-page authorization redirects and reloads. A new runtime can consume the pending transaction once. Cache namespaces bind the immutable IdP base, optional preprovisioned OAuth Client ID, redirect URI, and registration metadata (including Application). Issued IDs persist separately inside that same namespace across reload/refresh and local sign-out; acquiring an ID does not change the cache namespace. One client clearing its state does not purge other clients. Unsafe old authority-only keys are ignored, not read or migrated; users must sign in again. Old plaintext legacy entries can be removed manually through browser site-data controls.
 
 Browser storage must be available for this redirect policy. Credentials are plaintext to same-origin JavaScript and exposed to XSS, browser extensions, and local inspection; this is not a secure vault or an encrypted token store. No decrypted secrets or secret mutations are stored there. OIDC's separate memory mode does not persist credentials and cannot continue a full-page redirect in a new runtime. If browser storage removal fails, the instance and visible authentication still retire, but sign-out reports a bounded error requiring browser site-data cleanup; persisted deletion cannot be claimed. Local sign-out cannot establish deletion of data by the provider or defeat a compromised browser.
 
 ## Context-bound Storage and ownership
 
-After callback/restoration establishes authentication, `sdk.storage()` returns a frozen, generation-bound `StorageAccess` with only `listFileSystems(signal?)`, `createFileSystem(name?, signal?)`, and `openSocket(filesystemId, signal?)`. It never exposes the mutable Storage client or a bearer-token provider. OIDC owns identity verification and demand-driven access-token renewal; the existing Storage client owns action-specific token exchange, resource HTTP requests, and WebSocket protocol. There is no SDK token cache. Explicit IdP/Storage prefixes and the configured OAuth Client ID are preserved. A catalog entry is not permission to open a filesystem; authorization remains server-side.
+After callback/restoration establishes authentication, `sdk.storage()` returns a frozen, generation-bound `StorageAccess` with only `listFileSystems(signal?)`, `createFileSystem(name?, signal?)`, and `openSocket(filesystemId, signal?)`. It never exposes the mutable Storage client or a bearer-token provider. OIDC owns identity verification and demand-driven access-token renewal; the existing Storage client owns action-specific token exchange, resource HTTP requests, and WebSocket protocol. There is no SDK token cache. Explicit IdP/Storage prefixes and the actual issued OAuth Client ID are preserved. A catalog entry is not permission to open a filesystem; authorization remains server-side.
 
 ```ts
 const storage = sdk.storage();
 const resources = await storage.listFileSystems();
-const created = await storage.createFileSystem('Example');
+const created = await storage.createFileSystem("Example");
 // Pass this capability directly to the existing collection adapter:
 const collection = createStorageCollection({
   client: storage,
   userId: sdk.session.identity!.subject,
   applicationId: sdk.session.identity!.application,
   filesystemId: created.id,
-  directory: 'records', schema: recordSchema, getKey: record => record.id,
+  directory: "records",
+  schema: recordSchema,
+  getKey: (record) => record.id,
 });
 await collection.preload();
 // Application session subscriber: synchronously retire views and invoke cleanup.

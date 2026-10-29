@@ -24,7 +24,6 @@ export type SdkOptions = {
     idpBaseUrl: string;
     storageBaseUrl: string;
     client: Omit<OidcClientConfig, "authority" | "registration"> & {
-        clientId: string;
         registration: OidcClientConfig["registration"] & {
             application: { uri: string; name?: string };
         };
@@ -65,11 +64,8 @@ export class ApplicationSdk {
     constructor(options: SdkOptions) {
         this.#options = structuredClone({ ...options, fetch: undefined });
         this.#fetch = options.fetch;
-        if (
-            !options.client.clientId ||
-            !options.client.registration?.application?.uri
-        )
-            throw new Error("Application URI and OAuth Client ID are required");
+        if (!options.client.registration?.application?.uri?.trim())
+            throw new Error("Application URI is required");
         StorageClient.validateServiceBase(options.storageBaseUrl);
         this.#oidc = new OidcClient({
             projectOwned: options.projectOwned ?? true,
@@ -116,6 +112,7 @@ export class ApplicationSdk {
                     "NO_ACCESS_TOKEN",
                     "NO_REFRESH_TOKEN",
                     "INVALID_USERINFO_RESPONSE",
+                    "INVALID_CLIENT_METADATA",
                 ].includes(error.code) || error.details?.status === 401
             );
         const response = (error as { response?: Response } | null)?.response;
@@ -125,17 +122,20 @@ export class ApplicationSdk {
         try {
             const verified = await this.#oidc.getVerifiedIdentity();
             this.#active(epoch);
+            const clientId = this.#oidc.registeredClientId;
+            if (!clientId) throw new Error("Missing issued OAuth Client ID");
             const identity = Object.freeze({
                 issuer: verified.issuer,
                 subject: verified.subject,
                 application: this.#options.client.registration.application.uri,
-                clientId: this.#options.client.clientId,
+                clientId,
             });
             const old = this.#session.identity;
             if (
                 old &&
                 (old.subject !== identity.subject ||
-                    old.issuer !== identity.issuer)
+                    old.issuer !== identity.issuer ||
+                    old.clientId !== identity.clientId)
             ) {
                 this.#end("ended");
                 throw new Error("Identity changed; sign in again");
@@ -218,7 +218,7 @@ export class ApplicationSdk {
     }
     storage(): StorageAccess {
         this.#active();
-        if (this.#session.status !== "authenticated")
+        if (this.#session.status !== "authenticated" || !this.#session.identity)
             throw new Error("Sign in before using Storage");
         const epoch = this.#epoch;
         const active = () => this.#active(epoch);
@@ -228,7 +228,7 @@ export class ApplicationSdk {
         const client = new StorageClient({
             idpBaseUrl: this.#options.idpBaseUrl,
             storageBaseUrl: this.#options.storageBaseUrl,
-            clientId: this.#options.client.clientId,
+            clientId: this.#session.identity.clientId,
             bearerToken: this.#tokenProvider(),
             fetch: this.#fetch,
         });

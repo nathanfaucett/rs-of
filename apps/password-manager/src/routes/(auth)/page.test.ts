@@ -104,6 +104,11 @@ beforeEach(async () => {
                     userinfo_endpoint: "https://idp.test/idp/userinfo",
                 });
             if (String(url).endsWith("/userinfo")) return userinfo(url, init);
+            if (String(url).endsWith("/oauth2/client/password-manager-web"))
+                return Response.json({
+                    client_id: "password-manager-web",
+                    application: { uri: "password-manager.aicacia.com" },
+                });
             if (
                 new URLSearchParams(init?.body as string).get("grant_type") ===
                 "refresh_token"
@@ -215,6 +220,11 @@ it.each(["discovery", "creation"])(
         if (operation === "creation") click("Create filesystem");
         else component = mountPage();
         await vi.waitFor(() => expect(exchange).toHaveBeenCalledTimes(1));
+        expect(
+            new URLSearchParams(fetchApi.mock.calls.at(-1)?.[1]?.body).get(
+                "grant_type",
+            ),
+        ).toBe("urn:ietf:params:oauth:grant-type:token-exchange");
         await unmount(component);
         // A replacement context must not receive the old operation's result.
         component = mountPage();
@@ -323,8 +333,6 @@ it("wires real SDK redirect/callback, filesystem discovery/create/open and local
     const { load: callbackLoad } = await import("../callback/+page");
     const { load: authenticatedLoad } = await import("./+layout");
     vi.stubGlobal("confirm", () => true);
-    const storageFetch = fetchApi.getMockImplementation();
-    if (!storageFetch) throw new Error("Expected controlled Storage service");
     const identityFetch = async (
         url: URL | RequestInfo,
         init?: RequestInit,
@@ -339,6 +347,16 @@ it("wires real SDK redirect/callback, filesystem discovery/create/open and local
             });
         if (path.endsWith("/userinfo"))
             return Response.json({ sub: "user-one" });
+        if (path.endsWith("/oauth2/client/idp-issued-password-manager")) {
+            expect(new Headers(init?.headers).get("Authorization")).toBe(
+                "Bearer user-token",
+            );
+            expect(init?.redirect).toBe("error");
+            return Response.json({
+                client_id: "idp-issued-password-manager",
+                application: { uri: "password-manager.aicacia.com" },
+            });
+        }
         if (
             path.endsWith("/oauth2/token") &&
             new URLSearchParams(init?.body as string).get("grant_type") !==
@@ -349,15 +367,13 @@ it("wires real SDK redirect/callback, filesystem discovery/create/open and local
                 expires_in: 3600,
                 refresh_token: "refresh",
             });
-        return storageFetch(url, init);
+        return fetchApi(url, init);
     };
-    fetchApi.mockImplementation(identityFetch);
     window.localStorage.clear();
     const sdkOptions: SdkOptions = {
         idpBaseUrl: "https://idp.test/idp",
         storageBaseUrl: "https://storage.test/storage",
         client: {
-            clientId: "password-manager-web",
             redirectUri: "https://app.test/callback",
             registration: {
                 redirectUris: ["https://app.test/callback"],
@@ -365,7 +381,7 @@ it("wires real SDK redirect/callback, filesystem discovery/create/open and local
                 tokenEndpointAuthMethod: "none",
             },
         },
-        fetch: fetchApi,
+        fetch: identityFetch,
         disableNativeRequests: true,
     };
     auth.sdk = new ApplicationSdk(sdkOptions);
@@ -376,15 +392,27 @@ it("wires real SDK redirect/callback, filesystem discovery/create/open and local
         ?.dispatchEvent(new Event("submit", { cancelable: true }));
     await vi.waitFor(() => expect(auth.navigate).toHaveBeenCalledOnce());
     const authorization = auth.navigate.mock.calls[0][0] as URL;
+    expect(authorization.searchParams.has("client_id")).toBe(false);
+    expect(authorization.searchParams.get("application_id")).toBe(
+        "password-manager.aicacia.com",
+    );
+    expect(
+        JSON.parse(authorization.searchParams.get("registration") ?? "null"),
+    ).not.toHaveProperty("client_id");
     // Full-page redirect: a fresh OIDC/SDK instance consumes the persisted transaction.
     auth.sdk = new ApplicationSdk(sdkOptions);
     await callbackLoad({
         parent: async () => ({}),
         url: new URL(
-            `https://app.test/callback?code=once&state=${authorization.searchParams.get("state")}`,
+            `https://app.test/callback?code=once&client_id=idp-issued-password-manager&iss=https%3A%2F%2Finstallation.test&state=${authorization.searchParams.get("state")}`,
         ),
     } as Parameters<typeof callbackLoad>[0]);
     expect(auth.setAuthority).toHaveBeenCalledWith("https://idp.test/idp");
+    expect(auth.sdk.session.identity).toMatchObject({
+        application: "password-manager.aicacia.com",
+        clientId: "idp-issued-password-manager",
+    });
+    auth.sdk = new ApplicationSdk(sdkOptions);
     await unmount(component);
     const openApp = async () => {
         const data = await authenticatedLoad({
@@ -394,6 +422,9 @@ it("wires real SDK redirect/callback, filesystem discovery/create/open and local
         return mount(Page, { target, props: { params: {}, data: data ?? {} } });
     };
     component = await openApp();
+    expect(auth.sdk.session.identity?.clientId).toBe(
+        "idp-issued-password-manager",
+    );
     await wait("Duplicate name");
     Endpoint.files.set("created", new Map());
     click("Create filesystem");
@@ -609,32 +640,36 @@ it.each([200, 401])(
 );
 
 it("clears records and editor during writes when the authenticated User changes and on sign out", async () => {
-    const storageFetch = fetchApi.getMockImplementation();
-    if (!storageFetch) throw new Error("Expected controlled Storage service");
     let subject = "user-one";
-    fetchApi.mockImplementation(
-        async (url: URL | RequestInfo, init?: RequestInit) => {
-            if (String(url).endsWith("/.well-known/openid-configuration"))
-                return Response.json({
-                    issuer: "https://installation.test",
-                    authorization_endpoint: "https://idp.test/idp/authorize",
-                    token_endpoint: "https://idp.test/idp/oauth2/token",
-                    userinfo_endpoint: "https://idp.test/idp/userinfo",
-                });
-            if (String(url).endsWith("/userinfo"))
-                return Response.json({ sub: subject });
-            if (
-                String(url).endsWith("/oauth2/token") &&
-                new URLSearchParams(init?.body as string).get("grant_type") ===
-                    "authorization_code"
-            )
-                return Response.json({
-                    access_token: "user-token",
-                    expires_in: 3600,
-                });
-            return storageFetch(url, init);
-        },
-    );
+    const identityFetch = async (
+        url: URL | RequestInfo,
+        init?: RequestInit,
+    ) => {
+        if (String(url).endsWith("/.well-known/openid-configuration"))
+            return Response.json({
+                issuer: "https://installation.test",
+                authorization_endpoint: "https://idp.test/idp/authorize",
+                token_endpoint: "https://idp.test/idp/oauth2/token",
+                userinfo_endpoint: "https://idp.test/idp/userinfo",
+            });
+        if (String(url).endsWith("/userinfo"))
+            return Response.json({ sub: subject });
+        if (String(url).endsWith("/oauth2/client/password-manager-web"))
+            return Response.json({
+                client_id: "password-manager-web",
+                application: { uri: "password-manager.aicacia.com" },
+            });
+        if (
+            String(url).endsWith("/oauth2/token") &&
+            new URLSearchParams(init?.body as string).get("grant_type") ===
+                "authorization_code"
+        )
+            return Response.json({
+                access_token: "user-token",
+                expires_in: 3600,
+            });
+        return fetchApi(url, init);
+    };
     const sdkOptions: SdkOptions = {
         idpBaseUrl: "https://idp.test/idp",
         storageBaseUrl: "https://storage.test/storage",
@@ -647,7 +682,7 @@ it("clears records and editor during writes when the authenticated User changes 
                 tokenEndpointAuthMethod: "none",
             },
         },
-        fetch: fetchApi,
+        fetch: identityFetch,
         disableNativeRequests: true,
     };
     async function authenticate() {

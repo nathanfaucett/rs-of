@@ -18,6 +18,7 @@
  */
 export const IdentityAction = {
     ClientsRead: "clients_read",
+    ClientsRegister: "clients_register",
     ClientsCreate: "clients_create",
     ClientsUpdate: "clients_update",
     ClientsDelete: "clients_delete",

@@ -287,6 +287,133 @@ async fn infrastructure_client_provisioning_is_retry_safe_on_each_node() {
         .expect("local retry");
 }
 
+fn public_registration() -> ClientRegistration {
+    ClientRegistration {
+        application: ApplicationRegistration {
+            name: Some("Aicacia Password Manager".into()),
+            uri: "password-manager.aicacia.com".into(),
+            description: None,
+        },
+        client_id: None,
+        client_secret: None,
+        client_name: "Password Manager".into(),
+        client_uri: Some("https://password-manager.aicacia.com/home".into()),
+        client_type: ClientType::Public,
+        allowed_grant_types: vec![GrantType::AuthorizationCode, GrantType::RefreshToken],
+        response_types: vec![ResponseType::Code],
+        redirect_uris: vec!["https://password-manager.aicacia.com/callback".into()],
+        allowed_scopes: vec!["openid".into()],
+        token_endpoint_auth_method: TokenEndpointAuthMethod::None,
+        ..infrastructure_client_registration()
+    }
+}
+
+#[tokio::test]
+async fn public_onboarding_generates_ids_and_preserves_canonical_application() {
+    let (_, service, _, _) = setup().await;
+    let request = public_registration();
+    let created = service
+        .register_public_client(request.clone(), true)
+        .await
+        .expect("authorized onboarding");
+    let id = created.client_id.as_deref().expect("server-issued ID");
+    assert!(!id.is_empty());
+    assert_ne!(id, "password-manager-web");
+    assert!(created.client_secret.is_none());
+    assert_eq!(created.application, request.application);
+    assert_eq!(
+        service
+            .get_client(id)
+            .await
+            .expect("administrative registration")
+            .application,
+        request.application
+    );
+    let metadata = service
+        .get_client_consent_metadata(id)
+        .await
+        .expect("consent metadata");
+    assert_eq!(metadata.application, request.application);
+    assert_eq!(metadata.client_uri, request.client_uri);
+    let second = service
+        .register_public_client(request, false)
+        .await
+        .expect("reuse existing Application without creation authority");
+    assert_ne!(second.client_id, created.client_id);
+    assert_eq!(
+        service
+            .application_id_for_client(id)
+            .await
+            .expect("first Application"),
+        service
+            .application_id_for_client(second.client_id.as_deref().expect("second ID"))
+            .await
+            .expect("second Application")
+    );
+    assert_eq!(
+        service
+            .get_client_consent_metadata("refresh-client")
+            .await
+            .expect_err("confidential metadata withheld")
+            .error,
+        ErrorCode::NotFound
+    );
+}
+
+#[tokio::test]
+async fn rejected_public_onboarding_leaves_no_application_or_client() {
+    let (_, service, _, _) = setup().await;
+    let before_apps = service
+        .list_applications(0, 100)
+        .await
+        .expect("Applications before");
+    let before_clients = service.list_clients(0, 100).await.expect("Clients before");
+    assert!(
+        service
+            .register_public_client(public_registration(), false)
+            .await
+            .is_err()
+    );
+    let mut invalid = Vec::new();
+    let mut chosen = public_registration();
+    chosen.client_id = Some("password-manager-web".into());
+    invalid.push(chosen);
+    let mut secret = public_registration();
+    secret.client_secret = Some("caller-secret".into());
+    invalid.push(secret);
+    let mut confidential = public_registration();
+    confidential.client_type = ClientType::Confidential;
+    invalid.push(confidential);
+    let mut auth = public_registration();
+    auth.token_endpoint_auth_method = TokenEndpointAuthMethod::ClientSecretBasic;
+    invalid.push(auth);
+    let mut grants = public_registration();
+    grants
+        .allowed_grant_types
+        .push(GrantType::ClientCredentials);
+    invalid.push(grants);
+    let mut missing_uri = public_registration();
+    missing_uri.application.uri.clear();
+    invalid.push(missing_uri);
+    for request in invalid {
+        assert!(service.register_public_client(request, true).await.is_err());
+    }
+    assert_eq!(
+        service
+            .list_applications(0, 100)
+            .await
+            .expect("Applications unchanged"),
+        before_apps
+    );
+    assert_eq!(
+        service
+            .list_clients(0, 100)
+            .await
+            .expect("Clients unchanged"),
+        before_clients
+    );
+}
+
 fn auth(client: &Client) -> OAuth2ClientAuth {
     OAuth2ClientAuth {
         client_id: client.client_id.clone(),

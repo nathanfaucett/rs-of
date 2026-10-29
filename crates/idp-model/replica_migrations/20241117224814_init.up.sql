@@ -122,7 +122,7 @@ CREATE TABLE IF NOT EXISTS local_client_credentials (
 CREATE TABLE IF NOT EXISTS oauth2_authorization_codes (
     id UUID PRIMARY KEY,
     code_hash TEXT,
-    client_id UUID,
+    client_id TEXT,
     user_id UUID,
     key_id UUID,
     redirect_uri TEXT,

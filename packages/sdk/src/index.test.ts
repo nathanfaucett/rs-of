@@ -15,6 +15,13 @@ const service = vi.fn(async (input: URL | RequestInfo, _init?: RequestInit) => {
     if (url.endsWith("/.well-known/openid-configuration"))
         return Response.json(metadata);
     if (url.endsWith("/userinfo")) return Response.json({ sub: subject });
+    if (url.includes("/oauth2/client/"))
+        return Response.json({
+            client_id: decodeURIComponent(
+                url.split("/oauth2/client/")[1] ?? "",
+            ),
+            application: { uri: "app.test" },
+        });
     if (url.endsWith("/oauth2/token"))
         return Response.json({
             access_token: "access",
@@ -70,6 +77,95 @@ async function callback(sdk: ApplicationSdk) {
         `https://app.test/callback?code=one&state=${url.searchParams.get("state")}`,
     );
 }
+it("uses the IdP-issued client ID across onboarding, reload, refresh, and real Storage exchange", async () => {
+    const configured = options();
+    const dynamic = {
+        ...configured,
+        client: { ...configured.client, clientId: undefined },
+    };
+    const first = new ApplicationSdk(dynamic);
+    const authorization = await first.getAuthorizationUrl();
+    expect(authorization.searchParams.has("client_id")).toBe(false);
+    expect(authorization.searchParams.get("application_id")).toBe("app.test");
+    expect(service).toHaveBeenCalledTimes(1);
+    const url = new URL("https://app.test/callback");
+    url.search = new URLSearchParams({
+        code: "once",
+        state: authorization.searchParams.get("state") ?? "",
+        iss: metadata.issuer,
+        client_id: "generated-client",
+    }).toString();
+    const returning = new ApplicationSdk(dynamic);
+    await returning.handleSigninCallback(url);
+    expect(returning.session.identity?.clientId).toBe("generated-client");
+    const reload = new ApplicationSdk(dynamic);
+    await reload.restore();
+    expect(reload.session.identity?.clientId).toBe("generated-client");
+    const snapshot = reload.session;
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 3600000);
+    try {
+        await expect(reload.storage().listFileSystems()).resolves.toEqual([
+            { id: "fs-one", name: "Vault" },
+        ]);
+        expect(reload.session).toBe(snapshot);
+        const grants = service.mock.calls
+            .filter(([url]) => String(url).endsWith("/oauth2/token"))
+            .map(([, init]) => new URLSearchParams(init?.body as string));
+        expect(grants.map((body) => body.get("grant_type"))).toEqual([
+            "authorization_code",
+            "refresh_token",
+            "urn:ietf:params:oauth:grant-type:token-exchange",
+        ]);
+        expect(
+            grants.every(
+                (body) => body.get("client_id") === "generated-client",
+            ),
+        ).toBe(true);
+    } finally {
+        vi.restoreAllMocks();
+    }
+});
+
+it.each(["restore", "storage"])(
+    "rejects server-owned Application mismatches in established %s contexts",
+    async (operation) => {
+        let mismatch = false;
+        const controlled = vi.fn(
+            async (input: URL | RequestInfo, init?: RequestInit) => {
+                if (mismatch && String(input).includes("/oauth2/client/"))
+                    return Response.json({
+                        client_id: "web",
+                        application: { uri: "other.test" },
+                    });
+                return service(input, init);
+            },
+        );
+        const configured = { ...options(), fetch: controlled };
+        const sdk = new ApplicationSdk(configured);
+        await sdk.handleSigninCallback(await callback(sdk));
+        const access = sdk.storage();
+        mismatch = true;
+        if (operation === "restore") {
+            const reload = new ApplicationSdk(configured);
+            await expect(reload.restore()).rejects.toThrow("identity");
+            expect(reload.session.status).toBe("ended");
+            expect(reload.session.identity).toBeUndefined();
+        } else {
+            await expect(access.listFileSystems()).rejects.toThrow("ended");
+            expect(sdk.session.status).toBe("ended");
+            expect(sdk.session.identity).toBeUndefined();
+        }
+        expect(
+            controlled.mock.calls.some(([url]) =>
+                String(url).includes("/filesystems"),
+            ),
+        ).toBe(false);
+        expect(
+            [...values.keys()].some((key) => key.endsWith(":response")),
+        ).toBe(false);
+    },
+);
+
 it("establishes a verified identity across full-page redirect and reload, keeping Application, client and issuer distinct", async () => {
     const first = new ApplicationSdk(options());
     const url = await callback(first);
@@ -548,6 +644,12 @@ it("does not let late identity establishment retire a newer successful callback"
     service
         .mockResolvedValueOnce(
             Response.json({ access_token: "first", expires_in: 3600 }),
+        )
+        .mockResolvedValueOnce(
+            Response.json({
+                client_id: "web",
+                application: { uri: "app.test" },
+            }),
         )
         .mockImplementationOnce(() => held);
     const pending = sdk.handleSigninCallback(first);

@@ -21,6 +21,11 @@ const service = vi.fn(async (input: URL | RequestInfo) => {
     if (url.endsWith("/oauth2/token"))
         return Response.json({ access_token: "access", expires_in: 3600 });
     if (url.endsWith("/userinfo")) return Response.json({ sub: "alice" });
+    if (url.endsWith("/oauth2/client/idp-issued-password-manager"))
+        return Response.json({
+            client_id: "idp-issued-password-manager",
+            application: { uri: "password-manager.aicacia.com" },
+        });
     throw new Error("Unexpected controlled request");
 });
 beforeEach(() => {
@@ -49,8 +54,9 @@ it("persists the selected IdP before redirect, restores through the real app con
     expect(authorization.origin + authorization.pathname).toBe(
         "https://selected.test/prefix/idp/authorize",
     );
-    expect(authorization.searchParams.get("client_id")).toBe(
-        "password-manager-web",
+    expect(authorization.searchParams.has("client_id")).toBe(false);
+    expect(authorization.searchParams.get("application_id")).toBe(
+        "password-manager.aicacia.com",
     );
     expect(
         JSON.parse(authorization.searchParams.get("registration") ?? "null"),
@@ -63,12 +69,16 @@ it("persists the selected IdP before redirect, restores through the real app con
         post_logout_redirect_uris: ["https://app.test/signin"],
         token_endpoint_auth_method: "none",
     });
+    expect(
+        JSON.parse(authorization.searchParams.get("registration") ?? "null"),
+    ).not.toHaveProperty("client_id");
+    expect(service.mock.calls).toHaveLength(1);
     vi.resetModules();
     const returning = await import("./sdk");
     const sdk = returning.getSdk();
     await sdk.handleSigninCallback(
         new URL(
-            `https://app.test/callback?code=once&state=${authorization.searchParams.get("state")}`,
+            `https://app.test/callback?code=once&client_id=idp-issued-password-manager&iss=https%3A%2F%2Finstallation.test&state=${authorization.searchParams.get("state")}`,
         ),
     );
     expect(sdk.session).toMatchObject({
@@ -77,6 +87,7 @@ it("persists the selected IdP before redirect, restores through the real app con
             issuer: "https://installation.test",
             subject: "alice",
             application: "password-manager.aicacia.com",
+            clientId: "idp-issued-password-manager",
         },
     });
     const storage = sdk.storage();

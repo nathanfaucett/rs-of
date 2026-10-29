@@ -36,7 +36,9 @@ const identity = tokenResponse ? await client.getVerifiedIdentity() : null;
 
 ## Project-owned IdP APIs
 
-Set `projectOwned: true` in `OidcClient` options when `clientConfig.authority` is the complete project IdP API base (including its configured prefix). Discovery, userinfo, token acquisition/refresh and dynamic registration then use the generated IdP SDK. Discovered credential recipients must match the generated operation on that owner base; redirects are refused. The supplied fetch implementation and configured request timeout still apply.
+Set `projectOwned: true` in `OidcClient` options when `clientConfig.authority` is the complete project IdP API base (including its configured prefix). Discovery, userinfo, and token acquisition/refresh then use the generated IdP SDK. Discovered credential recipients must match the generated operation on that owner base; redirects are refused. The supplied fetch implementation and configured request timeout still apply.
+
+Without a configured or previously issued `clientId`, authorization goes directly to the UI with `application_id=registration.application.uri` and registration metadata without `client_id`. There is no unauthenticated registration POST: the UI registers on Accept with the permitted User's authentication, then uses the returned ID for consent/code issuance. The callback must include `client_id` and `iss` alongside `code` and PKCE-bound `state`. Destination, state, issuer, and any known Client ID are validated before exchange. After exchange, the obtained access token authenticates the generated `getClient({ clientId })` request to the configured owner's `GET /oauth2/client/{client_id}` endpoint (redirects refused). Both the returned `clientId` and server-owned `application.uri` must match the selected Client ID and configured Application URI before either the issued ID or tokens are persisted. Fixed-ID callbacks and refreshes use the same validation; verified identity establishment rechecks metadata for reload and Storage access. Metadata failures reject the operation, and a confirmed mismatch retires SDK authentication rather than labeling another Application with the configured URI. The issued ID is persisted only after successful exchange and metadata validation in the immutable configuration namespace and exposed as `registeredClientId: string | undefined`; refresh and subsequent authorization reuse it. Local sign-out removes credentials and pending transactions but retains this non-secret registration identity. Fixed-ID callbacks may omit `client_id`/`iss`, but supplied values must match. External-provider dynamic registration is unchanged.
 
 Both project applications select this mode. The default external-provider mode retains arbitrary OIDC endpoint layouts and native-protocol support; it is not a fallback for failed project-owned operations.
 
@@ -58,11 +60,9 @@ Only state-bound authorization-code callbacks are accepted; no-code callbacks re
   `/.well-known/openid-configuration`.
 - Builds the authorization URL with sensible defaults and
   configuration-driven parameters.
-- Handles dynamic client registration when the `clientId` is missing
-  and the provider exposes a `registration_endpoint`. In browser
-  environments the client will redirect the user to the registration
-  endpoint so the request can be approved interactively; non-browser
-  callers fall back to a simple POST.
+- Handles external-provider dynamic registration when `clientId` is missing
+  and the provider exposes a `registration_endpoint`; project-owned onboarding
+  is authenticated by the authorization UI instead.
 - Emitted `error` events for unexpected issues.
 
 See the `src` directory for more API details and tests.

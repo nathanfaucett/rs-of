@@ -16,6 +16,8 @@ use serde::{Deserialize, Serialize};
 pub enum IdentityAction {
     #[serde(rename = "clients_read")]
     ClientsRead,
+    #[serde(rename = "clients_register")]
+    ClientsRegister,
     #[serde(rename = "clients_create")]
     ClientsCreate,
     #[serde(rename = "clients_update")]
@@ -90,6 +92,7 @@ impl std::fmt::Display for IdentityAction {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Self::ClientsRead => write!(f, "clients_read"),
+            Self::ClientsRegister => write!(f, "clients_register"),
             Self::ClientsCreate => write!(f, "clients_create"),
             Self::ClientsUpdate => write!(f, "clients_update"),
             Self::ClientsDelete => write!(f, "clients_delete"),

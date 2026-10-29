@@ -28,6 +28,7 @@ use super::routes::oauth2::approvals::{
 use super::routes::oauth2::auth::{
     __path_authorize_json, __path_authorize_query, authorize_json, authorize_query,
 };
+use super::routes::oauth2::client::{__path_get_client, get_client};
 use super::routes::oauth2::device::{
     __path_device_auth, __path_device_verify, device_auth, device_verify,
 };
@@ -91,6 +92,7 @@ fn routes() -> OpenApiRouter<RouterState> {
         .routes(routes!(introspect))
         .routes(routes!(register))
         .routes(routes!(get_register))
+        .routes(routes!(get_client))
         .routes(routes!(delete_register))
         .routes(routes!(put_register))
         .routes(routes!(token))

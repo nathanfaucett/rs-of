@@ -16,6 +16,8 @@ pub mod authorization_server_metadata;
 pub use self::authorization_server_metadata::AuthorizationServerMetadata;
 pub mod challenge;
 pub use self::challenge::Challenge;
+pub mod client_consent_metadata;
+pub use self::client_consent_metadata::ClientConsentMetadata;
 pub mod client_profile;
 pub use self::client_profile::ClientProfile;
 pub mod client_registration;

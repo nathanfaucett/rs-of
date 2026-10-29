@@ -2,7 +2,6 @@ import { ApplicationSdk } from "@of/sdk";
 import { env } from "$env/dynamic/public";
 import icon256x256Png from "$lib/assets/icon256x256.png";
 
-const CLIENT_ID = "password-manager-web";
 let authority = env.PUBLIC_IDP_BASE_URL ?? "";
 try {
     const preference: unknown = JSON.parse(
@@ -18,7 +17,6 @@ function createSdk(idpBaseUrl: string): ApplicationSdk {
         storageBaseUrl: env.PUBLIC_STORAGE_BASE_URL ?? "",
         disableNativeRequests: true,
         client: {
-            clientId: CLIENT_ID,
             redirectUri: `${env.PUBLIC_URL}/callback`,
             responseType: "code",
             registration: {
@@ -26,7 +24,6 @@ function createSdk(idpBaseUrl: string): ApplicationSdk {
                     name: "Aicacia Password Manager",
                     uri: "password-manager.aicacia.com",
                 },
-                clientId: CLIENT_ID,
                 clientName: "Password Manager",
                 scope: "openid profile address offline email phone storage",
                 redirectUris: [`${env.PUBLIC_URL}/callback`],

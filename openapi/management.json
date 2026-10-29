@@ -70,6 +70,7 @@
       "IdentityAction": {
         "enum": [
           "clients_read",
+          "clients_register",
           "clients_create",
           "clients_update",
           "clients_delete",

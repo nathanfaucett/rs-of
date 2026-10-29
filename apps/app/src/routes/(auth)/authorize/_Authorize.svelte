@@ -1,351 +1,204 @@
 <script lang="ts" module>
     export interface AuthorizeProps {
         userInfo: OidcUserInfo;
-        authorizationRequest: AuthorizationRequest;
-        registration?: string;
+        authorizationRequest: PendingAuthorizationRequest;
+        applicationId?: string;
+        registration?: ClientRegistration;
     }
 </script>
 
 <script lang="ts">
     import type {
-        ApplicationRegistration,
-        AuthorizationRequest,
+        ClientConsentMetadata,
         ClientRegistration,
     } from "@aicacia/idp-client";
     import type { OidcUserInfo } from "@aicacia/oidc-client";
     import LoaderCircle from "@lucide/svelte/icons/loader-circle";
     import { isTauri } from "@tauri-apps/api/core";
+    import { onMount } from "svelte";
     import { goto } from "$app/navigation";
     import { resolve } from "$app/paths";
     import { idpApi } from "$lib/common/state/idpClient.svelte";
     import { m } from "$lib/paraglide/messages";
-
     import AuthorizeClient from "./_AuthorizeClient.svelte";
+    import {
+        authorizationError,
+        loadConsent,
+        registerClient,
+        type PendingAuthorizationRequest,
+    } from "./_onboarding";
     import {
         rejectAuthorizationRequest,
         resolveAuthorizationRequest,
     } from "./_utils";
 
-    let { userInfo, authorizationRequest, registration }: AuthorizeProps =
-        $props();
+    let {
+        userInfo,
+        authorizationRequest,
+        applicationId,
+        registration,
+    }: AuthorizeProps = $props();
+    let client = $state.raw<ClientConsentMetadata>();
+    let loading = $state(true);
+    let error = $state<string>();
 
-    type CandidateClientRegistration = Partial<ClientRegistration> & {
-        grantTypes?: NonNullable<ClientRegistration["allowedGrantTypes"]>;
-        scope?: string;
-    };
-
-    function asString(value: unknown): string | undefined {
-        return typeof value === "string" ? value : undefined;
-    }
-
-    function asStringArray(value: unknown): Array<string> | undefined {
-        if (!Array.isArray(value)) {
-            return undefined;
-        }
-        return value.filter(
-            (entry): entry is string => typeof entry === "string",
-        );
-    }
-
-    function normalizeRegistration(
-        value: unknown,
-    ): CandidateClientRegistration | undefined {
-        if (!value || typeof value !== "object") {
-            return undefined;
-        }
-        const record = value as Record<string, unknown>;
-        return {
-            application: record.application as ApplicationRegistration,
-            clientId: asString(record.clientId ?? record.client_id),
-            clientName: asString(record.clientName ?? record.client_name),
-            profile: asString(record.profile) as ClientRegistration["profile"],
-            tokenEndpointAuthMethod: asString(
-                record.tokenEndpointAuthMethod ??
-                    record.token_endpoint_auth_method,
-            ) as ClientRegistration["tokenEndpointAuthMethod"],
-            redirectUris: asStringArray(
-                record.redirectUris ?? record.redirect_uris,
-            ),
-            allowedGrantTypes: asStringArray(
-                record.allowedGrantTypes ?? record.allowed_grant_types,
-            ) as ClientRegistration["allowedGrantTypes"],
-            grantTypes: asStringArray(
-                record.grantTypes ?? record.grant_types,
-            ) as NonNullable<ClientRegistration["allowedGrantTypes"]>,
-            responseTypes: asStringArray(
-                record.responseTypes ?? record.response_types,
-            ) as ClientRegistration["responseTypes"],
-            allowedScopes: asStringArray(
-                record.allowedScopes ?? record.allowed_scopes,
-            ),
-            scope: asString(record.scope),
-            clientType: asString(
-                record.clientType ?? record.client_type,
-            ) as ClientRegistration["clientType"],
-            clientUri: asString(record.clientUri ?? record.client_uri),
-            logoUri: asString(record.logoUri ?? record.logo_uri),
-            policyUri: asString(record.policyUri ?? record.policy_uri),
-            tosUri: asString(record.tosUri ?? record.tos_uri),
-            contacts: asStringArray(record.contacts),
-        };
-    }
-
-    function parseRegistration(
-        value?: string,
-    ): CandidateClientRegistration | undefined {
-        if (!value) {
-            return undefined;
-        }
-        try {
-            return normalizeRegistration(JSON.parse(value));
-        } catch (e) {
-            console.error("Failed to parse registration query param", e);
-            return undefined;
-        }
-    }
-
-    function splitScope(scope?: string): Array<string> {
-        return (scope ?? "").split(/\s+/).filter((entry) => entry.length > 0);
-    }
-
-    let registrationCandidate = $derived(parseRegistration(registration));
-    let effectiveClientId = $derived(
-        authorizationRequest.clientId === "unknown"
-            ? (registrationCandidate?.clientId ?? authorizationRequest.clientId)
-            : authorizationRequest.clientId,
-    );
-    let lookupClientId = $derived(
-        authorizationRequest.clientId === "unknown"
-            ? registrationCandidate?.clientId
-            : authorizationRequest.clientId,
-    );
-    let requestedScopes = $derived(
-        splitScope(authorizationRequest.scope ?? ""),
-    );
-
-    let client = $state<ClientRegistration | null>(null);
-
-    let loadingClient = $state(true);
-    $effect(() => {
-        loadingClient = true;
-        if (!lookupClientId) {
-            console.debug(
-                "ClientRegistration ID is unknown, skipping client info fetch",
-            );
-            client = null;
-            loadingClient = false;
-            return;
-        }
-        console.debug("Fetching client info for clientId", lookupClientId);
-        idpApi
-            .getRegister({ clientId: lookupClientId })
-            .catch((e) => {
-                console.error("Error fetching client info", e);
-                return null;
-            })
-            .then((c) => {
-                client = c;
-            })
-            .finally(() => {
-                loadingClient = false;
-            });
-    });
-
-    let loadingUserAllowed = $state(true);
-    $effect(() => {
-        if (loadingClient) {
-            console.debug(
-                "Still loading client info, skipping user allowed check",
-            );
-            return;
-        }
-        if (!client) {
-            console.debug(
-                "ClientRegistration info not available, skipping user allowed check",
-            );
-            loadingUserAllowed = false;
-            return;
-        }
-        loadingUserAllowed = true;
-        console.debug(
-            "Checking if user has already allowed this client and scopes",
-        );
-        idpApi
-            .isAllowedForUser({
-                isAllowedForUserRequest: {
-                    clientId: effectiveClientId,
-                    redirectUri: authorizationRequest.redirectUri ?? "",
-                    scope: authorizationRequest.scope ?? "",
-                },
-            })
-            .then((response) => {
-                if (response.allowed) {
-                    onAuthorize();
+    onMount(() => {
+        let active = true;
+        async function initialize() {
+            try {
+                if (authorizationRequest.clientId) {
+                    const metadata = await loadConsent(
+                        authorizationRequest.clientId,
+                        applicationId,
+                    );
+                    if (!active) return;
+                    client = metadata;
+                    const response = await idpApi.isAllowedForUser({
+                        isAllowedForUserRequest: {
+                            clientId: metadata.clientId,
+                            redirectUri: authorizationRequest.redirectUri ?? "",
+                            scope: authorizationRequest.scope ?? "",
+                        },
+                    });
+                    if (active && response.allowed)
+                        await authorize(metadata.clientId);
+                } else if (!registration) {
+                    throw new Error(
+                        "No client ID or valid registration was supplied. Restart sign-in from the application.",
+                    );
                 }
-            })
-            .catch((error) => {
-                // Not yet approved or scopes changed; fall back to consent screen
-                console.error(
-                    "Error checking if user has allowed client",
-                    error,
-                );
-            })
-            .finally(() => {
-                loadingUserAllowed = false;
-            });
+            } catch (cause) {
+                if (active) error = authorizationError(cause);
+            } finally {
+                if (active) loading = false;
+            }
+        }
+        void initialize();
+        return () => {
+            active = false;
+        };
     });
 
-    let loadingAuthorizationRequest = $state(false);
-    let loadingRegistration = $state(false);
-    async function onAuthorize() {
-        loadingAuthorizationRequest = true;
-        console.debug(
-            "Resolving authorize request for clientId",
-            effectiveClientId,
-        );
-        try {
-            await resolveAuthorizationRequest({
-                ...authorizationRequest,
-                clientId: effectiveClientId,
-            });
-            if (isTauri()) {
-                await goto(resolve("/"));
-            }
-        } catch (e) {
-            console.error("Error resolving authorize request", e);
-        } finally {
-            loadingAuthorizationRequest = false;
-        }
+    async function authorize(clientId: string) {
+        await resolveAuthorizationRequest({
+            ...authorizationRequest,
+            clientId,
+        });
+        if (isTauri()) await goto(resolve("/"));
     }
+
     async function onAllow() {
+        if (!client) return;
+        loading = true;
+        error = undefined;
         try {
             await idpApi.approveForUser({
                 approveForUserRequest: {
-                    clientId: effectiveClientId,
+                    clientId: client.clientId,
                     redirectUri: authorizationRequest.redirectUri ?? "",
                     scope: authorizationRequest.scope ?? "",
                 },
             });
-            await onAuthorize();
-        } catch (e) {
-            console.error("Error approving client for user", e);
+            await authorize(client.clientId);
+        } catch (cause) {
+            error = authorizationError(cause);
+        } finally {
+            loading = false;
         }
     }
+
     async function onDeny() {
-        rejectAuthorizationRequest(
-            authorizationRequest,
-            "access_denied",
-            m.authorize_access_denied_reason(),
-        );
+        loading = true;
+        try {
+            await rejectAuthorizationRequest(
+                authorizationRequest,
+                "access_denied",
+                m.authorize_access_denied_reason(),
+            );
+        } catch (cause) {
+            error = authorizationError(cause);
+        } finally {
+            loading = false;
+        }
     }
 
     async function onRegister() {
-        if (!registrationCandidate) {
-            return;
-        }
-        if (
-            !registrationCandidate.application?.uri ||
-            !registrationCandidate.clientName ||
-            !registrationCandidate.profile ||
-            !registrationCandidate.tokenEndpointAuthMethod
-        ) {
-            console.error("Registration data missing required fields");
-            return;
-        }
-        loadingRegistration = true;
-        const redirectUris = (
-            registrationCandidate.redirectUris ?? [
-                authorizationRequest.redirectUri ?? "",
-            ]
-        ).filter((entry) => entry.length > 0);
-        const allowedGrantTypes = (registrationCandidate.allowedGrantTypes ??
-            registrationCandidate.grantTypes ?? [
-                "authorization_code",
-            ]) as ClientRegistration["allowedGrantTypes"];
-        const responseTypes = (registrationCandidate.responseTypes ?? [
-            authorizationRequest.responseType,
-        ]) as ClientRegistration["responseTypes"];
-        const allowedScopes =
-            registrationCandidate.allowedScopes ??
-            (registrationCandidate.scope
-                ? splitScope(registrationCandidate.scope)
-                : undefined) ??
-            splitScope(authorizationRequest.scope ?? "");
-
-        const payload: ClientRegistration = {
-            application: registrationCandidate.application,
-            clientId: registrationCandidate.clientId ?? effectiveClientId,
-            clientName: registrationCandidate.clientName,
-            profile: registrationCandidate.profile,
-            tokenEndpointAuthMethod:
-                registrationCandidate.tokenEndpointAuthMethod,
-            redirectUris,
-            allowedGrantTypes,
-            responseTypes,
-            allowedScopes,
-            clientType: registrationCandidate.clientType,
-            clientUri: registrationCandidate.clientUri,
-            logoUri: registrationCandidate.logoUri,
-            policyUri: registrationCandidate.policyUri,
-            tosUri: registrationCandidate.tosUri,
-            contacts: registrationCandidate.contacts,
-        };
+        if (!registration || !applicationId) return;
+        loading = true;
+        error = undefined;
         try {
-            client = await idpApi.register({ clientRegistration: payload });
-        } catch (e) {
-            console.error("Error registering client", e);
+            client = await registerClient(registration, applicationId);
+        } catch (cause) {
+            error = authorizationError(cause);
         } finally {
-            loadingRegistration = false;
+            loading = false;
         }
     }
-
-    let loading = $derived(
-        loadingClient ||
-            loadingUserAllowed ||
-            loadingAuthorizationRequest ||
-            loadingRegistration,
-    );
-    let disabled = $derived(loading);
 </script>
 
-{#if loading}
-    <div class="flex flex-row items-center justify-center py-8" role="status">
+{#if error}
+    <section role="alert">
+        <h2>{m.authorize_invalid_request()}</h2>
+        <p>{error}</p>
+        <button
+            class="btn btn-secondary btn-md mt-4"
+            type="button"
+            disabled={loading}
+            onclick={onDeny}
+        >
+            {m.authorize_button_deny()}
+        </button>
+    </section>
+{:else if loading}
+    <div
+        class="flex flex-row items-center justify-center py-8"
+        role="status"
+        aria-label="Loading authorization"
+    >
         <LoaderCircle class="animate-spin" aria-hidden="true" />
     </div>
 {:else if client}
-    <AuthorizeClient {userInfo} {client} {disabled} {onAllow} {onDeny} />
-{:else if registrationCandidate}
+    <AuthorizeClient
+        {userInfo}
+        {client}
+        disabled={loading}
+        {onAllow}
+        {onDeny}
+    />
+{:else if registration}
     <section>
         <h2>{m.authorize_new_client_request()}</h2>
-        <p>{m.authorize_client_not_found()}</p>
+        <p>
+            This application is requesting a new client registration. These
+            details were supplied by the application and are not yet verified by
+            the server.
+        </p>
         <dl class="mt-3 space-y-1 text-sm">
             <div>
+                <dt class="font-semibold">Application</dt>
+                <dd>{registration.application.uri}</dd>
+            </div>
+            <div>
                 <dt class="font-semibold">Client</dt>
-                <dd>
-                    {registrationCandidate.clientName ??
-                        registrationCandidate.clientId ??
-                        effectiveClientId}
-                </dd>
+                <dd>{registration.clientName}</dd>
             </div>
             <div>
-                <dt class="font-semibold">Client ID</dt>
-                <dd>
-                    {registrationCandidate.clientId ?? effectiveClientId}
-                </dd>
+                <dt class="font-semibold">Redirect URIs</dt>
+                <dd>{registration.redirectUris?.join(", ")}</dd>
             </div>
             <div>
-                <dt class="font-semibold">Redirect URI</dt>
-                <dd>{authorizationRequest.redirectUri ?? "-"}</dd>
+                <dt class="font-semibold">Registration scopes</dt>
+                <dd>{registration.allowedScopes?.join(", ") || "-"}</dd>
             </div>
             <div>
                 <dt class="font-semibold">Requested scopes</dt>
-                <dd>
-                    {requestedScopes.length > 0
-                        ? requestedScopes.join(", ")
-                        : "-"}
-                </dd>
+                <dd>{authorizationRequest.scope || "-"}</dd>
             </div>
         </dl>
+        <p>
+            Accept registers the client. You will review server-approved details
+            before granting access.
+        </p>
         <div class="mt-4 flex flex-row justify-center gap-4">
             <button
                 class="btn btn-primary btn-md"
@@ -356,18 +209,6 @@
                 class="btn btn-secondary btn-md"
                 type="button"
                 onclick={onDeny}>{m.client_reject()}</button
-            >
-        </div>
-    </section>
-{:else}
-    <section>
-        <h2>{m.authorize_invalid_request()}</h2>
-        <p>{m.authorize_client_not_found()}</p>
-        <div class="mt-4 flex flex-row justify-center gap-4">
-            <button
-                class="btn btn-secondary btn-md"
-                type="button"
-                onclick={onDeny}>{m.authorize_button_deny()}</button
             >
         </div>
     </section>

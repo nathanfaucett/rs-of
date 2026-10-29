@@ -648,7 +648,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             .to_owned();
         self.oauth2
             .client_repo
-            .create_client_with_capture(request, |key, paths| {
+            .create_client_with_capture(request, true, |key, paths| {
                 self.capture_initial_root(&external, key, paths)
                     .map_err(|error| RepoError::InvalidInput(error.to_string()))
             })

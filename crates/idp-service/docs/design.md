@@ -8,6 +8,14 @@ Use conventional OIDC, not self-issued OIDC. The IdP signs access and ID tokens 
 
 Use standard authorization, token, userinfo, discovery, JWKS, PKCE, and refresh-token surfaces. Key-based authentication is not a replacement for the OAuth/OIDC protocol, and password authentication is not excluded.
 
+### Permission-gated public Client onboarding
+
+An authorized User may onboard an ordinary public Client for an Application identified by its stable `application.uri` (for example, `password-manager.aicacia.com`). The IdP issues a new Client ID; the supplied Application URI is neither a Client identity nor proof of authority. Registration requires explicit Installation permission and, when the Application is absent, separate Application-creation permission before writes. It does not grant same-Application administrative CRUD or replace User consent. Infrastructure provisioning remains a separate permission boundary. See [onboarding and consent-display security](local-security.md#owner-boundaries-and-administration).
+
+The canonical browser entry is `GET /oauth2/auth`. Its `AuthorizationUiRequest` permits either a nonblank Client ID or onboarding with a nonblank `application_id` (the logical Application URI), matching JSON `registration.application.uri`, no supplied registration Client ID, `response_type=code`, and a valid redirect URI. It preserves the raw query, including registration, state, nonce and PKCE, when redirecting to the configured UI (`303 See Other`); it does not mutate owner state or issue codes. `POST /oauth2/auth` retains the strict `AuthorizationRequest` with required Client ID and normal authenticated consent/issuance validation.
+
+Authenticated consent display uses the allowlisted `GET /oauth2/client/{client_id}` response, not the administrative registration GET. Client registration responses and consent metadata preserve canonical Application identity even when the Client homepage differs from the Application URI. Generated contracts and SDKs must be regenerated together for the new `ClientsRegister` action and `ClientConsentMetadata` operation before independent HTTPS evaluators or generated frontend callers can use them.
+
 ## Identity and keys
 
 Principal setup and root rotation allocate metadata identities without producing entity master keys, derived private keys or public JWKs. Tokens bind the current Principal root UUID but are signed by the independent Node signer. Explicit cryptographic key APIs retain BIP32-style master/derived keys for callers that actually require them; keep that private material local and do not expose it to relying parties. Per-client key choices must not replace the canonical User identity.
@@ -19,6 +27,8 @@ Keep private key material local. Public-key metadata alone is not signing capabi
 ## Local trust and grant lifecycle
 
 Every Node may administer identity and perform OAuth/OIDC issuance and grant lifecycle operations after local actor/permission checks. Persist trusted identity, policy, approved signer state, and grant consumption so completed Nodes can operate and restart offline. There is no designated authority, privileged replica, promotion, or 30-second freshness requirement. Missing, invalid, or locally revoked trust denies; a partition by itself does not.
+
+Authorization-code rows retain the public OAuth Client ID as `TEXT`, not the Client's internal UUID. The corrected initial schema applies to newly created databases; existing databases with a UUID `oauth2_authorization_codes.client_id` column require explicit schema recovery or reprovisioning, not merely a restart.
 
 Consume authorization codes and rotate refresh tokens atomically and durably on the executing Node. Concurrent local requests have one winner, including after reopen. Partitioned Nodes do not have a global single-use guarantee. Reconcile approved grant state on reconnect without claiming that eventual convergence prevented earlier duplicate consumption. Define synchronized records explicitly; raw secrets and private signing material are never shared.
 

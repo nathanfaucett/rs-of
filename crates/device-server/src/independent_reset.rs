@@ -4,6 +4,7 @@ use api::{IndependentPeer, IndependentReset};
 use device_service::independent_join::IndependentJoinApproval;
 use idp_model::model::Id;
 use idp_service::setup_credentials::delete_setup_secrets;
+use management_service::INITIAL_ADMINISTRATOR_ACTIONS;
 use serde::Deserialize;
 
 use crate::AppConfig;
@@ -77,7 +78,7 @@ pub async fn reset_independent(config: &AppConfig, remove_os_trust: bool) -> io:
                 .as_ref()
                 .map(|seed| (seed.role, seed.permissions.as_slice()));
             if let Some((role, permissions)) = seed {
-                if permissions.len() != 25 {
+                if permissions.len() != INITIAL_ADMINISTRATOR_ACTIONS.len() {
                     return Err(io::Error::other("invalid retained administrator seed"));
                 }
                 ids.push(role);

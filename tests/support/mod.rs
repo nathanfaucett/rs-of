@@ -1,3 +1,4 @@
+pub(crate) mod client_onboarding;
 pub(crate) mod identity;
 pub(crate) mod native;
 pub(crate) mod owner_adapters;

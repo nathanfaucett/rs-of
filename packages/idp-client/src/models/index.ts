@@ -9,6 +9,7 @@ export * from "./AuthorizationDetail.js";
 export * from "./AuthorizationRequest.js";
 export * from "./AuthorizationServerMetadata.js";
 export * from "./Challenge.js";
+export * from "./ClientConsentMetadata.js";
 export * from "./ClientProfile.js";
 export * from "./ClientRegistration.js";
 export * from "./ClientType.js";

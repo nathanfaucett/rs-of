@@ -1,7 +1,5 @@
 import {
   AuthorizationServerMetadataToJSON,
-  ClientRegistrationFromJSON,
-  ClientRegistrationToJSON,
   Configuration,
   DefaultApi,
   TokenGrantTypeEnum,
@@ -107,6 +105,7 @@ export class OidcClient<
   private readonly fetch: Fetch;
   private readonly memoryOnly: boolean;
   private tokenResponse: OidcTokenResponse | null = null;
+  private issuedClient: { clientId: string; issuer: string } | undefined;
   private sessionGeneration = 0;
   private identityContext = 0;
   private refreshPending: {
@@ -143,6 +142,38 @@ export class OidcClient<
           options.fetch,
         )
       : (options.fetch ?? fetch);
+  }
+
+  private getIssuedClient(): { clientId: string; issuer: string } | undefined {
+    if (this.memoryOnly) return this.issuedClient;
+    const value = this.getStorage()?.getItem(
+      `${this.tokenStoragePrefix}:client`,
+    );
+    if (!value) return undefined;
+    try {
+      const client = JSON.parse(value);
+      if (
+        typeof client.clientId === "string" &&
+        client.clientId.trim() &&
+        typeof client.issuer === "string"
+      )
+        return client;
+    } catch {}
+    return undefined;
+  }
+
+  get registeredClientId(): string | undefined {
+    return this.config.clientId ?? this.getIssuedClient()?.clientId;
+  }
+
+  private rememberIssuedClient(clientId: string, issuer: string): void {
+    const client = { clientId, issuer };
+    if (this.memoryOnly) this.issuedClient = client;
+    else
+      this.getStorage()?.setItem(
+        `${this.tokenStoragePrefix}:client`,
+        JSON.stringify(client),
+      );
   }
 
   private ownerApi(headers: Record<string, string> = {}): DefaultApi {
@@ -524,6 +555,41 @@ export class OidcClient<
     return userInfo;
   }
 
+  private async verifyProjectClient(
+    clientId: string,
+    accessToken?: string,
+  ): Promise<void> {
+    if (!this.projectOwned) return;
+    if (!accessToken)
+      throw new OidcClientError(
+        "NO_ACCESS_TOKEN",
+        "Token exchange returned no access token",
+      );
+    const application = this.config.registration?.application as
+      | { uri?: string }
+      | undefined;
+    if (!application?.uri)
+      throw new OidcClientError(
+        "INVALID_CLIENT_METADATA",
+        "Missing expected Application URI",
+      );
+    const api = this.ownerApi({ Authorization: `Bearer ${accessToken}` });
+    const parameters = { clientId };
+    this.requireOwnerEndpoint(
+      `${this.config.authority}/oauth2/client/${encodeURIComponent(clientId)}`,
+      (await api.getClientRequestOpts(parameters)).path,
+    );
+    const client = await api.getClient(parameters, { redirect: "error" });
+    if (
+      client?.clientId !== clientId ||
+      client?.application?.uri !== application.uri
+    )
+      throw new OidcClientError(
+        "INVALID_CLIENT_METADATA",
+        "Client metadata does not match the configured Application",
+      );
+  }
+
   async getVerifiedIdentity(): Promise<{
     issuer: string;
     subject: string;
@@ -560,6 +626,11 @@ export class OidcClient<
             "INVALID_USERINFO_RESPONSE",
             "Userinfo response did not include a valid sub claim",
           );
+        if (this.projectOwned) {
+          const clientId = await this.getClientId(config);
+          await this.verifyProjectClient(clientId, token);
+          if (stale()) continue;
+        }
         return {
           issuer: config.issuer,
           subject: userInfo.sub,
@@ -716,7 +787,33 @@ export class OidcClient<
     this.identityContext += 1;
     const generation = ++this.sessionGeneration;
     const config = await this.getOidcConfiguration();
-    const clientId = await this.getClientId(config);
+    const callbackIssuer = this.readCallbackParam(
+      queryParams,
+      hashParams,
+      "iss",
+    );
+    const callbackClientId = this.readCallbackParam(
+      queryParams,
+      hashParams,
+      "client_id",
+    );
+    const knownClientId = this.registeredClientId;
+    const onboarding = this.projectOwned && !knownClientId;
+    if (
+      (callbackIssuer !== null && callbackIssuer !== config.issuer) ||
+      (onboarding && !callbackIssuer) ||
+      (callbackClientId !== null &&
+        knownClientId &&
+        callbackClientId !== knownClientId) ||
+      (onboarding && !callbackClientId?.trim())
+    )
+      throw new OidcClientError(
+        "INVALID_STATE",
+        "Callback issuer or client ID does not match",
+      );
+    const clientId = onboarding
+      ? (callbackClientId ?? "")
+      : await this.getClientId(config);
     const { headers, body } = this.buildTokenRequest(
       clientId,
       authorizationCode,
@@ -732,6 +829,13 @@ export class OidcClient<
         "NO_ACCESS_TOKEN",
         "Session ended during callback",
       );
+    await this.verifyProjectClient(clientId, tokenResponse.access_token);
+    if (generation !== this.sessionGeneration)
+      throw new OidcClientError(
+        "NO_ACCESS_TOKEN",
+        "Session ended during callback",
+      );
+    if (onboarding) this.rememberIssuedClient(clientId, config.issuer);
     this.rememberTokenResponse(tokenResponse);
     return tokenResponse;
   }
@@ -786,6 +890,15 @@ export class OidcClient<
         "Session changed during token refresh",
       );
     }
+    await this.verifyProjectClient(clientId, refreshed.access_token);
+    if (
+      generation !== this.sessionGeneration ||
+      snapshot !== JSON.stringify(this.getStoredTokenResponse())
+    )
+      throw new OidcClientError(
+        "NO_ACCESS_TOKEN",
+        "Session changed during token refresh",
+      );
     this.rememberTokenResponse(refreshed);
     return refreshed;
   }
@@ -1015,27 +1128,7 @@ export class OidcClient<
         "registration_endpoint is required for dynamic client registration",
       );
     }
-    if (this.projectOwned) {
-      const api = this.ownerApi();
-      const parameters = {
-        clientRegistration: ClientRegistrationFromJSON(
-          snakeCaseKeys(this.getRegistrationMetadata()),
-        ),
-      };
-      this.requireOwnerEndpoint(
-        endpointUrlString,
-        (await api.registerRequestOpts(parameters)).path,
-      );
-      const json = ClientRegistrationToJSON(
-        await api.register(parameters, { redirect: "error" }),
-      ) as unknown as OidcClientRegistrationResponse;
-      if (!json.client_id)
-        throw new Error("registration response missing client_id");
-      this.config.clientId = json.client_id;
-      if (json.client_secret) this.config.clientSecret = json.client_secret;
-      this.emit("registered", json);
-      return json.client_id;
-    }
+
     const endpointUrl = new URL(endpointUrlString);
     const isNative =
       !this.disableNativeRequests && isNativeProtocol(endpointUrl);
@@ -1095,10 +1188,15 @@ export class OidcClient<
   }
 
   private async getClientId(config: OidcConfiguration): Promise<string> {
-    if (this.config.clientId) {
-      return this.config.clientId;
-    }
-    if (!config.registration_endpoint) {
+    const issued = this.getIssuedClient();
+    if (issued && issued.issuer !== config.issuer)
+      throw new OidcClientError(
+        "INVALID_STATE",
+        "Registered client issuer does not match",
+      );
+    const clientId = this.registeredClientId;
+    if (clientId) return clientId;
+    if (this.projectOwned || !config.registration_endpoint) {
       throw new Error("clientId is required for signin");
     }
 
@@ -1110,7 +1208,10 @@ export class OidcClient<
   ): Promise<URL> {
     const generation = this.sessionGeneration;
     const config = await this.getOidcConfiguration();
-    const clientId = await this.getClientId(config);
+    const clientId =
+      this.projectOwned && !this.registeredClientId
+        ? undefined
+        : await this.getClientId(config);
     const url = new URL(config.authorization_endpoint);
 
     if (this.config.extraQueryParams) {
@@ -1130,7 +1231,16 @@ export class OidcClient<
       this.config.registration?.responseTypes?.[0] ??
       "code";
 
-    url.searchParams.set("client_id", clientId);
+    if (clientId) url.searchParams.set("client_id", clientId);
+    else {
+      url.searchParams.delete("client_id");
+      const application = this.getRegistrationMetadata().application as
+        | { uri?: string }
+        | undefined;
+      if (!application?.uri?.trim())
+        throw new Error("Application URI is required for onboarding");
+      url.searchParams.set("application_id", application.uri);
+    }
     url.searchParams.set("redirect_uri", this.getRedirectUri());
     url.searchParams.set("response_type", responseType);
 
@@ -1174,7 +1284,15 @@ export class OidcClient<
     if (this.config.registration) {
       url.searchParams.set(
         "registration",
-        JSON.stringify(snakeCaseKeys(this.config.registration)),
+        JSON.stringify(
+          this.projectOwned
+            ? Object.fromEntries(
+                Object.entries(snakeCaseKeys(this.config.registration)).filter(
+                  ([key]) => key !== "client_id",
+                ),
+              )
+            : snakeCaseKeys(this.config.registration),
+        ),
       );
     }
 

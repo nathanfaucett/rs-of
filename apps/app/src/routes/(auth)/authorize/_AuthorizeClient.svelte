@@ -1,7 +1,7 @@
 <script lang="ts" module>
     export interface ClientProps {
         userInfo: OidcUserInfo;
-        client: ClientRegistration;
+        client: ClientConsentMetadata;
         disabled?: boolean;
         onAllow: () => Promise<void>;
         onDeny: () => Promise<void>;
@@ -9,7 +9,7 @@
 </script>
 
 <script lang="ts">
-    import type { ClientRegistration } from "@aicacia/idp-client";
+    import type { ClientConsentMetadata } from "@aicacia/idp-client";
     import type { OidcUserInfo } from "@aicacia/oidc-client";
     import { m } from "$lib/paraglide/messages";
 
@@ -58,7 +58,7 @@
 <div class="my-4 flex flex-col justify-center">
     <h2 class="text-sm font-medium">{m.authorize_requested_permissions()}</h2>
 
-    {#if client.allowedScopes}
+    {#if client.allowedScopes.length > 0}
         {@const scopes = client.allowedScopes}
 
         <ul class="list-inside list-disc text-sm">
@@ -75,12 +75,18 @@
     <hr />
     <div class="mt-4 flex flex-row justify-center gap-4 text-xs">
         {#if client.policyUri}
-            <a href={client.policyUri} target="_blank" rel="external"
+            <a
+                href={client.policyUri}
+                target="_blank"
+                rel="external noopener noreferrer"
                 >{m.authorize_privacy_policy()}</a
             >
         {/if}
         {#if client.tosUri}
-            <a href={client.tosUri} target="_blank" rel="external"
+            <a
+                href={client.tosUri}
+                target="_blank"
+                rel="external noopener noreferrer"
                 >{m.authorize_terms_of_service()}</a
             >
         {/if}

@@ -20,28 +20,59 @@ pub(crate) async fn register(
     actor: StandardAuthorization,
     Json(body): Json<ClientRegistration>,
 ) -> Result<Json<ClientRegistration>, ErrorResponse> {
-    let application_id = state
-        .oauth2_service
-        .application_id_for_uri(&body.application.uri)
-        .await?;
-    let infrastructure = infrastructure_client(&body);
-    let action = if infrastructure {
-        IdentityAction::InfrastructureClientsCreate
-    } else {
-        IdentityAction::ClientsCreate
-    };
-    let target = client_target(application_id, infrastructure, None);
-    require_identity_permission(&state, &actor, action, target).await?;
     if body.client_id.is_some() {
         return Err(ErrorResponse::new(ErrorCode::InvalidRequest));
     }
-    let client = if infrastructure {
+    let client = if infrastructure_client(&body) {
+        let application_id = state
+            .oauth2_service
+            .application_id_for_uri(&body.application.uri)
+            .await?;
+        require_identity_permission(
+            &state,
+            &actor,
+            IdentityAction::InfrastructureClientsCreate,
+            client_target(application_id, true, None),
+        )
+        .await?;
         state
             .oauth2_service
             .register_infrastructure_client(body)
             .await?
     } else {
-        state.oauth2_service.register_client(body).await?
+        require_identity_permission(
+            &state,
+            &actor,
+            IdentityAction::ClientsRegister,
+            PermissionTarget::Installation {
+                resource: IdentityResource::Client { client_id: None },
+            },
+        )
+        .await?;
+        let allow_application_creation = match state
+            .oauth2_service
+            .application_id_for_uri(&body.application.uri)
+            .await
+        {
+            Ok(_) => false,
+            Err(error) if error.error == ErrorCode::NotFound => {
+                require_identity_permission(
+                    &state,
+                    &actor,
+                    IdentityAction::ApplicationsCreate,
+                    PermissionTarget::Installation {
+                        resource: IdentityResource::Application { id: None },
+                    },
+                )
+                .await?;
+                true
+            }
+            Err(error) => return Err(error),
+        };
+        state
+            .oauth2_service
+            .register_public_client(body, allow_application_creation)
+            .await?
     };
     Ok(Json(client))
 }

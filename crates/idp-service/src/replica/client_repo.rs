@@ -72,6 +72,7 @@ where
     pub async fn create_client_with_capture(
         &self,
         registration: ClientRegistration,
+        allow_application_creation: bool,
         capture: impl FnOnce(&idp_model::model::Key, &[key::DerivationPath]) -> RepoResult<()> + Send,
     ) -> RepoResult<Client> {
         let client_id = registration
@@ -96,7 +97,9 @@ where
         } else {
             String::new()
         };
-        let application_id = self.application_id(&registration).await?;
+        let application_id = self
+            .application_id(&registration, allow_application_creation)
+            .await?;
         let now = Utc::now()
             .with_nanosecond(0)
             .expect("zero nanoseconds is valid");
@@ -273,7 +276,11 @@ where
         }
     }
 
-    async fn application_id(&self, registration: &ClientRegistration) -> RepoResult<Id> {
+    async fn application_id(
+        &self,
+        registration: &ClientRegistration,
+        allow_creation: bool,
+    ) -> RepoResult<Id> {
         let mut results = self
             .engine
             .execute(vec![Statement::Query(Query::Select(QuerySelect {
@@ -305,6 +312,11 @@ where
             .map_err(row_error)?;
         if let Some(row) = rows.into_iter().next() {
             return Ok(row.id);
+        }
+        if !allow_creation {
+            return Err(RepoError::InvalidInput(
+                "registered Application is missing".into(),
+            ));
         }
 
         let now = Utc::now()
@@ -397,7 +409,14 @@ where
         &self,
         registration: ClientRegistration,
     ) -> impl Future<Output = RepoResult<Client>> {
-        self.create_client_with_capture(registration, |_, _| Ok(()))
+        self.create_client_with_capture(registration, true, |_, _| Ok(()))
+    }
+
+    fn create_client_in_existing_application(
+        &self,
+        registration: ClientRegistration,
+    ) -> impl Future<Output = RepoResult<Client>> {
+        self.create_client_with_capture(registration, false, |_, _| Ok(()))
     }
 
     async fn update_client(&self, client: Client) -> RepoResult<Client> {
@@ -1251,27 +1270,31 @@ mod tests {
             (ClientType::Confidential, Some("secret")),
         ] {
             let mut captured = None;
-            repo.create_client_with_capture(registration(client_type, secret), |key, paths| {
-                assert!(
-                    keys.private_key_repo()
-                        .0
-                        .lock()
-                        .expect("secret map")
-                        .is_empty()
-                );
-                assert_eq!(
-                    paths.first(),
-                    Some(&key.derivation_path().expect("actual key path"))
-                );
-                assert_eq!(paths.last(), Some(&key::DerivationPath::default()));
-                assert!(
-                    paths
-                        .windows(2)
-                        .all(|pair| pair[0].parent().as_ref() == Some(&pair[1]))
-                );
-                captured = Some(key.entity_id);
-                Err(RepoError::InvalidInput("durable capture denied".into()))
-            })
+            repo.create_client_with_capture(
+                registration(client_type, secret),
+                true,
+                |key, paths| {
+                    assert!(
+                        keys.private_key_repo()
+                            .0
+                            .lock()
+                            .expect("secret map")
+                            .is_empty()
+                    );
+                    assert_eq!(
+                        paths.first(),
+                        Some(&key.derivation_path().expect("actual key path"))
+                    );
+                    assert_eq!(paths.last(), Some(&key::DerivationPath::default()));
+                    assert!(
+                        paths
+                            .windows(2)
+                            .all(|pair| pair[0].parent().as_ref() == Some(&pair[1]))
+                    );
+                    captured = Some(key.entity_id);
+                    Err(RepoError::InvalidInput("durable capture denied".into()))
+                },
+            )
             .await
             .expect_err("owner cannot bypass capture failure");
             let client = repo

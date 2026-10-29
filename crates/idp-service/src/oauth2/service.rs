@@ -21,12 +21,12 @@ use idp_model::model::{Application, Client, Id, Key};
 use idp_model::{
     contract::{
         ApproveForUserRequest, AuthorizationCodeGrantRequest, AuthorizationCodeResponse,
-        AuthorizationRequest, AuthorizationServerMetadata, ClientCredentialsGrantRequest,
-        ClientRegistration, ClientType, DeviceAuthorization, DeviceAuthorizationRequest,
-        EntityType, ErrorCode, ErrorResponse, ErrorResponseResult, GrantType, IdTokenClaims,
-        IsAllowedForUserRequest, IsAllowedForUserResponse, JwkPrivate, JwkPublic, Jwks,
-        OAuth2ClientAuth, PasswordGrantRequest, RefreshTokenGrantRequest, RevocationRequest,
-        SubjectTokenType, TokenEndpointAuthMethod, TokenExchangeGrantRequest,
+        AuthorizationRequest, AuthorizationServerMetadata, ClientConsentMetadata,
+        ClientCredentialsGrantRequest, ClientRegistration, ClientType, DeviceAuthorization,
+        DeviceAuthorizationRequest, EntityType, ErrorCode, ErrorResponse, ErrorResponseResult,
+        GrantType, IdTokenClaims, IsAllowedForUserRequest, IsAllowedForUserResponse, JwkPrivate,
+        JwkPublic, Jwks, OAuth2ClientAuth, PasswordGrantRequest, RefreshTokenGrantRequest,
+        RevocationRequest, SubjectTokenType, TokenEndpointAuthMethod, TokenExchangeGrantRequest,
         TokenPrincipalBinding, TokenRequest, UserInfo,
     },
     model::User,
@@ -175,7 +175,28 @@ where
         request: ClientRegistration,
     ) -> ErrorResponseResult<ClientRegistration> {
         validate_dynamic_client_grants(&request.allowed_grant_types)?;
-        self.register_owned_client(request).await
+        self.register_owned_client(request, true).await
+    }
+
+    pub async fn register_public_client(
+        &self,
+        request: ClientRegistration,
+        allow_application_creation: bool,
+    ) -> ErrorResponseResult<ClientRegistration> {
+        if request.client_id.is_some()
+            || request.client_secret.is_some()
+            || request.client_type != ClientType::Public
+            || request.token_endpoint_auth_method != TokenEndpointAuthMethod::None
+            || request.application.uri.trim().is_empty()
+            || !request
+                .allowed_grant_types
+                .contains(&GrantType::AuthorizationCode)
+        {
+            return Err(ErrorResponse::new(ErrorCode::InvalidRequest));
+        }
+        validate_dynamic_client_grants(&request.allowed_grant_types)?;
+        self.register_owned_client(request, allow_application_creation)
+            .await
     }
 
     pub async fn register_infrastructure_client(
@@ -187,7 +208,7 @@ where
         {
             return Err(ErrorResponse::new(ErrorCode::InvalidRequest));
         }
-        self.register_owned_client(request).await
+        self.register_owned_client(request, true).await
     }
 
     pub async fn ensure_infrastructure_client(
@@ -288,6 +309,7 @@ where
     async fn register_owned_client(
         &self,
         request: ClientRegistration,
+        allow_application_creation: bool,
     ) -> ErrorResponseResult<ClientRegistration> {
         let client = ClientRegistration {
             client_id: Some(
@@ -308,14 +330,31 @@ where
         } else {
             None
         };
-        let client = self
-            .client_repo
-            .create_client(client)
-            .await
-            .map_err(ErrorResponse::from)?;
+        let client = if allow_application_creation {
+            self.client_repo.create_client(client).await
+        } else {
+            self.client_repo
+                .create_client_in_existing_application(client)
+                .await
+        }
+        .map_err(ErrorResponse::from)?;
 
-        let mut registration: ClientRegistration = client.into();
+        let mut registration = self.registration_for_client(client).await?;
         registration.client_secret = issued_secret;
+        Ok(registration)
+    }
+
+    async fn registration_for_client(
+        &self,
+        client: Client,
+    ) -> ErrorResponseResult<ClientRegistration> {
+        let application = self.get_application(client.application_id).await?;
+        let mut registration: ClientRegistration = client.into();
+        registration.application = idp_model::contract::ApplicationRegistration {
+            name: Some(application.name),
+            uri: application.uri,
+            description: application.description,
+        };
         Ok(registration)
     }
 
@@ -328,7 +367,49 @@ where
             .ok_or_else(|| {
                 ErrorResponse::new(ErrorCode::InvalidClient).with_description("client not found")
             })?;
-        Ok(client.into())
+        self.registration_for_client(client).await
+    }
+
+    pub async fn get_client_consent_metadata(
+        &self,
+        client_id: &str,
+    ) -> ErrorResponseResult<ClientConsentMetadata> {
+        let client = self
+            .client_repo
+            .find_client_registration(client_id)
+            .await
+            .map_err(ErrorResponse::from)?
+            .ok_or_else(|| ErrorResponse::new(ErrorCode::NotFound))?;
+        if client.client_type != ClientType::Public
+            || !client
+                .allowed_grant_types
+                .contains(&GrantType::AuthorizationCode)
+            || client
+                .allowed_grant_types
+                .contains(&GrantType::ClientCredentials)
+            || client
+                .allowed_scopes
+                .iter()
+                .any(|scope| scope.starts_with("idp.") || scope.starts_with("management."))
+        {
+            return Err(ErrorResponse::new(ErrorCode::NotFound));
+        }
+        let application = self.get_application(client.application_id).await?;
+        Ok(ClientConsentMetadata {
+            application: idp_model::contract::ApplicationRegistration {
+                name: Some(application.name),
+                uri: application.uri,
+                description: application.description,
+            },
+            client_id: client.client_id,
+            client_name: client.client_name,
+            client_uri: Some(client.client_uri),
+            logo_uri: client.logo_uri,
+            terms_of_service_uri: client.terms_of_service_uri,
+            policy_uri: client.policy_uri,
+            redirect_uris: client.redirect_uris,
+            allowed_scopes: client.allowed_scopes,
+        })
     }
 
     pub async fn list_applications(
@@ -556,7 +637,7 @@ where
             .update_client(client)
             .await
             .map_err(ErrorResponse::from)?;
-        let mut registration: ClientRegistration = client.into();
+        let mut registration = self.registration_for_client(client).await?;
         registration.client_secret = issued_secret;
         Ok(registration)
     }

@@ -11,7 +11,7 @@ use crate::{ManagementError, PermissionRepo, RoleRepo};
 
 pub const MANAGEMENT_APPLICATION_URI: &str = "idp-management";
 
-pub const INITIAL_ADMINISTRATOR_ACTIONS: [IdentityAction; 25] = [
+pub const INITIAL_ADMINISTRATOR_ACTIONS: [IdentityAction; 26] = [
     IdentityAction::InfrastructureClientsRead,
     IdentityAction::InfrastructureClientsCreate,
     IdentityAction::InfrastructureClientsUpdate,
@@ -37,6 +37,7 @@ pub const INITIAL_ADMINISTRATOR_ACTIONS: [IdentityAction; 25] = [
     IdentityAction::ReplicaSignersRevoke,
     IdentityAction::IdpSecuritySync,
     IdentityAction::ManagementSecuritySync,
+    IdentityAction::ClientsRegister,
 ];
 
 pub struct ManagementService<P, R> {
@@ -407,6 +408,61 @@ mod tests {
         ManagementService,
         replica::{DbPermissionRepo, DbRoleRepo, up},
     };
+
+    #[tokio::test]
+    async fn initial_administrator_has_explicit_client_registration_permission() {
+        use idp_model::contract::{
+            IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
+            PermissionTarget,
+        };
+        let engine = Arc::new(db::Database::in_memory());
+        up(&engine).await.expect("initialize policy schema");
+        let service = ManagementService::new(
+            DbPermissionRepo::new(engine.client()),
+            DbRoleRepo::new(engine.client()),
+        );
+        let administrator = Id::now_v7();
+        let permissions: Vec<_> = super::INITIAL_ADMINISTRATOR_ACTIONS
+            .iter()
+            .map(|action| (Id::now_v7(), *action))
+            .collect();
+        service
+            .provision_initial_administrator(administrator, Id::now_v7(), &permissions)
+            .await
+            .expect("provision explicit administrator grants");
+        let mut request = PermissionEvaluationRequest {
+            request_id: Id::now_v7(),
+            subject: PermissionSubject::User { id: administrator },
+            action: IdentityAction::ClientsRegister,
+            target: PermissionTarget::Installation {
+                resource: IdentityResource::Client { client_id: None },
+            },
+        };
+        assert!(
+            service
+                .evaluate_permission(&request)
+                .await
+                .expect("administrator may register")
+        );
+        request.subject = PermissionSubject::User { id: Id::now_v7() };
+        assert!(
+            !service
+                .evaluate_permission(&request)
+                .await
+                .expect("not granted to all Users")
+        );
+        request.subject = PermissionSubject::User { id: administrator };
+        request.target = PermissionTarget::Application {
+            application_id: Id::now_v7(),
+            resource: IdentityResource::Client { client_id: None },
+        };
+        assert!(
+            !service
+                .evaluate_permission(&request)
+                .await
+                .expect("registration is not Application-scoped")
+        );
+    }
 
     #[tokio::test]
     async fn ensure_rbac_records_retry_by_stable_id_and_reject_conflicts() {

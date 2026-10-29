@@ -456,6 +456,63 @@
         ],
         "type": "object"
       },
+      "ClientConsentMetadata": {
+        "properties": {
+          "allowed_scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "application": {
+            "$ref": "#/components/schemas/ApplicationRegistration"
+          },
+          "client_id": {
+            "type": "string"
+          },
+          "client_name": {
+            "type": "string"
+          },
+          "client_uri": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "logo_uri": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "policy_uri": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "redirect_uris": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tos_uri": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "application",
+          "client_id",
+          "client_name",
+          "redirect_uris",
+          "allowed_scopes"
+        ],
+        "type": "object"
+      },
       "ClientCredentialsGrantRequest": {
         "properties": {
           "audience": {
@@ -2879,7 +2936,25 @@
           {
             "in": "query",
             "name": "client_id",
-            "required": true,
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Logical Application URI for onboarding, not an Application database UUID.",
+            "in": "query",
+            "name": "application_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "JSON registration metadata supplied for permission-gated onboarding in the UI.",
+            "in": "query",
+            "name": "registration",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -2986,8 +3061,8 @@
           }
         ],
         "responses": {
-          "302": {
-            "description": "Authorization response"
+          "303": {
+            "description": "Authorization UI redirect"
           }
         }
       },
@@ -3077,6 +3152,38 @@
               }
             },
             "description": "Client approved"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
+    "/oauth2/client/{client_id}": {
+      "get": {
+        "operationId": "get_client",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientConsentMetadata"
+                }
+              }
+            },
+            "description": "Public client consent metadata"
           }
         },
         "security": [

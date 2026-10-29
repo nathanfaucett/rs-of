@@ -39,6 +39,11 @@ import {
     AuthorizationServerMetadataToJSON,
 } from "../models/AuthorizationServerMetadata.js";
 import {
+    type ClientConsentMetadata,
+    ClientConsentMetadataFromJSON,
+    ClientConsentMetadataToJSON,
+} from "../models/ClientConsentMetadata.js";
+import {
     type ClientRegistration,
     ClientRegistrationFromJSON,
     ClientRegistrationToJSON,
@@ -132,7 +137,15 @@ export interface AuthorizeQueryRequest {
     /**
      *
      */
-    clientId: string;
+    clientId?: string;
+    /**
+     * Logical Application URI for onboarding, not an Application database UUID.
+     */
+    applicationId?: string;
+    /**
+     * JSON registration metadata supplied for permission-gated onboarding in the UI.
+     */
+    registration?: string;
     /**
      * redirect URI is optional if the client has only one registered redirect URI
      */
@@ -228,6 +241,13 @@ export interface GetApplicationRequest {
      *
      */
     applicationId: string;
+}
+
+export interface GetClientRequest {
+    /**
+     *
+     */
+    clientId: string;
 }
 
 export interface GetRegisterRequest {
@@ -529,7 +549,9 @@ export interface DefaultApiInterface {
     /**
      * Creates request options for authorizeQuery without sending the request
      * @param {ResponseType} responseType
-     * @param {string} clientId
+     * @param {string} [clientId]
+     * @param {string} [applicationId] Logical Application URI for onboarding, not an Application database UUID.
+     * @param {string} [registration] JSON registration metadata supplied for permission-gated onboarding in the UI.
      * @param {string} [redirectUri] redirect URI is optional if the client has only one registered redirect URI
      * @param {string} [scope]
      * @param {string} [state]
@@ -552,7 +574,9 @@ export interface DefaultApiInterface {
     /**
      *
      * @param {ResponseType} responseType
-     * @param {string} clientId
+     * @param {string} [clientId]
+     * @param {string} [applicationId] Logical Application URI for onboarding, not an Application database UUID.
+     * @param {string} [registration] JSON registration metadata supplied for permission-gated onboarding in the UI.
      * @param {string} [redirectUri] redirect URI is optional if the client has only one registered redirect URI
      * @param {string} [scope]
      * @param {string} [state]
@@ -779,6 +803,35 @@ export interface DefaultApiInterface {
         requestParameters: GetApplicationRequest,
         initOverrides?: RequestInit | runtime.InitOverrideFunction,
     ): Promise<void>;
+
+    /**
+     * Creates request options for getClient without sending the request
+     * @param {string} clientId
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    getClientRequestOpts(
+        requestParameters: GetClientRequest,
+    ): Promise<runtime.RequestOpts>;
+
+    /**
+     *
+     * @param {string} clientId
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    getClientRaw(
+        requestParameters: GetClientRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<ClientConsentMetadata>>;
+
+    /**
+     */
+    getClient(
+        requestParameters: GetClientRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<ClientConsentMetadata>;
 
     /**
      * Creates request options for getRegister without sending the request
@@ -1646,13 +1699,6 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
             );
         }
 
-        if (requestParameters["clientId"] == null) {
-            throw new runtime.RequiredError(
-                "clientId",
-                'Required parameter "clientId" was null or undefined when calling authorizeQuery().',
-            );
-        }
-
         const queryParameters: any = {};
 
         if (requestParameters["responseType"] != null) {
@@ -1662,6 +1708,15 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
 
         if (requestParameters["clientId"] != null) {
             queryParameters["client_id"] = requestParameters["clientId"];
+        }
+
+        if (requestParameters["applicationId"] != null) {
+            queryParameters["application_id"] =
+                requestParameters["applicationId"];
+        }
+
+        if (requestParameters["registration"] != null) {
+            queryParameters["registration"] = requestParameters["registration"];
         }
 
         if (requestParameters["redirectUri"] != null) {
@@ -2169,6 +2224,74 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
         initOverrides?: RequestInit | runtime.InitOverrideFunction,
     ): Promise<void> {
         await this.getApplicationRaw(requestParameters, initOverrides);
+    }
+
+    /**
+     * Creates request options for getClient without sending the request
+     */
+    async getClientRequestOpts(
+        requestParameters: GetClientRequest,
+    ): Promise<runtime.RequestOpts> {
+        if (requestParameters["clientId"] == null) {
+            throw new runtime.RequiredError(
+                "clientId",
+                'Required parameter "clientId" was null or undefined when calling getClient().',
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("authorization", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+
+        let urlPath = `/oauth2/client/{client_id}`;
+        urlPath = urlPath.replace(
+            "{client_id}",
+            encodeURIComponent(String(requestParameters["clientId"])),
+        );
+
+        return {
+            path: urlPath,
+            method: "GET",
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+
+    /**
+     */
+    async getClientRaw(
+        requestParameters: GetClientRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<ClientConsentMetadata>> {
+        const requestOptions =
+            await this.getClientRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) =>
+            ClientConsentMetadataFromJSON(jsonValue),
+        );
+    }
+
+    /**
+     */
+    async getClient(
+        requestParameters: GetClientRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<ClientConsentMetadata> {
+        const response = await this.getClientRaw(
+            requestParameters,
+            initOverrides,
+        );
+        return await response.value();
     }
 
     /**

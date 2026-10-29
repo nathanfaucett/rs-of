@@ -121,6 +121,47 @@ pub async fn provision_initial_administrator(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn administrator_inventory_reopens_current_seeds_and_rejects_old_seeds_without_mutation() {
+        let fresh = super::InitialAdministratorGrant::fresh();
+        let retained = serde_json::to_value(&fresh).expect("retain current inventory");
+        assert_eq!(
+            retained["permissions"]
+                .as_array()
+                .expect("permission IDs")
+                .len(),
+            management_service::INITIAL_ADMINISTRATOR_ACTIONS.len()
+        );
+        let reopened: super::InitialAdministratorGrant =
+            serde_json::from_value(retained.clone()).expect("reopen current inventory");
+        reopened
+            .validate()
+            .expect("fresh reset/Create inventory survives restart");
+        assert_eq!(
+            serde_json::to_value(&reopened).expect("unchanged inventory"),
+            retained
+        );
+        let mut old = retained;
+        old["permissions"]
+            .as_array_mut()
+            .expect("old permission IDs")
+            .pop()
+            .expect("remove newly added permission");
+        let rejected: super::InitialAdministratorGrant =
+            serde_json::from_value(old.clone()).expect("decode old inventory");
+        assert_eq!(
+            rejected
+                .validate()
+                .expect_err("old inventory is not migrated")
+                .kind(),
+            std::io::ErrorKind::InvalidData
+        );
+        assert_eq!(
+            serde_json::to_value(&rejected).expect("preserve old evidence"),
+            old
+        );
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn standalone_identity_uses_explicit_socket_without_opening_files() {

@@ -31,6 +31,7 @@ pub(crate) struct PermissionFixture {
     pub(crate) app_administrator: idp_model::model::Id,
     pub(crate) application_role: idp_model::model::Id,
     pub(crate) unassigned_user: idp_model::model::Id,
+    pub(crate) registrar: idp_model::model::Id,
     pub(crate) consent_id: idp_model::model::Id,
 }
 
@@ -202,7 +203,12 @@ pub(crate) async fn seed_idp_with_config(
         .expect("create cross-application client");
     let users = DbUserRepo::new(engine.clone(), PasswordConfig::default());
     let mut user_ids = Vec::new();
-    for name in ["administrator", "app-administrator", "unassigned"] {
+    for name in [
+        "administrator",
+        "app-administrator",
+        "unassigned",
+        "registrar",
+    ] {
         if name == "administrator" {
             owner
                 .ensure_initial_user(
@@ -317,6 +323,7 @@ pub(crate) async fn seed_idp_with_config(
         administrator: user_ids[0],
         app_administrator: user_ids[1],
         unassigned_user: user_ids[2],
+        registrar: user_ids[3],
         consent_id: consent.id,
         application_role: idp_model::model::Id::now_v7(),
     }
@@ -356,6 +363,7 @@ pub(crate) async fn seed_permissions_on(engine: db::Client, fixture: &mut Permis
         "permissions.write",
         "idp.clients.read",
         "idp.clients.create",
+        "idp.clients.register",
         "idp.clients.update",
         "idp.clients.delete",
         "idp.infrastructure_clients.create",
@@ -380,6 +388,7 @@ pub(crate) async fn seed_permissions_on(engine: db::Client, fixture: &mut Permis
         .await
         .expect("create installation role");
     for action in [
+        IdentityAction::ClientsRegister,
         IdentityAction::ApplicationsRead,
         IdentityAction::ApplicationsCreate,
         IdentityAction::ApplicationsUpdate,
@@ -414,6 +423,25 @@ pub(crate) async fn seed_permissions_on(engine: db::Client, fixture: &mut Permis
         .add_role_to_user(INSTALLATION_POLICY_ID, fixture.administrator, role.id)
         .await
         .expect("assign initial administrator");
+    let registrar_role = service
+        .create_role(INSTALLATION_POLICY_ID, "client registrar", None)
+        .await
+        .expect("create registrar role");
+    let permission = service
+        .list_role_permissions(INSTALLATION_POLICY_ID, role.id)
+        .await
+        .expect("read administrator permissions")
+        .into_iter()
+        .find(|permission| permission.name == IdentityAction::ClientsRegister.permission())
+        .expect("explicit registration permission exists");
+    service
+        .add_permission_to_role(INSTALLATION_POLICY_ID, registrar_role.id, permission.id)
+        .await
+        .expect("grant registration without Application creation");
+    service
+        .add_role_to_user(INSTALLATION_POLICY_ID, fixture.registrar, registrar_role.id)
+        .await
+        .expect("assign registrar");
 }
 
 pub(crate) async fn user_token(
@@ -1049,6 +1077,13 @@ pub(crate) async fn run_permission_http_checks(
         .expect("registration object")
         .remove("client_id");
     create["client_name"] = "created through normal RBAC".into();
+    create["client_type"] = "public".into();
+    create["token_endpoint_auth_method"] = "none".into();
+    create["allowed_grant_types"] = serde_json::json!(["authorization_code", "refresh_token"]);
+    create["response_types"] = serde_json::json!(["code"]);
+    create["redirect_uris"] = serde_json::json!(["https://example.test/callback"]);
+    super::client_onboarding::run_checks(client, base, &create, &admin, &app_admin, &unassigned)
+        .await;
     expect_status(
         client
             .post(format!("{base}/idp/oauth2/register"))
