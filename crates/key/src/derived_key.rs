@@ -1,5 +1,8 @@
 #[cfg(not(feature = "std"))]
-use alloc::{format, vec::Vec};
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
 
 use core::{fmt, str::FromStr};
 

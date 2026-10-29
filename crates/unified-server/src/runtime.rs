@@ -152,8 +152,8 @@ impl UnifiedRuntime {
 
     /// Opens an already provisioned host; this is not a fresh setup boundary.
     /// The host must durably authorize fresh intent, retain its exact endpoint/User/Client
-    /// identities, call `UnifiedEndpoint::open_fresh` once, and complete the owner's exact
-    /// secret inventory before initial private production. Retries use existing opening;
+    /// identities, prepare the endpoint through its retained host operation, and complete
+    /// the owner's exact secret inventory before initial private production. Retries use existing opening;
     /// missing endpoint keys or preparation evidence require recovery, not fresh fallback.
     /// The unified CLI uses `LocalProvisioner` for this explicit local boundary.
     pub async fn build_https(config: UnifiedConfig) -> io::Result<Self> {
@@ -831,8 +831,13 @@ async fn run_peer_refresh<F, Fut>(
 mod peer_refresh_tests;
 
 #[cfg(test)]
+#[path = "../../../tests/support/client_onboarding.rs"]
+mod client_onboarding;
+#[cfg(test)]
 #[path = "../../../tests/support/identity.rs"]
 mod identity_fixture;
+#[cfg(test)]
+use identity_fixture as identity;
 
 #[cfg(test)]
 mod tests {
@@ -850,6 +855,49 @@ mod tests {
     use crate::UnifiedConfig;
 
     use super::{UnifiedRuntime, loopback_base, validate_api_base, validate_config};
+
+    fn inject_endpoint_provider() {
+        let mock = std::sync::Arc::new(crate::local_provisioning_tests::SecretStore {
+            store: keyring_core::mock::Store::new().expect("isolated endpoint backend"),
+            fail_node_readback: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        });
+        keyring_core::set_default_store(mock);
+        keyring_core::set_default_store(super::identity_fixture::test_keyring_store());
+    }
+
+    async fn prepare_test_endpoint(
+        data_dir: &std::path::Path,
+        idp_config: &idp_server::AppConfig,
+    ) -> std::io::Result<crate::UnifiedEndpoint> {
+        let root = data_dir.parent().expect("isolated endpoint parent");
+        let mut idp = idp_config.clone();
+        if idp.oauth2.issuer.is_empty() {
+            idp.oauth2.issuer = "https://endpoint.test/idp".into();
+        }
+        idp.password.memory_mib = 1;
+        idp.password.iterations = 1;
+        let config = crate::UnifiedConfig {
+            listen_addr: "127.0.0.1:0".parse().expect("test listener"),
+            endpoint_data_dir: data_dir.into(),
+            idp,
+            management: management_server::AppConfig::default(),
+            device: device_server::AppConfig {
+                data_dir: root.join("device").to_string_lossy().into_owned(),
+                ..Default::default()
+            },
+            storage: storage_server::AppConfig {
+                data_dir: root.join("storage").to_string_lossy().into_owned(),
+                ..Default::default()
+            },
+        };
+        let local = crate::LocalProvisioner::create_with_password(
+            config,
+            "operator",
+            "Node",
+            "endpoint-test-password",
+        )?;
+        local.prepare_endpoint().await
+    }
 
     #[test]
     fn host_api_base_must_match_the_loopback_listener() {
@@ -983,7 +1031,8 @@ mod tests {
         };
         config.oauth2.issuer = format!("https://{}.test/idp", idp_model::model::Id::now_v7());
         let endpoint_dir = root.join("endpoint");
-        let initial = crate::UnifiedEndpoint::open_fresh(&endpoint_dir, &config)
+        inject_endpoint_provider();
+        let initial = prepare_test_endpoint(&endpoint_dir, &config)
             .await
             .expect("persist Node endpoint");
         let local = initial.endpoint_id();
@@ -1262,7 +1311,8 @@ mod tests {
         let mut invalid = config.clone();
         invalid.idp.service_audience = Some(String::new());
         assert!(validate_config(&invalid).is_err());
-        let endpoint = crate::UnifiedEndpoint::open_fresh(&config.endpoint_data_dir, &config.idp)
+        inject_endpoint_provider();
+        let endpoint = prepare_test_endpoint(&config.endpoint_data_dir, &config.idp)
             .await
             .expect("open endpoint for initial test provisioning");
         let endpoint_id = endpoint.endpoint_id();
@@ -1399,7 +1449,7 @@ mod tests {
 
         let address = runtime.local_addr();
         assert_ne!(address.port(), 0);
-        assert!(fs::metadata(root.join("endpoint/endpoint.key")).is_ok());
+        assert!(!root.join("endpoint/endpoint.key").exists());
 
         for path in ["/idp/health", "/management/health", "/storage/health"] {
             let response = runtime

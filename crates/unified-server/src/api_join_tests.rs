@@ -477,7 +477,7 @@ pub(super) async fn run(
             StatusCode::UNAUTHORIZED
         );
     }
-    let endpoint_before = fs::read(config.endpoint_data_dir.join("endpoint.key"))
+    let endpoint_before = crate::UnifiedEndpoint::persisted_endpoint_id(&config.endpoint_data_dir)
         .expect("retained local endpoint identity");
     source.stop().await;
     drop(source_guard);
@@ -540,7 +540,8 @@ pub(super) async fn run(
             .expect("finalized host task")
             .expect("finalized host cleanup");
         assert_eq!(
-            fs::read(config.endpoint_data_dir.join("endpoint.key")).expect("finalized endpoint"),
+            crate::UnifiedEndpoint::persisted_endpoint_id(&config.endpoint_data_dir)
+                .expect("finalized endpoint"),
             endpoint_before
         );
         return;
@@ -558,7 +559,8 @@ pub(super) async fn run(
     );
     authenticated_storage(http, &base, storage).await;
     assert_eq!(
-        fs::read(config.endpoint_data_dir.join("endpoint.key")).expect("offline endpoint"),
+        crate::UnifiedEndpoint::persisted_endpoint_id(&config.endpoint_data_dir)
+            .expect("offline endpoint"),
         endpoint_before
     );
     assert_eq!(

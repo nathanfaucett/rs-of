@@ -170,3 +170,54 @@ fn overlapping_private_repositories_retain_signers_through_reopen() {
         second.join().expect("second fixture thread");
     });
 }
+
+#[test]
+fn independent_device_endpoint_slot_keeps_its_exact_reference_and_fails_closed() {
+    use crate::setup_credentials::{create_setup_secret, delete_setup_secrets, load_setup_secret};
+
+    let store: Arc<keyring_core::CredentialStore> = Arc::new(Store(
+        keyring_core::mock::Store::new().expect("isolated independent provider"),
+    ));
+    keyring_core::set_default_store(store.clone());
+    let service = "independent-setup:/isolated/device/setup-host";
+    create_setup_secret(service, "endpoint").expect("fresh independent Device endpoint");
+    let original = load_setup_secret(service, "endpoint").expect("existing endpoint");
+    assert!(
+        create_setup_secret(service, "endpoint").is_err(),
+        "must not overwrite attempted material"
+    );
+    assert_eq!(
+        load_setup_secret(service, "endpoint").expect("exact stable material"),
+        original
+    );
+    let unrelated = store
+        .build(service, "unrelated", None)
+        .expect("unrelated slot");
+    unrelated.set_secret(b"foreign").expect("foreign material");
+    let endpoint = store
+        .build(service, "endpoint", None)
+        .expect("exact endpoint slot");
+    endpoint
+        .as_any()
+        .downcast_ref::<keyring_core::mock::Cred>()
+        .expect("mock provider")
+        .set_error(keyring_core::Error::Invalid(
+            "provider".into(),
+            "unavailable".into(),
+        ));
+    assert!(load_setup_secret(service, "endpoint").is_err());
+    assert_eq!(
+        load_setup_secret(service, "endpoint").expect("provider recovery"),
+        original
+    );
+    delete_setup_secrets(service, &[("endpoint".into(), true)]).expect("exact reset");
+    assert!(
+        load_setup_secret(service, "endpoint").is_err(),
+        "missing attempted material is not regenerated"
+    );
+    delete_setup_secrets(service, &[("endpoint".into(), true)]).expect("reset continuation");
+    assert_eq!(
+        unrelated.get_secret().expect("foreign entry retained"),
+        b"foreign"
+    );
+}
