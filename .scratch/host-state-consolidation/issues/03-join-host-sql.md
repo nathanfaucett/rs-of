@@ -67,3 +67,7 @@ Commands run from this worktree (`--test-threads=1` where shown). All providers 
 - Intermediate converted fixtures failed on missing SQL admission creation evidence and native restore imports; corrected, with the final hosted/native suites above passing. An intermediate trait-signature compile error after removal of the last file fallback was corrected and revalidated.
 - Three existing shared-support dead-code warnings remain (`seed_permissions`, `infrastructure_token`, `run_lifecycle_http_checks`). Lint is scoped with `--no-deps`, not generated-client/dependency qualification.
 - No full cargo-hack/feature-powerset, CRAP, full test suite, live provider/reboot, real OS trust, WAN or production-platform qualification. No known functional gap remains in the exercised ticket seams; mock persistence is not platform persistence certification.
+
+### Combined review follow-up
+
+[Ticket 04](04-combined-review-fixes.md) closes the verified combined-review gaps and supersedes the corresponding earlier safety/fixture claims: retained Create SQL prevents empty reset after directory loss; omitted Join endpoint references refuse; stopped recovery includes authoritative SQL; Join no longer caches workflow state or duplicates canonical peer/Node choices. Focused red/green results and exact final commands/limits are recorded there. This does not expand platform or full-matrix qualification.

@@ -558,3 +558,100 @@ async fn operation_without_endpoint_reference_field_is_refused_intact_without_pr
     assert!(fixture.secrets() == before, "provider inventory changed");
     assert!(!fixture.config.endpoint_data_dir.exists());
 }
+
+#[tokio::test]
+async fn reset_refuses_lost_create_directories_without_losing_sql_or_provider_references() {
+    let fixture = Fixture::new();
+    let host = BootstrapConfig::create_http(
+        &fixture.root.join("node"),
+        BootstrapPurpose::Create,
+        None,
+        "127.0.0.1:3000".parse().expect("listener"),
+        "http://127.0.0.1:3000".into(),
+    )
+    .expect("private host");
+    let config = host.config();
+    let credentials = CredentialBootstrap::create(config.clone()).expect("credential references");
+    drop(credentials);
+    let local = LocalProvisioner::create_with_password(
+        config.clone(),
+        "operator",
+        "Node",
+        "fixture-initial-password",
+    )
+    .expect("fresh Create");
+    let provider = Provider::new(&config, false);
+    let endpoint = local
+        .prepare_endpoint()
+        .await
+        .expect("provider-owned endpoint");
+    endpoint.close().await;
+    drop(local);
+    let references = host
+        .local_reset_references()
+        .expect("exact reset references");
+    let retained = provider.journal.read();
+    let secret = provider
+        .entry()
+        .get_secret()
+        .expect("retained private material");
+    fs::remove_dir_all(config.local_provisioning_directory()).expect("lose provisioning directory");
+    fs::remove_dir_all(&config.endpoint_data_dir).expect("lose endpoint directory");
+    assert!(
+        host.local_reset_references().is_err(),
+        "SQL Create evidence forbids empty reset"
+    );
+    assert!(host.delete_local_setup_secrets(&references).await.is_err());
+    assert_eq!(
+        provider.journal.read(),
+        retained,
+        "SQL references survive refusal"
+    );
+    assert!(
+        provider
+            .entry()
+            .get_secret()
+            .expect("secret survives refusal")
+            == secret,
+        "refusal must not orphan or replace provider material"
+    );
+}
+
+#[tokio::test]
+async fn join_without_endpoint_reference_field_is_refused_without_sql_or_provider_work() {
+    let fixture = Fixture::new();
+    let peer = iroh::SecretKey::generate().public().to_string();
+    let local =
+        LocalJoin::create(fixture.config.clone(), &peer, "Joining Node").expect("fresh Join");
+    drop(local);
+    let store = crate::host_store::HostStore::for_config(&fixture.config).expect("host SQL");
+    let provider = Provider::new(&fixture.config, true);
+    let mut retained: Value = store.get("join").expect("SQL read").expect("Join");
+    retained
+        .as_object_mut()
+        .expect("object")
+        .remove("endpoint_secret");
+    store
+        .put("join", &retained)
+        .expect("inject omitted reference field");
+    let before = store
+        .update(|records| Ok(records.clone()))
+        .expect("logical SQL snapshot");
+    assert!(
+        LocalJoin::open(fixture.config.clone()).is_err(),
+        "missing field is not explicit null"
+    );
+    assert_eq!(
+        store.get::<Value>("join").expect("SQL read").expect("Join"),
+        retained
+    );
+    assert!(
+        store
+            .update(|records| Ok(records.clone()))
+            .expect("retained SQL")
+            == before,
+        "omitted field refusal leaves the entire SQL operation unchanged"
+    );
+    assert_eq!(provider.calls.load(Ordering::SeqCst), 0, "no provider work");
+    assert!(!fixture.config.endpoint_data_dir.exists());
+}

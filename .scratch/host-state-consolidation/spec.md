@@ -1,6 +1,6 @@
 # Consolidate Unified Host state and endpoint secret ownership
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
@@ -107,7 +107,9 @@ Keep IdP, Management, Device, and Storage data in their existing owner stores. P
 
 ## Further Notes
 
-The design was synthesized from source and documentation investigation; no implementation has been changed and no runtime validation was performed during that investigation. The user confirmed the lifecycle/provider testing seams and explicitly excluded full cargo-hack and CRAP testing.
+Implementation and combined review are complete for the agreed bounded acceptance scope. [Ticket 04](issues/04-combined-review-fixes.md) records all five verified review fixes, focused red/green evidence, final passing checks, and timing/qualification limits. Missing provisioning-directory evidence with retained SQL Create state now refuses reset intact; canonical SQL alone owns Join choices, including standalone operations, and no Join journal cache can downgrade retirement.
+
+The original design was synthesized from source and documentation investigation; that investigation preceded implementation and did not itself perform runtime validation. The user confirmed the lifecycle/provider testing seams and explicitly excluded full cargo-hack and CRAP testing.
 
 The current admission payload has real consumers: operation conflict prevention, authorized recovery, completed Create retry correlation, and completed Join validation. Removing that payload is safe only after those consumers use host-owned metadata. Likewise, SQL removes redundant publication machinery but does not remove the need for durable attempted/acknowledged phases around external effects.
 

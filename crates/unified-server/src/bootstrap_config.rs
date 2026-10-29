@@ -528,6 +528,11 @@ impl BootstrapConfig {
             ] {
                 require_absent(path)?;
             }
+            if self.store.get::<Value>("create")?.is_some() {
+                return Err(io::Error::other(
+                    "lost Create provisioning directory; restore exact state before reset",
+                ));
+            }
             if self.purpose() == BootstrapPurpose::Join
                 && (self.store.get::<Value>("join")?.is_some()
                     || self

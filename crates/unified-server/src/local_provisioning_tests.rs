@@ -832,6 +832,17 @@ fn assert_stopped_recovery_tree(source: &Path, restored: &Path) {
         for name in names(source) {
             assert_stopped_recovery_tree(&source.join(&name), &restored.join(&name));
         }
+    } else if source.file_name().is_some_and(|name| name == "host.redb") {
+        let records = |path: &Path| {
+            crate::host_store::HostStore::open(path.parent().expect("SQL host directory"))
+                .expect("retained SQL")
+                .update(|records| Ok(records.clone()))
+                .expect("complete logical SQL snapshot")
+        };
+        assert!(
+            records(source) == records(restored),
+            "complete logical host SQL restored"
+        );
     } else {
         assert_matching_bytes(
             &fs::read(source).expect("snapshot bytes"),
@@ -899,7 +910,12 @@ async fn local_provisioning_restores_stopped_same_node_filesystem_with_retained_
         PathBuf::from(&config.storage.data_dir),
         config.endpoint_data_dir.clone(),
         config.local_provisioning_directory(),
+        crate::BootstrapConfig::explicit_directory(&config),
     ];
+    let store = crate::host_store::HostStore::for_config(&config).expect("host SQL");
+    let logical = store
+        .update(|records| Ok(records.clone()))
+        .expect("stopped logical operation");
     let snapshot = fixture.root.join("stopped-snapshot");
     let displaced = fixture.root.join("displaced-state");
     for directory in [&snapshot, &displaced] {
@@ -913,6 +929,10 @@ async fn local_provisioning_restores_stopped_same_node_filesystem_with_retained_
         fs::rename(root, displaced.join(index.to_string())).expect("displace stopped fixture root");
     }
     assert!(
+        !crate::BootstrapConfig::explicit_directory(&config).exists(),
+        "recovery fixture must displace authoritative host SQL, not leave the original journal live"
+    );
+    assert!(
         LocalProvisioner::open_runtime(config.clone())
             .await
             .is_err(),
@@ -922,7 +942,7 @@ async fn local_provisioning_restores_stopped_same_node_filesystem_with_retained_
         roots.iter().all(|root| !root.exists()),
         "missing roots are not repaired"
     );
-    let journal_root = roots.last().expect("journal root");
+    let journal_root = &roots[4];
     fs::create_dir(journal_root).expect("restore journal directory around retained lock");
     fs::set_permissions(journal_root, fs::Permissions::from_mode(0o700))
         .expect("protected journal");
@@ -995,7 +1015,13 @@ async fn local_provisioning_restores_stopped_same_node_filesystem_with_retained_
         (restored_lock.dev(), restored_lock.ino())
     );
     assert_eq!(fixture.journal(), journal, "retained recovery operation");
-    let journal_path = journal_root.join("intent.json");
+    assert!(
+        store
+            .update(|records| Ok(records.clone()))
+            .expect("restored SQL")
+            == logical,
+        "restore includes the entire canonical operation and provisioning metadata"
+    );
     assert_stopped_recovery_tree(
         &snapshot.join("0/local-client-key-references"),
         &roots[0].join("local-client-key-references"),
@@ -1005,7 +1031,7 @@ async fn local_provisioning_restores_stopped_same_node_filesystem_with_retained_
         &fs::read(roots[0].join("setup-secret-inventory.json")).expect("retained inventory"),
         "retained secret inventory",
     );
-    for (index, root) in roots.iter().take(4).enumerate() {
+    for (index, root) in roots.iter().enumerate().filter(|(index, _)| *index != 4) {
         let lost = fixture.root.join(format!("missing-restored-{index}"));
         fs::rename(root, &lost).expect("isolate missing restored context or endpoint");
         assert!(
@@ -1034,15 +1060,22 @@ async fn local_provisioning_restores_stopped_same_node_filesystem_with_retained_
             == b"invalid-current-format-endpoint"
     );
     fs::remove_file(&endpoint_key).expect("remove injected unsupported layout");
-    fs::write(&journal_path, b"invalid-current-format-journal")
-        .expect("corrupt only restored journal");
+    store
+        .put("create", &serde_json::json!({"version": 0}))
+        .expect("corrupt restored SQL metadata");
+    let corrupt = store
+        .update(|records| Ok(records.clone()))
+        .expect("corrupt logical snapshot");
     assert!(
         LocalProvisioner::open_runtime(config).await.is_err(),
-        "present invalid journal never falls back"
+        "present invalid SQL operation never falls back"
     );
     assert!(
-        fs::read(&journal_path).expect("rejected journal retained")
-            == b"invalid-current-format-journal"
+        store
+            .update(|records| Ok(records.clone()))
+            .expect("rejected SQL retained")
+            == corrupt,
+        "refusal leaves all corrupt SQL evidence intact"
     );
     assert!(
         fixture.secrets() == secrets,
@@ -1914,3 +1947,83 @@ fn retained_create_sql_keeps_owner_evidence_and_exact_retry_checks() {
 
 #[path = "endpoint_provider_tests.rs"]
 mod endpoint_provider_tests;
+
+#[test]
+fn join_choices_have_one_canonical_sql_owner_for_standalone_and_hosted_operations() {
+    for hosted in [false, true] {
+        let fixture = Fixture::new();
+        let peer = iroh::SecretKey::generate().public().to_string();
+        let expected = idp_server::hosted_setup::JoinIntent {
+            operation_nonce: Id::now_v7().simple().to_string(),
+            node: "Joining Node".into(),
+            peer: peer.clone(),
+            issuer: fixture.config.idp.oauth2.issuer.clone(),
+        }
+        .canonical()
+        .expect("canonical Join");
+        if hosted {
+            crate::host_store::HostStore::create_for_config(&fixture.config)
+                .expect("host SQL")
+                .put("operation", &expected)
+                .expect("bound Join");
+        }
+        let local = crate::LocalJoin::create(fixture.config.clone(), &peer, "Joining Node")
+            .expect("fresh Join");
+        let store = crate::host_store::HostStore::for_config(&fixture.config).expect("host SQL");
+        let canonical: String = store
+            .get("operation")
+            .expect("SQL read")
+            .expect("canonical binding even standalone");
+        if hosted {
+            assert_eq!(canonical, expected, "preserve admitted nonce");
+        }
+        let idp_server::hosted_setup::SetupIntent::Join(mut operation) =
+            idp_server::hosted_setup::SetupIntent::decode(&canonical).expect("Join binding")
+        else {
+            panic!("expected Join")
+        };
+        assert_eq!(operation.peer, peer);
+        assert_eq!(operation.node, "Joining Node");
+        assert_eq!(operation.issuer, fixture.config.idp.oauth2.issuer);
+        let journal: serde_json::Value = store
+            .get("join")
+            .expect("SQL read")
+            .expect("Join allocations");
+        assert!(
+            journal.get("peer").is_none() && journal.get("name").is_none(),
+            "choices are not duplicated in allocation metadata"
+        );
+        local
+            .validate_retry(&peer, "Joining Node")
+            .expect("exact choices");
+        assert!(local.validate_retry(&peer, "Different Node").is_err());
+        drop(local);
+        operation.issuer = "https://different.test/idp".into();
+        let invalid = operation
+            .canonical()
+            .expect("different authenticated issuer");
+        store
+            .put("operation", &invalid)
+            .expect("inject conflicting issuer");
+        let secrets = fixture.secrets();
+        assert!(crate::LocalJoin::open(fixture.config.clone()).is_err());
+        assert_eq!(
+            store
+                .get::<String>("operation")
+                .expect("SQL read")
+                .expect("binding"),
+            invalid
+        );
+        assert_eq!(
+            store
+                .get::<serde_json::Value>("join")
+                .expect("SQL read")
+                .expect("allocations"),
+            journal
+        );
+        assert!(
+            fixture.secrets() == secrets,
+            "conflicting issuer performs no provider work"
+        );
+    }
+}

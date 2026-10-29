@@ -66,3 +66,7 @@ All commands ran from `/home/nathan/code/rust/aicacia/of/.git/agent-worktrees/en
 - `cargo test -p unified-server --lib runtime::tests --no-default-features -- --test-threads=1`: 2 passed, 1 failed. `builds_three_prefixed_services_with_one_endpoint` reached its JavaScript qualification subprocess, which failed on missing unbuilt `packages/device-client/esm/index.js` (`MODULE_NOT_FOUND`). No unrelated SDK build/artifact changes were made and this broader acceptance test is not claimed as passing.
 - Clippy without `--no-deps` failed on existing generated `of-idp-client` lints (97 errors, including `empty_docs` and `derivable_impls`). The explicit affected-package `--no-deps -D warnings` run above passed.
 - Existing unused shared-fixture function warnings remain in library test builds. No full workspace suite, feature powerset, `cargo hack`, `just crap`, real OS provider persistence/reboot, real OS trust installation, GUI or platform certification was run or claimed.
+
+### Combined review follow-up
+
+[Ticket 04](04-combined-review-fixes.md) closes the verified combined-review gaps and supersedes the corresponding earlier safety/fixture claims: retained Create SQL prevents empty reset after directory loss; omitted Join endpoint references refuse; stopped recovery includes authoritative SQL; Join no longer caches workflow state or duplicates canonical peer/Node choices. Focused red/green results and exact final commands/limits are recorded there. This does not expand platform or full-matrix qualification.

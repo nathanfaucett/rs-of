@@ -74,3 +74,7 @@ Existing regression fixtures first failed on removed JSON journals. Their Create
 - `cargo clippy -p unified-server --no-default-features --lib -- -D warnings` is blocked by existing generated-client diagnostics: `of-management-client` (66), `of-storage-client` (48), `of-device-client` (73), `of-idp-client` (97), including enum naming, needless returns and empty doc comments. Generated clients were not changed. The changed host crate passes the no-dependency lint run above.
 - Shared test support emits three pre-existing dead-code warnings (`seed_permissions`, `infrastructure_token`, `run_lifecycle_http_checks`). They were not suppressed or removed.
 - No full feature-powerset, `just crap`, full-node/SDK qualification, real provider/reboot qualification, live trust operations or ticket 03 work was performed. These are validation/scope limits, not claims of production-platform certification. No known ticket 02 functional gap remains in the exercised seams.
+
+### Combined review follow-up
+
+[Ticket 04](04-combined-review-fixes.md) closes the verified combined-review gaps and supersedes the corresponding earlier safety/fixture claims: retained Create SQL prevents empty reset after directory loss; omitted Join endpoint references refuse; stopped recovery includes authoritative SQL; Join no longer caches workflow state or duplicates canonical peer/Node choices. Focused red/green results and exact final commands/limits are recorded there. This does not expand platform or full-matrix qualification.
