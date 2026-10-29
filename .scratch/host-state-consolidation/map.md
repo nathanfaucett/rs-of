@@ -11,6 +11,10 @@ Implementation tickets and acceptance scope are in [the specification](spec.md) 
 
 - [Ticket 03](issues/03-join-host-sql.md): resolved. Join now shares host SQL binding/attempts/references and atomic completion/retirement; obsolete Unified Join journals/fences and native manifest reconstruction are deleted. SQL-backed cancellation/recovery, exact allocations, approval/offline reopen, provider/reset failures, Create and independent-admission regressions pass focused checks; exact commands and timeout/qualification limits are in the ticket.
 
+- [Ticket 04](issues/04-combined-review-fixes.md): resolved all five verified combined findings: SQL-evidenced Create reset refuses directory loss, Join requires endpoint-reference presence, stopped recovery actually restores/corrupts host SQL, Join reads authoritative completion, and canonical SQL owns standalone/hosted Join choices. Focused red/green, 36 lifecycle/provider and 21 integration checks plus four HTTPS wrappers pass; exact commands and initial timing failures are recorded in the ticket.
+
 ## Fog
 
 - Combined HTTPS suite timed out; affected individual wrappers pass. Strict dependency-inclusive lint remains blocked by existing generated-client diagnostics. No live provider/reboot or OS trust certification is claimed.
+
+Current combined-review limits: ticket 04's focused checks pass; no full-matrix/CRAP/live-provider qualification is implied. The initial API Iroh-offer timeout is recorded alongside its passing unchanged rerun.

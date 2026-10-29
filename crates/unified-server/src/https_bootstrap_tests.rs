@@ -583,10 +583,29 @@ async fn production_https_bootstrap_child() {
             .status(),
             reqwest::StatusCode::OK
         );
+        let store = crate::host_store::HostStore::for_config(&b.config).expect("host SQL");
+        let canonical: String = store
+            .get("operation")
+            .expect("SQL read")
+            .expect("canonical Join");
+        store
+            .put("admission", &serde_json::json!({"retired": false}))
+            .expect("live admission");
         joining
             .complete_hosted(&runtime, &tokio_util::sync::CancellationToken::new())
             .await
-            .expect("verified local completion after hosted HTTPS use");
+            .expect("verified hosted publication");
+        api::SetupAdmissionHistory::retire(&store, &canonical).expect("atomic retirement");
+        let retired = join_journal(&b);
+        joining
+            .complete_hosted(&runtime, &tokio_util::sync::CancellationToken::new())
+            .await
+            .expect("repeated completion uses authoritative retirement");
+        assert_eq!(
+            join_journal(&b),
+            retired,
+            "guard must not overwrite SQL completion"
+        );
         cancellation.cancel();
         serving
             .await
@@ -595,7 +614,7 @@ async fn production_https_bootstrap_child() {
         runtime.shutdown().await.expect("hosted owner cleanup");
     }
     assert_eq!(join_journal(&b)["complete"], true);
-    let joining_login = joining.login_client();
+    let joining_login = joining.login_client().expect("retained login Client");
     assert!(joining_login.client_secret.is_none());
     assert_ne!(joining_login.client_id.as_deref(), Some(login_id.as_str()));
     let runtime = provisioning_stage(|| joining.build_https_runtime())
@@ -613,11 +632,28 @@ async fn production_https_bootstrap_child() {
     );
     source.stop().await;
     drop(guard);
+    if hosted {
+        let retained = join_journal(&b);
+        let runtime = joining
+            .prepare_hosted_runtime(true, &tokio_util::sync::CancellationToken::new())
+            .await
+            .expect("same guard reopens retired Join without the source peer");
+        assert_eq!(runtime.endpoint_id(), endpoint);
+        runtime
+            .shutdown()
+            .await
+            .expect("same-guard offline runtime shutdown");
+        assert_eq!(
+            join_journal(&b),
+            retained,
+            "completed preparation cannot restart owner work"
+        );
+    }
     drop(joining);
     let joining =
         LocalJoin::open(b.config.clone()).expect("exact offline join reopen with source stopped");
     assert_eq!(
-        joining.login_client(),
+        joining.login_client().expect("retained login Client"),
         joining_login,
         "offline reopen retains the public login Client"
     );

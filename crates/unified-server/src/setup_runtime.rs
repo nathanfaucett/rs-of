@@ -219,7 +219,7 @@ impl RuntimeSetupOwners {
         let joining = LocalJoin::open(config)?;
         let complete = joining.is_complete()?;
         joining.validate_retry(&intent.peer, &intent.node)?;
-        if Some(joining.trusted_peer()) != self.host.trusted_peer() {
+        if Some(joining.trusted_peer()?.as_str()) != self.host.trusted_peer() {
             return Err(io::Error::other(
                 "retained Join peer conflicts with host selection",
             ));
@@ -356,7 +356,7 @@ impl RuntimeSetupOwners {
 
     fn login_client(&self) -> io::Result<LoginClient> {
         let login = match self.joining.as_ref() {
-            Some(joining) => joining.login_client(),
+            Some(joining) => joining.login_client()?,
             None => self
                 .local
                 .as_ref()
