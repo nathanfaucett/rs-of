@@ -1,0 +1,19 @@
+# 01: Provide explicit authenticated SQL database access
+
+**What to build:** An authenticated application can explicitly create/reopen its intended Database Resource and execute parameterized SQL through Storage, the Storage client, and the session-guarded SDK. Concurrent creation and uncertain-response retries resolve the intended resource under a documented generic identity contract. No application defaults or automatic provisioning live in the SDK or backend.
+
+**Blocked by:** None (can start immediately).
+
+**Status:** ready-for-agent
+
+- [ ] Establish and document one generic resource-identity/creation contract before implementing it: application-chosen logical identity, authenticated namespace scoping, concurrent requests, lost-response retries, restart/interrupted creation, deletion/recreation, and disconnected-Node behavior. Distinguish request idempotency from logical identity; do not infer cross-Node uniqueness from a local lock or introduce a central writer.
+- [ ] Carry explicit creation/reopen behavior through the existing Resource Catalog/runtime, authenticated Storage interface, generated contracts, Storage client, and SDK. Names remain non-unique display labels; do not use list-then-create or browser preferences as the authoritative identity mechanism.
+- [ ] Authenticate through the IdP and exchange the verified User access token for `storage:databases` with required actions. Preserve the canonical User/Application namespace across exchange; reject browser namespace overrides. Keep Application URI, internal Application ID, OAuth Client ID, and audience distinct.
+- [ ] Expose one bounded HTTP SQL execution operation supporting parameterized statements and atomic batches using the existing public SQL facade and transactions. Define wire values/results and redacted errors; reuse existing owner facilities and appropriate request/result limits. Do not add per-table CRUD endpoints, browser transaction sessions, or a new query WebSocket protocol.
+- [ ] Enforce current namespace, resource lifecycle/local-copy fences, and action permissions at execution. Authorize parsed/translated operations rather than SQL string prefixes; read-only tokens cannot execute DDL, mutations, or mixed write batches. Failed batches roll back atomically.
+- [ ] Preserve SDK session-generation/cancellation behavior, suppress obsolete results, and reject retained capabilities after retirement. Same-identity renewal remains usable. Authentication restore and obtaining Storage access cause no database creation or schema initialization.
+- [ ] Preserve existing filesystem operations and their correct audience. Keep secret schemas, default selection, collection ownership, Device selection, and replication policy out of the SDK/client/database operation.
+- [ ] Never log tokens, secret SQL parameters/results, or credential-bearing response bodies. Cancellation or timeout does not prove a sent operation rolled back; do not automatically replay arbitrary mutations.
+- [ ] Verify behavior through authenticated Storage requests backed by real persistence where practical: creation concurrency/retry/restart, interruption recovery, Tombstones/unavailable-copy handling, namespace isolation, same-Application multi-Client access, wrong audience/actions, spoofing, atomic rollback, and denial after deletion/fencing. Test disconnected-Node behavior against the chosen contract without overstating guarantees.
+- [ ] Extend existing client/SDK tests for exchange, service prefixes, explicit creation/execution, cancellation, retirement, and late results. Keep generic SQL integrity tests with the persistence owner; no testing-only abstraction or duplicate persistence implementation.
+- [ ] Update owner/client contracts and run focused validation plus applicable final feature-combination and complexity checks. This slice is verifiable independently of the password-manager cutover.
