@@ -17,6 +17,15 @@ mod host_store;
 
 #[test]
 fn failed_completion_transaction_preserves_authority_and_retirement_survives_cleanup_failure() {
+    completion_transaction("create");
+}
+
+#[test]
+fn join_completion_and_retirement_are_one_transaction() {
+    completion_transaction("join");
+}
+
+fn completion_transaction(kind: &str) {
     let root = std::env::temp_dir().join(format!("host-sql-atomic-{}", Id::now_v7()));
     let host =
         BootstrapConfig::create(&root, BootstrapPurpose::AwaitingChoice, None).expect("fresh host");
@@ -34,18 +43,29 @@ fn failed_completion_transaction_preserves_authority_and_retirement_survives_cle
         "Authorization",
         format!("Setup {code}").parse().expect("header"),
     );
-    let canonical = idp_server::hosted_setup::CreateIntent {
-        operation_nonce: "0123456789abcdef0123456789abcdef".into(),
-        administrator: "operator".into(),
-        node: "Atomic Node".into(),
-    }
-    .canonical()
-    .expect("canonical operation");
+    let canonical = if kind == "join" {
+        idp_server::hosted_setup::JoinIntent {
+            operation_nonce: "0123456789abcdef0123456789abcdef".into(),
+            node: "Atomic Node".into(),
+            peer: iroh::SecretKey::generate().public().to_string(),
+            issuer: "https://source.test/idp".into(),
+        }
+        .canonical()
+        .expect("canonical Join")
+    } else {
+        idp_server::hosted_setup::CreateIntent {
+            operation_nonce: "0123456789abcdef0123456789abcdef".into(),
+            administrator: "operator".into(),
+            node: "Atomic Node".into(),
+        }
+        .canonical()
+        .expect("canonical operation")
+    };
     admission.bind(&headers, &canonical).expect("exact binding");
     store
         .put(
-            "create",
-            &json!({"storage_initialized": false, "complete": false}),
+            kind,
+            &json!({"storage_initialized": false, "verified": false, "complete": false}),
         )
         .expect("owner phase fault");
     assert!(
@@ -55,13 +75,13 @@ fn failed_completion_transaction_preserves_authority_and_retirement_survives_cle
     assert!(!admission.is_retired().expect("previous live state"));
     assert_eq!(
         store
-            .get::<serde_json::Value>("create")
+            .get::<serde_json::Value>(kind)
             .expect("readback")
             .expect("Create")["complete"],
         false
     );
     let failed: io::Result<()> = store.update(|records| {
-        records.get_mut("create").expect("Create")["complete"] = json!(true);
+        records.get_mut(kind).expect("Create")["complete"] = json!(true);
         records.get_mut("admission").expect("admission")["retired"] = json!(true);
         Err(io::Error::other("injected failure before commit"))
     });
@@ -71,15 +91,15 @@ fn failed_completion_transaction_preserves_authority_and_retirement_survives_cle
         .expect("rolled back transaction retains live authority");
     assert_eq!(
         store
-            .get::<serde_json::Value>("create")
+            .get::<serde_json::Value>(kind)
             .expect("rollback readback")
             .expect("Create")["complete"],
         false
     );
     store
         .put(
-            "create",
-            &json!({"storage_initialized": true, "complete": false}),
+            kind,
+            &json!({"storage_initialized": true, "verified": true, "complete": false}),
         )
         .expect("owner acknowledgement");
     fs::set_permissions(&path, fs::Permissions::from_mode(0o500))
@@ -89,7 +109,7 @@ fn failed_completion_transaction_preserves_authority_and_retirement_survives_cle
         .expect("atomic completion and retirement");
     assert_eq!(
         store
-            .get::<serde_json::Value>("create")
+            .get::<serde_json::Value>(kind)
             .expect("committed readback")
             .expect("Create")["complete"],
         true

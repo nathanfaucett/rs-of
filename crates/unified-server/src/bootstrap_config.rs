@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use idp_server::local_provisioning::{
-    absolute, create_private_directory, lock, read_private, require_absent, require_unix_bootstrap,
+    absolute, create_private_directory, lock, require_absent, require_unix_bootstrap,
 };
 
 use crate::{CredentialBootstrap, LocalJoin, LocalProvisioner, UnifiedConfig};
@@ -529,7 +529,11 @@ impl BootstrapConfig {
                 require_absent(path)?;
             }
             if self.purpose() == BootstrapPurpose::Join
-                && read_private(&self.directory().join("join-owner.attempted"))? != b"unattempted\n"
+                && (self.store.get::<Value>("join")?.is_some()
+                    || self
+                        .store
+                        .get::<Value>("join_attempts")?
+                        .is_some_and(|attempts| attempts["owner"] != false))
             {
                 return Err(io::Error::other(
                     "lost attempted Join owner journal; explicit recovery required",

@@ -30,7 +30,7 @@ pub(crate) fn fixture_config(
 
 #[tokio::test]
 async fn retired_join_reopen_refuses_mismatched_or_missing_intent_without_owner_mutation() {
-    use std::{io::Write, sync::Arc};
+    use std::sync::Arc;
 
     use axum::{
         body::{Body, to_bytes},
@@ -52,8 +52,15 @@ async fn retired_join_reopen_refuses_mismatched_or_missing_intent_without_owner_
         let config = host.config();
         host.begin_setup().expect("neutral production history");
         let tls = LocalTls::create(&config).expect("isolated TLS, no trust installation");
+        host.store()
+            .put("admission", &serde_json::json!({"retired": false}))
+            .expect("fresh admission evidence");
         let admission = Arc::new(
-            api::SetupAdmission::open(&root.join("setup-admission")).expect("protected capability"),
+            api::SetupAdmission::open_with_history(
+                &root.join("setup-admission"),
+                Arc::new(host.store()),
+            )
+            .expect("protected capability"),
         );
         let state = root.join("setup-admission/state");
         let initial = fs::read_to_string(&state).expect("protected retrieval");
@@ -67,29 +74,13 @@ async fn retired_join_reopen_refuses_mismatched_or_missing_intent_without_owner_
         let issuer = "https://retained-installation.test/idp";
         let canonical = serde_json::to_string(&(
             "join",
-            ["idp", "management", "storage"],
+            ["idp", "device", "storage"],
             "0123456789abcdef0123456789abcdef",
             "Retained Node",
             &peer,
             issuer,
         ))
         .expect("known canonical Join intent");
-        if fault != "missing_checkpoint" {
-            idp_server::local_provisioning::private_options(true)
-                .open(root.join("join-admission.json"))
-                .expect("protected exact host checkpoint")
-                .write_all(canonical.as_bytes())
-                .expect("write checkpoint");
-        }
-        if fault != "missing_history" {
-            for stage in ["credentials", "owner"] {
-                idp_server::local_provisioning::private_options(true)
-                    .open(root.join(format!("join-{stage}.attempted")))
-                    .expect("protected completed production history")
-                    .write_all(b"attempted\n")
-                    .expect("write production history");
-            }
-        }
         let retired = if fault == "different_retired_intent" {
             canonical.replace(
                 "0123456789abcdef0123456789abcdef",
@@ -101,9 +92,31 @@ async fn retired_join_reopen_refuses_mismatched_or_missing_intent_without_owner_
         admission
             .bind(&headers, &retired)
             .expect("durable admission");
-        admission
-            .retire(&headers, &retired)
-            .expect("retire selected operation");
+        let store = host.store();
+        store
+            .put("admission", &serde_json::json!({"retired": true}))
+            .expect("retired fault seam");
+        match fault {
+            "missing_checkpoint" => store
+                .update(|records| {
+                    records.remove("operation");
+                    Ok(())
+                })
+                .expect("lost operation"),
+            "missing_history" => store
+                .update(|records| {
+                    records.remove("join_attempts");
+                    Ok(())
+                })
+                .expect("lost attempts"),
+            "different_retired_intent" => store
+                .put(
+                    "operation",
+                    &canonical.replace(issuer, "https://different.test/idp"),
+                )
+                .expect("conflicting issuer"),
+            _ => (),
+        }
         let host_peer = if fault == "wrong_host" {
             iroh::SecretKey::generate().public().to_string()
         } else {
@@ -164,10 +177,7 @@ async fn retired_join_reopen_refuses_mismatched_or_missing_intent_without_owner_
         assert!(!config.endpoint_data_dir.exists());
         assert!(!config.credential_bootstrap_directory().exists());
         assert!(!config.local_provisioning_directory().exists());
-        assert_eq!(
-            root.join("join-admission.json").exists(),
-            fault != "missing_checkpoint"
-        );
+        assert!(!root.join("join-admission.json").exists());
         shutdown.cancel();
         drop(router);
         owner
@@ -180,7 +190,7 @@ async fn retired_join_reopen_refuses_mismatched_or_missing_intent_without_owner_
 
 #[tokio::test]
 async fn partial_credentials_reopen_preserves_recovery_for_create_and_join() {
-    use std::{io::Write, sync::Arc};
+    use std::sync::Arc;
 
     use axum::{
         body::{Body, to_bytes},
@@ -207,9 +217,15 @@ async fn partial_credentials_reopen_preserves_recovery_for_create_and_join() {
                     .expect("neutral host");
             host.begin_setup().expect("neutral setup production");
             let tls = LocalTls::create(&host.config()).expect("isolated neutral TLS");
+            host.store()
+                .put("admission", &serde_json::json!({"retired": false}))
+                .expect("fresh admission evidence");
             let admission = Arc::new(
-                api::SetupAdmission::open(&root.join("setup-admission"))
-                    .expect("protected setup admission"),
+                api::SetupAdmission::open_with_history(
+                    &root.join("setup-admission"),
+                    Arc::new(host.store()),
+                )
+                .expect("protected setup admission"),
             );
             let code = fs::read_to_string(root.join("setup-admission/state"))
                 .expect("protected retrieval")
@@ -234,21 +250,12 @@ async fn partial_credentials_reopen_preserves_recovery_for_create_and_join() {
                 }
                 .canonical()
                 .expect("Join intent");
-                idp_server::local_provisioning::private_options(true)
-                    .open(root.join("join-admission.json"))
-                    .expect("Join checkpoint")
-                    .write_all(canonical.as_bytes())
-                    .expect("write intent");
-                for (stage, state) in [
-                    ("credentials", b"attempted\n".as_slice()),
-                    ("owner", b"unattempted\n".as_slice()),
-                ] {
-                    idp_server::local_provisioning::private_options(true)
-                        .open(root.join(format!("join-{stage}.attempted")))
-                        .expect("production history")
-                        .write_all(state)
-                        .expect("write history");
-                }
+                host.store()
+                    .put(
+                        "join_attempts",
+                        &serde_json::json!({"credentials": true, "owner": false}),
+                    )
+                    .expect("retained SQL attempt evidence");
                 host.select_join(&peer, issuer).expect("select exact Join");
                 (
                     canonical,
@@ -292,8 +299,12 @@ async fn partial_credentials_reopen_preserves_recovery_for_create_and_join() {
                     .expect("lost references"),
                 "missing_root" => fs::remove_dir_all(config.credential_bootstrap_directory())
                     .expect("isolated attempted credential-root loss"),
-                "missing_owner" => fs::write(root.join("join-owner.attempted"), b"attempted\n")
-                    .expect("isolated missing attempted owner root"),
+                "missing_owner" => store
+                    .put(
+                        "join_attempts",
+                        &serde_json::json!({"credentials": true, "owner": true}),
+                    )
+                    .expect("missing attempted owner fault"),
                 "unexpected_owner" => idp_server::local_provisioning::create_private_directory(
                     &config.local_provisioning_directory(),
                     false,

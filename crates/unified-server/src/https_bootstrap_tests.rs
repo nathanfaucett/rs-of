@@ -91,7 +91,7 @@ fn production_setup_status_tracks_current_local_revocation() {
 }
 
 #[test]
-fn production_api_join_complete_unretired_finalization() {
+fn production_api_join_atomic_retirement_leftover_code_offline_reopen() {
     https_bootstrap(false, "finalization");
 }
 
@@ -895,16 +895,11 @@ async fn unused_address() -> std::net::SocketAddr {
     listener.local_addr().expect("nonzero localhost port")
 }
 fn join_journal(fixture: &Fixture) -> serde_json::Value {
-    serde_json::from_slice(
-        &fs::read(
-            fixture
-                .config
-                .local_provisioning_directory()
-                .join("join.json"),
-        )
-        .expect("public joining intent"),
-    )
-    .expect("public joining JSON")
+    crate::host_store::HostStore::for_config(&fixture.config)
+        .expect("host SQL")
+        .get("join")
+        .expect("SQL read")
+        .expect("Join")
 }
 async fn token(http: &reqwest::Client, base: &str, form: &[(&str, &str)]) -> TokenResponse {
     let response = http

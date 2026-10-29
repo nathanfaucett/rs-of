@@ -334,14 +334,16 @@ pub async fn run() -> io::Result<()> {
     let issuer = config.idp.oauth2.issuer.clone();
     let idp_audience = config.idp_audience().to_owned();
     let management_audience = config.device.storage_audience.clone();
-    let (runtime, create_guard, join_guard) =
-        if present(&config.local_provisioning_directory().join("join.json"))? {
-            let local = LocalJoin::open(config)?;
-            (local.build_runtime().await?, None, Some(local))
-        } else {
-            let (runtime, local) = LocalProvisioner::open_runtime(config).await?;
-            (runtime, local, None)
-        };
+    let (runtime, create_guard, join_guard) = if crate::host_store::HostStore::for_config(&config)?
+        .get::<serde_json::Value>("join")?
+        .is_some()
+    {
+        let local = LocalJoin::open(config)?;
+        (local.build_runtime().await?, None, Some(local))
+    } else {
+        let (runtime, local) = LocalProvisioner::open_runtime(config).await?;
+        (runtime, local, None)
+    };
     println!("Node endpoint: {}", runtime.endpoint_id());
     let base = format!("http://{}", runtime.local_addr());
     println!("Local HTTP: {base}");
