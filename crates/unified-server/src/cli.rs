@@ -322,7 +322,7 @@ pub async fn run() -> io::Result<()> {
             };
             println!("Waiting for authorized Node approval and public context bootstrap.");
             local.join_http().await?;
-            print_login(&local.login_client());
+            print_login(&local.login_client()?);
             println!(
                 "Node joined with retained settings, credentials and verified HTTP. Start with serve."
             );
@@ -334,14 +334,16 @@ pub async fn run() -> io::Result<()> {
     let issuer = config.idp.oauth2.issuer.clone();
     let idp_audience = config.idp_audience().to_owned();
     let management_audience = config.device.storage_audience.clone();
-    let (runtime, create_guard, join_guard) =
-        if present(&config.local_provisioning_directory().join("join.json"))? {
-            let local = LocalJoin::open(config)?;
-            (local.build_runtime().await?, None, Some(local))
-        } else {
-            let (runtime, local) = LocalProvisioner::open_runtime(config).await?;
-            (runtime, local, None)
-        };
+    let (runtime, create_guard, join_guard) = if crate::host_store::HostStore::for_config(&config)?
+        .get::<serde_json::Value>("join")?
+        .is_some()
+    {
+        let local = LocalJoin::open(config)?;
+        (local.build_runtime().await?, None, Some(local))
+    } else {
+        let (runtime, local) = LocalProvisioner::open_runtime(config).await?;
+        (runtime, local, None)
+    };
     println!("Node endpoint: {}", runtime.endpoint_id());
     let base = format!("http://{}", runtime.local_addr());
     println!("Local HTTP: {base}");
@@ -358,7 +360,7 @@ pub async fn run() -> io::Result<()> {
         print_login(&local.login_client()?);
     }
     if let Some(local) = &join_guard {
-        print_login(&local.login_client());
+        print_login(&local.login_client()?);
     }
     let cancellation = runtime.cancellation_token();
     let mut server_task = tokio::spawn(runtime.serve());
@@ -510,7 +512,8 @@ mod tests {
         .expect("retained HTTP host");
         let original = host.config();
         drop(crate::SetupHost::create_http(host).expect("initial setup"));
-        let metadata = std::fs::read(root.join("host.json")).expect("retained metadata");
+        let store = crate::host_store::HostStore::open(&root).expect("retained SQL");
+        let metadata: serde_json::Value = store.get("config").expect("SQL read").expect("config");
         let mut host = crate::BootstrapConfig::open(&root).expect("reopen retained host");
         let mut config = host.config();
         config.idp.ui_public_uri = "https://of.localhost:1355".into();
@@ -588,7 +591,10 @@ mod tests {
             .expect("status response without origin");
         assert_eq!(response.status(), axum::http::StatusCode::OK);
         assert_eq!(
-            std::fs::read(root.join("host.json")).expect("unchanged metadata"),
+            store
+                .get::<serde_json::Value>("config")
+                .expect("SQL read")
+                .expect("unchanged config"),
             metadata
         );
         assert!(!crate::LocalTls::directory(&original).exists());

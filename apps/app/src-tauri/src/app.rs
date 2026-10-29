@@ -155,7 +155,7 @@ pub async fn get_native_setup_code(app: AppHandle<Wry>) -> Result<Option<String>
     }
     #[cfg(unix)]
     {
-        api::SetupAdmission::protected_code(&data.join("node/setup-admission"))
+        unified_server::SetupHost::protected_code(&data.join("node/setup-admission"))
             .map_err(|error| error.to_string())
     }
     #[cfg(not(unix))]

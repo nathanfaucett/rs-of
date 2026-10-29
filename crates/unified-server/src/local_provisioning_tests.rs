@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     fs,
-    io::Write,
     os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     sync::{
@@ -130,16 +129,32 @@ impl Fixture {
         }
     }
 
+    fn host_store(&self) -> crate::host_store::HostStore {
+        crate::host_store::HostStore::for_config(&self.config).expect("retained host SQL")
+    }
+
     fn journal(&self) -> serde_json::Value {
-        serde_json::from_slice(
-            &fs::read(
-                self.config
-                    .local_provisioning_directory()
-                    .join("intent.json"),
+        self.host_store()
+            .get("create")
+            .expect("read Create")
+            .expect("retained Create")
+    }
+
+    fn write_journal(&self, value: &serde_json::Value) {
+        self.host_store()
+            .put("create", value)
+            .expect("inject Create SQL fault");
+    }
+
+    fn endpoint_entry(&self) -> keyring_core::Entry {
+        let reference = &self.journal()["endpoint_secret"];
+        self.store
+            .build(
+                reference["service"].as_str().expect("service"),
+                reference["entry"].as_str().expect("exact entry"),
+                None,
             )
-            .expect("retained host intent"),
-        )
-        .expect("public intent format")
+            .expect("injected endpoint entry")
     }
 
     fn secrets(&self) -> Vec<Vec<u8>> {
@@ -159,6 +174,45 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         fs::remove_dir_all(&self.root).expect("remove only isolated fixture");
     }
+}
+
+#[tokio::test]
+async fn endpoint_private_material_is_provider_owned_and_stable_on_reopen() {
+    let fixture = Fixture::new();
+    let mut local = LocalProvisioner::create_with_password(
+        fixture.config.clone(),
+        "operator",
+        "Node",
+        "fixture-initial-password",
+    )
+    .expect("fresh host intent");
+    let runtime = local
+        .prepare_hosted_runtime(
+            "fixture-initial-password",
+            false,
+            &tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+        .expect("prepare host");
+    let endpoint = runtime.endpoint_id();
+    local
+        .mark_complete()
+        .expect("record completed owner preparation");
+    runtime.shutdown().await.expect("stop prepared host");
+    assert!(
+        !fixture
+            .config
+            .endpoint_data_dir
+            .join("endpoint.key")
+            .exists()
+    );
+    assert!(fixture.secrets().iter().any(|secret| secret.len() == 32));
+    let reopened = local
+        .reopen_hosted_runtime(false)
+        .await
+        .expect("reopen exact endpoint");
+    assert_eq!(reopened.endpoint_id(), endpoint);
+    reopened.shutdown().await.expect("stop reopened host");
 }
 
 #[test]
@@ -255,14 +309,7 @@ fn in_memory_password_create_retains_only_its_verifier() {
             .expect("stable public login ID on retry"),
         login
     );
-    let bytes = fs::read(
-        fixture
-            .config
-            .local_provisioning_directory()
-            .join("intent.json"),
-    )
-    .expect("public intent");
-    assert!(!String::from_utf8(bytes).expect("JSON").contains(password));
+    assert!(!fixture.journal().to_string().contains(password));
     secret_files_absent(&fixture.root);
 }
 
@@ -270,36 +317,42 @@ fn in_memory_password_create_retains_only_its_verifier() {
 fn live_credential_guard_refuses_missing_or_changed_intent_before_provider_work() {
     let fixture = Fixture::new();
     let config = crate::config::test_config(&fixture.root);
-    let path = config
-        .credential_bootstrap_directory()
-        .join("credentials.json");
-    let credentials =
-        crate::CredentialBootstrap::create(config).expect("fresh protected references only");
-    let retained = fs::read(&path).expect("exact public references");
+    let credentials = crate::CredentialBootstrap::create(config.clone()).expect("fresh references");
+    let store = crate::host_store::HostStore::for_config(&config).expect("host SQL");
+    let retained: serde_json::Value = store.get("credentials").expect("read").expect("references");
     let secrets = fixture.secrets();
-    fs::remove_file(&path).expect("simulate lost references under live guard");
+    store
+        .update(|records| {
+            records.remove("credentials");
+            Ok(())
+        })
+        .expect("remove references");
     assert!(
         credentials.load().is_err(),
         "absence cannot authorize replacement"
     );
-    assert!(!path.exists(), "missing retained state stays missing");
-    idp_server::local_provisioning::private_options(true)
-        .open(&path)
-        .expect("restore isolated checkpoint")
-        .write_all(&retained)
-        .expect("write checkpoint");
-    fs::write(&path, b"invalid retained credential intent").expect("simulate retained corruption");
+    assert!(
+        store
+            .get::<serde_json::Value>("credentials")
+            .expect("read")
+            .is_none()
+    );
+    store
+        .put("credentials", &retained)
+        .expect("restore checkpoint");
+    store
+        .put("credentials", &serde_json::json!({"invalid": true}))
+        .expect("corrupt references");
     assert!(
         credentials.load().is_err(),
         "changed references cannot be overwritten"
     );
     assert_eq!(
-        fs::read(&path).expect("fault remains"),
-        b"invalid retained credential intent"
+        store.get::<serde_json::Value>("credentials").expect("read"),
+        Some(serde_json::json!({"invalid": true}))
     );
-    assert_eq!(
-        fixture.secrets(),
-        secrets,
+    assert!(
+        fixture.secrets() == secrets,
         "denial performs no provider production"
     );
 }
@@ -312,11 +365,9 @@ fn old_one_two_and_four_relationship_references_deny_without_rewriting_or_provid
         drop(
             crate::CredentialBootstrap::create(automatic.clone()).expect("fresh public references"),
         );
-        let path = automatic
-            .credential_bootstrap_directory()
-            .join("credentials.json");
+        let store = crate::host_store::HostStore::for_config(&automatic).expect("host SQL");
         let mut old: serde_json::Value =
-            serde_json::from_slice(&fs::read(&path).expect("references")).expect("JSON");
+            store.get("credentials").expect("read").expect("references");
         assert!(old.get("clients").is_none());
         assert_eq!(old["roots"].as_array().expect("roots").len(), 4);
         old["namespace"] = serde_json::json!(Id::now_v7());
@@ -324,12 +375,16 @@ fn old_one_two_and_four_relationship_references_deny_without_rewriting_or_provid
             serde_json::json!((0..old_count).map(|_| Id::now_v7()).collect::<Vec<_>>());
         old["attempted"] = serde_json::json!(vec![true; old_count]);
         old["audiences"] = serde_json::json!(vec![automatic.idp_audience(); old_count]);
-        let bytes = serde_json::to_vec(&old).expect("old references");
-        fs::write(&path, &bytes).expect("retain old relationship evidence");
+        store
+            .put("credentials", &old)
+            .expect("retain old relationship evidence");
         let secrets = fixture.secrets();
         assert!(crate::CredentialBootstrap::open(automatic).is_err());
-        assert_eq!(fs::read(path).expect("unchanged evidence"), bytes);
-        assert_eq!(fixture.secrets(), secrets);
+        assert_eq!(
+            store.get::<serde_json::Value>("credentials").expect("read"),
+            Some(old)
+        );
+        assert!(fixture.secrets() == secrets, "provider inventory changed");
     }
 }
 
@@ -357,9 +412,16 @@ fn old_one_two_and_four_relationship_create_and_join_intents_deny_unchanged() {
                 );
                 ("intent.json", "intent")
             };
-            let path = fixture.config.local_provisioning_directory().join(name);
-            let mut old: serde_json::Value =
-                serde_json::from_slice(&fs::read(&path).expect("intent")).expect("JSON");
+            let _ = name;
+            let mut old: serde_json::Value = if joining {
+                crate::host_store::HostStore::for_config(&fixture.config)
+                    .expect("host SQL")
+                    .get("join")
+                    .expect("SQL read")
+                    .expect("Join")
+            } else {
+                fixture.journal()
+            };
             assert!(old[field].get("clients").is_none());
             assert_eq!(old[field]["roots"].as_array().expect("roots").len(), 4);
             old[field]["clients"] = serde_json::json!(
@@ -371,16 +433,33 @@ fn old_one_two_and_four_relationship_create_and_join_intents_deny_unchanged() {
             );
             old["secret_verifiers"] =
                 serde_json::json!(vec!["retained-obsolete-verifier"; old_count]);
-            let bytes = serde_json::to_vec(&old).expect("old intent");
-            fs::write(&path, &bytes).expect("old relationship intent");
+            if joining {
+                crate::host_store::HostStore::for_config(&fixture.config)
+                    .expect("host SQL")
+                    .put("join", &old)
+                    .expect("old Join intent");
+            } else {
+                fixture.write_journal(&old);
+            }
             let secrets = fixture.secrets();
             if joining {
                 assert!(crate::LocalJoin::open(fixture.config.clone()).is_err());
             } else {
                 assert!(LocalProvisioner::open(fixture.config.clone()).is_err());
             }
-            assert_eq!(fs::read(path).expect("unchanged intent"), bytes);
-            assert_eq!(fixture.secrets(), secrets);
+            if joining {
+                assert_eq!(
+                    crate::host_store::HostStore::for_config(&fixture.config)
+                        .expect("host SQL")
+                        .get::<serde_json::Value>("join")
+                        .expect("SQL read")
+                        .expect("Join"),
+                    old
+                );
+            } else {
+                assert_eq!(fixture.journal(), old);
+            }
+            assert!(fixture.secrets() == secrets, "provider inventory changed");
         }
     }
 }
@@ -398,7 +477,7 @@ fn host_bootstrap_reopens_without_relationship_secrets_or_provider_work() {
         .load()
         .expect("offline settings");
     assert_eq!(retained.idp.oauth2.issuer, prepared.idp.oauth2.issuer);
-    assert_eq!(fixture.secrets(), secrets);
+    assert!(fixture.secrets() == secrets, "provider inventory changed");
     secret_files_absent(&fixture.root);
 }
 
@@ -753,6 +832,17 @@ fn assert_stopped_recovery_tree(source: &Path, restored: &Path) {
         for name in names(source) {
             assert_stopped_recovery_tree(&source.join(&name), &restored.join(&name));
         }
+    } else if source.file_name().is_some_and(|name| name == "host.redb") {
+        let records = |path: &Path| {
+            crate::host_store::HostStore::open(path.parent().expect("SQL host directory"))
+                .expect("retained SQL")
+                .update(|records| Ok(records.clone()))
+                .expect("complete logical SQL snapshot")
+        };
+        assert!(
+            records(source) == records(restored),
+            "complete logical host SQL restored"
+        );
     } else {
         assert_matching_bytes(
             &fs::read(source).expect("snapshot bytes"),
@@ -820,7 +910,12 @@ async fn local_provisioning_restores_stopped_same_node_filesystem_with_retained_
         PathBuf::from(&config.storage.data_dir),
         config.endpoint_data_dir.clone(),
         config.local_provisioning_directory(),
+        crate::BootstrapConfig::explicit_directory(&config),
     ];
+    let store = crate::host_store::HostStore::for_config(&config).expect("host SQL");
+    let logical = store
+        .update(|records| Ok(records.clone()))
+        .expect("stopped logical operation");
     let snapshot = fixture.root.join("stopped-snapshot");
     let displaced = fixture.root.join("displaced-state");
     for directory in [&snapshot, &displaced] {
@@ -834,6 +929,10 @@ async fn local_provisioning_restores_stopped_same_node_filesystem_with_retained_
         fs::rename(root, displaced.join(index.to_string())).expect("displace stopped fixture root");
     }
     assert!(
+        !crate::BootstrapConfig::explicit_directory(&config).exists(),
+        "recovery fixture must displace authoritative host SQL, not leave the original journal live"
+    );
+    assert!(
         LocalProvisioner::open_runtime(config.clone())
             .await
             .is_err(),
@@ -843,7 +942,7 @@ async fn local_provisioning_restores_stopped_same_node_filesystem_with_retained_
         roots.iter().all(|root| !root.exists()),
         "missing roots are not repaired"
     );
-    let journal_root = roots.last().expect("journal root");
+    let journal_root = &roots[4];
     fs::create_dir(journal_root).expect("restore journal directory around retained lock");
     fs::set_permissions(journal_root, fs::Permissions::from_mode(0o700))
         .expect("protected journal");
@@ -915,11 +1014,13 @@ async fn local_provisioning_restores_stopped_same_node_filesystem_with_retained_
         (lock_identity.dev(), lock_identity.ino()),
         (restored_lock.dev(), restored_lock.ino())
     );
-    let journal_path = journal_root.join("intent.json");
-    assert_matching_bytes(
-        &fs::read(snapshot.join("4/intent.json")).expect("snapshot journal"),
-        &fs::read(&journal_path).expect("unchanged journal"),
-        "retained recovery journal",
+    assert_eq!(fixture.journal(), journal, "retained recovery operation");
+    assert!(
+        store
+            .update(|records| Ok(records.clone()))
+            .expect("restored SQL")
+            == logical,
+        "restore includes the entire canonical operation and provisioning metadata"
     );
     assert_stopped_recovery_tree(
         &snapshot.join("0/local-client-key-references"),
@@ -930,7 +1031,7 @@ async fn local_provisioning_restores_stopped_same_node_filesystem_with_retained_
         &fs::read(roots[0].join("setup-secret-inventory.json")).expect("retained inventory"),
         "retained secret inventory",
     );
-    for (index, root) in roots.iter().take(4).enumerate() {
+    for (index, root) in roots.iter().enumerate().filter(|(index, _)| *index != 4) {
         let lost = fixture.root.join(format!("missing-restored-{index}"));
         fs::rename(root, &lost).expect("isolate missing restored context or endpoint");
         assert!(
@@ -958,17 +1059,23 @@ async fn local_provisioning_restores_stopped_same_node_filesystem_with_retained_
         fs::read(&endpoint_key).expect("rejected endpoint retained")
             == b"invalid-current-format-endpoint"
     );
-    fs::copy(snapshot.join("3/endpoint.key"), &endpoint_key)
-        .expect("recover exact fixture endpoint");
-    fs::write(&journal_path, b"invalid-current-format-journal")
-        .expect("corrupt only restored journal");
+    fs::remove_file(&endpoint_key).expect("remove injected unsupported layout");
+    store
+        .put("create", &serde_json::json!({"version": 0}))
+        .expect("corrupt restored SQL metadata");
+    let corrupt = store
+        .update(|records| Ok(records.clone()))
+        .expect("corrupt logical snapshot");
     assert!(
         LocalProvisioner::open_runtime(config).await.is_err(),
-        "present invalid journal never falls back"
+        "present invalid SQL operation never falls back"
     );
     assert!(
-        fs::read(&journal_path).expect("rejected journal retained")
-            == b"invalid-current-format-journal"
+        store
+            .update(|records| Ok(records.clone()))
+            .expect("rejected SQL retained")
+            == corrupt,
+        "refusal leaves all corrupt SQL evidence intact"
     );
     assert!(
         fixture.secrets() == secrets,
@@ -1047,11 +1154,17 @@ async fn join_intent_is_public_exact_and_never_startup_readiness() {
         "cooperating join exclusion"
     );
     secret_files_absent(&fixture.root);
-    let path = fixture
-        .config
-        .local_provisioning_directory()
-        .join("join.json");
-    let before = fs::read(&path).expect("retained public join intent");
+    let store = crate::host_store::HostStore::for_config(&fixture.config)
+        .expect("Join uses the host SQL store");
+    let before: serde_json::Value = store.get("join").expect("SQL read").expect("Join record");
+    assert!(
+        !fixture
+            .config
+            .local_provisioning_directory()
+            .join("join.json")
+            .exists(),
+        "Unified Join must not publish a parallel journal"
+    );
     drop(local);
     let local = crate::LocalJoin::open(fixture.config.clone()).expect("exact continuation");
     assert!(
@@ -1066,8 +1179,55 @@ async fn join_intent_is_public_exact_and_never_startup_readiness() {
     let mut changed = fixture.config.clone();
     changed.idp.oauth2.issuer = "https://wrong-installation.test/idp".into();
     assert!(crate::LocalJoin::open(changed).is_err());
-    assert_eq!(fs::read(&path).expect("unchanged intent"), before);
+    assert_eq!(
+        store
+            .get::<serde_json::Value>("join")
+            .expect("SQL read")
+            .expect("Join"),
+        before
+    );
     secret_files_absent(&fixture.root);
+}
+
+#[tokio::test]
+async fn join_missing_or_corrupt_host_metadata_never_replaces_endpoint_or_allocations() {
+    let fixture = Fixture::new();
+    let peer = iroh::SecretKey::generate().public().to_string();
+    let mut joining = crate::LocalJoin::create(fixture.config.clone(), &peer, "Joining Node")
+        .expect("fresh Join");
+    let endpoint = joining
+        .prepare_endpoint()
+        .await
+        .expect("mock-provider endpoint");
+    let expected = endpoint.endpoint_id();
+    endpoint.close().await;
+    drop(joining);
+    let root = crate::BootstrapConfig::explicit_directory(&fixture.config);
+    let database = root.join("host.redb");
+    let backup = root.join("operator-backup.redb");
+    fs::rename(&database, &backup).expect("simulate lost host metadata");
+    let secrets = fixture.secrets();
+    assert!(crate::LocalJoin::open(fixture.config.clone()).is_err());
+    assert!(!database.exists(), "missing SQL must not be recreated");
+    fs::write(&database, b"corrupt retained host SQL").expect("inject corruption");
+    assert!(crate::LocalJoin::open(fixture.config.clone()).is_err());
+    assert!(
+        fs::read(&database).expect("retained corrupt artifact") == b"corrupt retained host SQL",
+        "corrupt metadata was modified"
+    );
+    fs::remove_file(&database).expect("remove injected corruption");
+    fs::rename(backup, database).expect("restore exact operator backup");
+    let mut joining = crate::LocalJoin::open(fixture.config.clone()).expect("exact restored Join");
+    let endpoint = joining
+        .prepare_endpoint()
+        .await
+        .expect("existing endpoint only");
+    assert_eq!(endpoint.endpoint_id(), expected);
+    endpoint.close().await;
+    assert!(
+        fixture.secrets() == secrets,
+        "provider state changed during failed reopen"
+    );
 }
 
 #[tokio::test]
@@ -1093,13 +1253,7 @@ async fn local_provisioning_creates_exact_host_and_reopens_offline() {
         intent["complete"], true,
         "completion follows actual local readiness"
     );
-    let manifest = fs::read_to_string(
-        fixture
-            .config
-            .local_provisioning_directory()
-            .join("intent.json"),
-    )
-    .expect("public-only manifest");
+    let manifest = fixture.journal().to_string();
     for secret in ["fixture-initial-password"] {
         assert!(
             !manifest.contains(secret),
@@ -1162,8 +1316,10 @@ async fn local_provisioning_creates_exact_host_and_reopens_offline() {
         intent == fixture.journal(),
         "startup must preserve exact completed intent"
     );
-    fs::remove_file(fixture.root.join("endpoint/endpoint.key"))
-        .expect("simulate canonical identity loss");
+    fixture
+        .endpoint_entry()
+        .delete_credential()
+        .expect("simulate endpoint provider loss");
     assert!(
         host.build_runtime().await.is_err(),
         "completed startup never falls back to fresh identity"
@@ -1269,217 +1425,41 @@ async fn local_provisioning_continues_retained_attempt_and_refuses_changed_ident
 }
 
 #[tokio::test]
-async fn local_provisioning_existing_cli_host_without_journal_starts_and_reopens() {
-    use std::os::unix::fs::PermissionsExt;
-
-    use idp_service::oauth2::NodeSignerBinding;
-    let mut fixture = Fixture::new();
+async fn local_provisioning_lost_journal_refuses_even_with_ready_owner_state() {
+    let fixture = Fixture::new();
     let mut host = LocalProvisioner::create(
         fixture.config.clone(),
         "operator",
-        "Local Node",
+        "Node",
         &fixture.password,
     )
-    .expect("explicit public owner provisioning");
+    .expect("fresh intent");
     host.provision(&fixture.password)
         .await
-        .expect("actual current host");
-    let retained = fixture.journal();
-    fixture.config.idp.oauth2.local_signer = Some(NodeSignerBinding {
-        endpoint_id: retained["endpoint"].as_str().expect("endpoint").to_owned(),
-        member_id: retained["member"]
-            .as_str()
-            .expect("member")
-            .parse()
-            .expect("ID"),
-        key_id: retained["key"].as_str().expect("key").parse().expect("ID"),
-    });
-    let user = retained["user"]
-        .as_str()
-        .expect("User")
-        .parse()
-        .expect("ID");
+        .expect("complete host");
     let secrets = fixture.secrets();
     drop(host);
     let directory = fixture.config.local_provisioning_directory();
-    let journal_path = directory.join("intent.json");
-    let mut incomplete = retained.clone();
-    incomplete["complete"] = false.into();
-    fs::write(
-        &journal_path,
-        serde_json::to_vec(&incomplete).expect("incomplete intent"),
-    )
-    .expect("retained incomplete fixture");
-    assert!(
-        LocalProvisioner::open_runtime(fixture.config.clone())
-            .await
-            .is_err(),
-        "present incomplete journal is authoritative despite ready owner state"
-    );
-    fs::write(&journal_path, b"{}").expect("malformed journal");
-    assert!(
-        LocalProvisioner::open_runtime(fixture.config.clone())
-            .await
-            .is_err(),
-        "present malformed journal cannot fall through"
-    );
-    fs::remove_file(&journal_path).expect("lost journal within present directory");
-    assert!(
-        LocalProvisioner::open_runtime(fixture.config.clone())
-            .await
-            .is_err(),
-        "present directory with missing intent cannot fall through"
-    );
-    fs::remove_dir_all(&directory).expect("host retains owner state, not a CLI journal");
-    let storage_root = Path::new(&fixture.config.storage.data_dir);
-    fs::set_permissions(storage_root, fs::Permissions::from_mode(0o755))
-        .expect("retained Storage permissions from ordinary 0022 umask");
-    let runtime = crate::UnifiedRuntime::build(fixture.config.clone())
-        .await
-        .expect("public runtime supports retained 0755 Storage");
-    assert!(
-        runtime
-            .node_public_ready()
-            .await
-            .expect("retained public readiness")
-    );
-    runtime.shutdown().await.expect("retained runtime shutdown");
-    for _ in 0..2 {
-        let (runtime, guard) = LocalProvisioner::open_runtime(fixture.config.clone())
-            .await
-            .expect("CLI existing-only decision accepts current explicit evidence");
-        assert!(guard.is_none(), "no synthesized journal guard");
-        assert!(
-            runtime
-                .node_public_ready()
-                .await
-                .expect("current readiness")
-        );
-        exercise_running_host(runtime, user).await;
-        assert!(!directory.exists(), "no journal migration or synthesis");
-        assert!(secrets == fixture.secrets(), "no private replacement");
-        assert_eq!(
-            fs::metadata(storage_root)
-                .expect("retained Storage root")
-                .permissions()
-                .mode()
-                & 0o777,
-            0o755,
-            "existing startup must not chmod retained Storage"
-        );
-    }
-    // The desktop's public composition seam remains independent of CLI intent.
-    let runtime = crate::UnifiedRuntime::build(fixture.config.clone())
-        .await
-        .expect("desktop composition remains public");
-    assert!(
-        runtime
-            .node_public_ready()
-            .await
-            .expect("preprovisioned readiness")
-    );
-    runtime.shutdown().await.expect("joined shutdown");
-    let endpoint = fs::read(fixture.root.join("endpoint/endpoint.key")).expect("retained endpoint");
-
-    let device_database = device_server::open_device_database(&fixture.config.device)
-        .await
-        .expect("retained Device owner");
-    let devices = device_service::replica::DbDeviceRepo::new(device_database.client());
-    let devices_before = device_service::DeviceRepo::list(&devices)
-        .await
-        .expect("retained Device records");
-    let mut unbound = fixture.config.clone();
-    unbound.idp.oauth2.local_signer = None;
-    assert!(
-        LocalProvisioner::open_runtime(unbound).await.is_err(),
-        "missing explicit signer is never inferred"
-    );
-    let mut untrusted = fixture.config.clone();
-    untrusted
-        .idp
-        .oauth2
-        .local_signer
-        .as_mut()
-        .expect("binding")
-        .key_id = Id::now_v7();
-    assert!(
-        LocalProvisioner::open_runtime(untrusted.clone())
-            .await
-            .is_err(),
-        "missing trust cannot provision a new signer"
-    );
-    assert_eq!(
-        endpoint,
-        fs::read(fixture.root.join("endpoint/endpoint.key")).expect("unchanged endpoint")
-    );
-    assert!(secrets == fixture.secrets());
-    let owner = idp_server::OwnerProvisioner::open(&fixture.config.idp)
-        .await
-        .expect("retained owner");
-    let public = owner
-        .verify_node_signer(
-            fixture
-                .config
-                .idp
-                .oauth2
-                .local_signer
-                .as_ref()
-                .expect("binding"),
-        )
-        .await
-        .expect("original approved signer survives denied startup");
-    assert_eq!(
-        serde_json::to_value(public).expect("public signer"),
-        retained["public_signer"]
-    );
-    assert!(
-        owner
-            .verify_node_signer(
-                untrusted
-                    .idp
-                    .oauth2
-                    .local_signer
-                    .as_ref()
-                    .expect("missing binding")
-            )
-            .await
-            .is_err()
-    );
-    drop(owner);
-    let devices_after = device_service::DeviceRepo::list(&devices)
-        .await
-        .expect("Device records after denied startup");
-    assert!(
-        devices_before == devices_after,
-        "denied startup must preserve Device records"
-    );
-    drop(devices);
-    drop(device_database);
-    let endpoint_path = fixture.root.join("endpoint/endpoint.key");
-    fs::set_permissions(&endpoint_path, fs::Permissions::from_mode(0o644))
-        .expect("unprotected endpoint fixture");
-    assert!(
-        LocalProvisioner::open_runtime(fixture.config.clone())
-            .await
-            .is_err(),
-        "retained directory policy must not weaken endpoint key security"
-    );
-    assert_eq!(
-        fs::metadata(&endpoint_path)
-            .expect("retained endpoint")
-            .permissions()
-            .mode()
-            & 0o777,
-        0o644
-    );
-    fs::remove_file(endpoint_path).expect("lost endpoint");
+    fs::rename(&directory, directory.with_extension("lost")).expect("simulate metadata loss");
     assert!(
         LocalProvisioner::open_runtime(fixture.config.clone())
             .await
             .is_err()
     );
-    assert!(!fixture.root.join("endpoint/endpoint.key").exists());
+    assert!(
+        crate::UnifiedRuntime::build(fixture.config.clone())
+            .await
+            .is_err()
+    );
+    assert!(fixture.secrets() == secrets, "provider inventory changed");
     assert!(!directory.exists());
+    assert!(
+        !fixture
+            .config
+            .endpoint_data_dir
+            .join("endpoint.key")
+            .exists()
+    );
 }
 
 #[tokio::test]
@@ -1510,15 +1490,7 @@ async fn local_provisioning_lost_management_after_late_failure_denies_without_re
     unacknowledged["management_complete"] = false.into();
     unacknowledged["storage_attempted"] = false.into();
     unacknowledged["storage_initialized"] = false.into();
-    let journal_path = fixture
-        .config
-        .local_provisioning_directory()
-        .join("intent.json");
-    fs::write(
-        &journal_path,
-        serde_json::to_vec(&unacknowledged).expect("unacknowledged Management intent"),
-    )
-    .expect("simulate interruption before Management acknowledgement");
+    fixture.write_journal(&unacknowledged);
     let error = host
         .provision(&fixture.password)
         .await
@@ -1527,17 +1499,13 @@ async fn local_provisioning_lost_management_after_late_failure_denies_without_re
         error.to_string().contains("unacknowledged Management"),
         "{error}"
     );
-    assert_eq!(
-        database_before,
-        fs::read(&database).expect("unchanged Management")
+    assert!(
+        database_before == fs::read(&database).expect("unchanged Management"),
+        "Management database changed"
     );
     assert!(unacknowledged == fixture.journal());
     assert!(secrets == fixture.secrets());
-    fs::write(
-        &journal_path,
-        serde_json::to_vec(&retained).expect("acknowledged original intent"),
-    )
-    .expect("restore original retained acknowledgement");
+    fixture.write_journal(&retained);
     fs::remove_file(&database).expect("lose attempted Management database");
     drop(occupied);
     assert!(
@@ -1574,32 +1542,16 @@ async fn local_provisioning_lost_storage_after_runtime_initialization_denies_wit
         .expect("actual initialized Storage runtime");
     let mut retained = fixture.journal();
     retained["complete"] = false.into();
-    let journal_path = fixture
-        .config
-        .local_provisioning_directory()
-        .join("intent.json");
-    fs::write(
-        &journal_path,
-        serde_json::to_vec(&retained).expect("incomplete intent"),
-    )
-    .expect("interruption before final completion acknowledgement");
+    fixture.write_journal(&retained);
     let mut unacknowledged = retained.clone();
     unacknowledged["storage_initialized"] = false.into();
-    fs::write(
-        &journal_path,
-        serde_json::to_vec(&unacknowledged).expect("unacknowledged Storage"),
-    )
-    .expect("interruption before Storage acknowledgement");
+    fixture.write_journal(&unacknowledged);
     assert!(
         host.provision(&fixture.password).await.is_err(),
         "unacknowledged Storage requires recovery even with retained roots"
     );
     assert!(unacknowledged == fixture.journal());
-    fs::write(
-        &journal_path,
-        serde_json::to_vec(&retained).expect("acknowledged Storage"),
-    )
-    .expect("restore retained acknowledgement");
+    fixture.write_journal(&retained);
     let root = fixture.root.join("storage");
     assert!(root.is_dir(), "real runtime initialized Storage");
     fs::rename(&root, fixture.root.join("lost-storage")).expect("lose retained Storage root");
@@ -1821,24 +1773,22 @@ fn local_provisioning_rejects_unprotected_input_and_missing_or_conflicting_inten
     .expect("explicit intent");
     secret_files_absent(&fixture.root);
     drop(host);
-    let journal = fixture
-        .config
-        .local_provisioning_directory()
-        .join("intent.json");
     let mut unknown_request = fixture.journal();
     unknown_request["intent"]["unrecognized_request_field"] = true.into();
-    fs::write(
-        &journal,
-        serde_json::to_vec(&unknown_request).expect("unknown request fixture"),
-    )
-    .expect("write unknown request field");
+    fixture.write_journal(&unknown_request);
     assert!(
         LocalProvisioner::open(fixture.config.clone()).is_err(),
         "unknown nested request fields must not be silently normalized or migrated"
     );
-    fs::write(&journal, b"{}").expect("corrupt intent fixture");
+    fixture.write_journal(&serde_json::json!({}));
     assert!(LocalProvisioner::open(fixture.config.clone()).is_err());
-    fs::remove_file(journal).expect("lost intent fixture");
+    fixture
+        .host_store()
+        .update(|records| {
+            records.remove("create");
+            Ok(())
+        })
+        .expect("lost Create record");
     assert!(LocalProvisioner::open(fixture.config.clone()).is_err());
     assert!(
         LocalProvisioner::create(
@@ -1922,7 +1872,7 @@ fn concrete_host_settings_preserve_the_durable_intent_when_normalized() {
 }
 
 #[test]
-fn retained_create_journal_keeps_its_flat_schema_and_exact_retry_checks() {
+fn retained_create_sql_keeps_owner_evidence_and_exact_retry_checks() {
     let fixture = Fixture::new();
     let host = LocalProvisioner::create(
         fixture.config.clone(),
@@ -1931,11 +1881,6 @@ fn retained_create_journal_keeps_its_flat_schema_and_exact_retry_checks() {
         &fixture.password,
     )
     .expect("fresh retained intent");
-    let path = fixture
-        .config
-        .local_provisioning_directory()
-        .join("intent.json");
-    let bytes = fs::read(&path).expect("original journal");
     let original = fixture.journal();
     let mut expected_fields = vec![
         "version",
@@ -1948,10 +1893,9 @@ fn retained_create_journal_keeps_its_flat_schema_and_exact_retry_checks() {
         "key",
         "role",
         "permissions",
-        "administrator",
-        "node",
         "password_verifier",
         "endpoint_attempted",
+        "endpoint_secret",
         "endpoint",
         "inventory_attempted",
         "node_attempted",
@@ -1985,7 +1929,7 @@ fn retained_create_journal_keeps_its_flat_schema_and_exact_retry_checks() {
         host.validate_retry("operator", "Local Node", "wrong-password")
             .is_err()
     );
-    assert_eq!(fs::read(&path).expect("unchanged retained journal"), bytes);
+    assert_eq!(fixture.journal(), original);
     drop(host);
     for (field, value) in [
         ("permissions", serde_json::json!([])),
@@ -1994,10 +1938,92 @@ fn retained_create_journal_keeps_its_flat_schema_and_exact_retry_checks() {
     ] {
         let mut malformed = original.clone();
         malformed[field] = value;
-        let bytes = serde_json::to_vec(&malformed).expect("malformed retained journal");
-        fs::write(&path, &bytes).expect("inject malformed journal");
+        fixture.write_journal(&malformed);
         assert!(LocalProvisioner::open(fixture.config.clone()).is_err());
-        assert_eq!(fs::read(&path).expect("no recovery rewrite"), bytes);
+        assert_eq!(fixture.journal(), malformed);
     }
     secret_files_absent(&fixture.root);
+}
+
+#[path = "endpoint_provider_tests.rs"]
+mod endpoint_provider_tests;
+
+#[test]
+fn join_choices_have_one_canonical_sql_owner_for_standalone_and_hosted_operations() {
+    for hosted in [false, true] {
+        let fixture = Fixture::new();
+        let peer = iroh::SecretKey::generate().public().to_string();
+        let expected = idp_server::hosted_setup::JoinIntent {
+            operation_nonce: Id::now_v7().simple().to_string(),
+            node: "Joining Node".into(),
+            peer: peer.clone(),
+            issuer: fixture.config.idp.oauth2.issuer.clone(),
+        }
+        .canonical()
+        .expect("canonical Join");
+        if hosted {
+            crate::host_store::HostStore::create_for_config(&fixture.config)
+                .expect("host SQL")
+                .put("operation", &expected)
+                .expect("bound Join");
+        }
+        let local = crate::LocalJoin::create(fixture.config.clone(), &peer, "Joining Node")
+            .expect("fresh Join");
+        let store = crate::host_store::HostStore::for_config(&fixture.config).expect("host SQL");
+        let canonical: String = store
+            .get("operation")
+            .expect("SQL read")
+            .expect("canonical binding even standalone");
+        if hosted {
+            assert_eq!(canonical, expected, "preserve admitted nonce");
+        }
+        let idp_server::hosted_setup::SetupIntent::Join(mut operation) =
+            idp_server::hosted_setup::SetupIntent::decode(&canonical).expect("Join binding")
+        else {
+            panic!("expected Join")
+        };
+        assert_eq!(operation.peer, peer);
+        assert_eq!(operation.node, "Joining Node");
+        assert_eq!(operation.issuer, fixture.config.idp.oauth2.issuer);
+        let journal: serde_json::Value = store
+            .get("join")
+            .expect("SQL read")
+            .expect("Join allocations");
+        assert!(
+            journal.get("peer").is_none() && journal.get("name").is_none(),
+            "choices are not duplicated in allocation metadata"
+        );
+        local
+            .validate_retry(&peer, "Joining Node")
+            .expect("exact choices");
+        assert!(local.validate_retry(&peer, "Different Node").is_err());
+        drop(local);
+        operation.issuer = "https://different.test/idp".into();
+        let invalid = operation
+            .canonical()
+            .expect("different authenticated issuer");
+        store
+            .put("operation", &invalid)
+            .expect("inject conflicting issuer");
+        let secrets = fixture.secrets();
+        assert!(crate::LocalJoin::open(fixture.config.clone()).is_err());
+        assert_eq!(
+            store
+                .get::<String>("operation")
+                .expect("SQL read")
+                .expect("binding"),
+            invalid
+        );
+        assert_eq!(
+            store
+                .get::<serde_json::Value>("join")
+                .expect("SQL read")
+                .expect("allocations"),
+            journal
+        );
+        assert!(
+            fixture.secrets() == secrets,
+            "conflicting issuer performs no provider work"
+        );
+    }
 }

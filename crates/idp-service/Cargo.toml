@@ -15,7 +15,7 @@ name = "idp_service"
 [features]
 default = ["std"]
 
-headless = []
+headless = ["key/headless"]
 replica = ["std", "db/replica", "idp-model/replica"]
 std = [
   "key/std",
@@ -33,7 +33,7 @@ std = [
 # Internal
 db = { package = "idp-db", path = "../db", default-features = false, features = [] }
 
-key = { path = "../key", default-features = false, features = [] }
+key = { path = "../key", default-features = false, features = ["secure-store"] }
 model = { path = "../model", default-features = false, features = [] }
 idp-model = { path = "../idp-model", default-features = false, features = [
   "std",
@@ -69,30 +69,6 @@ log = { version = "0.4", default-features = false, features = [] }
 # Keyring
 keyring-core = { version = "1.0", default-features = false, features = [] }
 
-
-[target.'cfg(target_os = "linux")'.dependencies]
-linux-keyutils-keyring-store = { version = "1.0", default-features = false, features = [
-] }
-dbus-secret-service-keyring-store = { version = "1.0", default-features = false, features = [
-  "crypto-rust",
-] }
-
-# Windows-only dependency
-[target.'cfg(target_os = "windows")'.dependencies]
-windows-native-keyring-store = { version = "1.0", default-features = false, features = [
-] }
-
-# macOS-only dependency
-[target.'cfg(target_os = "macos")'.dependencies]
-apple-native-keyring-store = { version = "1.0", default-features = false, features = [
-  "keychain",
-  "protected",
-] }
-
-# Android-only dependency
-[target.'cfg(target_os = "android")'.dependencies]
-android-native-keyring-store = { version = "1.0", default-features = false, features = [
-] }
 
 [dev-dependencies]
 # Native SQL observation controls

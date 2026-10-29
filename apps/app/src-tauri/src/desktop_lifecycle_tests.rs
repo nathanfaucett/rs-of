@@ -8,6 +8,18 @@ fn directory() -> PathBuf {
     std::env::temp_dir().join(format!("native-shared-host-{}", uuid::Uuid::new_v4()))
 }
 
+pub(crate) fn retained_identity(root: &std::path::Path) -> serde_json::Value {
+    let host = unified_server::BootstrapConfig::open(root).expect("stopped retained host");
+    let config = host.config();
+    serde_json::json!({
+        "listen": config.listen_addr, "issuer": config.idp.oauth2.issuer,
+        "namespace": config.idp.key_namespace,
+        "roots": [config.idp.data_dir, config.management.data_dir, config.device.data_dir, config.storage.data_dir, config.endpoint_data_dir.to_string_lossy().into_owned()],
+        "applications": [config.idp.api_public_uri, config.management.api_public_uri, config.device.api_public_uri, config.storage.api_public_uri],
+        "setup_attempted": host.setup_attempted(),
+    })
+}
+
 fn fixture(root: &std::path::Path) -> (SetupHost, reqwest::Client) {
     let setup = super::prepare(root).expect("fresh neutral native host");
     let ca = fs::read(setup.tls().ca_path()).expect("isolated CA");
@@ -124,14 +136,14 @@ async fn native_trust_failure_preserves_prerequisites_without_starting_domain_ow
 #[test]
 fn native_reopen_refuses_lost_host_and_tls_evidence_without_replacement() {
     for lost in [
-        "host.json",
+        "host.redb",
         "setup-admission/state",
         "endpoint.tls/server.key",
     ] {
         let root = directory();
         let setup = super::prepare(&root).expect("fresh prerequisites");
-        let host = fs::read(root.join("host.json")).expect("original host identity");
         drop(setup);
+        let host = retained_identity(&root);
         fs::remove_file(root.join(lost)).expect("inject lost evidence");
         let error = super::prepare(&root)
             .err()
@@ -144,11 +156,8 @@ fn native_reopen_refuses_lost_host_and_tls_evidence_without_replacement() {
             "missing {lost} requires repair"
         );
         assert!(!root.join(lost).exists(), "must never regenerate {lost}");
-        if lost != "host.json" {
-            assert_eq!(
-                fs::read(root.join("host.json")).expect("host preserved"),
-                host
-            );
+        if lost != "host.redb" {
+            assert_eq!(retained_identity(&root), host);
         }
         fs::remove_dir_all(root).expect("isolated cleanup");
     }
@@ -418,7 +427,9 @@ fn retained_host_lock_contention_is_retryable_without_replacing_identity() {
     let root = directory();
     let setup = super::prepare(&root).expect("fresh retained host");
     let address = setup.local_addr();
-    let identity = fs::read(root.join("host.json")).expect("retained identity");
+    drop(setup);
+    let identity = retained_identity(&root);
+    let setup = super::prepare(&root).expect("retained setup");
     let ca = fs::read(setup.tls().ca_path()).expect("retained CA");
     let error = super::prepare(&root)
         .err()
@@ -431,12 +442,12 @@ fn retained_host_lock_contention_is_retryable_without_replacing_identity() {
     drop(setup);
     let reopened = super::prepare(&root).expect("retry after releasing the lock");
     assert_eq!(reopened.local_addr(), address);
-    assert_eq!(
-        fs::read(root.join("host.json")).expect("same identity"),
-        identity
+    assert!(
+        fs::read(reopened.tls().ca_path()).expect("same CA") == ca,
+        "CA changed"
     );
-    assert_eq!(fs::read(reopened.tls().ca_path()).expect("same CA"), ca);
     drop(reopened);
+    assert_eq!(retained_identity(&root), identity);
     fs::remove_dir_all(root).expect("isolated fixture cleanup");
 }
 
@@ -445,8 +456,10 @@ async fn failed_reference_recovery_publishes_retry_and_preserves_retained_host()
     let data = directory();
     fs::create_dir_all(&data).expect("isolated application data");
     let root = data.join("node");
+    let (setup, _) = fixture(&root);
+    drop(setup);
+    let identity = retained_identity(&root);
     let (setup, client) = fixture(&root);
-    let identity = fs::read(root.join("host.json")).expect("retained identity");
     let ca = fs::read(setup.tls().ca_path()).expect("retained CA");
     let host = NativeHost::start_with(setup, |_| panic!("trusted"), || Ok(client.clone()))
         .await
@@ -471,10 +484,7 @@ async fn failed_reference_recovery_publishes_retry_and_preserves_retained_host()
         *failure.lock().await,
         Some(crate::onboarding::Failure::Retry)
     ));
-    assert_eq!(
-        fs::read(root.join("host.json")).expect("same host"),
-        identity
-    );
+    assert_eq!(retained_identity(&root), identity);
     let (setup, client) = fixture(&root);
     assert_eq!(fs::read(setup.tls().ca_path()).expect("same CA"), ca);
     let mut retry =
@@ -491,7 +501,7 @@ fn corrupt_retained_identity_requires_repair_without_replacement() {
     let root = directory();
     drop(super::prepare(&root).expect("fresh host"));
     let corrupt = b"not a retained host identity";
-    fs::write(root.join("host.json"), corrupt).expect("inject corrupt identity");
+    fs::write(root.join("host.redb"), corrupt).expect("inject corrupt identity");
     let error = super::prepare(&root)
         .err()
         .expect("corrupt identity refused");
@@ -499,9 +509,9 @@ fn corrupt_retained_identity_requires_repair_without_replacement() {
         crate::onboarding::Failure::startup(&error),
         crate::onboarding::Failure::Repair
     ));
-    assert_eq!(
-        fs::read(root.join("host.json")).expect("no replacement"),
-        corrupt
+    assert!(
+        fs::read(root.join("host.redb")).expect("no replacement") == corrupt,
+        "corrupt database changed"
     );
     fs::remove_dir_all(root).expect("isolated cleanup");
 }
@@ -510,7 +520,7 @@ fn corrupt_retained_identity_requires_repair_without_replacement() {
 fn corrupt_retained_admission_requires_repair_without_replacement() {
     let root = directory();
     drop(super::prepare(&root).expect("fresh host"));
-    let identity = fs::read(root.join("host.json")).expect("retained identity");
+    let identity = retained_identity(&root);
     let corrupt = b"not retained admission";
     fs::write(root.join("setup-admission/state"), corrupt).expect("inject corrupt admission");
     let error = super::prepare(&root)
@@ -524,9 +534,6 @@ fn corrupt_retained_admission_requires_repair_without_replacement() {
         fs::read(root.join("setup-admission/state")).expect("no replacement"),
         corrupt
     );
-    assert_eq!(
-        fs::read(root.join("host.json")).expect("same identity"),
-        identity
-    );
+    assert_eq!(retained_identity(&root), identity);
     fs::remove_dir_all(root).expect("isolated cleanup");
 }

@@ -268,7 +268,7 @@ fn native_origin() -> HeaderValue {
 
 #[cfg(all(test, unix))]
 #[path = "desktop_lifecycle_tests.rs"]
-mod tests;
+pub(crate) mod tests;
 
 #[cfg(all(test, target_os = "linux"))]
 #[path = "native_provider_lifecycle_tests.rs"]

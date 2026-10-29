@@ -154,15 +154,11 @@ mod tests {
             Some("https://control.test/audience")
         );
         assert_eq!(loaded.idp.oauth2.issuer, selected.idp.oauth2.issuer);
-        let references: serde_json::Value = serde_json::from_slice(
-            &fs::read(
-                loaded
-                    .credential_bootstrap_directory()
-                    .join("credentials.json"),
-            )
-            .expect("retained journal"),
-        )
-        .expect("public journal JSON");
+        let references: serde_json::Value = crate::host_store::HostStore::for_config(&loaded)
+            .expect("host SQL")
+            .get("credentials")
+            .expect("read")
+            .expect("references");
         assert_eq!(
             references["storage_audience"],
             "https://resources.test/audience"
@@ -406,6 +402,7 @@ pub fn require_host_separation(config: &UnifiedConfig, host: &Path) -> io::Resul
         if host.starts_with(&root)
             || [
                 "setup-admission",
+                "host.redb",
                 "host.json",
                 "host.pending",
                 "join-admission.json",

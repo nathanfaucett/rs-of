@@ -13,3 +13,8 @@ pub use bip32::{ChildNumber, DerivationPath, Prefix, XPrv};
 pub use derived_key::DerivedKey;
 pub use error::{KeyError, KeyResult};
 pub use master_key::MasterKey;
+
+#[cfg(feature = "secure-store")]
+mod secret_store;
+#[cfg(feature = "secure-store")]
+pub use secret_store::{SecretStore, create_secret_entry, init_credential_store};

@@ -1,4 +1,10 @@
-use std::{fs, io, os::unix::fs::PermissionsExt, path::PathBuf};
+use std::{
+    fs, io,
+    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    path::PathBuf,
+};
+
+use std::io::Write;
 
 use serde_json::Value;
 
@@ -13,7 +19,7 @@ fn fixture() -> PathBuf {
 #[tokio::test]
 async fn failed_secret_cleanup_preserves_manifests_and_reset_is_explicitly_retryable() {
     let data = fixture();
-    let original = fs::read(data.join("node/host.json")).expect("original retained identity");
+    let original = crate::native_host::tests::retained_identity(&data.join("node"));
     let result = super::run_with(&data, |_, _| {
         Box::pin(async { Err(io::Error::other("isolated provider refusal")) })
     })
@@ -21,7 +27,7 @@ async fn failed_secret_cleanup_preserves_manifests_and_reset_is_explicitly_retry
     assert!(result.is_err());
     assert!(super::pending(&data).expect("pending reset"));
     assert_eq!(
-        fs::read(data.join("node/host.json")).expect("owner state retained"),
+        crate::native_host::tests::retained_identity(&data.join("node")),
         original
     );
     assert!(data.join("setup-reference-backup.json").is_file());
@@ -39,13 +45,27 @@ async fn lost_host_identity_requires_explicit_exact_reference_recovery() {
         Box::pin(async { Err(io::Error::other("stop before data deletion")) })
     })
     .await;
-    let host = data.join("node/host.json");
+    let host = data.join("node/host.redb");
     let original = fs::read(&host).expect("exact host identity");
     fs::remove_file(&host).expect("inject lost reference");
     assert!(super::run(&data).await.is_err());
     assert!(!host.exists());
-    super::recover(&data).expect("operator-requested exact restoration");
-    assert_eq!(fs::read(&host).expect("restored exact identity"), original);
+    assert!(
+        super::recover(&data).is_err(),
+        "reference recovery cannot reconstruct a lost host database"
+    );
+    assert!(!host.exists());
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&host)
+        .expect("operator restores exact database backup")
+        .write_all(&original)
+        .expect("restore database");
+    super::recover(&data).expect("exact database restored; validate references");
     super::run(&data).await.expect("reset original host only");
     fs::remove_dir_all(data).expect("isolated cleanup");
 }
@@ -74,7 +94,7 @@ async fn interrupted_data_cleanup_resumes_without_touching_a_provider_again() {
     record["phase"] = serde_json::json!("data-pending");
     super::publish(&data, "reset-state.json", &record)
         .expect("simulate durable successful key deletion");
-    fs::remove_file(data.join("node/host.json")).expect("simulate interrupted directory deletion");
+    fs::remove_file(data.join("node/host.redb")).expect("simulate interrupted directory deletion");
     super::run_with(&data, |_, _| {
         Box::pin(async { panic!("must never recreate owners after key deletion") })
     })
@@ -126,24 +146,34 @@ async fn retained_join_reset_preserves_exact_owner_ids_and_never_starts_an_endpo
         .expect("exact shared Join references");
     assert_eq!(references["issuer"], "https://installation.test/idp");
     drop(host);
-    let journal = root.join("endpoint.provisioning/join.json");
+    let journal = root.join("host.redb");
     let original = fs::read(&journal).expect("original Join identity and production history");
     let result = super::run_with(&data, |_, _| {
         Box::pin(async { Err(io::Error::other("injected cleanup refusal")) })
     })
     .await;
     assert!(result.is_err());
+    let retained = BootstrapConfig::open(&root).expect("retained SQL after refusal");
     assert_eq!(
-        fs::read(&journal).expect("Join retained after refusal"),
-        original
+        retained.local_reset_references().expect("Join references"),
+        references
     );
+    drop(retained);
     fs::remove_file(&journal).expect("inject lost Join reference");
     assert!(super::run(&data).await.is_err());
-    super::recover(&data).expect("explicit exact Join reference recovery");
-    assert_eq!(
-        fs::read(&journal).expect("original Join restored"),
-        original
+    assert!(
+        super::recover(&data).is_err(),
+        "reference backup cannot recreate SQL workflow"
     );
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&journal)
+        .expect("operator database restore")
+        .write_all(&original)
+        .expect("restore exact SQL backup");
+    super::recover(&data).expect("validate exact operator-restored Join references");
     let host = BootstrapConfig::open(&root).expect("exact retained Join host");
     assert_eq!(
         host.local_reset_references().expect("same Join IDs"),

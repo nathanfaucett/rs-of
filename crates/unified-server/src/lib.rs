@@ -6,6 +6,7 @@ mod bootstrap_verification;
 mod cli;
 mod config;
 mod endpoint;
+mod endpoint_secret;
 #[cfg(all(test, target_os = "linux"))]
 mod hosted_setup_integration_tests;
 #[cfg(all(test, unix))]
@@ -35,6 +36,7 @@ mod setup_runtime_tests;
 
 mod bootstrap_config;
 mod credential_bootstrap;
+mod host_store;
 mod local_join;
 mod local_provisioning;
 pub use api::LocalTls;

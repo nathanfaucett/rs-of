@@ -19,6 +19,7 @@ use crate::{LocalJoin, LocalProvisioner, LocalTls, UnifiedRuntime};
 
 struct NodeStores {
     stores: [(String, Arc<keyring_core::CredentialStore>); 2],
+    endpoints: Arc<keyring_core::CredentialStore>,
 }
 
 impl keyring_core::api::CredentialStoreApi for NodeStores {
@@ -36,6 +37,9 @@ impl keyring_core::api::CredentialStoreApi for NodeStores {
         user: &str,
         modifiers: Option<&HashMap<&str, &str>>,
     ) -> keyring_core::Result<keyring_core::Entry> {
+        if service == "of-unified-endpoint" {
+            return self.endpoints.build(service, user, None);
+        }
         let (_, store) = self
             .stores
             .iter()
@@ -49,6 +53,7 @@ impl keyring_core::api::CredentialStoreApi for NodeStores {
         for (_, store) in &self.stores {
             entries.extend(store.search(spec)?);
         }
+        entries.extend(self.endpoints.search(spec)?);
         Ok(entries)
     }
 
@@ -86,7 +91,7 @@ fn production_setup_status_tracks_current_local_revocation() {
 }
 
 #[test]
-fn production_api_join_complete_unretired_finalization() {
+fn production_api_join_atomic_retirement_leftover_code_offline_reopen() {
     https_bootstrap(false, "finalization");
 }
 
@@ -166,6 +171,7 @@ async fn production_https_bootstrap_child() {
     b.config.listen_addr = unused_address().await;
     b.config.idp.key_namespace = format!("https-joining-{}", Id::now_v7());
     let nodes: Arc<keyring_core::CredentialStore> = Arc::new(NodeStores {
+        endpoints: keyring_core::mock::Store::new().expect("isolated shared endpoint provider"),
         stores: [
             (a.config.idp.key_namespace.clone(), a.store.clone()),
             (b.config.idp.key_namespace.clone(), b.store.clone()),
@@ -241,8 +247,7 @@ async fn production_https_bootstrap_child() {
             .as_deref(),
         Some(login_id.as_str())
     );
-    let retained = fs::read_to_string(a.config.local_provisioning_directory().join("intent.json"))
-        .expect("public bootstrap intent");
+    let retained = a.journal().to_string();
     assert!(!retained.contains("fixture-initial-password"));
     assert!(
         provisioning_stage(|| local.verify_https(&untrusted))
@@ -578,10 +583,29 @@ async fn production_https_bootstrap_child() {
             .status(),
             reqwest::StatusCode::OK
         );
+        let store = crate::host_store::HostStore::for_config(&b.config).expect("host SQL");
+        let canonical: String = store
+            .get("operation")
+            .expect("SQL read")
+            .expect("canonical Join");
+        store
+            .put("admission", &serde_json::json!({"retired": false}))
+            .expect("live admission");
         joining
             .complete_hosted(&runtime, &tokio_util::sync::CancellationToken::new())
             .await
-            .expect("verified local completion after hosted HTTPS use");
+            .expect("verified hosted publication");
+        api::SetupAdmissionHistory::retire(&store, &canonical).expect("atomic retirement");
+        let retired = join_journal(&b);
+        joining
+            .complete_hosted(&runtime, &tokio_util::sync::CancellationToken::new())
+            .await
+            .expect("repeated completion uses authoritative retirement");
+        assert_eq!(
+            join_journal(&b),
+            retired,
+            "guard must not overwrite SQL completion"
+        );
         cancellation.cancel();
         serving
             .await
@@ -590,7 +614,7 @@ async fn production_https_bootstrap_child() {
         runtime.shutdown().await.expect("hosted owner cleanup");
     }
     assert_eq!(join_journal(&b)["complete"], true);
-    let joining_login = joining.login_client();
+    let joining_login = joining.login_client().expect("retained login Client");
     assert!(joining_login.client_secret.is_none());
     assert_ne!(joining_login.client_id.as_deref(), Some(login_id.as_str()));
     let runtime = provisioning_stage(|| joining.build_https_runtime())
@@ -608,11 +632,28 @@ async fn production_https_bootstrap_child() {
     );
     source.stop().await;
     drop(guard);
+    if hosted {
+        let retained = join_journal(&b);
+        let runtime = joining
+            .prepare_hosted_runtime(true, &tokio_util::sync::CancellationToken::new())
+            .await
+            .expect("same guard reopens retired Join without the source peer");
+        assert_eq!(runtime.endpoint_id(), endpoint);
+        runtime
+            .shutdown()
+            .await
+            .expect("same-guard offline runtime shutdown");
+        assert_eq!(
+            join_journal(&b),
+            retained,
+            "completed preparation cannot restart owner work"
+        );
+    }
     drop(joining);
     let joining =
         LocalJoin::open(b.config.clone()).expect("exact offline join reopen with source stopped");
     assert_eq!(
-        joining.login_client(),
+        joining.login_client().expect("retained login Client"),
         joining_login,
         "offline reopen retains the public login Client"
     );
@@ -890,16 +931,11 @@ async fn unused_address() -> std::net::SocketAddr {
     listener.local_addr().expect("nonzero localhost port")
 }
 fn join_journal(fixture: &Fixture) -> serde_json::Value {
-    serde_json::from_slice(
-        &fs::read(
-            fixture
-                .config
-                .local_provisioning_directory()
-                .join("join.json"),
-        )
-        .expect("public joining intent"),
-    )
-    .expect("public joining JSON")
+    crate::host_store::HostStore::for_config(&fixture.config)
+        .expect("host SQL")
+        .get("join")
+        .expect("SQL read")
+        .expect("Join")
 }
 async fn token(http: &reqwest::Client, base: &str, form: &[(&str, &str)]) -> TokenResponse {
     let response = http

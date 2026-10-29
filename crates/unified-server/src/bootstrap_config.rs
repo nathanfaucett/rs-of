@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::{self, Write},
+    io::{self},
     net::{Ipv4Addr, SocketAddr, TcpListener},
     path::{Path, PathBuf},
 };
@@ -11,8 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use idp_server::local_provisioning::{
-    absolute, create_private_directory, lock, private_options, read_private, require_absent,
-    require_unix_bootstrap, sync_ancestry,
+    absolute, create_private_directory, lock, require_absent, require_unix_bootstrap,
 };
 
 use crate::{CredentialBootstrap, LocalJoin, LocalProvisioner, UnifiedConfig};
@@ -49,6 +48,7 @@ pub struct BootstrapConfig {
     _operation: File,
     explicit_config: Option<UnifiedConfig>,
     fresh: bool,
+    store: crate::host_store::HostStore,
 }
 impl BootstrapConfig {
     pub fn default_directory() -> io::Result<PathBuf> {
@@ -169,19 +169,14 @@ impl BootstrapConfig {
         let root = &host.root;
         create_private_directory(root, true)?;
         let operation = lock(root, true)?;
-        let bytes = serde_json::to_vec(&host)?;
-        let mut file = private_options(true).open(root.join("host.json"))?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        sync_ancestry(root)?;
-        if read_private(&root.join("host.json"))? != bytes {
-            return Err(invalid("host identity durable readback mismatch"));
-        }
+        let store = crate::host_store::HostStore::create(root)?;
+        store.put("config", &host)?;
         Ok(Self {
             host,
             _operation: operation,
             explicit_config,
             fresh: true,
+            store,
         })
     }
 
@@ -200,9 +195,10 @@ impl BootstrapConfig {
         require_unix_bootstrap()?;
         let root = absolute(root)?;
         let operation = lock(&root, false)?;
-        require_absent(&root.join("host.pending"))?;
-        let bytes = read_private(&root.join("host.json"))?;
-        let host: Host = serde_json::from_slice(&bytes)?;
+        let store = crate::host_store::HostStore::open(&root)?;
+        let host: Host = store
+            .get("config")?
+            .ok_or_else(|| invalid("missing host configuration"))?;
         crate::LocalTls::api_base(host.listen)?;
         if host.purpose != BootstrapPurpose::AwaitingChoice {
             validate_host_issuer(&host.issuer)?;
@@ -219,7 +215,6 @@ impl BootstrapConfig {
             || (host.purpose == BootstrapPurpose::AwaitingChoice && !host.issuer.is_empty())
             || (host.explicit.is_some() && host.setup_attempted.is_none())
             || (host.purpose == BootstrapPurpose::Join) != host.trusted_peer.is_some()
-            || serde_json::to_value(&host)? != serde_json::from_slice::<serde_json::Value>(&bytes)?
         {
             return Err(invalid(
                 "invalid retained host identity; exact recovery required",
@@ -233,6 +228,7 @@ impl BootstrapConfig {
             _operation: operation,
             explicit_config: None,
             fresh: false,
+            store,
         })
     }
 
@@ -249,22 +245,10 @@ impl BootstrapConfig {
                 "fresh setup production already consumed; exact recovery required",
             ));
         }
-        let path = self.host.root.join("host.json");
-        if read_private(&path)? != serde_json::to_vec(&self.host)? {
-            return Err(invalid("retained host metadata changed while guarded"));
-        }
         self.fresh = false;
-        self.host.setup_attempted = Some(true);
-        let temporary = self.host.root.join("host.pending");
-        let bytes = serde_json::to_vec(&self.host)?;
-        let mut file = private_options(true).open(&temporary)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        std::fs::rename(temporary, &path)?;
-        sync_ancestry(&self.host.root)?;
-        if read_private(&path)? != bytes {
-            return Err(invalid("setup production marker readback mismatch"));
-        }
+        let mut selected: Host = serde_json::from_value(serde_json::to_value(&self.host)?)?;
+        selected.setup_attempted = Some(true);
+        self.retain_selection(selected)?;
         Ok(())
     }
 
@@ -276,10 +260,6 @@ impl BootstrapConfig {
             return Err(invalid(
                 "Create requires retained neutral host prerequisites",
             ));
-        }
-        let path = self.host.root.join("host.json");
-        if read_private(&path)? != serde_json::to_vec(&self.host)? {
-            return Err(invalid("retained host identity changed while guarded"));
         }
         let mut selected: Host = serde_json::from_slice(&serde_json::to_vec(&self.host)?)?;
         selected.purpose = BootstrapPurpose::Create;
@@ -320,22 +300,19 @@ impl BootstrapConfig {
     }
 
     fn retain_selection(&mut self, selected: Host) -> io::Result<()> {
-        let path = self.host.root.join("host.json");
-        if read_private(&path)? != serde_json::to_vec(&self.host)? {
-            return Err(invalid("retained host identity changed while guarded"));
-        }
-        let bytes = serde_json::to_vec(&selected)?;
-        let pending = self.host.root.join("host.pending");
-        let mut file = private_options(true).open(&pending)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        std::fs::rename(pending, &path)?;
-        sync_ancestry(&self.host.root)?;
-        if read_private(&path)? != bytes {
-            return Err(invalid("host selection durable readback mismatch"));
-        }
+        self.store.update(|records| {
+            if records.get("config") != Some(&serde_json::to_value(&self.host)?) {
+                return Err(invalid("retained host metadata changed while guarded"));
+            }
+            records.insert("config".into(), serde_json::to_value(&selected)?);
+            Ok(())
+        })?;
         self.host = selected;
         Ok(())
+    }
+
+    pub(crate) fn store(&self) -> crate::host_store::HostStore {
+        self.store.clone()
     }
 
     pub fn directory(&self) -> &Path {
@@ -551,8 +528,17 @@ impl BootstrapConfig {
             ] {
                 require_absent(path)?;
             }
+            if self.store.get::<Value>("create")?.is_some() {
+                return Err(io::Error::other(
+                    "lost Create provisioning directory; restore exact state before reset",
+                ));
+            }
             if self.purpose() == BootstrapPurpose::Join
-                && read_private(&self.directory().join("join-owner.attempted"))? != b"unattempted\n"
+                && (self.store.get::<Value>("join")?.is_some()
+                    || self
+                        .store
+                        .get::<Value>("join_attempts")?
+                        .is_some_and(|attempts| attempts["owner"] != false))
             {
                 return Err(io::Error::other(
                     "lost attempted Join owner journal; explicit recovery required",
@@ -579,6 +565,11 @@ impl BootstrapConfig {
         let keys = &references["keys"];
         if keys.is_null() {
             return Ok(());
+        }
+        if !keys["endpoint_secret"].is_null() {
+            let reference: crate::endpoint_secret::EndpointSecret =
+                serde_json::from_value(keys["endpoint_secret"].clone())?;
+            reference.delete()?;
         }
         let config = CredentialBootstrap::open(self.config())?.load()?;
         if keys["inventory_attempted"] == false {

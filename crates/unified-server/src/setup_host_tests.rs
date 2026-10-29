@@ -76,7 +76,7 @@ async fn shutdown_rejects_queued_request_before_joining_router_teardown() {
         .expect("isolated neutral host");
     let setup = SetupHost::create_http(host).expect("neutral host without trust installation");
     let retained = fs::read(setup.admission_path()).expect("retained admission");
-    let code = api::SetupAdmission::protected_code(
+    let code = SetupHost::protected_code(
         setup
             .admission_path()
             .parent()
@@ -185,9 +185,11 @@ fn neutral_production_history_is_required_without_changing_active_host_metadata(
     let root = root();
     let active = BootstrapConfig::create(&root.join("active"), BootstrapPurpose::Create, None)
         .expect("active Create host");
-    let active_bytes = fs::read(root.join("active/host.json")).expect("public host metadata");
-    let active_json: serde_json::Value =
-        serde_json::from_slice(&active_bytes).expect("metadata JSON");
+    let active_json: serde_json::Value = active
+        .store()
+        .get("config")
+        .expect("SQL read")
+        .expect("config");
     assert!(
         active_json.get("setup_attempted").is_none(),
         "neutral-only history must not alter active metadata"
@@ -201,17 +203,14 @@ fn neutral_production_history_is_required_without_changing_active_host_metadata(
     )
     .expect("neutral host");
     drop(neutral);
-    let path = root.join("neutral/host.json");
-    let bytes = fs::read(&path).expect("neutral metadata");
-    let mut json: serde_json::Value = serde_json::from_slice(&bytes).expect("neutral JSON");
+    let store = crate::host_store::HostStore::open(&root.join("neutral")).expect("SQL store");
+    let mut json: serde_json::Value = store.get("config").expect("SQL read").expect("config");
     json.as_object_mut()
         .expect("object")
         .remove("setup_attempted");
-    fs::write(
-        &path,
-        serde_json::to_vec(&json).expect("simulate missing required production history"),
-    )
-    .expect("retain damaged metadata");
+    store
+        .put("config", &json)
+        .expect("inject missing production history");
     assert!(BootstrapConfig::open(&root.join("neutral")).is_err());
     fs::remove_dir_all(root).expect("isolated cleanup");
 }

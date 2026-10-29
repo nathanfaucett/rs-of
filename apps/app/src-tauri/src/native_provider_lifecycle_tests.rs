@@ -175,9 +175,6 @@ async fn native_shared_create_child() {
             "addressing remote APIs must not create a desktop {owner}"
         );
     }
-    let identity = fs::read(data.join("node/host.json")).expect("retained host identity");
-    let journal = fs::read(data.join("node/endpoint.provisioning/intent.json"))
-        .expect("single shared owner journal");
     let address: std::net::SocketAddr = base
         .strip_prefix("https://")
         .expect("HTTPS base")
@@ -197,37 +194,47 @@ async fn native_shared_create_child() {
     host.close()
         .await
         .expect("close worker and shared endpoint");
+    let identity = super::tests::retained_identity(&data.join("node"));
+    let references = unified_server::BootstrapConfig::open(&data.join("node"))
+        .expect("stopped host")
+        .local_reset_references()
+        .expect("SQL references");
     let setup = super::prepare(&data.join("node")).expect("existing-only reopen");
     let mut reopened = NativeHost::start_with(setup, |_| Ok(()), LocalTls::verification_client)
         .await
         .expect("source-offline retained Node");
     assert_eq!(ready(&reopened).await.login_client, status.login_client);
     assert_eq!(reopened.base_url(), base);
-    assert_eq!(
-        fs::read(data.join("node/host.json")).expect("same host"),
-        identity
-    );
-    assert_eq!(
-        fs::read(data.join("node/endpoint.provisioning/intent.json")).expect("same owner journal"),
-        journal
-    );
     reopened
         .close()
         .await
         .expect("stopped host before explicit reset");
+    assert_eq!(
+        super::tests::retained_identity(&data.join("node")),
+        identity
+    );
+    assert_eq!(
+        unified_server::BootstrapConfig::open(&data.join("node"))
+            .expect("stopped host")
+            .local_reset_references()
+            .expect("same SQL references"),
+        references
+    );
     unavailable.store(true, Ordering::SeqCst);
     assert!(
         crate::setup_reset::run(&data).await.is_err(),
         "provider refusal must prevent data deletion"
     );
     assert_eq!(
-        fs::read(data.join("node/host.json")).expect("host retained after failure"),
+        super::tests::retained_identity(&data.join("node")),
         identity
     );
     assert_eq!(
-        fs::read(data.join("node/endpoint.provisioning/intent.json"))
-            .expect("references retained after failure"),
-        journal
+        unified_server::BootstrapConfig::open(&data.join("node"))
+            .expect("retained host")
+            .local_reset_references()
+            .expect("retained SQL references"),
+        references
     );
     assert!(crate::setup_reset::pending(&data).expect("pending reset"));
     unavailable.store(false, Ordering::SeqCst);

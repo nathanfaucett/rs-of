@@ -1505,7 +1505,7 @@ impl crate::AppConfig {
         ClientRegistration {
             application: ApplicationRegistration {
                 name: Some("Local Node operator".into()),
-                uri: format!("{}/operator", self.api_public_uri.trim_end_matches('/')),
+                uri: self.api_public_uri.clone(),
                 description: None,
             },
             client_id: Some(client_id.to_string()),
