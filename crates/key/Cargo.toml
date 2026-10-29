@@ -14,6 +14,16 @@ name = "key"
 
 [features]
 default = ["std"]
+headless = []
+secure-store = [
+    "std",
+    "dep:android-native-keyring-store",
+    "dep:apple-native-keyring-store",
+    "dep:dbus-secret-service-keyring-store",
+    "dep:keyring-core",
+    "dep:linux-keyutils-keyring-store",
+    "dep:windows-native-keyring-store",
+]
 std = [
     "thiserror/std",
     "bip32/std",
@@ -39,3 +49,31 @@ thiserror = { version = "2.0", default-features = false, features = [] }
 # Utils
 getrandom = { version = "0.4", default-features = false, features = [] }
 zeroize = { version = "1.9", default-features = false, features = [] }
+
+# Keyring
+keyring-core = { version = "1.0", default-features = false, features = [], optional = true }
+
+
+[target.'cfg(target_os = "linux")'.dependencies]
+dbus-secret-service-keyring-store = { version = "1.0", default-features = false, features = [
+  "crypto-rust",
+], optional = true }
+linux-keyutils-keyring-store = { version = "1.0", default-features = false, features = [
+], optional = true }
+
+# Windows-only dependency
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-native-keyring-store = { version = "1.0", default-features = false, features = [
+], optional = true }
+
+# macOS-only dependency
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "1.0", default-features = false, features = [
+  "keychain",
+  "protected",
+], optional = true }
+
+# Android-only dependency
+[target.'cfg(target_os = "android")'.dependencies]
+android-native-keyring-store = { version = "1.0", default-features = false, features = [
+], optional = true }

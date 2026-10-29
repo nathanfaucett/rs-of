@@ -16,6 +16,7 @@ use idp_server::local_provisioning::{
     require_absent, require_retained_directory, sync_ancestry,
 };
 
+use crate::endpoint_secret::EndpointSecret;
 use crate::local_provisioning::{Intent, intent};
 use crate::{RuntimeOwners, SecurityProtocol, UnifiedConfig, UnifiedEndpoint, UnifiedRuntime};
 
@@ -31,6 +32,7 @@ struct JoinIntent {
     inventory_user: Id,
     login_client: Id,
     endpoint_attempted: bool,
+    endpoint_secret: Option<EndpointSecret>,
     endpoint: Option<String>,
     inventory_attempted: bool,
     storage_attempted: bool,
@@ -77,6 +79,7 @@ impl LocalJoin {
             inventory_user: Id::now_v7(),
             login_client: Id::now_v7(),
             endpoint_attempted: false,
+            endpoint_secret: None,
             endpoint: None,
             inventory_attempted: false,
             storage_attempted: false,
@@ -121,7 +124,8 @@ impl LocalJoin {
             || journal.name.trim().is_empty()
             || ids.len() != count
             || ids.iter().any(Id::is_nil)
-            || journal.endpoint.is_some() && !journal.endpoint_attempted
+            || journal.endpoint.is_some() != journal.endpoint_attempted
+            || journal.endpoint_secret.is_some() != journal.endpoint_attempted
             || journal.inventory_attempted && journal.endpoint.is_none()
             || journal.storage_attempted && !journal.inventory_attempted
             || journal.storage_initialized && !journal.storage_attempted
@@ -148,6 +152,28 @@ impl LocalJoin {
         })
     }
 
+    /// Prepares this retained operation's endpoint; every retry is existing-only.
+    pub async fn prepare_endpoint(&mut self) -> io::Result<UnifiedEndpoint> {
+        self.check_retained()?;
+        if self.journal.endpoint_attempted {
+            return UnifiedEndpoint::open(&self.config.endpoint_data_dir, &self.config.idp).await;
+        }
+        idp_server::local_provisioning::require_absent(&self.config.endpoint_data_dir)?;
+        let secret = iroh::SecretKey::generate();
+        let reference = EndpointSecret::fresh();
+        self.journal.endpoint = Some(secret.public().to_string());
+        self.journal.endpoint_secret = Some(reference.clone());
+        self.journal.endpoint_attempted = true;
+        self.write()?;
+        UnifiedEndpoint::create_prepared(
+            &self.config.endpoint_data_dir,
+            &self.config.idp,
+            &reference,
+            secret,
+        )
+        .await
+    }
+
     pub fn reset_references(&self) -> io::Result<serde_json::Value> {
         self.check_retained()?;
         Ok(serde_json::json!({
@@ -156,6 +182,7 @@ impl LocalJoin {
             "owner_id": self.journal.inventory_user,
             "clients": [self.journal.login_client],
             "inventory_attempted": self.journal.inventory_attempted,
+            "endpoint_secret": self.journal.endpoint_secret,
         }))
     }
 
@@ -271,13 +298,7 @@ impl LocalJoin {
             }
             self.config.storage.require_provisioned_storage()?;
         }
-        let endpoint = if self.journal.endpoint_attempted {
-            UnifiedEndpoint::open(&self.config.endpoint_data_dir, &self.config.idp).await?
-        } else {
-            self.journal.endpoint_attempted = true;
-            self.write()?;
-            UnifiedEndpoint::open_fresh(&self.config.endpoint_data_dir, &self.config.idp).await?
-        };
+        let endpoint = self.prepare_endpoint().await?;
         let endpoint = Arc::new(endpoint);
         let result = async {
         let owners = tokio::select! {
@@ -530,4 +551,25 @@ fn cancelled() -> io::Error {
 
 fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
+}
+
+pub(crate) fn endpoint_reference(path: &Path) -> io::Result<(EndpointSecret, iroh::EndpointId)> {
+    let bytes = read_private(path)?;
+    let journal: JoinIntent = serde_json::from_slice(&bytes)?;
+    if journal.version != 1
+        || !journal.endpoint_attempted
+        || serde_json::to_value(&journal)? != serde_json::from_slice::<serde_json::Value>(&bytes)?
+    {
+        return Err(invalid("invalid Join endpoint owner metadata"));
+    }
+    Ok((
+        journal
+            .endpoint_secret
+            .ok_or_else(|| invalid("missing endpoint provider reference"))?,
+        journal
+            .endpoint
+            .ok_or_else(|| invalid("missing endpoint public identity"))?
+            .parse()
+            .map_err(io::Error::other)?,
+    ))
 }

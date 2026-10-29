@@ -60,6 +60,7 @@ dialoguer = { version = "0.12", default-features = false, features = [
 config = { version = "0.15", default-features = false, features = ["yaml"] }
 
 # Internal
+key = { path = "../key", default-features = false, features = ["secure-store"] }
 api = { path = "../api", default-features = false, features = [] }
 db = { package = "idp-db", path = "../db", default-features = false, features = [
     "replica",

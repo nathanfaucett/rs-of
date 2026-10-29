@@ -580,6 +580,11 @@ impl BootstrapConfig {
         if keys.is_null() {
             return Ok(());
         }
+        if !keys["endpoint_secret"].is_null() {
+            let reference: crate::endpoint_secret::EndpointSecret =
+                serde_json::from_value(keys["endpoint_secret"].clone())?;
+            reference.delete()?;
+        }
         let config = CredentialBootstrap::open(self.config())?.load()?;
         if keys["inventory_attempted"] == false {
             require_absent(Path::new(&config.idp.data_dir))?;
