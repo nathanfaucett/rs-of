@@ -124,6 +124,13 @@ pub struct ListConsentsParams {
     pub limit: Option<i32>,
 }
 
+/// struct for passing parameters to the method [`list_users`]
+#[derive(Clone, Debug)]
+pub struct ListUsersParams {
+    pub offset: Option<i32>,
+    pub limit: Option<i32>,
+}
+
 /// struct for passing parameters to the method [`put_register`]
 #[derive(Clone, Debug)]
 pub struct PutRegisterParams {
@@ -335,6 +342,13 @@ pub enum ListClientKeysError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ListConsentsError {
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`list_users`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ListUsersError {
     UnknownValue(serde_json::Value),
 }
 
@@ -1275,6 +1289,64 @@ pub async fn list_consents(
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<ListConsentsError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+pub async fn list_users(
+    configuration: &configuration::Configuration,
+    params: ListUsersParams,
+) -> Result<Vec<models::UserInfo>, Error<ListUsersError>> {
+    let uri_str = format!("{}/users", configuration.base_path);
+    let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
+
+    if let Some(ref param_value) = params.offset {
+        req_builder = req_builder.query(&[("offset", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = params.limit {
+        req_builder = req_builder.query(&[("limit", &param_value.to_string())]);
+    }
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    if let Some(ref token) = configuration.bearer_access_token {
+        req_builder = req_builder.bearer_auth(token.to_owned());
+    };
+
+    let req = req_builder.build()?;
+    configuration::check_request(&req, configuration.request_limit)?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    let content_type = super::ContentType::from(content_type);
+
+    if status.as_u16() == 200 || false {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        match content_type {
+            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
+            ContentType::Text => {
+                return Err(Error::from(serde_json::Error::custom(
+                    "Received `text/plain` content type response that cannot be converted to `Vec&lt;models::UserInfo&gt;`",
+                )));
+            }
+            ContentType::Unsupported(unknown_type) => {
+                return Err(Error::from(serde_json::Error::custom(format!(
+                    "Received `{unknown_type}` content type response that cannot be converted to `Vec&lt;models::UserInfo&gt;`"
+                ))));
+            }
+        }
+    } else {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        let entity: Option<ListUsersError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
             content,

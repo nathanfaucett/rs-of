@@ -1,15 +1,16 @@
 <script lang="ts">
-    import type { UserApplicationRoleResponse } from "@aicacia/management-client";
     import type { UserInfo } from "@aicacia/idp-client";
-    import { idpApi } from "$lib/common/state/idpClient.svelte";
-    import {
-        idpAdministration,
-        type Consent,
-    } from "$lib/common/state/idpAdministration";
+    import type { UserApplicationRoleResponse } from "@aicacia/management-client";
     import { onMount } from "svelte";
     import { page } from "$app/state";
+    import {
+        type Consent,
+        idpAdministration,
+    } from "$lib/common/state/idpAdministration";
+    import { idpApi } from "$lib/common/state/idpClient.svelte";
     import { managementApi } from "$lib/common/state/managementClient.svelte";
     import { notifications } from "$lib/common/state/notifications.svelte";
+    import { Alert, Card, Page, PageHeader } from "$lib/ui";
 
     const parsedUserId = page.params.userId;
     const hasValidUserId = Boolean(parsedUserId);
@@ -130,142 +131,114 @@
     });
 </script>
 
-<div class="flex flex-col gap-4">
-    <h1 class="mb-0 text-4xl">User Detail</h1>
+<Page>
+    <PageHeader title="User Detail" />
 
     {#if error}
-        <div class="card border border-red-700 text-red-200">{error}</div>
+        <Alert tone="danger">{error}</Alert>
     {:else if loading}
-        <div class="card">Loading user...</div>
+        <Card tone="subtle">Loading user...</Card>
     {:else if user}
-        <div class="flex flex-col gap-4">
-            <div class="card secondary flex flex-col gap-3">
-                <h2 class="mb-0 text-2xl">Profile</h2>
-                <p class="mb-0"><strong>Sub:</strong> {user.sub}</p>
-                <p class="mb-0"><strong>Name:</strong> {user.name ?? "-"}</p>
-                <p class="mb-0">
-                    <strong>Given name:</strong>
-                    {user.givenName ?? "-"}
-                </p>
-                <p class="mb-0">
-                    <strong>Family name:</strong>
-                    {user.familyName ?? "-"}
-                </p>
-                <p class="mb-0"><strong>Email:</strong> {user.email ?? "-"}</p>
-                <p class="mb-0">
-                    <strong>Locale:</strong>
-                    {user.locale ?? "-"}
-                </p>
-            </div>
+        <Card title="Profile">
+            <p class="mb-0"><strong>Sub:</strong> {user.sub}</p>
+            <p class="mb-0"><strong>Name:</strong> {user.name ?? "-"}</p>
+            <p class="mb-0">
+                <strong>Given name:</strong>
+                {user.givenName ?? "-"}
+            </p>
+            <p class="mb-0">
+                <strong>Family name:</strong>
+                {user.familyName ?? "-"}
+            </p>
+            <p class="mb-0"><strong>Email:</strong> {user.email ?? "-"}</p>
+            <p class="mb-0">
+                <strong>Locale:</strong>
+                {user.locale ?? "-"}
+            </p>
+        </Card>
 
-            <div class="card secondary flex flex-col gap-3">
-                <h2 class="mb-0 text-2xl">Roles across applications</h2>
-                {#if userRolesError}
-                    <div class="card border border-red-700 text-red-200">
-                        {userRolesError}
-                    </div>
-                {:else if userRolesLoading}
-                    <div class="card">Loading roles...</div>
-                {:else if userRoles.length === 0}
-                    <div class="card">No roles assigned.</div>
-                {:else}
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full border-collapse text-left">
-                            <thead>
-                                <tr
-                                    class="border-b border-gray-300 dark:border-gray-700"
-                                >
-                                    <th class="px-4 py-3">Application</th>
-                                    <th class="px-4 py-3">Role ID</th>
-                                    <th class="px-4 py-3">Name</th>
-                                    <th class="px-4 py-3">Description</th>
+        <Card title="Roles across applications">
+            {#if userRolesError}
+                <Alert tone="danger">{userRolesError}</Alert>
+            {:else if userRolesLoading}
+                <Card tone="subtle">Loading roles...</Card>
+            {:else if userRoles.length === 0}
+                <Card tone="subtle">No roles assigned.</Card>
+            {:else}
+                <div
+                    class="overflow-x-auto rounded-card border border-line bg-surface"
+                >
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Application</th>
+                                <th>Role ID</th>
+                                <th>Name</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {#each userRoles as userRole (`${userRole.applicationId}-${userRole.roleId}`)}
+                                <tr>
+                                    <td>{userRole.applicationId}</td>
+                                    <td>{userRole.roleId}</td>
+                                    <td>{userRole.roleName}</td>
+                                    <td>{userRole.roleDescription ?? "-"}</td>
                                 </tr>
-                            </thead>
-                            <tbody>
-                                {#each userRoles as userRole (`${userRole.applicationId}-${userRole.roleId}`)}
-                                    <tr
-                                        class="border-b border-gray-200 align-top last:border-b-0 dark:border-gray-800"
-                                    >
-                                        <td class="px-4 py-3"
-                                            >{userRole.applicationId}</td
-                                        >
-                                        <td class="px-4 py-3"
-                                            >{userRole.roleId}</td
-                                        >
-                                        <td class="px-4 py-3"
-                                            >{userRole.roleName}</td
-                                        >
-                                        <td class="px-4 py-3"
-                                            >{userRole.roleDescription ??
-                                                "-"}</td
-                                        >
-                                    </tr>
-                                {/each}
-                            </tbody>
-                        </table>
-                    </div>
-                {/if}
-            </div>
+                            {/each}
+                        </tbody>
+                    </table>
+                </div>
+            {/if}
+        </Card>
 
-            <div class="card secondary flex flex-col gap-3">
-                <h2 class="mb-0 text-2xl">Consents</h2>
-                {#if consentsError}
-                    <div class="card border border-red-700 text-red-200">
-                        {consentsError}
-                    </div>
-                {:else if consentsLoading}
-                    <div class="card">Loading consents...</div>
-                {:else if consents.length === 0}
-                    <div class="card">No consents found.</div>
-                {:else}
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full border-collapse text-left">
-                            <thead>
-                                <tr
-                                    class="border-b border-gray-300 dark:border-gray-700"
-                                >
-                                    <th class="px-4 py-3">Client ID</th>
-                                    <th class="px-4 py-3">Scope</th>
-                                    <th class="px-4 py-3">Redirect URI</th>
-                                    <th class="px-4 py-3">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {#each consents as consent (consent.id)}
-                                    <tr
-                                        class="border-b border-gray-200 align-top last:border-b-0 dark:border-gray-800"
+        <Card title="Consents">
+            {#if consentsError}
+                <Alert tone="danger">{consentsError}</Alert>
+            {:else if consentsLoading}
+                <Card tone="subtle">Loading consents...</Card>
+            {:else if consents.length === 0}
+                <Card tone="subtle">No consents found.</Card>
+            {:else}
+                <div
+                    class="overflow-x-auto rounded-card border border-line bg-surface"
+                >
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Client ID</th>
+                                <th>Scope</th>
+                                <th>Redirect URI</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {#each consents as consent (consent.id)}
+                                <tr>
+                                    <td>{consent.client_id}</td>
+                                    <td>{consent.scope}</td>
+                                    <td class="break-all"
+                                        >{consent.redirect_uri}</td
                                     >
-                                        <td class="px-4 py-3"
-                                            >{consent.client_id}</td
+                                    <td>
+                                        <button
+                                            class="btn btn-danger btn-md"
+                                            type="button"
+                                            onclick={() =>
+                                                onRevokeConsent(consent)}
+                                            disabled={revokingConsentId !==
+                                                null}
+                                            >{revokingConsentId === consent.id
+                                                ? "Revoking..."
+                                                : "Revoke"}</button
                                         >
-                                        <td class="px-4 py-3"
-                                            >{consent.scope}</td
-                                        >
-                                        <td class="px-4 py-3 break-all"
-                                            >{consent.redirect_uri}</td
-                                        >
-                                        <td class="px-4 py-3">
-                                            <button
-                                                type="button"
-                                                class="btn danger"
-                                                onclick={() =>
-                                                    onRevokeConsent(consent)}
-                                                disabled={revokingConsentId !==
-                                                    null}
-                                            >
-                                                {revokingConsentId ===
-                                                consent.id
-                                                    ? "Revoking..."
-                                                    : "Revoke"}
-                                            </button>
-                                        </td>
-                                    </tr>
-                                {/each}
-                            </tbody>
-                        </table>
-                    </div>
-                {/if}
-            </div>
-        </div>
+                                    </td>
+                                </tr>
+                            {/each}
+                        </tbody>
+                    </table>
+                </div>
+            {/if}
+        </Card>
     {/if}
-</div>
+</Page>

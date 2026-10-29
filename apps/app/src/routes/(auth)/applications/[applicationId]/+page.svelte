@@ -11,17 +11,18 @@
         PermissionResponse,
         RoleResponse,
     } from "@aicacia/management-client";
-    import { idpApi } from "$lib/common/state/idpClient.svelte";
-    import {
-        idpAdministration,
-        type Application,
-    } from "$lib/common/state/idpAdministration";
     import { onMount } from "svelte";
     import { goto } from "$app/navigation";
     import { resolve } from "$app/paths";
     import { page } from "$app/state";
+    import {
+        type Application,
+        idpAdministration,
+    } from "$lib/common/state/idpAdministration";
+    import { idpApi } from "$lib/common/state/idpClient.svelte";
     import { managementApi } from "$lib/common/state/managementClient.svelte";
     import { notifications } from "$lib/common/state/notifications.svelte";
+    import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 
     const applicationId = page.params.applicationId;
     const profileOptions = Object.values(ClientProfile);
@@ -489,227 +490,290 @@
     });
 </script>
 
-<div class="flex flex-col gap-4">
-    <h1 class="mb-0 text-4xl">Application Detail</h1>
+<Page>
+    <PageHeader title="Application Detail" />
 
     {#if error}
-        <div class="card border border-red-700 text-red-200">{error}</div>
+        <Alert tone="danger">{error}</Alert>
     {:else if loading}
-        <div class="card">Loading application...</div>
+        <Card tone="subtle">Loading application...</Card>
     {:else if application}
-        <div class="flex flex-col gap-4">
-            <div class="card secondary flex flex-col gap-3">
-                <h2 class="mb-0 text-2xl">Application</h2>
-                <p class="mb-0 text-sm opacity-70">ID: {application.id}</p>
-                <label class="flex flex-col gap-1">
-                    <span>Name</span>
-                    <input bind:value={appName} type="text" />
-                </label>
-                <label class="flex flex-col gap-1">
-                    <span>URI</span>
-                    <input bind:value={appUri} type="text" />
-                </label>
-                <label class="flex flex-col gap-1">
-                    <span>Description</span>
-                    <textarea bind:value={appDescription} rows="3"></textarea>
-                </label>
+        <Card title="Application" description="ID: {application.id}">
+            <div class="flex flex-col gap-4">
+                <Field label="Name">
+                    {#snippet children({
+                        id,
+                        "aria-describedby": describedby,
+                        "aria-invalid": invalid,
+                        required,
+                    })}
+                        <input
+                            {id}
+                            aria-describedby={describedby}
+                            aria-invalid={invalid}
+                            {required}
+                            bind:value={appName}
+                            type="text"
+                        />
+                    {/snippet}
+                </Field>
+                <Field label="URI">
+                    {#snippet children({
+                        id,
+                        "aria-describedby": describedby,
+                        "aria-invalid": invalid,
+                        required,
+                    })}
+                        <input
+                            {id}
+                            aria-describedby={describedby}
+                            aria-invalid={invalid}
+                            {required}
+                            bind:value={appUri}
+                            type="text"
+                        />
+                    {/snippet}
+                </Field>
+                <Field label="Description">
+                    {#snippet children({
+                        id,
+                        "aria-describedby": describedby,
+                        "aria-invalid": invalid,
+                        required,
+                    })}
+                        <textarea
+                            {id}
+                            aria-describedby={describedby}
+                            aria-invalid={invalid}
+                            {required}
+                            bind:value={appDescription}
+                            rows="3"></textarea>
+                    {/snippet}
+                </Field>
                 <div class="flex justify-end gap-2">
                     <button
+                        class="btn btn-primary btn-md"
                         type="button"
-                        class="btn primary"
                         onclick={onSaveApplication}
                         disabled={saving || deleting}
                         >{saving ? "Saving..." : "Save"}</button
                     >
                     <button
+                        class="btn btn-danger btn-md"
                         type="button"
-                        class="btn danger"
                         onclick={onDeleteApplication}
                         disabled={saving || deleting}
                         >{deleting ? "Deleting..." : "Delete"}</button
                     >
                 </div>
             </div>
+        </Card>
 
-            <div class="card secondary flex flex-col gap-3">
-                <h2 class="mb-0 text-2xl">Roles</h2>
-                <form class="flex flex-col gap-3" onsubmit={onCreateRole}>
-                    <label class="flex flex-col gap-1">
-                        <span>Name</span>
-                        <input bind:value={roleName} type="text" />
-                    </label>
-                    <label class="flex flex-col gap-1">
-                        <span>Description</span>
-                        <textarea bind:value={roleDescription} rows="2"
-                        ></textarea>
-                    </label>
-                    <div class="flex justify-end">
-                        <button
-                            type="submit"
-                            class="btn primary"
-                            disabled={creatingRole}
-                            >{creatingRole
-                                ? "Creating..."
-                                : "Create role"}</button
-                        >
-                    </div>
-                </form>
+        <Card title="Roles">
+            <form class="flex flex-col gap-4" onsubmit={onCreateRole}>
+                <Field label="Name">
+                    {#snippet children({
+                        id,
+                        "aria-describedby": describedby,
+                        "aria-invalid": invalid,
+                        required,
+                    })}
+                        <input
+                            {id}
+                            aria-describedby={describedby}
+                            aria-invalid={invalid}
+                            {required}
+                            bind:value={roleName}
+                            type="text"
+                        />
+                    {/snippet}
+                </Field>
+                <Field label="Description">
+                    {#snippet children({
+                        id,
+                        "aria-describedby": describedby,
+                        "aria-invalid": invalid,
+                        required,
+                    })}
+                        <textarea
+                            {id}
+                            aria-describedby={describedby}
+                            aria-invalid={invalid}
+                            {required}
+                            bind:value={roleDescription}
+                            rows="2"></textarea>
+                    {/snippet}
+                </Field>
+                <div class="flex justify-end">
+                    <button
+                        class="btn btn-primary btn-md"
+                        type="submit"
+                        disabled={creatingRole}
+                        >{creatingRole ? "Creating..." : "Create role"}</button
+                    >
+                </div>
+            </form>
 
-                {#if rolesError}
-                    <div class="card border border-red-700 text-red-200">
-                        {rolesError}
-                    </div>
-                {:else if rolesLoading}
-                    <div class="card">Loading roles...</div>
-                {:else if roles.length === 0}
-                    <div class="card">No roles found.</div>
-                {:else}
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full border-collapse text-left">
-                            <thead>
-                                <tr
-                                    class="border-b border-gray-300 dark:border-gray-700"
-                                >
-                                    <th class="px-4 py-3">ID</th>
-                                    <th class="px-4 py-3">Name</th>
-                                    <th class="px-4 py-3">Description</th>
-                                    <th class="px-4 py-3">Updated</th>
-                                    <th class="px-4 py-3">Actions</th>
+            {#if rolesError}
+                <Alert tone="danger">{rolesError}</Alert>
+            {:else if rolesLoading}
+                <Card tone="subtle">Loading roles...</Card>
+            {:else if roles.length === 0}
+                <Card tone="subtle">No roles found.</Card>
+            {:else}
+                <div
+                    class="overflow-x-auto rounded-card border border-line bg-surface"
+                >
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>Description</th>
+                                <th>Updated</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {#each roles as role (role.id)}
+                                <tr>
+                                    <td>{role.id}</td>
+                                    <td>{role.name}</td>
+                                    <td>{role.description ?? "-"}</td>
+                                    <td>{formatTimestamp(role.updatedAt)}</td>
+                                    <td>
+                                        <button
+                                            class="btn btn-danger btn-md"
+                                            type="button"
+                                            onclick={() => onDeleteRole(role)}
+                                            disabled={deletingRoleId !== null}
+                                            >{deletingRoleId === role.id
+                                                ? "Deleting..."
+                                                : "Delete"}</button
+                                        >
+                                    </td>
                                 </tr>
-                            </thead>
-                            <tbody>
-                                {#each roles as role (role.id)}
-                                    <tr
-                                        class="border-b border-gray-200 align-top last:border-b-0 dark:border-gray-800"
-                                    >
-                                        <td class="px-4 py-3">{role.id}</td>
-                                        <td class="px-4 py-3">{role.name}</td>
-                                        <td class="px-4 py-3"
-                                            >{role.description ?? "-"}</td
-                                        >
-                                        <td class="px-4 py-3"
-                                            >{formatTimestamp(
-                                                role.updatedAt,
-                                            )}</td
-                                        >
-                                        <td class="px-4 py-3">
-                                            <button
-                                                type="button"
-                                                class="btn danger"
-                                                onclick={() =>
-                                                    onDeleteRole(role)}
-                                                disabled={deletingRoleId !==
-                                                    null}
-                                            >
-                                                {deletingRoleId === role.id
-                                                    ? "Deleting..."
-                                                    : "Delete"}
-                                            </button>
-                                        </td>
-                                    </tr>
-                                {/each}
-                            </tbody>
-                        </table>
-                    </div>
-                {/if}
-            </div>
+                            {/each}
+                        </tbody>
+                    </table>
+                </div>
+            {/if}
+        </Card>
 
-            <div class="card secondary flex flex-col gap-3">
-                <h2 class="mb-0 text-2xl">Permissions</h2>
-                <form class="flex flex-col gap-3" onsubmit={onCreatePermission}>
-                    <label class="flex flex-col gap-1">
-                        <span>Name</span>
-                        <input bind:value={permissionName} type="text" />
-                    </label>
-                    <label class="flex flex-col gap-1">
-                        <span>Description</span>
-                        <textarea bind:value={permissionDescription} rows="2"
-                        ></textarea>
-                    </label>
-                    <div class="flex justify-end">
-                        <button
-                            type="submit"
-                            class="btn primary"
-                            disabled={creatingPermission}
-                            >{creatingPermission
-                                ? "Creating..."
-                                : "Create permission"}</button
-                        >
-                    </div>
-                </form>
+        <Card title="Permissions">
+            <form class="flex flex-col gap-4" onsubmit={onCreatePermission}>
+                <Field label="Name">
+                    {#snippet children({
+                        id,
+                        "aria-describedby": describedby,
+                        "aria-invalid": invalid,
+                        required,
+                    })}
+                        <input
+                            {id}
+                            aria-describedby={describedby}
+                            aria-invalid={invalid}
+                            {required}
+                            bind:value={permissionName}
+                            type="text"
+                        />
+                    {/snippet}
+                </Field>
+                <Field label="Description">
+                    {#snippet children({
+                        id,
+                        "aria-describedby": describedby,
+                        "aria-invalid": invalid,
+                        required,
+                    })}
+                        <textarea
+                            {id}
+                            aria-describedby={describedby}
+                            aria-invalid={invalid}
+                            {required}
+                            bind:value={permissionDescription}
+                            rows="2"></textarea>
+                    {/snippet}
+                </Field>
+                <div class="flex justify-end">
+                    <button
+                        class="btn btn-primary btn-md"
+                        type="submit"
+                        disabled={creatingPermission}
+                        >{creatingPermission
+                            ? "Creating..."
+                            : "Create permission"}</button
+                    >
+                </div>
+            </form>
 
-                {#if permissionsError}
-                    <div class="card border border-red-700 text-red-200">
-                        {permissionsError}
-                    </div>
-                {:else if permissionsLoading}
-                    <div class="card">Loading permissions...</div>
-                {:else if permissions.length === 0}
-                    <div class="card">No permissions found.</div>
-                {:else}
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full border-collapse text-left">
-                            <thead>
-                                <tr
-                                    class="border-b border-gray-300 dark:border-gray-700"
-                                >
-                                    <th class="px-4 py-3">ID</th>
-                                    <th class="px-4 py-3">Name</th>
-                                    <th class="px-4 py-3">Description</th>
-                                    <th class="px-4 py-3">Updated</th>
-                                    <th class="px-4 py-3">Actions</th>
+            {#if permissionsError}
+                <Alert tone="danger">{permissionsError}</Alert>
+            {:else if permissionsLoading}
+                <Card tone="subtle">Loading permissions...</Card>
+            {:else if permissions.length === 0}
+                <Card tone="subtle">No permissions found.</Card>
+            {:else}
+                <div
+                    class="overflow-x-auto rounded-card border border-line bg-surface"
+                >
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>Description</th>
+                                <th>Updated</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {#each permissions as permission (permission.id)}
+                                <tr>
+                                    <td>{permission.id}</td>
+                                    <td>{permission.name}</td>
+                                    <td>{permission.description ?? "-"}</td>
+                                    <td>
+                                        {formatTimestamp(permission.updatedAt)}
+                                    </td>
+                                    <td>
+                                        <button
+                                            class="btn btn-danger btn-md"
+                                            type="button"
+                                            onclick={() =>
+                                                onDeletePermission(permission)}
+                                            disabled={deletingPermissionId !==
+                                                null}
+                                            >{deletingPermissionId ===
+                                            permission.id
+                                                ? "Deleting..."
+                                                : "Delete"}</button
+                                        >
+                                    </td>
                                 </tr>
-                            </thead>
-                            <tbody>
-                                {#each permissions as permission (permission.id)}
-                                    <tr
-                                        class="border-b border-gray-200 align-top last:border-b-0 dark:border-gray-800"
-                                    >
-                                        <td class="px-4 py-3"
-                                            >{permission.id}</td
-                                        >
-                                        <td class="px-4 py-3"
-                                            >{permission.name}</td
-                                        >
-                                        <td class="px-4 py-3"
-                                            >{permission.description ?? "-"}</td
-                                        >
-                                        <td class="px-4 py-3">
-                                            {formatTimestamp(
-                                                permission.updatedAt,
-                                            )}
-                                        </td>
-                                        <td class="px-4 py-3">
-                                            <button
-                                                type="button"
-                                                class="btn danger"
-                                                onclick={() =>
-                                                    onDeletePermission(
-                                                        permission,
-                                                    )}
-                                                disabled={deletingPermissionId !==
-                                                    null}
-                                            >
-                                                {deletingPermissionId ===
-                                                permission.id
-                                                    ? "Deleting..."
-                                                    : "Delete"}
-                                            </button>
-                                        </td>
-                                    </tr>
-                                {/each}
-                            </tbody>
-                        </table>
-                    </div>
-                {/if}
-            </div>
+                            {/each}
+                        </tbody>
+                    </table>
+                </div>
+            {/if}
+        </Card>
 
-            <div class="card secondary flex flex-col gap-3">
-                <h2 class="mb-0 text-2xl">Role permissions</h2>
-                <div class="grid gap-3 md:grid-cols-3 md:items-end">
-                    <label class="flex flex-col gap-1">
-                        <span>Role</span>
-                        <select bind:value={selectedRoleId}>
+        <Card title="Role permissions">
+            <div class="grid gap-3 md:grid-cols-3 md:items-end">
+                <Field label="Role">
+                    {#snippet children({
+                        id,
+                        "aria-describedby": describedby,
+                        "aria-invalid": invalid,
+                        required,
+                    })}
+                        <select
+                            {id}
+                            aria-describedby={describedby}
+                            aria-invalid={invalid}
+                            {required}
+                            bind:value={selectedRoleId}
+                        >
                             <option value="">Select role</option>
                             {#each roles as role (role.id)}
                                 <option value={String(role.id)}
@@ -717,10 +781,22 @@
                                 >
                             {/each}
                         </select>
-                    </label>
-                    <label class="flex flex-col gap-1">
-                        <span>Permission</span>
-                        <select bind:value={selectedPermissionId}>
+                    {/snippet}
+                </Field>
+                <Field label="Permission">
+                    {#snippet children({
+                        id,
+                        "aria-describedby": describedby,
+                        "aria-invalid": invalid,
+                        required,
+                    })}
+                        <select
+                            {id}
+                            aria-describedby={describedby}
+                            aria-invalid={invalid}
+                            {required}
+                            bind:value={selectedPermissionId}
+                        >
                             <option value="">Select permission</option>
                             {#each permissions as permission (permission.id)}
                                 <option value={String(permission.id)}
@@ -728,199 +804,259 @@
                                 >
                             {/each}
                         </select>
-                    </label>
-                    <button
-                        type="button"
-                        class="btn primary"
-                        onclick={onAssignPermissionToRole}
-                        disabled={!selectedRoleId ||
-                            !selectedPermissionId ||
-                            assigningPermission}
-                    >
-                        {assigningPermission
-                            ? "Assigning..."
-                            : "Assign permission"}
-                    </button>
-                </div>
-
-                {#if rolePermissionsError}
-                    <div class="card border border-red-700 text-red-200">
-                        {rolePermissionsError}
-                    </div>
-                {:else if rolePermissionsLoading}
-                    <div class="card">Loading role permissions...</div>
-                {:else if !selectedRoleId}
-                    <div class="card">
-                        Select a role to view assigned permissions.
-                    </div>
-                {:else if rolePermissions.length === 0}
-                    <div class="card">
-                        No permissions assigned to this role.
-                    </div>
-                {:else}
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full border-collapse text-left">
-                            <thead>
-                                <tr
-                                    class="border-b border-gray-300 dark:border-gray-700"
-                                >
-                                    <th class="px-4 py-3">Permission ID</th>
-                                    <th class="px-4 py-3">Name</th>
-                                    <th class="px-4 py-3">Description</th>
-                                    <th class="px-4 py-3">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {#each rolePermissions as permission (permission.id)}
-                                    <tr
-                                        class="border-b border-gray-200 align-top last:border-b-0 dark:border-gray-800"
-                                    >
-                                        <td class="px-4 py-3"
-                                            >{permission.id}</td
-                                        >
-                                        <td class="px-4 py-3"
-                                            >{permission.name}</td
-                                        >
-                                        <td class="px-4 py-3"
-                                            >{permission.description ?? "-"}</td
-                                        >
-                                        <td class="px-4 py-3">
-                                            <button
-                                                type="button"
-                                                class="btn danger"
-                                                onclick={() =>
-                                                    onRevokePermissionFromRole(
-                                                        permission.id,
-                                                    )}
-                                                disabled={revokingRolePermissionId !==
-                                                    null}
-                                            >
-                                                {revokingRolePermissionId ===
-                                                permission.id
-                                                    ? "Revoking..."
-                                                    : "Revoke"}
-                                            </button>
-                                        </td>
-                                    </tr>
-                                {/each}
-                            </tbody>
-                        </table>
-                    </div>
-                {/if}
+                    {/snippet}
+                </Field>
+                <button
+                    class="btn btn-primary btn-md"
+                    type="button"
+                    onclick={onAssignPermissionToRole}
+                    disabled={!selectedRoleId ||
+                        !selectedPermissionId ||
+                        assigningPermission}
+                    >{assigningPermission
+                        ? "Assigning..."
+                        : "Assign permission"}</button
+                >
             </div>
 
-            <div class="card secondary flex flex-col gap-3">
-                <h2 class="mb-0 text-2xl">Clients</h2>
+            {#if rolePermissionsError}
+                <Alert tone="danger">{rolePermissionsError}</Alert>
+            {:else if rolePermissionsLoading}
+                <Card tone="subtle">Loading role permissions...</Card>
+            {:else if !selectedRoleId}
+                <Card tone="subtle">
+                    Select a role to view assigned permissions.
+                </Card>
+            {:else if rolePermissions.length === 0}
+                <Card tone="subtle">No permissions assigned to this role.</Card>
+            {:else}
+                <div
+                    class="overflow-x-auto rounded-card border border-line bg-surface"
+                >
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Permission ID</th>
+                                <th>Name</th>
+                                <th>Description</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {#each rolePermissions as permission (permission.id)}
+                                <tr>
+                                    <td>{permission.id}</td>
+                                    <td>{permission.name}</td>
+                                    <td>{permission.description ?? "-"}</td>
+                                    <td>
+                                        <button
+                                            class="btn btn-danger btn-md"
+                                            type="button"
+                                            onclick={() =>
+                                                onRevokePermissionFromRole(
+                                                    permission.id,
+                                                )}
+                                            disabled={revokingRolePermissionId !==
+                                                null}
+                                            >{revokingRolePermissionId ===
+                                            permission.id
+                                                ? "Revoking..."
+                                                : "Revoke"}</button
+                                        >
+                                    </td>
+                                </tr>
+                            {/each}
+                        </tbody>
+                    </table>
+                </div>
+            {/if}
+        </Card>
 
-                <form class="flex flex-col gap-3" onsubmit={onCreateClient}>
-                    <label class="flex flex-col gap-1">
-                        <span>Client name</span>
-                        <input bind:value={clientName} type="text" required />
-                    </label>
-                    <label class="flex flex-col gap-1">
-                        <span>Client URI</span>
-                        <input bind:value={clientUri} type="url" />
-                    </label>
-                    <label class="flex flex-col gap-1">
-                        <span>Redirect URIs</span>
-                        <textarea bind:value={redirectUrisText} rows="3"
-                        ></textarea>
-                    </label>
-                    <label class="flex flex-col gap-1">
-                        <span>Allowed scopes</span>
-                        <textarea bind:value={allowedScopesText} rows="2"
-                        ></textarea>
-                    </label>
-                    <div class="grid gap-3 md:grid-cols-3">
-                        <label class="flex flex-col gap-1">
-                            <span>Profile</span>
-                            <select bind:value={profile}>
+        <Card title="Clients">
+            <form class="flex flex-col gap-4" onsubmit={onCreateClient}>
+                <Field label="Client name" required>
+                    {#snippet children({
+                        id,
+                        "aria-describedby": describedby,
+                        "aria-invalid": invalid,
+                        required,
+                    })}
+                        <input
+                            {id}
+                            aria-describedby={describedby}
+                            aria-invalid={invalid}
+                            {required}
+                            bind:value={clientName}
+                            type="text"
+                        />
+                    {/snippet}
+                </Field>
+                <Field label="Client URI">
+                    {#snippet children({
+                        id,
+                        "aria-describedby": describedby,
+                        "aria-invalid": invalid,
+                        required,
+                    })}
+                        <input
+                            {id}
+                            aria-describedby={describedby}
+                            aria-invalid={invalid}
+                            {required}
+                            bind:value={clientUri}
+                            type="url"
+                        />
+                    {/snippet}
+                </Field>
+                <Field label="Redirect URIs">
+                    {#snippet children({
+                        id,
+                        "aria-describedby": describedby,
+                        "aria-invalid": invalid,
+                        required,
+                    })}
+                        <textarea
+                            {id}
+                            aria-describedby={describedby}
+                            aria-invalid={invalid}
+                            {required}
+                            bind:value={redirectUrisText}
+                            rows="3"></textarea>
+                    {/snippet}
+                </Field>
+                <Field label="Allowed scopes">
+                    {#snippet children({
+                        id,
+                        "aria-describedby": describedby,
+                        "aria-invalid": invalid,
+                        required,
+                    })}
+                        <textarea
+                            {id}
+                            aria-describedby={describedby}
+                            aria-invalid={invalid}
+                            {required}
+                            bind:value={allowedScopesText}
+                            rows="2"></textarea>
+                    {/snippet}
+                </Field>
+                <div class="grid gap-3 md:grid-cols-3">
+                    <Field label="Profile">
+                        {#snippet children({
+                            id,
+                            "aria-describedby": describedby,
+                            "aria-invalid": invalid,
+                            required,
+                        })}
+                            <select
+                                {id}
+                                aria-describedby={describedby}
+                                aria-invalid={invalid}
+                                {required}
+                                bind:value={profile}
+                            >
                                 {#each profileOptions as option (option)}
                                     <option value={option}>{option}</option>
                                 {/each}
                             </select>
-                        </label>
-                        <label class="flex flex-col gap-1">
-                            <span>Client type</span>
-                            <select bind:value={clientType}>
+                        {/snippet}
+                    </Field>
+                    <Field label="Client type">
+                        {#snippet children({
+                            id,
+                            "aria-describedby": describedby,
+                            "aria-invalid": invalid,
+                            required,
+                        })}
+                            <select
+                                {id}
+                                aria-describedby={describedby}
+                                aria-invalid={invalid}
+                                {required}
+                                bind:value={clientType}
+                            >
                                 {#each clientTypeOptions as option (option)}
                                     <option value={option}>{option}</option>
                                 {/each}
                             </select>
-                        </label>
-                        <label class="flex flex-col gap-1">
-                            <span>Token endpoint auth method</span>
-                            <select bind:value={tokenEndpointAuthMethod}>
+                        {/snippet}
+                    </Field>
+                    <Field label="Token endpoint auth method">
+                        {#snippet children({
+                            id,
+                            "aria-describedby": describedby,
+                            "aria-invalid": invalid,
+                            required,
+                        })}
+                            <select
+                                {id}
+                                aria-describedby={describedby}
+                                aria-invalid={invalid}
+                                {required}
+                                bind:value={tokenEndpointAuthMethod}
+                            >
                                 {#each tokenEndpointAuthMethodOptions as option (option)}
                                     <option value={option}>{option}</option>
                                 {/each}
                             </select>
-                        </label>
-                    </div>
-                    <div class="flex justify-end">
-                        <button
-                            type="submit"
-                            class="btn primary"
-                            disabled={creatingClient}
-                            >{creatingClient
-                                ? "Creating..."
-                                : "Create client"}</button
-                        >
-                    </div>
-                </form>
+                        {/snippet}
+                    </Field>
+                </div>
+                <div class="flex justify-end">
+                    <button
+                        class="btn btn-primary btn-md"
+                        type="submit"
+                        disabled={creatingClient}
+                        >{creatingClient
+                            ? "Creating..."
+                            : "Create client"}</button
+                    >
+                </div>
+            </form>
 
-                {#if applicationClients.length === 0}
-                    <p>
-                        Created clients appear here for this session. The IdP
-                        does not expose a client directory. <a
-                            href={resolve("/clients")}>Look up a client by ID</a
-                        >.
-                    </p>
-                {:else}
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full border-collapse text-left">
-                            <thead>
-                                <tr
-                                    class="border-b border-gray-300 dark:border-gray-700"
-                                >
-                                    <th class="px-4 py-3">Client ID</th>
-                                    <th class="px-4 py-3">Name</th>
-                                    <th class="px-4 py-3">Profile</th>
-                                    <th class="px-4 py-3">Auth Method</th>
+            {#if applicationClients.length === 0}
+                <p>
+                    Created clients appear here for this session. The IdP does
+                    not expose a client directory. <a href={resolve("/clients")}
+                        >Look up a client by ID</a
+                    >.
+                </p>
+            {:else}
+                <div
+                    class="overflow-x-auto rounded-card border border-line bg-surface"
+                >
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Client ID</th>
+                                <th>Name</th>
+                                <th>Profile</th>
+                                <th>Auth Method</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {#each applicationClients as client (client.clientId ?? `${client.clientName}-${client.application.uri}`)}
+                                <tr>
+                                    <td>
+                                        {#if client.clientId}
+                                            <a
+                                                href={resolve(
+                                                    `/clients/${client.clientId}`,
+                                                )}>{client.clientId}</a
+                                            >
+                                        {:else}
+                                            <span class="disabled">-</span>
+                                        {/if}
+                                    </td>
+                                    <td>{client.clientName}</td>
+                                    <td>{client.profile}</td>
+                                    <td>{client.tokenEndpointAuthMethod}</td>
                                 </tr>
-                            </thead>
-                            <tbody>
-                                {#each applicationClients as client (client.clientId ?? `${client.clientName}-${client.application.uri}`)}
-                                    <tr
-                                        class="border-b border-gray-200 align-top last:border-b-0 dark:border-gray-800"
-                                    >
-                                        <td class="px-4 py-3">
-                                            {#if client.clientId}
-                                                <a
-                                                    href={resolve(
-                                                        `/clients/${client.clientId}`,
-                                                    )}>{client.clientId}</a
-                                                >
-                                            {:else}
-                                                <span class="disabled">-</span>
-                                            {/if}
-                                        </td>
-                                        <td class="px-4 py-3"
-                                            >{client.clientName}</td
-                                        >
-                                        <td class="px-4 py-3"
-                                            >{client.profile}</td
-                                        >
-                                        <td class="px-4 py-3"
-                                            >{client.tokenEndpointAuthMethod}</td
-                                        >
-                                    </tr>
-                                {/each}
-                            </tbody>
-                        </table>
-                    </div>
-                {/if}
-            </div>
-        </div>
+                            {/each}
+                        </tbody>
+                    </table>
+                </div>
+            {/if}
+        </Card>
     {/if}
-</div>
+</Page>

@@ -22,7 +22,7 @@ export interface IdentityResourceOneOf2 {
     /**
      *
      */
-    id: string;
+    id?: string | null;
     /**
      *
      */
@@ -44,7 +44,6 @@ export type IdentityResourceOneOf2TypeEnum =
 export function instanceOfIdentityResourceOneOf2(
     value: object,
 ): value is IdentityResourceOneOf2 {
-    if (!("id" in value) || value["id"] === undefined) return false;
     if (!("type" in value) || value["type"] === undefined) return false;
     if (value["type"] !== "user") return false;
 
@@ -65,7 +64,12 @@ export function IdentityResourceOneOf2FromJSONTyped(
         return json;
     }
     return {
-        id: json["id"],
+        id:
+            json["id"] === undefined
+                ? undefined
+                : json["id"] === null
+                  ? null
+                  : json["id"],
         type: json["type"],
     };
 }

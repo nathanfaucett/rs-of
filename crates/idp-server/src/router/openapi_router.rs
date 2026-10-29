@@ -10,11 +10,11 @@ use super::routes::active_user::{__path_active_user, active_user};
 use super::routes::administration::{
     __path_create_application, __path_delete_application, __path_delete_user,
     __path_get_application, __path_get_user, __path_list_applications, __path_list_client_keys,
-    __path_list_consents, __path_reset_password, __path_revoke_client_keys, __path_revoke_consent,
-    __path_rotate_client_key, __path_update_application, __path_update_user, create_application,
-    delete_application, delete_user, get_application, get_user, list_applications,
-    list_client_keys, list_consents, reset_password, revoke_client_keys, revoke_consent,
-    rotate_client_key, update_application, update_user,
+    __path_list_consents, __path_list_users, __path_reset_password, __path_revoke_client_keys,
+    __path_revoke_consent, __path_rotate_client_key, __path_update_application, __path_update_user,
+    create_application, delete_application, delete_user, get_application, get_user,
+    list_applications, list_client_keys, list_consents, list_users, reset_password,
+    revoke_client_keys, revoke_consent, rotate_client_key, update_application, update_user,
 };
 use super::routes::health::{__path_health, health};
 use super::routes::replica_signers::{
@@ -72,6 +72,7 @@ fn routes() -> OpenApiRouter<RouterState> {
         .routes(routes!(get_application))
         .routes(routes!(update_application))
         .routes(routes!(delete_application))
+        .routes(routes!(list_users))
         .routes(routes!(get_user))
         .routes(routes!(update_user))
         .routes(routes!(delete_user))
@@ -180,8 +181,8 @@ mod tests {
                 .flat_map(|item| item.as_object().expect("path item").values())
                 .filter_map(|operation| operation["operationId"].as_str())
                 .collect::<Vec<_>>();
-            assert_eq!(operations.len(), 38, "complete IdP operation inventory");
-            assert_eq!(operations.iter().collect::<BTreeSet<_>>().len(), 38);
+            assert_eq!(operations.len(), 39, "complete IdP operation inventory");
+            assert_eq!(operations.iter().collect::<BTreeSet<_>>().len(), 39);
             assert!(document["paths"]["/openapi.json"]["get"]["operationId"].is_string());
             let mut registered_paths = paths.clone();
             registered_paths.remove("/openapi.json");

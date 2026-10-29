@@ -1,15 +1,16 @@
 <script lang="ts">
     import type { ClientRegistration } from "@aicacia/idp-client";
-    import {
-        idpAdministration,
-        type ClientKey,
-    } from "$lib/common/state/idpAdministration";
     import { onMount } from "svelte";
     import { goto } from "$app/navigation";
     import { resolve } from "$app/paths";
     import { page } from "$app/state";
+    import {
+        type ClientKey,
+        idpAdministration,
+    } from "$lib/common/state/idpAdministration";
     import { idpApi } from "$lib/common/state/idpClient.svelte";
     import { notifications } from "$lib/common/state/notifications.svelte";
+    import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 
     const clientId = page.params.clientId;
 
@@ -159,177 +160,223 @@
     });
 </script>
 
-<div class="flex flex-col gap-4">
-    <h1 class="mb-0 text-4xl">Client Detail</h1>
+<Page>
+    <PageHeader title="Client Detail" />
 
     {#if error}
-        <div class="card border border-red-700 text-red-200">{error}</div>
+        <Alert tone="danger">{error}</Alert>
     {:else if loading}
-        <div class="card">Loading client...</div>
+        <Card tone="subtle">Loading client...</Card>
     {:else if client}
-        <div class="flex flex-col gap-4">
-            <div class="card secondary flex flex-col gap-3">
-                <p class="mb-0 text-sm opacity-70">
-                    Client ID: {client.clientId ?? "-"}
-                </p>
-                <label class="flex flex-col gap-1">
-                    <span>Name</span>
-                    <input bind:value={clientName} type="text" />
-                </label>
-                <label class="flex flex-col gap-1">
-                    <span>Client URI</span>
-                    <input bind:value={clientUri} type="url" />
-                </label>
-                <label class="flex flex-col gap-1">
-                    <span>Logo URI</span>
-                    <input bind:value={logoUri} type="url" />
-                </label>
-                <label class="flex flex-col gap-1">
-                    <span>Policy URI</span>
-                    <input bind:value={policyUri} type="url" />
-                </label>
-                <label class="flex flex-col gap-1">
-                    <span>Terms of service URI</span>
-                    <input bind:value={tosUri} type="url" />
-                </label>
+        <Card description="Client ID: {client.clientId ?? '-'}">
+            <div class="flex flex-col gap-4">
+                <Field label="Name">
+                    {#snippet children({
+                        id,
+                        "aria-describedby": describedby,
+                        "aria-invalid": invalid,
+                        required,
+                    })}
+                        <input
+                            {id}
+                            aria-describedby={describedby}
+                            aria-invalid={invalid}
+                            {required}
+                            bind:value={clientName}
+                            type="text"
+                        />
+                    {/snippet}
+                </Field>
+                <Field label="Client URI">
+                    {#snippet children({
+                        id,
+                        "aria-describedby": describedby,
+                        "aria-invalid": invalid,
+                        required,
+                    })}
+                        <input
+                            {id}
+                            aria-describedby={describedby}
+                            aria-invalid={invalid}
+                            {required}
+                            bind:value={clientUri}
+                            type="url"
+                        />
+                    {/snippet}
+                </Field>
+                <Field label="Logo URI">
+                    {#snippet children({
+                        id,
+                        "aria-describedby": describedby,
+                        "aria-invalid": invalid,
+                        required,
+                    })}
+                        <input
+                            {id}
+                            aria-describedby={describedby}
+                            aria-invalid={invalid}
+                            {required}
+                            bind:value={logoUri}
+                            type="url"
+                        />
+                    {/snippet}
+                </Field>
+                <Field label="Policy URI">
+                    {#snippet children({
+                        id,
+                        "aria-describedby": describedby,
+                        "aria-invalid": invalid,
+                        required,
+                    })}
+                        <input
+                            {id}
+                            aria-describedby={describedby}
+                            aria-invalid={invalid}
+                            {required}
+                            bind:value={policyUri}
+                            type="url"
+                        />
+                    {/snippet}
+                </Field>
+                <Field label="Terms of service URI">
+                    {#snippet children({
+                        id,
+                        "aria-describedby": describedby,
+                        "aria-invalid": invalid,
+                        required,
+                    })}
+                        <input
+                            {id}
+                            aria-describedby={describedby}
+                            aria-invalid={invalid}
+                            {required}
+                            bind:value={tosUri}
+                            type="url"
+                        />
+                    {/snippet}
+                </Field>
                 <div class="flex justify-end">
                     <button
+                        class="btn btn-primary btn-md"
                         type="button"
-                        class="btn primary"
                         onclick={onSave}
                         disabled={saving || deleting}
                         >{saving ? "Saving..." : "Save"}</button
                     >
                 </div>
             </div>
+        </Card>
 
-            <div class="card secondary flex flex-col gap-3">
-                <h2 class="mb-0 text-2xl">Keys</h2>
-                {#if keysError}
-                    <div class="card border border-red-700 text-red-200">
-                        {keysError}
-                    </div>
-                {:else if keysLoading}
-                    <div class="card">Loading keys...</div>
-                {:else if keys.length === 0}
-                    <div class="card">No keys found.</div>
-                {:else}
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full border-collapse text-left">
-                            <thead>
-                                <tr
-                                    class="border-b border-gray-300 dark:border-gray-700"
-                                >
-                                    <th class="px-4 py-3">ID</th>
-                                    <th class="px-4 py-3">Name</th>
-                                    <th class="px-4 py-3">Derivation path</th>
-                                    <th class="px-4 py-3">Hardened</th>
-                                    <th class="px-4 py-3">Revoked</th>
-                                    <th class="px-4 py-3">Expires</th>
-                                    <th class="px-4 py-3">Actions</th>
+        <Card title="Keys">
+            {#if keysError}
+                <Alert tone="danger">{keysError}</Alert>
+            {:else if keysLoading}
+                <Card tone="subtle">Loading keys...</Card>
+            {:else if keys.length === 0}
+                <Card tone="subtle">No keys found.</Card>
+            {:else}
+                <div
+                    class="overflow-x-auto rounded-card border border-line bg-surface"
+                >
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>Derivation path</th>
+                                <th>Hardened</th>
+                                <th>Revoked</th>
+                                <th>Expires</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {#each keys as key (key.id)}
+                                <tr>
+                                    <td>{key.id}</td>
+                                    <td>{key.name}</td>
+                                    <td>{key.derivation_path}</td>
+                                    <td>{key.hardened ? "Yes" : "No"}</td>
+                                    <td>
+                                        {key.revoked_at
+                                            ? formatTimestamp(key.revoked_at)
+                                            : "Active"}
+                                    </td>
+                                    <td>
+                                        {key.expires_at
+                                            ? formatTimestamp(key.expires_at)
+                                            : "No expiry"}
+                                    </td>
+                                    <td>
+                                        <button
+                                            class="btn btn-secondary btn-md"
+                                            type="button"
+                                            onclick={() => onLoadJwk(key)}
+                                            disabled={jwkLoadingKeyId !== null}
+                                            >{jwkLoadingKeyId === key.id
+                                                ? "Loading..."
+                                                : "View JWK"}</button
+                                        >
+                                    </td>
                                 </tr>
-                            </thead>
-                            <tbody>
-                                {#each keys as key (key.id)}
-                                    <tr
-                                        class="border-b border-gray-200 align-top last:border-b-0 dark:border-gray-800"
-                                    >
-                                        <td class="px-4 py-3">{key.id}</td>
-                                        <td class="px-4 py-3">{key.name}</td>
-                                        <td class="px-4 py-3"
-                                            >{key.derivation_path}</td
-                                        >
-                                        <td class="px-4 py-3"
-                                            >{key.hardened ? "Yes" : "No"}</td
-                                        >
-                                        <td class="px-4 py-3"
-                                            >{key.revoked_at
-                                                ? formatTimestamp(key.revoked_at)
-                                                : "Active"}</td
-                                        >
-                                        <td class="px-4 py-3"
-                                            >{key.expires_at
-                                                ? formatTimestamp(key.expires_at)
-                                                : "No expiry"}</td
-                                        >
-                                        <td class="px-4 py-3">
-                                            <button
-                                                type="button"
-                                                class="btn secondary"
-                                                onclick={() => onLoadJwk(key)}
-                                                disabled={jwkLoadingKeyId !==
-                                                    null}
-                                            >
-                                                {jwkLoadingKeyId === key.id
-                                                    ? "Loading..."
-                                                    : "View JWK"}
-                                            </button>
-                                        </td>
-                                    </tr>
-                                {/each}
-                            </tbody>
-                        </table>
-                    </div>
-                {/if}
-
-                {#if jwkError}
-                    <div class="card border border-red-700 text-red-200">
-                        {jwkError}
-                    </div>
-                {:else if jwkLoadingKeyId !== null}
-                    <div class="card">Loading JWK...</div>
-                {:else if jwk && jwkKeyId !== null}
-                    <div class="flex flex-col gap-2">
-                        <p class="mb-0 text-sm opacity-70">
-                            JWK for key {jwkKeyId}
-                        </p>
-                        <pre
-                            class="overflow-x-auto rounded-md border border-gray-300 p-4 text-sm dark:border-gray-700">{JSON.stringify(
-                                jwk,
-                                null,
-                                2,
-                            )}</pre>
-                    </div>
-                {/if}
-            </div>
-
-            {#if client.redirectUris && client.redirectUris.length > 0}
-                <div class="card secondary">
-                    <h2 class="mb-2 text-2xl">Redirect URIs</h2>
-                    <ul>
-                        {#each client.redirectUris as uri (uri)}
-                            <li>{uri}</li>
-                        {/each}
-                    </ul>
+                            {/each}
+                        </tbody>
+                    </table>
                 </div>
             {/if}
 
-            {#if client.allowedScopes && client.allowedScopes.length > 0}
-                <div class="card secondary">
-                    <h2 class="mb-2 text-2xl">Allowed scopes</h2>
-                    <ul>
-                        {#each client.allowedScopes as scope (scope)}
-                            <li>{scope}</li>
-                        {/each}
-                    </ul>
+            {#if jwkError}
+                <Alert tone="danger">{jwkError}</Alert>
+            {:else if jwkLoadingKeyId !== null}
+                <Card tone="subtle">Loading JWK...</Card>
+            {:else if jwk && jwkKeyId !== null}
+                <div class="flex flex-col gap-2">
+                    <p class="mb-0 text-sm text-ink-muted">
+                        JWK for key {jwkKeyId}
+                    </p>
+                    <pre
+                        class="overflow-x-auto rounded-control border border-line bg-surface-muted p-4 text-sm">{JSON.stringify(
+                            jwk,
+                            null,
+                            2,
+                        )}</pre>
                 </div>
             {/if}
+        </Card>
 
-            <div class="card secondary flex flex-col gap-3">
-                <h2 class="mb-0 text-2xl">Danger zone</h2>
-                <p class="mb-0 text-sm opacity-80">
-                    Deleting this client cannot be undone.
-                </p>
-                <div class="flex justify-end">
-                    <button
-                        type="button"
-                        class="btn danger"
-                        onclick={onDeleteClient}
-                        disabled={deleting || saving}
-                        >{deleting ? "Deleting..." : "Delete client"}</button
-                    >
-                </div>
+        {#if client.redirectUris && client.redirectUris.length > 0}
+            <Card title="Redirect URIs">
+                <ul>
+                    {#each client.redirectUris as uri (uri)}
+                        <li>{uri}</li>
+                    {/each}
+                </ul>
+            </Card>
+        {/if}
+
+        {#if client.allowedScopes && client.allowedScopes.length > 0}
+            <Card title="Allowed scopes">
+                <ul>
+                    {#each client.allowedScopes as scope (scope)}
+                        <li>{scope}</li>
+                    {/each}
+                </ul>
+            </Card>
+        {/if}
+
+        <Card
+            title="Danger zone"
+            description="Deleting this client cannot be undone."
+        >
+            <div class="flex justify-end">
+                <button
+                    class="btn btn-danger btn-md"
+                    type="button"
+                    onclick={onDeleteClient}
+                    disabled={deleting || saving}
+                    >{deleting ? "Deleting..." : "Delete client"}</button
+                >
             </div>
-        </div>
+        </Card>
     {/if}
-</div>
+</Page>

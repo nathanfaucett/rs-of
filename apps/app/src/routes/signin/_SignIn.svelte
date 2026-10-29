@@ -22,7 +22,6 @@
 <script lang="ts">
     import { createForm } from "@aicacia/svelte-forms";
     import { isTauri } from "@tauri-apps/api/core";
-    import Issues from "$lib/common/components/Issues.svelte";
     import { afterSigninRedirect } from "$lib/common/state/afterSigninRedirect.svelte";
     import {
         ensureTauriIdpApiUrl,
@@ -33,6 +32,7 @@
         ensureOidcClientId,
         getOidcClient,
     } from "$lib/common/state/oidc.svelte";
+    import { Field } from "$lib/ui";
 
     const form = createForm(SignInSchema(), {
         username: "",
@@ -80,28 +80,54 @@
     }
 </script>
 
-<form onsubmit={onSubmit} class="flex flex-col">
-    <label class="flex flex-col">
-        {m.signin_username_label()}
-        <input
-            type="text"
-            aria-label={m.signin_username_label()}
-            autocomplete="username"
-            placeholder={m.signin_username_placeholder()}
-            bind:value={form.fields.username.value}
-        />
-        <Issues issues={form.fields.username.issues} />
-    </label>
-    <label class="flex flex-col">
-        {m.signin_password_label()}
-        <input
-            aria-label={m.signin_password_label()}
-            type="password"
-            autocomplete="current-password"
-            placeholder={m.signin_password_placeholder()}
-            bind:value={form.fields.password.value}
-        />
-        <Issues issues={form.fields.password.issues} />
-    </label>
-    <input class="btn primary mt-4" type="submit" value={m.sign_in()} />
+<form onsubmit={onSubmit} class="flex flex-col gap-4">
+    <Field
+        label={m.signin_username_label()}
+        issues={form.fields.username.issues}
+    >
+        {#snippet children({
+            id,
+            "aria-describedby": describedby,
+            "aria-invalid": invalid,
+            required,
+        })}
+            <input
+                {id}
+                aria-describedby={describedby}
+                aria-invalid={invalid}
+                {required}
+                type="text"
+                aria-label={m.signin_username_label()}
+                autocomplete="username"
+                placeholder={m.signin_username_placeholder()}
+                bind:value={form.fields.username.value}
+            />
+        {/snippet}
+    </Field>
+    <Field
+        label={m.signin_password_label()}
+        issues={form.fields.password.issues}
+    >
+        {#snippet children({
+            id,
+            "aria-describedby": describedby,
+            "aria-invalid": invalid,
+            required,
+        })}
+            <input
+                {id}
+                aria-describedby={describedby}
+                aria-invalid={invalid}
+                {required}
+                aria-label={m.signin_password_label()}
+                type="password"
+                autocomplete="current-password"
+                placeholder={m.signin_password_placeholder()}
+                bind:value={form.fields.password.value}
+            />
+        {/snippet}
+    </Field>
+    <button class="btn btn-primary btn-md mt-1" type="submit"
+        >{m.sign_in()}</button
+    >
 </form>

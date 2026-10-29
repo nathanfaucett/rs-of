@@ -3,11 +3,12 @@
     import { resolve } from "$app/paths";
     import ConfigForm from "$lib/common/components/ConfigForm.svelte";
     import { m } from "$lib/paraglide/messages";
+    import { Card, Page, PageHeader } from "$lib/ui";
 </script>
 
-<div class="flex grow flex-col items-center justify-center">
-    <div class="card w-sm">
-        <h1>{m.env_config()}</h1>
+<Page width="narrow">
+    <PageHeader title={m.env_config()} />
+    <Card>
         <ConfigForm onSaved={() => void goto(resolve("/"))} />
-    </div>
-</div>
+    </Card>
+</Page>

@@ -7,24 +7,24 @@
 </script>
 
 <script lang="ts">
-    import {
-        FetchError,
-        ResponseError,
-        type AuthorizationRequest,
-        type ClientRegistration,
+    import type {
+        ApplicationRegistration,
+        AuthorizationRequest,
+        ClientRegistration,
     } from "@aicacia/idp-client";
     import type { OidcUserInfo } from "@aicacia/oidc-client";
-    import { LoaderCircle } from "@lucide/svelte";
+    import LoaderCircle from "@lucide/svelte/icons/loader-circle";
     import { isTauri } from "@tauri-apps/api/core";
     import { goto } from "$app/navigation";
+    import { resolve } from "$app/paths";
     import { idpApi } from "$lib/common/state/idpClient.svelte";
     import { m } from "$lib/paraglide/messages";
+
     import AuthorizeClient from "./_AuthorizeClient.svelte";
     import {
         rejectAuthorizationRequest,
         resolveAuthorizationRequest,
     } from "./_utils";
-    import type { ApplicationRegistration } from "@aicacia/idp-client";
 
     let { userInfo, authorizationRequest, registration }: AuthorizeProps =
         $props();
@@ -71,7 +71,7 @@
             ) as ClientRegistration["allowedGrantTypes"],
             grantTypes: asStringArray(
                 record.grantTypes ?? record.grant_types,
-            ) as CandidateClientRegistration["grantTypes"],
+            ) as NonNullable<ClientRegistration["allowedGrantTypes"]>,
             responseTypes: asStringArray(
                 record.responseTypes ?? record.response_types,
             ) as ClientRegistration["responseTypes"],
@@ -209,7 +209,7 @@
                 clientId: effectiveClientId,
             });
             if (isTauri()) {
-                await goto("/");
+                await goto(resolve("/"));
             }
         } catch (e) {
             console.error("Error resolving authorize request", e);
@@ -309,14 +309,14 @@
 </script>
 
 {#if loading}
-    <div class="flex flex-row items-center justify-center">
-        <LoaderCircle class="animate-spin" />
+    <div class="flex flex-row items-center justify-center py-8" role="status">
+        <LoaderCircle class="animate-spin" aria-hidden="true" />
     </div>
 {:else if client}
     <AuthorizeClient {userInfo} {client} {disabled} {onAllow} {onDeny} />
 {:else if registrationCandidate}
     <section>
-        <h5>{m.authorize_new_client_request()}</h5>
+        <h2>{m.authorize_new_client_request()}</h2>
         <p>{m.authorize_client_not_found()}</p>
         <dl class="mt-3 space-y-1 text-sm">
             <div>
@@ -347,22 +347,28 @@
             </div>
         </dl>
         <div class="mt-4 flex flex-row justify-center gap-4">
-            <button type="button" class="btn primary" onclick={onRegister}>
-                {m.client_accept()}
-            </button>
-            <button type="button" class="btn secondary" onclick={onDeny}>
-                {m.client_reject()}
-            </button>
+            <button
+                class="btn btn-primary btn-md"
+                type="button"
+                onclick={onRegister}>{m.client_accept()}</button
+            >
+            <button
+                class="btn btn-secondary btn-md"
+                type="button"
+                onclick={onDeny}>{m.client_reject()}</button
+            >
         </div>
     </section>
 {:else}
     <section>
-        <h5>{m.authorize_invalid_request()}</h5>
+        <h2>{m.authorize_invalid_request()}</h2>
         <p>{m.authorize_client_not_found()}</p>
         <div class="mt-4 flex flex-row justify-center gap-4">
-            <button type="button" class="btn secondary" onclick={onDeny}>
-                {m.authorize_button_deny()}
-            </button>
+            <button
+                class="btn btn-secondary btn-md"
+                type="button"
+                onclick={onDeny}>{m.authorize_button_deny()}</button
+            >
         </div>
     </section>
 {/if}

@@ -3911,6 +3911,53 @@
         ]
       }
     },
+    "/users": {
+      "get": {
+        "operationId": "list_users",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UserInfo"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Users"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
     "/users/{user_id}": {
       "delete": {
         "operationId": "delete_user",

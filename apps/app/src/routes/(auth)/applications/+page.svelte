@@ -1,12 +1,13 @@
 <script lang="ts">
-    import {
-        idpAdministration,
-        type Application,
-    } from "$lib/common/state/idpAdministration";
     import { onMount } from "svelte";
     import { resolve } from "$app/paths";
+    import {
+        type Application,
+        idpAdministration,
+    } from "$lib/common/state/idpAdministration";
 
     import { notifications } from "$lib/common/state/notifications.svelte";
+    import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 
     const limit = 25;
 
@@ -104,83 +105,110 @@
     });
 </script>
 
-<div class="flex flex-col gap-4">
-    <div class="flex items-center justify-between">
-        <h1 class="mb-0 text-4xl">Applications</h1>
-        <p class="mb-0 text-sm opacity-70">Offset: {offset}</p>
-    </div>
+<Page>
+    <PageHeader title="Applications" description="Offset: {offset}" />
 
-    <form
-        class="card secondary flex flex-col gap-3"
-        onsubmit={onCreateApplication}
-    >
-        <h2 class="mb-0 text-2xl">Create application</h2>
-        <label class="flex flex-col gap-1">
-            <span>Name</span>
-            <input bind:value={name} type="text" required />
-        </label>
-        <label class="flex flex-col gap-1">
-            <span>URI</span>
-            <input bind:value={uri} type="text" required />
-        </label>
-        <label class="flex flex-col gap-1">
-            <span>Description</span>
-            <textarea bind:value={description} rows="3"></textarea>
-        </label>
-        <div class="flex justify-end">
-            <button
-                type="submit"
-                class="btn primary"
-                disabled={creating || loading}
-                >{creating ? "Creating..." : "Create application"}</button
-            >
-        </div>
-    </form>
+    <Card title="Create application">
+        <form class="flex flex-col gap-4" onsubmit={onCreateApplication}>
+            <Field label="Name" required>
+                {#snippet children({
+                    id,
+                    "aria-describedby": describedby,
+                    "aria-invalid": invalid,
+                    required,
+                })}
+                    <input
+                        {id}
+                        aria-describedby={describedby}
+                        aria-invalid={invalid}
+                        {required}
+                        bind:value={name}
+                        type="text"
+                    />
+                {/snippet}
+            </Field>
+            <Field label="URI" required>
+                {#snippet children({
+                    id,
+                    "aria-describedby": describedby,
+                    "aria-invalid": invalid,
+                    required,
+                })}
+                    <input
+                        {id}
+                        aria-describedby={describedby}
+                        aria-invalid={invalid}
+                        {required}
+                        bind:value={uri}
+                        type="text"
+                    />
+                {/snippet}
+            </Field>
+            <Field label="Description">
+                {#snippet children({
+                    id,
+                    "aria-describedby": describedby,
+                    "aria-invalid": invalid,
+                    required,
+                })}
+                    <textarea
+                        {id}
+                        aria-describedby={describedby}
+                        aria-invalid={invalid}
+                        {required}
+                        bind:value={description}
+                        rows="3"></textarea>
+                {/snippet}
+            </Field>
+            <div class="flex justify-end">
+                <button
+                    class="btn btn-primary btn-md"
+                    type="submit"
+                    disabled={creating || loading}
+                    >{creating ? "Creating..." : "Create application"}</button
+                >
+            </div>
+        </form>
+    </Card>
 
     {#if error}
-        <div class="card border border-red-700 text-red-200">{error}</div>
+        <Alert tone="danger">{error}</Alert>
     {:else if loading}
-        <div class="card">Loading applications...</div>
+        <Card tone="subtle">Loading applications...</Card>
     {:else if applications.length === 0}
-        <div class="card">No applications found.</div>
+        <Card tone="subtle">No applications found.</Card>
     {:else}
-        <div class="card secondary overflow-x-auto p-0">
-            <table class="min-w-full border-collapse text-left">
+        <div class="overflow-x-auto rounded-card border border-line bg-surface">
+            <table class="table">
                 <thead>
-                    <tr class="border-b border-gray-300 dark:border-gray-700">
-                        <th class="px-4 py-3">ID</th>
-                        <th class="px-4 py-3">Name</th>
-                        <th class="px-4 py-3">URI</th>
-                        <th class="px-4 py-3">Description</th>
-                        <th class="px-4 py-3">Updated</th>
+                    <tr>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>URI</th>
+                        <th>Description</th>
+                        <th>Updated</th>
                     </tr>
                 </thead>
                 <tbody>
                     {#each applications as application (application.id)}
-                        <tr
-                            class="border-b border-gray-200 align-top last:border-b-0 dark:border-gray-800"
-                        >
-                            <td class="px-4 py-3">
+                        <tr>
+                            <td>
                                 <a
                                     href={resolve(
                                         `/applications/${application.id}`,
                                     )}>{application.id}</a
                                 ></td
                             >
-                            <td class="px-4 py-3">{application.name}</td>
-                            <td class="px-4 py-3">
+                            <td>{application.name}</td>
+                            <td>
                                 <a
                                     href={resolve(
                                         `/applications/${application.id}`,
                                     )}>{application.uri}</a
                                 >
                             </td>
-                            <td class="px-4 py-3"
-                                >{application.description ?? "-"}</td
-                            >
-                            <td class="px-4 py-3"
-                                >{formatTimestamp(application.updated_at)}</td
-                            >
+                            <td>{application.description ?? "-"}</td>
+                            <td>{formatTimestamp(application.updated_at)}</td>
                         </tr>
                     {/each}
                 </tbody>
@@ -190,16 +218,16 @@
 
     <div class="flex items-center justify-end gap-2">
         <button
+            class="btn btn-secondary btn-md"
             type="button"
-            class="btn secondary"
             onclick={onPrev}
             disabled={loading || creating || offset === 0}>Prev</button
         >
         <button
+            class="btn btn-secondary btn-md"
             type="button"
-            class="btn secondary"
             onclick={onNext}
             disabled={loading || creating}>Next</button
         >
     </div>
-</div>
+</Page>

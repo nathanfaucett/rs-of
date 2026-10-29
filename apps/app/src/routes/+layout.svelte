@@ -4,7 +4,7 @@
 
 <script lang="ts">
     import { getTheme } from "@aicacia/svelte-headless";
-    import { Settings } from "@lucide/svelte";
+    import Settings from "@lucide/svelte/icons/settings";
     import { isTauri } from "@tauri-apps/api/core";
     import { onMount } from "svelte";
     import { resolve } from "$app/paths";
@@ -12,8 +12,8 @@
     import ConfigForm from "$lib/common/components/ConfigForm.svelte";
     import Modal from "$lib/common/components/Modal.svelte";
     import Notifications from "$lib/common/components/Notifications.svelte";
-    import { m } from "$lib/paraglide/messages";
     import { handleDeepLink } from "$lib/common/util/handleDeepLink";
+    import { m } from "$lib/paraglide/messages";
     import type { LayoutProps } from "./$types";
 
     let { children }: LayoutProps = $props();
@@ -27,16 +27,14 @@
 
     $effect(() => {
         if (getTheme() === "dark") {
-            document.body.classList.add("dark");
+            document.documentElement.classList.add("dark");
             return;
         }
 
-        document.body.classList.remove("dark");
+        document.documentElement.classList.remove("dark");
     });
 
     onMount(() => {
-        document.body.classList.add("hydrated");
-
         if (!isTauri()) {
             return;
         }
@@ -68,7 +66,7 @@
 
 <button
     type="button"
-    class="btn secondary icon fixed right-4 bottom-4 z-10 rounded-full shadow-lg"
+    class="btn btn-secondary btn-icon fixed right-4 bottom-4 z-10 rounded-full shadow-lg"
     aria-label={m.env_config()}
     title={m.env_config()}
     onclick={showConfig}
@@ -80,10 +78,9 @@
     <ConfigForm bind:this={configForm} onSaved={() => configModal?.close()} />
     {#if isTauri()}
         <a
-            class="btn secondary"
+            class="btn btn-secondary"
             href={resolve("/maintenance")}
-            onclick={() => configModal?.close()}
-            >Local Node maintenance</a
+            onclick={() => configModal?.close()}>Local Node maintenance</a
         >
     {/if}
 </Modal>

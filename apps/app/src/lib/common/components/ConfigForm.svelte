@@ -1,13 +1,21 @@
 <script lang="ts" module>
     import * as v from "valibot";
-    import { m } from "$lib/paraglide/messages";
+    import {
+        getDeviceApiUrl,
+        setDeviceApiUrl,
+        validateDeviceApiUrl,
+    } from "$lib/common/state/deviceClient.svelte";
     import { validateIdpApiUrl } from "$lib/common/state/idpClient.svelte";
     import { validateManagementApiUrl } from "$lib/common/state/managementClient.svelte";
-
-    import { validateDeviceApiUrl, getDeviceApiUrl, setDeviceApiUrl } from "$lib/common/state/deviceClient.svelte";
+    import { m } from "$lib/paraglide/messages";
 
     const configSchema = v.objectAsync({
-        deviceApiUrl: v.pipeAsync(v.string(), v.nonEmpty(m.errors_message_required()), v.url(m.errors_message_invalid_url()), v.checkAsync(validateDeviceApiUrl, m.errors_message_invalid_url())),
+        deviceApiUrl: v.pipeAsync(
+            v.string(),
+            v.nonEmpty(m.errors_message_required()),
+            v.url(m.errors_message_invalid_url()),
+            v.checkAsync(validateDeviceApiUrl, m.errors_message_invalid_url()),
+        ),
         idpApiUrl: v.pipeAsync(
             v.string(),
             v.nonEmpty(m.errors_message_required()),
@@ -28,7 +36,6 @@
 
 <script lang="ts">
     import { createForm } from "@aicacia/svelte-forms";
-    import Issues from "$lib/common/components/Issues.svelte";
     import {
         getIdpApiUrl,
         setIdpApiUrl,
@@ -38,6 +45,7 @@
         setManagementApiUrl,
     } from "$lib/common/state/managementClient.svelte";
     import { notifications } from "$lib/common/state/notifications.svelte";
+    import { Field } from "$lib/ui";
 
     interface Props {
         onSaved?: () => void;
@@ -74,30 +82,67 @@
 </script>
 
 <form onsubmit={onSubmit} class="flex flex-col gap-4">
-    <label class="flex flex-col">
-        {m.env_config_idp_url()}
-        <input
-            type="text"
-            aria-label={m.env_config_idp_url()}
-            placeholder={m.env_config_idp_url_placeholder()}
-            bind:value={form.fields.idpApiUrl.value}
-        />
-        <Issues issues={form.fields.idpApiUrl.issues} />
-    </label>
-    <label class="flex flex-col">
-        {m.env_config_management_url()}
-        <input
-            type="text"
-            aria-label={m.env_config_management_url()}
-            placeholder={m.env_config_management_url_placeholder()}
-            bind:value={form.fields.managementApiUrl.value}
-        />
-        <Issues issues={form.fields.managementApiUrl.issues} />
-    </label>
-    <label class="flex flex-col">
-        Device API URL
-        <input type="url" aria-label="Device API URL" placeholder="https://node.example/device" bind:value={form.fields.deviceApiUrl.value} />
-        <Issues issues={form.fields.deviceApiUrl.issues} />
-    </label>
-    <input type="submit" value={m.env_config_save()} class="btn primary" />
+    <Field label={m.env_config_idp_url()} issues={form.fields.idpApiUrl.issues}>
+        {#snippet children({
+            id,
+            "aria-describedby": describedby,
+            "aria-invalid": invalid,
+            required,
+        })}
+            <input
+                {id}
+                aria-describedby={describedby}
+                aria-invalid={invalid}
+                {required}
+                type="text"
+                aria-label={m.env_config_idp_url()}
+                placeholder={m.env_config_idp_url_placeholder()}
+                bind:value={form.fields.idpApiUrl.value}
+            />
+        {/snippet}
+    </Field>
+    <Field
+        label={m.env_config_management_url()}
+        issues={form.fields.managementApiUrl.issues}
+    >
+        {#snippet children({
+            id,
+            "aria-describedby": describedby,
+            "aria-invalid": invalid,
+            required,
+        })}
+            <input
+                {id}
+                aria-describedby={describedby}
+                aria-invalid={invalid}
+                {required}
+                type="text"
+                aria-label={m.env_config_management_url()}
+                placeholder={m.env_config_management_url_placeholder()}
+                bind:value={form.fields.managementApiUrl.value}
+            />
+        {/snippet}
+    </Field>
+    <Field label="Device API URL" issues={form.fields.deviceApiUrl.issues}>
+        {#snippet children({
+            id,
+            "aria-describedby": describedby,
+            "aria-invalid": invalid,
+            required,
+        })}
+            <input
+                {id}
+                aria-describedby={describedby}
+                aria-invalid={invalid}
+                {required}
+                type="url"
+                aria-label="Device API URL"
+                placeholder="https://node.example/device"
+                bind:value={form.fields.deviceApiUrl.value}
+            />
+        {/snippet}
+    </Field>
+    <button class="btn btn-primary btn-md" type="submit"
+        >{m.env_config_save()}</button
+    >
 </form>

@@ -137,8 +137,8 @@ pub enum IdentityResource {
         id: Option<Id>,
     },
     User {
-        #[cfg_attr(feature = "utoipa", schema(value_type = String))]
-        id: Id,
+        #[cfg_attr(feature = "utoipa", schema(value_type = Option<String>))]
+        id: Option<Id>,
     },
     Consent {
         #[serde(rename = "userId")]
@@ -206,9 +206,10 @@ impl PermissionEvaluationRequest {
                 A::ApplicationsRead | A::ApplicationsUpdate | A::ApplicationsDelete,
                 IdentityResource::Application { id: Some(id) },
             ) => !id.is_nil(),
+            (A::UsersRead, IdentityResource::User { id: None }) => true,
             (
                 A::UsersRead | A::UsersUpdate | A::UsersDelete | A::UsersResetPassword,
-                IdentityResource::User { id },
+                IdentityResource::User { id: Some(id) },
             ) => !id.is_nil(),
             (A::ConsentsRead, IdentityResource::Consent { user_id, id: None }) => !user_id.is_nil(),
             (
@@ -408,6 +409,28 @@ mod tests {
     }
 
     #[test]
+    fn user_collection_read_allows_reading_but_not_mutating_users() {
+        let mut request = PermissionEvaluationRequest {
+            request_id: Id::now_v7(),
+            subject: PermissionSubject::User { id: Id::now_v7() },
+            action: IdentityAction::UsersRead,
+            target: PermissionTarget::Installation {
+                resource: IdentityResource::User { id: None },
+            },
+        };
+        assert_eq!(request.policy_namespace(), Some(Id::nil()));
+
+        for action in [
+            IdentityAction::UsersUpdate,
+            IdentityAction::UsersDelete,
+            IdentityAction::UsersResetPassword,
+        ] {
+            request.action = action;
+            assert!(request.policy_namespace().is_none());
+        }
+    }
+
+    #[test]
     fn permission_scope_cannot_escalate() {
         let mut request = PermissionEvaluationRequest {
             request_id: Id::nil(),
@@ -427,7 +450,7 @@ mod tests {
         assert!(request.policy_namespace().is_none());
         request.target = PermissionTarget::Installation {
             resource: IdentityResource::User {
-                id: Id::from_u128(1),
+                id: Some(Id::from_u128(1)),
             },
         };
         assert_eq!(request.policy_namespace(), Some(Id::nil()));

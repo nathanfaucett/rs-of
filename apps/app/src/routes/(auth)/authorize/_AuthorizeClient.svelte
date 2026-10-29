@@ -12,6 +12,7 @@
     import type { ClientRegistration } from "@aicacia/idp-client";
     import type { OidcUserInfo } from "@aicacia/oidc-client";
     import { m } from "$lib/paraglide/messages";
+
     import Avatar from "../../../lib/common/components/Avatar.svelte";
 
     let { userInfo, client, disabled, onAllow, onDeny }: ClientProps = $props();
@@ -88,14 +89,14 @@
 
 <div class="mt-4 flex flex-row justify-center gap-4">
     <button
+        class="btn btn-secondary btn-md"
         type="button"
-        class="btn secondary"
         disabled={disabled || loading}
         onclick={onDenyInternal}>{m.authorize_button_deny()}</button
     >
     <button
+        class="btn btn-primary btn-md"
         type="button"
-        class="btn primary"
         disabled={disabled || loading}
         onclick={onAllowInternal}>{m.authorize_button_allow()}</button
     >

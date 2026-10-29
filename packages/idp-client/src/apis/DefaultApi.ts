@@ -284,6 +284,17 @@ export interface ListConsentsRequest {
     limit?: number;
 }
 
+export interface ListUsersRequest {
+    /**
+     *
+     */
+    offset?: number;
+    /**
+     *
+     */
+    limit?: number;
+}
+
 export interface PutRegisterRequest {
     /**
      *
@@ -994,6 +1005,37 @@ export interface DefaultApiInterface {
         requestParameters: ListConsentsRequest,
         initOverrides?: RequestInit | runtime.InitOverrideFunction,
     ): Promise<void>;
+
+    /**
+     * Creates request options for listUsers without sending the request
+     * @param {number} [offset]
+     * @param {number} [limit]
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    listUsersRequestOpts(
+        requestParameters: ListUsersRequest,
+    ): Promise<runtime.RequestOpts>;
+
+    /**
+     *
+     * @param {number} [offset]
+     * @param {number} [limit]
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    listUsersRaw(
+        requestParameters: ListUsersRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<Array<UserInfo>>>;
+
+    /**
+     */
+    listUsers(
+        requestParameters: ListUsersRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<Array<UserInfo>>;
 
     /**
      * Creates request options for openapiJson without sending the request
@@ -2602,6 +2644,71 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
         initOverrides?: RequestInit | runtime.InitOverrideFunction,
     ): Promise<void> {
         await this.listConsentsRaw(requestParameters, initOverrides);
+    }
+
+    /**
+     * Creates request options for listUsers without sending the request
+     */
+    async listUsersRequestOpts(
+        requestParameters: ListUsersRequest,
+    ): Promise<runtime.RequestOpts> {
+        const queryParameters: any = {};
+
+        if (requestParameters["offset"] != null) {
+            queryParameters["offset"] = requestParameters["offset"];
+        }
+
+        if (requestParameters["limit"] != null) {
+            queryParameters["limit"] = requestParameters["limit"];
+        }
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("authorization", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+
+        let urlPath = `/users`;
+
+        return {
+            path: urlPath,
+            method: "GET",
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+
+    /**
+     */
+    async listUsersRaw(
+        requestParameters: ListUsersRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<Array<UserInfo>>> {
+        const requestOptions =
+            await this.listUsersRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) =>
+            jsonValue.map(UserInfoFromJSON),
+        );
+    }
+
+    /**
+     */
+    async listUsers(
+        requestParameters: ListUsersRequest = {},
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<Array<UserInfo>> {
+        const response = await this.listUsersRaw(
+            requestParameters,
+            initOverrides,
+        );
+        return await response.value();
     }
 
     /**

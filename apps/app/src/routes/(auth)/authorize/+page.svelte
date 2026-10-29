@@ -10,6 +10,7 @@
     } from "@aicacia/idp-client";
     import { page } from "$app/state";
     import { m } from "$lib/paraglide/messages";
+    import { Card, Page, PageHeader } from "$lib/ui";
     import Authorize from "./_Authorize.svelte";
 
     import { rejectAuthorizationRequest } from "./_utils";
@@ -114,64 +115,58 @@
     }
 </script>
 
-<div class="overflow-auto">
-    <div class="m-8 flex grow flex-col items-center justify-center">
-        <div class="card w-md">
-            {#if authorizationRequest}
-                <Authorize
-                    {userInfo}
-                    {authorizationRequest}
-                    registration={urlRegistration}
-                />
-            {:else}
-                <section>
-                    <h5>{m.authorize_invalid_request()}</h5>
-                    <ul class="list-inside list-disc space-y-1 text-sm">
-                        {#if responseTypeError}
-                            <li>
-                                <strong
-                                    >{m.authorize_invalid_response_type_label()}</strong
-                                >
-                                {responseTypeError}
-                            </li>
-                        {/if}
-                        {#if responseModeError}
-                            <li>
-                                <strong
-                                    >{m.authorize_invalid_response_mode_label()}</strong
-                                >
-                                {responseModeError}
-                            </li>
-                        {/if}
-                        {#if redirectUriError}
-                            <li>
-                                <strong
-                                    >{m.authorize_invalid_redirect_uri_label()}</strong
-                                >
-                                {redirectUriError}
-                            </li>
-                        {/if}
-                        {#if scopeError}
-                            <li>
-                                <strong
-                                    >{m.authorize_invalid_scope_label()}</strong
-                                >
-                                {scopeError}
-                            </li>
-                        {/if}
-                    </ul>
-                    <div>
-                        <div class="mt-4 flex flex-row justify-center gap-4">
-                            <button
-                                type="button"
-                                class="btn secondary"
-                                onclick={onReject}
-                                >{m.authorize_button_deny()}</button
+<Page width="narrow">
+    <PageHeader title="Authorize" />
+    <Card>
+        {#if authorizationRequest}
+            <Authorize
+                {userInfo}
+                {authorizationRequest}
+                registration={urlRegistration}
+            />
+        {:else}
+            <section>
+                <h2>{m.authorize_invalid_request()}</h2>
+                <ul class="list-inside list-disc space-y-1 text-sm">
+                    {#if responseTypeError}
+                        <li>
+                            <strong
+                                >{m.authorize_invalid_response_type_label()}</strong
                             >
-                        </div>
-                    </div>
-                </section>
-            {/if}
-        </div>
-    </div>
-</div>
+                            {responseTypeError}
+                        </li>
+                    {/if}
+                    {#if responseModeError}
+                        <li>
+                            <strong
+                                >{m.authorize_invalid_response_mode_label()}</strong
+                            >
+                            {responseModeError}
+                        </li>
+                    {/if}
+                    {#if redirectUriError}
+                        <li>
+                            <strong
+                                >{m.authorize_invalid_redirect_uri_label()}</strong
+                            >
+                            {redirectUriError}
+                        </li>
+                    {/if}
+                    {#if scopeError}
+                        <li>
+                            <strong>{m.authorize_invalid_scope_label()}</strong>
+                            {scopeError}
+                        </li>
+                    {/if}
+                </ul>
+                <div class="mt-4 flex justify-center">
+                    <button
+                        class="btn btn-secondary btn-md"
+                        type="button"
+                        onclick={onReject}>{m.authorize_button_deny()}</button
+                    >
+                </div>
+            </section>
+        {/if}
+    </Card>
+</Page>

@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { fly } from 'svelte/transition';
 	import { flip } from 'svelte/animate';
+	import { fly } from 'svelte/transition';
 	import { notifications } from '$lib/common/state/notifications.svelte';
 	import Notification from './Notification.svelte';
 </script>

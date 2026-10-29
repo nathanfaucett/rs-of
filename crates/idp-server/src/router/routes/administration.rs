@@ -155,6 +155,28 @@ pub(crate) async fn delete_application(
     state.oauth2_service.delete_application(id).await
 }
 
+#[utoipa::path(get, path = "/users", params(Page),
+    responses((status = 200, description = "Users", body = [UserInfo])), security(("authorization" = [])))]
+pub(crate) async fn list_users(
+    State(state): State<RouterState>,
+    actor: StandardAuthorization,
+    Query(page): Query<Page>,
+) -> Result<Json<Vec<UserInfo>>, ErrorResponse> {
+    require(
+        &state,
+        &actor,
+        IdentityAction::UsersRead,
+        IdentityResource::User { id: None },
+    )
+    .await?;
+    Ok(Json(
+        state
+            .oauth2_service
+            .list_user_info(page.offset, page.limit.clamp(1, 100))
+            .await?,
+    ))
+}
+
 #[utoipa::path(get, path = "/users/{user_id}", params(("user_id" = String, Path)),
     responses((status = 200, description = "User", body = UserInfo)), security(("authorization" = [])))]
 pub(crate) async fn get_user(
@@ -166,7 +188,7 @@ pub(crate) async fn get_user(
         &state,
         &actor,
         IdentityAction::UsersRead,
-        IdentityResource::User { id },
+        IdentityResource::User { id: Some(id) },
     )
     .await?;
     Ok(Json(state.oauth2_service.find_user_info(id).await?))
@@ -184,7 +206,7 @@ pub(crate) async fn update_user(
         &state,
         &actor,
         IdentityAction::UsersUpdate,
-        IdentityResource::User { id },
+        IdentityResource::User { id: Some(id) },
     )
     .await?;
     Ok(Json(state.oauth2_service.update_user_info(id, body).await?))
@@ -201,7 +223,7 @@ pub(crate) async fn delete_user(
         &state,
         &actor,
         IdentityAction::UsersDelete,
-        IdentityResource::User { id },
+        IdentityResource::User { id: Some(id) },
     )
     .await?;
     state.oauth2_service.delete_user(id).await
@@ -225,7 +247,7 @@ pub(crate) async fn reset_password(
         &state,
         &actor,
         IdentityAction::UsersResetPassword,
-        IdentityResource::User { id },
+        IdentityResource::User { id: Some(id) },
     )
     .await?;
     state

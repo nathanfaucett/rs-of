@@ -1,7 +1,10 @@
 <script lang="ts">
     import { goto } from "$app/navigation";
     import { resolve } from "$app/paths";
+    import { Card, Field, Page, PageHeader } from "$lib/ui";
+
     let clientId = $state("");
+
     function openClient(event: SubmitEvent) {
         event.preventDefault();
         if (clientId.trim())
@@ -11,15 +14,35 @@
     }
 </script>
 
-<div class="flex flex-col gap-4">
-    <h1>Clients</h1>
-    <p>
-        Create clients from an <a href={resolve("/applications")}>application</a
-        >. The IdP supports authorized lookup by client ID, not a client
-        directory.
-    </p>
-    <form class="card flex flex-col gap-3" onsubmit={openClient}>
-        <label>Client ID<input bind:value={clientId} required /></label>
-        <button class="btn primary" type="submit">Open client</button>
-    </form>
-</div>
+<Page>
+    <PageHeader
+        title="Clients"
+        description="Create clients from an application. The IdP supports authorized lookup by client ID, not a client directory."
+    />
+
+    <Card>
+        <form class="flex flex-col gap-4" onsubmit={openClient}>
+            <Field label="Client ID">
+                {#snippet children({
+                    id,
+                    "aria-describedby": describedby,
+                    "aria-invalid": invalid,
+                    required,
+                })}
+                    <input
+                        {id}
+                        aria-describedby={describedby}
+                        aria-invalid={invalid}
+                        {required}
+                        bind:value={clientId}
+                    />
+                {/snippet}
+            </Field>
+            <div class="flex justify-end">
+                <button class="btn btn-primary btn-md" type="submit"
+                    >Open client</button
+                >
+            </div>
+        </form>
+    </Card>
+</Page>

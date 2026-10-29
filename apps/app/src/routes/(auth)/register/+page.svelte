@@ -1,10 +1,10 @@
 <script lang="ts">
     import {
+        type ClientRegistration,
         ClientRegistrationFromJSON,
         ClientRegistrationToJSON,
         ClientType,
         TokenEndpointAuthMethod,
-        type ClientRegistration,
     } from "@aicacia/idp-client";
     import {
         handleNativeCallbackRequest,
@@ -14,6 +14,7 @@
     import { page } from "$app/state";
     import { idpApi } from "$lib/common/state/idpClient.svelte";
     import { redirectToUrl } from "$lib/common/util/redirectToUrl";
+    import { Alert, Card, Page, PageHeader } from "$lib/ui";
 
     const metadataSchema = v.object({
         application: v.object({ uri: v.pipe(v.string(), v.nonEmpty()) }),
@@ -126,35 +127,50 @@
     }
 </script>
 
-<div class="card mx-auto flex max-w-xl flex-col gap-4">
-    <h1>Register public client</h1>
-    {#if request && destination}
-        <p>
-            Approve registration for {request.clientName} in {request
-                .application.uri}?
-        </p>
-        <p>Callback: {destination.redirect.href}</p>
-        <pre class="overflow-auto">{JSON.stringify(
-                ClientRegistrationToJSON(request),
-                null,
-                2,
-            )}</pre>
-        <button class="btn primary" onclick={accept} disabled={loading}
-            >{loading
-                ? "Registering…"
-                : registered
-                  ? "Retry callback"
-                  : "Approve"}</button
-        >
-        <button class="btn secondary" onclick={reject} disabled={loading}
-            >Reject</button
-        >
-    {:else}
-        <p>
-            Invalid request. This page accepts public registrations only, with
-            an exact requested redirect URI. Confidential clients must use the
-            authenticated IdP API directly.
-        </p>
-    {/if}
-    {#if error}<p role="alert">{error}</p>{/if}
-</div>
+<Page>
+    <PageHeader
+        title="Register public client"
+        description="Approve a public client registration request."
+    />
+
+    <Card>
+        {#if request && destination}
+            <p>
+                Approve registration for {request.clientName} in {request
+                    .application.uri}?
+            </p>
+            <p>Callback: {destination.redirect.href}</p>
+            <pre class="overflow-auto">{JSON.stringify(
+                    ClientRegistrationToJSON(request),
+                    null,
+                    2,
+                )}</pre>
+            <div class="flex flex-wrap gap-2">
+                <button
+                    class="btn btn-primary btn-md"
+                    type="button"
+                    onclick={accept}
+                    disabled={loading}
+                    >{loading
+                        ? "Registering…"
+                        : registered
+                          ? "Retry callback"
+                          : "Approve"}</button
+                >
+                <button
+                    class="btn btn-secondary btn-md"
+                    type="button"
+                    onclick={reject}
+                    disabled={loading}>Reject</button
+                >
+            </div>
+        {:else}
+            <p>
+                Invalid request. This page accepts public registrations only,
+                with an exact requested redirect URI. Confidential clients must
+                use the authenticated IdP API directly.
+            </p>
+        {/if}
+        {#if error}<Alert tone="danger">{error}</Alert>{/if}
+    </Card>
+</Page>

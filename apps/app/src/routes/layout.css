@@ -1,281 +1,213 @@
 @import "tailwindcss";
+@import "../lib/ui/tokens.css";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
-  *,
-  *::before,
-  *::after {
-    min-width: 0;
-    min-height: 0;
-  }
+    *,
+    *::before,
+    *::after {
+        min-width: 0;
+        min-height: 0;
+    }
 
-  /* Scrollbar */
-  * {
-    scrollbar-width: thin;
-    scrollbar-color: theme(colors.gray.300) theme(colors.white);
-  }
-  .dark * {
-    scrollbar-color: theme(colors.gray.700) theme(colors.gray.900);
-  }
-  *::-webkit-scrollbar {
-    width: 8px;
-  }
-  *::-webkit-scrollbar-track {
-    margin-block: 2px;
-    border-radius: 4px;
-    background: theme(colors.gray.300);
-  }
-  .dark *::-webkit-scrollbar-track {
-    background: theme(colors.gray.700);
-  }
-  *::-webkit-scrollbar-thumb {
-    border-radius: 4px;
-    background-color: theme(colors.white);
-    border: 1px solid theme(colors.gray.200);
-  }
-  .dark *::-webkit-scrollbar-thumb {
-    background-color: theme(colors.gray.900);
-    border-color: theme(colors.gray.600);
-  }
+    html,
+    body {
+        @apply relative flex h-full w-full grow flex-col overflow-hidden bg-canvas text-ink;
+        font-size: 0.9375rem;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+    }
 
-  /* Root */
-  html,
-  body {
-    @apply relative flex h-full w-full grow flex-col overflow-hidden
-           bg-gray-50 text-gray-950
-           dark:bg-gray-900 dark:text-white;
-  }
+    /* Scrollbar */
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: var(--border-strong) transparent;
+    }
+    *::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    *::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    *::-webkit-scrollbar-thumb {
+        border-radius: 4px;
+        background-color: var(--border-strong);
+    }
 
-  /* Form controls */
-  input,
-  [role="textbox"],
-  select,
-  textarea {
-    @apply rounded-lg border border-gray-600 bg-gray-50 px-3 py-1.5
-           text-base text-gray-950 placeholder:text-gray-500
-           outline-none transition-colors
-           focus:border-gray-400
-           dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-400
-           dark:focus:border-gray-500;
-  }
+    /* Typography */
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+        @apply font-semibold tracking-tight text-ink;
+    }
+    h1 {
+        @apply text-2xl;
+    }
+    h2 {
+        @apply text-lg;
+    }
+    h3 {
+        @apply text-base;
+    }
+    h4,
+    h5,
+    h6 {
+        @apply text-sm;
+    }
 
-  select {
-    appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'%3E%3Cpath d='M7 10l5 5 5-5'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 0.5rem center;
-    background-size: 1.25rem;
-    @apply pe-8;
-  }
+    p {
+        @apply leading-relaxed text-ink-muted;
+    }
 
-  input:disabled,
-  [role="textbox"]:disabled,
-  select:disabled,
-  textarea:disabled {
-    @apply cursor-not-allowed opacity-50;
-  }
+    hr {
+        @apply my-4 border-line;
+    }
 
-  input[type="checkbox"] {
-    @apply mx-1 accent-gray-950 dark:accent-white;
-  }
+    ol {
+        @apply list-decimal ps-5;
+    }
+    ul {
+        @apply list-disc ps-5;
+    }
 
-  textarea {
-    @apply resize-y;
-  }
+    a {
+        @apply text-accent-text no-underline transition-colors hover:underline;
+    }
 
-  /* Validation states */
-  .invalid {
-    @apply border-red-500 placeholder:text-red-500;
-  }
-  .valid {
-    @apply border-green-500 placeholder:text-green-500;
-  }
-  .warning {
-    @apply border-orange-500 placeholder:text-orange-500;
-  }
-  .untested {
-    @apply border-gray-600 placeholder:text-gray-500;
-  }
+    code,
+    pre {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    code {
+        @apply rounded bg-surface-muted px-1 py-0.5 text-[0.85em] text-ink;
+    }
+    pre {
+        @apply overflow-auto rounded-control bg-surface-muted p-3 text-[0.85em] text-ink;
+    }
 
-  /* Typography */
-  hr {
-    @apply my-4 border-gray-300 dark:border-gray-700;
-  }
+    /* Form controls */
+    :where(
+        input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+        select,
+        textarea
+    ) {
+        @apply w-full rounded-control border border-line-strong bg-surface px-3 py-2 text-sm text-ink outline-none transition-[border-color,box-shadow] placeholder:text-ink-subtle focus:border-accent focus:ring-2 focus:ring-accent/25 disabled:cursor-not-allowed disabled:bg-surface-muted disabled:opacity-70;
+    }
 
-  h1 { @apply mb-3 text-5xl font-semibold tracking-tight text-gray-700 dark:text-gray-300; }
-  h2 { @apply mb-2 text-4xl font-semibold tracking-tight text-gray-700 dark:text-gray-300; }
-  h3 { @apply mb-2 text-3xl font-semibold tracking-tight text-gray-700 dark:text-gray-300; }
-  h4 { @apply mb-2 text-2xl font-medium text-gray-700 dark:text-gray-300; }
-  h5 { @apply mb-2 text-xl font-medium text-gray-700 dark:text-gray-300; }
-  h6 { @apply mb-2 text-lg font-medium text-gray-700 dark:text-gray-300; }
+    select {
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'%3E%3Cpath d='M7 10l5 5 5-5'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 0.6rem center;
+        background-size: 1.1rem;
+        @apply pe-9;
+    }
 
-  p {
-    @apply mb-2 leading-relaxed;
-  }
+    :where(input[type="checkbox"], input[type="radio"]) {
+        @apply size-4 shrink-0 accent-accent;
+    }
 
-  ol { @apply list-decimal ps-5; }
-  ul { @apply list-disc ps-5; }
+    textarea {
+        @apply resize-y;
+    }
 
-  a {
-    @apply text-blue-500 no-underline transition-colors hover:underline;
-  }
-  a:visited {
-    @apply text-blue-600;
-  }
-  a.default {
-    @apply text-inherit no-underline;
-  }
-  a.disabled {
-    @apply pointer-events-none opacity-50;
-  }
+    /* Focus visibility for keyboard users */
+    :focus-visible {
+        outline: 2px solid var(--ring);
+        outline-offset: 2px;
+    }
 }
 
 @layer components {
-  /* Buttons */
-  .btn {
-    @apply inline-flex cursor-pointer items-center justify-center gap-1.5
-           rounded-lg border border-transparent px-3 py-1.5
-           text-base font-semibold no-underline
-           transition-all duration-150 ease-out
-           outline-none focus-visible:ring-2 focus-visible:ring-offset-2
-           disabled:cursor-not-allowed disabled:opacity-50;
-  }
+    /* Buttons */
+    .btn {
+        @apply inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-control border border-transparent font-medium leading-5 no-underline transition-colors;
+    }
+    .btn:disabled,
+    .btn[aria-disabled="true"] {
+        @apply cursor-not-allowed opacity-55;
+    }
 
-  .btn.primary {
-    @apply bg-blue-500 text-white hover:bg-blue-600
-           focus-visible:ring-blue-500;
-  }
-  .btn.primary.active {
-    @apply bg-blue-600;
-  }
+    .btn-sm {
+        @apply h-7 px-2.5 text-xs;
+    }
+    .btn-md {
+        @apply h-9 px-3 text-sm;
+    }
+    .btn-lg {
+        @apply h-11 px-4 text-[0.9375rem];
+    }
 
-  .btn.secondary {
-    @apply bg-gray-950 text-white hover:bg-gray-800
-           dark:bg-white dark:text-gray-950 dark:hover:bg-gray-100
-           focus-visible:ring-gray-500;
-  }
-  .btn.secondary.active {
-    @apply bg-gray-800 dark:bg-gray-200;
-  }
+    .btn-primary {
+        @apply bg-accent text-accent-contrast hover:bg-accent-hover;
+    }
+    .btn-secondary {
+        @apply border-line-strong bg-surface text-ink hover:bg-surface-hover;
+    }
+    .btn-ghost {
+        @apply bg-transparent text-ink-muted hover:bg-surface-hover hover:text-ink;
+    }
+    .btn-danger {
+        @apply bg-danger text-danger-contrast hover:bg-danger-hover;
+    }
 
-  .btn.info {
-    @apply bg-blue-100 text-blue-950 hover:bg-blue-200
-           focus-visible:ring-blue-400;
-  }
-  .btn.info.active {
-    @apply bg-blue-200;
-  }
+    .btn-icon {
+        @apply size-9 p-0;
+    }
 
-  .btn.danger {
-    @apply bg-red-600 text-white hover:bg-red-700
-           focus-visible:ring-red-500;
-  }
-  .btn.danger.active {
-    @apply bg-red-700;
-  }
+    .btn-spinner {
+        @apply size-4 animate-spin;
+    }
 
-  .btn.success {
-    @apply bg-green-600 text-white hover:bg-green-700
-           focus-visible:ring-green-500;
-  }
-  .btn.success.active {
-    @apply bg-green-700;
-  }
+    /* Form fields */
+    .field {
+        @apply flex flex-col gap-1.5;
+    }
 
-  .btn.light {
-    @apply bg-white text-gray-950 shadow-sm hover:bg-gray-50
-           focus-visible:ring-gray-400;
-  }
-  .btn.light.active {
-    @apply bg-gray-100;
-  }
+    .field-label {
+        @apply flex flex-col gap-1.5 text-[0.8125rem] font-medium text-ink;
+    }
 
-  .btn.dark {
-    @apply bg-gray-950 text-white hover:bg-gray-800
-           focus-visible:ring-gray-600;
-  }
-  .btn.dark.active {
-    @apply bg-gray-800;
-  }
+    .field-label-text {
+        @apply inline-flex items-baseline gap-1;
+    }
 
-  .btn.ghost {
-    @apply bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800
-           focus-visible:ring-gray-400;
-  }
-  .btn.ghost.active {
-    @apply bg-gray-100 dark:bg-gray-800;
-  }
+    .field-required {
+        @apply text-danger;
+    }
 
-  .btn.outline {
-    @apply border-gray-300 bg-transparent hover:bg-gray-50
-           dark:border-gray-600 dark:hover:bg-gray-800
-           focus-visible:ring-gray-400;
-  }
+    .field-description {
+        @apply text-xs text-ink-subtle;
+    }
 
-  .btn.sm {
-    @apply rounded-md px-2 py-1 text-xs;
-  }
-  .btn.lg {
-    @apply px-4 py-2 text-lg;
-  }
-  .btn.icon {
-    @apply p-1.5;
-  }
+    .field-issues {
+        @apply flex list-disc flex-col gap-0.5 ps-4 text-xs text-danger-text;
+    }
 
-  /* Badges */
-  .badge {
-    @apply inline-flex shrink-0 items-center gap-1
-           rounded-md border border-transparent px-2 py-0.5
-           text-xs font-medium whitespace-nowrap;
-  }
-  .badge .btn {
-    @apply p-0;
-  }
-  .badge.sm {
-    @apply px-1.5 py-0 text-[0.625rem] leading-tight;
-  }
-  .badge.lg {
-    @apply text-sm;
-  }
+    /* Data tables */
+    .table {
+        @apply w-full min-w-3xl border-collapse text-left text-sm;
+    }
+    .table th {
+        @apply border-b border-line px-4 py-2.5 text-xs font-semibold tracking-wide text-ink-muted uppercase;
+    }
+    .table td {
+        @apply border-b border-line px-4 py-3 align-top text-ink;
+    }
+    .table tbody tr:last-child td {
+        @apply border-b-0;
+    }
+    .table tbody tr:hover {
+        @apply bg-surface-hover/50;
+    }
 
-  .badge.primary {
-    @apply border-blue-200 bg-blue-100 text-blue-800;
-  }
-  .badge.secondary {
-    @apply border-gray-800 bg-gray-950 text-white
-           dark:border-gray-200 dark:bg-white dark:text-gray-950;
-  }
-  .badge.green {
-    @apply border-green-200 bg-green-100 text-green-800;
-  }
-  .badge.dark {
-    @apply border-gray-700 bg-gray-900 text-gray-100;
-  }
-  .badge.light {
-    @apply border-gray-200 bg-white text-gray-900;
-  }
-  .badge.gray {
-    @apply border-gray-300 bg-gray-100 text-gray-800;
-  }
-  .badge.success {
-    @apply border-green-700 bg-green-600 text-white;
-  }
-  .badge.info {
-    @apply border-blue-200 bg-blue-50 text-blue-800;
-  }
-  .badge.warning {
-    @apply border-amber-300 bg-amber-100 text-amber-900;
-  }
-  .badge.danger {
-    @apply border-red-700 bg-red-600 text-white;
-  }
-
-  /* Cards */
-  .card {
-    @apply rounded-xl bg-gray-100 p-5 dark:bg-gray-800;
-  }
-  .card.secondary {
-    @apply rounded-xl bg-white p-5 shadow-sm dark:bg-gray-950;
-  }
+    /* Inline code value display */
+    .value {
+        @apply font-mono text-xs break-all text-ink-muted;
+    }
 }

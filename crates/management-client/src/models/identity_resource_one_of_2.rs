@@ -13,15 +13,20 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct IdentityResourceOneOf2 {
-    #[serde(rename = "id")]
-    pub id: String,
+    #[serde(
+        rename = "id",
+        default,
+        with = "::serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub id: Option<Option<String>>,
     #[serde(rename = "type")]
     pub r#type: Type,
 }
 
 impl IdentityResourceOneOf2 {
-    pub fn new(id: String, r#type: Type) -> IdentityResourceOneOf2 {
-        IdentityResourceOneOf2 { id, r#type }
+    pub fn new(r#type: Type) -> IdentityResourceOneOf2 {
+        IdentityResourceOneOf2 { id: None, r#type }
     }
 }
 ///
