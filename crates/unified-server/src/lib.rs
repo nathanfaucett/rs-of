@@ -36,6 +36,7 @@ mod setup_runtime_tests;
 
 mod bootstrap_config;
 mod credential_bootstrap;
+mod host_store;
 mod local_join;
 mod local_provisioning;
 pub use api::LocalTls;

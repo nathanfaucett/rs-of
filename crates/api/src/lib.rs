@@ -69,7 +69,9 @@ pub use config::{Environment, ServerConfig};
 pub use openapi::SecurityAddon;
 pub use serve::{serve, serve_listener};
 #[cfg(unix)]
-pub use setup_admission::{SetupAdmission, SetupAdmissionError, setup_admission_middleware};
+pub use setup_admission::{
+    SetupAdmission, SetupAdmissionError, SetupAdmissionHistory, setup_admission_middleware,
+};
 
 #[cfg(unix)]
 pub use setup_routes::owner_setup_openapi;

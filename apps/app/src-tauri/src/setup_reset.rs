@@ -12,10 +12,7 @@ use unified_server::BootstrapConfig;
 
 const JOURNAL: &str = "reset-state.json";
 const EVIDENCE: &str = "setup-reference-backup.json";
-const MANIFESTS: [&str; 7] = [
-    "host.json",
-    "endpoint.credentials/credentials.json",
-    "endpoint.provisioning/intent.json",
+const MANIFESTS: [&str; 4] = [
     "endpoint.provisioning/join.json",
     "join-admission.json",
     "join-credentials.attempted",
@@ -190,6 +187,9 @@ pub(crate) fn recover(data: &Path) -> io::Result<()> {
     let manifests = backup["manifests"]
         .as_object()
         .ok_or_else(|| io::Error::other("missing reset manifests"))?;
+    read_optional(&data.join("node/host.redb"))?.ok_or_else(|| io::Error::other(
+        "missing host SQL database; reference recovery cannot recreate workflow or admission; restore the exact database from an operator backup",
+    ))?;
     let operation = lock_stopped_host(&data.join("node"))?;
     for (name, value) in manifests {
         if !MANIFESTS.contains(&name.as_str()) {

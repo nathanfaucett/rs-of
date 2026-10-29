@@ -1,15 +1,9 @@
-use std::{
-    fs::{self, File},
-    io::{self, Write},
-    path::PathBuf,
-};
+use std::{fs::File, io, path::PathBuf};
 
-use idp_model::model::Id;
 use serde::{Deserialize, Serialize};
 
 use idp_server::local_provisioning::{
-    absolute, create_private_directory, lock, private_options, read_private, require_absent,
-    require_unix_bootstrap, sync_ancestry,
+    absolute, create_private_directory, lock, require_absent, require_unix_bootstrap,
 };
 
 use crate::UnifiedConfig;
@@ -31,9 +25,9 @@ struct References {
 /// Hold this guard through setup or serving to exclude cooperating CLI operations.
 pub struct CredentialBootstrap {
     config: UnifiedConfig,
-    directory: PathBuf,
     references: References,
     _operation: File,
+    store: crate::host_store::HostStore,
 }
 
 impl CredentialBootstrap {
@@ -86,12 +80,18 @@ impl CredentialBootstrap {
         )?;
         create_private_directory(&directory, false)?;
         let operation = lock(&directory, true)?;
+        let store = crate::host_store::HostStore::create_for_config(&config)?;
         let bootstrap = Self {
             config,
-            directory,
             references,
+            store,
             _operation: operation,
         };
+        if bootstrap.store.get::<References>("credentials")?.is_some() {
+            return Err(invalid(
+                "credential production already recorded; existing-only continuation required",
+            ));
+        }
         bootstrap.write()?;
         Ok(bootstrap)
     }
@@ -100,22 +100,24 @@ impl CredentialBootstrap {
     pub fn open(config: UnifiedConfig) -> io::Result<Self> {
         let directory = absolute(&config.credential_bootstrap_directory())?;
         let operation = lock(&directory, false)?;
-        let bytes = read_private(&directory.join("credentials.json"))?;
-        let retained: References = serde_json::from_slice(&bytes)?;
+        require_absent(&directory.join("credentials.json")).map_err(|_| {
+            invalid("legacy credential journal is unsupported; explicit reset required")
+        })?;
+        let store = crate::host_store::HostStore::for_config(&config)?;
+        let retained: References = store
+            .get("credentials")?
+            .ok_or_else(|| invalid("missing credential references"))?;
         let mut expected = references(&config)?;
         expected.tls_attempted = retained.tls_attempted;
-        if retained != expected
-            || serde_json::to_value(&retained)?
-                != serde_json::from_slice::<serde_json::Value>(&bytes)?
-        {
+        if retained != expected {
             return Err(invalid(
                 "invalid or conflicting credential bootstrap intent; exact recovery required",
             ));
         }
         Ok(Self {
             config,
-            directory,
             references: retained,
+            store,
             _operation: operation,
         })
     }
@@ -142,26 +144,14 @@ impl CredentialBootstrap {
     }
 
     fn check_retained(&self) -> io::Result<()> {
-        if read_private(&self.directory.join("credentials.json"))?
-            != serde_json::to_vec(&self.references)?
-        {
+        if self.store.get::<References>("credentials")?.as_ref() != Some(&self.references) {
             return Err(invalid("retained credential intent changed while guarded"));
         }
         Ok(())
     }
 
     fn write(&self) -> io::Result<()> {
-        let temporary = self.directory.join(format!(".{}.tmp", Id::now_v7()));
-        let bytes = serde_json::to_vec(&self.references)?;
-        let mut file = private_options(true).open(&temporary)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        fs::rename(temporary, self.directory.join("credentials.json"))?;
-        sync_ancestry(&self.directory)?;
-        if read_private(&self.directory.join("credentials.json"))? != bytes {
-            return Err(invalid("credential intent durable readback did not match"));
-        }
-        Ok(())
+        self.store.put("credentials", &self.references)
     }
 }
 

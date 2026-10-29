@@ -247,8 +247,7 @@ async fn production_https_bootstrap_child() {
             .as_deref(),
         Some(login_id.as_str())
     );
-    let retained = fs::read_to_string(a.config.local_provisioning_directory().join("intent.json"))
-        .expect("public bootstrap intent");
+    let retained = a.journal().to_string();
     assert!(!retained.contains("fixture-initial-password"));
     assert!(
         provisioning_stage(|| local.verify_https(&untrusted))

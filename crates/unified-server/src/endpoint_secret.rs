@@ -113,13 +113,28 @@ impl EndpointSecret {
 
 pub(crate) fn retained(data_dir: &Path) -> io::Result<(EndpointSecret, EndpointId)> {
     let directory = data_dir.with_extension("provisioning");
-    let create = directory.join("intent.json");
+    idp_server::local_provisioning::require_directory(&directory)?;
+    idp_server::local_provisioning::require_absent(&directory.join("intent.json"))?;
+    let explicit = data_dir.with_extension("host");
+    let root = if crate::bootstrap_config::present(&explicit)? {
+        explicit
+    } else {
+        data_dir
+            .parent()
+            .ok_or_else(|| io::Error::other("missing host root"))?
+            .to_path_buf()
+    };
     let join = directory.join("join.json");
-    match (
-        crate::bootstrap_config::present(&create)?,
-        crate::bootstrap_config::present(&join)?,
-    ) {
-        (true, false) => crate::local_provisioning::endpoint_reference(&create),
+    if crate::bootstrap_config::present(&join)?
+        && !crate::bootstrap_config::present(&root.join("host.redb"))?
+        && !crate::bootstrap_config::present(&root.join("operation.lock"))?
+    {
+        return crate::local_join::endpoint_reference(&join);
+    }
+    let store = crate::host_store::HostStore::open(&root)?;
+    let create = store.get::<serde_json::Value>("create")?.is_some();
+    match (create, crate::bootstrap_config::present(&join)?) {
+        (true, false) => crate::local_provisioning::endpoint_reference(&store),
         (false, true) => crate::local_join::endpoint_reference(&join),
         _ => Err(io::Error::other(
             "missing or conflicting endpoint owner metadata; exact recovery required",

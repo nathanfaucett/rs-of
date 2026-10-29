@@ -339,6 +339,9 @@ pub trait HostedSetupOwners: Send + 'static {
         command: &SetupCommand,
         control: HostedSetupControl,
     ) -> impl Future<Output = Result<HostedSetupReady, StatusCode>> + Send;
+    fn admit(&mut self, _command: &SetupCommand) -> Result<(), StatusCode> {
+        Ok(())
+    }
     fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> + Send;
 }
 
@@ -643,6 +646,11 @@ impl<B: HostedSetupOwners> HostedSetup<B> {
         if command.cancellation.is_cancelled() {
             return Err(StatusCode::CONFLICT);
         }
+        self.shared
+            .admission
+            .check(&command.headers)
+            .map_err(admission_status)?;
+        self.owners.admit(command)?;
         let admission = self.shared.admission.clone();
         let headers = command.headers.clone();
         let intent = command.intent.clone();

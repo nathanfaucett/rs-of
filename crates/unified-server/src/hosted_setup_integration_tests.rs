@@ -275,17 +275,21 @@ async fn partial_credentials_reopen_preserves_recovery_for_create_and_join() {
                 crate::CredentialBootstrap::adopt_host_tls(config.clone(), &tls)
                     .expect("valid partial credential references; no provider production"),
             );
-            let references = config
-                .credential_bootstrap_directory()
-                .join("credentials.json");
-            let retained = fs::read(&references).expect("public references");
+            let store = crate::host_store::HostStore::for_config(&config).expect("host SQL");
+            let retained: serde_json::Value = store
+                .get("credentials")
+                .expect("SQL read")
+                .expect("references");
             match fault {
-                "malformed" => {
-                    fs::write(&references, b"corrupt retained intent").expect("isolated corruption")
-                }
-                "missing" => {
-                    fs::remove_file(&references).expect("isolated attempted reference loss")
-                }
+                "malformed" => store
+                    .put("credentials", &serde_json::json!({"invalid": true}))
+                    .expect("corrupt references"),
+                "missing" => store
+                    .update(|records| {
+                        records.remove("credentials");
+                        Ok(())
+                    })
+                    .expect("lost references"),
                 "missing_root" => fs::remove_dir_all(config.credential_bootstrap_directory())
                     .expect("isolated attempted credential-root loss"),
                 "missing_owner" => fs::write(root.join("join-owner.attempted"), b"attempted\n")
@@ -369,16 +373,12 @@ async fn partial_credentials_reopen_preserves_recovery_for_create_and_join() {
                 fault == "unexpected_owner"
             );
             assert!(!config.endpoint_data_dir.exists());
+            let current: Option<serde_json::Value> =
+                store.get("credentials").expect("retained SQL");
             match fault {
-                "missing" | "missing_root" => assert!(!references.exists()),
-                "malformed" => assert_eq!(
-                    fs::read(&references).expect("fault retained"),
-                    b"corrupt retained intent"
-                ),
-                _ => assert_eq!(
-                    fs::read(&references).expect("references retained"),
-                    retained
-                ),
+                "missing" => assert!(current.is_none()),
+                "malformed" => assert_eq!(current, Some(serde_json::json!({"invalid": true}))),
+                _ => assert_eq!(current, Some(retained)),
             }
             shutdown.cancel();
             drop(coordinator);
@@ -888,9 +888,10 @@ async fn api_create_child() {
     cancellation.cancel();
     server.await.expect("host task").expect("shutdown");
     fs::write(&admission_path, admitted_state)
-        .expect("simulate stopped completion-before-retirement checkpoint");
+        .expect("simulate leftover code after atomic retirement");
     let host = BootstrapConfig::open_explicit(config.clone()).expect("completion-pending host");
-    let pending = SetupHost::open(host).expect("reopen complete owners with unretired admission");
+    let pending =
+        SetupHost::open(host).expect("reopen completed owners with retired SQL admission");
     let pending_shutdown = CancellationToken::new();
     let pending_server =
         tokio::spawn(pending.serve_verified(http.clone(), pending_shutdown.clone(), false));
@@ -902,14 +903,7 @@ async fn api_create_child() {
             .send()
             .await
         {
-            assert_eq!(response.status(), reqwest::StatusCode::OK);
-            assert_eq!(
-                response
-                    .json::<serde_json::Value>()
-                    .await
-                    .expect("pending exact intent"),
-                retained_intent
-            );
+            assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
             break;
         }
         assert!(
@@ -918,17 +912,6 @@ async fn api_create_child() {
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    assert_eq!(
-        http.post(format!("{base}/idp/setup/create"))
-            .header("Authorization", format!("Setup {code}"))
-            .json(&body)
-            .send()
-            .await
-            .expect("exact retirement continuation")
-            .status(),
-        reqwest::StatusCode::ACCEPTED,
-        "completed owners with unretired admission must remain exactly recoverable"
-    );
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     loop {
         let status: serde_json::Value = http
@@ -950,6 +933,17 @@ async fn api_create_child() {
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
+    assert_eq!(
+        http.post(format!("{base}/idp/setup/create"))
+            .header("Authorization", format!("Setup {code}"))
+            .json(&body)
+            .send()
+            .await
+            .expect("exact retirement continuation")
+            .status(),
+        reqwest::StatusCode::OK,
+        "completed retry uses ordinary administrator authentication, not leftover code"
+    );
     assert_eq!(
         http.post(format!("{base}/idp/setup/intent"))
             .header("Authorization", format!("Setup {code}"))

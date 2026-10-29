@@ -26,13 +26,37 @@ enum Fault {
 
 struct Provider {
     inner: Arc<keyring_core::mock::Store>,
-    journal: PathBuf,
+    journal: Metadata,
     calls: AtomicUsize,
     fault: Mutex<Option<(usize, Fault)>>,
 }
 
+enum Metadata {
+    Create(crate::host_store::HostStore),
+    Join(PathBuf),
+}
+
+impl Metadata {
+    fn read(&self) -> Value {
+        match self {
+            Self::Create(store) => store
+                .get("create")
+                .expect("SQL read")
+                .expect("durable Create"),
+            Self::Join(path) => {
+                serde_json::from_slice(&fs::read(path).expect("durable Join")).expect("Join record")
+            }
+        }
+    }
+}
+
 impl Provider {
-    fn new(journal: PathBuf) -> Arc<Self> {
+    fn new(config: &crate::UnifiedConfig, joining: bool) -> Arc<Self> {
+        let journal = if joining {
+            Metadata::Join(config.local_provisioning_directory().join("join.json"))
+        } else {
+            Metadata::Create(crate::host_store::HostStore::for_config(config).expect("host SQL"))
+        };
         let provider = Arc::new(Self {
             inner: keyring_core::mock::Store::new().expect("isolated endpoint provider"),
             journal,
@@ -49,9 +73,7 @@ impl Provider {
     }
 
     fn entry(&self) -> Entry {
-        let journal: Value =
-            serde_json::from_slice(&fs::read(&self.journal).expect("durable journal"))
-                .expect("journal");
+        let journal = self.journal.read();
         self.inner
             .build(
                 journal["endpoint_secret"]["service"]
@@ -83,10 +105,7 @@ impl CredentialStoreApi for Provider {
         if service != "of-unified-endpoint" {
             return Ok(entry);
         }
-        let journal: Value = serde_json::from_slice(
-            &fs::read(&self.journal).expect("attempt durable before every provider callback"),
-        )
-        .expect("journal");
+        let journal = self.journal.read();
         assert_eq!(journal["endpoint_attempted"], true);
         assert_eq!(journal["endpoint_secret"]["service"], service);
         assert_eq!(journal["endpoint_secret"]["entry"], user);
@@ -148,12 +167,7 @@ async fn create_attempt_is_durable_before_provider_work_and_uncertainty_never_re
             "fixture-initial-password",
         )
         .expect("fresh intent");
-        let provider = Provider::new(
-            fixture
-                .config
-                .local_provisioning_directory()
-                .join("intent.json"),
-        );
+        let provider = Provider::new(&fixture.config, false);
         provider.fail(call, fault);
         assert!(local.prepare_endpoint().await.is_err());
         let retained = fixture.journal();
@@ -165,12 +179,13 @@ async fn create_attempt_is_durable_before_provider_work_and_uncertainty_never_re
         );
         assert_eq!(fixture.journal(), retained);
         if matches!(fault, Fault::Existing) {
-            assert_eq!(
+            assert!(
                 provider
                     .entry()
                     .get_secret()
-                    .expect("preexisting secret untouched"),
-                vec![9; 32]
+                    .expect("preexisting secret untouched")
+                    == vec![9; 32],
+                "preexisting secret changed"
             );
         }
         assert!(
@@ -193,12 +208,7 @@ async fn failed_creation_readback_can_only_reopen_the_exact_written_identity() {
         "fixture-initial-password",
     )
     .expect("fresh intent");
-    let provider = Provider::new(
-        fixture
-            .config
-            .local_provisioning_directory()
-            .join("intent.json"),
-    );
+    let provider = Provider::new(&fixture.config, false);
     provider.fail(3, Fault::Unavailable);
     assert!(local.prepare_endpoint().await.is_err());
     let retained = fixture.journal();
@@ -211,12 +221,13 @@ async fn failed_creation_readback_can_only_reopen_the_exact_written_identity() {
         .await
         .expect("existing-only exact continuation");
     assert_eq!(endpoint.endpoint_id().to_string(), retained["endpoint"]);
-    assert_eq!(
+    assert!(
         provider
             .entry()
             .get_secret()
-            .expect("unchanged private material"),
-        bytes
+            .expect("unchanged private material")
+            == bytes,
+        "private material changed"
     );
     assert_eq!(fixture.journal(), retained);
     endpoint.close().await;
@@ -238,12 +249,7 @@ async fn ordinary_reopen_refuses_missing_corrupt_mismatched_and_unavailable_mate
             "fixture-initial-password",
         )
         .expect("fresh intent");
-        let provider = Provider::new(
-            fixture
-                .config
-                .local_provisioning_directory()
-                .join("intent.json"),
-        );
+        let provider = Provider::new(&fixture.config, false);
         let endpoint = local.prepare_endpoint().await.expect("fresh endpoint");
         let expected = endpoint.endpoint_id();
         endpoint.close().await;
@@ -285,7 +291,7 @@ async fn join_endpoint_is_stable_and_missing_attempted_material_cannot_be_replac
         .config
         .local_provisioning_directory()
         .join("join.json");
-    let provider = Provider::new(path.clone());
+    let provider = Provider::new(&fixture.config, true);
     let endpoint = local
         .prepare_endpoint()
         .await
@@ -303,7 +309,10 @@ async fn join_endpoint_is_stable_and_missing_attempted_material_cannot_be_replac
         .delete_credential()
         .expect("simulate provider loss");
     assert!(local.prepare_endpoint().await.is_err());
-    assert_eq!(fs::read(path).expect("unchanged metadata"), retained);
+    assert!(
+        fs::read(path).expect("unchanged metadata") == retained,
+        "Join metadata changed"
+    );
     assert!(
         !fixture
             .config
@@ -335,15 +344,10 @@ async fn reset_retains_exact_endpoint_reference_through_deletion_failure_and_con
         let credentials =
             CredentialBootstrap::create(config.clone()).expect("host credential references");
         drop(credentials);
-        let journal = config.local_provisioning_directory().join(if joining {
-            "join.json"
-        } else {
-            "intent.json"
-        });
         if joining {
             let mut local =
                 LocalJoin::create(config.clone(), &peer, "Joining Node").expect("fresh Join");
-            let provider = Provider::new(journal.clone());
+            let provider = Provider::new(&config, joining);
             let endpoint = local
                 .prepare_endpoint()
                 .await
@@ -359,7 +363,7 @@ async fn reset_retains_exact_endpoint_reference_through_deletion_failure_and_con
                 "fixture-initial-password",
             )
             .expect("fresh intent");
-            let provider = Provider::new(journal.clone());
+            let provider = Provider::new(&config, joining);
             let endpoint = local
                 .prepare_endpoint()
                 .await
@@ -436,7 +440,7 @@ async fn unsupported_raw_endpoint_layout_is_refused_without_provider_work_or_rep
         fs::read(raw).expect("legacy state retained"),
         b"retained legacy private material"
     );
-    assert_eq!(fixture.secrets(), before);
+    assert!(fixture.secrets() == before, "provider inventory changed");
     assert!(!fixture.config.local_provisioning_directory().exists());
 }
 
@@ -450,12 +454,7 @@ async fn interrupted_attempt_before_provider_creation_refuses_and_preserves_refe
         "fixture-initial-password",
     )
     .expect("fresh intent");
-    let provider = Provider::new(
-        fixture
-            .config
-            .local_provisioning_directory()
-            .join("intent.json"),
-    );
+    let provider = Provider::new(&fixture.config, false);
     provider.fail(1, Fault::Unavailable);
     assert!(local.prepare_endpoint().await.is_err());
     drop(local);
@@ -554,19 +553,14 @@ async fn operation_without_endpoint_reference_field_is_refused_intact_without_pr
     )
     .expect("fresh metadata");
     drop(local);
-    let path = fixture
-        .config
-        .local_provisioning_directory()
-        .join("intent.json");
     let mut old = fixture.journal();
     old.as_object_mut()
         .expect("object")
         .remove("endpoint_secret");
-    let bytes = serde_json::to_vec(&old).expect("legacy record");
-    fs::write(&path, &bytes).expect("unsupported retained layout");
+    fixture.write_journal(&old);
     let before = fixture.secrets();
     assert!(LocalProvisioner::open(fixture.config.clone()).is_err());
-    assert_eq!(fs::read(path).expect("legacy metadata unchanged"), bytes);
-    assert_eq!(fixture.secrets(), before);
+    assert_eq!(fixture.journal(), old);
+    assert!(fixture.secrets() == before, "provider inventory changed");
     assert!(!fixture.config.endpoint_data_dir.exists());
 }
