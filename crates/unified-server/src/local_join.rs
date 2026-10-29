@@ -1,9 +1,4 @@
-use std::{
-    fs::{self, File},
-    io::{self, Write},
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{fs::File, io, path::Path, sync::Arc};
 
 use idp_model::{contract::ClientRegistration, model::Id};
 use idp_service::oauth2::NodeSignerBinding;
@@ -12,8 +7,8 @@ use tokio_util::sync::CancellationToken;
 
 use idp_server::OwnerProvisioner;
 use idp_server::local_provisioning::{
-    absolute, create_private_directory, lock, private_options, provisioning_stage, read_private,
-    require_absent, require_retained_directory, sync_ancestry,
+    absolute, create_private_directory, lock, provisioning_stage, require_absent,
+    require_retained_directory,
 };
 
 use crate::endpoint_secret::EndpointSecret;
@@ -37,13 +32,14 @@ struct JoinIntent {
     inventory_attempted: bool,
     storage_attempted: bool,
     storage_initialized: bool,
+    verified: bool,
     complete: bool,
 }
 
 /// Restricted local joining through the existing authenticated, purpose-bound owner protocol.
 pub struct LocalJoin {
     config: crate::UnifiedConfig,
-    directory: PathBuf,
+    store: crate::host_store::HostStore,
     journal: JoinIntent,
     _operation: File,
 }
@@ -84,14 +80,21 @@ impl LocalJoin {
             inventory_attempted: false,
             storage_attempted: false,
             storage_initialized: false,
+            verified: false,
             complete: false,
         };
         create_private_directory(directory.parent().expect("absolute join parent"), true)?;
         create_private_directory(&directory, false)?;
         let operation = lock(&directory, true)?;
+        let store = crate::host_store::HostStore::create_for_config(&config)?;
+        if store.get::<serde_json::Value>("create")?.is_some()
+            || store.get::<serde_json::Value>("join")?.is_some()
+        {
+            return Err(invalid("conflicting retained host operation"));
+        }
         let local = Self {
             config,
-            directory,
+            store,
             journal,
             _operation: operation,
         };
@@ -104,8 +107,15 @@ impl LocalJoin {
         let directory = absolute(&config.local_provisioning_directory())?;
         let operation = lock(&directory, false)?;
         require_absent(&directory.join("intent.json"))?;
-        let bytes = read_private(&directory.join("join.json"))?;
-        let journal: JoinIntent = serde_json::from_slice(&bytes)?;
+        require_absent(&directory.join("join.json"))
+            .map_err(|_| invalid("unsupported legacy Join journal; explicit reset required"))?;
+        let store = crate::host_store::HostStore::for_config(&config)?;
+        if store.get::<serde_json::Value>("create")?.is_some() {
+            return Err(invalid("conflicting Create state"));
+        }
+        let journal: JoinIntent = store
+            .get("join")?
+            .ok_or_else(|| invalid("missing retained Join state"))?;
         journal
             .peer
             .parse::<iroh::EndpointId>()
@@ -129,9 +139,8 @@ impl LocalJoin {
             || journal.inventory_attempted && journal.endpoint.is_none()
             || journal.storage_attempted && !journal.inventory_attempted
             || journal.storage_initialized && !journal.storage_attempted
-            || journal.complete && !journal.storage_initialized
-            || serde_json::to_value(&journal)?
-                != serde_json::from_slice::<serde_json::Value>(&bytes)?
+            || journal.verified && !journal.storage_initialized
+            || journal.complete && !journal.verified
         {
             return Err(invalid(
                 "invalid or conflicting join intent; exact recovery required",
@@ -146,7 +155,7 @@ impl LocalJoin {
         }
         Ok(Self {
             config,
-            directory,
+            store,
             journal,
             _operation: operation,
         })
@@ -192,7 +201,11 @@ impl LocalJoin {
 
     pub fn is_complete(&self) -> io::Result<bool> {
         self.check_retained()?;
-        Ok(self.journal.complete)
+        let retained: JoinIntent = self
+            .store
+            .get("join")?
+            .ok_or_else(|| invalid("missing Join"))?;
+        Ok(retained.complete)
     }
 
     pub fn validate_retry(&self, peer: &str, name: &str) -> io::Result<()> {
@@ -220,6 +233,12 @@ impl LocalJoin {
         if self.journal.complete {
             return Ok(());
         }
+        if self.store.get::<serde_json::Value>("admission")?.is_some() {
+            return Err(invalid(
+                "hosted Join completes only with atomic admission retirement",
+            ));
+        }
+        self.journal.verified = true;
         self.journal.complete = true;
         self.write()
     }
@@ -234,6 +253,12 @@ impl LocalJoin {
         if self.journal.complete {
             return Ok(());
         }
+        if self.store.get::<serde_json::Value>("admission")?.is_some() {
+            return Err(invalid(
+                "hosted Join completes only with atomic admission retirement",
+            ));
+        }
+        self.journal.verified = true;
         self.journal.complete = true;
         self.write()
     }
@@ -248,7 +273,7 @@ impl LocalJoin {
         provisioning_stage(|| self.prepare_runtime(https, true, cancellation)).await
     }
 
-    /// Records local completion after host publication/verification; does not retire setup admission.
+    /// Acknowledges verified publication; hosted completion belongs to atomic admission retirement.
     pub async fn complete_hosted(
         &mut self,
         runtime: &UnifiedRuntime,
@@ -266,7 +291,8 @@ impl LocalJoin {
             ));
         }
         check_cancellation(cancellation)?;
-        self.journal.complete = true;
+        self.journal.verified = true;
+        self.journal.complete = self.store.get::<serde_json::Value>("admission")?.is_none();
         self.write()
     }
 
@@ -450,7 +476,7 @@ impl LocalJoin {
 
     async fn build(&self, https: bool, hosted: bool) -> io::Result<UnifiedRuntime> {
         self.check_retained()?;
-        if !self.journal.complete {
+        if !self.is_complete()? {
             return Err(invalid("join is incomplete; explicitly continue join"));
         }
         for root in [
@@ -513,24 +539,23 @@ impl LocalJoin {
         Ok(config)
     }
     fn check_retained(&self) -> io::Result<()> {
-        if read_private(&self.directory.join("join.json"))? != serde_json::to_vec(&self.journal)? {
+        let retained: JoinIntent = self
+            .store
+            .get("join")?
+            .ok_or_else(|| invalid("missing retained Join"))?;
+        // Retirement may complete this guarded operation through the same host transaction.
+        let mut expected = serde_json::to_value(&self.journal)?;
+        if retained.complete {
+            expected["complete"] = serde_json::json!(true);
+        }
+        if serde_json::to_value(retained)? != expected {
             return Err(invalid("retained Join intent changed while guarded"));
         }
         Ok(())
     }
 
     fn write(&self) -> io::Result<()> {
-        let bytes = serde_json::to_vec(&self.journal)?;
-        let temporary = self.directory.join(format!(".{}.tmp", Id::now_v7()));
-        let mut file = private_options(true).open(&temporary)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        fs::rename(temporary, self.directory.join("join.json"))?;
-        sync_ancestry(&self.directory)?;
-        if read_private(&self.directory.join("join.json"))? != bytes {
-            return Err(invalid("join intent durable readback mismatch"));
-        }
-        Ok(())
+        self.store.put("join", &self.journal)
     }
 }
 
@@ -553,13 +578,13 @@ fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
-pub(crate) fn endpoint_reference(path: &Path) -> io::Result<(EndpointSecret, iroh::EndpointId)> {
-    let bytes = read_private(path)?;
-    let journal: JoinIntent = serde_json::from_slice(&bytes)?;
-    if journal.version != 1
-        || !journal.endpoint_attempted
-        || serde_json::to_value(&journal)? != serde_json::from_slice::<serde_json::Value>(&bytes)?
-    {
+pub(crate) fn endpoint_reference(
+    store: &crate::host_store::HostStore,
+) -> io::Result<(EndpointSecret, iroh::EndpointId)> {
+    let journal: JoinIntent = store
+        .get("join")?
+        .ok_or_else(|| invalid("missing Join endpoint metadata"))?;
+    if journal.version != 1 || !journal.endpoint_attempted {
         return Err(invalid("invalid Join endpoint owner metadata"));
     }
     Ok((

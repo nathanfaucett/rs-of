@@ -314,6 +314,24 @@ pub(super) async fn run(
         false
     );
     let bound = fs::read(&admission_path).expect("durable admission before 202");
+    let store = crate::host_store::HostStore::for_config(&config).expect("host SQL at acceptance");
+    let allocated: Value = store
+        .get("join")
+        .expect("SQL read")
+        .expect("stable Join allocations before acceptance");
+    for name in [
+        "join-admission.json",
+        "join-credentials.attempted",
+        "join-owner.attempted",
+    ] {
+        assert!(
+            !BootstrapConfig::explicit_directory(&config)
+                .join(name)
+                .exists(),
+            "obsolete Unified workflow artifact {name}"
+        );
+    }
+
     let recovered = post(http, &base, "intent", Some(code), None)
         .await
         .json::<Value>()
@@ -486,6 +504,16 @@ pub(super) async fn run(
     }
     let endpoint_before = crate::UnifiedEndpoint::persisted_endpoint_id(&config.endpoint_data_dir)
         .expect("retained local endpoint identity");
+    let completed: Value = store
+        .get("join")
+        .expect("completed SQL read")
+        .expect("Join");
+    for field in ["member", "key", "inventory_user", "login_client"] {
+        assert_eq!(
+            completed[field], allocated[field],
+            "Join allocation changed: {field}"
+        );
+    }
     source.stop().await;
     drop(source_guard);
     cancellation.cancel();
@@ -499,66 +527,16 @@ pub(super) async fn run(
     }
 
     if matches!(case, Case::Finalization) {
-        // Simulate a crash after owner completion but before admission retirement.
-        let store = crate::host_store::HostStore::for_config(&config).expect("retained SQL");
-        store
-            .put("admission", &json!({"retired": false}))
-            .expect("simulate Join pre-retirement checkpoint");
         idp_server::local_provisioning::private_options(true)
             .open(&admission_path)
-            .expect("private live-code checkpoint")
+            .expect("private leftover code")
             .write_all(&bound)
-            .expect("restore live temporary code");
-        let setup = SetupHost::open(
-            BootstrapConfig::open_explicit(config.clone()).expect("complete unretired host"),
-        )
-        .expect("explicit finalization startup");
-        cancellation = CancellationToken::new();
-        server = tokio::spawn(setup.serve_verified(http.clone(), cancellation.clone(), false));
-        let unfinished = wait_state(http, &base, "unfinished").await;
-        assert_eq!(unfinished["ready"], false);
+            .expect("simulate failed code cleanup after atomic retirement");
         assert_eq!(
-            post(http, &base, "intent", Some(code), None)
-                .await
-                .json::<Value>()
-                .await
-                .expect("exact offline finalization intent"),
-            recovered
+            SetupHost::protected_code(admission_path.parent().expect("admission root"))
+                .expect("retired code retrieval"),
+            None
         );
-        assert_eq!(
-            post(http, &base, "join", None, Some(&body)).await.status(),
-            StatusCode::UNAUTHORIZED
-        );
-        let mut conflict = body.clone();
-        conflict["node"] = json!("Different Node");
-        assert_eq!(
-            post(http, &base, "join", Some(code), Some(&conflict))
-                .await
-                .status(),
-            StatusCode::CONFLICT
-        );
-        assert_eq!(
-            post(http, &base, "join", Some(code), Some(&body))
-                .await
-                .status(),
-            StatusCode::ACCEPTED
-        );
-        assert_eq!(
-            wait_state(http, &base, "ready").await["login_client"],
-            login
-        );
-        authenticated_storage(http, &base, storage).await;
-        cancellation.cancel();
-        server
-            .await
-            .expect("finalized host task")
-            .expect("finalized host cleanup");
-        assert_eq!(
-            crate::UnifiedEndpoint::persisted_endpoint_id(&config.endpoint_data_dir)
-                .expect("finalized endpoint"),
-            endpoint_before
-        );
-        return;
     }
 
     let setup = SetupHost::open(

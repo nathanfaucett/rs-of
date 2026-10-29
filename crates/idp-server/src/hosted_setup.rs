@@ -1,16 +1,12 @@
 use std::{
-    fs,
     future::Future,
-    io::{self, Write},
+    io,
     path::PathBuf,
     pin::Pin,
     sync::{Arc, Mutex},
 };
 
-use api::{
-    SetupAdmission, SetupAdmissionError,
-    setup_files::{present, private_options, read_private, require_absent, sync_ancestry},
-};
+use api::{SetupAdmission, SetupAdmissionError};
 use axum::{
     Json, Router,
     extract::{Request, State},
@@ -317,6 +313,7 @@ pub struct HostedSetupReady {
 /// Prepared owners must be served through `control` before completion checks that use HTTP.
 /// The worker alone admits operations and retires their capability after verified completion.
 pub trait HostedSetupOwners: Send + 'static {
+    fn retained_operation(&self) -> io::Result<String>;
     fn settings(&self) -> HostedSetupSettings;
     fn purpose(&self) -> SetupPurpose;
     fn trusted_peer(&self) -> Option<&str>;
@@ -658,10 +655,6 @@ impl<B: HostedSetupOwners> HostedSetup<B> {
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
             .map_err(admission_status)?;
-        if matches!(&command.request, SetupOperation::Join(_)) {
-            self.retain_join_intent(&command.intent)
-                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        }
         *self.shared.active.lock().expect("Create cancellation lock") = Some(Active {
             intent: command.intent.clone(),
             cancellation: command.cancellation.clone(),
@@ -700,81 +693,9 @@ impl<B: HostedSetupOwners> HostedSetup<B> {
         result
     }
 
-    fn retain_join_intent(&self, canonical: &str) -> io::Result<()> {
-        let path = self
-            .settings
-            .directory
-            .as_path()
-            .join("join-admission.json");
-        let pending = self
-            .settings
-            .directory
-            .as_path()
-            .join("join-admission.pending");
-        require_absent(&pending)?;
-        if present(&path)? {
-            if read_private(&path)? != canonical.as_bytes() {
-                return Err(io::Error::other(
-                    "Join admission differs from retained host intent",
-                ));
-            }
-            return self.initialize_join_history();
-        }
-        if self.owners.purpose() != SetupPurpose::AwaitingChoice {
-            return Err(io::Error::other(
-                "selected Join is missing its retained admission intent",
-            ));
-        }
-        let mut file = private_options(true).open(&pending)?;
-        file.write_all(canonical.as_bytes())?;
-        file.sync_all()?;
-        fs::rename(pending, &path)?;
-        sync_ancestry(self.settings.directory.as_path())?;
-        if read_private(&path)? != canonical.as_bytes() {
-            return Err(io::Error::other("Join admission durable readback mismatch"));
-        }
-        self.initialize_join_history()
-    }
-
-    fn initialize_join_history(&self) -> io::Result<()> {
-        for stage in ["credentials", "owner"] {
-            let path = self
-                .settings
-                .directory
-                .join(format!("join-{stage}.attempted"));
-            if !present(&path)? {
-                if self.owners.purpose() != SetupPurpose::AwaitingChoice {
-                    return Err(io::Error::other(
-                        "selected Join is missing production history",
-                    ));
-                }
-                let mut file = private_options(true).open(&path)?;
-                file.write_all(b"unattempted\n")?;
-                file.sync_all()?;
-                sync_ancestry(self.settings.directory.as_path())?;
-            }
-            join_attempted(self.settings.directory.as_path(), stage)?;
-        }
-        Ok(())
-    }
-
     fn retained_join_intent(&self) -> io::Result<JoinIntent> {
-        require_absent(
-            &self
-                .settings
-                .directory
-                .as_path()
-                .join("join-admission.pending"),
-        )?;
-        let bytes = read_private(
-            &self
-                .settings
-                .directory
-                .as_path()
-                .join("join-admission.json"),
-        )?;
-        let canonical = std::str::from_utf8(&bytes).map_err(io::Error::other)?;
-        match SetupIntent::decode(canonical)
+        let canonical = self.owners.retained_operation()?;
+        match SetupIntent::decode(&canonical)
             .map_err(|_| io::Error::other("invalid retained Join admission"))?
         {
             SetupIntent::Join(intent)
@@ -1231,39 +1152,6 @@ impl Modify for SetupSecurity {
 #[cfg(test)]
 #[path = "hosted_setup_openapi_tests.rs"]
 mod openapi_tests;
-
-pub fn join_attempted(directory: &std::path::Path, stage: &str) -> io::Result<bool> {
-    require_absent(&directory.join(format!("join-{stage}.pending")))?;
-    match read_private(&directory.join(format!("join-{stage}.attempted")))?.as_slice() {
-        b"unattempted\n" => Ok(false),
-        b"attempted\n" => Ok(true),
-        _ => Err(io::Error::other("invalid retained Join production history")),
-    }
-}
-
-pub fn begin_join_attempt(
-    directory: &std::path::Path,
-    stage: &str,
-    root: &std::path::Path,
-) -> io::Result<bool> {
-    if join_attempted(directory, stage)? {
-        return Ok(false);
-    }
-    require_absent(root)?;
-    let path = directory.join(format!("join-{stage}.attempted"));
-    let pending = directory.join(format!("join-{stage}.pending"));
-    let mut file = private_options(true).open(&pending)?;
-    file.write_all(b"attempted\n")?;
-    file.sync_all()?;
-    fs::rename(pending, path)?;
-    sync_ancestry(directory)?;
-    if !join_attempted(directory, stage)? {
-        return Err(io::Error::other(
-            "Join production history readback mismatch",
-        ));
-    }
-    Ok(true)
-}
 
 pub fn setup_openapi() -> utoipa::openapi::OpenApi {
     CreateDoc::openapi()

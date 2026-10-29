@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     fs,
-    path::PathBuf,
     sync::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
@@ -33,7 +32,7 @@ struct Provider {
 
 enum Metadata {
     Create(crate::host_store::HostStore),
-    Join(PathBuf),
+    Join(crate::host_store::HostStore),
 }
 
 impl Metadata {
@@ -43,9 +42,7 @@ impl Metadata {
                 .get("create")
                 .expect("SQL read")
                 .expect("durable Create"),
-            Self::Join(path) => {
-                serde_json::from_slice(&fs::read(path).expect("durable Join")).expect("Join record")
-            }
+            Self::Join(store) => store.get("join").expect("SQL read").expect("durable Join"),
         }
     }
 }
@@ -53,7 +50,7 @@ impl Metadata {
 impl Provider {
     fn new(config: &crate::UnifiedConfig, joining: bool) -> Arc<Self> {
         let journal = if joining {
-            Metadata::Join(config.local_provisioning_directory().join("join.json"))
+            Metadata::Join(crate::host_store::HostStore::for_config(config).expect("host SQL"))
         } else {
             Metadata::Create(crate::host_store::HostStore::for_config(config).expect("host SQL"))
         };
@@ -287,10 +284,7 @@ async fn join_endpoint_is_stable_and_missing_attempted_material_cannot_be_replac
     let peer = iroh::SecretKey::generate().public().to_string();
     let mut local =
         LocalJoin::create(fixture.config.clone(), &peer, "Joining Node").expect("fresh Join");
-    let path = fixture
-        .config
-        .local_provisioning_directory()
-        .join("join.json");
+    let store = crate::host_store::HostStore::for_config(&fixture.config).expect("host SQL");
     let provider = Provider::new(&fixture.config, true);
     let endpoint = local
         .prepare_endpoint()
@@ -303,15 +297,15 @@ async fn join_endpoint_is_stable_and_missing_attempted_material_cannot_be_replac
     let endpoint = local.prepare_endpoint().await.expect("exact reopen");
     assert_eq!(endpoint.endpoint_id(), expected);
     endpoint.close().await;
-    let retained = fs::read(&path).expect("retained reference");
+    let retained: Value = store.get("join").expect("SQL read").expect("Join");
     provider
         .entry()
         .delete_credential()
         .expect("simulate provider loss");
     assert!(local.prepare_endpoint().await.is_err());
-    assert!(
-        fs::read(path).expect("unchanged metadata") == retained,
-        "Join metadata changed"
+    assert_eq!(
+        store.get::<Value>("join").expect("SQL read").expect("Join"),
+        retained
     );
     assert!(
         !fixture

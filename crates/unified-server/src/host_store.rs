@@ -53,7 +53,16 @@ impl HostStore {
     }
 
     pub(crate) fn open(root: &Path) -> io::Result<Self> {
-        for legacy in ["host.json", "host.pending"] {
+        for legacy in [
+            "host.json",
+            "host.pending",
+            "join-admission.json",
+            "join-admission.pending",
+            "join-credentials.attempted",
+            "join-credentials.pending",
+            "join-owner.attempted",
+            "join-owner.pending",
+        ] {
             require_absent(&root.join(legacy)).map_err(|_| {
                 invalid("unsupported legacy host layout; explicit reset or restore required")
             })?;
@@ -227,6 +236,14 @@ impl api::SetupAdmissionHistory for HostStore {
             {
                 return Err(invalid("conflicting or retired operation"));
             }
+            if matches!(
+                idp_server::hosted_setup::SetupIntent::decode(intent),
+                Ok(idp_server::hosted_setup::SetupIntent::Join(_))
+            ) {
+                records
+                    .entry("join_attempts")
+                    .or_insert(json!({"credentials": false, "owner": false}));
+            }
             records.insert("operation".into(), json!(intent));
             Ok(())
         })
@@ -239,6 +256,16 @@ impl api::SetupAdmissionHistory for HostStore {
             if admission["retired"] != false || records.get("operation") != Some(&json!(intent)) {
                 return Err(invalid("conflicting retirement"));
             }
+            let expected = match idp_server::hosted_setup::SetupIntent::decode(intent) {
+                Ok(idp_server::hosted_setup::SetupIntent::Create(_)) => "create",
+                Ok(idp_server::hosted_setup::SetupIntent::Join(_)) => "join",
+                Err(_) => return Err(invalid("invalid retained operation")),
+            };
+            if !records.contains_key(expected)
+                || records.contains_key(if expected == "join" { "create" } else { "join" })
+            {
+                return Err(invalid("missing or conflicting completion evidence"));
+            }
             if let Some(create) = records.get_mut("create") {
                 if create["storage_initialized"] != true {
                     return Err(invalid(
@@ -247,8 +274,43 @@ impl api::SetupAdmissionHistory for HostStore {
                 }
                 create["complete"] = json!(true);
             }
+            if let Some(join) = records.get_mut("join") {
+                if join["storage_initialized"] != true || join["verified"] != true {
+                    return Err(invalid(
+                        "Join owners have not acknowledged verified publication",
+                    ));
+                }
+                join["complete"] = json!(true);
+            }
             records.get_mut("admission").expect("validated admission")["retired"] = json!(true);
             Ok(())
+        })
+    }
+}
+
+impl HostStore {
+    pub(crate) fn join_attempted(&self, stage: &str) -> io::Result<bool> {
+        let attempts: Json = self
+            .get("join_attempts")?
+            .ok_or_else(|| invalid("missing Join attempt evidence"))?;
+        attempts[stage]
+            .as_bool()
+            .ok_or_else(|| invalid("invalid Join attempt evidence"))
+    }
+    pub(crate) fn begin_join_attempt(&self, stage: &str, root: &Path) -> io::Result<bool> {
+        self.update(|records| {
+            let attempts = records
+                .get_mut("join_attempts")
+                .ok_or_else(|| invalid("missing Join attempts"))?;
+            match attempts[stage].as_bool() {
+                Some(true) => Ok(false),
+                Some(false) => {
+                    require_absent(root)?;
+                    attempts[stage] = json!(true);
+                    Ok(true)
+                }
+                None => Err(invalid("invalid Join attempt")),
+            }
         })
     }
 }

@@ -412,9 +412,13 @@ fn old_one_two_and_four_relationship_create_and_join_intents_deny_unchanged() {
                 );
                 ("intent.json", "intent")
             };
-            let path = fixture.config.local_provisioning_directory().join(name);
+            let _ = name;
             let mut old: serde_json::Value = if joining {
-                serde_json::from_slice(&fs::read(&path).expect("Join")).expect("JSON")
+                crate::host_store::HostStore::for_config(&fixture.config)
+                    .expect("host SQL")
+                    .get("join")
+                    .expect("SQL read")
+                    .expect("Join")
             } else {
                 fixture.journal()
             };
@@ -429,9 +433,11 @@ fn old_one_two_and_four_relationship_create_and_join_intents_deny_unchanged() {
             );
             old["secret_verifiers"] =
                 serde_json::json!(vec!["retained-obsolete-verifier"; old_count]);
-            let bytes = serde_json::to_vec(&old).expect("old intent");
             if joining {
-                fs::write(&path, &bytes).expect("old Join intent");
+                crate::host_store::HostStore::for_config(&fixture.config)
+                    .expect("host SQL")
+                    .put("join", &old)
+                    .expect("old Join intent");
             } else {
                 fixture.write_journal(&old);
             }
@@ -442,9 +448,13 @@ fn old_one_two_and_four_relationship_create_and_join_intents_deny_unchanged() {
                 assert!(LocalProvisioner::open(fixture.config.clone()).is_err());
             }
             if joining {
-                assert!(
-                    fs::read(path).expect("unchanged Join") == bytes,
-                    "Join evidence changed"
+                assert_eq!(
+                    crate::host_store::HostStore::for_config(&fixture.config)
+                        .expect("host SQL")
+                        .get::<serde_json::Value>("join")
+                        .expect("SQL read")
+                        .expect("Join"),
+                    old
                 );
             } else {
                 assert_eq!(fixture.journal(), old);
@@ -1111,11 +1121,17 @@ async fn join_intent_is_public_exact_and_never_startup_readiness() {
         "cooperating join exclusion"
     );
     secret_files_absent(&fixture.root);
-    let path = fixture
-        .config
-        .local_provisioning_directory()
-        .join("join.json");
-    let before = fs::read(&path).expect("retained public join intent");
+    let store = crate::host_store::HostStore::for_config(&fixture.config)
+        .expect("Join uses the host SQL store");
+    let before: serde_json::Value = store.get("join").expect("SQL read").expect("Join record");
+    assert!(
+        !fixture
+            .config
+            .local_provisioning_directory()
+            .join("join.json")
+            .exists(),
+        "Unified Join must not publish a parallel journal"
+    );
     drop(local);
     let local = crate::LocalJoin::open(fixture.config.clone()).expect("exact continuation");
     assert!(
@@ -1130,8 +1146,55 @@ async fn join_intent_is_public_exact_and_never_startup_readiness() {
     let mut changed = fixture.config.clone();
     changed.idp.oauth2.issuer = "https://wrong-installation.test/idp".into();
     assert!(crate::LocalJoin::open(changed).is_err());
-    assert_eq!(fs::read(&path).expect("unchanged intent"), before);
+    assert_eq!(
+        store
+            .get::<serde_json::Value>("join")
+            .expect("SQL read")
+            .expect("Join"),
+        before
+    );
     secret_files_absent(&fixture.root);
+}
+
+#[tokio::test]
+async fn join_missing_or_corrupt_host_metadata_never_replaces_endpoint_or_allocations() {
+    let fixture = Fixture::new();
+    let peer = iroh::SecretKey::generate().public().to_string();
+    let mut joining = crate::LocalJoin::create(fixture.config.clone(), &peer, "Joining Node")
+        .expect("fresh Join");
+    let endpoint = joining
+        .prepare_endpoint()
+        .await
+        .expect("mock-provider endpoint");
+    let expected = endpoint.endpoint_id();
+    endpoint.close().await;
+    drop(joining);
+    let root = crate::BootstrapConfig::explicit_directory(&fixture.config);
+    let database = root.join("host.redb");
+    let backup = root.join("operator-backup.redb");
+    fs::rename(&database, &backup).expect("simulate lost host metadata");
+    let secrets = fixture.secrets();
+    assert!(crate::LocalJoin::open(fixture.config.clone()).is_err());
+    assert!(!database.exists(), "missing SQL must not be recreated");
+    fs::write(&database, b"corrupt retained host SQL").expect("inject corruption");
+    assert!(crate::LocalJoin::open(fixture.config.clone()).is_err());
+    assert!(
+        fs::read(&database).expect("retained corrupt artifact") == b"corrupt retained host SQL",
+        "corrupt metadata was modified"
+    );
+    fs::remove_file(&database).expect("remove injected corruption");
+    fs::rename(backup, database).expect("restore exact operator backup");
+    let mut joining = crate::LocalJoin::open(fixture.config.clone()).expect("exact restored Join");
+    let endpoint = joining
+        .prepare_endpoint()
+        .await
+        .expect("existing endpoint only");
+    assert_eq!(endpoint.endpoint_id(), expected);
+    endpoint.close().await;
+    assert!(
+        fixture.secrets() == secrets,
+        "provider state changed during failed reopen"
+    );
 }
 
 #[tokio::test]

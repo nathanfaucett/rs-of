@@ -2,7 +2,7 @@ use std::{
     fs::{self, OpenOptions},
     future::Future,
     io::{self, Write},
-    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
+    os::unix::fs::{MetadataExt, OpenOptionsExt},
     path::{Component, Path},
     pin::Pin,
 };
@@ -12,12 +12,6 @@ use unified_server::BootstrapConfig;
 
 const JOURNAL: &str = "reset-state.json";
 const EVIDENCE: &str = "setup-reference-backup.json";
-const MANIFESTS: [&str; 4] = [
-    "endpoint.provisioning/join.json",
-    "join-admission.json",
-    "join-credentials.attempted",
-    "join-owner.attempted",
-];
 
 pub(crate) fn pending(data: &Path) -> io::Result<bool> {
     Ok(read_optional(&data.join(JOURNAL))?.is_some())
@@ -115,13 +109,7 @@ async fn run_with(
         None => {
             let host = BootstrapConfig::open(&root)?;
             let references = host.local_reset_references()?;
-            let mut manifests = serde_json::Map::new();
-            for name in MANIFESTS {
-                if let Some(bytes) = read_optional(&root.join(name))? {
-                    manifests.insert(name.into(), json!(bytes));
-                }
-            }
-            let backup = json!({"version":1, "references":references, "manifests":manifests});
+            let backup = json!({"version":1, "references":references});
             match read_optional(&data.join(EVIDENCE))? {
                 Some(bytes) if serde_json::from_slice::<Value>(&bytes)? != backup => {
                     return Err(io::Error::other(
@@ -184,43 +172,9 @@ pub(crate) fn recover(data: &Path) -> io::Result<()> {
     if backup["version"] != 1 || backup["references"]["root"] != json!(data.join("node")) {
         return Err(io::Error::other("invalid native reset backup"));
     }
-    let manifests = backup["manifests"]
-        .as_object()
-        .ok_or_else(|| io::Error::other("missing reset manifests"))?;
     read_optional(&data.join("node/host.redb"))?.ok_or_else(|| io::Error::other(
         "missing host SQL database; reference recovery cannot recreate workflow or admission; restore the exact database from an operator backup",
     ))?;
-    let operation = lock_stopped_host(&data.join("node"))?;
-    for (name, value) in manifests {
-        if !MANIFESTS.contains(&name.as_str()) {
-            return Err(io::Error::other("unknown reset manifest"));
-        }
-        let bytes: Vec<u8> = serde_json::from_value(value.clone())?;
-        if let Some(current) = read_optional(&data.join("node").join(name))?
-            && current != bytes
-        {
-            return Err(io::Error::other(
-                "existing native reset evidence conflicts; no replacement permitted",
-            ));
-        }
-    }
-    for (name, value) in manifests {
-        let path = data.join("node").join(name);
-        if read_optional(&path)?.is_none() {
-            let parent = path.parent().expect("fixed manifest parent");
-            fs::create_dir_all(parent)?;
-            fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&path)?;
-            file.write_all(&serde_json::from_value::<Vec<u8>>(value.clone())?)?;
-            file.sync_all()?;
-            fs::File::open(parent)?.sync_all()?;
-        }
-    }
-    drop(operation);
     let host = BootstrapConfig::open(&data.join("node"))?;
     if host.local_reset_references()? != backup["references"] {
         return Err(io::Error::other(

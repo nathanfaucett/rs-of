@@ -4,10 +4,7 @@ use crate::{
 };
 use api::SetupAdmission;
 use axum::{Router, http::StatusCode};
-use idp_server::hosted_setup::{
-    CreateRequest, JoinIntent, JoinRequest, LoginClient, SetupIntent, begin_join_attempt,
-    join_attempted,
-};
+use idp_server::hosted_setup::{CreateRequest, JoinIntent, JoinRequest, LoginClient, SetupIntent};
 use idp_server::{
     HostedSetup, HostedSetupControl, HostedSetupOwners, HostedSetupReady, HostedSetupSettings,
     SetupCommand, SetupOperation, SetupPurpose,
@@ -50,6 +47,50 @@ pub struct RuntimeSetupOwners {
 }
 
 impl RuntimeSetupOwners {
+    fn admit_join(
+        &mut self,
+        command: &SetupCommand,
+        request: &JoinRequest,
+    ) -> Result<(), StatusCode> {
+        let SetupIntent::Join(intent) = SetupIntent::decode(&command.intent)? else {
+            return Err(StatusCode::CONFLICT);
+        };
+        // Bind exact authenticated discovery and initial attempts before any owner/provider effect.
+        api::SetupAdmissionHistory::bind(&self.host.store(), &command.intent)
+            .map_err(|_| StatusCode::CONFLICT)?;
+        self.host
+            .select_join(&intent.peer, &intent.issuer)
+            .map_err(|_| StatusCode::CONFLICT)?;
+        self.open_credentials()
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        let config = self
+            .credentials
+            .as_ref()
+            .expect("retained credentials")
+            .load()
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        if self.joining.is_none() {
+            self.joining = Some(
+                if self
+                    .host
+                    .store()
+                    .begin_join_attempt("owner", &config.local_provisioning_directory())
+                    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+                {
+                    LocalJoin::create(config, &request.peer, &request.node)
+                } else {
+                    LocalJoin::open(config)
+                }
+                .map_err(|_| StatusCode::CONFLICT)?,
+            );
+        }
+        self.joining
+            .as_ref()
+            .expect("retained Join")
+            .validate_retry(&request.peer, &request.node)
+            .map_err(|_| StatusCode::CONFLICT)
+    }
+
     async fn reopen_create(
         &mut self,
         retired: bool,
@@ -136,8 +177,8 @@ impl RuntimeSetupOwners {
         #[cfg(test)]
         eprintln!("Node Join reopen stage=history");
         let config = self.host.config();
-        let credentials_attempted = join_attempted(self.host.directory(), "credentials")?;
-        let owner_attempted = join_attempted(self.host.directory(), "owner")?;
+        let credentials_attempted = self.host.store().join_attempted("credentials")?;
+        let owner_attempted = self.host.store().join_attempted("owner")?;
         if owner_attempted && !credentials_attempted
             || retired && !(credentials_attempted && owner_attempted)
         {
@@ -207,7 +248,7 @@ impl RuntimeSetupOwners {
     fn open_credentials(&mut self) -> io::Result<()> {
         if self.credentials.is_some()
             && self.host.purpose() == BootstrapPurpose::Join
-            && !join_attempted(self.host.directory(), "credentials")?
+            && !self.host.store().join_attempted("credentials")?
         {
             return Err(io::Error::other(
                 "retained Join is missing credential production history",
@@ -216,11 +257,11 @@ impl RuntimeSetupOwners {
         if self.credentials.is_none() {
             let config = self.host.config();
             self.credentials = Some(if self.host.purpose() == BootstrapPurpose::Join {
-                if begin_join_attempt(
-                    self.host.directory(),
-                    "credentials",
-                    &config.credential_bootstrap_directory(),
-                )? {
+                if self
+                    .host
+                    .store()
+                    .begin_join_attempt("credentials", &config.credential_bootstrap_directory())?
+                {
                     match &self.tls {
                         Some(tls) => CredentialBootstrap::adopt_host_tls(config, tls)?,
                         None => CredentialBootstrap::create(config)?,
@@ -243,52 +284,9 @@ impl RuntimeSetupOwners {
     async fn provision_join(
         &mut self,
         command: &SetupCommand,
-        request: &JoinRequest,
+        _request: &JoinRequest,
         control: &HostedSetupControl,
     ) -> Result<HostedSetupReady, StatusCode> {
-        let SetupIntent::Join(intent) = SetupIntent::decode(&command.intent)? else {
-            return Err(StatusCode::CONFLICT);
-        };
-        self.host
-            .select_join(&intent.peer, &intent.issuer)
-            .map_err(|_| StatusCode::CONFLICT)?;
-        self.open_credentials()
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        let directory = self.host.directory().to_path_buf();
-        let credentials = self.credentials.take().expect("retained credential guard");
-        let joining = self.joining.take();
-        let request = request.clone();
-        let prepared = tokio::task::spawn_blocking(move || {
-            let result = (|| {
-                let config = credentials.load()?;
-                let joining = match joining {
-                    Some(joining) => {
-                        if !join_attempted(&directory, "owner")? {
-                            return Err(io::Error::other(
-                                "retained Join is missing owner production history",
-                            ));
-                        }
-                        joining
-                    }
-                    None if begin_join_attempt(
-                        &directory,
-                        "owner",
-                        &config.local_provisioning_directory(),
-                    )? =>
-                    {
-                        LocalJoin::create(config, &request.peer, &request.node)?
-                    }
-                    None => LocalJoin::open(config)?,
-                };
-                joining.validate_retry(&request.peer, &request.node)?;
-                Ok::<_, io::Error>(joining)
-            })();
-            (credentials, result)
-        })
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        self.credentials = Some(prepared.0);
-        self.joining = Some(prepared.1.map_err(|_| StatusCode::CONFLICT)?);
         let joining = self.joining.as_mut().expect("retained Join");
         let runtime = provisioning_stage(|| {
             joining.prepare_hosted_runtime(self.tls.is_some(), &command.cancellation)
@@ -391,9 +389,18 @@ impl RuntimeSetupOwners {
 }
 
 impl HostedSetupOwners for RuntimeSetupOwners {
+    fn retained_operation(&self) -> io::Result<String> {
+        self.host
+            .store()
+            .get("operation")?
+            .ok_or_else(|| io::Error::other("missing retained host operation"))
+    }
     fn admit(&mut self, command: &SetupCommand) -> Result<(), StatusCode> {
         let SetupOperation::Create(request) = &command.request else {
-            return Ok(());
+            let SetupOperation::Join(request) = &command.request else {
+                return Err(StatusCode::CONFLICT);
+            };
+            return self.admit_join(command, request);
         };
         if self
             .host

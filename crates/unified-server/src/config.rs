@@ -402,6 +402,7 @@ pub fn require_host_separation(config: &UnifiedConfig, host: &Path) -> io::Resul
         if host.starts_with(&root)
             || [
                 "setup-admission",
+                "host.redb",
                 "host.json",
                 "host.pending",
                 "join-admission.json",
