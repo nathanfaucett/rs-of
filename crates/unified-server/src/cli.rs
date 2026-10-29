@@ -322,7 +322,7 @@ pub async fn run() -> io::Result<()> {
             };
             println!("Waiting for authorized Node approval and public context bootstrap.");
             local.join_http().await?;
-            print_login(&local.login_client());
+            print_login(&local.login_client()?);
             println!(
                 "Node joined with retained settings, credentials and verified HTTP. Start with serve."
             );
@@ -360,7 +360,7 @@ pub async fn run() -> io::Result<()> {
         print_login(&local.login_client()?);
     }
     if let Some(local) = &join_guard {
-        print_login(&local.login_client());
+        print_login(&local.login_client()?);
     }
     let cancellation = runtime.cancellation_token();
     let mut server_task = tokio::spawn(runtime.serve());
