@@ -76,7 +76,7 @@ async fn shutdown_rejects_queued_request_before_joining_router_teardown() {
         .expect("isolated neutral host");
     let setup = SetupHost::create_http(host).expect("neutral host without trust installation");
     let retained = fs::read(setup.admission_path()).expect("retained admission");
-    let code = api::SetupAdmission::protected_code(
+    let code = SetupHost::protected_code(
         setup
             .admission_path()
             .parent()

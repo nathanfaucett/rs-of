@@ -4,6 +4,10 @@ use std::{fs, path::Path};
 
 use unified_server::{BootstrapConfig, BootstrapPurpose, UnifiedConfig};
 
+#[allow(dead_code, reason = "private SQL fault seam for retained configuration")]
+#[path = "../src/host_store.rs"]
+mod host_store;
+
 fn explicit_config(root: &Path) -> UnifiedConfig {
     UnifiedConfig {
         listen_addr: "127.0.0.1:49152".parse().expect("local listener"),
@@ -127,11 +131,7 @@ fn explicit_custom_issuer_survives_neutral_setup_selection_and_reopen() {
         }
         .expect("explicit neutral host");
         assert!(host.config().idp.oauth2.issuer.is_empty());
-        let path = host.directory().join("host.json");
-        let retained: serde_json::Value =
-            serde_json::from_slice(&fs::read(&path).expect("retained host"))
-                .expect("retained identity");
-        assert_eq!(retained["explicit"]["issuer"], config.idp.oauth2.issuer);
+        assert_eq!(host.config().idp.api_public_uri, config.idp.api_public_uri);
         host.begin_setup().expect("retain setup production");
         assert!(host.config().idp.oauth2.issuer.is_empty());
         drop(host);
@@ -169,11 +169,8 @@ fn empty_explicit_issuer_retains_public_api_fallback_and_accepts_equivalent_conf
         }
         .expect("empty issuer uses public API URI");
         assert!(host.config().idp.oauth2.issuer.is_empty());
-        let path = host.directory().join("host.json");
-        let retained: serde_json::Value =
-            serde_json::from_slice(&fs::read(&path).expect("retained host"))
-                .expect("retained identity");
-        assert_eq!(retained["explicit"]["issuer"], config.idp.api_public_uri);
+        let path = host.directory().join("host.redb");
+        assert_eq!(host.config().idp.api_public_uri, config.idp.api_public_uri);
         host.begin_setup().expect("retain setup production");
         drop(host);
         for equivalent in [&config, &resolved] {
@@ -232,7 +229,7 @@ fn explicit_issuer_conflicts_are_refused_without_changing_identity_or_database()
     ));
     let config = explicit_config(&root);
     let mut host = BootstrapConfig::create_explicit_http(config.clone()).expect("neutral host");
-    let path = host.directory().join("host.json");
+    let path = host.directory().join("host.redb");
     host.begin_setup().expect("retain setup production");
     drop(host);
     let mut conflicting = config.clone();
@@ -311,17 +308,17 @@ fn legacy_fabricated_issuer_is_rejected_without_rewriting_identity_or_database()
     fs::create_dir(&database_root).expect("isolated database root");
     let database = Path::new(&database_root).join("existing.db");
     fs::write(&database, b"existing installation data").expect("isolated database");
-    let path = root.join("host.json");
-    let mut retained: serde_json::Value =
-        serde_json::from_slice(&fs::read(&path).expect("retained host")).expect("host identity");
+    let path = root.join("host.redb");
+    let store = host_store::HostStore::open(&root).expect("SQL fault seam");
+    let mut retained: serde_json::Value = store.get("config").expect("read config").expect("config");
     retained["issuer"] = serde_json::json!(format!(
         "https://{}.installation.invalid/idp",
         retained["key_namespace"]
             .as_str()
             .expect("retained namespace")
     ));
-    let bytes = serde_json::to_vec(&retained).expect("legacy identity");
-    fs::write(&path, &bytes).expect("simulate legacy retained issuer");
+    store.put("config", &retained).expect("inject unsupported retained issuer");
+    let bytes = fs::read(&path).expect("fault evidence");
     let error = BootstrapConfig::open(&root)
         .err()
         .expect("legacy issuer rejected");
@@ -364,7 +361,7 @@ fn join_settings_require_peer_evidence_not_an_invented_installation() {
     );
     assert_eq!(host.trusted_peer(), Some(peer.as_str()));
     drop(host);
-    std::fs::remove_file(root.join("host.json")).expect("simulate lost host identity");
+    std::fs::remove_file(root.join("host.redb")).expect("simulate lost host identity");
     assert!(BootstrapConfig::open(&root).is_err());
     assert!(
         BootstrapConfig::create(

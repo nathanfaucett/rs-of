@@ -59,3 +59,31 @@ fn interrupted_host_settings_are_not_fresh_generation_permission() {
     assert!(!unified_server::LocalTls::directory(&config).exists());
     fs::remove_dir_all(root).expect("isolated cleanup");
 }
+
+#[test]
+fn awaiting_choice_missing_database_refuses_without_recreating_authority() {
+    let root = root();
+    let host = BootstrapConfig::create(&root, BootstrapPurpose::AwaitingChoice, None)
+        .expect("fresh host");
+    let setup = SetupHost::create_http(host).expect("fresh admission");
+    drop(setup);
+    let database = root.join("host.redb");
+    assert!(database.is_file(), "host metadata must use the private SQL database");
+    fs::remove_file(&database).expect("simulate lost database");
+    assert!(BootstrapConfig::open(&root).is_err());
+    assert!(!database.exists(), "existing-only reopen must not create a database");
+    fs::remove_dir_all(root).expect("isolated cleanup");
+}
+
+#[test]
+fn empty_retained_database_is_not_initialized_or_repaired() {
+    let root = root();
+    let host = BootstrapConfig::create(&root, BootstrapPurpose::AwaitingChoice, None).expect("fresh host");
+    drop(host);
+    let database = root.join("host.redb");
+    fs::write(&database, []).expect("simulate interrupted creation");
+    assert!(BootstrapConfig::open(&root).is_err());
+    assert_eq!(fs::metadata(&database).expect("retained evidence").len(), 0);
+    assert!(!root.join("setup-admission").exists());
+    fs::remove_dir_all(root).expect("isolated cleanup");
+}

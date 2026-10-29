@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] Reuse the existing SQL engine in a dedicated host-local database opened before domain provisioning. Do not add SQLite, expose this database through domain SQL/replication, or merge owner database lifecycles.
 - [ ] Keep a minimal versioned representation of host configuration and Create operation binding, stable allocated identities, credential/provider references, attempt evidence, acknowledgements, completion, and retirement. Preserve owner-specific domain authority and protected inventories.
@@ -20,3 +20,7 @@
 - [ ] Extend existing host lifecycle tests for fresh Create, awaiting-choice reopen, exact/conflicting/concurrent requests, authorized recovery, cancellation, completion/retirement atomicity, leftover-code denial, completed reopen, missing/corrupt state, creation interruption, and reset. Use fault seams only where required to prove an observable safety guarantee.
 - [ ] This ticket does not depend on provider-backed endpoint persistence. Use whichever endpoint implementation is authoritative when it lands, without a new compatibility abstraction.
 - [ ] Update affected setup, security, operations, and native documentation. Run focused lifecycle/admission regressions and necessary affected compile/format/lint checks; record results and limits. No full cargo-hack feature-powerset run or CRAP testing is required.
+
+## Comments
+
+- Claimed by implement/host-sql in isolated host-sql worktree; base confirmed at 2f3f57c8f (integration tip). Own SQL/config/Create/admission; preserve Join for ticket 03 and endpoint implementation for ticket 01.

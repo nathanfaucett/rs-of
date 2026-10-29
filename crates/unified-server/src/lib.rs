@@ -33,6 +33,7 @@ pub use setup_runtime::ApiSetupHost;
 #[cfg(all(test, unix))]
 mod setup_runtime_tests;
 
+mod host_store;
 mod bootstrap_config;
 mod credential_bootstrap;
 mod local_join;

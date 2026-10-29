@@ -37,6 +37,15 @@ struct LocalState {
     directory: File,
     lock: File,
     failed: bool,
+    history: Option<Arc<dyn SetupAdmissionHistory>>,
+}
+
+/// Host-owned workflow persistence, independent of the temporary setup capability.
+/// Implementations must bind exactly and retire atomically with host completion.
+pub trait SetupAdmissionHistory: Send + Sync {
+    fn read(&self) -> io::Result<(String, bool)>;
+    fn bind(&self, intent: &str) -> io::Result<()>;
+    fn retire(&self, intent: &str) -> io::Result<()>;
 }
 
 struct Retained {
@@ -90,6 +99,14 @@ impl SetupAdmission {
     /// Protected local management only; never expose this capability through HTTP.
     /// Reads existing private state without creating admission or acquiring its worker lock.
     pub fn protected_code(root: &Path) -> Result<Option<String>> {
+        Self::protected_code_inner(root, None)
+    }
+
+    pub fn protected_code_with_history(root: &Path, history: Arc<dyn SetupAdmissionHistory>) -> Result<Option<String>> {
+        Self::protected_code_inner(root, Some(history))
+    }
+
+    fn protected_code_inner(root: &Path, history: Option<Arc<dyn SetupAdmissionHistory>>) -> Result<Option<String>> {
         let directory = open_directory(root).map_err(unavailable)?;
         private(&directory, true).map_err(unavailable)?;
         let lock = local_file(&directory, "lock", false).map_err(unavailable)?;
@@ -97,6 +114,7 @@ impl SetupAdmission {
             directory,
             lock,
             failed: false,
+            history,
         }
         .read()
         .map_err(unavailable)
@@ -111,6 +129,14 @@ impl SetupAdmission {
     /// root to bypass lost admission or already-provisioned owner state.
     /// Host opening preserves IO kinds; authorization methods redact local failures.
     pub fn open(root: &Path) -> io::Result<Self> {
+        Self::open_inner(root, None)
+    }
+
+    pub fn open_with_history(root: &Path, history: Arc<dyn SetupAdmissionHistory>) -> io::Result<Self> {
+        Self::open_inner(root, Some(history))
+    }
+
+    fn open_inner(root: &Path, history: Option<Arc<dyn SetupAdmissionHistory>>) -> io::Result<Self> {
         let name = root.file_name().ok_or_else(invalid_state)?;
         let parent_path = root.parent().ok_or_else(invalid_state)?;
         let parent = open_directory(parent_path)?;
@@ -137,6 +163,7 @@ impl SetupAdmission {
             directory,
             lock,
             failed: false,
+            history,
         };
         if fresh {
             local.lock.sync_all()?;
@@ -144,12 +171,14 @@ impl SetupAdmission {
             let mut bytes = [0u8; 32];
             getrandom::fill(&mut bytes).map_err(|error| io::Error::other(error.to_string()))?;
             let code = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-            local
-                .persist(&Retained {
-                    code: Some(code),
-                    intent: String::new(),
-                })
-                .map_err(io::Error::other)?;
+            if local.history.is_some() {
+                let mut file = local_file(&local.directory, "state", true)?;
+                write!(file, "setup-code-v1\n{code}")?;
+                file.sync_all()?;
+                local.directory.sync_all()?;
+            } else {
+                local.persist(&Retained { code: Some(code), intent: String::new() }).map_err(io::Error::other)?;
+            }
         }
         local.read()?;
         Ok(Self {
@@ -323,6 +352,19 @@ impl LocalState {
             Ok(_) => return Err(invalid_state()),
             Err(error) => return Err(error.into()),
         }
+        if let Some(history) = &self.history {
+            let (intent, retired) = history.read()?;
+            if !intent.is_empty() && valid_intent(&intent).is_err() { return Err(invalid_state()); }
+            if retired {
+                if intent.is_empty() { return Err(invalid_state()); }
+                return Ok(Retained { code: None, intent });
+            }
+            let file = local_file(&self.directory, "state", false)?;
+            let mut text = String::new();
+            file.take(1200).read_to_string(&mut text)?;
+            let code = text.strip_prefix("setup-code-v1\n").filter(|code| valid_code(code)).ok_or_else(invalid_state)?;
+            return Ok(Retained { code: Some(code.to_owned()), intent });
+        }
         let file = local_file(&self.directory, "state", false)?;
         let mut text = String::new();
         file.take(1200).read_to_string(&mut text)?;
@@ -346,6 +388,17 @@ impl LocalState {
     }
 
     fn persist(&mut self, retained: &Retained) -> Result<()> {
+        if let Some(history) = &self.history {
+            let result = if retained.code.is_none() { history.retire(&retained.intent) } else { history.bind(&retained.intent) };
+            if result.is_err() { self.failed = true; }
+            result.map_err(unavailable)?;
+            if retained.code.is_none() {
+                // Durable retirement wins even if temporary-code cleanup fails.
+                let _ = rustix::fs::unlinkat(&self.directory, "state", AtFlags::empty());
+                let _ = self.directory.sync_all();
+            }
+            return Ok(());
+        }
         let result = (|| {
             let mut file = local_file(&self.directory, "pending", true).map_err(unavailable)?;
             write!(

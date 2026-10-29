@@ -1,6 +1,6 @@
 use std::{
     fs::{self, File},
-    io::{self, Write},
+    io::{self},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -11,10 +11,10 @@ use idp_model::{
 };
 use idp_server::OwnerProvisioner;
 use idp_server::local_provisioning::{
-    LocalPasswordVerifier, absolute, create_private_directory, lock, private_options,
-    provisioning_stage, read_password, read_private, reject_symlinks, require_absent,
+    LocalPasswordVerifier, absolute, create_private_directory, lock,
+    provisioning_stage, read_password, reject_symlinks, require_absent,
     require_directory, require_file, require_retained_directory, require_unix_bootstrap,
-    sync_ancestry, validate_password,
+    validate_password,
 };
 use management_server::InitialAdministratorGrant;
 use serde::{Deserialize, Serialize};
@@ -45,8 +45,6 @@ struct Journal {
     key: Id,
     #[serde(flatten)]
     administrator_grant: InitialAdministratorGrant,
-    administrator: String,
-    node: String,
     password_verifier: LocalPasswordVerifier,
     endpoint_attempted: bool,
     endpoint: Option<String>,
@@ -65,8 +63,8 @@ struct Journal {
 /// Only Unix owner-only files are supported by this local command.
 pub struct LocalProvisioner {
     config: UnifiedConfig,
-    directory: PathBuf,
     _operation: File,
+    store: crate::host_store::HostStore,
 }
 
 impl LocalProvisioner {
@@ -153,6 +151,12 @@ impl LocalProvisioner {
         node: &str,
         password: &str,
     ) -> io::Result<Self> {
+        Self::create_bound(config, administrator, node, password, None)
+    }
+
+    pub(crate) fn create_bound(
+        config: UnifiedConfig, administrator: &str, node: &str, password: &str, canonical: Option<&str>,
+    ) -> io::Result<Self> {
         require_unix_bootstrap()?;
         validate_password(password)?;
         let config = normalized_config(config)?;
@@ -180,8 +184,6 @@ impl LocalProvisioner {
             member: Id::now_v7(),
             key: Id::now_v7(),
             administrator_grant: InitialAdministratorGrant::fresh(),
-            administrator: administrator.to_owned(),
-            node: node.to_owned(),
             password_verifier: LocalPasswordVerifier::capture(&config.idp.password, password)?,
             endpoint_attempted: false,
             endpoint: None,
@@ -200,12 +202,29 @@ impl LocalProvisioner {
         )?;
         create_private_directory(&directory, false)?;
         let operation = lock(&directory, true)?;
+        let store = crate::host_store::HostStore::create_for_config(&config)?;
         let host = Self {
             config,
-            directory,
             _operation: operation,
+            store,
         };
-        host.write(&journal)?;
+        let canonical = match canonical {
+            Some(canonical) => canonical.to_owned(),
+            None => idp_server::hosted_setup::CreateIntent {
+                operation_nonce: Id::now_v7().simple().to_string(),
+                administrator: administrator.into(), node: node.into(),
+            }.canonical().map_err(|_| invalid("invalid Create operation"))?,
+        };
+        host.store.update(|records| {
+            if records.contains_key("create") { return Err(invalid("Create already allocated")); }
+            if let Some(admission) = records.get("admission") {
+                if admission["retired"] != false { return Err(invalid("conflicting Create admission")); }
+            }
+            if records.get("operation").is_some_and(|bound| bound != &serde_json::json!(canonical)) { return Err(invalid("conflicting Create operation")); }
+            records.insert("operation".into(), serde_json::json!(canonical));
+            records.insert("create".into(), serde_json::to_value(&journal)?);
+            Ok(())
+        })?;
         Ok(host)
     }
 
@@ -216,10 +235,12 @@ impl LocalProvisioner {
         require_directory(&directory)?;
         let operation = lock(&directory, false)?;
         require_absent(&directory.join("join.json"))?;
+        require_absent(&directory.join("intent.json")).map_err(|_| invalid("legacy Create journal is unsupported; explicit reset required"))?;
+        let store = crate::host_store::HostStore::for_config(&config)?;
         let host = Self {
             config,
-            directory,
             _operation: operation,
+            store,
         };
         host.read()?;
         Ok(host)
@@ -306,7 +327,8 @@ impl LocalProvisioner {
         password: &str,
     ) -> io::Result<()> {
         let journal = self.read()?;
-        if journal.administrator != administrator || journal.node != node {
+        let operation = self.operation()?;
+        if operation.administrator != administrator || operation.node != node {
             return Err(invalid(
                 "human Create intent conflicts with retained owner state",
             ));
@@ -324,6 +346,9 @@ impl LocalProvisioner {
     }
 
     pub fn mark_complete(&self) -> io::Result<()> {
+        if self.store.get::<serde_json::Value>("admission")?.is_some() {
+            return Err(invalid("hosted Create completes only with atomic admission retirement"));
+        }
         let mut journal = self.read()?;
         journal.complete = true;
         self.write(&journal)
@@ -340,6 +365,7 @@ impl LocalProvisioner {
         validate_password(password)?;
         check_cancellation(cancellation)?;
         let mut journal = self.read()?;
+        let operation = self.operation()?;
         journal.password_verifier.verify(password)?;
         if journal.complete {
             return Box::pin(self.build_runtime_for_host(https, hosted)).await;
@@ -414,7 +440,7 @@ impl LocalProvisioner {
                 owner.ensure_initial_user(
                     journal.user,
                     journal.credential,
-                    &journal.administrator,
+                    &operation.administrator,
                     password,
                 )
             })
@@ -437,7 +463,7 @@ impl LocalProvisioner {
             )?;
             journal.public_signer = Some(public);
             self.write(&journal)?;
-            provisioning_stage(|| owner.ensure_initial_node(&binding, journal.user, &journal.node))
+            provisioning_stage(|| owner.ensure_initial_node(&binding, journal.user, &operation.node))
                 .await?;
             provisioning_stage(|| {
                 owner.verify_retained_node_signer(&binding, journal.public_signer.as_ref())
@@ -473,7 +499,7 @@ impl LocalProvisioner {
                 })
                 .await?;
                 let endpoint_id = binding.endpoint_id.clone();
-                let node_name = journal.node.clone();
+                let node_name = operation.node.clone();
                 provisioning_stage(|| {
                     device_server::provision_initial_device(
                         management_engine.client(),
@@ -669,15 +695,20 @@ impl LocalProvisioner {
         }))
     }
 
+    fn operation(&self) -> io::Result<idp_server::hosted_setup::CreateIntent> {
+        let canonical: String = self.store.get("operation")?.ok_or_else(|| invalid("missing Create binding"))?;
+        match idp_server::hosted_setup::SetupIntent::decode(&canonical).map_err(|_| invalid("invalid Create binding"))? {
+            idp_server::hosted_setup::SetupIntent::Create(intent) => Ok(intent),
+            _ => Err(invalid("Create operation conflicts with Join")),
+        }
+    }
+
     fn read(&self) -> io::Result<Journal> {
-        let bytes = read_private(&self.directory.join("intent.json"))?;
-        let journal: Journal = serde_json::from_slice(&bytes)?;
-        let retained: serde_json::Value = serde_json::from_slice(&bytes)?;
-        if serde_json::to_value(&journal)? != retained
-            || journal.version != 1
+        self.operation()?;
+        let journal: Journal = self.store.get("create")?.ok_or_else(|| invalid("missing Create operation"))?;
+        if journal.version != 1
             || journal.intent != intent(&self.config)?
-            || journal.administrator.trim().is_empty()
-            || journal.node.trim().is_empty()
+
             || journal.endpoint.is_some() && !journal.endpoint_attempted
             || journal.inventory_attempted && journal.endpoint.is_none()
             || journal.node_attempted && !journal.inventory_attempted
@@ -722,17 +753,8 @@ impl LocalProvisioner {
     }
 
     fn write(&self, journal: &Journal) -> io::Result<()> {
-        let path = self.directory.join("intent.json");
-        let temporary = self.directory.join(format!(".{}.tmp", Id::now_v7()));
-        let mut file = private_options(true).open(&temporary)?;
-        file.write_all(&serde_json::to_vec(journal)?)?;
-        file.sync_all()?;
-        fs::rename(&temporary, &path)?;
-        sync_ancestry(&self.directory)?;
-        if self.read()? != *journal {
-            return Err(invalid("durable local intent readback changed"));
-        }
-        Ok(())
+        self.store.put("create", journal)
+
     }
 }
 
