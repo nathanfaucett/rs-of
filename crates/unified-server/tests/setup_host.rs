@@ -33,7 +33,10 @@ fn fresh_host_awaits_choice_without_installation_or_credentials_and_reopens_exac
     let setup = SetupHost::open(BootstrapConfig::open(&root).expect("retained host"))
         .expect("existing-only setup reopening");
     assert!(fs::read(setup.admission_path()).expect("same admission") == state);
-    assert_eq!(fs::read(setup.tls().ca_path()).expect("same CA"), ca);
+    assert!(
+        fs::read(setup.tls().ca_path()).expect("same CA") == ca,
+        "CA changed on reopen"
+    );
     drop(setup);
     fs::remove_file(state_path).expect("simulate admission loss");
     assert!(SetupHost::open(BootstrapConfig::open(&root).expect("retained host")).is_err());
@@ -63,27 +66,71 @@ fn interrupted_host_settings_are_not_fresh_generation_permission() {
 #[test]
 fn awaiting_choice_missing_database_refuses_without_recreating_authority() {
     let root = root();
-    let host = BootstrapConfig::create(&root, BootstrapPurpose::AwaitingChoice, None)
-        .expect("fresh host");
+    let host =
+        BootstrapConfig::create(&root, BootstrapPurpose::AwaitingChoice, None).expect("fresh host");
     let setup = SetupHost::create_http(host).expect("fresh admission");
     drop(setup);
     let database = root.join("host.redb");
-    assert!(database.is_file(), "host metadata must use the private SQL database");
+    assert!(
+        database.is_file(),
+        "host metadata must use the private SQL database"
+    );
     fs::remove_file(&database).expect("simulate lost database");
     assert!(BootstrapConfig::open(&root).is_err());
-    assert!(!database.exists(), "existing-only reopen must not create a database");
+    assert!(
+        !database.exists(),
+        "existing-only reopen must not create a database"
+    );
     fs::remove_dir_all(root).expect("isolated cleanup");
 }
 
 #[test]
 fn empty_retained_database_is_not_initialized_or_repaired() {
     let root = root();
-    let host = BootstrapConfig::create(&root, BootstrapPurpose::AwaitingChoice, None).expect("fresh host");
+    let host =
+        BootstrapConfig::create(&root, BootstrapPurpose::AwaitingChoice, None).expect("fresh host");
     drop(host);
     let database = root.join("host.redb");
     fs::write(&database, []).expect("simulate interrupted creation");
     assert!(BootstrapConfig::open(&root).is_err());
     assert_eq!(fs::metadata(&database).expect("retained evidence").len(), 0);
     assert!(!root.join("setup-admission").exists());
+    fs::remove_dir_all(root).expect("isolated cleanup");
+}
+
+#[test]
+fn corrupt_database_and_legacy_layout_are_refused_intact_without_admission() {
+    for legacy in [false, true] {
+        let root = root();
+        drop(
+            BootstrapConfig::create(&root, BootstrapPurpose::AwaitingChoice, None)
+                .expect("fresh host"),
+        );
+        let path = root.join(if legacy { "host.json" } else { "host.redb" });
+        fs::write(&path, b"retained unsupported evidence").expect("inject retained fault");
+        assert!(BootstrapConfig::open(&root).is_err());
+        assert!(BootstrapConfig::create(&root, BootstrapPurpose::AwaitingChoice, None).is_err());
+        assert!(
+            fs::read(&path).expect("retained fault") == b"retained unsupported evidence",
+            "refusal changed retained evidence"
+        );
+        assert!(!root.join("setup-admission").exists());
+        fs::remove_dir_all(root).expect("isolated cleanup");
+    }
+}
+
+#[test]
+fn interrupted_code_creation_never_mints_replacement_authority() {
+    let root = root();
+    let host =
+        BootstrapConfig::create(&root, BootstrapPurpose::AwaitingChoice, None).expect("fresh host");
+    let setup = SetupHost::create_http(host).expect("fresh admission");
+    drop(setup);
+    fs::remove_file(root.join("setup-admission/state")).expect("interrupted code publication");
+    assert!(SetupHost::open_http(BootstrapConfig::open(&root).expect("retained config")).is_err());
+    assert!(
+        SetupHost::create_http(BootstrapConfig::open(&root).expect("retained config")).is_err()
+    );
+    assert!(!root.join("setup-admission/state").exists());
     fs::remove_dir_all(root).expect("isolated cleanup");
 }

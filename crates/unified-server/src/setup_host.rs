@@ -87,7 +87,10 @@ impl SetupHost {
         if fresh {
             store.put("admission", &serde_json::json!({"retired": false}))?;
         }
-        let admission = Arc::new(SetupAdmission::open_with_history(&admission_root, Arc::new(store))?);
+        let admission = Arc::new(SetupAdmission::open_with_history(
+            &admission_root,
+            Arc::new(store),
+        )?);
         let tls = if !https {
             None
         } else if fresh {
@@ -103,9 +106,12 @@ impl SetupHost {
     }
 
     /// Existing-only protected retrieval; SQL retirement overrides leftover code material.
-    pub fn protected_code(root: &std::path::Path) -> Result<Option<String>, api::SetupAdmissionError> {
+    pub fn protected_code(
+        root: &std::path::Path,
+    ) -> Result<Option<String>, api::SetupAdmissionError> {
         let parent = root.parent().ok_or(api::SetupAdmissionError::Unavailable)?;
-        let store = crate::host_store::HostStore::open(parent).map_err(|_| api::SetupAdmissionError::Unavailable)?;
+        let store = crate::host_store::HostStore::open(parent)
+            .map_err(|_| api::SetupAdmissionError::Unavailable)?;
         SetupAdmission::protected_code_with_history(root, Arc::new(store))
     }
 

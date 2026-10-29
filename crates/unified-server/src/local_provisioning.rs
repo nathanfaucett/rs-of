@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::{self},
+    io,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -47,6 +47,7 @@ struct Journal {
     administrator_grant: InitialAdministratorGrant,
     password_verifier: LocalPasswordVerifier,
     endpoint_attempted: bool,
+    #[serde(deserialize_with = "Deserialize::deserialize")]
     endpoint_secret: Option<EndpointSecret>,
     endpoint: Option<String>,
     inventory_attempted: bool,
@@ -112,7 +113,11 @@ impl LocalProvisioner {
     }
 
     pub(crate) fn create_bound(
-        config: UnifiedConfig, administrator: &str, node: &str, password: &str, canonical: Option<&str>,
+        config: UnifiedConfig,
+        administrator: &str,
+        node: &str,
+        password: &str,
+        canonical: Option<&str>,
     ) -> io::Result<Self> {
         require_unix_bootstrap()?;
         validate_password(password)?;
@@ -170,15 +175,27 @@ impl LocalProvisioner {
             Some(canonical) => canonical.to_owned(),
             None => idp_server::hosted_setup::CreateIntent {
                 operation_nonce: Id::now_v7().simple().to_string(),
-                administrator: administrator.into(), node: node.into(),
-            }.canonical().map_err(|_| invalid("invalid Create operation"))?,
+                administrator: administrator.into(),
+                node: node.into(),
+            }
+            .canonical()
+            .map_err(|_| invalid("invalid Create operation"))?,
         };
         host.store.update(|records| {
-            if records.contains_key("create") { return Err(invalid("Create already allocated")); }
-            if let Some(admission) = records.get("admission") {
-                if admission["retired"] != false { return Err(invalid("conflicting Create admission")); }
+            if records.contains_key("create") {
+                return Err(invalid("Create already allocated"));
             }
-            if records.get("operation").is_some_and(|bound| bound != &serde_json::json!(canonical)) { return Err(invalid("conflicting Create operation")); }
+            if let Some(admission) = records.get("admission")
+                && admission["retired"] != false
+            {
+                return Err(invalid("conflicting Create admission"));
+            }
+            if records
+                .get("operation")
+                .is_some_and(|bound| bound != &serde_json::json!(canonical))
+            {
+                return Err(invalid("conflicting Create operation"));
+            }
             records.insert("operation".into(), serde_json::json!(canonical));
             records.insert("create".into(), serde_json::to_value(&journal)?);
             Ok(())
@@ -193,7 +210,9 @@ impl LocalProvisioner {
         require_directory(&directory)?;
         let operation = lock(&directory, false)?;
         require_absent(&directory.join("join.json"))?;
-        require_absent(&directory.join("intent.json")).map_err(|_| invalid("legacy Create journal is unsupported; explicit reset required"))?;
+        require_absent(&directory.join("intent.json")).map_err(|_| {
+            invalid("legacy Create journal is unsupported; explicit reset required")
+        })?;
         let store = crate::host_store::HostStore::for_config(&config)?;
         let host = Self {
             config,
@@ -305,7 +324,9 @@ impl LocalProvisioner {
 
     pub fn mark_complete(&self) -> io::Result<()> {
         if self.store.get::<serde_json::Value>("admission")?.is_some() {
-            return Err(invalid("hosted Create completes only with atomic admission retirement"));
+            return Err(invalid(
+                "hosted Create completes only with atomic admission retirement",
+            ));
         }
         let mut journal = self.read()?;
         journal.complete = true;
@@ -413,8 +434,10 @@ impl LocalProvisioner {
             )?;
             journal.public_signer = Some(public);
             self.write(&journal)?;
-            provisioning_stage(|| owner.ensure_initial_node(&binding, journal.user, &operation.node))
-                .await?;
+            provisioning_stage(|| {
+                owner.ensure_initial_node(&binding, journal.user, &operation.node)
+            })
+            .await?;
             provisioning_stage(|| {
                 owner.verify_retained_node_signer(&binding, journal.public_signer.as_ref())
             })
@@ -670,8 +693,13 @@ impl LocalProvisioner {
     }
 
     fn operation(&self) -> io::Result<idp_server::hosted_setup::CreateIntent> {
-        let canonical: String = self.store.get("operation")?.ok_or_else(|| invalid("missing Create binding"))?;
-        match idp_server::hosted_setup::SetupIntent::decode(&canonical).map_err(|_| invalid("invalid Create binding"))? {
+        let canonical: String = self
+            .store
+            .get("operation")?
+            .ok_or_else(|| invalid("missing Create binding"))?;
+        match idp_server::hosted_setup::SetupIntent::decode(&canonical)
+            .map_err(|_| invalid("invalid Create binding"))?
+        {
             idp_server::hosted_setup::SetupIntent::Create(intent) => Ok(intent),
             _ => Err(invalid("Create operation conflicts with Join")),
         }
@@ -679,7 +707,10 @@ impl LocalProvisioner {
 
     fn read(&self) -> io::Result<Journal> {
         self.operation()?;
-        let journal: Journal = self.store.get("create")?.ok_or_else(|| invalid("missing Create operation"))?;
+        let journal: Journal = self
+            .store
+            .get("create")?
+            .ok_or_else(|| invalid("missing Create operation"))?;
         if journal.version != 1
             || journal.intent != intent(&self.config)?
             || journal.endpoint.is_some() != journal.endpoint_attempted
@@ -728,7 +759,6 @@ impl LocalProvisioner {
 
     fn write(&self, journal: &Journal) -> io::Result<()> {
         self.store.put("create", journal)
-
     }
 }
 
@@ -821,17 +851,23 @@ fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
-pub(crate) fn endpoint_reference(store: &crate::host_store::HostStore) -> io::Result<(EndpointSecret, iroh::EndpointId)> {
-    let canonical: String = store.get("operation")?.ok_or_else(|| invalid("missing Create binding"))?;
+pub(crate) fn endpoint_reference(
+    store: &crate::host_store::HostStore,
+) -> io::Result<(EndpointSecret, iroh::EndpointId)> {
+    let canonical: String = store
+        .get("operation")?
+        .ok_or_else(|| invalid("missing Create binding"))?;
     if !matches!(
-        idp_server::hosted_setup::SetupIntent::decode(&canonical).map_err(|_| invalid("invalid Create binding"))?,
+        idp_server::hosted_setup::SetupIntent::decode(&canonical)
+            .map_err(|_| invalid("invalid Create binding"))?,
         idp_server::hosted_setup::SetupIntent::Create(_)
     ) {
         return Err(invalid("Create operation conflicts with Join"));
     }
-    let journal: Journal = store.get("create")?.ok_or_else(|| invalid("missing Create operation"))?;
-    if journal.version != 1 || !journal.endpoint_attempted
-    {
+    let journal: Journal = store
+        .get("create")?
+        .ok_or_else(|| invalid("missing Create operation"))?;
+    if journal.version != 1 || !journal.endpoint_attempted {
         return Err(invalid("invalid endpoint owner metadata"));
     }
     Ok((

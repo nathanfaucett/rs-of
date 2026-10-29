@@ -1,14 +1,9 @@
-use std::{
-    fs::File,
-    io,
-    path::PathBuf,
-};
+use std::{fs::File, io, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use idp_server::local_provisioning::{
-    absolute, create_private_directory, lock, require_absent,
-    require_unix_bootstrap,
+    absolute, create_private_directory, lock, require_absent, require_unix_bootstrap,
 };
 
 use crate::UnifiedConfig;
@@ -93,7 +88,9 @@ impl CredentialBootstrap {
             _operation: operation,
         };
         if bootstrap.store.get::<References>("credentials")?.is_some() {
-            return Err(invalid("credential production already recorded; existing-only continuation required"));
+            return Err(invalid(
+                "credential production already recorded; existing-only continuation required",
+            ));
         }
         bootstrap.write()?;
         Ok(bootstrap)
@@ -103,9 +100,13 @@ impl CredentialBootstrap {
     pub fn open(config: UnifiedConfig) -> io::Result<Self> {
         let directory = absolute(&config.credential_bootstrap_directory())?;
         let operation = lock(&directory, false)?;
-        require_absent(&directory.join("credentials.json")).map_err(|_| invalid("legacy credential journal is unsupported; explicit reset required"))?;
+        require_absent(&directory.join("credentials.json")).map_err(|_| {
+            invalid("legacy credential journal is unsupported; explicit reset required")
+        })?;
         let store = crate::host_store::HostStore::for_config(&config)?;
-        let retained: References = store.get("credentials")?.ok_or_else(|| invalid("missing credential references"))?;
+        let retained: References = store
+            .get("credentials")?
+            .ok_or_else(|| invalid("missing credential references"))?;
         let mut expected = references(&config)?;
         expected.tls_attempted = retained.tls_attempted;
         if retained != expected {
@@ -143,8 +144,7 @@ impl CredentialBootstrap {
     }
 
     fn check_retained(&self) -> io::Result<()> {
-        if self.store.get::<References>("credentials")?.as_ref() != Some(&self.references)
-        {
+        if self.store.get::<References>("credentials")?.as_ref() != Some(&self.references) {
             return Err(invalid("retained credential intent changed while guarded"));
         }
         Ok(())
@@ -152,7 +152,6 @@ impl CredentialBootstrap {
 
     fn write(&self) -> io::Result<()> {
         self.store.put("credentials", &self.references)
-
     }
 }
 

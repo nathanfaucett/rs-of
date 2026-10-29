@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     fs,
+    io::Write,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -238,7 +239,13 @@ pub(super) async fn run(
     host.begin_setup()
         .expect("retain neutral prerequisite production history");
     let admission_root = host.directory().join("setup-admission");
-    drop(api::SetupAdmission::open(&admission_root).expect("host-generated protected capability"));
+    host.store()
+        .put("admission", &json!({"retired": false}))
+        .expect("admission production evidence");
+    drop(
+        api::SetupAdmission::open_with_history(&admission_root, Arc::new(host.store()))
+            .expect("host-generated protected capability"),
+    );
     fs::rename(staged_tls, &tls_directory).expect("retain exact neutral CA");
     let setup = SetupHost::open(host).expect("existing-only neutral API startup");
     assert_eq!(setup.tls().ca_path(), tls.ca_path());
@@ -493,8 +500,15 @@ pub(super) async fn run(
 
     if matches!(case, Case::Finalization) {
         // Simulate a crash after owner completion but before admission retirement.
-        fs::write(&admission_path, &bound)
-            .expect("restore isolated pre-retirement crash checkpoint");
+        let store = crate::host_store::HostStore::for_config(&config).expect("retained SQL");
+        store
+            .put("admission", &json!({"retired": false}))
+            .expect("simulate Join pre-retirement checkpoint");
+        idp_server::local_provisioning::private_options(true)
+            .open(&admission_path)
+            .expect("private live-code checkpoint")
+            .write_all(&bound)
+            .expect("restore live temporary code");
         let setup = SetupHost::open(
             BootstrapConfig::open_explicit(config.clone()).expect("complete unretired host"),
         )

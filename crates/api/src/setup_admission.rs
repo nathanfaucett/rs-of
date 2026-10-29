@@ -102,11 +102,17 @@ impl SetupAdmission {
         Self::protected_code_inner(root, None)
     }
 
-    pub fn protected_code_with_history(root: &Path, history: Arc<dyn SetupAdmissionHistory>) -> Result<Option<String>> {
+    pub fn protected_code_with_history(
+        root: &Path,
+        history: Arc<dyn SetupAdmissionHistory>,
+    ) -> Result<Option<String>> {
         Self::protected_code_inner(root, Some(history))
     }
 
-    fn protected_code_inner(root: &Path, history: Option<Arc<dyn SetupAdmissionHistory>>) -> Result<Option<String>> {
+    fn protected_code_inner(
+        root: &Path,
+        history: Option<Arc<dyn SetupAdmissionHistory>>,
+    ) -> Result<Option<String>> {
         let directory = open_directory(root).map_err(unavailable)?;
         private(&directory, true).map_err(unavailable)?;
         let lock = local_file(&directory, "lock", false).map_err(unavailable)?;
@@ -132,11 +138,17 @@ impl SetupAdmission {
         Self::open_inner(root, None)
     }
 
-    pub fn open_with_history(root: &Path, history: Arc<dyn SetupAdmissionHistory>) -> io::Result<Self> {
+    pub fn open_with_history(
+        root: &Path,
+        history: Arc<dyn SetupAdmissionHistory>,
+    ) -> io::Result<Self> {
         Self::open_inner(root, Some(history))
     }
 
-    fn open_inner(root: &Path, history: Option<Arc<dyn SetupAdmissionHistory>>) -> io::Result<Self> {
+    fn open_inner(
+        root: &Path,
+        history: Option<Arc<dyn SetupAdmissionHistory>>,
+    ) -> io::Result<Self> {
         let name = root.file_name().ok_or_else(invalid_state)?;
         let parent_path = root.parent().ok_or_else(invalid_state)?;
         let parent = open_directory(parent_path)?;
@@ -177,7 +189,12 @@ impl SetupAdmission {
                 file.sync_all()?;
                 local.directory.sync_all()?;
             } else {
-                local.persist(&Retained { code: Some(code), intent: String::new() }).map_err(io::Error::other)?;
+                local
+                    .persist(&Retained {
+                        code: Some(code),
+                        intent: String::new(),
+                    })
+                    .map_err(io::Error::other)?;
             }
         }
         local.read()?;
@@ -354,16 +371,26 @@ impl LocalState {
         }
         if let Some(history) = &self.history {
             let (intent, retired) = history.read()?;
-            if !intent.is_empty() && valid_intent(&intent).is_err() { return Err(invalid_state()); }
+            if !intent.is_empty() && valid_intent(&intent).is_err() {
+                return Err(invalid_state());
+            }
             if retired {
-                if intent.is_empty() { return Err(invalid_state()); }
+                if intent.is_empty() {
+                    return Err(invalid_state());
+                }
                 return Ok(Retained { code: None, intent });
             }
             let file = local_file(&self.directory, "state", false)?;
             let mut text = String::new();
             file.take(1200).read_to_string(&mut text)?;
-            let code = text.strip_prefix("setup-code-v1\n").filter(|code| valid_code(code)).ok_or_else(invalid_state)?;
-            return Ok(Retained { code: Some(code.to_owned()), intent });
+            let code = text
+                .strip_prefix("setup-code-v1\n")
+                .filter(|code| valid_code(code))
+                .ok_or_else(invalid_state)?;
+            return Ok(Retained {
+                code: Some(code.to_owned()),
+                intent,
+            });
         }
         let file = local_file(&self.directory, "state", false)?;
         let mut text = String::new();
@@ -389,8 +416,14 @@ impl LocalState {
 
     fn persist(&mut self, retained: &Retained) -> Result<()> {
         if let Some(history) = &self.history {
-            let result = if retained.code.is_none() { history.retire(&retained.intent) } else { history.bind(&retained.intent) };
-            if result.is_err() { self.failed = true; }
+            let result = if retained.code.is_none() {
+                history.retire(&retained.intent)
+            } else {
+                history.bind(&retained.intent)
+            };
+            if result.is_err() {
+                self.failed = true;
+            }
             result.map_err(unavailable)?;
             if retained.code.is_none() {
                 // Durable retirement wins even if temporary-code cleanup fails.

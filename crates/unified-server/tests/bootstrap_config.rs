@@ -4,7 +4,10 @@ use std::{fs, path::Path};
 
 use unified_server::{BootstrapConfig, BootstrapPurpose, UnifiedConfig};
 
-#[allow(dead_code, reason = "private SQL fault seam for retained configuration")]
+#[allow(
+    dead_code,
+    reason = "private SQL fault seam for retained configuration"
+)]
 #[path = "../src/host_store.rs"]
 mod host_store;
 
@@ -200,7 +203,10 @@ fn empty_explicit_issuer_retains_public_api_fallback_and_accepts_equivalent_conf
                 .expect("equivalent selected configuration");
             assert_eq!(host.config().idp.oauth2.issuer, config.idp.api_public_uri);
             drop(host);
-            assert!(retained_config(&host_root) == retained, "persisted host configuration changed");
+            assert!(
+                retained_config(&host_root) == retained,
+                "persisted host configuration changed"
+            );
         }
         fs::remove_dir_all(root).expect("isolated cleanup");
     }
@@ -260,7 +266,10 @@ fn explicit_issuer_conflicts_are_refused_without_changing_identity_or_database()
                 .to_string()
                 .contains("conflicts with retained host identity")
         );
-        assert!(retained_config(&host_root) == retained, "persisted host configuration changed");
+        assert!(
+            retained_config(&host_root) == retained,
+            "persisted host configuration changed"
+        );
         assert!(
             fs::read(&database).expect("database preserved") == b"existing installation data",
             "rejected configuration changed existing owner database bytes"
@@ -317,21 +326,27 @@ fn legacy_fabricated_issuer_is_rejected_without_rewriting_identity_or_database()
     let database = Path::new(&database_root).join("existing.db");
     fs::write(&database, b"existing installation data").expect("isolated database");
     let store = host_store::HostStore::open(&root).expect("SQL fault seam");
-    let mut retained: serde_json::Value = store.get("config").expect("read config").expect("config");
+    let mut retained: serde_json::Value =
+        store.get("config").expect("read config").expect("config");
     retained["issuer"] = serde_json::json!(format!(
         "https://{}.installation.invalid/idp",
         retained["key_namespace"]
             .as_str()
             .expect("retained namespace")
     ));
-    store.put("config", &retained).expect("inject unsupported retained issuer");
+    store
+        .put("config", &retained)
+        .expect("inject unsupported retained issuer");
     let retained = retained_config(&root);
     let error = BootstrapConfig::open(&root)
         .err()
         .expect("legacy issuer rejected");
     assert!(error.to_string().contains("installation.invalid"));
     assert!(error.to_string().contains("backup"));
-    assert!(retained_config(&root) == retained, "rejected issuer changed persisted host configuration");
+    assert!(
+        retained_config(&root) == retained,
+        "rejected issuer changed persisted host configuration"
+    );
     assert!(
         fs::read(&database).expect("database preserved") == b"existing installation data",
         "rejected issuer changed existing owner database bytes"

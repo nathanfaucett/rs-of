@@ -11,8 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use idp_server::local_provisioning::{
-    absolute, create_private_directory, lock, read_private, require_absent,
-    require_unix_bootstrap,
+    absolute, create_private_directory, lock, read_private, require_absent, require_unix_bootstrap,
 };
 
 use crate::{CredentialBootstrap, LocalJoin, LocalProvisioner, UnifiedConfig};
@@ -197,7 +196,9 @@ impl BootstrapConfig {
         let root = absolute(root)?;
         let operation = lock(&root, false)?;
         let store = crate::host_store::HostStore::open(&root)?;
-        let host: Host = store.get("config")?.ok_or_else(|| invalid("missing host configuration"))?;
+        let host: Host = store
+            .get("config")?
+            .ok_or_else(|| invalid("missing host configuration"))?;
         crate::LocalTls::api_base(host.listen)?;
         if host.purpose != BootstrapPurpose::AwaitingChoice {
             validate_host_issuer(&host.issuer)?;
@@ -214,7 +215,6 @@ impl BootstrapConfig {
             || (host.purpose == BootstrapPurpose::AwaitingChoice && !host.issuer.is_empty())
             || (host.explicit.is_some() && host.setup_attempted.is_none())
             || (host.purpose == BootstrapPurpose::Join) != host.trusted_peer.is_some()
-
         {
             return Err(invalid(
                 "invalid retained host identity; exact recovery required",
@@ -311,7 +311,9 @@ impl BootstrapConfig {
         Ok(())
     }
 
-    pub(crate) fn store(&self) -> crate::host_store::HostStore { self.store.clone() }
+    pub(crate) fn store(&self) -> crate::host_store::HostStore {
+        self.store.clone()
+    }
 
     pub fn directory(&self) -> &Path {
         &self.host.root
