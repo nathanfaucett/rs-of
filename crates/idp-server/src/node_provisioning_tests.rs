@@ -2952,10 +2952,7 @@ async fn operator_login_registration_retries_exactly_without_private_signer_mate
         .expect("client slot");
     let registration =
         config.operator_login_registration(client, vec!["https://storage.test".into()]);
-    assert_eq!(
-        registration.application.uri,
-        "https://identity.test/operator"
-    );
+    assert_eq!(registration.application.uri, config.api_public_uri);
     assert_eq!(registration.client_type, ClientType::Public);
     assert_eq!(
         registration.token_endpoint_auth_method,

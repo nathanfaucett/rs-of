@@ -666,7 +666,7 @@ fn login(intent: &IndependentCreateIntent, id: Id) -> ClientRegistration {
     ClientRegistration {
         application: ApplicationRegistration {
             name: Some("Local Node operator".into()),
-            uri: format!("{}/operator", intent.idp),
+            uri: intent.idp.clone(),
             description: None,
         },
         client_id: Some(id.to_string()),
