@@ -550,7 +550,7 @@
                                 {#if purpose === "create"}
                                     {#if canCreate || (web?.intent && "administrator" in web.intent)}
                                         <Field
-                                            label="Administrator name"
+                                            label="Administrator username"
                                             required
                                         >
                                             {#snippet children({

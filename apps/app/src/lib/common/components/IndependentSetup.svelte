@@ -160,7 +160,7 @@
             {/if}
         {/each}
         {#if purpose === "create"}
-            <Field label="Administrator name" required>
+            <Field label="Administrator username" required>
                 {#snippet children({
                     id,
                     "aria-describedby": describedby,
