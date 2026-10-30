@@ -22,6 +22,8 @@ pub struct DatabaseResource {
 struct CatalogRecord {
     resource: DatabaseResource,
     deleted: bool,
+    #[serde(default)]
+    initializing: bool,
 }
 
 #[derive(Default, Deserialize, Serialize)]
@@ -102,10 +104,78 @@ impl DatabaseCatalog {
             CatalogRecord {
                 resource: resource.clone(),
                 deleted: false,
+                initializing: false,
             },
         );
         write_catalog(&path, &catalog)?;
         Ok(resource)
+    }
+
+    pub(crate) fn reserve<S: StorageNamespace>(
+        &self,
+        scope: &S,
+        key: &str,
+        name: Option<String>,
+    ) -> io::Result<(DatabaseResource, bool)> {
+        if key.is_empty() || key.len() > 128 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid creation key",
+            ));
+        }
+        let identity = serde_json::to_vec(&[
+            "of:database:creation:v1",
+            scope.user_sub(),
+            &scope.application_id().to_string(),
+            key,
+        ])?;
+        let id = DatabaseId::new_v5(&DatabaseId::NAMESPACE_URL, &identity);
+        let _guard = self
+            .lock
+            .lock()
+            .map_err(|_| io::Error::other("catalog lock poisoned"))?;
+        let path = catalog_path(&self.root, scope)?;
+        let mut catalog = read_catalog(&path)?;
+        if let Some(record) = catalog.records.get(&id) {
+            if record.deleted {
+                return Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    "database deleted",
+                ));
+            }
+            return Ok((record.resource.clone(), record.initializing));
+        }
+        let resource = DatabaseResource { id, name };
+        catalog.records.insert(
+            id,
+            CatalogRecord {
+                resource: resource.clone(),
+                deleted: false,
+                initializing: true,
+            },
+        );
+        write_catalog(&path, &catalog)?;
+        Ok((resource, true))
+    }
+
+    pub(crate) fn finish_creation<S: StorageNamespace>(
+        &self,
+        scope: &S,
+        id: DatabaseId,
+    ) -> io::Result<()> {
+        let _guard = self
+            .lock
+            .lock()
+            .map_err(|_| io::Error::other("catalog lock poisoned"))?;
+        let path = catalog_path(&self.root, scope)?;
+        let mut catalog = read_catalog(&path)?;
+        let record = catalog
+            .records
+            .get_mut(&id)
+            .filter(|r| !r.deleted)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "database not found"))?;
+        record.initializing = false;
+        write_catalog(&path, &catalog)
     }
 
     pub fn list<S: StorageNamespace>(&self, scope: &S) -> io::Result<Vec<DatabaseResource>> {
@@ -117,7 +187,7 @@ impl DatabaseCatalog {
         Ok(catalog
             .records
             .into_values()
-            .filter(|record| !record.deleted)
+            .filter(|record| !record.deleted && !record.initializing)
             .map(|record| record.resource)
             .collect())
     }
@@ -142,6 +212,7 @@ impl DatabaseCatalog {
             CatalogRecord {
                 resource,
                 deleted: false,
+                initializing: false,
             },
         );
         write_catalog(&path, &catalog)?;
@@ -161,7 +232,7 @@ impl DatabaseCatalog {
         Ok(catalog
             .records
             .get(&id)
-            .filter(|record| !record.deleted)
+            .filter(|record| !record.deleted && !record.initializing)
             .map(|record| record.resource.clone()))
     }
 
@@ -175,7 +246,7 @@ impl DatabaseCatalog {
         let Some(record) = catalog
             .records
             .get_mut(&id)
-            .filter(|record| !record.deleted)
+            .filter(|record| !record.deleted && !record.initializing)
         else {
             return Ok(false);
         };
@@ -205,6 +276,7 @@ impl DatabaseCatalog {
         let record = catalog.records.entry(id).or_insert_with(|| CatalogRecord {
             resource: DatabaseResource { id, name: None },
             deleted: true,
+            initializing: false,
         });
         record.deleted = true;
         write_catalog(&path, &catalog)?;

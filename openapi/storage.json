@@ -55,6 +55,17 @@
         ],
         "type": "object"
       },
+      "DatabaseFailure": {
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "type": "object"
+      },
       "DatabaseResource": {
         "properties": {
           "id": {
@@ -69,6 +80,27 @@
         },
         "required": [
           "id"
+        ],
+        "type": "object"
+      },
+      "EnsureDatabaseRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "creationKey": {
+            "description": "Case-sensitive application-chosen identity; 1–128 UTF-8 bytes.",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "creationKey"
         ],
         "type": "object"
       },
@@ -532,6 +564,213 @@
         ],
         "type": "object"
       },
+      "SqlRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "statements": {
+            "items": {
+              "$ref": "#/components/schemas/SqlStatement"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "statements"
+        ],
+        "type": "object"
+      },
+      "SqlResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/SqlResult"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "type": "object"
+      },
+      "SqlResult": {
+        "properties": {
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "rows": {
+            "items": {
+              "items": {
+                "$ref": "#/components/schemas/SqlValue"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "columns",
+          "rows"
+        ],
+        "type": "object"
+      },
+      "SqlStatement": {
+        "additionalProperties": false,
+        "properties": {
+          "params": {
+            "items": {
+              "$ref": "#/components/schemas/SqlValue"
+            },
+            "maxItems": 128,
+            "type": "array"
+          },
+          "sql": {
+            "description": "SQL text, at most 16 KiB UTF-8; positional parameters only.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sql"
+        ],
+        "type": "object"
+      },
+      "SqlValue": {
+        "oneOf": [
+          {
+            "properties": {
+              "type": {
+                "enum": [
+                  "null"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "type": {
+                "enum": [
+                  "boolean"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "type": {
+                "enum": [
+                  "integer"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "type": {
+                "enum": [
+                  "float"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "type": {
+                "enum": [
+                  "text"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "type": {
+                "enum": [
+                  "uuid"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "type": {
+                "enum": [
+                  "blob"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "items": {
+                  "format": "int32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "VersionResponse": {
         "properties": {
           "build": {
@@ -733,6 +972,121 @@
         ]
       }
     },
+    "/databases/ensure": {
+      "post": {
+        "operationId": "ensure_database",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnsureDatabaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseResource"
+                }
+              }
+            },
+            "description": "Created or reopened explicit logical database"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseFailure"
+                }
+              }
+            },
+            "description": "Invalid creation key"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseFailure"
+                }
+              }
+            },
+            "description": "Invalid authorization"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseFailure"
+                }
+              }
+            },
+            "description": "Write denied"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseFailure"
+                }
+              }
+            },
+            "description": "Local copy fenced"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseFailure"
+                }
+              }
+            },
+            "description": "Identity tombstoned"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseFailure"
+                }
+              }
+            },
+            "description": "Request exceeds 256 KiB"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseFailure"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseFailure"
+                }
+              }
+            },
+            "description": "Content unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "resources"
+        ]
+      }
+    },
     "/databases/{database_id}": {
       "delete": {
         "operationId": "delete_database",
@@ -817,6 +1171,122 @@
         ],
         "tags": [
           "resources"
+        ]
+      }
+    },
+    "/databases/{database_id}/sql": {
+      "post": {
+        "operationId": "execute_sql",
+        "parameters": [
+          {
+            "description": "Database resource ID",
+            "in": "path",
+            "name": "database_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SqlRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SqlResponse"
+                }
+              }
+            },
+            "description": "Complete atomic SQL batch"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseFailure"
+                }
+              }
+            },
+            "description": "Invalid SQL, parameters or execution failure"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseFailure"
+                }
+              }
+            },
+            "description": "Invalid database authorization"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseFailure"
+                }
+              }
+            },
+            "description": "Parsed actions denied"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseFailure"
+                }
+              }
+            },
+            "description": "Resource absent or deleted"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseFailure"
+                }
+              }
+            },
+            "description": "Local copy fenced"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseFailure"
+                }
+              }
+            },
+            "description": "Request or result limit exceeded"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseFailure"
+                }
+              }
+            },
+            "description": "Content or authorization unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "resources::sql"
         ]
       }
     },

@@ -976,7 +976,7 @@ it("rejects newly requested work immediately after retirement even behind an out
     expect(BrowserSocket.instances[0].sent).toHaveLength(1);
 });
 
-it.each(["list", "create", "open"])(
+it.each(["list", "create", "open", "ensure", "sql"])(
     "cannot send obsolete %s work held in token exchange into a replacement context",
     async (operation) => {
         sockets();
@@ -1004,7 +1004,19 @@ it.each(["list", "create", "open"])(
                 ? access.listFileSystems()
                 : operation === "create"
                   ? access.createFileSystem("Vault")
-                  : access.openSocket("fs-one");
+                  : operation === "ensure"
+                    ? access.ensureDatabase({ creationKey: "chosen" })
+                    : operation === "sql"
+                      ? access.executeSql(
+                            "db",
+                            {
+                                statements: [
+                                    { sql: "DELETE FROM records", params: [] },
+                                ],
+                            },
+                            ["write"],
+                        )
+                      : access.openSocket("fs-one");
         const rejected = expect(pending).rejects.toThrow("ended");
         await vi.waitFor(() => expect(exchanging).toBe(true));
         sdk.dispose();
@@ -1039,4 +1051,91 @@ it("replaces callback generations without letting retained Storage access follow
     await expect(sdk.storage().listFileSystems()).resolves.toEqual([
         { id: "fs-one", name: "Vault" },
     ]);
+});
+
+it("SQL capability is explicit, sends no provisioning on restore, and suppresses retired completions", async () => {
+    const controlled = vi.fn(service.getMockImplementation());
+    const sdk = new ApplicationSdk({ ...options(), fetch: controlled });
+    await sdk.handleSigninCallback(await callback(sdk));
+    const restored = new ApplicationSdk({ ...options(), fetch: controlled });
+    await restored.restore();
+    restored.storage();
+    const storage = sdk.storage();
+    expect(
+        controlled.mock.calls.every(
+            ([url]) => !String(url).includes("/databases"),
+        ),
+    ).toBe(true);
+    let release!: (response: Response) => void;
+    const held = new Promise<Response>((resolve) => {
+        release = resolve;
+    });
+    controlled.mockImplementation((url, init) =>
+        String(url).endsWith("/databases/ensure") ? held : service(url, init),
+    );
+    const pending = storage.ensureDatabase({
+        creationKey: "application-owned-key",
+    });
+    const rejected = expect(pending).rejects.toThrow("ended");
+    await vi.waitFor(() =>
+        expect(
+            controlled.mock.calls.some(([url]) =>
+                String(url).endsWith("/databases/ensure"),
+            ),
+        ).toBe(true),
+    );
+    sdk.dispose();
+    release(Response.json({ id: "old", name: null }));
+    await rejected;
+    const sent = controlled.mock.calls.length;
+    await expect(
+        storage.executeSql(
+            "old",
+            { statements: [{ sql: "DELETE FROM records", params: [] }] },
+            ["write"],
+        ),
+    ).rejects.toThrow("ended");
+    expect(controlled.mock.calls).toHaveLength(sent);
+    restored.dispose();
+});
+
+it("same-identity SQL renewal keeps capabilities and database denial does not end IdP authentication", async () => {
+    const controlled = vi.fn(service.getMockImplementation());
+    const sdk = new ApplicationSdk({ ...options(), fetch: controlled });
+    await sdk.handleSigninCallback(await callback(sdk));
+    const storage = sdk.storage();
+    const snapshot = sdk.session;
+    let denied = false;
+    controlled.mockImplementation((url, init) =>
+        String(url).endsWith("/databases/db/sql")
+            ? Promise.resolve(
+                  denied
+                      ? Response.json({ code: "forbidden" }, { status: 403 })
+                      : Response.json({ results: [{ columns: [], rows: [] }] }),
+              )
+            : service(url, init),
+    );
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 3600000);
+    try {
+        await expect(
+            storage.executeSql(
+                "db",
+                { statements: [{ sql: "SELECT id FROM records", params: [] }] },
+                ["read"],
+            ),
+        ).resolves.toMatchObject({ results: [{ rows: [] }] });
+        expect(sdk.session).toBe(snapshot);
+        denied = true;
+        await expect(
+            storage.executeSql(
+                "db",
+                { statements: [{ sql: "SELECT id FROM records", params: [] }] },
+                ["read"],
+            ),
+        ).rejects.toThrow("403");
+        expect(sdk.session).toBe(snapshot);
+    } finally {
+        clock.mockRestore();
+        sdk.dispose();
+    }
 });

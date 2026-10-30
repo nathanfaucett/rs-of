@@ -24,10 +24,20 @@ import {
     DatabaseDetailResponseToJSON,
 } from "../models/DatabaseDetailResponse.js";
 import {
+    type DatabaseFailure,
+    DatabaseFailureFromJSON,
+    DatabaseFailureToJSON,
+} from "../models/DatabaseFailure.js";
+import {
     type DatabaseResource,
     DatabaseResourceFromJSON,
     DatabaseResourceToJSON,
 } from "../models/DatabaseResource.js";
+import {
+    type EnsureDatabaseRequest,
+    EnsureDatabaseRequestFromJSON,
+    EnsureDatabaseRequestToJSON,
+} from "../models/EnsureDatabaseRequest.js";
 import {
     type FileSystemDetailResponse,
     FileSystemDetailResponseFromJSON,
@@ -65,6 +75,13 @@ export interface DeleteFileSystemRequest {
      * Filesystem resource ID
      */
     filesystemId: string;
+}
+
+export interface EnsureDatabaseOperationRequest {
+    /**
+     *
+     */
+    ensureDatabaseRequest: EnsureDatabaseRequest;
 }
 
 export interface GetDatabaseRequest {
@@ -203,6 +220,35 @@ export interface ResourcesApiInterface {
         requestParameters: DeleteFileSystemRequest,
         initOverrides?: RequestInit | runtime.InitOverrideFunction,
     ): Promise<void>;
+
+    /**
+     * Creates request options for ensureDatabase without sending the request
+     * @param {EnsureDatabaseRequest} ensureDatabaseRequest
+     * @throws {RequiredError}
+     * @memberof ResourcesApiInterface
+     */
+    ensureDatabaseRequestOpts(
+        requestParameters: EnsureDatabaseOperationRequest,
+    ): Promise<runtime.RequestOpts>;
+
+    /**
+     *
+     * @param {EnsureDatabaseRequest} ensureDatabaseRequest
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof ResourcesApiInterface
+     */
+    ensureDatabaseRaw(
+        requestParameters: EnsureDatabaseOperationRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<DatabaseResource>>;
+
+    /**
+     */
+    ensureDatabase(
+        requestParameters: EnsureDatabaseOperationRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<DatabaseResource>;
 
     /**
      * Creates request options for getDatabase without sending the request
@@ -576,6 +622,75 @@ export class ResourcesApi
         initOverrides?: RequestInit | runtime.InitOverrideFunction,
     ): Promise<void> {
         await this.deleteFileSystemRaw(requestParameters, initOverrides);
+    }
+
+    /**
+     * Creates request options for ensureDatabase without sending the request
+     */
+    async ensureDatabaseRequestOpts(
+        requestParameters: EnsureDatabaseOperationRequest,
+    ): Promise<runtime.RequestOpts> {
+        if (requestParameters["ensureDatabaseRequest"] == null) {
+            throw new runtime.RequiredError(
+                "ensureDatabaseRequest",
+                'Required parameter "ensureDatabaseRequest" was null or undefined when calling ensureDatabase().',
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters["Content-Type"] = "application/json";
+
+        if (this.configuration && this.configuration.accessToken) {
+            const token = this.configuration.accessToken;
+            const tokenString = await token("authorization", []);
+
+            if (tokenString) {
+                headerParameters["Authorization"] = `Bearer ${tokenString}`;
+            }
+        }
+
+        let urlPath = `/databases/ensure`;
+
+        return {
+            path: urlPath,
+            method: "POST",
+            headers: headerParameters,
+            query: queryParameters,
+            body: EnsureDatabaseRequestToJSON(
+                requestParameters["ensureDatabaseRequest"],
+            ),
+        };
+    }
+
+    /**
+     */
+    async ensureDatabaseRaw(
+        requestParameters: EnsureDatabaseOperationRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<DatabaseResource>> {
+        const requestOptions =
+            await this.ensureDatabaseRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) =>
+            DatabaseResourceFromJSON(jsonValue),
+        );
+    }
+
+    /**
+     */
+    async ensureDatabase(
+        requestParameters: EnsureDatabaseOperationRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<DatabaseResource> {
+        const response = await this.ensureDatabaseRaw(
+            requestParameters,
+            initOverrides,
+        );
+        return await response.value();
     }
 
     /**

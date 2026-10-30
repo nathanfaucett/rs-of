@@ -1,5 +1,6 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, btree_map::Entry},
+    fs::{self, File},
     io,
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -67,6 +68,72 @@ impl DatabaseRuntime {
                 Err(io::Error::other(error.to_string()))
             }
         }
+    }
+
+    pub fn ensure<S: StorageNamespace>(
+        &self,
+        scope: &S,
+        key: &str,
+        name: Option<String>,
+    ) -> io::Result<DatabaseResource> {
+        let mut open = self
+            .open
+            .lock()
+            .map_err(|_| io::Error::other("runtime lock poisoned"))?;
+        self.local_copies.require_owner(scope.user_sub())?;
+        let (resource, initializing) = self.catalog.reserve(scope, key, name)?;
+        self.require_local_copy(scope, resource.id)?;
+        let path = self.copy_path(scope, resource.id)?;
+        if !initializing && !path.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "database content unavailable",
+            ));
+        }
+        if initializing && !path.exists() {
+            let staging = path.with_extension("initializing.redb");
+            match fs::remove_file(&staging) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+            drop(
+                Database::open(&staging)
+                    .map_err(|_| io::Error::other("database initialization failed"))?,
+            );
+            File::open(&staging)?.sync_all()?;
+            fs::rename(&staging, &path)?;
+            File::open(path.parent().expect("database path has parent"))?.sync_all()?;
+        }
+        let key = database_key(scope, resource.id);
+        if let Entry::Vacant(entry) = open.entry(key) {
+            let database =
+                Database::open(&path).map_err(|_| io::Error::other("database unavailable"))?;
+            entry.insert(Arc::new(database));
+        }
+        if initializing {
+            self.catalog.finish_creation(scope, resource.id)?;
+            self.changes.send_replace(());
+        }
+        Ok(resource)
+    }
+
+    pub fn open_existing<S: StorageNamespace>(
+        &self,
+        scope: &S,
+        id: DatabaseId,
+    ) -> io::Result<Option<Arc<Database>>> {
+        if self.catalog.get(scope, id)?.is_none() {
+            return Ok(None);
+        }
+        self.require_local_copy(scope, id)?;
+        if !self.copy_path(scope, id)?.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "database content unavailable",
+            ));
+        }
+        self.open(scope, id)
     }
 
     pub fn list<S: StorageNamespace>(&self, scope: &S) -> io::Result<Vec<DatabaseResource>> {

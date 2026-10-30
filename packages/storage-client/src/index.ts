@@ -6,6 +6,14 @@ import {
 } from "@aicacia/idp-client";
 import { DefaultApi as StorageApi } from "./generated/apis/DefaultApi.js";
 import { ResourcesApi } from "./generated/apis/ResourcesApi.js";
+import { ResourcesSqlApi } from "./generated/apis/ResourcesSqlApi.js";
+import type {
+    DatabaseDetailResponse,
+    DatabaseResource,
+    EnsureDatabaseRequest,
+    SqlRequest,
+    SqlResponse,
+} from "./generated/models/index.js";
 import {
     Configuration,
     querystring,
@@ -13,9 +21,36 @@ import {
 } from "./generated/runtime.js";
 
 export { ResourcesResidencyApi } from "./generated/apis/ResourcesResidencyApi.js";
+export type {
+    DatabaseDetailResponse,
+    DatabaseResource,
+    EnsureDatabaseRequest,
+    SqlRequest,
+    SqlResponse,
+    SqlStatement,
+    SqlValue,
+} from "./generated/models/index.js";
 export { ResidencyMode } from "./generated/models/ResidencyMode.js";
 export type { ResourceResidency } from "./generated/models/ResourceResidency.js";
 export { Configuration as StorageOwnerConfiguration } from "./generated/runtime.js";
+export type StorageAction = "read" | "write";
+
+export class DatabaseOperationError extends Error {
+    constructor(readonly status: number) {
+        super(`Database operation failed: ${status}`);
+        this.name = "DatabaseOperationError";
+    }
+}
+
+async function databaseResult<T>(pending: Promise<T>): Promise<T> {
+    try {
+        return await pending;
+    } catch (error) {
+        if (error instanceof ResponseError)
+            throw new DatabaseOperationError(error.response.status);
+        throw error;
+    }
+}
 
 export type StorageRequest =
     | { type: "read"; path: string }
@@ -93,6 +128,100 @@ export class StorageClient {
 
     constructor(private readonly options: StorageClientOptions) {}
 
+    async ensureDatabase(
+        request: EnsureDatabaseRequest,
+        signal?: AbortSignal,
+    ): Promise<DatabaseResource> {
+        const token = await this.exchangeToken(
+            ["write"],
+            signal,
+            "storage:databases",
+        );
+        signal?.throwIfAborted();
+        return databaseResult(
+            this.resources(token).ensureDatabase(
+                { ensureDatabaseRequest: request },
+                { signal },
+            ),
+        );
+    }
+
+    async createDatabase(
+        name?: string,
+        signal?: AbortSignal,
+    ): Promise<DatabaseResource> {
+        const token = await this.exchangeToken(
+            ["write"],
+            signal,
+            "storage:databases",
+        );
+        signal?.throwIfAborted();
+        return databaseResult(
+            this.resources(token).createDatabase(
+                { createResourceRequest: { name } },
+                { signal },
+            ),
+        );
+    }
+
+    async listDatabases(signal?: AbortSignal): Promise<DatabaseResource[]> {
+        const token = await this.exchangeToken(
+            ["read"],
+            signal,
+            "storage:databases",
+        );
+        signal?.throwIfAborted();
+        return databaseResult(this.resources(token).listDatabases({ signal }));
+    }
+
+    async getDatabase(
+        databaseId: string,
+        signal?: AbortSignal,
+    ): Promise<DatabaseDetailResponse> {
+        const token = await this.exchangeToken(
+            ["read"],
+            signal,
+            "storage:databases",
+        );
+        signal?.throwIfAborted();
+        return databaseResult(
+            this.resources(token).getDatabase({ databaseId }, { signal }),
+        );
+    }
+
+    async deleteDatabase(
+        databaseId: string,
+        signal?: AbortSignal,
+    ): Promise<void> {
+        const token = await this.exchangeToken(
+            ["write"],
+            signal,
+            "storage:databases",
+        );
+        signal?.throwIfAborted();
+        return databaseResult(
+            this.resources(token).deleteDatabase({ databaseId }, { signal }),
+        );
+    }
+
+    async executeSql(
+        databaseId: string,
+        request: SqlRequest,
+        actions: StorageAction[],
+        signal?: AbortSignal,
+    ): Promise<SqlResponse> {
+        const token = await this.exchangeToken(
+            actions,
+            signal,
+            "storage:databases",
+        );
+        signal?.throwIfAborted();
+        const api = new ResourcesSqlApi(this.configuration(token));
+        return databaseResult(
+            api.executeSql({ databaseId, sqlRequest: request }, { signal }),
+        );
+    }
+
     async listFileSystems(signal?: AbortSignal): Promise<FileSystemResource[]> {
         const token = await this.exchangeToken(["read"], signal);
         signal?.throwIfAborted();
@@ -168,6 +297,7 @@ export class StorageClient {
     private async exchangeToken(
         actions: ("read" | "write")[],
         signal?: AbortSignal,
+        resource = "storage:filesystems",
     ): Promise<string> {
         signal?.throwIfAborted();
         const subjectToken = await this.options.bearerToken();
@@ -192,7 +322,7 @@ export class StorageClient {
                     subjectToken,
                     subjectTokenType:
                         SubjectTokenType.UrnIetfParamsOauthTokenTypeAccessToken,
-                    resource: "storage:filesystems",
+                    resource,
                     clientId: this.options.clientId,
                     authorizationDetails: JSON.stringify([
                         { type: "storage", actions },
@@ -214,16 +344,18 @@ export class StorageClient {
     }
 
     private resources(token: string): ResourcesApi {
-        return new ResourcesApi(
-            new Configuration({
-                basePath: parseUrl(this.options.storageBaseUrl).href.replace(
-                    /\/$/,
-                    "",
-                ),
-                fetchApi: this.options.fetch ?? fetch,
-                headers: { Authorization: `Bearer ${token}` },
-            }),
-        );
+        return new ResourcesApi(this.configuration(token));
+    }
+
+    private configuration(token: string): Configuration {
+        return new Configuration({
+            basePath: parseUrl(this.options.storageBaseUrl).href.replace(
+                /\/$/,
+                "",
+            ),
+            fetchApi: this.options.fetch ?? fetch,
+            headers: { Authorization: `Bearer ${token}` },
+        });
     }
 }
 
