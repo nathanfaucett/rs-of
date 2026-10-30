@@ -58,3 +58,49 @@ Broader checks/limits, **not** claimed green:
 The HTTP contract is intentionally narrower than unrestricted owner SQL. Budgets may reject history-heavy/catalog-heavy operations even when their projected response would fit. Native encoded admission occurs before owned reads; a codec must decode one document/row before its logical size is known. These bounds are not a hard process-memory/decompression/CPU/concurrency/wall-clock sandbox. Existing oversized replicated/history-heavy resources may require trusted native/operator recovery. Local cancellation does not prove rollback.
 
 No deployed Installation/browser/OS-provider qualification, production-password-vault claim, secure erasure, global serialization or mesh convergence is inferred. Tests use non-sensitive records. Deployment browser sign-in/CRUD/reload/Node restart/denial/recovery remain manual as documented in the app README.
+
+
+### P1 follow-up: selected-open acknowledgement bypass
+
+The initial review fix did not close `open_selected`: protocol-first opening could
+still create and cache an empty owner for missing/zero-length ready content. This
+follow-up was implemented on the same review branch **after first merging
+`integration/password-manager-sql` at `a59f0c3c5562b5fb061266c32dd0e01e57bd9065`**
+(fast-forward). The extended regression was observed red: protocol-first selected
+open succeeded after acknowledged content was removed.
+
+- Selected SQL opens now use public `Database::open_existing`. Creating an empty
+  SQL copy requires explicit durable local initialization intent, not file absence,
+  catalog readiness or `generation > 0`.
+- Fresh selected admission records local SQL initialization intent before catalog
+  publication. Completed retirement records fresh intent while still fenced,
+  before copy-generation advancement. Trusted reselection still has to clear the
+  local fence; Tombstones, initializing catalog entries and retired owners remain
+  denied. Existing catalog entries without fresh intent fail closed.
+- SQL/KV selected admission uses consistent SQL-then-KV lock ordering so KV-first
+  registration cannot race SQL acknowledgement. Staged SQL initialization is shared
+  with ensure; already-published content is only validated. Successful selected,
+  ordinary and ensure SQL opens consume fresh intent durably before cache insertion.
+  The intent survives an interrupted fresh bootstrap without authorizing replacement
+  of an acknowledged copy on a later restart.
+- The native authenticated HTTP regression now commits data, closes every owner,
+  removes/truncates/corrupts content, restarts, invokes `open_selected` **first** and
+  then requires ensure/SQL execution to return 503 without replacing bytes. It covers
+  both original and retired/reselected copy generations (six cases).
+- Two additional service tests cover KV-first fresh admission interrupted before SQL
+  initialization, restart/reopen with persisted records, and consumption of pending
+  fresh intent when ensure or ordinary opening acknowledges published content.
+  Existing retirement/reselection, Tombstone and owner-fence regressions remain.
+- No `ofdb`, `ofnet` or `offs` source or branch was changed. The existing public owner
+  API from `69813e339ef5d4d5bba3dd896488f1d2b0e379a9` is sufficient.
+
+Follow-up validation: Storage service feature powerset/all targets **27 passed**;
+Storage server all-feature library **95 passed**, one subprocess helper ignored;
+strict changed service/server library Clippy passes. Full native SQL HTTP suite
+**18 passed**, one subprocess helper intentionally ignored by the outer harness;
+its selected-first corruption case covers all six original/reselected damage cases.
+Rust formatting and `git diff --check` pass. `just crap --summary` was rerun with
+a **180 s** bound and timed out during instrumented workspace compilation
+(GTK/Tauri dependencies, 883/987); no completed CRAP/coverage result is claimed.
+No Svelte/TypeScript code changed, so app build/type checks were not rerun for this
+Rust lifecycle-only follow-up. No deployed qualification is claimed.

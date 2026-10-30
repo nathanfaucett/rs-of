@@ -90,25 +90,15 @@ impl DatabaseRuntime {
                 "database content unavailable",
             ));
         }
-        if initializing && !path.exists() {
-            let staging = path.with_extension("initializing.redb");
-            match fs::remove_file(&staging) {
-                Ok(()) => {}
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error),
-            }
-            drop(
-                Database::open(&staging)
-                    .map_err(|_| io::Error::other("database initialization failed"))?,
-            );
-            File::open(&staging)?.sync_all()?;
-            fs::rename(&staging, &path)?;
-            File::open(path.parent().expect("database path has parent"))?.sync_all()?;
+        if initializing {
+            initialize_database(&path)?;
         }
         let key = database_key(scope, resource.id);
         if let Entry::Vacant(entry) = open.entry(key) {
             let database = Database::open_existing(&path)
                 .map_err(|_| io::Error::other("database unavailable"))?;
+            self.local_copies
+                .set_sql_initializing(scope, resource.id, false)?;
             entry.insert(Arc::new(database));
         }
         if initializing {
@@ -303,6 +293,7 @@ impl DatabaseRuntime {
                 .map_err(|_| io::Error::other("database runtime lock poisoned"))?;
             self.evict(scope, id, &mut open)?;
         }
+        self.local_copies.set_sql_initializing(scope, id, true)?;
         self.local_copies.complete(scope, id)
     }
 
@@ -333,6 +324,13 @@ impl DatabaseRuntime {
         result
     }
 
+    fn register_selected(&self, scope: &impl StorageNamespace, id: DatabaseId) -> io::Result<bool> {
+        if self.catalog.lifecycle(scope, id)?.is_none() {
+            self.local_copies.set_sql_initializing(scope, id, true)?;
+        }
+        self.catalog.register_selected(scope, id)
+    }
+
     fn copy_path(&self, scope: &impl StorageNamespace, id: DatabaseId) -> io::Result<PathBuf> {
         let path = database_path(&self.root, scope, id)?;
         let generation = self.local_copies.generation(scope, id)?;
@@ -358,7 +356,7 @@ impl DatabaseRuntime {
             .lock()
             .map_err(|_| io::Error::other("database runtime lock poisoned"))?;
         self.require_local_copy(scope, id)?;
-        if !self.catalog.register_selected(scope, id)? {
+        if !self.register_selected(scope, id)? {
             return Ok(None);
         }
         let key = database_key(scope, id);
@@ -366,11 +364,14 @@ impl DatabaseRuntime {
             return Ok(Some(Arc::clone(database)));
         }
         let path = self.copy_path(scope, id)?;
-        std::fs::create_dir_all(path.parent().expect("copy path has parent"))?;
+        if self.local_copies.sql_initializing(scope, id)? {
+            initialize_database(&path)?;
+        }
         let database = Arc::new(
-            Database::open(path)
+            Database::open_existing(path)
                 .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?,
         );
+        self.local_copies.set_sql_initializing(scope, id, false)?;
         open.insert(key, Arc::clone(&database));
         self.changes.send_replace(());
         Ok(Some(database))
@@ -382,12 +383,16 @@ impl DatabaseRuntime {
         id: DatabaseId,
     ) -> io::Result<Option<Arc<KvDatabase>>> {
         self.require_local_copy(scope, id)?;
+        let _sql_open = self
+            .open
+            .lock()
+            .map_err(|_| io::Error::other("database runtime lock poisoned"))?;
         let mut open = self
             .kv_open
             .lock()
             .map_err(|_| io::Error::other("database KV runtime lock poisoned"))?;
         self.require_local_copy(scope, id)?;
-        if !self.catalog.register_selected(scope, id)? {
+        if !self.register_selected(scope, id)? {
             return Ok(None);
         }
         let key = database_key(scope, id);
@@ -430,10 +435,25 @@ impl DatabaseRuntime {
             Database::open_existing(path)
                 .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?,
         );
+        self.local_copies.set_sql_initializing(scope, id, false)?;
         open.insert(key, Arc::clone(&database));
         self.changes.send_replace(());
         Ok(Some(database))
     }
+}
+
+fn initialize_database(path: &std::path::Path) -> io::Result<()> {
+    if path.exists() {
+        return Ok(());
+    }
+    let parent = path.parent().expect("database path has parent");
+    fs::create_dir_all(parent)?;
+    let staging = path.with_extension("initializing.redb");
+    remove_initializing_file(&staging)?;
+    drop(Database::open(&staging).map_err(|_| io::Error::other("database initialization failed"))?);
+    File::open(&staging)?.sync_all()?;
+    fs::rename(&staging, path)?;
+    File::open(parent)?.sync_all()
 }
 
 fn remove_initializing_file(path: &std::path::Path) -> io::Result<()> {
@@ -503,6 +523,116 @@ mod tests {
 
         fn application_id(&self) -> idp_model::model::Id {
             self.application
+        }
+    }
+
+    #[tokio::test]
+    async fn selected_sql_initialization_survives_kv_first_admission_and_restart() {
+        let root = std::env::temp_dir().join(format!(
+            "selected-initialization-{}",
+            idp_model::model::Id::now_v7()
+        ));
+        let scope = Scope {
+            subject: "owner",
+            application: idp_model::model::Id::now_v7(),
+        };
+        let id = idp_model::model::Id::now_v7();
+        let runtime = DatabaseRuntime::new(root.clone()).expect("runtime");
+        drop(
+            runtime
+                .open_kv_selected(&scope, id)
+                .expect("KV-first fresh admission")
+                .expect("KV"),
+        );
+        drop(runtime);
+        let runtime =
+            DatabaseRuntime::new(root.clone()).expect("restart before SQL initialization");
+        let owner = runtime
+            .open_selected(&scope, id)
+            .expect("durable fresh SQL intent")
+            .expect("SQL");
+        owner.client().execute_sql("CREATE TABLE records (id TEXT PRIMARY KEY); INSERT INTO records (id) VALUES ('persisted')", None).await.expect("commit selected SQL data");
+        drop(owner);
+        drop(runtime);
+        let runtime =
+            DatabaseRuntime::new(root.clone()).expect("restart acknowledged selected copy");
+        let owner = runtime
+            .open_selected(&scope, id)
+            .expect("existing-only selected reopen")
+            .expect("SQL");
+        assert_eq!(
+            owner
+                .client()
+                .execute_sql("SELECT id FROM records", None)
+                .await
+                .expect("selected records survive")[0]
+                .rows[0]
+                .values,
+            vec![ofdb_sql::Value::Text("persisted".into())]
+        );
+        drop(owner);
+        drop(runtime);
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn ordinary_sql_acknowledgement_consumes_selected_initialization_intent() {
+        for ensure in [false, true] {
+            let root = std::env::temp_dir().join(format!(
+                "selected-acknowledgement-{}",
+                idp_model::model::Id::now_v7()
+            ));
+            let scope = Scope {
+                subject: "owner",
+                application: idp_model::model::Id::now_v7(),
+            };
+            let source = DatabaseRuntime::new(root.join("source")).expect("source Node");
+            let resource = source
+                .ensure(&scope, "selected", None)
+                .expect("remote logical resource");
+            let target = root.join("target");
+            let runtime = DatabaseRuntime::new(target.clone()).expect("target Node");
+            drop(
+                runtime
+                    .open_kv_selected(&scope, resource.id)
+                    .expect("admit fresh selected resource")
+                    .expect("KV"),
+            );
+            let path =
+                super::database_path(&target, &scope, resource.id).expect("selected copy path");
+            drop(
+                ofdb_sql::Database::open(&path)
+                    .expect("simulate published SQL before initialization acknowledgement"),
+            );
+            if ensure {
+                assert_eq!(
+                    runtime
+                        .ensure(&scope, "selected", None)
+                        .expect("acknowledge published copy"),
+                    resource
+                );
+            } else {
+                drop(
+                    runtime
+                        .open_existing(&scope, resource.id)
+                        .expect("acknowledge published copy")
+                        .expect("SQL"),
+                );
+            }
+            drop(runtime);
+            fs::remove_file(&path).expect("lose closed acknowledged content");
+            let runtime = DatabaseRuntime::new(target).expect("restart acknowledged copy");
+            assert!(
+                runtime.open_selected(&scope, resource.id).is_err(),
+                "acknowledgement cannot leave reusable initialization intent"
+            );
+            assert!(
+                !path.exists(),
+                "selected reopen cannot replace acknowledged content"
+            );
+            drop(runtime);
+            drop(source);
+            fs::remove_dir_all(root).expect("remove fixture");
         }
     }
 

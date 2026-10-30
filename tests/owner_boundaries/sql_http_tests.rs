@@ -925,59 +925,107 @@ async fn password_manager_schema_and_crud_requests_survive_retry_and_native_rest
 }
 
 #[tokio::test]
-async fn corrupt_acknowledged_content_fails_ensure_and_execution_after_restart() {
-    for damage in [b"".as_slice(), b"not a database".as_slice()] {
-        let mut f = Fixture::new(Default::default()).await;
-        let token = f.token("storage:databases", vec![Read, Write]).await;
-        let resource: Value = ensure(&f, &token, "corruption")
-            .await
-            .json()
-            .await
-            .expect("resource");
-        let id = resource["id"].as_str().expect("ID");
-        assert_eq!(
-            sql(
-                &f,
-                &token,
-                id,
-                json!([
-                    {"sql":"CREATE TABLE records (id TEXT PRIMARY KEY)"},
-                    {"sql":"INSERT INTO records (id) VALUES ('committed')"}
-                ])
-            )
-            .await
-            .status(),
-            200
-        );
-        // Stop every issued owner before damaging its persisted content.
-        f.storage_listener.stop().await;
-        f.databases = std::sync::Arc::new(
-            storage_service::DatabaseRuntime::new(f._directory.0.join("unused"))
-                .expect("release owner"),
-        );
-        let path = f
-            ._directory
-            .0
-            .join("databases/databases")
-            .join(&f.scope.user_sub)
-            .join(f.scope.application_id.to_string())
-            .join(format!("{id}.redb"));
-        std::fs::write(&path, damage).expect("damage closed acknowledged file");
-        restart(&mut f).await;
-        assert_eq!(ensure(&f, &token, "corruption").await.status(), 503);
-        assert_eq!(
-            sql(
-                &f,
-                &token,
-                id,
-                json!([{"sql":"CREATE TABLE replacement (id TEXT PRIMARY KEY)"}])
-            )
-            .await
-            .status(),
-            503
-        );
-        assert_eq!(std::fs::read(&path).expect("content not replaced"), damage);
-        f.stop().await;
+async fn corrupt_acknowledged_content_fails_selected_open_ensure_and_execution_after_restart() {
+    for reselected in [false, true] {
+        for damage in [
+            None,
+            Some(b"".as_slice()),
+            Some(b"not a database".as_slice()),
+        ] {
+            let mut f = Fixture::new(Default::default()).await;
+            let token = f.token("storage:databases", vec![Read, Write]).await;
+            let resource: Value = ensure(&f, &token, "corruption")
+                .await
+                .json()
+                .await
+                .expect("resource");
+            let id = resource["id"].as_str().expect("ID");
+            let database_id = id.parse().expect("database ID");
+            if reselected {
+                f.databases
+                    .remove_local_copy(&f.scope, database_id)
+                    .await
+                    .expect("retire original local generation");
+                f.databases
+                    .reconcile_selected_copies(&[(
+                        f.scope.user_sub.clone(),
+                        f.scope.application_id,
+                        database_id,
+                    )])
+                    .await
+                    .expect("explicit trusted reselection");
+                drop(
+                    f.databases
+                        .open_selected(&f.scope, database_id)
+                        .expect("provision fresh selected generation")
+                        .expect("resource"),
+                );
+            }
+            assert_eq!(
+                sql(
+                    &f,
+                    &token,
+                    id,
+                    json!([
+                        {"sql":"CREATE TABLE records (id TEXT PRIMARY KEY)"},
+                        {"sql":"INSERT INTO records (id) VALUES ('committed')"}
+                    ])
+                )
+                .await
+                .status(),
+                200
+            );
+            f.storage_listener.stop().await;
+            f.databases = std::sync::Arc::new(
+                storage_service::DatabaseRuntime::new(f._directory.0.join("unused"))
+                    .expect("release every issued owner"),
+            );
+            let namespace = f
+                ._directory
+                .0
+                .join("databases/databases")
+                .join(&f.scope.user_sub)
+                .join(f.scope.application_id.to_string());
+            let path = if reselected {
+                namespace
+                    .join(format!("{id}.copies"))
+                    .join("1")
+                    .join(format!("{id}.redb"))
+            } else {
+                namespace.join(format!("{id}.redb"))
+            };
+            if let Some(bytes) = damage {
+                std::fs::write(&path, bytes).expect("damage closed acknowledged content");
+            } else {
+                std::fs::remove_file(&path).expect("remove closed acknowledged content");
+            }
+            restart(&mut f).await;
+            assert!(
+                f.databases.open_selected(&f.scope, database_id).is_err(),
+                "protocol-first open must not initialize acknowledged content"
+            );
+            assert_eq!(ensure(&f, &token, "corruption").await.status(), 503);
+            assert_eq!(
+                sql(
+                    &f,
+                    &token,
+                    id,
+                    json!([{"sql":"CREATE TABLE replacement (id TEXT PRIMARY KEY)"}])
+                )
+                .await
+                .status(),
+                503
+            );
+            if let Some(bytes) = damage {
+                assert_eq!(std::fs::read(&path).expect("content not replaced"), bytes);
+            } else {
+                assert!(
+                    !path.exists(),
+                    "missing acknowledged content remains absent"
+                );
+            }
+            f.stop().await;
+        }
     }
 }
 
