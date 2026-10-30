@@ -135,3 +135,7 @@ Broader checks/limits, not claimed green:
 Ticket 02 remains the application cutover: choose the app key, initialize/check
 its versioned schema transactionally, and implement its SQL collection/UX. Existing
 filesystem resources and generic filesystem consumers remain untouched.
+
+### Review correction and follow-up
+
+[03: review fixes](03-review-fixes.md) supersedes the initial Answer's SELECT-only read classification and post-materialization-only bound description. Ready resources now reopen through the public existing-only SQL owner API; RETURNING requires read/write; retirement includes initializing intents; HTTP SQL is an explicitly restricted generic CRUD subset with pre-allocation native read admission and decoded-row accounting. The neighboring owner commit, exact regression results and remaining validation/qualification limits are recorded in ticket 03.

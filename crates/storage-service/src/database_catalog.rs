@@ -204,7 +204,7 @@ impl DatabaseCatalog {
         let path = catalog_path(&self.root, scope)?;
         let mut catalog = read_catalog(&path)?;
         if let Some(record) = catalog.records.get(&id) {
-            return Ok(!record.deleted);
+            return Ok(!record.deleted && !record.initializing);
         }
         let resource = DatabaseResource { id, name: None };
         catalog.records.insert(
@@ -217,6 +217,19 @@ impl DatabaseCatalog {
         );
         write_catalog(&path, &catalog)?;
         Ok(true)
+    }
+
+    pub(crate) fn lifecycle<S: StorageNamespace>(
+        &self,
+        scope: &S,
+        id: DatabaseId,
+    ) -> io::Result<Option<bool>> {
+        let _guard = self
+            .lock
+            .lock()
+            .map_err(|_| io::Error::other("database catalog lock poisoned"))?;
+        let catalog = read_catalog(&catalog_path(&self.root, scope)?)?;
+        Ok(catalog.records.get(&id).map(|record| record.initializing))
     }
 
     pub fn get<S: StorageNamespace>(

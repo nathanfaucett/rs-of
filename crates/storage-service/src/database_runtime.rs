@@ -107,8 +107,8 @@ impl DatabaseRuntime {
         }
         let key = database_key(scope, resource.id);
         if let Entry::Vacant(entry) = open.entry(key) {
-            let database =
-                Database::open(&path).map_err(|_| io::Error::other("database unavailable"))?;
+            let database = Database::open_existing(&path)
+                .map_err(|_| io::Error::other("database unavailable"))?;
             entry.insert(Arc::new(database));
         }
         if initializing {
@@ -214,7 +214,7 @@ impl DatabaseRuntime {
         }
         for (owner, app, id) in self.local_copies.pending()? {
             let scope = crate::local_copy::CopyScope(owner, app);
-            if self.catalog.get(&scope, id)?.is_none() && !self.catalog.is_tombstoned(&scope, id)? {
+            if self.catalog.lifecycle(&scope, id)?.is_none() {
                 self.local_copies.complete(&scope, id)?;
             } else {
                 self.remove_local_copy(&scope, id).await?;
@@ -239,13 +239,21 @@ impl DatabaseRuntime {
     ) -> io::Result<()> {
         let _cleanup = self.cleanup.lock().await;
         database_path(&self.root, scope, id)?;
-        if self.catalog.get(scope, id)?.is_none() && !self.catalog.is_tombstoned(scope, id)? {
+        let Some(initializing) = self.catalog.lifecycle(scope, id)? else {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
                 "unknown local database resource",
             ));
-        }
-        self.local_copies.retire(scope, id)?;
+        };
+        let key = database_key(scope, id);
+        let database = {
+            let open = self
+                .open
+                .lock()
+                .map_err(|_| io::Error::other("database runtime lock poisoned"))?;
+            self.local_copies.retire(scope, id)?;
+            open.get(&key).cloned()
+        };
         if !self
             .local_copies
             .pending()?
@@ -253,20 +261,19 @@ impl DatabaseRuntime {
         {
             return Ok(());
         }
-        let key = database_key(scope, id);
         let path = self.copy_path(scope, id)?;
-        let database = self
-            .open
-            .lock()
-            .map_err(|_| io::Error::other("database runtime lock poisoned"))?
-            .get(&key)
-            .cloned();
+        if initializing {
+            remove_initializing_file(&path.with_extension("initializing.redb"))?;
+        }
         if let Some(database) = database {
             database.retire_and_remove().await?;
         } else if retirement_marker(&path).exists() {
             Database::remove_retired(&path)?;
+        } else if initializing {
+            // No ready or selected handle can be issued for an initializing resource.
+            remove_initializing_file(&path)?;
         } else if path.exists() {
-            Database::open(&path)
+            Database::open_existing(&path)
                 .map_err(|error| io::Error::other(error.to_string()))?
                 .retire_and_remove()
                 .await?;
@@ -420,12 +427,20 @@ impl DatabaseRuntime {
         let path = self.copy_path(scope, id)?;
         std::fs::create_dir_all(path.parent().expect("copy path has parent"))?;
         let database = Arc::new(
-            Database::open(path)
+            Database::open_existing(path)
                 .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?,
         );
         open.insert(key, Arc::clone(&database));
         self.changes.send_replace(());
         Ok(Some(database))
+    }
+}
+
+fn remove_initializing_file(path: &std::path::Path) -> io::Result<()> {
+    match fs::remove_file(path) {
+        Ok(()) => File::open(path.parent().expect("initializing path has parent"))?.sync_all(),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
     }
 }
 
@@ -488,6 +503,79 @@ mod tests {
 
         fn application_id(&self) -> idp_model::model::Id {
             self.application
+        }
+    }
+
+    #[tokio::test]
+    async fn owner_cleanup_retires_interrupted_initialization_after_restart() {
+        for content in ["staging", "published", "corrupt-published"] {
+            let root = std::env::temp_dir().join(format!(
+                "initializing-cleanup-{}",
+                idp_model::model::Id::now_v7()
+            ));
+            let scope = Scope {
+                subject: "owner",
+                application: idp_model::model::Id::now_v7(),
+            };
+            let runtime = DatabaseRuntime::new(root.clone()).expect("runtime");
+            let (resource, initializing) = runtime
+                .catalog
+                .reserve(&scope, "interrupted", None)
+                .expect("durable creation intent");
+            assert!(initializing);
+            let path = super::database_path(&root, &scope, resource.id).expect("content path");
+            let stage = path.with_extension("initializing.redb");
+            fs::write(&stage, b"interrupted staging bytes").expect("interrupted staging");
+            if content == "published" {
+                drop(ofdb_sql::Database::open(&path).expect("published but not acknowledged"));
+            } else if content == "corrupt-published" {
+                fs::write(&path, b"interrupted published bytes")
+                    .expect("corrupt unacknowledged content");
+            }
+            assert!(
+                runtime
+                    .open_selected(&scope, resource.id)
+                    .expect("not publicly ready")
+                    .is_none()
+            );
+            assert!(
+                runtime
+                    .get(&scope, resource.id)
+                    .expect("public lookup")
+                    .is_none()
+            );
+            drop(runtime);
+            let runtime = DatabaseRuntime::new(root.clone()).expect("restart interrupted intent");
+            runtime
+                .remove_owner_copies("owner")
+                .await
+                .expect("retire initializing intent");
+            assert!(!path.exists());
+            assert!(!stage.exists());
+            assert!(runtime.ensure(&scope, "interrupted", None).is_err());
+            drop(runtime);
+            let runtime = DatabaseRuntime::new(root.clone()).expect("restart retired intent");
+            runtime
+                .remove_owner_copies("owner")
+                .await
+                .expect("idempotent cleanup retry");
+            runtime
+                .reconcile_selected_copies(&[])
+                .await
+                .expect("no permanently pending cleanup");
+            runtime.activate_owner("owner").expect("owner reactivation");
+            assert!(
+                runtime.ensure(&scope, "interrupted", None).is_err(),
+                "per-resource retirement survives owner activation"
+            );
+            assert!(
+                runtime
+                    .get(&scope, resource.id)
+                    .expect("still not ready")
+                    .is_none()
+            );
+            drop(runtime);
+            fs::remove_dir_all(root).expect("remove fixture");
         }
     }
 

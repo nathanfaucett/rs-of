@@ -74,6 +74,7 @@ export class SqlTransport {
                 { code: "unavailable" },
                 { status: this.readStatus },
             );
+        const before = new Map(this.records);
         const results = request.statements.map(({ sql, params = [] }) => {
             const values = params.map((p) => ("value" in p ? p.value : null));
             if (sql === "SELECT name FROM tables")
@@ -136,6 +137,15 @@ export class SqlTransport {
                 throw new Error(`Unexpected SQL: ${sql}`);
             return { columns: [], rows: [] };
         });
+        const response = JSON.stringify({ results });
+        if (
+            results.reduce((total, result) => total + result.rows.length, 0) >
+                1000 ||
+            new TextEncoder().encode(response).length > 1024 * 1024
+        ) {
+            this.records = before;
+            return Response.json({ code: "limitExceeded" }, { status: 413 });
+        }
         if (mutation && this.uncertain)
             throw new Error("Transport lost: PRIVATE BODY MUST NOT LEAK");
         return Response.json({ results });
