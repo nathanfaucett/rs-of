@@ -10,12 +10,6 @@ const config = {
     preprocess: vitePreprocess(),
     kit: {
         alias: {
-            "@aicacia/storage-db-collection": fileURLToPath(
-                new URL(
-                    "../../packages/storage-db-collection/src/index.ts",
-                    import.meta.url,
-                ),
-            ),
             "@aicacia/storage-client": fileURLToPath(
                 new URL(
                     "../../packages/storage-client/src/index.ts",

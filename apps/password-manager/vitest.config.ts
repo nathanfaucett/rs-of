@@ -16,9 +16,6 @@ export default defineConfig({
             "@aicacia/storage-client": source(
                 "../../packages/storage-client/src/index.ts",
             ),
-            "@aicacia/storage-db-collection": source(
-                "../../packages/storage-db-collection/src/index.ts",
-            ),
         },
     },
     test: { environment: "jsdom", include: ["src/**/*.test.ts"] },

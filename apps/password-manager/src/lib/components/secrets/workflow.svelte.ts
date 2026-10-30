@@ -1,9 +1,11 @@
-import { UnacknowledgedStorageWriteError } from "@aicacia/storage-db-collection";
-import type { StorageAccess } from "@of/sdk";
 import { useLiveQuery } from "@tanstack/svelte-db";
 import { SvelteDate } from "svelte/reactivity";
 import * as v from "valibot";
-import { createSecretCollection } from "$lib/collections/secrets/collection";
+import {
+    createSecretCollection,
+    UnacknowledgedStorageWriteError,
+} from "$lib/collections/secrets/collection";
+import type { SqlStorage } from "$lib/storage/sql";
 import { type Secret, SecretSchema } from "$lib/models/secret";
 
 export type SecretDraft = {
@@ -52,9 +54,8 @@ function constructSecret(
 }
 
 export function createSecretWorkflow(options: {
-    client: StorageAccess;
-    userId: string;
-    filesystemId: string;
+    client: SqlStorage;
+    databaseId: string;
 }) {
     const collection = createSecretCollection(options);
     let editor = $state.raw<{ record: Secret | null } | null>(null);
@@ -154,7 +155,7 @@ export function createSecretWorkflow(options: {
             const result = constructSecret(
                 previous,
                 draft,
-                previous?.id ?? crypto.randomUUID(),
+                previous?.id ?? newSecretId(),
                 new SvelteDate().toISOString(),
             );
             if (!result.success) {
@@ -256,4 +257,10 @@ export function createSecretWorkflow(options: {
 
 function message(cause: unknown): string {
     return cause instanceof Error ? cause.message : "Storage request failed";
+}
+
+function newSecretId(): string {
+    const random = crypto.randomUUID();
+    const timestamp = Date.now().toString(16).padStart(12, "0");
+    return `${timestamp.slice(0, 8)}-${timestamp.slice(8)}-7${random.slice(15)}`;
 }

@@ -840,3 +840,86 @@ async fn response_revalidation_runs_after_commit_without_holding_the_sql_owner()
     }
     f.stop().await;
 }
+
+#[tokio::test]
+async fn password_manager_schema_and_crud_requests_survive_retry_and_native_restart() {
+    let mut f = Fixture::new(Default::default()).await;
+    let token = f.token("storage:databases", vec![Read, Write]).await;
+    let resource: Value = ensure(&f, &token, "password-manager:default")
+        .await
+        .json()
+        .await
+        .expect("application database");
+    let id = resource["id"].as_str().expect("database ID").to_owned();
+    let schema = json!([
+        {"sql":"CREATE TABLE IF NOT EXISTS secret_schema (id UUID PRIMARY KEY, version INTEGER NOT NULL)","params":[]},
+        {"sql":"CREATE TABLE IF NOT EXISTS secrets (id UUID PRIMARY KEY, content TEXT NOT NULL)","params":[]},
+        {"sql":"INSERT INTO secret_schema (id, version) VALUES (?, ?) ON CONFLICT (id) DO NOTHING","params":[{"type":"uuid","value":"f4077b65-9a42-5ade-b648-299c09235271"},{"type":"integer","value":"1"}]},
+        {"sql":"SELECT id, version FROM secret_schema","params":[]}
+    ]);
+    for _ in 0..2 {
+        let response = sql(&f, &token, &id, schema.clone()).await;
+        assert_eq!(response.status(), 200);
+        let response: Value = response.json().await.expect("atomic schema/version");
+        assert_eq!(
+            response["results"][3]["rows"],
+            json!([[{"type":"uuid","value":"f4077b65-9a42-5ade-b648-299c09235271"},{"type":"integer","value":"1"}]])
+        );
+    }
+    let record = json!({"id":"01900000-0000-7000-8000-000000000001","name":"Test only","secret":"not-a-real-password","uris":[],"fields":[],"history":[],"favorite":false,"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}).to_string();
+    let key = json!({"type":"uuid","value":"01900000-0000-7000-8000-000000000001"});
+    assert_eq!(sql(&f, &token, &id, json!([{"sql":"INSERT INTO secrets (id, content) VALUES (?, ?)","params":[key,{"type":"text","value":record}]}])).await.status(), 200);
+    restart(&mut f).await;
+    assert_eq!(
+        ensure(&f, &token, "password-manager:default")
+            .await
+            .json::<Value>()
+            .await
+            .expect("same resource"),
+        resource
+    );
+    let result: Value = sql(&f, &token, &id, json!([{"sql":"SELECT name FROM tables","params":[]},{"sql":"SELECT id, content FROM secrets","params":[]}])).await.json().await.expect("application snapshot");
+    assert_eq!(result["results"][1]["columns"], json!(["id", "content"]));
+    assert_eq!(
+        result["results"][1]["rows"],
+        json!([[key,{"type":"text","value":record}]])
+    );
+    assert_eq!(sql(&f, &token, &id, json!([{"sql":"UPDATE secrets SET content = ? WHERE id = ?","params":[{"type":"text","value":"updated test payload"},key]}])).await.status(), 200);
+    let result: Value = sql(
+        &f,
+        &token,
+        &id,
+        json!([{"sql":"SELECT id, content FROM secrets"}]),
+    )
+    .await
+    .json()
+    .await
+    .expect("updated snapshot");
+    assert_eq!(
+        result["results"][0]["rows"][0][1],
+        json!({"type":"text","value":"updated test payload"})
+    );
+    assert_eq!(
+        sql(
+            &f,
+            &token,
+            &id,
+            json!([{"sql":"DELETE FROM secrets WHERE id = ?","params":[key]}])
+        )
+        .await
+        .status(),
+        200
+    );
+    let result: Value = sql(
+        &f,
+        &token,
+        &id,
+        json!([{"sql":"SELECT id, content FROM secrets"}]),
+    )
+    .await
+    .json()
+    .await
+    .expect("deleted snapshot");
+    assert_eq!(result["results"][0]["rows"], json!([]));
+    f.stop().await;
+}

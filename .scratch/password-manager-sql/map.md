@@ -5,8 +5,7 @@
 - [Spec](spec.md) defines two independently verifiable slices.
 - [01: explicit authenticated SQL](issues/01-authenticated-sql-access.md) is resolved;
   its Answer records the precise ticket-02 API/identity handoff and actual checks.
-- [02: application cutover](issues/02-password-manager-sql.md) is now unblocked.
-  Ticket 01 does not change password-manager defaults/UI/persistence or import files.
+- [02: application cutover](issues/02-password-manager-sql.md) is resolved; its Answer records delivered behavior, validation and deployment qualification limits.
 
 ## Decisions-so-far
 
@@ -22,6 +21,9 @@
   (7), server library (95), client (34), SDK (52) and service/client feature checks
   pass; strict changed-library lint/build/format/generation checks pass. Broader
   validation failures/timeouts are recorded in the ticket, not hidden as passes.
+
+- [02](issues/02-password-manager-sql.md): the app explicitly ensures permanent key `password-manager:default`, initializes schema/version transactionally, checks existing version state and opens an app-owned SQL collection. SDK/collection provisioning policy remains absent; no selector, filesystem fallback/import, or replacement key exists.
+- [02](issues/02-password-manager-sql.md): full CRUD/Refresh/metadata/history, official TanStack binding, reconciliation, uncertain-write handling and synchronous session cleanup are delivered. App **65**, SDK **52**, client **34**, generic filesystem collection **59**, native SQL HTTP **13** and config **2** tests pass; build/types/focused lint/format/autofixer pass. Powerset/CRAP timeouts, existing strict integration-test lint debt and unavailable deployed browser qualification are documented, not represented as passing.
 
 ## Fog
 
