@@ -30,6 +30,8 @@
 - [03](issues/03-review-fixes.md): acknowledged resources use public existing-only opens; RETURNING requires both actions; interrupted initialization is fenced/cleaned across restart. App mutations and snapshots share one atomic batch. HTTP exposes a restricted generic CRUD subset with owner pre-allocation native admission and decoded-row accounting, not unrestricted SQL. Required `ofdb` commit: `69813e339ef5d4d5bba3dd896488f1d2b0e379a9` on its separate `implement/password-manager-sql-review` branch.
 - [03](issues/03-review-fixes.md): native SQL HTTP **18**, filesystem HTTP **7**, Storage service **25**, Storage server **95**, app **67** and config **2** pass; focused owner persistence/budget/native/2 MiB sync tests and strict changed-library lint pass. No full powerset/CRAP/deployed-qualification claim; see ticket 03 for reproduced baseline owner failures.
 
+- [03 P1 follow-up](issues/03-review-fixes.md#p1-follow-up-selected-open-acknowledgement-bypass): after merging integration `a59f0c3c`, selected/protocol SQL opens are existing-only unless explicit durable fresh-copy intent exists. Intent survives fresh bootstrap interruption and is consumed before any SQL owner is cached; neither missing files nor reselected generation numbers imply freshness. Restart regression covers missing/zero/junk content with selected opening first, for original and reselected copies. Service powerset **27** and server library **95** pass; neighboring repositories are unchanged.
+
 ## Fog
 
 - No-feature Storage server export defect and existing all-target lint debt remain

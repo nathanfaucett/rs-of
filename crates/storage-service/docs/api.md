@@ -113,6 +113,24 @@ Internal lifecycle lookup includes initializing intents without exposing them th
 public ready-resource lookup. Owner/local-copy retirement also fences these intents
 and removes unacknowledged staging/published content; retries complete after restart.
 Initializing intents cannot be opened through selected-copy provisioning.
+
+Selected SQL opening is also existing-only for an acknowledged local copy, even when
+protocol sync/replication reaches it before ensure or HTTP execution. Neither a
+missing file nor a positive copy-generation number is evidence of fresh content.
+Only explicit durable local `sql_initializing` intent permits staging a fresh SQL
+copy: it is recorded before first selected catalog admission, or while completed
+retirement is still fenced before advancing the copy generation. Current owner,
+resource and local-copy fences must still allow admission. KV-first selected
+admission records the SQL intent under the same SQL-open lock, so registration and
+acknowledgement cannot race. An existing catalog entry without fresh intent always
+requires existing valid content.
+
+Fresh initialization publishes a closed/synced staging file before reopening it
+through the public existing-only SQL owner. Existing published bytes are validated,
+never reinitialized. Successful selected, ordinary or ensure SQL opens durably
+consume local initialization intent **before caching/exposing the owner**. Interrupted
+fresh provisioning can therefore resume after restart, but missing/zero-length
+acknowledged content cannot become a cached empty owner, including after reselection.
 A Tombstone permanently consumes that identity: ensure returns `410`; deliberate
 recreation requires a new key. Local-copy fences return `409` and are not lifted.
 Unknown metadata lookup remains `404`; acknowledged missing/corrupt content is `503`.

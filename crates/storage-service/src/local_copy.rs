@@ -16,6 +16,8 @@ struct CopyPolicy {
     #[serde(default)]
     retired_owners: BTreeSet<String>,
     pending: BTreeSet<(String, Id, Id)>,
+    #[serde(default)]
+    sql_initializing: BTreeSet<(String, Id, Id)>,
     selected: BTreeSet<(String, Id, Id)>,
     passthrough: BTreeSet<(String, Id, Id)>,
     #[serde(default)]
@@ -209,6 +211,43 @@ impl LocalCopyPolicy {
             if !policy.reselected.remove(&key) {
                 policy.removed.insert(key);
             }
+            self.write(&policy)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn sql_initializing(
+        &self,
+        scope: &impl StorageNamespace,
+        resource: Id,
+    ) -> io::Result<bool> {
+        let _guard = self
+            .lock
+            .lock()
+            .map_err(|_| io::Error::other("local copy policy lock poisoned"))?;
+        Ok(self
+            .read()?
+            .sql_initializing
+            .contains(&key(scope, resource)))
+    }
+
+    pub(crate) fn set_sql_initializing(
+        &self,
+        scope: &impl StorageNamespace,
+        resource: Id,
+        initializing: bool,
+    ) -> io::Result<()> {
+        let _guard = self
+            .lock
+            .lock()
+            .map_err(|_| io::Error::other("local copy policy lock poisoned"))?;
+        let mut policy = self.read()?;
+        let changed = if initializing {
+            policy.sql_initializing.insert(key(scope, resource))
+        } else {
+            policy.sql_initializing.remove(&key(scope, resource))
+        };
+        if changed {
             self.write(&policy)?;
         }
         Ok(())
