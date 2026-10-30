@@ -1,6 +1,6 @@
 # Password manager: application-provisioned SQL storage
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
@@ -153,4 +153,4 @@ The generic resource-identity contract is the first implementation design task. 
 
 SQL stores secret values unless an encryption design changes the payload. The current example explicitly lacks client-side encryption. SQL/CRDT history and replicated copies can retain overwritten or deleted values. Use test secrets only; encryption/key ownership must be designed before presenting this as a real-password vault.
 
-This spec records the agreed boundaries and testing approach. It does not claim implementation, newly passing tests, deployed IdP qualification, or cross-Node convergence evidence.
+This spec records the agreed boundaries and testing approach. Implementation and actual validation are recorded in the [delivery map](map.md) and resolved tickets, including the required `ofdb` owner changes and review fixes. Deployed IdP qualification, complete feature-powerset/CRAP validation, and cross-Node convergence remain unclaimed.
