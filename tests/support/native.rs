@@ -463,6 +463,17 @@ impl Fixture {
         actions: Vec<StorageAuthorizationAction>,
         client_id: &str,
     ) -> String {
+        self.token_for_user(resource, actions, client_id, "administrator")
+            .await
+    }
+
+    pub(crate) async fn token_for_user(
+        &self,
+        resource: &str,
+        actions: Vec<StorageAuthorizationAction>,
+        client_id: &str,
+        username: &str,
+    ) -> String {
         let url = format!("{}/oauth2/token", self.idp_listener.base);
         let response = self
             .http
@@ -471,7 +482,7 @@ impl Fixture {
             .form(&[
                 ("grant_type", "password"),
                 ("client_id", client_id),
-                ("username", "administrator"),
+                ("username", username),
                 ("password", "valid-password"),
                 ("scope", "openid"),
             ])

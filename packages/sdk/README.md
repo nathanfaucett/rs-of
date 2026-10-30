@@ -61,7 +61,7 @@ Browser storage must be available for this redirect policy. Credentials are plai
 
 ## Context-bound Storage and ownership
 
-After callback/restoration establishes authentication, `sdk.storage()` returns a frozen, generation-bound `StorageAccess` with only `listFileSystems(signal?)`, `createFileSystem(name?, signal?)`, and `openSocket(filesystemId, signal?)`. It never exposes the mutable Storage client or a bearer-token provider. OIDC owns identity verification and demand-driven access-token renewal; the existing Storage client owns action-specific token exchange, resource HTTP requests, and WebSocket protocol. There is no SDK token cache. Explicit IdP/Storage prefixes and the actual issued OAuth Client ID are preserved. A catalog entry is not permission to open a filesystem; authorization remains server-side.
+After callback/restoration establishes authentication, `sdk.storage()` returns a frozen, generation-bound `StorageAccess` with filesystem operations (`listFileSystems`, `createFileSystem`, `openSocket`) and explicit database operations (`ensureDatabase`, `createDatabase`, `listDatabases`, `getDatabase`, `deleteDatabase`, `executeSql`). It never exposes the mutable Storage client or a bearer-token provider. OIDC owns identity verification and demand-driven access-token renewal; the existing Storage client owns action-specific token exchange, resource HTTP requests, and WebSocket protocol. There is no SDK token cache. Explicit IdP/Storage prefixes and the actual issued OAuth Client ID are preserved. A catalog entry is not permission to open a filesystem; authorization remains server-side.
 
 ```ts
 const storage = sdk.storage();
@@ -96,3 +96,43 @@ Renewal for the same verified identity retains the session and open collections.
 `pnpm --filter @of/sdk test` runs real OIDC workflows against controlled HTTP/browser responses. Tests cover guarded list/create/open, obsolete token exchanges/discovery/create/open completions, queued and late connection requests, one-owner/idempotent cleanup, caller cancellation, callback-generation replacement, Storage denial versus transient failure, fresh-runtime redirect continuity, reload, metadata/prefixes, invalid/no-op/substituted callbacks, client isolation, renewal/concurrency, identity changes, missing credentials, denial versus transient/terminal failures, local logout with failed provider discovery, unsubscribe, and disposal during discovery/callback/renewal. The password manager's mounted smoke additionally uses the real SDK, OIDC and Storage clients, collection adapter, and official TanStack binding for sign-in/callback, discovery/create/open, CRUD/Refresh/reload, filesystem switching, same-identity renewal retaining its editor/socket, pending-mutation context changes, and local sign-out teardown.
 
 Controlled responses do not qualify a deployed provider, provider logout, cross-Node authorization convergence/replication, or production password-vault security. Follow the password manager's manual real-system qualification procedure with non-sensitive test records.
+
+## Explicit SQL capability
+
+Storage access, sign-in and restoration never create databases or initialize schemas.
+The application chooses a stable logical key and explicitly requests provisioning:
+
+```ts
+const storage = sdk.storage();
+const database = await storage.ensureDatabase({ creationKey: "app-chosen-key", name: "Example" });
+await storage.executeSql(database.id, {
+  statements: [
+    { sql: "CREATE TABLE IF NOT EXISTS records (id TEXT PRIMARY KEY, content TEXT NOT NULL)", params: [] },
+  ],
+}, ["write"]);
+const snapshot = await storage.executeSql(database.id, {
+  statements: [{ sql: "SELECT id, content FROM records", params: [] }],
+}, ["read"]);
+```
+
+`executeSql(id, request, actions, signal?)` requires explicit exchange actions;
+Storage independently authorizes parsed operations. Mixed read/write batches need
+both actions. All operations accept an optional cancellation signal as the last
+argument and use the captured authentication generation. Disposed/retired handles
+cannot send new work or expose obsolete completions; same-identity renewal retains
+them. Database denial does not imply terminal IdP failure. Cancellation cannot
+undo a committed remote operation; arbitrary mutations are never replayed.
+
+`ensureDatabase(request, signal?)` returns a resource, not an SQL connection or a
+schema-ready promise. A key names one namespace-scoped logical identity permanently;
+its first accepted label is not identity. `410` means deleted (do not auto-recreate),
+`409` means fenced, and `503` means unavailable content/authorization. A caller can
+inspect `DatabaseOperationError.status` from `@aicacia/storage-client`, without
+retaining provider bodies. Only an explicit different key creates a replacement.
+The unkeyed `createDatabase(name?, signal?)` intentionally allocates a fresh identity
+on every successful invocation and is not an ensure/retry primitive.
+
+See the [Storage SQL contract](../../crates/storage-service/docs/api.md#explicit-application-sql-contract)
+for identity derivation, offline-Node limits, wire values, request/result bounds and
+atomic rollback. The app owns default selection, schema/version transactions and
+collection lifecycle. The SDK owns none of those policies and selects no Devices.

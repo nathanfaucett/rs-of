@@ -15,6 +15,8 @@ use super::storage_socket::__path_upgrade_socket;
 #[openapi(
     paths(
         resources::create_database,
+        resources::ensure_database,
+        resources::sql::execute_sql,
         resources::list_databases,
         resources::get_database,
         resources::delete_database,

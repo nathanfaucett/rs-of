@@ -17,3 +17,6 @@ mod native_api_tests;
 mod node_bootstrap_interruption_tests;
 #[path = "owner_boundaries/node_join_bootstrap_tests.rs"]
 mod node_join_bootstrap_tests;
+
+#[path = "owner_boundaries/sql_http_tests.rs"]
+mod sql_http_tests;

@@ -19,6 +19,8 @@ Routes below show the unified `/storage` prefix; standalone prefixes are configu
 | Operation            | Route                                                | Action  | Success |
 | -------------------- | ---------------------------------------------------- | ------- | ------- |
 | Create database      | `POST /storage/databases`                            | `write` | `201`   |
+| Ensure logical database | `POST /storage/databases/ensure`                     | `write` | `200`   |
+| Execute atomic SQL batch | `POST /storage/databases/{database_id}/sql`           | parsed `read`/`write` | `200` |
 | List databases       | `GET /storage/databases`                             | `read`  | `200`   |
 | Get database         | `GET /storage/databases/{database_id}`               | `read`  | `200`   |
 | Delete database      | `DELETE /storage/databases/{database_id}`            | `write` | `204`   |
@@ -75,6 +77,90 @@ Management `PUT /devices/{device_id}/owner` accepts exactly `{ "ownerSubject": "
 
 - Storage handlers: `crates/storage-server/src/router/resources.rs`.
 - Storage authorization: `crates/storage-server/src/router/storage_authorization.rs`.
+- SQL execution and wire contracts: `crates/storage-server/src/router/sql.rs`.
 - Residency handlers: `crates/storage-server/src/router/residency.rs`.
 - Selection handlers: `crates/management-server/src/router/routes/device_selection.rs`.
 - Owner API checks: `crates/management-service/src/hosted_control_plane.rs`.
+
+## Explicit application SQL contract
+
+`POST /storage/databases/ensure` accepts exactly `{creationKey: string, name?: string}`
+and requires database `write`. It explicitly creates or reopens; merely authenticating,
+obtaining SDK Storage access, listing or getting metadata never provisions anything.
+`creationKey` is an application-chosen, case-sensitive UTF-8 string of 1–128 bytes.
+Names are non-unique labels; the first locally accepted name is retained on retry.
+
+Identity is UUID v5 under UUID's URL namespace over UTF-8 JSON serialization of the
+array `["of:database:creation:v1", verifiedSubject, canonicalApplicationId, creationKey]`.
+The Application ID is lowercase hyphenated UUID, not Application URI, OAuth Client ID
+or audience. No browser namespace override is accepted. The key identifies a logical
+resource, not a short-lived HTTP request; separate tabs and lost-response retries use
+the same key. Changing keys deliberately creates a different resource.
+
+One Storage runtime owns a Node's catalog root. Creation is serialized with that
+runtime's resource opening/deletion and durable catalog publication. An initializing
+catalog record is synced before opening the SQL owner in a disposable staging
+file. The closed initialized file is synced, renamed and its directory synced
+before readiness publication. A stale unacknowledged staging file may be discarded;
+published content is never discarded by ensure. This is catalog-linked initial
+resource publication, not a second SQL engine/transaction or synchronization stage;
+only the public SQL owner creates and validates the database. Readiness is synced before
+acknowledgement. Retrying initializing intent completes initialization after restart.
+Once ready, absent, corrupt or retired content is an error, never an empty replacement.
+A Tombstone permanently consumes that identity: ensure returns `410`; deliberate
+recreation requires a new key. Local-copy fences return `409` and are not lifted.
+Unknown metadata lookup remains `404`; acknowledged missing/corrupt content is `503`.
+
+Disconnected Nodes with the same verified namespace and key derive the same ID and
+may independently initialize copies. This is identity convergence, NOT global create
+serialization, single-copy existence or globally ordered writes. Local labels may
+differ until catalog reconciliation. Existing selected-resource synchronization and
+CRDT conflict semantics apply; no Device selection, enrollment or synchronization
+permission is implied. A Node unaware of a remote Tombstone may operate until it
+learns deletion; learned Tombstones deny subsequent ensure/execution. No central
+writer or live authority is introduced.
+
+`POST /storage/databases/{database_id}/sql` accepts exactly
+`{statements: [{sql: string, params?: SqlValue[]}]}`. One server-owned transaction
+executes the complete batch in order, commits only after all statements and result
+validation succeed, and rolls back on failure. No transaction handles or automatic
+mutation replay. Parameters are positional (`?`/`$1` as supported by the owner).
+Wire values are tagged `{type: "null"}`, or `{type, value}` for `boolean`, `integer`
+(decimal i64 string), `float` (finite JSON number), `text`, `uuid` (UUID string),
+`blob` (byte array). Owner Type/JSON values are unsupported (`unsupportedValue`);
+applications can store serialized JSON in text. Results are
+`{results: [{columns: string[], rows: SqlValue[][]}]}` in translated-statement order;
+DDL/writes may return no rows. No affected-row count is promised.
+
+Only parsed owner `Query::Select` operations count as reads. Any DDL or other query
+requires `write`; any SELECT requires `read`, including within mixed batches.
+Authorization and namespace are rechecked immediately before transaction admission
+(without holding an owner transaction across IdP/Device/network calls). Catalog
+liveness and local-copy fences are checked after admission and before commit; an already admitted operation may finish. Response authorization is checked again after commit, outside the transaction;
+denial then suppresses the response but cannot undo committed work. Tokens are sent only
+in Authorization headers. SQL/parameters/results and owner error text are not logged
+or returned in failures. Errors use `{code}` with redacted fixed codes: `invalidRequest`, `executionFailed`,
+`unsupportedValue`, `unauthorized`, `forbidden`, `notFound`, `deleted`,
+`localCopyFenced`, `limitExceeded`, and `unavailable`.
+
+Bounds: 256 KiB HTTP body; 1–32 submitted and translated statements; 16 KiB SQL per
+entry; 128 parameters per entry; at most 1,000 total result rows and 1 MiB serialized
+results per batch. Oversized results fail the whole transaction, never truncate a
+snapshot. These bound transport/batch/result size, not CPU or scan complexity: the
+embedded owner currently materializes query results before the result check. This
+is not a hostile-query workload-isolation guarantee. Cancellation/timeout after send
+does not prove rollback; callers must reconcile before deciding whether to retry.
+
+### Qualification boundary
+
+The ticket-01 tests exercise real IdP sign-in/token exchange and authenticated
+HTTP backed by native catalogs and the public SQL owner, including separate
+User/Application namespaces, multi-Client continuity, generated Rust scalar
+roundtrips, rollback, retry, local restart and fences. The subprocess crash test
+interrupts a creation worker and reopens through the public owner; it does not
+deterministically enumerate every power-loss cutpoint. Independent runtime tests
+verify derived identity and locally learned Tombstone behavior, not deployed
+mesh/catalog synchronization or CRDT conflict resolution. Loss of the entire
+catalog/Node root is not distinguishable from a fresh Node; operator recovery
+requires restoring trusted metadata/content, not invoking ensure as a repair tool.
+SQL does not add encryption; use non-sensitive test records.

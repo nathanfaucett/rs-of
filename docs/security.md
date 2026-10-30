@@ -10,7 +10,12 @@ IdP administration uses validated bearer identity with exact audience, action an
 
 `/replica-signers` is the current authorized public Node-signer API. Its historical name, `DbReplicaSignerRepo`, persisted membership table names, `replica` persistence features and CRDT source/receiver roles do not create a designated authority/privileged replica topology. Public signer approval is not private signing capability or blanket synchronization permission.
 
-Storage transport bases are not token audiences. The password-manager caller delivery exchanges the current User token for `resource=storage:filesystems`, with exact typed Storage actions: read for listing, write for creation, read/write for the editable filesystem socket. Explicit IdP/Storage service bases replace the audience/origin fallback; no actor override or wider permission is introduced. Historical caller/package checks do not qualify server authorization, GUI approval or current deployment acceptance.
+Storage transport bases are not token audiences. The password-manager caller delivery exchanges the current User token for `resource=storage:filesystems`, with exact typed Storage actions: read for listing, write for creation, read/write for the editable filesystem socket. Explicit IdP/Storage service bases replace the audience/origin fallback; no actor override or wider permission is introduced. Explicit application SQL access additionally exchanges for `resource=storage:databases`
+and uses Authorization-header HTTP batches, with parsed action authorization. The
+application alone chooses its creation key and schema; obtaining SDK access creates
+nothing. See the [Storage SQL identity/lifecycle contract](../crates/storage-service/docs/api.md#explicit-application-sql-contract)
+for durable retry, Tombstones, unavailable-copy refusal and disconnected-Node limits.
+Historical caller/package checks do not qualify GUI approval or current deployment acceptance.
 
 ## Local trust and learned denial
 

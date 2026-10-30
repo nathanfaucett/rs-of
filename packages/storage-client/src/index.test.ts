@@ -345,3 +345,161 @@ describe("StorageClient", () => {
         });
     });
 });
+
+it("explicit SQL operations use database exchange and prefixed authorized HTTP without replay", async () => {
+    const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+            Response.json({ access_token: "database-token" }),
+        )
+        .mockResolvedValueOnce(Response.json({ id: "db-one", name: "Label" }))
+        .mockResolvedValueOnce(Response.json({ access_token: "read-token" }))
+        .mockResolvedValueOnce(
+            Response.json({
+                results: [
+                    {
+                        columns: ["content"],
+                        rows: [[{ type: "text", value: "record" }]],
+                    },
+                ],
+            }),
+        );
+    const client = new StorageClient({
+        idpBaseUrl: "https://idp.test/custom/idp",
+        storageBaseUrl: "https://storage.test/custom/storage",
+        clientId: "web",
+        bearerToken: () => "user-token",
+        fetch,
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    await expect(
+        client.ensureDatabase({ creationKey: "chosen", name: "Label" }),
+    ).resolves.toMatchObject({ id: "db-one" });
+    await expect(
+        client.executeSql(
+            "db-one",
+            {
+                statements: [
+                    { sql: "SELECT content FROM records", params: [] },
+                ],
+            },
+            ["read"],
+        ),
+    ).resolves.toMatchObject({
+        results: [{ rows: [[{ type: "text", value: "record" }]] }],
+    });
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
+        "https://idp.test/custom/idp/oauth2/token",
+        "https://storage.test/custom/storage/databases/ensure",
+        "https://idp.test/custom/idp/oauth2/token",
+        "https://storage.test/custom/storage/databases/db-one/sql",
+    ]);
+    for (const index of [0, 2]) {
+        const body = new URLSearchParams(fetch.mock.calls[index][1].body);
+        expect(body.get("resource")).toBe("storage:databases");
+        expect(body.get("subject_token")).toBe("user-token");
+    }
+    expect(
+        JSON.parse(
+            new URLSearchParams(fetch.mock.calls[2][1].body).get(
+                "authorization_details",
+            ) ?? "",
+        ),
+    ).toEqual([{ type: "storage", actions: ["read"] }]);
+    expect(fetch.mock.calls[1][1].headers.Authorization).toBe(
+        "Bearer database-token",
+    );
+    expect(fetch.mock.calls[3][1].headers.Authorization).toBe(
+        "Bearer read-token",
+    );
+});
+
+function databaseOperation(
+    client: StorageClient,
+    operation: string,
+    signal?: AbortSignal,
+) {
+    switch (operation) {
+        case "ensure":
+            return client.ensureDatabase({ creationKey: "chosen" }, signal);
+        case "create":
+            return client.createDatabase("Label", signal);
+        case "list":
+            return client.listDatabases(signal);
+        case "get":
+            return client.getDatabase("db", signal);
+        case "delete":
+            return client.deleteDatabase("db", signal);
+        default:
+            return client.executeSql(
+                "db",
+                { statements: [{ sql: "SELECT id FROM records", params: [] }] },
+                ["read"],
+                signal,
+            );
+    }
+}
+it.each(["ensure", "create", "list", "get", "delete", "sql"])(
+    "database %s cancellation while obtaining bearer cannot send exchange or operation",
+    async (operation) => {
+        let release!: (token: string) => void;
+        const held = new Promise<string>((resolve) => {
+            release = resolve;
+        });
+        const fetch = vi.fn();
+        const client = new StorageClient({
+            idpBaseUrl: "https://idp.test/idp",
+            storageBaseUrl: "https://storage.test/storage",
+            clientId: "web",
+            bearerToken: () => held,
+            fetch,
+        });
+        const controller = new AbortController();
+        const pending = databaseOperation(client, operation, controller.signal);
+        controller.abort();
+        release("old-token");
+        await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+        expect(fetch).not.toHaveBeenCalled();
+    },
+);
+it.each(["ensure", "create", "list", "get", "delete", "sql"])(
+    "database %s redacts failures and never automatically replays",
+    async (operation) => {
+        const fetch = vi
+            .fn()
+            .mockResolvedValueOnce(Response.json({ access_token: "db-token" }))
+            .mockResolvedValueOnce(
+                Response.json(
+                    { code: "forbidden", details: "credential-bearing-body" },
+                    { status: 403 },
+                ),
+            );
+        const client = new StorageClient({
+            idpBaseUrl: "https://idp.test/idp",
+            storageBaseUrl: "https://storage.test/storage",
+            clientId: "web",
+            bearerToken: () => "user-token",
+            fetch,
+        });
+        await expect(
+            databaseOperation(client, operation),
+        ).rejects.toMatchObject({
+            name: "DatabaseOperationError",
+            status: 403,
+            message: "Database operation failed: 403",
+        });
+        expect(fetch).toHaveBeenCalledTimes(2);
+        const body = new URLSearchParams(fetch.mock.calls[0][1].body);
+        expect(body.get("resource")).toBe("storage:databases");
+        expect(JSON.parse(body.get("authorization_details") ?? "")).toEqual([
+            {
+                type: "storage",
+                actions: [
+                    ["ensure", "create", "delete"].includes(operation)
+                        ? "write"
+                        : "read",
+                ],
+            },
+        ]);
+    },
+);

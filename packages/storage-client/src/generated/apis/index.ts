@@ -6,3 +6,4 @@ export * from "./IndependentSetupApi.js";
 export * from "./OwnerSetupApi.js";
 export * from "./ResourcesApi.js";
 export * from "./ResourcesResidencyApi.js";
+export * from "./ResourcesSqlApi.js";

@@ -1,7 +1,14 @@
+import type { DatabaseDetailResponse, DatabaseResource, EnsureDatabaseRequest, SqlRequest, SqlResponse } from "./generated/models/index.js";
 export { ResourcesResidencyApi } from "./generated/apis/ResourcesResidencyApi.js";
+export type { DatabaseDetailResponse, DatabaseResource, EnsureDatabaseRequest, SqlRequest, SqlResponse, SqlStatement, SqlValue, } from "./generated/models/index.js";
 export { ResidencyMode } from "./generated/models/ResidencyMode.js";
 export type { ResourceResidency } from "./generated/models/ResourceResidency.js";
 export { Configuration as StorageOwnerConfiguration } from "./generated/runtime.js";
+export type StorageAction = "read" | "write";
+export declare class DatabaseOperationError extends Error {
+    readonly status: number;
+    constructor(status: number);
+}
 export type StorageRequest = {
     type: "read";
     path: string;
@@ -80,10 +87,17 @@ export declare class StorageClient {
     private readonly options;
     static validateServiceBase(value: URL | string): void;
     constructor(options: StorageClientOptions);
+    ensureDatabase(request: EnsureDatabaseRequest, signal?: AbortSignal): Promise<DatabaseResource>;
+    createDatabase(name?: string, signal?: AbortSignal): Promise<DatabaseResource>;
+    listDatabases(signal?: AbortSignal): Promise<DatabaseResource[]>;
+    getDatabase(databaseId: string, signal?: AbortSignal): Promise<DatabaseDetailResponse>;
+    deleteDatabase(databaseId: string, signal?: AbortSignal): Promise<void>;
+    executeSql(databaseId: string, request: SqlRequest, actions: StorageAction[], signal?: AbortSignal): Promise<SqlResponse>;
     listFileSystems(signal?: AbortSignal): Promise<FileSystemResource[]>;
     createFileSystem(name?: string, signal?: AbortSignal): Promise<FileSystemResource>;
     openSocket(filesystemId: string, signal?: AbortSignal): Promise<StorageSocket>;
     private exchangeToken;
     private resources;
+    private configuration;
 }
 //# sourceMappingURL=index.d.ts.map

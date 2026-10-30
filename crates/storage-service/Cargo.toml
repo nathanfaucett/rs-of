@@ -26,7 +26,7 @@ utoipa = { version = "5.5", default-features = false, features = ["macros"] }
 tokio = { version = "1.53", default-features = false, features = ["sync"] }
 
 # Utilities
-uuid = { version = "1.26", default-features = false, features = ["std", "v7"] }
+uuid = { version = "1.26", default-features = false, features = ["std", "v5", "v7"] }
 
 [dev-dependencies]
 # Async

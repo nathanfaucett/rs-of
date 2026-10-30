@@ -19,6 +19,8 @@ use crate::{
 
 #[path = "residency.rs"]
 pub(super) mod residency;
+#[path = "sql.rs"]
+pub(super) mod sql;
 
 #[derive(Clone)]
 pub(super) struct ResourceState {
@@ -46,6 +48,59 @@ impl storage_model::StorageNamespace for StorageNamespace {
 #[derive(Deserialize, utoipa::ToSchema)]
 pub(super) struct CreateResourceRequest {
     name: Option<String>,
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct EnsureDatabaseRequest {
+    /// Case-sensitive application-chosen identity; 1–128 UTF-8 bytes.
+    #[schema(min_length = 1, max_length = 128)]
+    creation_key: String,
+    name: Option<String>,
+}
+
+#[utoipa::path(post, path = "/storage/databases/ensure", request_body = EnsureDatabaseRequest,
+    responses((status = 200, description = "Created or reopened explicit logical database", body = DatabaseResource),
+    (status = 400, description = "Invalid creation key", body = sql::DatabaseFailure),
+    (status = 401, description = "Invalid authorization", body = sql::DatabaseFailure),
+    (status = 403, description = "Write denied", body = sql::DatabaseFailure),
+    (status = 409, description = "Local copy fenced", body = sql::DatabaseFailure),
+    (status = 410, description = "Identity tombstoned", body = sql::DatabaseFailure),
+    (status = 413, description = "Request exceeds 256 KiB", body = sql::DatabaseFailure),
+    (status = 422, description = "Malformed request", body = sql::DatabaseFailure),
+    (status = 503, description = "Content unavailable", body = sql::DatabaseFailure)),
+    security(("authorization" = [])))]
+pub(super) async fn ensure_database(
+    State(state): State<ResourceState>,
+    headers: HeaderMap,
+    request: Result<Json<EnsureDatabaseRequest>, axum::extract::rejection::JsonRejection>,
+) -> Result<Json<DatabaseResource>, sql::SqlError> {
+    let (scope, _, can_write) = namespace(
+        authorization(&state, &headers).await.map_err(sql::status)?,
+        "storage:databases",
+    )
+    .map_err(sql::status)?;
+    if !can_write {
+        return Err(sql::status(StatusCode::FORBIDDEN));
+    }
+    let Json(request) = request.map_err(|error| sql::status(error.status()))?;
+    let resource = state
+        .databases
+        .as_ref()
+        .ok_or_else(|| sql::status(StatusCode::SERVICE_UNAVAILABLE))?
+        .ensure(&scope, &request.creation_key, request.name)
+        .map_err(|error| {
+            sql::status(match error.kind() {
+                std::io::ErrorKind::InvalidInput => StatusCode::BAD_REQUEST,
+                std::io::ErrorKind::AlreadyExists => StatusCode::GONE,
+                std::io::ErrorKind::PermissionDenied => StatusCode::CONFLICT,
+                _ => StatusCode::SERVICE_UNAVAILABLE,
+            })
+        })?;
+    authorize_response(&state, &headers, &scope, "storage:databases", true)
+        .await
+        .map_err(sql::status)?;
+    Ok(Json(resource))
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -92,6 +147,12 @@ pub fn resource_router(
         file_systems,
     };
     let mut router = Router::new()
+        .route("/storage/databases/ensure", post(ensure_database))
+        .route(
+            "/storage/databases/{database_id}/sql",
+            post(sql::execute_sql),
+        )
+        .layer(axum::extract::DefaultBodyLimit::max(256 * 1024))
         .route(
             "/storage/databases",
             post(create_database).get(list_databases),

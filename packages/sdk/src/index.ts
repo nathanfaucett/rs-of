@@ -7,12 +7,28 @@ import {
     type SigninOptions,
 } from "@aicacia/oidc-client";
 
-import { StorageClient, type StorageConnection } from "@aicacia/storage-client";
+import {
+    type EnsureDatabaseRequest,
+    type SqlRequest,
+    type StorageAction,
+    StorageClient,
+    type StorageConnection,
+} from "@aicacia/storage-client";
 
 import { ContextSocket } from "./storage.js";
 
 export type StorageAccess = Readonly<
-    Pick<StorageClient, "listFileSystems" | "createFileSystem"> & {
+    Pick<
+        StorageClient,
+        | "listFileSystems"
+        | "createFileSystem"
+        | "ensureDatabase"
+        | "createDatabase"
+        | "listDatabases"
+        | "getDatabase"
+        | "deleteDatabase"
+        | "executeSql"
+    > & {
         openSocket(
             filesystemId: string,
             signal?: AbortSignal,
@@ -244,6 +260,27 @@ export class ApplicationSdk {
             }
         }
         return Object.freeze({
+            ensureDatabase: (
+                request: EnsureDatabaseRequest,
+                signal?: AbortSignal,
+            ) => result(() => client.ensureDatabase(request, combined(signal))),
+            createDatabase: (name?: string, signal?: AbortSignal) =>
+                result(() => client.createDatabase(name, combined(signal))),
+            listDatabases: (signal?: AbortSignal) =>
+                result(() => client.listDatabases(combined(signal))),
+            getDatabase: (id: string, signal?: AbortSignal) =>
+                result(() => client.getDatabase(id, combined(signal))),
+            deleteDatabase: (id: string, signal?: AbortSignal) =>
+                result(() => client.deleteDatabase(id, combined(signal))),
+            executeSql: (
+                id: string,
+                request: SqlRequest,
+                actions: StorageAction[],
+                signal?: AbortSignal,
+            ) =>
+                result(() =>
+                    client.executeSql(id, request, actions, combined(signal)),
+                ),
             listFileSystems: (signal?: AbortSignal) =>
                 result(() => client.listFileSystems(combined(signal))),
             createFileSystem: (name?: string, signal?: AbortSignal) =>
