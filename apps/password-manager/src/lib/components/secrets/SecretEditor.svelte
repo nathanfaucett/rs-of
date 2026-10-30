@@ -1,14 +1,11 @@
 <script lang="ts">
-import type { StorageAccess } from "@of/sdk";
+import type { SqlStorage } from "$lib/storage/sql";
 import { onDestroy, untrack } from "svelte";
 import { createSecretWorkflow } from "./workflow.svelte";
 
-let {
-    client,
-    userId,
-    filesystemId,
-}: { client: StorageAccess; userId: string; filesystemId: string } = $props();
-const workflow = untrack(() => createSecretWorkflow({ client, userId, filesystemId }));
+let { client, databaseId }: { client: SqlStorage; databaseId: string } =
+    $props();
+const workflow = untrack(() => createSecretWorkflow({ client, databaseId }));
 onDestroy(workflow.dispose);
 
 let name = $derived(workflow.editor?.record?.name ?? "");

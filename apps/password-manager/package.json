@@ -44,11 +44,11 @@
         "@aicacia/idp-client": "workspace:*",
         "@aicacia/management-client": "workspace:*",
         "@aicacia/storage-client": "workspace:*",
-        "@aicacia/storage-db-collection": "workspace:*",
         "@aicacia/svelte-forms": "^0.1.1",
         "@aicacia/svelte-headless": "workspace:*",
         "@lucide/svelte": "^1.24.0",
         "@of/sdk": "workspace:*",
+        "@tanstack/db": "~0.15.2",
         "@tanstack/svelte-db": "0.5.12",
         "valibot": "^1.4.2"
     }

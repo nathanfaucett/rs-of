@@ -1,4 +1,4 @@
-import type { StorageRequest } from "@aicacia/storage-client";
+import type { SqlRequest, SqlValue } from "@aicacia/storage-client";
 export const id = "01900000-0000-7000-8000-000000000001";
 export const secret = {
     id,
@@ -16,104 +16,137 @@ export const secret = {
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
 };
-export const entry = (name: string) => ({
-    name,
-    hash: "h",
-    size: 1,
-    local: true,
-});
-export class Endpoint extends EventTarget {
-    static OPEN = 1;
-    static sockets: Endpoint[] = [];
-    static files = new Map<string, Map<string, unknown>>();
-    static rejectWrites = false;
-    static ambiguousWrites = false;
-    static holdWrites = false;
-    readyState = 1;
-    closed = false;
-    closes = 0;
-    requests: StorageRequest[] = [];
-    hold = false;
-    constructor(readonly url: string) {
-        super();
-        Endpoint.sockets.push(this);
-    }
-    send(data: string) {
-        const request = JSON.parse(data) as StorageRequest;
-        this.requests.push(request);
-        if (this.hold) return;
-        const fs = new URL(this.url).searchParams.get("filesystem_id");
-        if (!fs) throw new Error("Test socket requires a Filesystem ID");
-        let files = Endpoint.files.get(fs);
-        if (!files) {
-            files = new Map(
-                fs === "empty" ? [] : [[`secrets/${id}.json`, secret]],
-            );
-            Endpoint.files.set(fs, files);
+
+export const databaseId = "01900000-0000-7000-8000-000000000010";
+export const schemaId = "f4077b65-9a42-5ade-b648-299c09235271";
+const text = (value: string): SqlValue => ({ type: "text", value });
+export class SqlTransport {
+    records = new Map<string, unknown>();
+    initialized = false;
+    version = "1";
+    tables: string[] = [];
+    requests: { url: string; init: RequestInit; request?: SqlRequest }[] = [];
+    ensureStatus = 200;
+    readStatus = 200;
+    writeStatus = 200;
+    uncertain = false;
+    malformed = false;
+    async fetch(
+        url: URL | RequestInfo,
+        init: RequestInit = {},
+    ): Promise<Response> {
+        const path = String(url);
+        if (path.endsWith("/oauth2/token")) {
+            const body = new URLSearchParams(init.body as string);
+            if (body.get("resource") !== "storage:databases")
+                throw new Error("Wrong Storage audience");
+            return Response.json({ access_token: "storage-token" });
         }
+        this.requests.push({ url: path, init });
         if (
-            Endpoint.holdWrites &&
-            (request.type === "write" || request.type === "delete")
+            new Headers(init.headers).get("Authorization") !==
+            "Bearer storage-token"
         )
-            return;
-        if (!Endpoint.rejectWrites && request.type === "write")
-            files.set(
-                request.path,
-                JSON.parse(
-                    new TextDecoder().decode(new Uint8Array(request.content)),
-                ),
+            throw new Error("Missing SQL authorization");
+        if (path.endsWith("/databases/ensure"))
+            return Response.json(
+                this.ensureStatus === 200
+                    ? { id: databaseId, name: "Password Manager" }
+                    : { code: "redacted" },
+                { status: this.ensureStatus },
             );
-        if (!Endpoint.rejectWrites && request.type === "delete")
-            files.delete(request.path);
-        const response =
-            request.type === "write" || request.type === "delete"
-                ? Endpoint.rejectWrites
-                    ? { type: "error", code: "operationFailed" }
-                    : Endpoint.ambiguousWrites
-                      ? { type: "authenticated" }
-                      : request.type === "write"
-                        ? { type: "written", entry: entry(request.path) }
-                        : { type: "deleted" }
-                : request.type === "list"
-                  ? {
-                        type: "listed",
-                        entries:
-                            request.path === ""
-                                ? files.size === 0
-                                    ? []
-                                    : [entry("secrets")]
-                                : [...files.keys()].map(entry),
-                    }
-                  : {
-                        type: "read",
-                        content: [
-                            ...new TextEncoder().encode(
-                                JSON.stringify(files.get(request.path)),
-                            ),
-                        ],
-                    };
-        queueMicrotask(() =>
-            this.dispatchEvent(
-                new MessageEvent("message", { data: JSON.stringify(response) }),
+        if (!path.endsWith(`/databases/${databaseId}/sql`))
+            throw new Error("Unexpected Storage operation");
+        const request = JSON.parse(init.body as string) as SqlRequest;
+        required(this.requests.at(-1)).request = request;
+        const mutation = request.statements.some(({ sql }) =>
+            /^(INSERT INTO secrets|UPDATE secrets|DELETE FROM secrets)/.test(
+                sql,
             ),
         );
+        if (mutation && this.writeStatus !== 200)
+            return Response.json(
+                { code: "executionFailed" },
+                { status: this.writeStatus },
+            );
+        if (!mutation && this.readStatus !== 200)
+            return Response.json(
+                { code: "unavailable" },
+                { status: this.readStatus },
+            );
+        const results = request.statements.map(({ sql, params = [] }) => {
+            const values = params.map((p) => ("value" in p ? p.value : null));
+            if (sql === "SELECT name FROM tables")
+                return {
+                    columns: ["name"],
+                    rows: this.tables.map((name) => [text(name)]),
+                };
+            if (sql.startsWith("CREATE TABLE")) {
+                this.initialized = true;
+                const name = sql.includes("secret_schema")
+                    ? "secret_schema"
+                    : "secrets";
+                if (!this.tables.includes(name)) this.tables.push(name);
+            } else if (sql.startsWith("SELECT id, version")) {
+                return {
+                    columns: ["id", "version"],
+                    rows: [
+                        [
+                            { type: "uuid", value: schemaId },
+                            { type: "integer", value: this.version },
+                        ],
+                    ],
+                };
+            } else if (sql === "SELECT id, content FROM secrets") {
+                return {
+                    columns: ["id", "content"],
+                    rows: [...this.records]
+                        .map(([id, value]) => [
+                            { type: "uuid", value: id },
+                            text(JSON.stringify(value)),
+                        ])
+                        .concat(
+                            this.malformed
+                                ? [
+                                      [
+                                          {
+                                              type: "uuid",
+                                              value: "01900000-0000-7000-8000-000000000099",
+                                          },
+                                          text("broken private JSON"),
+                                      ],
+                                  ]
+                                : [],
+                        ),
+                };
+            } else if (sql.startsWith("INSERT INTO secrets")) {
+                this.records.set(
+                    String(values[0]),
+                    JSON.parse(String(values[1])),
+                );
+            } else if (sql.startsWith("UPDATE secrets")) {
+                if (this.records.has(String(values[1])))
+                    this.records.set(
+                        String(values[1]),
+                        JSON.parse(String(values[0])),
+                    );
+            } else if (sql.startsWith("DELETE FROM secrets"))
+                this.records.delete(String(values[0]));
+            else if (!sql.startsWith("INSERT INTO secret_schema"))
+                throw new Error(`Unexpected SQL: ${sql}`);
+            return { columns: [], rows: [] };
+        });
+        if (mutation && this.uncertain)
+            throw new Error("Transport lost: PRIVATE BODY MUST NOT LEAK");
+        return Response.json({ results });
     }
-    close() {
-        ++this.closes;
-        this.closed = true;
-        this.dispatchEvent(new Event("close"));
+    seed() {
+        this.initialized = true;
+        this.tables = ["secret_schema", "secrets"];
+        this.records.set(id, structuredClone(secret));
     }
 }
-
 export function required<T>(value: T | null | undefined): T {
     if (value == null) throw new Error("Expected a populated test fixture");
     return value;
-}
-
-export function resetTransport() {
-    Endpoint.sockets = [];
-    Endpoint.files = new Map();
-    Endpoint.rejectWrites = false;
-    Endpoint.ambiguousWrites = false;
-    Endpoint.holdWrites = false;
 }

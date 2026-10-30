@@ -94,7 +94,7 @@ it("persists the selected IdP before redirect, restores through the real app con
     returning.setIdpApiUrl("https://other.test/idp");
     expect(sdk.session.status).toBe("disposed");
     const calls = service.mock.calls.length;
-    await expect(storage.listFileSystems()).rejects.toThrow("ended");
+    await expect(storage.listDatabases()).rejects.toThrow("ended");
     expect(service.mock.calls).toHaveLength(calls);
     expect(returning.getSdk()).not.toBe(sdk);
 });
