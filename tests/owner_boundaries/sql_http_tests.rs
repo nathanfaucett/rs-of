@@ -923,3 +923,334 @@ async fn password_manager_schema_and_crud_requests_survive_retry_and_native_rest
     assert_eq!(result["results"][0]["rows"], json!([]));
     f.stop().await;
 }
+
+#[tokio::test]
+async fn corrupt_acknowledged_content_fails_ensure_and_execution_after_restart() {
+    for damage in [b"".as_slice(), b"not a database".as_slice()] {
+        let mut f = Fixture::new(Default::default()).await;
+        let token = f.token("storage:databases", vec![Read, Write]).await;
+        let resource: Value = ensure(&f, &token, "corruption")
+            .await
+            .json()
+            .await
+            .expect("resource");
+        let id = resource["id"].as_str().expect("ID");
+        assert_eq!(
+            sql(
+                &f,
+                &token,
+                id,
+                json!([
+                    {"sql":"CREATE TABLE records (id TEXT PRIMARY KEY)"},
+                    {"sql":"INSERT INTO records (id) VALUES ('committed')"}
+                ])
+            )
+            .await
+            .status(),
+            200
+        );
+        // Stop every issued owner before damaging its persisted content.
+        f.storage_listener.stop().await;
+        f.databases = std::sync::Arc::new(
+            storage_service::DatabaseRuntime::new(f._directory.0.join("unused"))
+                .expect("release owner"),
+        );
+        let path = f
+            ._directory
+            .0
+            .join("databases/databases")
+            .join(&f.scope.user_sub)
+            .join(f.scope.application_id.to_string())
+            .join(format!("{id}.redb"));
+        std::fs::write(&path, damage).expect("damage closed acknowledged file");
+        restart(&mut f).await;
+        assert_eq!(ensure(&f, &token, "corruption").await.status(), 503);
+        assert_eq!(
+            sql(
+                &f,
+                &token,
+                id,
+                json!([{"sql":"CREATE TABLE replacement (id TEXT PRIMARY KEY)"}])
+            )
+            .await
+            .status(),
+            503
+        );
+        assert_eq!(std::fs::read(&path).expect("content not replaced"), damage);
+        f.stop().await;
+    }
+}
+
+#[tokio::test]
+async fn returning_requires_read_and_write_before_any_mutation() {
+    let f = Fixture::new(Default::default()).await;
+    let token = f.token("storage:databases", vec![Read, Write]).await;
+    let write = f.token("storage:databases", vec![Write]).await;
+    let read = f.token("storage:databases", vec![Read]).await;
+    let resource: Value = ensure(&f, &token, "returning")
+        .await
+        .json()
+        .await
+        .expect("resource");
+    let id = resource["id"].as_str().expect("ID");
+    assert_eq!(
+        sql(
+            &f,
+            &token,
+            id,
+            json!([
+                {"sql":"CREATE TABLE secrets (id TEXT PRIMARY KEY, content TEXT NOT NULL)"},
+                {"sql":"INSERT INTO secrets (id, content) VALUES ('saved', 'private')"}
+            ])
+        )
+        .await
+        .status(),
+        200
+    );
+    for statement in [
+        "UPDATE secrets SET content=content RETURNING content",
+        "UPDATE secrets SET content='changed' RETURNING content",
+        "DELETE FROM secrets RETURNING content",
+        "INSERT INTO secrets (id, content) VALUES ('denied', 'new') RETURNING content",
+    ] {
+        for token in [&write, &read] {
+            let response = sql(&f, token, id, json!([{"sql":statement}])).await;
+            assert_eq!(response.status(), 403, "{statement}");
+            assert_eq!(
+                response.json::<Value>().await.expect("redacted denial"),
+                json!({"code":"forbidden"})
+            );
+        }
+        let snapshot: Value = sql(
+            &f,
+            &read,
+            id,
+            json!([{"sql":"SELECT id, content FROM secrets"}]),
+        )
+        .await
+        .json()
+        .await
+        .expect("unchanged snapshot");
+        assert_eq!(
+            snapshot["results"][0]["rows"],
+            json!([[{"type":"text","value":"saved"},{"type":"text","value":"private"}]])
+        );
+    }
+    assert_eq!(
+        sql(
+            &f,
+            &token,
+            id,
+            json!([{"sql":"UPDATE secrets SET content=content RETURNING content"}])
+        )
+        .await
+        .status(),
+        200
+    );
+    assert_eq!(
+        sql(
+            &f,
+            &write,
+            id,
+            json!([{"sql":"UPDATE secrets SET content='write-only'"}])
+        )
+        .await
+        .status(),
+        200
+    );
+    f.stop().await;
+}
+
+#[tokio::test]
+async fn amplified_sql_is_rejected_before_transaction_admission() {
+    let f = Fixture::new(Default::default()).await;
+    let token = f.token("storage:databases", vec![Read, Write]).await;
+    let resource: Value = ensure(&f, &token, "query-subset")
+        .await
+        .json()
+        .await
+        .expect("resource");
+    let id = resource["id"].as_str().expect("ID");
+    assert_eq!(
+        sql(
+            &f,
+            &token,
+            id,
+            json!([
+                {"sql":"CREATE TABLE records (id TEXT PRIMARY KEY, content TEXT)"},
+                {"sql":"INSERT INTO records (id, content) VALUES ('saved', 'original')"}
+            ])
+        )
+        .await
+        .status(),
+        200
+    );
+    let owner = f
+        .databases
+        .open_existing(&f.scope, id.parse().expect("ID"))
+        .expect("lookup")
+        .expect("owner");
+    let client = owner.client();
+    let transaction = client
+        .transaction()
+        .await
+        .expect("hold transaction admission");
+    for query in [
+        "SELECT records.content FROM records JOIN other ON records.id=other.id",
+        "SELECT content FROM records WHERE id IN (SELECT id FROM records)",
+        "SELECT content || content AS doubled FROM records",
+        "SELECT content, content FROM records",
+    ] {
+        let response = sql(
+            &f,
+            &token,
+            id,
+            json!([
+                {"sql":"UPDATE records SET content='must-not-commit'"}, {"sql":query}
+            ]),
+        );
+        let response = tokio::time::timeout(std::time::Duration::from_secs(5), response)
+            .await
+            .expect("shape rejected before waiting for the held owner transaction");
+        assert_eq!(response.status(), 400, "{query}");
+        assert_eq!(
+            response
+                .json::<Value>()
+                .await
+                .expect("redacted unsupported shape"),
+            json!({"code":"invalidRequest"})
+        );
+    }
+    transaction
+        .rollback()
+        .await
+        .expect("release transaction admission");
+    let snapshot: Value = sql(
+        &f,
+        &token,
+        id,
+        json!([{"sql":"SELECT content FROM records"}]),
+    )
+    .await
+    .json()
+    .await
+    .expect("unchanged");
+    assert_eq!(
+        snapshot["results"][0]["rows"],
+        json!([[{"type":"text","value":"original"}]])
+    );
+    f.stop().await;
+}
+
+#[tokio::test]
+async fn native_budgets_bound_plain_http_scans_even_with_limit_or_filter() {
+    let f = Fixture::new(Default::default()).await;
+    let token = f.token("storage:databases", vec![Read, Write]).await;
+    let resource: Value = ensure(&f, &token, "bounded-scan")
+        .await
+        .json()
+        .await
+        .expect("resource");
+    let id = resource["id"].as_str().expect("ID");
+    let owner = f
+        .databases
+        .open_existing(&f.scope, id.parse().expect("ID"))
+        .expect("lookup")
+        .expect("owner");
+    let client = owner.client();
+    client
+        .execute_sql(
+            "CREATE TABLE records (id TEXT PRIMARY KEY, content TEXT)",
+            None,
+        )
+        .await
+        .expect("schema");
+    let params =
+        ofdb_sql::QueryParams::Positional(vec![ofdb_sql::Value::Text("x".repeat(64 * 1024))]);
+    let mut transaction = client
+        .transaction()
+        .await
+        .expect("native seed outside HTTP budget");
+    for i in 0..160 {
+        transaction
+            .execute_sql(
+                &format!("INSERT INTO records (id, content) VALUES ('{i}', ?)"),
+                Some(&params),
+            )
+            .await
+            .expect("seed compressed large content");
+    }
+    transaction
+        .commit()
+        .await
+        .expect("seed content beyond decoded scan budget");
+    for query in [
+        "SELECT content FROM records",
+        "SELECT id FROM records LIMIT 1",
+        "SELECT id FROM records WHERE id='absent'",
+    ] {
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            sql(&f, &token, id, json!([{"sql":query}])),
+        )
+        .await
+        .expect("bounded scan returns promptly");
+        assert_eq!(response.status(), 413, "{query}");
+        assert_eq!(
+            response.json::<Value>().await.expect("redacted limit"),
+            json!({"code":"limitExceeded"})
+        );
+    }
+    f.stop().await;
+}
+
+#[tokio::test]
+async fn aggregate_byte_limit_rolls_back_mutation_and_snapshot_together() {
+    let f = Fixture::new(Default::default()).await;
+    let token = f.token("storage:databases", vec![Read, Write]).await;
+    let resource: Value = ensure(&f, &token, "snapshot-bytes")
+        .await
+        .json()
+        .await
+        .expect("resource");
+    let id = resource["id"].as_str().expect("ID");
+    assert_eq!(
+        sql(
+            &f,
+            &token,
+            id,
+            json!([{"sql":"CREATE TABLE records (id TEXT PRIMARY KEY, content TEXT)"}])
+        )
+        .await
+        .status(),
+        200
+    );
+    for i in 0..8 {
+        assert_eq!(sql(&f, &token, id, json!([{"sql":"INSERT INTO records (id, content) VALUES (?, ?)", "params":[{"type":"text","value":i.to_string()},{"type":"text","value":"x".repeat(120000)}]}])).await.status(), 200);
+    }
+    let before = sql(
+        &f,
+        &token,
+        id,
+        json!([{"sql":"SELECT id, content FROM records"}]),
+    )
+    .await;
+    assert_eq!(before.status(), 200);
+    let before: Value = before.json().await.expect("readable boundary");
+    assert_eq!(sql(&f, &token, id, json!([
+        {"sql":"UPDATE records SET content=? WHERE id='0'", "params":[{"type":"text","value":"y".repeat(225000)}]},
+        {"sql":"SELECT id, content FROM records"}
+    ])).await.status(), 413);
+    let after: Value = sql(
+        &f,
+        &token,
+        id,
+        json!([{"sql":"SELECT id, content FROM records"}]),
+    )
+    .await
+    .json()
+    .await
+    .expect("still readable");
+    assert_eq!(after, before);
+    f.stop().await;
+}

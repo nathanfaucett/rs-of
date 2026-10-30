@@ -1,15 +1,15 @@
 import { ApplicationSdk, type SdkOptions } from "@of/sdk";
 import { flushSync, mount, tick, unmount } from "svelte";
 import { afterEach, beforeEach, expect, it, onTestFinished, vi } from "vitest";
-import Page from "./+page.svelte";
-import SignIn from "../signin/_SignIn.svelte";
 import {
-    SqlTransport,
     databaseId,
     id,
     required,
+    SqlTransport,
     secret,
 } from "$lib/components/secrets/transport.fixture";
+import SignIn from "../signin/_SignIn.svelte";
+import Page from "./+page.svelte";
 
 vi.mock("$lib/common/state/notifications.svelte", () => ({
     notifications: { add: vi.fn() },
@@ -582,11 +582,7 @@ it.each(["save", "delete"])(
         if (operation === "delete")
             expect(list()).not.toContain("First secret");
         else expect(list()).toContain("Pending edit");
-        const reconciliation = holdRequest(isSnapshot);
         await held.release();
-        await reconciliation.started();
-        expect(target.textContent).not.toMatch(/Saved\.|Deleted\./);
-        await reconciliation.release();
         await wait(
             operation === "save"
                 ? "Saved. Authoritative"
@@ -1073,5 +1069,53 @@ it.each(["not-a-database-id", 17])(
         await wait("Malformed database resource");
         expect(target.textContent).not.toContain("No secrets yet");
         expect(transport.requests).toHaveLength(0);
+    },
+);
+
+it.each(["rows", "bytes"])(
+    "rolls back a mutation crossing the snapshot %s boundary and leaves the vault repairable",
+    async (boundary) => {
+        transport.seed();
+        const count = boundary === "rows" ? 1000 : 8;
+        transport.records.clear();
+        for (let i = 0; i < count; i++) {
+            const key = `01900000-0000-7000-8000-${String(i + 1).padStart(12, "0")}`;
+            transport.records.set(key, {
+                ...structuredClone(secret),
+                id: key,
+                name: i === 0 ? "First secret" : `Secret ${i}`,
+                notes: boundary === "bytes" ? "x".repeat(120000) : "",
+            });
+        }
+        const before = new Map(transport.records);
+        component = mountPage();
+        await wait("First secret");
+        if (boundary === "rows") {
+            click("New secret");
+            input("name", "Over row limit");
+            input("secret", "test-only");
+        } else {
+            click("First secret");
+            input("notes", "y".repeat(225000));
+        }
+        click("Save");
+        await wait("Storage write rejected");
+        expect(target.textContent).not.toContain("Saved.");
+        expect(transport.records).toEqual(before);
+        expect(list()).toContain("First secret");
+        const request = required(mutations()[0].request);
+        expect(request.statements).toHaveLength(2);
+        expect(request.statements[1]).toEqual({
+            sql: "SELECT id, content FROM secrets",
+            params: [],
+        });
+        if (boundary === "rows") {
+            click("Clear");
+            click("First secret");
+            input("name", "Repaired");
+        } else input("notes", "smaller");
+        click("Save");
+        await wait("Saved. Authoritative");
+        expect(transport.records.size).toBe(count);
     },
 );

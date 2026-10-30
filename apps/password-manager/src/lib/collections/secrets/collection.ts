@@ -1,7 +1,11 @@
-import { DatabaseOperationError, type SqlValue } from "@aicacia/storage-client";
 import {
-    createCollection,
+    DatabaseOperationError,
+    type SqlRequest,
+    type SqlResponse,
+} from "@aicacia/storage-client";
+import {
     type Collection,
+    createCollection,
     type MutationFnParams,
 } from "@tanstack/db";
 import * as v from "valibot";
@@ -42,19 +46,13 @@ export function createSecretCollection({
         if (disposed) throw new Error("Storage collection is disposed");
     }
     const execute = async (
-        sql: string,
-        params: SqlValue[],
+        statements: SqlRequest["statements"],
         actions: ("read" | "write")[],
     ) => {
         active();
         const result = await storageRequest(
             (signal) =>
-                client.executeSql(
-                    databaseId,
-                    { statements: [{ sql, params }] },
-                    actions,
-                    signal,
-                ),
+                client.executeSql(databaseId, { statements }, actions, signal),
             controller.signal,
         );
         active();
@@ -62,13 +60,17 @@ export function createSecretCollection({
     };
     async function snapshot(): Promise<Secret[]> {
         const response = await execute(
-            "SELECT id, content FROM secrets",
-            [],
+            [{ sql: "SELECT id, content FROM secrets", params: [] }],
             ["read"],
         );
-        const result = response.results[0];
+        if (response.results.length !== 1)
+            throw new Error("Malformed Storage snapshot");
+        return parseSnapshot(response.results[0]);
+    }
+    function parseSnapshot(
+        result: SqlResponse["results"][number] | undefined,
+    ): Secret[] {
         if (
-            response.results.length !== 1 ||
             result?.columns.join() !== "id,content" ||
             !Array.isArray(result.rows)
         )
@@ -209,38 +211,56 @@ export function createSecretCollection({
                         throw new Error("Mutation retired before sending");
                     let outcome: "acknowledged" | "rejected" | "uncertain" =
                         "uncertain";
+                    let acknowledgedRecords: Secret[] | undefined;
                     try {
                         const response = await execute(
-                            mutation.type === "delete"
-                                ? "DELETE FROM secrets WHERE id = ?"
-                                : mutation.type === "insert"
-                                  ? "INSERT INTO secrets (id, content) VALUES (?, ?)"
-                                  : "UPDATE secrets SET content = ? WHERE id = ?",
-                            value
-                                ? mutation.type === "insert"
-                                    ? [
-                                          { type: "uuid", value: key },
-                                          {
-                                              type: "text",
-                                              value: JSON.stringify(value),
-                                          },
-                                      ]
-                                    : [
-                                          {
-                                              type: "text",
-                                              value: JSON.stringify(value),
-                                          },
-                                          { type: "uuid", value: key },
-                                      ]
-                                : [{ type: "uuid", value: key }],
-                            ["write"],
+                            [
+                                {
+                                    sql:
+                                        mutation.type === "delete"
+                                            ? "DELETE FROM secrets WHERE id = ?"
+                                            : mutation.type === "insert"
+                                              ? "INSERT INTO secrets (id, content) VALUES (?, ?)"
+                                              : "UPDATE secrets SET content = ? WHERE id = ?",
+                                    params: value
+                                        ? mutation.type === "insert"
+                                            ? [
+                                                  { type: "uuid", value: key },
+                                                  {
+                                                      type: "text",
+                                                      value: JSON.stringify(
+                                                          value,
+                                                      ),
+                                                  },
+                                              ]
+                                            : [
+                                                  {
+                                                      type: "text",
+                                                      value: JSON.stringify(
+                                                          value,
+                                                      ),
+                                                  },
+                                                  { type: "uuid", value: key },
+                                              ]
+                                        : [{ type: "uuid", value: key }],
+                                },
+                                {
+                                    sql: "SELECT id, content FROM secrets",
+                                    params: [],
+                                },
+                            ],
+                            ["read", "write"],
                         );
                         if (
-                            response.results.length === 1 &&
+                            response.results.length === 2 &&
                             Array.isArray(response.results[0]?.rows) &&
                             response.results[0].rows.length === 0
-                        )
+                        ) {
+                            acknowledgedRecords = parseSnapshot(
+                                response.results[1],
+                            );
                             outcome = "acknowledged";
+                        }
                     } catch (cause) {
                         active();
                         // Authorization can fail after commit; only pre-commit errors establish rejection.
@@ -251,7 +271,8 @@ export function createSecretCollection({
                             outcome = "rejected";
                     }
                     try {
-                        const records = await snapshot();
+                        const records =
+                            acknowledgedRecords ?? (await snapshot());
                         // The core holds sync visibility until this mutation settles; awaiting its receipt here deadlocks.
                         publish(records);
                         if (outcome === "acknowledged") {

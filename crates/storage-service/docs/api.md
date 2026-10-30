@@ -107,6 +107,12 @@ resource publication, not a second SQL engine/transaction or synchronization sta
 only the public SQL owner creates and validates the database. Readiness is synced before
 acknowledgement. Retrying initializing intent completes initialization after restart.
 Once ready, absent, corrupt or retired content is an error, never an empty replacement.
+Ready-resource ensure and execution reopen through public `Database::open_existing`,
+not the creating open; zero-length files are corruption, not a fresh database.
+Internal lifecycle lookup includes initializing intents without exposing them through
+public ready-resource lookup. Owner/local-copy retirement also fences these intents
+and removes unacknowledged staging/published content; retries complete after restart.
+Initializing intents cannot be opened through selected-copy provisioning.
 A Tombstone permanently consumes that identity: ensure returns `410`; deliberate
 recreation requires a new key. Local-copy fences return `409` and are not lifted.
 Unknown metadata lookup remains `404`; acknowledged missing/corrupt content is `503`.
@@ -132,8 +138,10 @@ applications can store serialized JSON in text. Results are
 `{results: [{columns: string[], rows: SqlValue[][]}]}` in translated-statement order;
 DDL/writes may return no rows. No affected-row count is promised.
 
-Only parsed owner `Query::Select` operations count as reads. Any DDL or other query
-requires `write`; any SELECT requires `read`, including within mixed batches.
+Authorization classifies parsed owner operations. Any DDL or mutation requires
+`write`; SELECT requires `read`. INSERT/UPDATE/DELETE with RETURNING require both
+`read` and `write`, even for a no-op update. Mixed batches need all required actions.
+Classification and supported-shape validation finish before any statement executes.
 Authorization and namespace are rechecked immediately before transaction admission
 (without holding an owner transaction across IdP/Device/network calls). Catalog
 liveness and local-copy fences are checked after admission and before commit; an already admitted operation may finish. Response authorization is checked again after commit, outside the transaction;
@@ -146,10 +154,36 @@ or returned in failures. Errors use `{code}` with redacted fixed codes: `invalid
 Bounds: 256 KiB HTTP body; 1–32 submitted and translated statements; 16 KiB SQL per
 entry; 128 parameters per entry; at most 1,000 total result rows and 1 MiB serialized
 results per batch. Oversized results fail the whole transaction, never truncate a
-snapshot. These bound transport/batch/result size, not CPU or scan complexity: the
-embedded owner currently materializes query results before the result check. This
-is not a hostile-query workload-isolation guarantee. Cancellation/timeout after send
-does not prove rollback; callers must reconcile before deciding whether to retry.
+snapshot.
+
+The HTTP SQL subset supports CREATE TABLE (including IF NOT EXISTS and inline
+indexes/constraints), literal/parameterized INSERT VALUES (including supported
+ON CONFLICT), and single-table SELECT/UPDATE/DELETE with scalar predicates.
+SELECT may order, limit, or offset; projections/RETURNING contain at most 128
+non-repeated column names (or a lone `*`). Predicates support scalar values,
+comparisons, AND/OR/NOT, IS NULL/IS NOT NULL, and literal IN lists, with depth at
+most 32. Joins, subqueries/EXISTS, aggregates, grouping/HAVING, DISTINCT, computed
+projections/concatenation, LIKE, repeated projections, and other DDL are rejected
+with `400 invalidRequest` before owner transaction admission. Unsupported SQL is
+not translated into a silently truncated snapshot. This is a generic bounded CRUD
+contract, not unrestricted owner SQL hosting.
+
+Every HTTP transaction sets the public native owner budget to 65,536 read entries
+and 8 MiB encoded key/value bytes, cumulatively including catalog/repeated reads.
+Native admission checks borrowed bytes before owned decoding/range accumulation.
+A separate 65,536-row/8 MiB decoded scalar-row budget covers scans, mutation matching,
+and inserted/updated rows before accumulation/encoding. Even a plain SELECT, an
+unmatched WHERE, or LIMIT 1 cannot bypass scan budgets. Exhaustion returns `413
+limitExceeded` and aborts the batch. The stricter 1,000-row/1 MiB wire checks still
+apply before commit. Budgets include storage/history/catalog overhead, so they
+can reject a query whose projected response would otherwise fit.
+
+This prevents unbounded scan retention and query-driven join/projection amplification;
+it is not a hard process-memory, decompression, CPU, concurrent-request, or wall-clock
+isolation guarantee. A codec decodes one row/document before its logical size is known;
+native encoded reads are bounded first. Oversized replicated/history-heavy resources
+may need trusted native/operator recovery rather than HTTP editing. Cancellation or
+timeout after send does not prove rollback; callers must reconcile before retrying.
 
 ### Qualification boundary
 
