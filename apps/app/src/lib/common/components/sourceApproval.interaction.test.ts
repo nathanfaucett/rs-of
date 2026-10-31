@@ -29,17 +29,19 @@ function button(label: string) {
 it("guides acceptance and shows the trusted endpoint in the same add-device task", async () => {
     let accepting = false;
     const fetchApi = vi.fn(async (url: string, init: RequestInit = {}) => {
-        if (url.endsWith("/setup/status"))
+        if (url.endsWith("/setup/owner/status"))
             return Response.json({
                 stage: "installation",
                 state: "awaiting_choice",
                 ready: false,
-                owners: ["idp", "device", "storage"],
+                owners: ["idp"],
             });
         if (url.endsWith("/pending")) return Response.json([]);
         if (url.endsWith("/acceptance")) {
-            if (init.method === "PUT")
+            if (init.method === "PUT") {
                 accepting = JSON.parse(init.body as string).accepting;
+                return new Response(null, { status: 204 });
+            }
             return Response.json({ accepting });
         }
         throw new Error("Unexpected URL: " + url);
@@ -73,7 +75,9 @@ it("guides acceptance and shows the trusted endpoint in the same add-device task
     const write = fetchApi.mock.calls.find(
         ([, init]) => init?.method === "PUT",
     )!;
-    expect(write[0]).toBe("https://source.test/device/node-joins/acceptance");
+    expect(write[0]).toBe(
+        "https://source.test/device/independent/node-joins/acceptance",
+    );
     expect((write[1].headers as Record<string, string>).Authorization).toBe(
         "Bearer management-token",
     );
@@ -128,12 +132,12 @@ async function openOffers(
     decision: (url: string) => Response,
 ) {
     const fetchApi = vi.fn(async (url: string, _init: RequestInit = {}) => {
-        if (url.endsWith("/setup/status"))
+        if (url.endsWith("/setup/owner/status"))
             return Response.json({
                 stage: "installation",
                 state: "awaiting_choice",
                 ready: false,
-                owners: independent ? ["idp"] : ["idp", "device", "storage"],
+                owners: ["idp"],
             });
         if (url.endsWith("/pending"))
             return Response.json([
@@ -164,7 +168,7 @@ async function openOffers(
     );
     return fetchApi;
 }
-it.each([false, true])(
+it.each([true])(
     "approves and rejects only the selected exact request (independent=%s)",
     async (independent) => {
         const fetchApi = await openOffers(
@@ -221,7 +225,7 @@ it("keeps partial enrollment failure visible across refresh and retries exactly 
     let attempts = 0;
     const fetchApi = await openOffers(
         true,
-        () => new Response(null, { status: ++attempts === 1 ? 503 : 200 }),
+        () => new Response(null, { status: ++attempts === 1 ? 503 : 202 }),
     );
     button("Approve this device").click();
     flushSync();
@@ -242,7 +246,7 @@ it("keeps partial enrollment failure visible across refresh and retries exactly 
     flushSync();
     await vi.waitFor(() =>
         expect(target.querySelector('[role="status"]')?.textContent).toContain(
-            "Source approval recorded",
+            "Approval accepted",
         ),
     );
     expect(
@@ -260,7 +264,7 @@ it.each([401, 403])(
         vi.stubGlobal(
             "fetch",
             vi.fn(async (url: string) =>
-                url.endsWith("/setup/status")
+                url.endsWith("/setup/owner/status")
                     ? Response.json({
                           stage: "installation",
                           state: "awaiting_choice",

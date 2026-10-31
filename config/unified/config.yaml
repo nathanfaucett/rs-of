@@ -1,17 +1,26 @@
 listen_addr: 127.0.0.1:3000
 endpoint_data_dir: ./data/unified/endpoint
 idp:
+  server:
+    prefix: /idp
   data_dir: ./data/unified/idp
   ui_public_uri: https://of.localhost:1355
-  api_public_uri: https://unified.localhost:1355/idp
+  api_public_uri: https://127.0.0.1:3000/idp
   oauth2:
     issuer: ""
 management:
-  api_public_uri: https://unified.localhost:1355/management
+  server:
+    prefix: /management
+  data_dir: ./data/unified/management
+  api_public_uri: https://127.0.0.1:3000/management
 device:
+  server:
+    prefix: /device
   data_dir: ./data/unified/device
-  api_public_uri: https://unified.localhost:1355/device
-  storage_audience: https://unified.localhost:1355/storage
+  api_public_uri: https://127.0.0.1:3000/device
+  storage_audience: https://127.0.0.1:3000/storage
 storage:
+  server:
+    prefix: /storage
   data_dir: ./data/unified/storage
-  api_public_uri: https://unified.localhost:1355/storage
+  api_public_uri: https://127.0.0.1:3000/storage

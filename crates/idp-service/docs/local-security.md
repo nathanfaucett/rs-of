@@ -18,7 +18,12 @@ Bundled Management calls IdP locally for bearer/active-User validation without a
 
 The explicit initial administrator inventory now contains 26 actions, including `ClientsRegister`. Fresh Create allocates all 26 permission IDs; both independent Device record validation and Device reset's pending-secret cleanup use the same current inventory length rather than a hard-coded 25. A completed full reset followed by Create using this build produces a current inventory that passes reopen validation. A restart alone does not recreate that inventory.
 
-A retained 25-ID Create inventory from the previous build is not compatible with the current strict retained-evidence contract. Unified `LocalProvisioner::open` validates its retained `intent.json` through `InitialAdministratorGrant::validate`, so a present old Create journal blocks that reopen path even when setup was marked complete. Unified stopped-reset reference discovery also opens that journal and can fail at the same validation. Independent Device startup validates its retained Create seed before restoring the completed router; Device reset also rejects an old seed while its secret cleanup is pending. Merely adding `idp.clients.register` to the RBAC store does not repair any of these retained inventories. Join evidence without a Create seed does not encounter this count check.
+A retained Create inventory from an unsupported prior build is not compatible with
+the current strict owner evidence contract. Owner startup and stopped reset validate
+retained seeds/inventories before using or deleting protected material. Merely adding
+a missing RBAC permission does not repair contradictory retained evidence. Previous
+Unified host journals are refused intact, not reopened through a compatibility path;
+use exact operator recovery with the previous binary or choose a new empty root.
 
 Do not append random IDs, delete journals, or automatically backfill permissions during startup. For an old installation, preserve the owner/journal/secret evidence and plan an explicit supported recovery; if a destructive reset is intended, complete it with a build that understands that retained evidence before a fresh Create on this build. A reset/Create completed on the old build still produces the old inventory. These are retained-record validation consequences, not a claim that every platform's reset and restart workflow has been qualified.
 

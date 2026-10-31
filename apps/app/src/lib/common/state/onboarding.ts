@@ -1,11 +1,9 @@
-import { CreateResultFromJSON } from "@aicacia/idp-client";
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { env } from "$env/dynamic/public";
+import { getStorageApiUrl } from "./storageApiUrl.svelte";
 import { getIdpApiUrl, usesRemoteApis } from "./idpClient.svelte";
 import { getDeviceApiUrl } from "./deviceClient.svelte";
 import {
     fetchSetupHosts,
-    readSetupStatus,
     requireCurrentSetupUiOrigin,
     setupBase,
     SetupEvidenceError,
@@ -19,7 +17,12 @@ export type OnboardingTarget = {
     device: string | null;
     storage: string | null;
 };
-export type OnboardingFailure = "retry" | "prerequisite" | "repair" | "trust_consent" | "trust_declined";
+export type OnboardingFailure =
+    | "retry"
+    | "prerequisite"
+    | "repair"
+    | "trust_consent"
+    | "trust_declined";
 type Evidence = { target: OnboardingTarget; hosts: SetupHost[] };
 export type OnboardingObservation = Evidence &
     (
@@ -45,7 +48,7 @@ function selection(): OnboardingTarget {
         kind: isTauri() && !usesRemoteApis() ? "bundled" : "remote",
         idp: getIdpApiUrl()?.replace(/\/$/, "") ?? "",
         device: getDeviceApiUrl() ?? null,
-        storage: env.PUBLIC_STORAGE_BASE_URL ?? null,
+        storage: getStorageApiUrl(),
     };
 }
 function sameSelection(target: OnboardingTarget): boolean {
@@ -88,11 +91,11 @@ function blocked(
                 ? "The retained localhost certificate is not currently trusted by the operating system. Trust consent is required before local HTTPS can start."
                 : action === "trust_declined"
                   ? "Certificate trust was declined. Retained identity is unchanged. Retry local services to reconsider, or select remote HTTPS services in Connection settings."
-                : action === "repair"
-                ? "Retained setup evidence needs repair. Preserve the existing identity; use exact recovery, not replacement or reset."
-                : action === "prerequisite"
-                  ? "Check protected-provider access, HTTPS trust and selected service configuration, then observe again."
-                  : "Unable to verify current readiness. Check the connection and retry observation; retained work is unchanged.",
+                  : action === "repair"
+                    ? "Retained setup evidence needs repair. Preserve the existing identity; use exact recovery, not replacement or reset."
+                    : action === "prerequisite"
+                      ? "Check protected-provider access, HTTPS trust and selected service configuration, then observe again."
+                      : "Unable to verify current readiness. Check the connection and retry observation; retained work is unchanged.",
     };
 }
 
@@ -109,7 +112,13 @@ export async function observeOnboarding(): Promise<OnboardingObservation> {
             if (native.failure)
                 return blocked(
                     target,
-                    ["retry", "prerequisite", "repair", "trust_consent", "trust_declined"].includes(native.failure)
+                    [
+                        "retry",
+                        "prerequisite",
+                        "repair",
+                        "trust_consent",
+                        "trust_declined",
+                    ].includes(native.failure)
                         ? native.failure
                         : "repair",
                 );
@@ -127,12 +136,7 @@ export async function observeOnboarding(): Promise<OnboardingObservation> {
                 device: `${base}/device`,
                 storage: `${base}/storage`,
             };
-            const status = readSetupStatus(
-                CreateResultFromJSON(native.status),
-                200,
-            );
-            if (status.owners.length !== 3) return blocked(target, "repair");
-            hosts = [{ base: target.idp, status }];
+            hosts = await fetchSetupHosts(target);
         } else {
             requireCurrentSetupUiOrigin();
             if (!selected.idp) return blocked(target, "prerequisite");

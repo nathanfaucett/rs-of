@@ -1,111 +1,121 @@
 # Setup worker ownership and trust exchange
 
-This stable topic describes unified/native and independent owner setup. Literal HTTP shapes live in [API contracts](api.md); [operations](operations.md) covers deployment trust/recovery and qualification. Complexity/risk/priority: high-priority security/lifecycle reconciliation. Keep one lifecycle owner per host; avoid duplicate orchestration, cross-owner stores and phase-specific browser APIs.
+One Installation Setup lifecycle serves both deployment topologies. IdP, Device,
+and Storage are the three setup owners. Management participates from the supplied
+configuration; it has no fourth code, setup worker, or operator registration step.
+See [literal API contracts](api.md), [operations](operations.md), and [security](security.md).
 
-## Ownership and composition
+## Lifecycle ownership
 
-The API host accepts exact authorized operations and owns work after durable admission/202, independently of request/WebView lifetime. Unified/native uses the shared `ApiSetupHost` worker, one HTTPS listener with three prefixes, one endpoint/router and coordinated shutdown. Native transfers `SetupHost` rather than seeding/enrolling owners itself. Independent owners retain their own existing listeners, lifecycle gates, stores and admission codes; there is no distributed transaction. Default IdP/Management/Storage ports are 3000/3001/3002. Retained setup-host state preserves Management/Storage defaults after domain creation and reopen; explicit configured ports win, and a legacy domain without setup-host state is not adopted as fresh.
+Each owner admits, durably binds, executes, publishes, and retires its own exact
+Create/Join operation. Unified composes those existing owner workers behind one
+HTTPS listener at `/idp`, `/device`, and `/storage`; standalone owners append the
+same `/setup/owner/...` surface to their configured bases. Management serves at
+its configured base (`/management` in Unified). There is no deployment setup
+broker, aggregate readiness endpoint, host operation journal, or host metadata
+SQL database. Process boundaries do not add Nodes or Devices.
 
-Open/initialize each required owner once per runtime and reuse its handles through provisioning/import, current readiness checks and serving. Stopped reopen is existing-only. IdP owns identity/token signing; Management owns Device/endpoint authority and policy; Storage owns resources and consumes current Management authorization. Process/address count creates no extra Node/Device and never justifies copying endpoint keys.
-
-Fresh Create seeds the administrator, necessary identity/public login/signing state, Management Device/endpoint binding and explicit grants; Storage/selection start empty. It performs no peer-history or resource-content exchange. Join authenticates the pinned source/issuer and exact approved offer, imports only allowlisted public identity/policy history through its owners, and retains independent local private material. Resource synchronization remains separately selected/authorized.
+The client collects the four context bases and three codes once. The same public
+operation reaches each setup owner, with exactly that owner's capability in its
+Authorization header. Only IdP receives the administrator password. A durable
+202 is acceptance, not completion; work survives request/browser disconnect.
+Conflicts reject rather than replacing intent. Recovery observes retained exact
+intent without resuming work; retry preserves nonce, names, bases, purpose, peer,
+and authenticated issuer. Cancellation signals eligible work, never rollback.
+Retired capabilities authorize neither login nor new setup mutations.
 
 ## Onboarding observation and recovery routing
 
-`apps/app/src/lib/common/state/onboarding.ts` owns the typed presentation projection used by Installation setup, setup entry, direct sign-in and the authenticated layout. `observeOnboarding()` returns one `OnboardingObservation`: selected target kind and exact IdP/Device/Storage bases, validated owner evidence, presentation state and supported action. Ready observations additionally carry the verified public login Client. This is an ephemeral projection, not a persisted lifecycle, operation journal or authorization capability.
+`onboarding.ts` projects selected-target owner evidence into presentation state;
+it is ephemeral client state, not another lifecycle or server readiness document.
+Bundled observation obtains the verified native base/failure category and queries
+all three owner surfaces directly. Remote selection never substitutes local bases
+or reads bundled codes. Every status has a singleton `owners` scope. Before sign-in,
+the app correlates all three current ready states and public operation/issuer/base
+facts, then obtains `facts.login_client` from IdP. Three unrelated ready flags,
+listener availability, admission, source approval, or historical completion are
+insufficient. Setup does not authenticate the operator; ordinary sign-in follows.
 
-### Inputs and target selection
-
-- Unified Create retains its exact nonce, administrator and Node name and requires a newly entered administrator password plus the target's Setup code. Bundled Create retrieves that scoped protected code internally for each action; browser/remote operators supply their own host code. Fresh unified Create defaults the Node name to `My Node`; exact recovery always preserves the retained name. The ordinary authenticated Devices page supports renaming. Advanced connection settings retain remote service composition separately from Create/Join. Join retains nonce, Node name and canonical pinned endpoint ID; authenticated discovery supplies its issuer. Recovery and cancellation still use their distinct protected shared-worker interfaces. These presentation defaults do not change provisioning requests or source approval.
-- Independent deployments retain their configured IdP/Device/Storage bases and each owner's separate code. Before readiness, `fetchSetupHosts` reuses `verifyIndependentReadiness` and `independentLoginClient` to correlate the exact current public operation, issuer and bases across all three owners and obtain the IdP's public login Client. A singleton `ready` flag is insufficient. The Installation page renders verified readiness before considering the independent setup form. No native proxy or bundled code is used for browser/remote operations.
-- Packaged native remote connections use the actual WebView origin (`tauri://localhost`, or `http://tauri.localhost` on Windows), not `PUBLIC_URL`. Configure that exact allowed UI origin on each remote host. HTTPS service-base validation and per-owner admission still apply; accepting a native UI origin neither retrieves the bundled capability nor authorizes a remote operation. Browser UI origins must remain HTTPS, and unrelated/opaque origins are rejected.
-- The existing selected-API policy (`usesRemoteApis`) chooses bundled versus remote. Bundled observation invokes `get_onboarding_host` once; native code reads typed shared HTTPS status. Remote observation uses the generated HTTP SDK directly and never queries bundled startup errors. A failed local host cannot override a selected remote target.
-- Selection is captured before asynchronous observation and checked afterwards, including Device/Storage bases. A changed selection discards all old evidence and returns retry against the new target. Login Client binding is checked against the selected IdP before OIDC use; authentication never creates readiness.
-- Generated typed responses are validated directly, without serializing them to untyped JSON for readiness inspection. Unified ready evidence requires all exact owner scopes, consistent state/ready fields, a non-nil public Client UUID and valid `openid` scopes. Native IPC status is decoded through the same generated response contract. A listener, admission/202, approval, historical marker or successful sign-in is never sufficient.
-
-### State, failure and action table
-
-| Evidence | Presentation | Supported action |
+| Evidence | Presentation | Action |
 | --- | --- | --- |
-| Bundled runtime has no available host yet | `starting` | Observe again; do not provision a replacement |
-| Retained certificate has typed native-root unknown-issuer failure | `blocked`, `trust_consent` | Explain OS trust anchor/elevation; explicitly allow installation or decline without replacing identity |
-| User declines necessary trust | `blocked`, `trust_declined` | Preserve evidence; explicit runtime retry rechecks trust, or select remote HTTPS services |
-| Valid awaiting-choice owner evidence | `needs_setup` | Explicit Create or Join against that target |
-| Current creating/joining evidence | `working` | Observe; Join may instruct an authorized User to approve the exact source offer |
-| All current owner and public login evidence verifies | `ready` | Ordinary sign-in; optional Device preferences are deferred |
-| Retained-host operation lock is held elsewhere | `blocked`, `retry` | Release the other operation, then explicitly retry the same retained host; no identity/CA replacement |
-| Native reference recovery stopped the host, whether it succeeded or failed | `blocked`, `retry` | Inspect the maintenance result; explicitly retry local services, never wait for an automatic restart |
-| Transport/IPC failure or transient HTTP 5xx | `blocked`, `retry` | Retry observation; bundled runtime retry is separate and preserves identity |
-| Protected-provider/trust/platform/configuration prerequisite or shared `unavailable` | `blocked`, `prerequisite` | Check provider access, HTTPS trust and connection settings; retry after correction |
-| Malformed/contradictory retained evidence, unfinished work | `blocked`, `repair` | Preserve identity; inspect/recover the exact operation or retained references, never silently reset or create another identity |
+| Bundled listener not yet published | starting | Observe |
+| Awaiting-choice owners | needs_setup | Explicit Create/Join |
+| Creating/joining owners | working | Observe; authorize source approval separately |
+| Every current owner and exact public tuple agree | ready | Ordinary sign-in |
+| Network/service failure | blocked | Retry observation |
+| Trust/provider/configuration unavailable | blocked | Check prerequisites |
+| Unfinished or damaged retained evidence | blocked/recovery form | Exact recovery, not replacement |
 
-`unfinished` retains its exact authorized resume/cancel controls under recovery options. Shared `unavailable` does not identify a specific damaged file: it requests prerequisite investigation rather than inventing a diagnosis. Native retained-host preparation preserves operational I/O kinds. Missing retained files, malformed host/admission evidence and invalid retained file shapes require repair; lock contention remains retryable. `SetupAdmission::open` returns `io::Result` at the protected host boundary, while admission HTTP/authorization methods retain opaque `SetupAdmissionError` failures. Snapshots contain only safe categorical failures/instructions, never raw startup errors or setup capabilities.
+`IndependentSetupSession` and `IndependentSetup.svelte` implement that one
+owner-local client procedure in both layouts. Fresh Create defaults to `My Node`;
+recovery preserves the retained name. Join uses the source Device HTTPS base plus
+`#<pinned-endpoint-id>`, not a bare endpoint. Source approval uses the Device
+`/independent/node-joins/...` contract with an authorized Management-audience User.
+Optional Device preferences and naming remain editable after sign-in.
 
-`get_native_setup_code` remains a separate explicit protected operation scoped to the exact bundled base, rechecked after retrieval. `api::SetupAdmission::protected_code` owns existing-only admission-file parsing and private-file validation, including retirement, invalid intent, pending writes and private lock-file validation; it never creates state, takes over the worker lock or exposes a code through HTTP/status. Only the live worker handle can compare a replaced lock inode against its originally held lock; protected retrieval is not evidence of worker health or mutation authority. Codes/passwords remain transient and absent from URLs, logs and frontend persistence.
-
-### Device preferences and qualification
-
-Device Setup is optional post-sign-in configuration, not a completion ceremony. The `/setup/device` dismissal screen, `complete_device_setup` command, marker persistence module and `device_setup_required` observation field are deleted. No marker is read or written and no historical marker can establish or prevent readiness. Current shared worker, owner and public login evidence still gate ordinary sign-in; setup never establishes an authenticated session.
-
-Fresh Storage and resource selections start empty. Devices → Device selections and restrictions remains editable after sign-in, including Full/Passthrough filesystem Residency. Skipping preferences makes no owner mutation and cannot broaden existing restrictions, selections or resource authorization. Selection routes still require current `devices.select`, Device owner binding and an independently authorized resource-scoped Storage token. Replication denies missing policy, unapproved/non-owned Devices, administrative restriction or an unselected resource. Devices also retains the ordinary authorized name editor. These controls are not Installation membership approval or authentication.
-Rendered-page, mounted-form, generated HTTP-adapter and isolated native-host/provider tests qualify this projection. They do not certify real OS trust installation/elevation, real secure-provider behavior, a full GUI session, WAN or other platforms. See ticket [01](../.scratch/setup-simplification/issues/01-unify-onboarding-observation.md) for exact commands and remaining validation limits.
-
-## Guided unified Join
-
-`JoinSetup.svelte` is the dedicated unified-host Join presentation, mounted by Installation setup when Join is selected or current status reports joining. It takes the existing target-bound onboarding observation; independent owners keep `IndependentSetup.svelte`. Create, initial/advanced connection choices, native startup and maintenance have separate owners.
-
-- Enter one canonical pinned peer endpoint ID verified with the source administrator. The initial Node name defaults to `My Node`; an exact retry always uses the retained name, never this default. There is no issuer input, unsigned invitation interpretation, or new discovery/pairing protocol.
-- A bundled Join retrieves the existing protected capability only on an explicit action, scoped and rechecked against the selected bundled host. Browser/remote Join requires that selected host's transient setup code again for each action. Connecting to remote services alone neither calls Join nor retrieves a bundled capability. A changed target refuses actions instead of transferring an intent or capability.
-- The shared HTTPS worker performs authenticated peer discovery and retains the issuer. After admission the UI uses the existing protected intent-recovery route to display that authenticated Installation, not arbitrary discovery metadata. If discovery has not retained it yet, explicitly recover again. On the source, use **Devices → Add a device**, enable acceptance, compare the authenticated Installation and exact request, then approve or reject. Do not approve while the target identity is unknown or unexpected.
-- Approval/provisioning remains one progress screen. Aggregate `unfinished` means stopped/rejected/interrupted work, not proof of a specific rejection cause; inspect the source and recover the exact operation before an explicit retry. Trust/provider/configuration and observation failures remain blocked, not reasons to reset or invent replacement identity.
-- Reload/restart recovery requests only the existing nonsecret intent under fresh admission authorization. It does not itself resume work. Timeout retains the same nonce, peer, issuer and Node name; closing/unmounting sends no cancellation. Cancellation signals the exact retained request and explicitly does not claim rollback or cleanup completion.
-- Ordinary sign-in appears only after a current selected-target observation verifies all owners and the public login Client. A ready recovery result triggers that observation too. Completed reopen reads the local target, not the original source peer. Join and Create both use current selected-target/public-login observation before offering sign-in; neither has a Device-dismissal step.
-
-The worker remains the sole lifecycle owner; the component holds no persistent journal, credentials or new provisioning coordinator. Its polling timer is presentation observation with unmount cleanup, never an automatic authorized retry. Focused validation and qualification limits are recorded in [ticket 03 evidence](../.scratch/setup-simplification/evidence/03-streamline-join.md).
+`get_native_setup_code({owner})` is protected local management. It reads only that
+bundled owner's code, validates the exact selected base before and after retrieval,
+and returns null after retirement. Native state parsing belongs to
+`SetupAdmission::protected_code`. Codes/passwords remain transient and absent from
+URLs, logs, status, and browser persistence. Browser/remote operators supply codes;
+remote requests never receive a bundled capability. Browser UI origins must be
+exact HTTPS origins. Packaged WebViews use the explicitly configured
+`tauri://localhost` or `http://tauri.localhost` origin, without relaxing API HTTPS
+or capability checks.
 
 ## Independent credential handoff
 
-Each actual HTTPS consumer generates stable least-privilege Client identity/secret locally, records attempted-material evidence **before** secure-provider creation, and retains the raw secret only in its provider. Missing/uncertain attempted material refuses without replacement. Bundled owner calls need no confidential service Clients or OAuth self-calls.
+The owner workers retain stable least-privilege consumer identity/secret locally,
+record attempts before secure-provider creation, and refuse lost evidence rather
+than replacing material. Consumer secrets travel directly to IdP only under an
+outstanding exact operation/recipient/registration-bound single-use challenge.
+Public metadata/nonce equality is not authority. Challenge consumption precedes
+provisioning; restart/cancel/retirement invalidates outstanding attempts. No
+credential, registration secret, or challenge passes through the frontend.
+Unified reuses these same workers and supplies shared verified TLS clients; it
+does not revive a parallel credential-bootstrap mechanism.
 
-Each owner independently admits the same canonical operation under its own Setup code before mutation. The tuple binds purpose, nonce, exact HTTPS owner roles/bases, administrator/Node choices, issuer and Join peer. Codes are never forwarded.
+## Current readiness and retained state
 
-1. IdP obtains the exact operation-bound public registration from the bound recipient over verified HTTPS.
-2. IdP creates an outstanding single-use challenge bound to operation, recipient role, Client ID and exact registration. Worker-only initiation sends it only to that recipient's bound challenge route; no public initiation/response exposes a usable challenge.
-3. The recipient checks its retained operation/registration and sends challenge, registration and its local secret directly to the bound IdP registration route. Both directions disable redirects; no credential/challenge is returned to the triggering caller/browser.
-4. IdP accepts only its outstanding exact capability and consumes it before provisioning through the existing owner provisioner. Public operation/nonce equality is not authority. Reflection, substitution and replay deny. Interrupted attempts need a fresh challenge with the same retained secret/registration.
+Owner status rechecks current local evidence, protected capability, registrations,
+Device/identity policy and Storage catalogs/receipts/configured owner services.
+Failure is 503/unavailable, ready:false, not an authentication-mode change. A later
+valid observation can recover without reseeding. Normal route authorization stays
+active. Completed reopen is existing-only and requires no original Join source;
+configured local owner dependencies are still required. Native listener verification
+uses OPTIONS (200/405), not readiness-bearing GET.
 
-Challenges are transient and invalid after restart/cancel/retirement; Client identities/secrets stay stable. Bodies/debug/status/errors/logs must not disclose passwords, raw secrets or challenges. The browser only handles transient operator codes/password input and nonsecret operation/public facts, never infrastructure credentials.
+Preserve each owner's setup-host directory, retained exact operation, initialization,
+worker/provider inventories, locks, and completion/retirement evidence. The Unified
+Host owns composition/configuration, one installation endpoint, and one shared
+local TLS authority, not a second operation record. Unsupported previous host
+layouts are refused intact with recovery/new-root guidance; no migration, dual read,
+compatibility alias, or automatic reprovisioning exists.
 
-## Retry, cancellation and completion
+## Trust and owner-local reset
 
-Durable exact binding precedes mutation/202. Recovery is capability-authorized nonsecret observation, not resume. A browser rechecks current scope and operation before retry; independent completion correlates every owner's operation/issuer/target bases, not three ready flags. Already-retired owners are observed through public evidence, not sent retired codes.
+Desktop installs the single retained local setup authority it uses. Hosted owners
+share it and create no extra authority. CLI pins that authority with `--ca-path`
+and never installs OS trust during Create/Join. Standalone owners retain their own
+local setup authority; arrange verified trust for their callers.
 
-Serialize privileged registration, cancellation and finalization so one wins. Recipient callbacks release the gate for provider/network waits, then revalidate active operation, cancellation, shutdown, retirement and exact registration before recording progress. Cancellation signals work; it neither rolls back owner writes nor certifies cleanup. Accepted work survives browser disconnect; host shutdown coordinates its tasks/listener.
+Reset is stopped, protected local host management, not an HTTP setup shortcut.
+Each owner exposes its stopped reset entry point and standalone
+`reset-independent --remove-os-trust`. Native shutdown joins the composed workers,
+then invokes IdP, Device and Storage resets separately, retaining completion per
+owner across failure. No owner reset deletes another owner's protected material or
+shared SQL-owner rows. A full desktop reset is a sequence of those local operations,
+not a deployment broker or remote reset contract. Hosted resets preserve the shared
+CA and do not remove installed OS trust. Standalone explicit reset removes only
+that owner's CA after protected deletion succeeds. Failures preserve exact evidence;
+reference recovery validates retained owner state, never synthesizes keys/history.
+See [reset operations](operations.md#persistence-reset-and-recovery).
 
-Preserve independent `initialized.json`/`worker.json`, exact intent, attempt fences, protected inventories and completion/retirement evidence. Missing/malformed or contradictory evidence fails intact without regeneration, migration, automatic reset or silent repair. Complete-but-unretired restart is unfinished and requires authorized exact finalization. Retired admission denies setup mutations/recovery; normal API authorization remains unchanged throughout.
+## Qualification
 
-Completed reconstruction/reopen is existing-only, without source-peer contact or reseeding; learned revocation still denies and partitions do not create a trust lease. Current status separately invokes an in-memory owner callback outside lifecycle/readiness locks: exact protected/worker evidence, IdP identity/signing/registrations, Management current Device/owner/policy/allowance/cleanup, and Storage catalogs/receipts/current configured Management policy. Failure is `503 unavailable`, `ready:false`, not an auth-mode change; normal route checks continue. Later valid observation recovers without durable setup repair. The native-root HTTPS probe uses OPTIONS on the existing status path (200/405), not readiness-bearing GET. Slow/unavailable configured services do not cancel the verified listener; status/normal routes retain their separate current checks. Storage observation needs its configured owner services, not the remote Installation source.
-
-IdP/Management `worker.json` version 2 removes Create-only identity/grant allocations from Join: IdP `credential` is Create-only; Management uses Create-only `create:{role,permissions}` instead of top-level seed IDs. Storage remains version 1. Ordinary older state refuses unchanged. Explicit exact historical reset is deletion support, not migration or a serving wrapper.
-
-## Transfer and explicit reset
-
-Independent Storage consumes service-only `pendingCleanup` over the existing scoped Management relationship. It retires old-owner copies using public Storage retirement APIs, rereads exact current evidence, acknowledges `/replication/owner-cleanup` with `management.replication.admit`, then rereads policy before current-owner activation. Management atomically compares durable cleanup ID, Device/endpoint and old/new-owner binding before clearing the fence/rebinding an empty restricted policy. Repeated owner tuples have distinct cleanup IDs; stale callbacks cannot clear a later obligation. Remote-peer reads never trigger local erasure, and completion restores no selections, administrator allowance or retired generations. Preserve pending facts and retirement evidence on failure/reopen; no extra relationship secret or distributed transaction is introduced.
-
-Explicit reset is stopped local host management, not a setup HTTP shortcut. Each independent owner exposes `reset-independent --remove-os-trust`, using the same selected root/config/environment and existing exclusive operation lock. It captures exact current or supported historical references, deletes protected slots first, removes only its retained OS CA, then deletes data and retired setup state. A sibling reset journal retains secrets/trust/data/cleanup phases through failures; neither missing references nor provider errors authorize replacement/enumeration. Ordinary prepare refuses either retained reset journal or retired setup tree before creating admission/TLS, including final cleanup interruption windows; only exact explicit reset continuation can remove them. Native reset remains distinct: it stops/joins the shared host, retains SQL-owned reference backups/validation and does not execute OS CA removal. Native reference recovery validates exact SQL-owned references; it never rebuilds missing SQL, keys, domain state, admission or trust. No reset implies remote revocation/erasure. See [reset operations](operations.md#persistence-reset-and-recovery).
-
-## Evidence boundary
-
-[Receipt 42](../.scratch/ui-driven-node-bootstrap/evidence/42-finalreview.md) records passing final lifecycle/security review qualification: current readiness versus listener verification, current/historical Create/Join/reset, actual transfer/replay and reset crash-window/trust-removal seams. Its independent normal Storage operation proves a Management-approved endpoint needs no IdP signer record: real OAuth use follows current policy on one counted TLS connection/token, with denial preserved over retained reopen and endpoint revocation. [Receipt 40](../.scratch/ui-driven-node-bootstrap/evidence/40-signer-trust-batching.md) and receipt 42 repeat unchanged paired Join successfully without warming, cache or larger bounds.
-
-[Receipt 41](../.scratch/ui-driven-node-bootstrap/evidence/41-management-cleanup-client.md) qualifies the actual generated 38-operation Management cleanup SDK and focused frontend contracts; frontend shared-HTTPS adoption is complete. [Receipt 43](../.scratch/ui-driven-node-bootstrap/evidence/43-final-native-shared.md) completes final native/shared-worker qualification on unchanged `a4caa2f71` Rust. These are bounded same-host Ubuntu/API/native seams with isolated native roots and mock/injected providers/trust commands, not real OS installation/provider persistence, rendered GUI, WAN/container/platform or production-deployment certification. [Receipt 44](../.scratch/ui-driven-node-bootstrap/evidence/44-acceptance.md) records bounded spec acceptance and resolved tickets 02/03/04; this documentation reruns no code tests.
-
-## Unified host persistence
-
-Unified configuration, bootstrap/TLS references, canonical Create/Join binding, stable allocations and attempted/acknowledged owner phases live in one private host-local `ofdb-sql` database, `host.redb`. It opens before domain provisioning and is not a domain SQL route or replication source. Owner databases and protected inventories retain their own authority. Create no longer publishes `host.json`, `credentials.json` or `intent.json`; Join no longer publishes `join.json`, `join-admission.json` or attempted/pending fences. SQL retains the exact trusted peer/authenticated issuer, allocated Node identities, provider references and production phases. Canonical SQL operation binding alone owns Join peer and Node-name choices, including standalone Join; allocation metadata does not duplicate those choices. Join reads current validated SQL before lifecycle decisions rather than caching a journal across completion/retirement. Independent owners keep their own journals.
-
-The temporary `setup-admission/state` file contains only a version marker and random setup code. Header authorization and protected local retrieval are unchanged; SQL owns nonsecret intent recovery and retirement. Create binds its operation and initial allocations together before acceptance or owner mutation. External effects follow committed attempted evidence and precede committed acknowledgements; no SQL transaction spans a provider/network wait or makes owner writes atomic.
-
-After current readiness and publication checks, one host transaction records Create completion and admission retirement. Code deletion follows that commit; leftover code never restores authority, including after restart. Completed exact Create retries still require normal Initial Administrator authentication. Cancellation retains exact evidence, not rollback or a fresh-host guarantee.
-
-Only positively fresh roots may create a database or code. Missing/corrupt/empty SQL state, unsupported schema, missing live code and interrupted creation refuse without regeneration. Legacy Unified file layouts are intentionally unsupported and left intact for explicit operator recovery/reset; no automatic migration, dual read/write or repair is provided. Stopped reset captures exact SQL-owned references before provider work and retains the database until cleanup succeeds. Reference recovery cannot synthesize missing SQL workflow/admission history: restore an exact operator backup. See [operations](operations.md#persistence-reset-and-recovery).
+The [cross-layout report](../.scratch/unified-owner-lifecycle/ticket03-validation.md)
+records nine completed production-process scenarios and exact limits. Consumer
+checks and current external Cargo blockers are recorded in
+[ticket04](../.scratch/unified-owner-lifecycle/ticket04-validation.md). Mock-provider,
+injected-trust and mounted-form checks do not certify real OS installation/provider
+persistence, GUI, WAN, other platforms, or cross-node filesystem synchronization.

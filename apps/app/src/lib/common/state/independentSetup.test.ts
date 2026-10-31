@@ -430,24 +430,84 @@ it("never treats three unrelated ready flags as global readiness or sends retire
     ).toBe(true);
 });
 
-
 it("submits exact independent owner codes from a packaged native origin without bundled capability retrieval", async () => {
     native.desktop = true;
     vi.stubGlobal("window", { location: new URL("tauri://localhost") });
     fetchApi.mockImplementation(async (url: string, init: RequestInit) => {
         if (init.method === "POST") return new Response(null, { status: 202 });
-        const owner = owners.find(owner => url.startsWith(bases[owner] + "/"))!;
+        const owner = owners.find((owner) =>
+            url.startsWith(bases[owner] + "/"),
+        )!;
         return Response.json(status(owner));
     });
-    const { IndependentSetupSession } = await import("./independentSetup.svelte");
+    const { IndependentSetupSession } = await import(
+        "./independentSetup.svelte"
+    );
     const session = new IndependentSetupSession(hosts());
-    await session.submit(codes, { purpose: "create", administrator: "Alice", node: "Node" }, "protected-password");
-    const posts = fetchApi.mock.calls.filter(([, init]) => init.method === "POST");
+    await session.submit(
+        codes,
+        { purpose: "create", administrator: "Alice", node: "Node" },
+        "protected-password",
+    );
+    const posts = fetchApi.mock.calls.filter(
+        ([, init]) => init.method === "POST",
+    );
     expect(posts).toHaveLength(3);
     for (const [index, [url, init]] of posts.entries()) {
         const owner = owners[index];
         expect(url).toBe(bases[owner] + "/setup/owner/create");
         expect(init.headers.Authorization).toBe("Setup " + codes[owner]);
-        expect(JSON.parse(init.body).password).toBe(owner === "idp" ? "protected-password" : undefined);
+        expect(JSON.parse(init.body).password).toBe(
+            owner === "idp" ? "protected-password" : undefined,
+        );
     }
 });
+
+it("observes composed owners directly without probing a retired aggregate setup route", async () => {
+    const { fetchSetupHosts } = await import("./setupApi");
+    fetchApi.mockImplementation(async (url: string) => {
+        const owner = owners.find(
+            (owner) => url === bases[owner] + "/setup/owner/status",
+        );
+        return owner
+            ? Response.json(status(owner))
+            : new Response(null, { status: 404 });
+    });
+    const observed = await fetchSetupHosts(bases);
+    expect(observed.map((host) => host.status.owners)).toEqual([
+        ["idp"],
+        ["device"],
+        ["storage"],
+    ]);
+    expect(fetchApi.mock.calls.map(([url]) => url)).toEqual(
+        owners.map((owner) => bases[owner] + "/setup/owner/status"),
+    );
+});
+
+it("keeps transient owner server failure retryable rather than misclassifying it as setup prerequisites", async () => {
+    const { fetchSetupStatus, SetupPrerequisiteError } = await import(
+        "./setupApi"
+    );
+    fetchApi.mockResolvedValue(new Response(null, { status: 500 }));
+    await expect(fetchSetupStatus(bases.idp)).rejects.not.toBeInstanceOf(
+        SetupPrerequisiteError,
+    );
+});
+it.each([
+    { ...status("idp"), owners: ["idp", "device", "storage"] },
+    { ...status("idp"), ready: true },
+    { ...status("idp"), owners: ["management"] },
+    { ...status("idp"), stage: "ready" },
+])(
+    "rejects invalid owner-local evidence without probing an old route: %j",
+    async (value) => {
+        const { fetchSetupStatus, SetupEvidenceError } = await import(
+            "./setupApi"
+        );
+        fetchApi.mockResolvedValue(Response.json(value));
+        await expect(fetchSetupStatus(bases.idp)).rejects.toBeInstanceOf(
+            SetupEvidenceError,
+        );
+        expect(fetchApi).toHaveBeenCalledOnce();
+    },
+);

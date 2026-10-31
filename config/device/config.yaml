@@ -1,0 +1,7 @@
+server:
+  host: 127.0.0.1
+  port: 3003
+  setup_ui_origin: https://of.localhost:1355
+data_dir: ./data/device
+api_public_uri: https://127.0.0.1:3003
+storage_audience: https://127.0.0.1:3002

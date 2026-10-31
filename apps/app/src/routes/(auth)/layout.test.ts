@@ -7,7 +7,9 @@ const host = vi.hoisted(() => ({
         | { access_token: string; iss?: string }
         | undefined,
     clear: vi.fn(),
-    returnTo: vi.fn((url: URL) => `${url.pathname}${url.search}${url.hash}`),
+    returnTo: vi.fn(
+        (url: URL) => `${url.pathname}${url.search}${new URL(url.href).hash}`,
+    ),
     goto: vi.fn(),
     native: true,
     installation: { issuer: "https://installation.test" },
@@ -65,7 +67,10 @@ vi.mock("$app/state", () => ({
     },
 }));
 vi.mock("$env/dynamic/public", () => ({
-    env: {},
+    env: {
+        PUBLIC_DEVICE_BASE_URL: "https://node.test/device",
+        PUBLIC_STORAGE_BASE_URL: "https://node.test/storage",
+    },
 }));
 vi.mock("$lib/common/state/afterSigninRedirect.svelte", () => ({
     afterSigninRedirect: { setURL: host.returnTo },
@@ -100,7 +105,18 @@ Object.defineProperty(event.url, "hash", {
 
 beforeEach(() => {
     vi.clearAllMocks();
-    fetchApi.mockReset();
+    fetchApi
+        .mockReset()
+        .mockImplementation(async (url: string) =>
+            setupResponse(
+                url,
+                host.stage === "installation"
+                    ? "awaiting_choice"
+                    : host.stage === "device"
+                      ? "ready"
+                      : host.stage,
+            ),
+        );
     vi.stubGlobal("window", { location: new URL("https://app.test") });
     host.native = true;
     host.stage = "ready";
@@ -110,7 +126,7 @@ beforeEach(() => {
 function respond(failure: () => Promise<Response>, endpoint = "userinfo") {
     fetchApi.mockImplementation(async (url: string) => {
         if (url.endsWith(`/${endpoint}`)) return failure();
-        if (url.endsWith("/setup/status")) return setupStatus("ready");
+        if (url.includes("/setup/owner/")) return setupResponse(url, "ready");
         if (url.endsWith("/oauth2/token"))
             return Response.json({
                 access_token: "owner-token",
@@ -125,21 +141,38 @@ function respond(failure: () => Promise<Response>, endpoint = "userinfo") {
     });
 }
 
-function setupStatus(state: string) {
+function setupResponse(url: string, state: string) {
+    const owner =
+        ["idp", "device", "storage"].find((owner) =>
+            new URL(url).pathname.startsWith(`/${owner}/`),
+        ) ?? "idp";
+    if (url.endsWith("/setup/owner/public"))
+        return Response.json({
+            owner,
+            clients: [],
+            registered: [],
+            facts:
+                owner === "idp"
+                    ? { login_client: "01900000-0000-7000-8000-000000000001" }
+                    : {},
+            operation: {
+                purpose: "create",
+                operation_nonce: "1".repeat(32),
+                administrator: "Alice",
+                node: "Node",
+                idp: "https://node.test/idp",
+                device: "https://node.test/device",
+                storage: "https://node.test/storage",
+                issuer: "https://node.test/idp",
+                peer: null,
+            },
+        });
     return Response.json(
         {
             stage: "installation",
             state,
             ready: state === "ready",
-            owners: ["idp", "device", "storage"],
-            ...(state === "ready"
-                ? {
-                      login_client: {
-                          client_id: "01900000-0000-7000-8000-000000000001",
-                          scopes: ["openid"],
-                      },
-                  }
-                : {}),
+            owners: [owner],
         },
         { status: state === "unavailable" ? 503 : 200 },
     );
@@ -185,16 +218,18 @@ it("routes a fresh Installation to setup before owner discovery or credentials",
     });
     expect(host.invoke.mock.calls).toEqual([["get_onboarding_host"]]);
     expect(host.clientId).not.toHaveBeenCalled();
-    expect(fetchApi).not.toHaveBeenCalled();
+    expect(
+        fetchApi.mock.calls.every(([url]) =>
+            String(url).includes("/setup/owner/"),
+        ),
+    ).toBe(true);
     expect(host.clear).not.toHaveBeenCalled();
     expect(host.returnTo).not.toHaveBeenCalled();
     expect(startupRequests).toEqual([]);
     expect(startupCommands).toEqual([]);
 });
 
-it.each([
-    ["unavailable", "/setup/installation"],
-])(
+it.each([["unavailable", "/setup/installation"]])(
     "routes %s to its existing setup UI without owner requests or session denial",
     async (stage, location) => {
         host.stage = stage;
@@ -203,7 +238,11 @@ it.each([
         expect(failure).toMatchObject({ status: 302, location });
         expect(host.invoke.mock.calls).toEqual([["get_onboarding_host"]]);
         expect(host.clientId).not.toHaveBeenCalled();
-        expect(fetchApi).not.toHaveBeenCalled();
+        expect(
+            fetchApi.mock.calls.every(([url]) =>
+                String(url).includes("/setup/owner/"),
+            ),
+        ).toBe(true);
         expect(host.token?.access_token).toBe("session");
         expect(host.clear).not.toHaveBeenCalled();
         expect(host.returnTo).not.toHaveBeenCalled();
@@ -220,7 +259,11 @@ it("fails closed with explicit retry when setup IPC fails or returns an unknown 
         expect(failure).toMatchObject({ location: "/setup/installation" });
     }
     expect(host.clientId).not.toHaveBeenCalled();
-    expect(fetchApi).not.toHaveBeenCalled();
+    expect(
+        fetchApi.mock.calls.every(([url]) =>
+            String(url).includes("/setup/owner/"),
+        ),
+    ).toBe(true);
     expect(host.token?.access_token).toBe("session");
     expect(host.clear).not.toHaveBeenCalled();
     expect(host.returnTo).not.toHaveBeenCalled();
@@ -448,6 +491,7 @@ it("retains the missing-bearer and other-Installation denial guards", async () =
     expect(
         fetchApi.mock.calls.every(
             ([url]) =>
+                String(url).includes("/setup/owner/") ||
                 String(url).endsWith("/idp/health") ||
                 String(url).endsWith("/.well-known/openid-configuration"),
         ),
@@ -477,7 +521,9 @@ describe("web startup readiness", () => {
     ])(
         "routes %s to installation setup before OIDC or owner requests",
         async (state) => {
-            fetchApi.mockResolvedValue(setupStatus(state));
+            fetchApi.mockImplementation(async (url: string) =>
+                setupResponse(url, state),
+            );
             const { getOidcClient } = await import(
                 "$lib/common/state/oidc.svelte"
             );
@@ -487,16 +533,11 @@ describe("web startup readiness", () => {
                 status: 302,
                 location: "/setup/installation",
             });
-            expect(fetchApi.mock.calls).toEqual([
-                [
-                    "https://node.test/idp/setup/status",
-                    expect.objectContaining({
-                        credentials: "omit",
-                        redirect: "error",
-                        cache: "no-store",
-                    }),
-                ],
-            ]);
+            expect(fetchApi.mock.calls.map(([url]) => url)).toEqual(
+                ["idp", "device", "storage"].map(
+                    (owner) => `https://node.test/${owner}/setup/owner/status`,
+                ),
+            );
             expect(getOidcClient).not.toHaveBeenCalled();
             expect(host.invoke).not.toHaveBeenCalled();
             expect(host.clientId).not.toHaveBeenCalled();
@@ -508,13 +549,15 @@ describe("web startup readiness", () => {
 
     it("routes a ready web node without credentials to sign-in after setup observation", async () => {
         host.token = undefined;
-        fetchApi.mockResolvedValue(setupStatus("ready"));
+        fetchApi.mockImplementation(async (url: string) =>
+            setupResponse(url, "ready"),
+        );
         const failure = await load(event).catch((cause: unknown) => cause);
         expect(isRedirect(failure)).toBe(true);
         expect(failure).toMatchObject({ status: 302, location: "/signin" });
-        expect(fetchApi).toHaveBeenCalledOnce();
+        expect(fetchApi).toHaveBeenCalledTimes(6);
         expect(fetchApi.mock.calls[0][0]).toBe(
-            "https://node.test/idp/setup/status",
+            "https://node.test/idp/setup/owner/status",
         );
         expect(host.returnTo).toHaveBeenCalledWith(new URL(event.url.href));
         expect(host.invoke).not.toHaveBeenCalled();
@@ -544,7 +587,9 @@ describe("web startup readiness", () => {
     });
 
     it("returns 503 without constructing OIDC when web login metadata fails", async () => {
-        fetchApi.mockResolvedValue(setupStatus("ready"));
+        fetchApi.mockImplementation(async (url: string) =>
+            setupResponse(url, "ready"),
+        );
         host.clientId.mockRejectedValueOnce(
             new Error("Login evidence unavailable"),
         );
@@ -658,29 +703,30 @@ it("authenticates a desktop remote target without unrelated local setup observat
     setIdpApiUrl("https://remote.test/idp");
     vi.stubGlobal("window", { location: new URL("https://app.test") });
     respond(async () => Response.json({ sub: "remote-user" }));
-    const ordinary = fetchApi.getMockImplementation()!;
-    fetchApi.mockImplementation(async (url: string, init?: RequestInit) =>
-        url.endsWith("/setup/status")
-            ? Response.json({
-                  stage: "installation",
-                  state: "ready",
-                  ready: true,
-                  owners: ["idp", "device", "storage"],
-                  login_client: {
-                      client_id: "01900000-0000-7000-8000-000000000001",
-                      scopes: ["openid"],
-                  },
-              })
-            : ordinary(url, init),
+    const { setDeviceApiUrl } = await import(
+        "$lib/common/state/deviceClient.svelte"
     );
+    setDeviceApiUrl("https://node.test/device");
+    const ordinary = fetchApi.getMockImplementation()!;
+    fetchApi.mockImplementation(async (url: string, init?: RequestInit) => {
+        if (url.endsWith("/setup/owner/public")) {
+            const response = await setupResponse(url, "ready").json();
+            response.operation.idp = "https://remote.test/idp";
+            response.operation.issuer = "https://remote.test/idp";
+            return Response.json(response);
+        }
+        return ordinary(url, init);
+    });
     try {
         await expect(load(event)).resolves.toMatchObject({
             userInfo: { sub: "remote-user" },
         });
         expect(host.invoke).not.toHaveBeenCalled();
         expect(
-            fetchApi.mock.calls.every(([url]) =>
-                String(url).startsWith("https://remote.test/idp/"),
+            fetchApi.mock.calls.every(
+                ([url]) =>
+                    String(url).startsWith("https://remote.test/idp/") ||
+                    String(url).includes("/setup/owner/"),
             ),
         ).toBe(true);
     } finally {

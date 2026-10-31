@@ -101,6 +101,7 @@ for (const owner of ["idp", "management", "device", "storage"]) {
         assert.ok(sdk.OwnerSetupApi);
         assert.ok(sdk.IndependentJoinApi);
         assert.equal(sdk.IndependentSetupApi, undefined);
+        assert.equal(sdk.SetupApi, undefined);
         if (owner === "device") {
             assert.ok(sdk.NodeJoinApi);
         }

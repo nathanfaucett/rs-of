@@ -3,7 +3,7 @@
     import { onMount } from "svelte";
     import DevicePolicy from "$lib/common/components/DevicePolicy.svelte";
     import SourceApproval from "$lib/common/components/SourceApproval.svelte";
-    import { deviceApi } from "$lib/common/state/deviceClient.svelte";
+    import { deviceApi, getDeviceApiUrl } from "$lib/common/state/deviceClient.svelte";
     import {
         type DeviceInfo,
         listDevices,
@@ -103,7 +103,7 @@
             .device()
             .then(async (device) => {
                 deviceEndpointId = device.publicKey;
-                publicIdQr = await toDataURL(device.publicKey);
+                publicIdQr = await toDataURL(`${getDeviceApiUrl()}#${device.publicKey}`);
             })
             .catch(console.error);
         void loadDevices();
@@ -133,7 +133,7 @@
     <SourceApproval
         endpoint={deviceEndpointId}
         qr={publicIdQr}
-        oncopy={(value) => void onCopy(value, "Endpoint ID")}
+        oncopy={(value) => void onCopy(value, "Trusted peer")}
     />
 
     {#if error}

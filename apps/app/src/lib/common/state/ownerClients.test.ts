@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const host = vi.hoisted(() => ({
     invoke: vi.fn(),
     desktop: true,
-    sourceTopology: null as "coordinated" | "independent" | null,
+    sourceTopology: null as "owner" | null,
     token: "current-user",
     env: {} as Record<string, string>,
 }));
@@ -53,15 +53,12 @@ beforeEach(() => {
         throw new Error(`Unexpected URL: ${url}`);
     });
     vi.stubGlobal("fetch", (url: string, init: RequestInit) => {
-        if (host.sourceTopology && (url.endsWith("/setup/status") || url.endsWith("/setup/owner/status")))
+        if (host.sourceTopology && url.endsWith("/setup/owner/status"))
             return Response.json({
                 stage: "installation",
                 state: "awaiting_choice",
                 ready: false,
-                owners:
-                    host.sourceTopology === "independent"
-                        ? ["idp"]
-                        : ["idp", "device", "storage"],
+                owners: ["idp"],
             });
         return fetchApi(url, init);
     });
@@ -421,91 +418,11 @@ it("renders Device policy as owner-authorized mutations, not a ready resource di
     expect(fetchApi).not.toHaveBeenCalled();
 });
 
-it("uses the Device prefix once and audience for web source acceptance and exact offer decisions without native IPC", async () => {
-    host.desktop = false;
-    const idp = await import("./idpClient.svelte");
-    const device = await import("./deviceClient.svelte");
-    idp.setIdpApiUrl("https://identity.test/idp");
-    device.setDeviceApiUrl("https://source.test/device");
-    const offers = [
-        {
-            offer_id: "01900000-0000-7000-8000-000000000004",
-            authenticated_endpoint: "b".repeat(64),
-            request: {
-                installation: "https://installation.test",
-                member_id: "01900000-0000-7000-8000-000000000005",
-                endpoint_id: "b".repeat(64),
-                approving_peer: "a".repeat(64),
-                name: "Joining Node",
-                public_signer: { kty: "OKP" },
-            },
-        },
-    ];
-    fetchApi.mockImplementation(async (url: string) => {
-        if (url.endsWith("/oauth2/token"))
-            return Response.json({
-                access_token: "owner-token",
-                token_type: "Bearer",
-            });
-        if (url.endsWith("/acceptance"))
-            return Response.json({ accepting: true });
-        if (url.endsWith("/pending")) return Response.json(offers);
-        if (url.endsWith("/approve"))
-            return Response.json({ request: offers[0].request });
-        return new Response(null, { status: 204 });
-    });
-    const devices = await import("./devices.svelte");
-    host.sourceTopology = "coordinated";
-    await expect(devices.nodeJoinAccepting(true)).resolves.toBe(true);
-    await expect(devices.pendingNodeJoins()).resolves.toEqual(offers);
-    await devices.approvePendingNodeJoin(offers[0].offer_id);
-    await devices.rejectPendingNodeJoin(offers[0].offer_id);
-    const calls = fetchApi.mock.calls.filter(([url]) =>
-        url.includes("/node-joins/"),
-    );
-    expect(calls.map(([url, init]) => [url, init.method, init.body])).toEqual([
-        [
-            "https://source.test/device/node-joins/acceptance",
-            "PUT",
-            '{"accepting":true}',
-        ],
-        ["https://source.test/device/node-joins/pending", "GET", undefined],
-        [
-            "https://source.test/device/node-joins/01900000-0000-7000-8000-000000000004/approve",
-            "POST",
-            undefined,
-        ],
-        [
-            "https://source.test/device/node-joins/01900000-0000-7000-8000-000000000004/reject",
-            "POST",
-            undefined,
-        ],
-    ]);
-    for (const [, init] of calls)
-        expect(init).toMatchObject({
-            headers: { Authorization: "Bearer owner-token" },
-            credentials: "omit",
-            redirect: "error",
-            cache: "no-store",
-        });
-    expect(
-        fetchApi.mock.calls
-            .filter(([url]) => url.endsWith("/oauth2/token"))
-            .map(([url, init]) => [url, init.body.get("resource")]),
-    ).toEqual(
-        Array(4).fill([
-            "https://identity.test/idp/oauth2/token",
-            "idp-management",
-        ]),
-    );
-    expect(host.invoke).not.toHaveBeenCalled();
-});
-
 it("web source approval refuses missing User authorization, insecure targets and malformed offer identity", async () => {
     host.desktop = false;
     const idp = await import("./idpClient.svelte");
     const devices = await import("./devices.svelte");
-    host.sourceTopology = "coordinated";
+    host.sourceTopology = "owner";
     const device = await import("./deviceClient.svelte");
     idp.setIdpApiUrl("https://identity.test/idp");
     device.setDeviceApiUrl("http://source.test/device");
@@ -529,12 +446,10 @@ it.each(["https://device.test", "https://node.test/device"])(
         const idp = await import("./idpClient.svelte");
         const device = await import("./deviceClient.svelte");
         const devices = await import("./devices.svelte");
-        host.sourceTopology = "coordinated";
+        host.sourceTopology = "owner";
         idp.setIdpApiUrl("https://identity.test/idp");
         device.setDeviceApiUrl(base);
-        host.sourceTopology = base.endsWith("/device")
-            ? "coordinated"
-            : "independent";
+        host.sourceTopology = base.endsWith("/device") ? "owner" : "owner";
         fetchApi.mockImplementation(async (url: string) =>
             url.endsWith("/oauth2/token")
                 ? Response.json({
@@ -546,7 +461,7 @@ it.each(["https://device.test", "https://node.test/device"])(
         await expect(devices.nodeJoinAccepting()).resolves.toBe(false);
         expect(fetchApi.mock.calls.map(([url]) => url)).toEqual([
             "https://identity.test/idp/oauth2/token",
-            `${base}${base.endsWith("/device") ? "" : "/independent"}/node-joins/acceptance`,
+            `${base}/independent/node-joins/acceptance`,
         ]);
         expect(fetchApi.mock.calls[0][1].body.get("resource")).toBe(
             "idp-management",
@@ -562,7 +477,7 @@ it("does not transfer source approval to a changed Management target during toke
     const idp = await import("./idpClient.svelte");
     const device = await import("./deviceClient.svelte");
     const devices = await import("./devices.svelte");
-    host.sourceTopology = "coordinated";
+    host.sourceTopology = "owner";
     idp.setIdpApiUrl("https://identity.test/idp");
     device.setDeviceApiUrl("https://source.test/device");
     fetchApi.mockImplementation(async () => {
@@ -584,11 +499,13 @@ it("uses Device HTTPS approval and audience on bundled desktop without removed n
     const ownerFetch = fetchApi.getMockImplementation();
     fetchApi.mockImplementation((url, init) =>
         url.endsWith("/acceptance")
-            ? Response.json({ accepting: true })
+            ? init.method === "PUT"
+                ? new Response(null, { status: 204 })
+                : Response.json({ accepting: true })
             : ownerFetch?.(url, init),
     );
     const devices = await import("./devices.svelte");
-    host.sourceTopology = "coordinated";
+    host.sourceTopology = "owner";
     await expect(devices.nodeJoinAccepting(true)).resolves.toBe(true);
     expect(
         fetchApi.mock.calls
@@ -597,7 +514,7 @@ it("uses Device HTTPS approval and audience on bundled desktop without removed n
     ).toBe("idp-management");
     expect(
         fetchApi.mock.calls.find(([url]) => url.endsWith("/acceptance"))?.[0],
-    ).toBe("https://localhost:4100/device/node-joins/acceptance");
+    ).toBe("https://localhost:4100/device/independent/node-joins/acceptance");
     expect(
         host.invoke.mock.calls.every(
             ([command]) => command === "get_localhost_server_base_url",
@@ -610,7 +527,7 @@ it("uses Device client routes and audience for list, rename and revoke", async (
     const idp = await import("./idpClient.svelte");
     const device = await import("./deviceClient.svelte");
     const devices = await import("./devices.svelte");
-    host.sourceTopology = "coordinated";
+    host.sourceTopology = "owner";
     idp.setIdpApiUrl("https://identity.test/idp");
     device.setDeviceApiUrl("https://devices.test/device");
     fetchApi.mockImplementation(async (url: string, init: RequestInit) => {
@@ -698,7 +615,7 @@ it("handles independent source acceptance 204 with readback, exact offers and as
         });
     });
     const devices = await import("./devices.svelte");
-    host.sourceTopology = "coordinated";
+    host.sourceTopology = "owner";
     await expect(devices.nodeJoinAccepting(true)).resolves.toBe(true);
     const offers = await devices.pendingNodeJoins();
     expect(offers[0].request).toMatchObject({
@@ -737,11 +654,11 @@ it("keeps desktop remote owner targets and source approval on HTTPS without invo
             : Response.json({ accepting: true }),
     );
     const devices = await import("./devices.svelte");
-    host.sourceTopology = "coordinated";
+    host.sourceTopology = "owner";
     await expect(devices.nodeJoinAccepting()).resolves.toBe(true);
     expect(fetchApi.mock.calls.map(([url]) => url)).toEqual([
         "https://remote.test/idp/oauth2/token",
-        "https://remote.test/device/node-joins/acceptance",
+        "https://remote.test/device/independent/node-joins/acceptance",
     ]);
     expect(host.invoke).not.toHaveBeenCalled();
 });
@@ -763,7 +680,7 @@ it.each(["idp", "device"] as const)(
     async (owner) => {
         host.desktop = false;
         fetchApi.mockImplementation(async (url: string) =>
-            (url.endsWith("/setup/status") || url.endsWith("/setup/owner/status"))
+            url.endsWith("/setup/owner/status")
                 ? Response.json({
                       stage: "installation",
                       state: "awaiting_choice",
@@ -780,7 +697,7 @@ it.each(["idp", "device"] as const)(
             true,
         );
         expect(fetchApi.mock.calls.at(-1)?.[0]).toBe(
-            `https://node.test/${owner}${owner === "idp" ? "/setup/status" : "/setup/owner/status"}`,
+            `https://node.test/${owner}/setup/owner/status`,
         );
         expect(host.invoke).not.toHaveBeenCalled();
     },
@@ -817,7 +734,7 @@ it.each(["idp", "device"] as const)(
 
 it("uses independent Join operations even when the owner mount prefix is /device", async () => {
     host.desktop = false;
-    host.sourceTopology = "independent";
+    host.sourceTopology = "owner";
     const idp = await import("./idpClient.svelte");
     const device = await import("./deviceClient.svelte");
     const devices = await import("./devices.svelte");
@@ -835,4 +752,57 @@ it("uses independent Join operations even when the owner mount prefix is /device
     expect(fetchApi.mock.calls.at(-1)?.[0]).toBe(
         "https://source.test/device/independent/node-joins/acceptance",
     );
+});
+
+it("retains the configured Storage base and validates only its owner surface without substituting bundled services", async () => {
+    host.desktop = false;
+    const { getStorageApiUrl, setStorageApiUrl, validateStorageApiUrl } =
+        await import("./storageApiUrl.svelte");
+    setStorageApiUrl("https://data.test/custom");
+    expect(getStorageApiUrl()).toBe("https://data.test/custom");
+    fetchApi.mockResolvedValue(
+        Response.json({
+            stage: "installation",
+            state: "awaiting_choice",
+            ready: false,
+            owners: ["storage"],
+        }),
+    );
+    expect(await validateStorageApiUrl("https://data.test/custom")).toBe(true);
+    expect(fetchApi.mock.calls[0][0]).toBe(
+        "https://data.test/custom/setup/owner/status",
+    );
+    fetchApi.mockResolvedValue(
+        Response.json({
+            stage: "installation",
+            state: "ready",
+            ready: true,
+            owners: ["idp"],
+        }),
+    );
+    expect(await validateStorageApiUrl("https://data.test/custom")).toBe(false);
+    fetchApi.mockRejectedValue(new TypeError("unavailable"));
+    expect(await validateStorageApiUrl("https://data.test/custom")).toBe(false);
+    expect(host.invoke).not.toHaveBeenCalled();
+});
+
+it("rejects the retired synchronous source approval response instead of treating it as owner-local completion", async () => {
+    host.desktop = false;
+    host.sourceTopology = "owner";
+    const idp = await import("./idpClient.svelte");
+    const device = await import("./deviceClient.svelte");
+    idp.setIdpApiUrl("https://identity.test/idp");
+    device.setDeviceApiUrl("https://source.test/device");
+    fetchApi.mockImplementation(async (url: string) =>
+        url.endsWith("/oauth2/token")
+            ? Response.json({
+                  access_token: "owner-token",
+                  token_type: "Bearer",
+              })
+            : new Response(null, { status: 200 }),
+    );
+    const { approvePendingNodeJoin } = await import("./devices.svelte");
+    await expect(
+        approvePendingNodeJoin("01900000-0000-7000-8000-000000000001"),
+    ).rejects.toThrow(/Invalid source approval/);
 });
