@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { OidcClient } from "./OidcClient.js";
 
 const values = new Map<string, string>();
+const codeClients = new Map<string, string>();
 const issuer = "https://installation.test";
 const metadata = {
   issuer,
@@ -13,12 +14,17 @@ const metadata = {
 const service = vi.fn(async (input: URL | RequestInfo, _init?: RequestInit) => {
   if (String(input).endsWith("/.well-known/openid-configuration"))
     return Response.json(metadata);
-  if (String(input) === metadata.token_endpoint)
+  if (String(input) === metadata.token_endpoint) {
+    const body = new URLSearchParams(_init?.body as string);
+    const code = body.get("code");
+    if (code !== null && body.get("client_id") !== codeClients.get(code))
+      return Response.json({ error: "invalid_client" }, { status: 400 });
     return Response.json({
       access_token: "access",
       refresh_token: "refresh",
       expires_in: 3600,
     });
+  }
   if (String(input).includes("/oauth2/client/"))
     return Response.json({
       client_id: decodeURIComponent(
@@ -59,6 +65,8 @@ function callback(authorization: URL) {
 }
 beforeEach(() => {
   values.clear();
+  codeClients.clear();
+  codeClients.set("once", "issued-by-idp");
   service.mockClear();
   vi.stubGlobal("window", {
     location: { origin: "https://app.test" },
@@ -228,12 +236,27 @@ test("fixed IDs accept matching callback metadata and reject a mismatched issued
   const reload = client();
   const url = callback(await reload.getAuthorizationUrl());
   url.searchParams.set("client_id", "another-client");
-  const calls = service.mock.calls.length;
-  await expect(reload.handleSigninCallback(url)).rejects.toMatchObject({
-    code: "INVALID_STATE",
-  });
-  expect(service).toHaveBeenCalledTimes(calls);
+  await expect(reload.handleSigninCallback(url)).rejects.toThrow();
   expect(client().registeredClientId).toBe("issued-by-idp");
+});
+
+test("a re-issued client ID replaces a deleted one and binds the exchange to it", async () => {
+  const first = client();
+  await first.handleSigninCallback(callback(await first.getAuthorizationUrl()));
+  expect(client().registeredClientId).toBe("issued-by-idp");
+  const reissued = client();
+  const url = callback(await reissued.getAuthorizationUrl());
+  url.searchParams.set("client_id", "reissued-by-idp");
+  codeClients.set("once", "reissued-by-idp");
+  await reissued.handleSigninCallback(url);
+  expect(reissued.registeredClientId).toBe("reissued-by-idp");
+  expect(client().registeredClientId).toBe("reissued-by-idp");
+  const body = new URLSearchParams(
+    service.mock.calls
+      .filter(([url]) => String(url) === metadata.token_endpoint)
+      .at(-1)?.[1]?.body as string,
+  );
+  expect(body.get("client_id")).toBe("reissued-by-idp");
 });
 
 test.each([

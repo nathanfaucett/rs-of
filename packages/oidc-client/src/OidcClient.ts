@@ -566,8 +566,7 @@ export class OidcClient<
         "Token exchange returned no access token",
       );
     const application = this.config.registration?.application as
-      | { uri?: string }
-      | undefined;
+      { uri?: string } | undefined;
     if (!application?.uri)
       throw new OidcClientError(
         "INVALID_CLIENT_METADATA",
@@ -799,10 +798,17 @@ export class OidcClient<
     );
     const knownClientId = this.registeredClientId;
     const onboarding = this.projectOwned && !knownClientId;
+    // A configured client ID is a trust anchor and never changes. A
+    // server-issued one may be replaced when the client is deleted and
+    // re-registered by the provider, so the provider arbitrates: it binds the
+    // authorization code to the client and verifyProjectClient binds that
+    // client to this Application.
+    const reissuable = this.projectOwned && this.config.clientId === undefined;
     if (
       (callbackIssuer !== null && callbackIssuer !== config.issuer) ||
       (onboarding && !callbackIssuer) ||
-      (callbackClientId !== null &&
+      (!reissuable &&
+        callbackClientId !== null &&
         knownClientId &&
         callbackClientId !== knownClientId) ||
       (onboarding && !callbackClientId?.trim())
@@ -811,9 +817,7 @@ export class OidcClient<
         "INVALID_STATE",
         "Callback issuer or client ID does not match",
       );
-    const clientId = onboarding
-      ? (callbackClientId ?? "")
-      : await this.getClientId(config);
+    const clientId = callbackClientId ?? (await this.getClientId(config));
     const { headers, body } = this.buildTokenRequest(
       clientId,
       authorizationCode,
@@ -835,7 +839,8 @@ export class OidcClient<
         "NO_ACCESS_TOKEN",
         "Session ended during callback",
       );
-    if (onboarding) this.rememberIssuedClient(clientId, config.issuer);
+    if (onboarding || clientId !== knownClientId)
+      this.rememberIssuedClient(clientId, config.issuer);
     this.rememberTokenResponse(tokenResponse);
     return tokenResponse;
   }
@@ -1232,14 +1237,18 @@ export class OidcClient<
       "code";
 
     if (clientId) url.searchParams.set("client_id", clientId);
-    else {
-      url.searchParams.delete("client_id");
+    else url.searchParams.delete("client_id");
+    // The application URI identifies the onboarding target. It is required for
+    // a new client and lets the IdP re-register a client whose ID was deleted.
+    if (!clientId || this.config.registration) {
       const application = this.getRegistrationMetadata().application as
-        | { uri?: string }
-        | undefined;
-      if (!application?.uri?.trim())
-        throw new Error("Application URI is required for onboarding");
-      url.searchParams.set("application_id", application.uri);
+        { uri?: string } | undefined;
+      if (!application?.uri?.trim()) {
+        if (!clientId)
+          throw new Error("Application URI is required for onboarding");
+      } else {
+        url.searchParams.set("application_id", application.uri);
+      }
     }
     url.searchParams.set("redirect_uri", this.getRedirectUri());
     url.searchParams.set("response_type", responseType);

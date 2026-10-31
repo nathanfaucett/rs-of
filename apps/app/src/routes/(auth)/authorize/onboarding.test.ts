@@ -359,7 +359,7 @@ describe("server-issued identity and consent", () => {
             authorizationError(
                 new ResponseError(new Response(null, { status: 404 })),
             ),
-        ).toContain("Client not found");
+        ).toContain("does not exist");
         expect(
             authorizationError(
                 new ResponseError(new Response(null, { status: 500 })),

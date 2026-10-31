@@ -147,7 +147,7 @@ export function authorizationError(error: unknown): string {
         if (error.response.status === 403)
             return "Permission denied. Ask an administrator for idp.clients.register (and idp.applications.create for a new application) when registering, or access to this client when authorizing.";
         if (error.response.status === 404)
-            return "Client not found. Restart sign-in from the application to register a new client; an existing client ID cannot be registered again here.";
+            return "The client ID you provided does not exist. Please register a new client to continue.";
         if (error.response.status === 401)
             return "Your session has expired. Sign in again and restart this request.";
         return `Authorization failed (HTTP ${error.response.status}). Check the request with the application administrator and retry.`;

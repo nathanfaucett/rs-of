@@ -54,20 +54,25 @@
                 undefined,
         };
         let registration: ClientRegistration | undefined;
-        // Existing clients use only server metadata, never URL-supplied registration.
-        if (!authorizationRequest.clientId) {
+        // Onboarding metadata is untrusted and only used when the client ID is
+        // missing or was deleted. Malformed metadata never blocks an existing
+        // client, whose consent comes from server metadata alone.
+        const registrationParam = params.get("registration");
+        if (registrationParam || !authorizationRequest.clientId) {
             try {
                 registration = normalizeRegistration(
-                    params.get("registration") ?? undefined,
+                    registrationParam ?? undefined,
                     applicationId,
                     authorizationRequest,
                 );
             } catch (cause) {
-                errors.push(
-                    cause instanceof Error
-                        ? cause.message
-                        : "Invalid registration metadata.",
-                );
+                if (!authorizationRequest.clientId) {
+                    errors.push(
+                        cause instanceof Error
+                            ? cause.message
+                            : "Invalid registration metadata.",
+                    );
+                }
             }
         }
         return { errors, authorizationRequest, applicationId, registration };

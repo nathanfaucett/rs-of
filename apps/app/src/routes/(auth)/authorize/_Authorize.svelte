@@ -136,7 +136,58 @@
     }
 </script>
 
-{#if error}
+{#snippet registrationForm(request: ClientRegistration)}
+    <section>
+        <h2>{m.authorize_new_client_request()}</h2>
+        <p>
+            This application is requesting a new client registration. These
+            details were supplied by the application and are not yet verified by
+            the server.
+        </p>
+        <dl class="mt-3 space-y-1 text-sm">
+            <div>
+                <dt class="font-semibold">Application</dt>
+                <dd>{request.application.uri}</dd>
+            </div>
+            <div>
+                <dt class="font-semibold">Client</dt>
+                <dd>{request.clientName}</dd>
+            </div>
+            <div>
+                <dt class="font-semibold">Redirect URIs</dt>
+                <dd>{request.redirectUris?.join(", ")}</dd>
+            </div>
+            <div>
+                <dt class="font-semibold">Registration scopes</dt>
+                <dd>{request.allowedScopes?.join(", ") || "-"}</dd>
+            </div>
+            <div>
+                <dt class="font-semibold">Requested scopes</dt>
+                <dd>{authorizationRequest.scope || "-"}</dd>
+            </div>
+        </dl>
+        <p>
+            Accept registers the client. You will review server-approved details
+            before granting access.
+        </p>
+        <div class="mt-4 flex flex-row justify-center gap-4">
+            <button
+                class="btn btn-primary btn-md"
+                type="button"
+                disabled={loading}
+                onclick={onRegister}>{m.client_accept()}</button
+            >
+            <button
+                class="btn btn-secondary btn-md"
+                type="button"
+                disabled={loading}
+                onclick={onDeny}>{m.client_reject()}</button
+            >
+        </div>
+    </section>
+{/snippet}
+
+{#if error && !registration}
     <section role="alert">
         <h2>{m.authorize_invalid_request()}</h2>
         <p>{error}</p>
@@ -149,6 +200,12 @@
             {m.authorize_button_deny()}
         </button>
     </section>
+{:else if error && registration}
+    <section role="alert">
+        <h2>{m.authorize_invalid_request()}</h2>
+        <p>{error}</p>
+    </section>
+    {@render registrationForm(registration)}
 {:else if loading}
     <div
         class="flex flex-row items-center justify-center py-8"
@@ -166,50 +223,5 @@
         {onDeny}
     />
 {:else if registration}
-    <section>
-        <h2>{m.authorize_new_client_request()}</h2>
-        <p>
-            This application is requesting a new client registration. These
-            details were supplied by the application and are not yet verified by
-            the server.
-        </p>
-        <dl class="mt-3 space-y-1 text-sm">
-            <div>
-                <dt class="font-semibold">Application</dt>
-                <dd>{registration.application.uri}</dd>
-            </div>
-            <div>
-                <dt class="font-semibold">Client</dt>
-                <dd>{registration.clientName}</dd>
-            </div>
-            <div>
-                <dt class="font-semibold">Redirect URIs</dt>
-                <dd>{registration.redirectUris?.join(", ")}</dd>
-            </div>
-            <div>
-                <dt class="font-semibold">Registration scopes</dt>
-                <dd>{registration.allowedScopes?.join(", ") || "-"}</dd>
-            </div>
-            <div>
-                <dt class="font-semibold">Requested scopes</dt>
-                <dd>{authorizationRequest.scope || "-"}</dd>
-            </div>
-        </dl>
-        <p>
-            Accept registers the client. You will review server-approved details
-            before granting access.
-        </p>
-        <div class="mt-4 flex flex-row justify-center gap-4">
-            <button
-                class="btn btn-primary btn-md"
-                type="button"
-                onclick={onRegister}>{m.client_accept()}</button
-            >
-            <button
-                class="btn btn-secondary btn-md"
-                type="button"
-                onclick={onDeny}>{m.client_reject()}</button
-            >
-        </div>
-    </section>
+    {@render registrationForm(registration)}
 {/if}
