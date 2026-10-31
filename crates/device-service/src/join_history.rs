@@ -183,8 +183,8 @@ async fn request(
         let configuration = of_idp_client::apis::configuration::Configuration {
             base_path: base, client: api::LocalTls::verification_client()?, ..Default::default()
         };
-        of_idp_client::apis::independent_setup_api::independent_setup_history(&configuration,
-            of_idp_client::apis::independent_setup_api::IndependentSetupHistoryParams {
+        of_idp_client::apis::owner_setup_api::owner_setup_history(&configuration,
+            of_idp_client::apis::owner_setup_api::OwnerSetupHistoryParams {
                 body: serde_json::json!({"approval":body.approval,"return_nonce":body.return_nonce,"capability":nonce}),
             }).await.map_err(|_| io::Error::other("history callback denied"))
     }.await;

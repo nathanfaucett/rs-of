@@ -43,6 +43,9 @@ suite stays unchanged.
 - The cross-layout deployment suite is the single qualification seam for both topologies; the filesystem
   crate's in-process suite stays unchanged. (confirmed)
 
+- [Ticket 01](issues/01-owner-setup-surface-at-owner-prefix.md) resolved: the full owner-relative surface is `/setup/owner/...`, including public facts and worker handoffs. Reuse the existing topology-neutral namespace instead of colliding with the host `/setup/...` lifecycle that ticket 02 deletes. One `owner_setup` generated group replaces the split neutral/independent descriptions; no old-path aliases remain.
+- Ticket 01 qualification: root/composed owner contracts and old-route absence pass; canonical contracts and both SDK families regenerate identically. Broader baseline/network/time-limit failures remain explicit in [the validation report](ticket01-validation.md); this is not full deployment acceptance. Ticket 02 owns Unified worker wiring and atomic lifecycle replacement.
+
 ## Fog
 
 - Whether the desktop application's reset flow needs an owner-local reset surface per owner or can drive
@@ -53,4 +56,4 @@ suite stays unchanged.
 
 ## Frontier
 
-Ticket 01 is the lowest-numbered open, unblocked ticket.
+Ticket 02 is the lowest-numbered open, unblocked ticket; ticket 01 implementation is resolved with qualification limits recorded above.

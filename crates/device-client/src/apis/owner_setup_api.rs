@@ -13,12 +13,129 @@ use crate::{apis::ResponseContent, models};
 use reqwest;
 use serde::{Deserialize, Serialize, de::Error as _};
 
+/// struct for passing parameters to the method [`owner_setup_cancel`]
+#[derive(Clone, Debug)]
+pub struct OwnerSetupCancelParams {
+    pub independent_create_intent: models::IndependentCreateIntent,
+}
+
+/// struct for passing parameters to the method [`owner_setup_challenge`]
+#[derive(Clone, Debug)]
+pub struct OwnerSetupChallengeParams {
+    pub challenge: models::Challenge,
+}
+
+/// struct for passing parameters to the method [`owner_setup_create`]
+#[derive(Clone, Debug)]
+pub struct OwnerSetupCreateParams {
+    pub independent_create_request: models::IndependentCreateRequest,
+}
+
+/// struct for passing parameters to the method [`owner_setup_history`]
+#[derive(Clone, Debug)]
+pub struct OwnerSetupHistoryParams {
+    pub body: serde_json::Value,
+}
+
+/// struct for passing parameters to the method [`owner_setup_join`]
+#[derive(Clone, Debug)]
+pub struct OwnerSetupJoinParams {
+    pub independent_create_request: models::IndependentCreateRequest,
+}
+
+/// struct for passing parameters to the method [`owner_setup_register`]
+#[derive(Clone, Debug)]
+pub struct OwnerSetupRegisterParams {
+    pub registration: models::Registration,
+}
+
 /// struct for typed errors of method [`owner_setup_admission`]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum OwnerSetupAdmissionError {
     Status401(),
+    Status503(),
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`owner_setup_cancel`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum OwnerSetupCancelError {
+    Status401(),
+    Status409(),
+    Status503(),
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`owner_setup_challenge`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum OwnerSetupChallengeError {
+    Status400(),
     Status403(),
+    Status409(),
+    Status503(),
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`owner_setup_create`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum OwnerSetupCreateError {
+    Status400(),
+    Status401(),
+    Status409(),
+    Status503(),
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`owner_setup_history`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum OwnerSetupHistoryError {
+    Status403(),
+    Status409(),
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`owner_setup_join`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum OwnerSetupJoinError {
+    Status400(),
+    Status401(),
+    Status409(),
+    Status502(),
+    Status503(),
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`owner_setup_owner_public`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum OwnerSetupOwnerPublicError {
+    Status409(),
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`owner_setup_recover`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum OwnerSetupRecoverError {
+    Status401(),
+    Status503(),
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`owner_setup_register`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum OwnerSetupRegisterError {
+    Status400(),
+    Status403(),
+    Status409(),
+    Status503(),
     UnknownValue(serde_json::Value),
 }
 
@@ -26,7 +143,7 @@ pub enum OwnerSetupAdmissionError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum OwnerSetupStatusError {
-    Status503(models::SetupStatus),
+    Status503(),
     UnknownValue(serde_json::Value),
 }
 
@@ -69,9 +186,340 @@ pub async fn owner_setup_admission(
     }
 }
 
+pub async fn owner_setup_cancel(
+    configuration: &configuration::Configuration,
+    params: OwnerSetupCancelParams,
+) -> Result<(), Error<OwnerSetupCancelError>> {
+    let uri_str = format!("{}/setup/owner/cancel", configuration.base_path);
+    let mut req_builder = configuration
+        .client
+        .request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    if let Some(ref apikey) = configuration.api_key {
+        let key = apikey.key.clone();
+        let value = match apikey.prefix {
+            Some(ref prefix) => format!("{} {}", prefix, key),
+            None => key,
+        };
+        req_builder = req_builder.header("Authorization", value);
+    };
+    req_builder = req_builder.json(&params.independent_create_intent);
+
+    let req = req_builder.build()?;
+    configuration::check_request(&req, configuration.request_limit)?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+
+    if status.as_u16() == 204 || false {
+        Ok(())
+    } else {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        let entity: Option<OwnerSetupCancelError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+/// Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.
+pub async fn owner_setup_challenge(
+    configuration: &configuration::Configuration,
+    params: OwnerSetupChallengeParams,
+) -> Result<(), Error<OwnerSetupChallengeError>> {
+    let uri_str = format!("{}/setup/owner/challenge", configuration.base_path);
+    let mut req_builder = configuration
+        .client
+        .request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    req_builder = req_builder.json(&params.challenge);
+
+    let req = req_builder.build()?;
+    configuration::check_request(&req, configuration.request_limit)?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+
+    if status.as_u16() == 204 || false {
+        Ok(())
+    } else {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        let entity: Option<OwnerSetupChallengeError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+pub async fn owner_setup_create(
+    configuration: &configuration::Configuration,
+    params: OwnerSetupCreateParams,
+) -> Result<(), Error<OwnerSetupCreateError>> {
+    let uri_str = format!("{}/setup/owner/create", configuration.base_path);
+    let mut req_builder = configuration
+        .client
+        .request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    if let Some(ref apikey) = configuration.api_key {
+        let key = apikey.key.clone();
+        let value = match apikey.prefix {
+            Some(ref prefix) => format!("{} {}", prefix, key),
+            None => key,
+        };
+        req_builder = req_builder.header("Authorization", value);
+    };
+    req_builder = req_builder.json(&params.independent_create_request);
+
+    let req = req_builder.build()?;
+    configuration::check_request(&req, configuration.request_limit)?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+
+    if status.as_u16() == 202 || false {
+        Ok(())
+    } else {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        let entity: Option<OwnerSetupCreateError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+/// Worker-only return channel: active exact admitted Join, matching approval and constant-time return nonce, and a 64-character capability are required. Not OAuth authority.
+pub async fn owner_setup_history(
+    configuration: &configuration::Configuration,
+    params: OwnerSetupHistoryParams,
+) -> Result<(), Error<OwnerSetupHistoryError>> {
+    let uri_str = format!("{}/setup/owner/history", configuration.base_path);
+    let mut req_builder = configuration
+        .client
+        .request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    req_builder = req_builder.json(&params.body);
+
+    let req = req_builder.build()?;
+    configuration::check_request(&req, configuration.request_limit)?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+
+    if status.as_u16() == 202 || false {
+        Ok(())
+    } else {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        let entity: Option<OwnerSetupHistoryError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+pub async fn owner_setup_join(
+    configuration: &configuration::Configuration,
+    params: OwnerSetupJoinParams,
+) -> Result<(), Error<OwnerSetupJoinError>> {
+    let uri_str = format!("{}/setup/owner/join", configuration.base_path);
+    let mut req_builder = configuration
+        .client
+        .request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    if let Some(ref apikey) = configuration.api_key {
+        let key = apikey.key.clone();
+        let value = match apikey.prefix {
+            Some(ref prefix) => format!("{} {}", prefix, key),
+            None => key,
+        };
+        req_builder = req_builder.header("Authorization", value);
+    };
+    req_builder = req_builder.json(&params.independent_create_request);
+
+    let req = req_builder.build()?;
+    configuration::check_request(&req, configuration.request_limit)?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+
+    if status.as_u16() == 202 || false {
+        Ok(())
+    } else {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        let entity: Option<OwnerSetupJoinError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+pub async fn owner_setup_owner_public(
+    configuration: &configuration::Configuration,
+) -> Result<models::IndependentOwnerPublic, Error<OwnerSetupOwnerPublicError>> {
+    let uri_str = format!("{}/setup/owner/public", configuration.base_path);
+    let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+
+    let req = req_builder.build()?;
+    configuration::check_request(&req, configuration.request_limit)?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    let content_type = super::ContentType::from(content_type);
+
+    if status.as_u16() == 200 || false {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        match content_type {
+            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
+            ContentType::Text => {
+                return Err(Error::from(serde_json::Error::custom(
+                    "Received `text/plain` content type response that cannot be converted to `models::IndependentOwnerPublic`",
+                )));
+            }
+            ContentType::Unsupported(unknown_type) => {
+                return Err(Error::from(serde_json::Error::custom(format!(
+                    "Received `{unknown_type}` content type response that cannot be converted to `models::IndependentOwnerPublic`"
+                ))));
+            }
+        }
+    } else {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        let entity: Option<OwnerSetupOwnerPublicError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+pub async fn owner_setup_recover(
+    configuration: &configuration::Configuration,
+) -> Result<models::IndependentCreateIntent, Error<OwnerSetupRecoverError>> {
+    let uri_str = format!("{}/setup/owner/intent", configuration.base_path);
+    let mut req_builder = configuration
+        .client
+        .request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    if let Some(ref apikey) = configuration.api_key {
+        let key = apikey.key.clone();
+        let value = match apikey.prefix {
+            Some(ref prefix) => format!("{} {}", prefix, key),
+            None => key,
+        };
+        req_builder = req_builder.header("Authorization", value);
+    };
+
+    let req = req_builder.build()?;
+    configuration::check_request(&req, configuration.request_limit)?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    let content_type = super::ContentType::from(content_type);
+
+    if status.as_u16() == 200 || status.as_u16() == 204 || false {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        match content_type {
+            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
+            ContentType::Text => {
+                return Err(Error::from(serde_json::Error::custom(
+                    "Received `text/plain` content type response that cannot be converted to `models::IndependentCreateIntent`",
+                )));
+            }
+            ContentType::Unsupported(unknown_type) => {
+                return Err(Error::from(serde_json::Error::custom(format!(
+                    "Received `{unknown_type}` content type response that cannot be converted to `models::IndependentCreateIntent`"
+                ))));
+            }
+        }
+    } else {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        let entity: Option<OwnerSetupRecoverError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+/// Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.
+pub async fn owner_setup_register(
+    configuration: &configuration::Configuration,
+    params: OwnerSetupRegisterParams,
+) -> Result<(), Error<OwnerSetupRegisterError>> {
+    let uri_str = format!("{}/setup/owner/register", configuration.base_path);
+    let mut req_builder = configuration
+        .client
+        .request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    req_builder = req_builder.json(&params.registration);
+
+    let req = req_builder.build()?;
+    configuration::check_request(&req, configuration.request_limit)?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+
+    if status.as_u16() == 204 || false {
+        Ok(())
+    } else {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        let entity: Option<OwnerSetupRegisterError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
 pub async fn owner_setup_status(
     configuration: &configuration::Configuration,
-) -> Result<models::SetupStatus, Error<OwnerSetupStatusError>> {
+) -> Result<models::OwnerSetupStatus, Error<OwnerSetupStatusError>> {
     let uri_str = format!("{}/setup/owner/status", configuration.base_path);
     let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
 
@@ -97,12 +545,12 @@ pub async fn owner_setup_status(
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
                 return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::SetupStatus`",
+                    "Received `text/plain` content type response that cannot be converted to `models::OwnerSetupStatus`",
                 )));
             }
             ContentType::Unsupported(unknown_type) => {
                 return Err(Error::from(serde_json::Error::custom(format!(
-                    "Received `{unknown_type}` content type response that cannot be converted to `models::SetupStatus`"
+                    "Received `{unknown_type}` content type response that cannot be converted to `models::OwnerSetupStatus`"
                 ))));
             }
         }

@@ -11,7 +11,7 @@ use std::{
 use of_idp_client::{
     apis::{
         configuration::{ApiKey, Configuration},
-        default_api as idp, independent_setup_api as independent, setup_api as setup,
+        default_api as idp, owner_setup_api as independent, setup_api as setup,
     },
     models,
 };
@@ -226,14 +226,13 @@ impl Node {
                 let deadline = Instant::now() + Duration::from_secs(60);
                 loop {
                     self.alive();
-                    if independent::independent_setup_status(&self.config(&self.idp))
+                    if independent::owner_setup_status(&self.config(&self.idp))
                         .await
                         .is_ok_and(|status| status.ready)
                     {
-                        let public =
-                            independent::independent_setup_owner_public(&self.config(&self.idp))
-                                .await
-                                .expect("reopened local IdP evidence");
+                        let public = independent::owner_setup_owner_public(&self.config(&self.idp))
+                            .await
+                            .expect("reopened local IdP evidence");
                         let facts = public.facts.expect("reopened local IdP facts");
                         if tokio::net::UnixStream::connect(
                             facts["identity_socket"]
@@ -276,7 +275,7 @@ impl Node {
             let ready = if independent_layout {
                 let mut ready = true;
                 for base in [&self.idp, &self.device, &self.storage] {
-                    ready &= independent::independent_setup_status(&self.config(base))
+                    ready &= independent::owner_setup_status(&self.config(base))
                         .await
                         .is_ok_and(|s| s.ready);
                 }
@@ -521,7 +520,7 @@ impl Node {
             let deadline = Instant::now() + Duration::from_secs(30);
             loop {
                 self.alive();
-                if let Ok(status) = independent::independent_setup_status(&config).await {
+                if let Ok(status) = independent::owner_setup_status(&config).await {
                     assert!(!status.ready);
                     break;
                 }
@@ -535,9 +534,9 @@ impl Node {
             if i == 0 {
                 owner_request.password = Some(Some(PASSWORD.into()));
             }
-            independent::independent_setup_create(
+            independent::owner_setup_create(
                 &config,
-                independent::IndependentSetupCreateParams {
+                independent::OwnerSetupCreateParams {
                     independent_create_request: owner_request,
                 },
             )
@@ -554,7 +553,7 @@ impl Node {
             let deadline = Instant::now() + Duration::from_secs(180);
             loop {
                 self.alive();
-                let observed = independent::independent_setup_status(&config).await;
+                let observed = independent::owner_setup_status(&config).await;
                 if let Ok(status) = &observed
                     && status.ready
                 {
@@ -567,7 +566,7 @@ impl Node {
                 );
                 tokio::time::sleep(Duration::from_millis(200)).await;
             }
-            let public = independent::independent_setup_owner_public(&config)
+            let public = independent::owner_setup_owner_public(&config)
                 .await
                 .expect("public correlated owner evidence");
             assert_eq!(public.owner, owner);
@@ -644,7 +643,7 @@ impl Node {
             value["identity_database"] =
                 json!({"endpoint":format!("http://{sql}"), "deadline_ms":20000});
         } else {
-            let public = independent::independent_setup_owner_public(&self.config(&self.idp))
+            let public = independent::owner_setup_owner_public(&self.config(&self.idp))
                 .await
                 .expect("local IdP public connection evidence");
             assert_eq!(public.owner, "idp");
@@ -1054,7 +1053,7 @@ pub async fn join_scenario(independent_layout: bool) {
             let deadline = Instant::now() + Duration::from_secs(30);
             loop {
                 target.alive();
-                if independent::independent_setup_status(&config).await.is_ok() {
+                if independent::owner_setup_status(&config).await.is_ok() {
                     break;
                 }
                 assert!(Instant::now() < deadline, "target worker startup timeout");
@@ -1086,7 +1085,7 @@ pub async fn join_scenario(independent_layout: bool) {
         assert_eq!(offer["request"]["installation"], source.issuer);
     }
     let pending_ready = if independent_layout {
-        independent::independent_setup_status(&target.config(&target.idp))
+        independent::owner_setup_status(&target.config(&target.idp))
             .await
             .expect("pending independent target status")
             .ready
@@ -1147,7 +1146,7 @@ pub async fn join_scenario(independent_layout: bool) {
         if independent_layout {
             let mut ready = true;
             for base in [&target.idp, &target.device, &target.storage] {
-                ready &= independent::independent_setup_status(&target.config(base))
+                ready &= independent::owner_setup_status(&target.config(base))
                     .await
                     .is_ok_and(|s| s.ready);
             }
@@ -1182,7 +1181,7 @@ pub async fn join_scenario(independent_layout: bool) {
             ("device", &target.device),
             ("storage", &target.storage),
         ] {
-            let public = independent::independent_setup_owner_public(&target.config(base))
+            let public = independent::owner_setup_owner_public(&target.config(base))
                 .await
                 .expect("completed Join owner evidence");
             assert_eq!(public.owner, owner);

@@ -11,7 +11,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tower_http::cors::CorsLayer;
 
 use crate::{SetupAdmission, SetupScope, setup_admission_middleware, setup_files::require_absent};
@@ -36,7 +36,7 @@ async fn healthy(state: Arc<SetupState>) -> bool {
     )
 }
 
-#[derive(Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Serialize)]
 pub(crate) struct SetupStatus {
     pub(crate) stage: String,
     pub(crate) state: String,
@@ -99,7 +99,6 @@ pub fn setup_router(
         .layer(middleware::from_fn_with_state(origin, setup_origin_guard))
 }
 
-#[utoipa::path(get, path = "/setup/owner/status", operation_id = "status", responses((status = 200, body = SetupStatus, description = "Awaiting owner setup"), (status = 503, body = SetupStatus, description = "Owner state unavailable")))]
 async fn status(State(state): State<Arc<SetupState>>) -> (StatusCode, axum::Json<SetupStatus>) {
     let scope = state.scope;
     let healthy = healthy(state).await;
@@ -137,16 +136,6 @@ pub async fn setup_origin_guard(
     next.run(request).await
 }
 
-#[utoipa::path(post, path = "/setup/owner/admission", operation_id = "admission", security(("setup_code" = [])), responses((status = 204, description = "Owner-local Setup admission accepted"), (status = 401, description = "Setup code required"), (status = 403, description = "Denied")))]
 async fn check_admission() -> StatusCode {
     StatusCode::NO_CONTENT
-}
-
-#[derive(utoipa::OpenApi)]
-#[openapi(paths(status, check_admission))]
-struct OwnerSetupDoc;
-pub fn owner_setup_openapi() -> utoipa::openapi::OpenApi {
-    let mut document = <OwnerSetupDoc as utoipa::OpenApi>::openapi();
-    utoipa::Modify::modify(&crate::independent_openapi::SetupSecurity, &mut document);
-    document
 }

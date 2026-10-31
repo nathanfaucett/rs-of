@@ -11,9 +11,9 @@ import {
 } from "@aicacia/idp-client";
 import {
     Configuration as IndependentConfiguration,
-    IndependentSetupApi as IndependentApi,
-    type IndependentSetupStatus,
-    IndependentSetupStatusFromJSON,
+    OwnerSetupApi as IndependentApi,
+    type OwnerSetupStatus,
+    OwnerSetupStatusFromJSON,
     JSONApiResponse as IndependentJSONApiResponse,
     ResponseError as IndependentResponseError,
     FetchError as IndependentFetchError,
@@ -158,7 +158,7 @@ export async function fetchSetupStatus(base: string): Promise<SetupStatus> {
         const api = new IndependentApi(
             new IndependentConfiguration({ basePath: target, fetchApi: fetch }),
         );
-        const response = await api.independentSetupStatusRaw(setupInit);
+        const response = await api.ownerSetupStatusRaw(setupInit);
         if (response.raw.status !== 200)
             throw new Error("Invalid Setup status");
         return readSetupStatus(await response.value(), response.raw.status);
@@ -183,7 +183,7 @@ export async function fetchSetupStatus(base: string): Promise<SetupStatus> {
             return readSetupStatus(
                 await new IndependentJSONApiResponse(
                     error.response,
-                    IndependentSetupStatusFromJSON,
+                    OwnerSetupStatusFromJSON,
                 ).value(),
                 503,
             );
@@ -213,7 +213,7 @@ export async function fetchSetupStatus(base: string): Promise<SetupStatus> {
 }
 
 export function readSetupStatus(
-    status: CreateResult | IndependentSetupStatus,
+    status: CreateResult | OwnerSetupStatus,
     responseStatus: number,
 ): SetupStatus {
     if (!status || typeof status !== "object" || Array.isArray(status))
@@ -538,7 +538,7 @@ export async function verifySetupCode(
         }),
     );
     const response = independent
-        ? await api.independentSetupAdmissionRaw(setupInit)
+        ? await api.ownerSetupAdmissionRaw(setupInit)
         : await setupClient(base, code).setupAdmissionRaw(setupInit);
     if (response.raw.status !== 204)
         throw new Error(`Setup admission rejected (${response.raw.status})`);

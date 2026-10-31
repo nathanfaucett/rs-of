@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
     Configuration,
-    IndependentSetupApi as DefaultApi,
+    OwnerSetupApi as DefaultApi,
     IndependentCreateIntentToJSON,
     IndependentCreateRequestToJSON,
 } from "../packages/idp-client/esm/index.js";
@@ -21,40 +21,40 @@ const operation = {
 };
 const options = { credentials: "omit", redirect: "error", cache: "no-store" };
 
-test("complete independent schema includes worker handoffs with owner-relative bases", () => {
+test("complete owner setup schema includes worker handoffs with owner-relative bases", () => {
     const document = JSON.parse(
         readFileSync(new URL("../openapi/idp.json", import.meta.url)),
     );
     assert.deepEqual(
         Object.keys(document.paths)
-            .filter((path) => path.startsWith("/independent/setup/"))
+            .filter((path) => path.startsWith("/setup/owner/"))
             .sort(),
         [
-            "/independent/setup/admission",
-            "/independent/setup/cancel",
-            "/independent/setup/create",
-            "/independent/setup/independent/challenge",
-            "/independent/setup/independent/history",
-            "/independent/setup/independent/public",
-            "/independent/setup/independent/register",
-            "/independent/setup/intent",
-            "/independent/setup/join",
-            "/independent/setup/status",
+            "/setup/owner/admission",
+            "/setup/owner/cancel",
+            "/setup/owner/challenge",
+            "/setup/owner/create",
+            "/setup/owner/history",
+            "/setup/owner/intent",
+            "/setup/owner/join",
+            "/setup/owner/public",
+            "/setup/owner/register",
+            "/setup/owner/status",
         ],
     );
     assert.ok(
         JSON.stringify(document).includes(
-            "/independent/setup/independent/challenge",
+            "/setup/owner/challenge",
         ),
     );
     assert.ok(
         JSON.stringify(document).includes(
-            "/independent/setup/independent/register",
+            "/setup/owner/register",
         ),
     );
     assert.ok(
         JSON.stringify(document).includes(
-            "/independent/setup/independent/history",
+            "/setup/owner/history",
         ),
     );
 });
@@ -67,7 +67,7 @@ test("generated Join sends empty issuer/admin without password to each exact own
                 fetchApi: async (url, init) => {
                     assert.equal(
                         url,
-                        operation[owner] + "/independent/setup/join",
+                        operation[owner] + "/setup/owner/join",
                     );
                     assert.equal(init.headers.Authorization, "Setup " + owner);
                     const { operationNonce, ...fields } = operation;
@@ -79,7 +79,7 @@ test("generated Join sends empty issuer/admin without password to each exact own
                 },
             }),
         );
-        const raw = await api.independentSetupJoinRaw(
+        const raw = await api.ownerSetupJoinRaw(
             { independentCreateRequest: operation },
             options,
         );
@@ -149,19 +149,19 @@ test("public observation carries no setup code and recovery/cancel retain distin
             },
         }),
     );
-    await api.independentSetupStatus(options);
-    await api.independentSetupOwnerPublic(options);
+    await api.ownerSetupStatus(options);
+    await api.ownerSetupOwnerPublic(options);
     for (const { init } of calls)
         assert.equal(init.headers.Authorization, undefined);
     assert.equal(
-        (await api.independentSetupRecoverRaw(options)).raw.status,
+        (await api.ownerSetupRecoverRaw(options)).raw.status,
         204,
     );
     assert.equal(calls.at(-1).init.body, undefined);
     assert.equal(calls.at(-1).init.headers.Authorization, "Setup code");
     assert.equal(
         (
-            await api.independentSetupCancelRaw(
+            await api.ownerSetupCancelRaw(
                 {
                     independentCreateIntent: {
                         ...operation,

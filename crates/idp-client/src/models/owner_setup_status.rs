@@ -12,7 +12,7 @@ use crate::models;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SetupStatus {
+pub struct OwnerSetupStatus {
     #[serde(rename = "owners")]
     pub owners: Vec<String>,
     #[serde(rename = "ready")]
@@ -23,9 +23,9 @@ pub struct SetupStatus {
     pub state: String,
 }
 
-impl SetupStatus {
-    pub fn new(owners: Vec<String>, ready: bool, stage: String, state: String) -> SetupStatus {
-        SetupStatus {
+impl OwnerSetupStatus {
+    pub fn new(owners: Vec<String>, ready: bool, stage: String, state: String) -> OwnerSetupStatus {
+        OwnerSetupStatus {
             owners,
             ready,
             stage,

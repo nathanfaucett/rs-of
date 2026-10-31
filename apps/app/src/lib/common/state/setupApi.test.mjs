@@ -508,7 +508,7 @@ test("independent owners each use their configured base and their own code, even
   globalThis.fetch = async (url, options) => {
     calls.push([url, options]);
     const index = Object.values(bases).findIndex((base) =>
-      url.startsWith(`${base}/independent/setup/`),
+      url.startsWith(`${base}/setup/owner/`),
     );
     assert.notEqual(index, -1);
     if (options.method === "POST") {
@@ -538,9 +538,9 @@ test("independent owners each use their configured base and their own code, even
   assert.deepEqual(
     calls.map(([url]) => url),
     [
-      ...Object.values(bases).map((base) => `${base}/independent/setup/status`),
+      ...Object.values(bases).map((base) => `${base}/setup/owner/status`),
       ...Object.values(bases).map(
-        (base) => `${base}/independent/setup/admission`,
+        (base) => `${base}/setup/owner/admission`,
       ),
     ],
   );

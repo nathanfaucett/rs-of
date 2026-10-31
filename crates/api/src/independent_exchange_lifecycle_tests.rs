@@ -48,7 +48,7 @@ async fn gated_registrar_allows_status_and_cancel_and_rejects_late_completion() 
     let response = host
         .router()
         .oneshot(
-            Request::post("/independent/setup/create")
+            Request::post("/setup/owner/create")
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Setup {code}"))
                 .body(Body::from(create.to_string()))
@@ -95,7 +95,7 @@ async fn gated_registrar_allows_status_and_cancel_and_rejects_late_completion() 
     request["registration"]["client_secret"] = serde_json::json!("b".repeat(64));
     let callback = tokio::spawn(
         host.router().oneshot(
-            Request::post("/independent/setup/independent/register")
+            Request::post("/setup/owner/register")
                 .header("Content-Type", "application/json")
                 .body(Body::from(request.to_string()))
                 .expect("exact registration callback"),
@@ -107,7 +107,7 @@ async fn gated_registrar_allows_status_and_cancel_and_rejects_late_completion() 
     let status = tokio::time::timeout(
         Duration::from_millis(250),
         host.router().oneshot(
-            Request::get("/independent/setup/status")
+            Request::get("/setup/owner/status")
                 .body(Body::empty())
                 .expect("status request"),
         ),
@@ -116,7 +116,7 @@ async fn gated_registrar_allows_status_and_cancel_and_rejects_late_completion() 
     let cancellation = tokio::time::timeout(
         Duration::from_millis(250),
         host.router().oneshot(
-            Request::post("/independent/setup/cancel")
+            Request::post("/setup/owner/cancel")
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Setup {code}"))
                 .body(Body::from(serde_json::to_vec(&intent).expect("operation")))
@@ -162,7 +162,7 @@ async fn gated_registrar_allows_status_and_cancel_and_rejects_late_completion() 
     let admission = host
         .router()
         .oneshot(
-            Request::post("/independent/setup/admission")
+            Request::post("/setup/owner/admission")
                 .header("Authorization", format!("Setup {code}"))
                 .body(Body::empty())
                 .expect("admission request"),

@@ -52,7 +52,7 @@ async fn independent_create_requires_owner_code_and_retains_exact_intent() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/independent/setup/create")
+                    .uri("/setup/owner/create")
                     .header("Content-Type", "application/json")
                     .header("Authorization", authorization)
                     .body(Body::from(payload.to_string()))
@@ -69,7 +69,7 @@ async fn independent_create_requires_owner_code_and_retains_exact_intent() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/independent/setup/intent")
+                .uri("/setup/owner/intent")
                 .header("Authorization", format!("Setup {code}"))
                 .body(Body::empty())
                 .expect("recovery"),
@@ -171,7 +171,7 @@ async fn delayed_forged_challenge_does_not_block_cancel_or_commit_after_cancel()
     let response = host
         .router()
         .oneshot(
-            Request::post("/independent/setup/create")
+            Request::post("/setup/owner/create")
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Setup {code}"))
                 .body(Body::from(serde_json::to_vec(&intent).expect("operation")))
@@ -210,7 +210,7 @@ async fn delayed_forged_challenge_does_not_block_cancel_or_commit_after_cancel()
     let forged = serde_json::json!({"operation":intent,"recipient":"device","registration":registration,"challenge":"a".repeat(64)});
     let callback = tokio::spawn(
         host.router().oneshot(
-            Request::post("/independent/setup/independent/challenge")
+            Request::post("/setup/owner/challenge")
                 .header("Content-Type", "application/json")
                 .body(Body::from(forged.to_string()))
                 .expect("forged callback"),
@@ -220,7 +220,7 @@ async fn delayed_forged_challenge_does_not_block_cancel_or_commit_after_cancel()
     let cancellation = tokio::time::timeout(
         Duration::from_millis(250),
         host.router().oneshot(
-            Request::post("/independent/setup/cancel")
+            Request::post("/setup/owner/cancel")
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Setup {code}"))
                 .body(Body::from(serde_json::to_vec(&intent).expect("operation")))
@@ -240,7 +240,7 @@ async fn delayed_forged_challenge_does_not_block_cancel_or_commit_after_cancel()
     let status = host
         .router()
         .oneshot(
-            Request::get("/independent/setup/status")
+            Request::get("/setup/owner/status")
                 .body(Body::empty())
                 .expect("status"),
         )
@@ -638,6 +638,111 @@ async fn configured_native_setup_origin_is_exact_and_does_not_grant_admission() 
             "http://unrelated.test",
         ] {
             assert!(crate::setup_origin(invalid).is_err(), "reject {invalid}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn owner_setup_surface_uses_the_owner_prefix_in_both_layouts() {
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode},
+    };
+    use tower::ServiceExt;
+
+    for owner in ["idp", "device", "storage"] {
+        for prefix in [String::new(), format!("/{owner}")] {
+            let root = tempfile::tempdir().expect("isolated owner");
+            let setup = IndependentSetupHost::prepare(
+                owner,
+                &root.path().join(owner),
+                "127.0.0.1:3000".parse().expect("loopback"),
+                "https://localhost:5173",
+                &prefix,
+                false,
+            )
+            .expect("prepare owner")
+            .expect("fresh owner");
+            let admission = fs::read_to_string(setup.admission_path()).expect("protected code");
+            let code = admission.lines().nth(1).expect("owner capability");
+            let (host, _commands) = setup
+                .into_create(tokio_util::sync::CancellationToken::new())
+                .expect("owner worker");
+            let response = host
+                .router()
+                .oneshot(
+                    Request::get(format!("{prefix}/setup/owner/status"))
+                        .body(Body::empty())
+                        .expect("owner status request"),
+                )
+                .await
+                .expect("owner status response");
+            assert_eq!(
+                response.status(),
+                StatusCode::OK,
+                "owner {owner}, prefix {prefix}"
+            );
+            let bytes = to_bytes(response.into_body(), 4096)
+                .await
+                .expect("bounded status");
+            let status: serde_json::Value =
+                serde_json::from_slice(&bytes).expect("status document");
+            assert_eq!(
+                status,
+                serde_json::json!({
+                    "stage": "installation", "state": "awaiting_choice", "ready": false, "owners": [owner],
+                })
+            );
+            for (authorization, expected) in [
+                ("Setup wrong".to_owned(), StatusCode::UNAUTHORIZED),
+                (format!("Setup {code}"), StatusCode::NO_CONTENT),
+            ] {
+                let response = host
+                    .router()
+                    .oneshot(
+                        Request::post(format!("{prefix}/setup/owner/admission"))
+                            .header("Authorization", authorization)
+                            .body(Body::empty())
+                            .expect("admission request"),
+                    )
+                    .await
+                    .expect("admission response");
+                assert_eq!(response.status(), expected);
+            }
+            host.control()
+                .publish_serving(axum::Router::new())
+                .await
+                .expect("ordinary owner router");
+            for (method, path) in [
+                ("GET", "/independent/setup/status"),
+                ("POST", "/independent/setup/admission"),
+                ("POST", "/independent/setup/create"),
+                ("POST", "/independent/setup/join"),
+                ("POST", "/independent/setup/intent"),
+                ("POST", "/independent/setup/cancel"),
+                ("GET", "/independent/setup/independent/public"),
+                ("POST", "/independent/setup/independent/challenge"),
+                ("POST", "/independent/setup/independent/register"),
+                ("POST", "/independent/setup/independent/history"),
+            ] {
+                let response = host
+                    .router()
+                    .oneshot(
+                        Request::builder()
+                            .method(method)
+                            .uri(format!("{prefix}{path}"))
+                            .header("Authorization", format!("Setup {code}"))
+                            .body(Body::empty())
+                            .expect("obsolete route request"),
+                    )
+                    .await
+                    .expect("obsolete route response");
+                assert_eq!(
+                    response.status(),
+                    StatusCode::NOT_FOUND,
+                    "obsolete route {prefix}{path}"
+                );
+            }
         }
     }
 }

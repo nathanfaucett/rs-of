@@ -69,7 +69,7 @@ it("sends one exact Create tuple with each owner's own header and a password onl
         ]),
     ).toEqual(
         owners.map((owner) => [
-            bases[owner] + "/independent/setup/create",
+            bases[owner] + "/setup/owner/create",
             "Setup " + codes[owner],
             {
                 ...create,
@@ -93,7 +93,7 @@ it("discovers ready independent IdP login facts only after all exact operations 
         const owner = owners.find((owner) =>
             url.startsWith(bases[owner] + "/"),
         )!;
-        return url.endsWith("/independent/setup/status")
+        return url.endsWith("/setup/owner/status")
             ? Response.json(status(owner, "ready"))
             : Response.json({
                   operation: create,
@@ -120,7 +120,7 @@ it("discovers ready independent IdP login facts only after all exact operations 
         const owner = owners.find((owner) =>
             url.startsWith(bases[owner] + "/"),
         )!;
-        return url.endsWith("/independent/setup/status")
+        return url.endsWith("/setup/owner/status")
             ? Response.json(status(owner, "ready"))
             : Response.json({
                   operation: {
@@ -335,7 +335,7 @@ it("cancels recovered exact tuples per owner with fresh codes and preserves part
         ]),
     ).toEqual(
         owners.map((owner) => [
-            bases[owner] + "/independent/setup/cancel",
+            bases[owner] + "/setup/owner/cancel",
             "Setup " + codes[owner],
             create,
         ]),
@@ -446,7 +446,7 @@ it("submits exact independent owner codes from a packaged native origin without 
     expect(posts).toHaveLength(3);
     for (const [index, [url, init]] of posts.entries()) {
         const owner = owners[index];
-        expect(url).toBe(bases[owner] + "/independent/setup/create");
+        expect(url).toBe(bases[owner] + "/setup/owner/create");
         expect(init.headers.Authorization).toBe("Setup " + codes[owner]);
         expect(JSON.parse(init.body).password).toBe(owner === "idp" ? "protected-password" : undefined);
     }

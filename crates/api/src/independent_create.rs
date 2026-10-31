@@ -200,7 +200,7 @@ impl IndependentCreateHost {
         let router = self.router();
         let tls = self.host.tls.clone();
         let address = self.host.local_addr();
-        let path = format!("{}/independent/setup/status", self.host.settings.prefix);
+        let path = format!("{}/setup/owner/status", self.host.settings.prefix);
         let admission = self.host.admission_path();
         let shutdown = self.control.0.shutdown.clone();
         crate::serve_setup(self, tls, address, router, path, admission, shutdown).await
@@ -430,13 +430,12 @@ impl IndependentCreateControl {
             response_limit: 65536,
             ..Default::default()
         };
-        let response = of_idp_client::apis::independent_setup_api::independent_setup_owner_public(
-            &configuration,
-        )
-        .await
-        .map_err(|_| {
-            io::Error::other("owner HTTPS discovery unavailable or operation not admitted")
-        })?;
+        let response =
+            of_idp_client::apis::owner_setup_api::owner_setup_owner_public(&configuration)
+                .await
+                .map_err(|_| {
+                    io::Error::other("owner HTTPS discovery unavailable or operation not admitted")
+                })?;
         let public: IndependentOwnerPublic =
             serde_json::from_value(serde_json::to_value(response)?)?;
         if public.operation != *intent
@@ -452,7 +451,7 @@ impl IndependentCreateControl {
     }
 }
 
-#[utoipa::path(post, tag = "default", path = "/independent/setup/admission", responses((status = 204, description = "This owner code is currently admitted"), (status = 401, description = "Code invalid or retired"), (status = 503, description = "Admission unavailable")), security(("setup_code" = [])))]
+#[utoipa::path(post, tag = "default", path = "/setup/owner/admission", responses((status = 204, description = "This owner code is currently admitted"), (status = 401, description = "Code invalid or retired"), (status = 503, description = "Admission unavailable")), security(("setup_code" = [])))]
 pub(crate) async fn admission(
     State(control): State<IndependentCreateControl>,
     headers: HeaderMap,
@@ -462,7 +461,7 @@ pub(crate) async fn admission(
         Err(error) => error.into_response(),
     }
 }
-#[utoipa::path(post, tag = "default", path = "/independent/setup/create", request_body = IndependentCreateRequest, responses((status = 202, description = "Exact Create accepted; empty body, not completion"), (status = 400, description = "Invalid tuple or password"), (status = 401, description = "Code invalid or retired"), (status = 409, description = "Conflicting retained operation"), (status = 503, description = "Owner unavailable")), security(("setup_code" = [])))]
+#[utoipa::path(post, tag = "default", path = "/setup/owner/create", request_body = IndependentCreateRequest, responses((status = 202, description = "Exact Create accepted; empty body, not completion"), (status = 400, description = "Invalid tuple or password"), (status = 401, description = "Code invalid or retired"), (status = 409, description = "Conflicting retained operation"), (status = 503, description = "Owner unavailable")), security(("setup_code" = [])))]
 pub(crate) async fn create(
     State(control): State<IndependentCreateControl>,
     headers: HeaderMap,
@@ -474,7 +473,7 @@ pub(crate) async fn create(
     accept(control, headers, request).await
 }
 
-#[utoipa::path(post, tag = "default", path = "/independent/setup/join", request_body = IndependentCreateRequest, responses((status = 202, description = "Exact Join accepted after authenticated discovery; empty body"), (status = 400, description = "Invalid tuple; Join forbids password and administrator"), (status = 401, description = "Code invalid or retired"), (status = 409, description = "Conflicting retained operation"), (status = 502, description = "Pinned peer discovery failed"), (status = 503, description = "Owner unavailable")), security(("setup_code" = [])))]
+#[utoipa::path(post, tag = "default", path = "/setup/owner/join", request_body = IndependentCreateRequest, responses((status = 202, description = "Exact Join accepted after authenticated discovery; empty body"), (status = 400, description = "Invalid tuple; Join forbids password and administrator"), (status = 401, description = "Code invalid or retired"), (status = 409, description = "Conflicting retained operation"), (status = 502, description = "Pinned peer discovery failed"), (status = 503, description = "Owner unavailable")), security(("setup_code" = [])))]
 pub(crate) async fn join(
     State(control): State<IndependentCreateControl>,
     headers: HeaderMap,
@@ -577,7 +576,7 @@ async fn accept(
     }
     StatusCode::ACCEPTED.into_response()
 }
-#[utoipa::path(post, tag = "default", path = "/independent/setup/intent", responses((status = 200, body = IndependentCreateIntent, description = "Exact retained nonsecret operation with authenticated issuer"), (status = 204, description = "No bound operation; empty body"), (status = 401, description = "Code invalid or retired"), (status = 503, description = "Admission unavailable")), security(("setup_code" = [])))]
+#[utoipa::path(post, tag = "default", path = "/setup/owner/intent", responses((status = 200, body = IndependentCreateIntent, description = "Exact retained nonsecret operation with authenticated issuer"), (status = 204, description = "No bound operation; empty body"), (status = 401, description = "Code invalid or retired"), (status = 503, description = "Admission unavailable")), security(("setup_code" = [])))]
 pub(crate) async fn recover(
     State(control): State<IndependentCreateControl>,
     headers: HeaderMap,
@@ -591,7 +590,7 @@ pub(crate) async fn recover(
         Err(error) => error.into_response(),
     }
 }
-#[utoipa::path(post, tag = "default", path = "/independent/setup/cancel", request_body = IndependentCreateIntent, responses((status = 204, description = "Cancellation signaled; not cleanup completion"), (status = 401, description = "Code invalid or retired"), (status = 409, description = "No matching active operation"), (status = 503, description = "Admission unavailable")), security(("setup_code" = [])))]
+#[utoipa::path(post, tag = "default", path = "/setup/owner/cancel", request_body = IndependentCreateIntent, responses((status = 204, description = "Cancellation signaled; not cleanup completion"), (status = 401, description = "Code invalid or retired"), (status = 409, description = "No matching active operation"), (status = 503, description = "Admission unavailable")), security(("setup_code" = [])))]
 pub(crate) async fn cancel(
     State(control): State<IndependentCreateControl>,
     headers: HeaderMap,
@@ -652,7 +651,7 @@ impl Drop for RequestObservation<'_> {
     }
 }
 
-#[utoipa::path(get, tag = "default", path = "/independent/setup/status", responses((status = 200, body = crate::independent_openapi::IndependentSetupStatus, description = "Owner-local state; no login Client or secret"), (status = 503, description = "Admission unavailable (empty body), or current owner readiness failed (nonsecret status with ready:false)")))]
+#[utoipa::path(get, tag = "default", path = "/setup/owner/status", responses((status = 200, body = crate::independent_openapi::OwnerSetupStatus, description = "Owner-local state; no login Client or secret"), (status = 503, description = "Admission unavailable (empty body), or current owner readiness failed (nonsecret status with ready:false)")))]
 pub(crate) async fn status(State(control): State<IndependentCreateControl>) -> Response {
     let _observation = RequestObservation::start(control.owner(), "readiness");
     if control.0.admission.health().is_err() {

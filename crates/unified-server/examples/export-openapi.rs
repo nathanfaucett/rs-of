@@ -19,12 +19,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         merge(document, api::owner_setup_openapi(), "owner_setup", None);
         merge(
             document,
-            api::independent_setup_openapi(),
-            "independent_setup",
-            None,
-        );
-        merge(
-            document,
             device_service::join_history::history_openapi(),
             "independent_join",
             None,

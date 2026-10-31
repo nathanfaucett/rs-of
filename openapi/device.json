@@ -475,32 +475,6 @@
         ],
         "type": "object"
       },
-      "IndependentSetupStatus": {
-        "properties": {
-          "owners": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "ready": {
-            "type": "boolean"
-          },
-          "stage": {
-            "type": "string"
-          },
-          "state": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "stage",
-          "state",
-          "ready",
-          "owners"
-        ],
-        "type": "object"
-      },
       "JwkPublic": {
         "allOf": [
           {
@@ -714,6 +688,32 @@
         ],
         "type": "object"
       },
+      "OwnerSetupStatus": {
+        "properties": {
+          "owners": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage",
+          "state",
+          "ready",
+          "owners"
+        ],
+        "type": "object"
+      },
       "PairingAcceptance": {
         "properties": {
           "accepting": {
@@ -871,32 +871,6 @@
           "kind",
           "id",
           "storageAccessToken"
-        ],
-        "type": "object"
-      },
-      "SetupStatus": {
-        "properties": {
-          "owners": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "ready": {
-            "type": "boolean"
-          },
-          "stage": {
-            "type": "string"
-          },
-          "state": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "stage",
-          "state",
-          "ready",
-          "owners"
         ],
         "type": "object"
       },
@@ -1903,341 +1877,6 @@
         ]
       }
     },
-    "/independent/setup/admission": {
-      "post": {
-        "operationId": "independent_setup_admission",
-        "responses": {
-          "204": {
-            "description": "This owner code is currently admitted"
-          },
-          "401": {
-            "description": "Code invalid or retired"
-          },
-          "503": {
-            "description": "Admission unavailable"
-          }
-        },
-        "security": [
-          {
-            "setup_code": []
-          }
-        ],
-        "tags": [
-          "independent_setup"
-        ]
-      }
-    },
-    "/independent/setup/cancel": {
-      "post": {
-        "operationId": "independent_setup_cancel",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/IndependentCreateIntent"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "204": {
-            "description": "Cancellation signaled; not cleanup completion"
-          },
-          "401": {
-            "description": "Code invalid or retired"
-          },
-          "409": {
-            "description": "No matching active operation"
-          },
-          "503": {
-            "description": "Admission unavailable"
-          }
-        },
-        "security": [
-          {
-            "setup_code": []
-          }
-        ],
-        "tags": [
-          "independent_setup"
-        ]
-      }
-    },
-    "/independent/setup/create": {
-      "post": {
-        "operationId": "independent_setup_create",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/IndependentCreateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "202": {
-            "description": "Exact Create accepted; empty body, not completion"
-          },
-          "400": {
-            "description": "Invalid tuple or password"
-          },
-          "401": {
-            "description": "Code invalid or retired"
-          },
-          "409": {
-            "description": "Conflicting retained operation"
-          },
-          "503": {
-            "description": "Owner unavailable"
-          }
-        },
-        "security": [
-          {
-            "setup_code": []
-          }
-        ],
-        "tags": [
-          "independent_setup"
-        ]
-      }
-    },
-    "/independent/setup/independent/challenge": {
-      "post": {
-        "description": "Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.",
-        "operationId": "independent_setup_challenge",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/Challenge"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "204": {
-            "description": "Exact handoff accepted"
-          },
-          "400": {
-            "description": "Invalid registration"
-          },
-          "403": {
-            "description": "Operation or challenge denied"
-          },
-          "409": {
-            "description": "Owner not ready"
-          },
-          "503": {
-            "description": "Owner unavailable"
-          }
-        },
-        "security": [
-          {}
-        ],
-        "tags": [
-          "independent_setup"
-        ]
-      }
-    },
-    "/independent/setup/independent/history": {
-      "post": {
-        "description": "Worker-only return channel: active exact admitted Join, matching approval and constant-time return nonce, and a 64-character capability are required. Not OAuth authority.",
-        "operationId": "independent_setup_history",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "202": {
-            "description": "History capability accepted"
-          },
-          "403": {
-            "description": "Operation or return nonce denied"
-          },
-          "409": {
-            "description": "Return channel full"
-          }
-        },
-        "security": [
-          {}
-        ],
-        "tags": [
-          "independent_setup"
-        ]
-      }
-    },
-    "/independent/setup/independent/public": {
-      "get": {
-        "operationId": "independent_setup_owner_public",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IndependentOwnerPublic"
-                }
-              }
-            },
-            "description": "Operation-bound public owner metadata, not setup authorization"
-          },
-          "409": {
-            "description": "Public owner metadata not yet available"
-          }
-        },
-        "tags": [
-          "independent_setup"
-        ]
-      }
-    },
-    "/independent/setup/independent/register": {
-      "post": {
-        "description": "Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.",
-        "operationId": "independent_setup_register",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/Registration"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "204": {
-            "description": "Exact handoff accepted"
-          },
-          "400": {
-            "description": "Invalid registration"
-          },
-          "403": {
-            "description": "Operation or challenge denied"
-          },
-          "409": {
-            "description": "Owner not ready"
-          },
-          "503": {
-            "description": "Owner unavailable"
-          }
-        },
-        "security": [
-          {}
-        ],
-        "tags": [
-          "independent_setup"
-        ]
-      }
-    },
-    "/independent/setup/intent": {
-      "post": {
-        "operationId": "independent_setup_recover",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IndependentCreateIntent"
-                }
-              }
-            },
-            "description": "Exact retained nonsecret operation with authenticated issuer"
-          },
-          "204": {
-            "description": "No bound operation; empty body"
-          },
-          "401": {
-            "description": "Code invalid or retired"
-          },
-          "503": {
-            "description": "Admission unavailable"
-          }
-        },
-        "security": [
-          {
-            "setup_code": []
-          }
-        ],
-        "tags": [
-          "independent_setup"
-        ]
-      }
-    },
-    "/independent/setup/join": {
-      "post": {
-        "operationId": "independent_setup_join",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/IndependentCreateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "202": {
-            "description": "Exact Join accepted after authenticated discovery; empty body"
-          },
-          "400": {
-            "description": "Invalid tuple; Join forbids password and administrator"
-          },
-          "401": {
-            "description": "Code invalid or retired"
-          },
-          "409": {
-            "description": "Conflicting retained operation"
-          },
-          "502": {
-            "description": "Pinned peer discovery failed"
-          },
-          "503": {
-            "description": "Owner unavailable"
-          }
-        },
-        "security": [
-          {
-            "setup_code": []
-          }
-        ],
-        "tags": [
-          "independent_setup"
-        ]
-      }
-    },
-    "/independent/setup/status": {
-      "get": {
-        "operationId": "independent_setup_status",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IndependentSetupStatus"
-                }
-              }
-            },
-            "description": "Owner-local state; no login Client or secret"
-          },
-          "503": {
-            "description": "Admission unavailable (empty body), or current owner readiness failed (nonsecret status with ready:false)"
-          }
-        },
-        "tags": [
-          "independent_setup"
-        ]
-      }
-    },
     "/node-joins/acceptance": {
       "get": {
         "operationId": "node_join_acceptance",
@@ -2593,19 +2232,307 @@
         "operationId": "owner_setup_admission",
         "responses": {
           "204": {
-            "description": "Owner-local Setup admission accepted"
+            "description": "This owner code is currently admitted"
           },
           "401": {
-            "description": "Setup code required"
+            "description": "Code invalid or retired"
           },
-          "403": {
-            "description": "Denied"
+          "503": {
+            "description": "Admission unavailable"
           }
         },
         "security": [
           {
             "setup_code": []
           }
+        ],
+        "tags": [
+          "owner_setup"
+        ]
+      }
+    },
+    "/setup/owner/cancel": {
+      "post": {
+        "operationId": "owner_setup_cancel",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IndependentCreateIntent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Cancellation signaled; not cleanup completion"
+          },
+          "401": {
+            "description": "Code invalid or retired"
+          },
+          "409": {
+            "description": "No matching active operation"
+          },
+          "503": {
+            "description": "Admission unavailable"
+          }
+        },
+        "security": [
+          {
+            "setup_code": []
+          }
+        ],
+        "tags": [
+          "owner_setup"
+        ]
+      }
+    },
+    "/setup/owner/challenge": {
+      "post": {
+        "description": "Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.",
+        "operationId": "owner_setup_challenge",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Challenge"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Exact handoff accepted"
+          },
+          "400": {
+            "description": "Invalid registration"
+          },
+          "403": {
+            "description": "Operation or challenge denied"
+          },
+          "409": {
+            "description": "Owner not ready"
+          },
+          "503": {
+            "description": "Owner unavailable"
+          }
+        },
+        "security": [
+          {}
+        ],
+        "tags": [
+          "owner_setup"
+        ]
+      }
+    },
+    "/setup/owner/create": {
+      "post": {
+        "operationId": "owner_setup_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IndependentCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Exact Create accepted; empty body, not completion"
+          },
+          "400": {
+            "description": "Invalid tuple or password"
+          },
+          "401": {
+            "description": "Code invalid or retired"
+          },
+          "409": {
+            "description": "Conflicting retained operation"
+          },
+          "503": {
+            "description": "Owner unavailable"
+          }
+        },
+        "security": [
+          {
+            "setup_code": []
+          }
+        ],
+        "tags": [
+          "owner_setup"
+        ]
+      }
+    },
+    "/setup/owner/history": {
+      "post": {
+        "description": "Worker-only return channel: active exact admitted Join, matching approval and constant-time return nonce, and a 64-character capability are required. Not OAuth authority.",
+        "operationId": "owner_setup_history",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "History capability accepted"
+          },
+          "403": {
+            "description": "Operation or return nonce denied"
+          },
+          "409": {
+            "description": "Return channel full"
+          }
+        },
+        "security": [
+          {}
+        ],
+        "tags": [
+          "owner_setup"
+        ]
+      }
+    },
+    "/setup/owner/intent": {
+      "post": {
+        "operationId": "owner_setup_recover",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndependentCreateIntent"
+                }
+              }
+            },
+            "description": "Exact retained nonsecret operation with authenticated issuer"
+          },
+          "204": {
+            "description": "No bound operation; empty body"
+          },
+          "401": {
+            "description": "Code invalid or retired"
+          },
+          "503": {
+            "description": "Admission unavailable"
+          }
+        },
+        "security": [
+          {
+            "setup_code": []
+          }
+        ],
+        "tags": [
+          "owner_setup"
+        ]
+      }
+    },
+    "/setup/owner/join": {
+      "post": {
+        "operationId": "owner_setup_join",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IndependentCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Exact Join accepted after authenticated discovery; empty body"
+          },
+          "400": {
+            "description": "Invalid tuple; Join forbids password and administrator"
+          },
+          "401": {
+            "description": "Code invalid or retired"
+          },
+          "409": {
+            "description": "Conflicting retained operation"
+          },
+          "502": {
+            "description": "Pinned peer discovery failed"
+          },
+          "503": {
+            "description": "Owner unavailable"
+          }
+        },
+        "security": [
+          {
+            "setup_code": []
+          }
+        ],
+        "tags": [
+          "owner_setup"
+        ]
+      }
+    },
+    "/setup/owner/public": {
+      "get": {
+        "operationId": "owner_setup_owner_public",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndependentOwnerPublic"
+                }
+              }
+            },
+            "description": "Operation-bound public owner metadata, not setup authorization"
+          },
+          "409": {
+            "description": "Public owner metadata not yet available"
+          }
+        },
+        "tags": [
+          "owner_setup"
+        ]
+      }
+    },
+    "/setup/owner/register": {
+      "post": {
+        "description": "Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.",
+        "operationId": "owner_setup_register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Registration"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Exact handoff accepted"
+          },
+          "400": {
+            "description": "Invalid registration"
+          },
+          "403": {
+            "description": "Operation or challenge denied"
+          },
+          "409": {
+            "description": "Owner not ready"
+          },
+          "503": {
+            "description": "Owner unavailable"
+          }
+        },
+        "security": [
+          {}
         ],
         "tags": [
           "owner_setup"
@@ -2620,21 +2547,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SetupStatus"
+                  "$ref": "#/components/schemas/OwnerSetupStatus"
                 }
               }
             },
-            "description": "Awaiting owner setup"
+            "description": "Owner-local state; no login Client or secret"
           },
           "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SetupStatus"
-                }
-              }
-            },
-            "description": "Owner state unavailable"
+            "description": "Admission unavailable (empty body), or current owner readiness failed (nonsecret status with ready:false)"
           }
         },
         "tags": [

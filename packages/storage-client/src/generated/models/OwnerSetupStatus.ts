@@ -1,8 +1,8 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
- * LIDP Device API
- * Device API server for LIDP
+ * Storage Server
+ * Local first storage server
  *
  * The version of the OpenAPI document: 0.1.0
  *
@@ -16,9 +16,9 @@ import { mapValues } from "../runtime.js";
 /**
  *
  * @export
- * @interface SetupStatus
+ * @interface OwnerSetupStatus
  */
-export interface SetupStatus {
+export interface OwnerSetupStatus {
     /**
      *
      */
@@ -38,9 +38,11 @@ export interface SetupStatus {
 }
 
 /**
- * Check if a given object implements the SetupStatus interface.
+ * Check if a given object implements the OwnerSetupStatus interface.
  */
-export function instanceOfSetupStatus(value: object): value is SetupStatus {
+export function instanceOfOwnerSetupStatus(
+    value: object,
+): value is OwnerSetupStatus {
     if (!("owners" in value) || value["owners"] === undefined) return false;
     if (!("ready" in value) || value["ready"] === undefined) return false;
     if (!("stage" in value) || value["stage"] === undefined) return false;
@@ -48,14 +50,14 @@ export function instanceOfSetupStatus(value: object): value is SetupStatus {
     return true;
 }
 
-export function SetupStatusFromJSON(json: any): SetupStatus {
-    return SetupStatusFromJSONTyped(json, false);
+export function OwnerSetupStatusFromJSON(json: any): OwnerSetupStatus {
+    return OwnerSetupStatusFromJSONTyped(json, false);
 }
 
-export function SetupStatusFromJSONTyped(
+export function OwnerSetupStatusFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
-): SetupStatus {
+): OwnerSetupStatus {
     if (json == null) {
         return json;
     }
@@ -67,12 +69,12 @@ export function SetupStatusFromJSONTyped(
     };
 }
 
-export function SetupStatusToJSON(json: any): SetupStatus {
-    return SetupStatusToJSONTyped(json, false);
+export function OwnerSetupStatusToJSON(json: any): OwnerSetupStatus {
+    return OwnerSetupStatusToJSONTyped(json, false);
 }
 
-export function SetupStatusToJSONTyped(
-    value?: SetupStatus | null,
+export function OwnerSetupStatusToJSONTyped(
+    value?: OwnerSetupStatus | null,
     ignoreDiscriminator: boolean = false,
 ): any {
     if (value == null) {

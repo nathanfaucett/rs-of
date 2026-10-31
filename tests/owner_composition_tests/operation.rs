@@ -116,7 +116,7 @@ async fn operation_child() {
         }
         assert_eq!(
             http.post(format!(
-                "{}/independent/setup/create",
+                "{}/setup/owner/create",
                 intent.base(owner).expect("base")
             ))
             .header(
@@ -503,7 +503,7 @@ async fn delayed_authority_reopen(
     .await
     .expect("completed router restored before authority responds");
     let status = http
-        .get(format!("{}/independent/setup/status", intent.storage))
+        .get(format!("{}/setup/owner/status", intent.storage))
         .timeout(Duration::from_secs(1))
         .send()
         .await;

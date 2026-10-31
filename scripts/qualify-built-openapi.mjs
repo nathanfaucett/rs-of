@@ -98,9 +98,9 @@ for (const owner of ["idp", "management", "device", "storage"]) {
             );
         }
     } else {
-        assert.ok(sdk.IndependentSetupApi);
-        assert.ok(sdk.IndependentJoinApi);
         assert.ok(sdk.OwnerSetupApi);
+        assert.ok(sdk.IndependentJoinApi);
+        assert.equal(sdk.IndependentSetupApi, undefined);
         if (owner === "device") {
             assert.ok(sdk.NodeJoinApi);
         }
@@ -112,12 +112,12 @@ const owner = await import(
         "@aicacia/idp-client",
     )
 );
-const setup = new owner.IndependentSetupApi(
+const setup = new owner.OwnerSetupApi(
     new owner.Configuration({ basePath: independentBase }),
 );
-assert.equal((await setup.independentSetupStatus()).ready, false);
+assert.equal((await setup.ownerSetupStatus()).ready, false);
 await assert.rejects(
-    setup.independentSetupRecover(),
+    setup.ownerSetupRecover(),
     (error) => error.response.status === 401,
 );
 const operation = {
@@ -139,7 +139,7 @@ assert.equal(
 );
 assert.ok(!Object.hasOwn(wireIntent, "management"));
 await assert.rejects(
-    setup.independentSetupChallenge({
+    setup.ownerSetupChallenge({
         challenge: {
             challenge: "a".repeat(64),
             recipient: "device",

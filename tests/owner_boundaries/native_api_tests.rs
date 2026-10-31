@@ -513,13 +513,13 @@ async fn generated_rust_and_built_javascript_use_actual_owner_routes() {
         ..Default::default()
     };
     assert!(
-        !of_idp_client::apis::independent_setup_api::independent_setup_status(&setup_config)
+        !of_idp_client::apis::owner_setup_api::owner_setup_status(&setup_config)
             .await
             .expect("actual independent status")
             .ready
     );
     assert!(
-        of_idp_client::apis::independent_setup_api::independent_setup_recover(&setup_config)
+        of_idp_client::apis::owner_setup_api::owner_setup_recover(&setup_config)
             .await
             .is_err(),
         "discovery does not grant Setup admission"
@@ -531,11 +531,9 @@ async fn generated_rust_and_built_javascript_use_actual_owner_routes() {
         registration: Some(serde_json::json!({"client_id":"unregistered"})),
     };
     assert!(
-        of_idp_client::apis::independent_setup_api::independent_setup_challenge(
+        of_idp_client::apis::owner_setup_api::owner_setup_challenge(
             &setup_config,
-            of_idp_client::apis::independent_setup_api::IndependentSetupChallengeParams {
-                challenge
-            }
+            of_idp_client::apis::owner_setup_api::OwnerSetupChallengeParams { challenge }
         )
         .await
         .is_err(),

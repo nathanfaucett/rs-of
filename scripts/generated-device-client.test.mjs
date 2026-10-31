@@ -27,17 +27,17 @@ const fields = [
 ];
 const options = { credentials: "omit", redirect: "error", cache: "no-store" };
 
-test("current composed Device schema has 50 operations and the exact service cleanup contract", () => {
+test("current composed Device schema has 48 operations and the exact service cleanup contract", () => {
     const document = JSON.parse(
         readFileSync(new URL("../openapi/device.json", import.meta.url)),
     );
     const operations = Object.values(document.paths).flatMap((item) =>
         Object.values(item).filter((operation) => operation?.operationId),
     );
-    assert.equal(operations.length, 50);
+    assert.equal(operations.length, 48);
     assert.equal(
         new Set(operations.map((operation) => operation.operationId)).size,
-        50,
+        48,
     );
     assert.equal(document.servers[0].url, "https://localhost/device");
     assert.ok(

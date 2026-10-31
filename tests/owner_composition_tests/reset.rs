@@ -61,7 +61,7 @@ pub(super) async fn qualify_interrupted(root: &Path, address: SocketAddr, provid
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {
         if http
-            .get(format!("{base}/independent/setup/status"))
+            .get(format!("{base}/setup/owner/status"))
             .send()
             .await
             .is_ok()
@@ -87,7 +87,7 @@ pub(super) async fn qualify_interrupted(root: &Path, address: SocketAddr, provid
     };
     provider.unavailable.store(true, Ordering::SeqCst);
     let response = http
-        .post(format!("{base}/independent/setup/create"))
+        .post(format!("{base}/setup/owner/create"))
         .header(
             "Authorization",
             format!("Setup {}", setup_code(&interrupted, "storage")),

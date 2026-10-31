@@ -142,7 +142,7 @@ it.each(["create", "join"] as const)(
     );
     for (let index = 0; index < requests.length; index++) {
       const [url, init] = requests[index];
-      expect(url).toBe(bases[owners[index]] + "/independent/setup/" + purpose);
+      expect(url).toBe(bases[owners[index]] + "/setup/owner/" + purpose);
       expect((init.headers as Record<string, string>).Authorization).toBe(
         "Setup " + String.fromCharCode(97 + index).repeat(64),
       );

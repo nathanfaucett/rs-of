@@ -450,7 +450,7 @@ it("discovers three configured web owners and verifies only the selected host's 
         const index = bases.findIndex(
             (base) =>
                 url ===
-                `${base}${base.endsWith("/idp") ? "" : "/independent"}/setup/status`,
+                `${base}${base.endsWith("/idp") ? "/setup/status" : "/setup/owner/status"}`,
         );
         return Response.json({
             stage: "installation",
@@ -471,7 +471,7 @@ it("discovers three configured web owners and verifies only the selected host's 
     );
     expect(posts).toEqual([
         [
-            "https://policy.test/api/independent/setup/admission",
+            "https://policy.test/api/setup/owner/admission",
             {
                 method: "POST",
                 headers: { Authorization: `Setup ${"b".repeat(64)}` },
@@ -481,7 +481,7 @@ it("discovers three configured web owners and verifies only the selected host's 
             },
         ],
         [
-            "https://data.test/api/independent/setup/admission",
+            "https://data.test/api/setup/owner/admission",
             {
                 method: "POST",
                 headers: { Authorization: `Setup ${"c".repeat(64)}` },

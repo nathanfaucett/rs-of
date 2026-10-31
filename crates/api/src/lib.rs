@@ -16,7 +16,7 @@ mod independent_openapi;
 #[cfg(unix)]
 mod independent_operation;
 #[cfg(unix)]
-pub use independent_openapi::independent_setup_openapi;
+pub use independent_openapi::owner_setup_openapi;
 #[cfg(unix)]
 mod independent_peer;
 #[cfg(unix)]
@@ -72,6 +72,3 @@ pub use serve::{serve, serve_listener};
 pub use setup_admission::{
     SetupAdmission, SetupAdmissionError, SetupAdmissionHistory, setup_admission_middleware,
 };
-
-#[cfg(unix)]
-pub use setup_routes::owner_setup_openapi;

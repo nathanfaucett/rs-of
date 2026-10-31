@@ -53,7 +53,7 @@ beforeEach(() => {
         throw new Error(`Unexpected URL: ${url}`);
     });
     vi.stubGlobal("fetch", (url: string, init: RequestInit) => {
-        if (host.sourceTopology && url.endsWith("/setup/status"))
+        if (host.sourceTopology && (url.endsWith("/setup/status") || url.endsWith("/setup/owner/status")))
             return Response.json({
                 stage: "installation",
                 state: "awaiting_choice",
@@ -763,7 +763,7 @@ it.each(["idp", "device"] as const)(
     async (owner) => {
         host.desktop = false;
         fetchApi.mockImplementation(async (url: string) =>
-            url.endsWith("/setup/status")
+            (url.endsWith("/setup/status") || url.endsWith("/setup/owner/status"))
                 ? Response.json({
                       stage: "installation",
                       state: "awaiting_choice",
@@ -780,7 +780,7 @@ it.each(["idp", "device"] as const)(
             true,
         );
         expect(fetchApi.mock.calls.at(-1)?.[0]).toBe(
-            `https://node.test/${owner}${owner === "idp" ? "" : "/independent"}/setup/status`,
+            `https://node.test/${owner}${owner === "idp" ? "/setup/status" : "/setup/owner/status"}`,
         );
         expect(host.invoke).not.toHaveBeenCalled();
     },

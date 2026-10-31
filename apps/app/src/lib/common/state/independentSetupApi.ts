@@ -1,6 +1,6 @@
 import {
     Configuration,
-    IndependentSetupApi as DefaultApi,
+    OwnerSetupApi as DefaultApi,
     ResponseError,
     IndependentCreateIntentToJSON,
     IndependentOwnerPublicToJSON,
@@ -191,8 +191,8 @@ export async function submitIndependentSetup(
     };
     const response =
         intent.purpose === "create"
-            ? await api.independentSetupCreateRaw(parameters, requestInit)
-            : await api.independentSetupJoinRaw(parameters, requestInit);
+            ? await api.ownerSetupCreateRaw(parameters, requestInit)
+            : await api.ownerSetupJoinRaw(parameters, requestInit);
     if (response.raw.status !== 202)
         throw new Error(
             `Independent setup rejected (${response.raw.status}); observe all owners`,
@@ -205,7 +205,7 @@ export async function recoverIndependentIntent(
     const response = await independentClient(
         base,
         code,
-    ).independentSetupRecoverRaw(requestInit);
+    ).ownerSetupRecoverRaw(requestInit);
     if (response.raw.status === 204) return null;
     if (response.raw.status !== 200)
         throw new Error(
@@ -227,7 +227,7 @@ export async function cancelIndependentSetup(
     const response = await independentClient(
         base,
         code,
-    ).independentSetupCancelRaw(
+    ).ownerSetupCancelRaw(
         {
             independentCreateIntent: {
                 ...intent,
@@ -249,7 +249,7 @@ export async function fetchIndependentPublic(
     let response;
     try {
         response =
-            await independentClient(base).independentSetupOwnerPublicRaw(
+            await independentClient(base).ownerSetupOwnerPublicRaw(
                 requestInit,
             );
     } catch (error) {

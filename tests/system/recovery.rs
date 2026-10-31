@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use of_idp_client::{
     apis::{
-        configuration::Configuration, default_api as idp, independent_setup_api as independent,
+        configuration::Configuration, default_api as idp, owner_setup_api as independent,
         setup_api as setup,
     },
     models,
@@ -109,9 +109,9 @@ impl JoinAdmission {
             }
             Self::Independent(configs, request) => {
                 for config in configs {
-                    independent::independent_setup_join(
+                    independent::owner_setup_join(
                         config,
-                        independent::IndependentSetupJoinParams {
+                        independent::OwnerSetupJoinParams {
                             independent_create_request: request.clone(),
                         },
                     )
@@ -137,7 +137,7 @@ impl JoinAdmission {
                 for config in configs {
                     intents.push(
                         serde_json::to_value(
-                            independent::independent_setup_recover(config)
+                            independent::owner_setup_recover(config)
                                 .await
                                 .unwrap_or_else(|_| panic!("protected owner Join intent")),
                         )
@@ -175,14 +175,14 @@ impl JoinAdmission {
             }
             Self::Independent(configs, _) => {
                 for config in configs {
-                    let status = independent::independent_setup_status(config)
+                    let status = independent::owner_setup_status(config)
                         .await
                         .expect("worker before cancellation");
                     assert!(!status.ready);
                     if status.state == "unfinished" {
                         continue;
                     }
-                    let intent = independent::independent_setup_recover(config)
+                    let intent = independent::owner_setup_recover(config)
                         .await
                         .unwrap_or_else(|_| panic!("exact owner cancellation intent"));
                     let anonymous = Configuration {
@@ -190,13 +190,13 @@ impl JoinAdmission {
                         ..config.clone()
                     };
                     assert!(
-                        matches!(independent::independent_setup_cancel(&anonymous, independent::IndependentSetupCancelParams { independent_create_intent:intent.clone() }).await,
+                        matches!(independent::owner_setup_cancel(&anonymous, independent::OwnerSetupCancelParams { independent_create_intent:intent.clone() }).await,
                         Err(of_idp_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 401),
                         "cancellation needs this worker capability"
                     );
-                    independent::independent_setup_cancel(
+                    independent::owner_setup_cancel(
                         config,
-                        independent::IndependentSetupCancelParams {
+                        independent::OwnerSetupCancelParams {
                             independent_create_intent: intent,
                         },
                     )
@@ -243,7 +243,7 @@ impl JoinAdmission {
                 Self::Independent(configs, _) => {
                     let mut states = Vec::new();
                     for config in configs {
-                        if let Ok(s) = independent::independent_setup_status(config).await {
+                        if let Ok(s) = independent::owner_setup_status(config).await {
                             states.push((s.ready, s.state, s.stage));
                         }
                     }

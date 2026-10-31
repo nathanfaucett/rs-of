@@ -1,8 +1,8 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
- * Storage Server
- * Local first storage server
+ * OAuth Server
+ * OIDC / OAuth 2.x server implementation
  *
  * The version of the OpenAPI document: 0.1.0
  *
@@ -16,9 +16,9 @@ import { mapValues } from "../runtime.js";
 /**
  *
  * @export
- * @interface IndependentSetupStatus
+ * @interface OwnerSetupStatus
  */
-export interface IndependentSetupStatus {
+export interface OwnerSetupStatus {
     /**
      *
      */
@@ -38,11 +38,11 @@ export interface IndependentSetupStatus {
 }
 
 /**
- * Check if a given object implements the IndependentSetupStatus interface.
+ * Check if a given object implements the OwnerSetupStatus interface.
  */
-export function instanceOfIndependentSetupStatus(
+export function instanceOfOwnerSetupStatus(
     value: object,
-): value is IndependentSetupStatus {
+): value is OwnerSetupStatus {
     if (!("owners" in value) || value["owners"] === undefined) return false;
     if (!("ready" in value) || value["ready"] === undefined) return false;
     if (!("stage" in value) || value["stage"] === undefined) return false;
@@ -50,16 +50,14 @@ export function instanceOfIndependentSetupStatus(
     return true;
 }
 
-export function IndependentSetupStatusFromJSON(
-    json: any,
-): IndependentSetupStatus {
-    return IndependentSetupStatusFromJSONTyped(json, false);
+export function OwnerSetupStatusFromJSON(json: any): OwnerSetupStatus {
+    return OwnerSetupStatusFromJSONTyped(json, false);
 }
 
-export function IndependentSetupStatusFromJSONTyped(
+export function OwnerSetupStatusFromJSONTyped(
     json: any,
     ignoreDiscriminator: boolean,
-): IndependentSetupStatus {
+): OwnerSetupStatus {
     if (json == null) {
         return json;
     }
@@ -71,14 +69,12 @@ export function IndependentSetupStatusFromJSONTyped(
     };
 }
 
-export function IndependentSetupStatusToJSON(
-    json: any,
-): IndependentSetupStatus {
-    return IndependentSetupStatusToJSONTyped(json, false);
+export function OwnerSetupStatusToJSON(json: any): OwnerSetupStatus {
+    return OwnerSetupStatusToJSONTyped(json, false);
 }
 
-export function IndependentSetupStatusToJSONTyped(
-    value?: IndependentSetupStatus | null,
+export function OwnerSetupStatusToJSONTyped(
+    value?: OwnerSetupStatus | null,
     ignoreDiscriminator: boolean = false,
 ): any {
     if (value == null) {

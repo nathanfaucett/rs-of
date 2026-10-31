@@ -153,7 +153,7 @@ async fn cancellation_interrupts_pending_https_verification_before_owner_reopen(
         });
         let release = Release(gate.clone());
         let router = axum::Router::new().route(
-            "/independent/setup/status",
+            "/setup/owner/status",
             axum::routing::options(move || {
                 let gate = gate.clone();
                 async move {
@@ -169,7 +169,7 @@ async fn cancellation_interrupts_pending_https_verification_before_owner_reopen(
             tls,
             address,
             router,
-            "/independent/setup/status".into(),
+            "/setup/owner/status".into(),
             admission_path,
             shutdown.clone(),
             client,
@@ -242,7 +242,7 @@ async fn independent_shutdown_joins_actual_connection_teardown_before_reopen() {
         let client = reqwest::Client::builder().http1_only().build().expect("HTTP client");
         let response = tokio::select! {
             result = &mut serving => panic!("listener ended before request: {result:?}"),
-            response = client.get(format!("http://{address}/independent/setup/status")).send() => response.expect("real owner route"),
+            response = client.get(format!("http://{address}/setup/owner/status")).send() => response.expect("real owner route"),
         };
         assert_eq!(response.status(), reqwest::StatusCode::OK);
         response.bytes().await.expect("consume response, retaining keep-alive connection");

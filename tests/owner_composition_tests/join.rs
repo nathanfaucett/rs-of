@@ -657,7 +657,7 @@ async fn independent_join_child() {
         let base = intent.base(owner).expect("owner");
         let code = setup_code(&target, owner);
         assert_eq!(
-            http.post(format!("{base}/independent/setup/join"))
+            http.post(format!("{base}/setup/owner/join"))
                 .json(&intent)
                 .send()
                 .await
@@ -666,7 +666,7 @@ async fn independent_join_child() {
             StatusCode::UNAUTHORIZED
         );
         assert_eq!(
-            http.post(format!("{base}/independent/setup/join"))
+            http.post(format!("{base}/setup/owner/join"))
                 .header("Authorization", format!("Setup {code}"))
                 .json(&intent)
                 .send()
@@ -730,7 +730,7 @@ async fn independent_join_child() {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
         let status: serde_json::Value = http
-            .get(format!("{}/independent/setup/status", intent.device))
+            .get(format!("{}/setup/owner/status", intent.device))
             .send()
             .await
             .expect("rejection observation")
@@ -750,7 +750,7 @@ async fn independent_join_child() {
         let base = intent.base(owner).expect("owner");
         let code = setup_code(&target, owner);
         let recovered: serde_json::Value = http
-            .post(format!("{base}/independent/setup/intent"))
+            .post(format!("{base}/setup/owner/intent"))
             .header("Authorization", format!("Setup {code}"))
             .send()
             .await
@@ -763,7 +763,7 @@ async fn independent_join_child() {
             serde_json::to_value(&intent).expect("exact admitted discovery")
         );
         assert_eq!(
-            http.post(format!("{base}/independent/setup/cancel"))
+            http.post(format!("{base}/setup/owner/cancel"))
                 .header("Authorization", format!("Setup {code}"))
                 .json(&intent)
                 .send()
@@ -793,7 +793,7 @@ async fn independent_join_child() {
         let mut conflicting = intent.clone();
         conflicting.node = "Competing name".into();
         assert_eq!(
-            http.post(format!("{base}/independent/setup/join"))
+            http.post(format!("{base}/setup/owner/join"))
                 .header("Authorization", format!("Setup {code}"))
                 .json(&conflicting)
                 .send()
@@ -803,7 +803,7 @@ async fn independent_join_child() {
             StatusCode::CONFLICT
         );
         assert_eq!(
-            http.post(format!("{base}/independent/setup/join"))
+            http.post(format!("{base}/setup/owner/join"))
                 .header("Authorization", format!("Setup {code}"))
                 .json(&intent)
                 .send()
@@ -863,7 +863,7 @@ async fn independent_join_child() {
     for owner in ["idp", "device", "storage"] {
         let base = intent.base(owner).expect("owner");
         let body = http
-            .get(format!("{base}/independent/setup/status"))
+            .get(format!("{base}/setup/owner/status"))
             .send()
             .await
             .expect("public status")
@@ -907,7 +907,7 @@ async fn independent_join_child() {
     let servers = start(&target, &addresses[3..], &shutdown).await;
     wait_public(&http, &intent.idp).await;
     let status: serde_json::Value = http
-        .get(format!("{}/independent/setup/status", intent.idp))
+        .get(format!("{}/setup/owner/status", intent.idp))
         .send()
         .await
         .expect("unfinished offline Join")
@@ -916,7 +916,7 @@ async fn independent_join_child() {
         .expect("status");
     assert_eq!(status["ready"], false);
     let recovered: serde_json::Value = http
-        .post(format!("{}/independent/setup/intent", intent.idp))
+        .post(format!("{}/setup/owner/intent", intent.idp))
         .header("Authorization", format!("Setup {idp_code}"))
         .send()
         .await
@@ -929,7 +929,7 @@ async fn independent_join_child() {
         serde_json::to_value(&intent).expect("exact source issuer and peer")
     );
     assert_eq!(
-        http.post(format!("{}/independent/setup/join", intent.idp))
+        http.post(format!("{}/setup/owner/join", intent.idp))
             .header("Authorization", format!("Setup {idp_code}"))
             .json(&intent)
             .send()

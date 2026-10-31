@@ -14,10 +14,77 @@
 
 import * as runtime from "../runtime.js";
 import {
-    type SetupStatus,
-    SetupStatusFromJSON,
-    SetupStatusToJSON,
-} from "../models/SetupStatus.js";
+    type Challenge,
+    ChallengeFromJSON,
+    ChallengeToJSON,
+} from "../models/Challenge.js";
+import {
+    type IndependentCreateIntent,
+    IndependentCreateIntentFromJSON,
+    IndependentCreateIntentToJSON,
+} from "../models/IndependentCreateIntent.js";
+import {
+    type IndependentCreateRequest,
+    IndependentCreateRequestFromJSON,
+    IndependentCreateRequestToJSON,
+} from "../models/IndependentCreateRequest.js";
+import {
+    type IndependentOwnerPublic,
+    IndependentOwnerPublicFromJSON,
+    IndependentOwnerPublicToJSON,
+} from "../models/IndependentOwnerPublic.js";
+import {
+    type OwnerSetupStatus,
+    OwnerSetupStatusFromJSON,
+    OwnerSetupStatusToJSON,
+} from "../models/OwnerSetupStatus.js";
+import {
+    type Registration,
+    RegistrationFromJSON,
+    RegistrationToJSON,
+} from "../models/Registration.js";
+
+export interface OwnerSetupCancelRequest {
+    /**
+     *
+     */
+    independentCreateIntent: IndependentCreateIntent;
+}
+
+export interface OwnerSetupChallengeRequest {
+    /**
+     *
+     */
+    challenge: Challenge;
+}
+
+export interface OwnerSetupCreateRequest {
+    /**
+     *
+     */
+    independentCreateRequest: IndependentCreateRequest;
+}
+
+export interface OwnerSetupHistoryRequest {
+    /**
+     *
+     */
+    body: object;
+}
+
+export interface OwnerSetupJoinRequest {
+    /**
+     *
+     */
+    independentCreateRequest: IndependentCreateRequest;
+}
+
+export interface OwnerSetupRegisterRequest {
+    /**
+     *
+     */
+    registration: Registration;
+}
 
 /**
  * OwnerSetupApi - interface
@@ -50,6 +117,229 @@ export interface OwnerSetupApiInterface {
     ): Promise<void>;
 
     /**
+     * Creates request options for ownerSetupCancel without sending the request
+     * @param {IndependentCreateIntent} independentCreateIntent
+     * @throws {RequiredError}
+     * @memberof OwnerSetupApiInterface
+     */
+    ownerSetupCancelRequestOpts(
+        requestParameters: OwnerSetupCancelRequest,
+    ): Promise<runtime.RequestOpts>;
+
+    /**
+     *
+     * @param {IndependentCreateIntent} independentCreateIntent
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof OwnerSetupApiInterface
+     */
+    ownerSetupCancelRaw(
+        requestParameters: OwnerSetupCancelRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>>;
+
+    /**
+     */
+    ownerSetupCancel(
+        requestParameters: OwnerSetupCancelRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void>;
+
+    /**
+     * Creates request options for ownerSetupChallenge without sending the request
+     * @param {Challenge} challenge
+     * @throws {RequiredError}
+     * @memberof OwnerSetupApiInterface
+     */
+    ownerSetupChallengeRequestOpts(
+        requestParameters: OwnerSetupChallengeRequest,
+    ): Promise<runtime.RequestOpts>;
+
+    /**
+     * Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.
+     * @param {Challenge} challenge
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof OwnerSetupApiInterface
+     */
+    ownerSetupChallengeRaw(
+        requestParameters: OwnerSetupChallengeRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>>;
+
+    /**
+     * Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.
+     */
+    ownerSetupChallenge(
+        requestParameters: OwnerSetupChallengeRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void>;
+
+    /**
+     * Creates request options for ownerSetupCreate without sending the request
+     * @param {IndependentCreateRequest} independentCreateRequest
+     * @throws {RequiredError}
+     * @memberof OwnerSetupApiInterface
+     */
+    ownerSetupCreateRequestOpts(
+        requestParameters: OwnerSetupCreateRequest,
+    ): Promise<runtime.RequestOpts>;
+
+    /**
+     *
+     * @param {IndependentCreateRequest} independentCreateRequest
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof OwnerSetupApiInterface
+     */
+    ownerSetupCreateRaw(
+        requestParameters: OwnerSetupCreateRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>>;
+
+    /**
+     */
+    ownerSetupCreate(
+        requestParameters: OwnerSetupCreateRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void>;
+
+    /**
+     * Creates request options for ownerSetupHistory without sending the request
+     * @param {object} body
+     * @throws {RequiredError}
+     * @memberof OwnerSetupApiInterface
+     */
+    ownerSetupHistoryRequestOpts(
+        requestParameters: OwnerSetupHistoryRequest,
+    ): Promise<runtime.RequestOpts>;
+
+    /**
+     * Worker-only return channel: active exact admitted Join, matching approval and constant-time return nonce, and a 64-character capability are required. Not OAuth authority.
+     * @param {object} body
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof OwnerSetupApiInterface
+     */
+    ownerSetupHistoryRaw(
+        requestParameters: OwnerSetupHistoryRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>>;
+
+    /**
+     * Worker-only return channel: active exact admitted Join, matching approval and constant-time return nonce, and a 64-character capability are required. Not OAuth authority.
+     */
+    ownerSetupHistory(
+        requestParameters: OwnerSetupHistoryRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void>;
+
+    /**
+     * Creates request options for ownerSetupJoin without sending the request
+     * @param {IndependentCreateRequest} independentCreateRequest
+     * @throws {RequiredError}
+     * @memberof OwnerSetupApiInterface
+     */
+    ownerSetupJoinRequestOpts(
+        requestParameters: OwnerSetupJoinRequest,
+    ): Promise<runtime.RequestOpts>;
+
+    /**
+     *
+     * @param {IndependentCreateRequest} independentCreateRequest
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof OwnerSetupApiInterface
+     */
+    ownerSetupJoinRaw(
+        requestParameters: OwnerSetupJoinRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>>;
+
+    /**
+     */
+    ownerSetupJoin(
+        requestParameters: OwnerSetupJoinRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void>;
+
+    /**
+     * Creates request options for ownerSetupOwnerPublic without sending the request
+     * @throws {RequiredError}
+     * @memberof OwnerSetupApiInterface
+     */
+    ownerSetupOwnerPublicRequestOpts(): Promise<runtime.RequestOpts>;
+
+    /**
+     *
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof OwnerSetupApiInterface
+     */
+    ownerSetupOwnerPublicRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<IndependentOwnerPublic>>;
+
+    /**
+     */
+    ownerSetupOwnerPublic(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<IndependentOwnerPublic>;
+
+    /**
+     * Creates request options for ownerSetupRecover without sending the request
+     * @throws {RequiredError}
+     * @memberof OwnerSetupApiInterface
+     */
+    ownerSetupRecoverRequestOpts(): Promise<runtime.RequestOpts>;
+
+    /**
+     *
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof OwnerSetupApiInterface
+     */
+    ownerSetupRecoverRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<IndependentCreateIntent>>;
+
+    /**
+     */
+    ownerSetupRecover(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<IndependentCreateIntent | null | undefined>;
+
+    /**
+     * Creates request options for ownerSetupRegister without sending the request
+     * @param {Registration} registration
+     * @throws {RequiredError}
+     * @memberof OwnerSetupApiInterface
+     */
+    ownerSetupRegisterRequestOpts(
+        requestParameters: OwnerSetupRegisterRequest,
+    ): Promise<runtime.RequestOpts>;
+
+    /**
+     * Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.
+     * @param {Registration} registration
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof OwnerSetupApiInterface
+     */
+    ownerSetupRegisterRaw(
+        requestParameters: OwnerSetupRegisterRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>>;
+
+    /**
+     * Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.
+     */
+    ownerSetupRegister(
+        requestParameters: OwnerSetupRegisterRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void>;
+
+    /**
      * Creates request options for ownerSetupStatus without sending the request
      * @throws {RequiredError}
      * @memberof OwnerSetupApiInterface
@@ -64,13 +354,13 @@ export interface OwnerSetupApiInterface {
      */
     ownerSetupStatusRaw(
         initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<SetupStatus>>;
+    ): Promise<runtime.ApiResponse<OwnerSetupStatus>>;
 
     /**
      */
     ownerSetupStatus(
         initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<SetupStatus>;
+    ): Promise<OwnerSetupStatus>;
 }
 
 /**
@@ -123,6 +413,437 @@ export class OwnerSetupApi
     }
 
     /**
+     * Creates request options for ownerSetupCancel without sending the request
+     */
+    async ownerSetupCancelRequestOpts(
+        requestParameters: OwnerSetupCancelRequest,
+    ): Promise<runtime.RequestOpts> {
+        if (requestParameters["independentCreateIntent"] == null) {
+            throw new runtime.RequiredError(
+                "independentCreateIntent",
+                'Required parameter "independentCreateIntent" was null or undefined when calling ownerSetupCancel().',
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters["Content-Type"] = "application/json";
+
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["Authorization"] =
+                await this.configuration.apiKey("Authorization"); // setup_code authentication
+        }
+
+        let urlPath = `/setup/owner/cancel`;
+
+        return {
+            path: urlPath,
+            method: "POST",
+            headers: headerParameters,
+            query: queryParameters,
+            body: IndependentCreateIntentToJSON(
+                requestParameters["independentCreateIntent"],
+            ),
+        };
+    }
+
+    /**
+     */
+    async ownerSetupCancelRaw(
+        requestParameters: OwnerSetupCancelRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>> {
+        const requestOptions =
+            await this.ownerSetupCancelRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+
+        return new runtime.VoidApiResponse(response);
+    }
+
+    /**
+     */
+    async ownerSetupCancel(
+        requestParameters: OwnerSetupCancelRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void> {
+        await this.ownerSetupCancelRaw(requestParameters, initOverrides);
+    }
+
+    /**
+     * Creates request options for ownerSetupChallenge without sending the request
+     */
+    async ownerSetupChallengeRequestOpts(
+        requestParameters: OwnerSetupChallengeRequest,
+    ): Promise<runtime.RequestOpts> {
+        if (requestParameters["challenge"] == null) {
+            throw new runtime.RequiredError(
+                "challenge",
+                'Required parameter "challenge" was null or undefined when calling ownerSetupChallenge().',
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters["Content-Type"] = "application/json";
+
+        let urlPath = `/setup/owner/challenge`;
+
+        return {
+            path: urlPath,
+            method: "POST",
+            headers: headerParameters,
+            query: queryParameters,
+            body: ChallengeToJSON(requestParameters["challenge"]),
+        };
+    }
+
+    /**
+     * Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.
+     */
+    async ownerSetupChallengeRaw(
+        requestParameters: OwnerSetupChallengeRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>> {
+        const requestOptions =
+            await this.ownerSetupChallengeRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+
+        return new runtime.VoidApiResponse(response);
+    }
+
+    /**
+     * Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.
+     */
+    async ownerSetupChallenge(
+        requestParameters: OwnerSetupChallengeRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void> {
+        await this.ownerSetupChallengeRaw(requestParameters, initOverrides);
+    }
+
+    /**
+     * Creates request options for ownerSetupCreate without sending the request
+     */
+    async ownerSetupCreateRequestOpts(
+        requestParameters: OwnerSetupCreateRequest,
+    ): Promise<runtime.RequestOpts> {
+        if (requestParameters["independentCreateRequest"] == null) {
+            throw new runtime.RequiredError(
+                "independentCreateRequest",
+                'Required parameter "independentCreateRequest" was null or undefined when calling ownerSetupCreate().',
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters["Content-Type"] = "application/json";
+
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["Authorization"] =
+                await this.configuration.apiKey("Authorization"); // setup_code authentication
+        }
+
+        let urlPath = `/setup/owner/create`;
+
+        return {
+            path: urlPath,
+            method: "POST",
+            headers: headerParameters,
+            query: queryParameters,
+            body: IndependentCreateRequestToJSON(
+                requestParameters["independentCreateRequest"],
+            ),
+        };
+    }
+
+    /**
+     */
+    async ownerSetupCreateRaw(
+        requestParameters: OwnerSetupCreateRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>> {
+        const requestOptions =
+            await this.ownerSetupCreateRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+
+        return new runtime.VoidApiResponse(response);
+    }
+
+    /**
+     */
+    async ownerSetupCreate(
+        requestParameters: OwnerSetupCreateRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void> {
+        await this.ownerSetupCreateRaw(requestParameters, initOverrides);
+    }
+
+    /**
+     * Creates request options for ownerSetupHistory without sending the request
+     */
+    async ownerSetupHistoryRequestOpts(
+        requestParameters: OwnerSetupHistoryRequest,
+    ): Promise<runtime.RequestOpts> {
+        if (requestParameters["body"] == null) {
+            throw new runtime.RequiredError(
+                "body",
+                'Required parameter "body" was null or undefined when calling ownerSetupHistory().',
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters["Content-Type"] = "application/json";
+
+        let urlPath = `/setup/owner/history`;
+
+        return {
+            path: urlPath,
+            method: "POST",
+            headers: headerParameters,
+            query: queryParameters,
+            body: requestParameters["body"] as any,
+        };
+    }
+
+    /**
+     * Worker-only return channel: active exact admitted Join, matching approval and constant-time return nonce, and a 64-character capability are required. Not OAuth authority.
+     */
+    async ownerSetupHistoryRaw(
+        requestParameters: OwnerSetupHistoryRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>> {
+        const requestOptions =
+            await this.ownerSetupHistoryRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+
+        return new runtime.VoidApiResponse(response);
+    }
+
+    /**
+     * Worker-only return channel: active exact admitted Join, matching approval and constant-time return nonce, and a 64-character capability are required. Not OAuth authority.
+     */
+    async ownerSetupHistory(
+        requestParameters: OwnerSetupHistoryRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void> {
+        await this.ownerSetupHistoryRaw(requestParameters, initOverrides);
+    }
+
+    /**
+     * Creates request options for ownerSetupJoin without sending the request
+     */
+    async ownerSetupJoinRequestOpts(
+        requestParameters: OwnerSetupJoinRequest,
+    ): Promise<runtime.RequestOpts> {
+        if (requestParameters["independentCreateRequest"] == null) {
+            throw new runtime.RequiredError(
+                "independentCreateRequest",
+                'Required parameter "independentCreateRequest" was null or undefined when calling ownerSetupJoin().',
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters["Content-Type"] = "application/json";
+
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["Authorization"] =
+                await this.configuration.apiKey("Authorization"); // setup_code authentication
+        }
+
+        let urlPath = `/setup/owner/join`;
+
+        return {
+            path: urlPath,
+            method: "POST",
+            headers: headerParameters,
+            query: queryParameters,
+            body: IndependentCreateRequestToJSON(
+                requestParameters["independentCreateRequest"],
+            ),
+        };
+    }
+
+    /**
+     */
+    async ownerSetupJoinRaw(
+        requestParameters: OwnerSetupJoinRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>> {
+        const requestOptions =
+            await this.ownerSetupJoinRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+
+        return new runtime.VoidApiResponse(response);
+    }
+
+    /**
+     */
+    async ownerSetupJoin(
+        requestParameters: OwnerSetupJoinRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void> {
+        await this.ownerSetupJoinRaw(requestParameters, initOverrides);
+    }
+
+    /**
+     * Creates request options for ownerSetupOwnerPublic without sending the request
+     */
+    async ownerSetupOwnerPublicRequestOpts(): Promise<runtime.RequestOpts> {
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        let urlPath = `/setup/owner/public`;
+
+        return {
+            path: urlPath,
+            method: "GET",
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+
+    /**
+     */
+    async ownerSetupOwnerPublicRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<IndependentOwnerPublic>> {
+        const requestOptions = await this.ownerSetupOwnerPublicRequestOpts();
+        const response = await this.request(requestOptions, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) =>
+            IndependentOwnerPublicFromJSON(jsonValue),
+        );
+    }
+
+    /**
+     */
+    async ownerSetupOwnerPublic(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<IndependentOwnerPublic> {
+        const response = await this.ownerSetupOwnerPublicRaw(initOverrides);
+        return await response.value();
+    }
+
+    /**
+     * Creates request options for ownerSetupRecover without sending the request
+     */
+    async ownerSetupRecoverRequestOpts(): Promise<runtime.RequestOpts> {
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        if (this.configuration && this.configuration.apiKey) {
+            headerParameters["Authorization"] =
+                await this.configuration.apiKey("Authorization"); // setup_code authentication
+        }
+
+        let urlPath = `/setup/owner/intent`;
+
+        return {
+            path: urlPath,
+            method: "POST",
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+
+    /**
+     */
+    async ownerSetupRecoverRaw(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<IndependentCreateIntent>> {
+        const requestOptions = await this.ownerSetupRecoverRequestOpts();
+        const response = await this.request(requestOptions, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) =>
+            IndependentCreateIntentFromJSON(jsonValue),
+        );
+    }
+
+    /**
+     */
+    async ownerSetupRecover(
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<IndependentCreateIntent | null | undefined> {
+        const response = await this.ownerSetupRecoverRaw(initOverrides);
+        switch (response.raw.status) {
+            case 200:
+                return await response.value();
+            case 204:
+                return null;
+            default:
+                return await response.value();
+        }
+    }
+
+    /**
+     * Creates request options for ownerSetupRegister without sending the request
+     */
+    async ownerSetupRegisterRequestOpts(
+        requestParameters: OwnerSetupRegisterRequest,
+    ): Promise<runtime.RequestOpts> {
+        if (requestParameters["registration"] == null) {
+            throw new runtime.RequiredError(
+                "registration",
+                'Required parameter "registration" was null or undefined when calling ownerSetupRegister().',
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters["Content-Type"] = "application/json";
+
+        let urlPath = `/setup/owner/register`;
+
+        return {
+            path: urlPath,
+            method: "POST",
+            headers: headerParameters,
+            query: queryParameters,
+            body: RegistrationToJSON(requestParameters["registration"]),
+        };
+    }
+
+    /**
+     * Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.
+     */
+    async ownerSetupRegisterRaw(
+        requestParameters: OwnerSetupRegisterRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<runtime.ApiResponse<void>> {
+        const requestOptions =
+            await this.ownerSetupRegisterRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+
+        return new runtime.VoidApiResponse(response);
+    }
+
+    /**
+     * Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.
+     */
+    async ownerSetupRegister(
+        requestParameters: OwnerSetupRegisterRequest,
+        initOverrides?: RequestInit | runtime.InitOverrideFunction,
+    ): Promise<void> {
+        await this.ownerSetupRegisterRaw(requestParameters, initOverrides);
+    }
+
+    /**
      * Creates request options for ownerSetupStatus without sending the request
      */
     async ownerSetupStatusRequestOpts(): Promise<runtime.RequestOpts> {
@@ -144,12 +865,12 @@ export class OwnerSetupApi
      */
     async ownerSetupStatusRaw(
         initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<SetupStatus>> {
+    ): Promise<runtime.ApiResponse<OwnerSetupStatus>> {
         const requestOptions = await this.ownerSetupStatusRequestOpts();
         const response = await this.request(requestOptions, initOverrides);
 
         return new runtime.JSONApiResponse(response, (jsonValue) =>
-            SetupStatusFromJSON(jsonValue),
+            OwnerSetupStatusFromJSON(jsonValue),
         );
     }
 
@@ -157,7 +878,7 @@ export class OwnerSetupApi
      */
     async ownerSetupStatus(
         initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<SetupStatus> {
+    ): Promise<OwnerSetupStatus> {
         const response = await this.ownerSetupStatusRaw(initOverrides);
         return await response.value();
     }

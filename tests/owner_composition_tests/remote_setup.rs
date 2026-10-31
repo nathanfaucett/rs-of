@@ -120,7 +120,7 @@ async fn submit(http: &reqwest::Client, root: &Path, intent: &IndependentCreateI
         }
         let response = http
             .post(format!(
-                "{}/independent/setup/{}",
+                "{}/setup/owner/{}",
                 intent.base(owner).expect("base"),
                 intent.purpose
             ))
@@ -366,7 +366,7 @@ async fn remote_setup_child() {
     tokio::time::timeout(Duration::from_secs(15), async {
         loop {
             if let Ok(response) = http
-                .get(format!("{}/independent/setup/status", target.idp))
+                .get(format!("{}/setup/owner/status", target.idp))
                 .send()
                 .await
             {
@@ -421,10 +421,7 @@ async fn remote_setup_child() {
         "consumer reset must not retire any shared signing metadata"
     );
     let public: serde_json::Value = http
-        .get(format!(
-            "{}/independent/setup/independent/public",
-            target.idp
-        ))
+        .get(format!("{}/setup/owner/public", target.idp))
         .send()
         .await
         .expect("other IdP consumer")
