@@ -82,3 +82,8 @@ No Rust native runtime, owner contract/process suite, feature powerset or CRAP s
 ## Integration handoff
 
 Implementation is committed only on ticket04's branch. The latest local integration tip is merged into this branch before handoff; integration itself is not merged or modified. Exact final commit/merge result is appended after committing.
+
+- Implementation commit: `4f1d3d5f05c9e26826d67e9dbb021d0f27db22ef` (`Migrate consumers and contracts to owner-local setup`).
+- Ran `GIT_EDITOR=true git merge --no-edit unified-owner-lifecycle` in ticket04 after committing: **Already up to date.** Integration remained exactly `6e3dfa4a6823a7dc2f4bfaa70be0e30948171072` and is an ancestor of this branch. No merge into integration or modifications in another worktree were performed.
+- Post-merge ticket04 status was empty. Final source audit found no retired setup routes in canonical owner contracts, no old IdP SetupApi/generated models, no HostedSetup source, no agent staging directories or tracked launcher changes in this worktree. Targeted rustfmt and diff checks passed. The ticket02 launcher modifications and offs manifest/notes remained present in their own worktrees.
+- This handoff entry is committed separately; no code changes followed the passing 116-test app state/route suite, 19 mounted tests, Svelte check and final production build.
