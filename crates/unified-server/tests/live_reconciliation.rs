@@ -35,26 +35,47 @@ use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 use unified_server::{SetupHost, UnifiedConfig};
 
-async fn ready(http: &reqwest::Client, base: &str) -> Value {
+async fn status(http: &reqwest::Client, base: &str, require_ready: bool) -> Value {
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
-        let status: Value = http
+        let response = http
             .get(format!("{base}/setup/owner/status"))
+            .timeout(Duration::from_secs(2))
             .send()
-            .await
-            .expect("status transport")
-            .json()
-            .await
-            .expect("owner status");
-        if status["ready"] == true {
-            return status;
+            .await;
+        match response {
+            Ok(response) => {
+                let status: Value = response
+                    .error_for_status()
+                    .expect("owner status response")
+                    .json()
+                    .await
+                    .expect("owner status document");
+                if !require_ready || status["ready"] == true {
+                    return status;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "owner readiness timeout {base}: {status}"
+                );
+            }
+            Err(error) => {
+                assert!(
+                    error.is_connect() || error.is_timeout(),
+                    "status transport: {error}"
+                );
+                assert!(
+                    Instant::now() < deadline,
+                    "owner listener startup timeout {base}: {error}"
+                );
+            }
         }
-        assert!(
-            Instant::now() < deadline,
-            "owner readiness timeout {base}: {status}"
-        );
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
+}
+
+async fn ready(http: &reqwest::Client, base: &str) -> Value {
+    status(http, base, true).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -130,17 +151,7 @@ async fn composed_owners_reconcile_create_join_and_offline_reopen() {
     });
     let stop = CancellationToken::new();
     let task = tokio::spawn(host.serve(stop.clone()));
-    for _ in 0..100 {
-        if http
-            .get(format!("{}/setup/owner/status", bases[0]))
-            .send()
-            .await
-            .is_ok()
-        {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    status(&http, &bases[0], false).await;
     for (i, owner) in bases.iter().enumerate() {
         for (j, code) in codes.iter().enumerate() {
             let status = http
@@ -313,7 +324,15 @@ async fn composed_owners_reconcile_create_join_and_offline_reopen() {
         .expect("target code")
     });
     let target_stop = CancellationToken::new();
-    let target_task = tokio::spawn(target.serve(target_stop.clone()));
+    let delayed_stop = target_stop.clone();
+    let target_task = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        target.serve(delayed_stop).await
+    });
+    assert_eq!(
+        status(&http, &format!("{target_base}/idp"), false).await["ready"],
+        false
+    );
     let join = json!({"purpose":"join", "operation_nonce":"fedcba9876543210fedcba9876543210", "administrator":"", "node":"Joined Node", "idp":format!("{target_base}/idp"), "device":format!("{target_base}/device"), "storage":format!("{target_base}/storage"), "issuer":bases[0], "peer":format!("{}#{}",bases[1], endpoint.as_str().expect("source endpoint"))});
     for (i, owner) in ["idp", "device", "storage"].iter().enumerate() {
         let response = http

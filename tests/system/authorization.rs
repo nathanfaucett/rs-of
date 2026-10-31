@@ -1,4 +1,4 @@
-use std::{fs, time::Duration};
+use std::time::Duration;
 
 use of_idp_client::{
     apis::{configuration::Configuration, default_api as idp},
@@ -167,37 +167,11 @@ pub async fn denial_scenario(independent_layout: bool) {
 
 async fn retained_socket_denial(node: &Node, user: &Configuration, session: &str, resource: &str) {
     use futures_util::{SinkExt, StreamExt};
-    use rustls::pki_types::{CertificateDer, pem::PemObject};
     use storage_model::{StorageRequest, StorageResponse};
-    use tokio_tungstenite::{Connector, connect_async_tls_with_config, tungstenite::Message};
+    use tokio_tungstenite::{connect_async_tls_with_config, tungstenite::Message};
 
     let token = node.exchange(session, "storage:filesystems", "").await;
-    let mut url = reqwest::Url::parse(&node.storage).expect("explicit Storage base");
-    url.set_scheme(if node.storage.starts_with("https:") {
-        "wss"
-    } else {
-        "ws"
-    })
-    .expect("resource WebSocket scheme");
-    url.query_pairs_mut()
-        .append_pair("access_token", &token)
-        .append_pair("filesystem_id", resource);
-    let connector = if node.storage.starts_with("https:") {
-        let pem = fs::read(node.root.path().join("roots.pem")).expect("isolated native roots");
-        let mut roots = rustls::RootCertStore::empty();
-        for certificate in CertificateDer::pem_slice_iter(&pem) {
-            roots
-                .add(certificate.expect("fixture CA certificate"))
-                .expect("trusted fixture CA");
-        }
-        Some(Connector::Rustls(std::sync::Arc::new(
-            rustls::ClientConfig::builder()
-                .with_root_certificates(roots)
-                .with_no_client_auth(),
-        )))
-    } else {
-        None
-    };
+    let (url, connector) = super::filesystem::connection(node, &token, resource);
     let (mut socket, _) = tokio::time::timeout(
         Duration::from_secs(30),
         connect_async_tls_with_config(url.as_str(), None, false, connector.clone()),

@@ -11,7 +11,7 @@ use std::{
 use of_idp_client::{
     apis::{
         configuration::{ApiKey, Configuration},
-        default_api as idp, owner_setup_api as independent, setup_api as setup,
+        default_api as idp, owner_setup_api as owner_setup,
     },
     models,
 };
@@ -20,6 +20,8 @@ use serde_json::json;
 
 #[path = "authorization.rs"]
 mod authorization;
+#[path = "filesystem.rs"]
+mod filesystem;
 #[path = "recovery.rs"]
 mod recovery;
 
@@ -59,6 +61,7 @@ struct Node {
     storage: String,
     issuer: String,
     login: String,
+    deleted: Vec<String>,
 }
 
 impl Drop for Node {
@@ -142,6 +145,7 @@ impl Node {
             storage: String::new(),
             issuer: String::new(),
             login: String::new(),
+            deleted: Vec::new(),
         }
     }
 
@@ -217,7 +221,16 @@ impl Node {
         }
     }
 
-    async fn restart(&mut self, independent_layout: bool) {
+    async fn restart(&mut self) {
+        let bases = [self.idp.clone(), self.device.clone(), self.storage.clone()];
+        let mut retained = Vec::new();
+        for base in &bases {
+            retained.push(
+                owner_setup::owner_setup_owner_public(&self.config(base))
+                    .await
+                    .expect("completed owner evidence before restart"),
+            );
+        }
         while let Some(process) = self.processes.pop() {
             drop(process);
         }
@@ -226,11 +239,11 @@ impl Node {
                 let deadline = Instant::now() + Duration::from_secs(60);
                 loop {
                     self.alive();
-                    if independent::owner_setup_status(&self.config(&self.idp))
+                    if owner_setup::owner_setup_status(&self.config(&self.idp))
                         .await
-                        .is_ok_and(|status| status.ready)
+                        .is_ok_and(|s| s.ready)
                     {
-                        let public = independent::owner_setup_owner_public(&self.config(&self.idp))
+                        let public = owner_setup::owner_setup_owner_public(&self.config(&self.idp))
                             .await
                             .expect("reopened local IdP evidence");
                         let facts = public.facts.expect("reopened local IdP facts");
@@ -272,19 +285,12 @@ impl Node {
         let deadline = Instant::now() + Duration::from_secs(60);
         loop {
             self.alive();
-            let ready = if independent_layout {
-                let mut ready = true;
-                for base in [&self.idp, &self.device, &self.storage] {
-                    ready &= independent::owner_setup_status(&self.config(base))
-                        .await
-                        .is_ok_and(|s| s.ready);
-                }
-                ready
-            } else {
-                setup::setup_status(&self.config(&self.idp))
+            let mut ready = true;
+            for base in &bases {
+                ready &= owner_setup::owner_setup_status(&self.config(base))
                     .await
-                    .is_ok_and(|s| s.ready)
-            };
+                    .is_ok_and(|s| s.ready);
+            }
             if ready {
                 break;
             }
@@ -293,6 +299,19 @@ impl Node {
                 "retained restart readiness timeout"
             );
             tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        for (base, before) in bases.iter().zip(retained) {
+            let after = owner_setup::owner_setup_owner_public(&self.config(base))
+                .await
+                .expect("retained owner evidence after restart");
+            assert_eq!(
+                after.operation, before.operation,
+                "restart retains exact owner operation"
+            );
+            assert_eq!(
+                after.facts.as_ref().expect("reopened facts")["endpoint"],
+                before.facts.as_ref().expect("completed facts")["endpoint"]
+            );
         }
     }
 
@@ -325,94 +344,45 @@ impl Node {
         file.to_string_lossy().into_owned()
     }
 
-    async fn start_unified(&mut self) -> Configuration {
+    async fn start_unified(&mut self, source_roots: &[u8]) -> Vec<ApiKey> {
         let addr = address();
-        let base = format!("http://{addr}");
+        let base = format!("https://{addr}");
         self.idp = format!("{base}/idp");
         self.management = format!("{base}/management");
         self.device = format!("{base}/device");
         self.storage = format!("{base}/storage");
+        self.issuer = self.idp.clone();
         let domain = self.root.path().join("unified");
+        let config = unified_server::UnifiedConfig::local(&domain, addr);
+        let host =
+            unified_server::SetupHost::prepare(config).expect("prepare composed owner trust");
+        let capabilities = ["idp", "device", "storage"]
+            .map(|owner| capability(&host.admission_path(owner).expect("owner admission path")))
+            .to_vec();
+        let mut roots = source_roots.to_vec();
+        roots.extend(fs::read(host.tls().ca_path()).expect("single composed CA"));
+        fs::write(self.root.path().join("roots.pem"), &roots).expect("isolated native trust");
+        self.http = client(Some(&roots));
+        drop(host);
+        let file = self.write_config("unified", json!({
+            "listen_addr":addr, "endpoint_data_dir":domain.join("endpoint"),
+            "idp":{"data_dir":domain.join("idp"), "server":{"prefix":"/idp"}, "api_public_uri":self.idp,
+                "oauth2":{"issuer":self.idp}, "password":{"memory_mib":1,"iterations":1}},
+            "device":{"data_dir":domain.join("device"), "server":{"prefix":"/device"}, "api_public_uri":self.device},
+            "storage":{"data_dir":domain.join("storage"), "server":{"prefix":"/storage"}, "api_public_uri":self.storage},
+            "management":{"data_dir":domain.join("management"), "server":{"prefix":"/management"}, "api_public_uri":self.management}
+        }));
         self.start(
             "unified",
             &binaries().join("examples/system-test-service"),
-            &[
-                "--data-dir".into(),
-                domain.to_string_lossy().into_owned(),
-                "serve".into(),
-                "--port".into(),
-                addr.port().to_string(),
-            ],
+            &["--config".into(), file, "serve".into()],
             &[],
         );
-        let deadline = Instant::now() + Duration::from_secs(30);
-        let admission = domain.join("setup-admission/state");
-        loop {
-            self.alive();
-            if admission.exists() && setup::setup_status(&self.config(&self.idp)).await.is_ok() {
-                break;
-            }
-            assert!(Instant::now() < deadline, "Unified setup startup timeout");
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-        let mut config = self.config(&self.idp);
-        config.api_key = Some(capability(&admission));
-        assert!(
-            !setup::setup_status(&config)
-                .await
-                .expect("fresh Unified status")
-                .ready
-        );
-        config
+        capabilities
     }
 
     async fn unified(&mut self) {
-        let config = self.start_unified().await;
-        let request = models::CreateRequest::new(
-            "operator".into(),
-            "System Node".into(),
-            NONCE.into(),
-            PASSWORD.into(),
-        );
-        setup::setup_create(
-            &config,
-            setup::SetupCreateParams {
-                create_request: request.clone(),
-            },
-        )
-        .await
-        .unwrap_or_else(|_| panic!("Unified Create admission failed"));
-        let deadline = Instant::now() + Duration::from_secs(180);
-        loop {
-            self.alive();
-            let observed = setup::setup_status(&config).await;
-            if observed.as_ref().is_ok_and(|s| s.ready) {
-                break;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "Unified readiness timeout: {observed:?}"
-            );
-            tokio::time::sleep(Duration::from_millis(200)).await;
-        }
-        let result = setup::setup_create(
-            &config,
-            setup::SetupCreateParams {
-                create_request: request,
-            },
-        )
-        .await
-        .unwrap_or_else(|_| panic!("completed exact Create verification failed"));
-        assert!(result.ready);
-        self.login = result
-            .login_client
-            .flatten()
-            .expect("public operator login Client")
-            .client_id;
-        self.issuer = idp::openid_configuration(&self.config(&self.idp))
-            .await
-            .expect("public Installation discovery")
-            .issuer;
+        self.owner_create(false, true).await;
     }
 
     async fn start_independent(&mut self, local: bool, source_roots: &[u8]) -> Vec<ApiKey> {
@@ -500,7 +470,15 @@ impl Node {
     }
 
     async fn independent_create(&mut self, local: bool) {
-        let capabilities = self.start_independent(local, &[]).await;
+        self.owner_create(local, false).await;
+    }
+
+    async fn owner_create(&mut self, local: bool, unified: bool) {
+        let capabilities = if unified {
+            self.start_unified(&[]).await
+        } else {
+            self.start_independent(local, &[]).await
+        };
         let request = models::IndependentCreateRequest::new(
             "operator".into(),
             self.device.clone(),
@@ -520,7 +498,7 @@ impl Node {
             let deadline = Instant::now() + Duration::from_secs(30);
             loop {
                 self.alive();
-                if let Ok(status) = independent::owner_setup_status(&config).await {
+                if let Ok(status) = owner_setup::owner_setup_status(&config).await {
                     assert!(!status.ready);
                     break;
                 }
@@ -534,14 +512,29 @@ impl Node {
             if i == 0 {
                 owner_request.password = Some(Some(PASSWORD.into()));
             }
-            independent::owner_setup_create(
+            owner_setup::owner_setup_create(
                 &config,
-                independent::OwnerSetupCreateParams {
-                    independent_create_request: owner_request,
+                owner_setup::OwnerSetupCreateParams {
+                    independent_create_request: owner_request.clone(),
                 },
             )
             .await
             .unwrap_or_else(|_| panic!("independent owner {i} rejected Create"));
+            owner_setup::owner_setup_create(
+                &config,
+                owner_setup::OwnerSetupCreateParams {
+                    independent_create_request: owner_request.clone(),
+                },
+            )
+            .await
+            .unwrap_or_else(|_| panic!("owner {i} exact Create retry"));
+            owner_request.node = "Conflicting Node".into();
+            assert!(
+                matches!(owner_setup::owner_setup_create(&config, owner_setup::OwnerSetupCreateParams {
+            independent_create_request: owner_request,
+        }).await, Err(of_idp_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 409),
+                "owner {i} must reject conflicting Create"
+            );
         }
         let mut evidence = Vec::new();
         for (owner, base) in [
@@ -553,7 +546,7 @@ impl Node {
             let deadline = Instant::now() + Duration::from_secs(180);
             loop {
                 self.alive();
-                let observed = independent::owner_setup_status(&config).await;
+                let observed = owner_setup::owner_setup_status(&config).await;
                 if let Ok(status) = &observed
                     && status.ready
                 {
@@ -566,7 +559,7 @@ impl Node {
                 );
                 tokio::time::sleep(Duration::from_millis(200)).await;
             }
-            let public = independent::owner_setup_owner_public(&config)
+            let public = owner_setup::owner_setup_owner_public(&config)
                 .await
                 .expect("public correlated owner evidence");
             assert_eq!(public.owner, owner);
@@ -592,7 +585,10 @@ impl Node {
             .as_str()
             .expect("published operator Client")
             .into();
-        self.start_management(None).await;
+        if !unified {
+            self.start_management(None).await;
+        }
+        self.management_ready().await;
     }
 
     async fn start_management(&mut self, authority: Option<&str>) {
@@ -643,7 +639,7 @@ impl Node {
             value["identity_database"] =
                 json!({"endpoint":format!("http://{sql}"), "deadline_ms":20000});
         } else {
-            let public = independent::owner_setup_owner_public(&self.config(&self.idp))
+            let public = owner_setup::owner_setup_owner_public(&self.config(&self.idp))
                 .await
                 .expect("local IdP public connection evidence");
             assert_eq!(public.owner, "idp");
@@ -819,7 +815,7 @@ async fn create_node(independent_layout: bool, restart: bool, local: bool) {
         let endpoint = of_device_client::apis::default_api::device(&device_config(&node))
             .await
             .expect("created endpoint");
-        node.restart(independent_layout).await;
+        node.restart().await;
         assert_eq!(
             of_device_client::apis::default_api::device(&device_config(&node))
                 .await
@@ -866,7 +862,7 @@ async fn use_node(node: &mut Node, resource_token: Option<&str>, retained: Optio
     let config = of_storage_client::apis::configuration::Configuration {
         client: node.http.clone(),
         base_path: node.storage.clone(),
-        bearer_access_token: Some(bearer),
+        bearer_access_token: Some(bearer.clone()),
         ..Default::default()
     };
     if let Some(id) = retained {
@@ -879,6 +875,7 @@ async fn use_node(node: &mut Node, resource_token: Option<&str>, retained: Optio
         .await
         .unwrap_or_else(|_| panic!("retained authorized resource read failed"));
         assert_eq!(read.id, id);
+        filesystem::retained(node, &bearer, id).await;
         assert_eq!(
             read.name.as_ref().and_then(Option::as_deref),
             Some("Shared Create resource")
@@ -917,6 +914,10 @@ async fn use_node(node: &mut Node, resource_token: Option<&str>, retained: Optio
     .unwrap_or_else(|_| panic!("authorized resource read failed"));
     assert_eq!(read.id, created.id);
     assert_eq!(read.name, created.name);
+    for id in &node.deleted {
+        filesystem::absent(&config, id).await;
+    }
+    filesystem::qualify(node, &config, &created.id).await;
     let denied = of_storage_client::apis::configuration::Configuration {
         bearer_access_token: None,
         ..config
@@ -945,9 +946,7 @@ fn device_config(node: &Node) -> of_device_client::apis::configuration::Configur
 }
 
 pub async fn join_scenario(independent_layout: bool) {
-    use of_device_client::apis::{
-        independent_join_api as independent_joins, node_join_api as joins,
-    };
+    use of_device_client::apis::independent_join_api as independent_joins;
     let mut source = Node::new();
     if independent_layout {
         source.independent_create(true).await;
@@ -964,207 +963,115 @@ pub async fn join_scenario(independent_layout: bool) {
     let mut approval = device_config(&source);
     approval.bearer_access_token = Some(authority.clone());
     let anonymous = device_config(&source);
-    if independent_layout {
-        authorization_denied(
-            independent_joins::independent_join_set_accepting(
-                &anonymous,
-                independent_joins::IndependentJoinSetAcceptingParams {
-                    acceptance_request: of_device_client::models::AcceptanceRequest::new(true),
-                },
-            )
-            .await,
-        );
-    } else {
-        authorization_denied(
-            joins::node_join_set_acceptance(
-                &anonymous,
-                joins::NodeJoinSetAcceptanceParams {
-                    acceptance: of_device_client::models::Acceptance::new(true),
-                },
-            )
-            .await,
-        );
-    }
-    if independent_layout {
+    authorization_denied(
         independent_joins::independent_join_set_accepting(
-            &approval,
+            &anonymous,
             independent_joins::IndependentJoinSetAcceptingParams {
                 acceptance_request: of_device_client::models::AcceptanceRequest::new(true),
             },
         )
-        .await
-        .unwrap_or_else(|_| panic!("authorized independent source acceptance"));
-    } else {
-        joins::node_join_set_acceptance(
-            &approval,
-            joins::NodeJoinSetAcceptanceParams {
-                acceptance: of_device_client::models::Acceptance::new(true),
-            },
-        )
-        .await
-        .unwrap_or_else(|_| panic!("authorized source acceptance"));
-    }
-    if !independent_layout {
-        tokio::time::timeout(Duration::from_secs(90), async {
-            loop {
-                source.alive();
-                if let Ok(issuer) = idp_server::discover_installation_issuer(&source_device.public_key).await {
-                    assert_eq!(issuer, source.issuer);
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(200)).await;
-            }
-        }).await.expect("native Trusted Peer discovery readiness timeout (production N0 discovery requires network access)");
-    }
+        .await,
+    );
+    independent_joins::independent_join_set_accepting(
+        &approval,
+        independent_joins::IndependentJoinSetAcceptingParams {
+            acceptance_request: of_device_client::models::AcceptanceRequest::new(true),
+        },
+    )
+    .await
+    .unwrap_or_else(|_| panic!("authorized source acceptance"));
     let mut target = Node::new();
-    let mut target_authority = None;
-    let admission = if independent_layout {
-        let roots =
-            fs::read(source.root.path().join("roots.pem")).expect("source isolated CA trust");
-        let capabilities = target.start_independent(true, &roots).await;
-        let roots =
-            fs::read(target.root.path().join("roots.pem")).expect("mutual isolated HTTPS trust");
-        fs::write(source.root.path().join("roots.pem"), &roots)
-            .expect("source verifies target history callbacks");
-        source.http = client(Some(&roots));
-        target_authority = Some(source.exchange(&session, &target.idp, "").await);
-        let mut request = models::IndependentCreateRequest::new(
-            String::new(),
-            target.device.clone(),
-            target.idp.clone(),
-            String::new(),
-            "Joining System Node".into(),
-            NONCE.into(),
-            "join".into(),
-            target.storage.clone(),
-        );
-        request.peer = Some(format!("{}#{}", source.device, source_device.public_key));
-        let mut configs = Vec::new();
-        for (i, base) in [
-            target.idp.clone(),
-            target.device.clone(),
-            target.storage.clone(),
-        ]
-        .iter()
-        .enumerate()
-        {
-            let mut config = target.config(base);
-            config.api_key = Some(capabilities[i].clone());
-            let deadline = Instant::now() + Duration::from_secs(30);
-            loop {
-                target.alive();
-                if independent::owner_setup_status(&config).await.is_ok() {
-                    break;
-                }
-                assert!(Instant::now() < deadline, "target worker startup timeout");
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-            configs.push(config);
-        }
-        JoinAdmission::Independent(configs, request)
+    let roots = fs::read(source.root.path().join("roots.pem")).expect("source trust");
+    let capabilities = if independent_layout {
+        target.start_independent(true, &roots).await
     } else {
-        let config = target.start_unified().await;
-        JoinAdmission::Unified(
-            config,
-            models::JoinRequest::new(
-                "Joining System Node".into(),
-                NONCE.into(),
-                source_device.public_key.clone(),
-            ),
-        )
+        target.start_unified(&roots).await
     };
+    let roots = fs::read(target.root.path().join("roots.pem")).expect("mutual HTTPS trust");
+    fs::write(source.root.path().join("roots.pem"), &roots).expect("verified history callbacks");
+    source.http = client(Some(&roots));
+    let target_authority = source.exchange(&session, &target.idp, "").await;
+    let mut request = models::IndependentCreateRequest::new(
+        String::new(),
+        target.device.clone(),
+        target.idp.clone(),
+        source.issuer.clone(),
+        "Joining System Node".into(),
+        NONCE.into(),
+        "join".into(),
+        target.storage.clone(),
+    );
+    request.peer = Some(format!("{}#{}", source.device, source_device.public_key));
+    let mut configs = Vec::new();
+    for (i, base) in [
+        target.idp.clone(),
+        target.device.clone(),
+        target.storage.clone(),
+    ]
+    .iter()
+    .enumerate()
+    {
+        let mut config = target.config(base);
+        config.api_key = Some(capabilities[i].clone());
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            target.alive();
+            if owner_setup::owner_setup_status(&config).await.is_ok() {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "target owner listener startup timeout"
+            );
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        configs.push(config);
+    }
+    let admission = JoinAdmission { configs, request };
     admission.submit().await;
-    let offer = pending_offer(&mut source, &mut target, &approval, independent_layout).await;
+    let offer = pending_offer(&mut source, &mut target, &approval).await;
     assert_eq!(
         offer["authenticated_endpoint"],
         offer["request"]["endpoint_id"]
     );
-    if independent_layout {
-        assert_eq!(offer["request"]["operation"]["issuer"], source.issuer);
-    } else {
-        assert_eq!(offer["request"]["installation"], source.issuer);
-    }
-    let pending_ready = if independent_layout {
-        independent::owner_setup_status(&target.config(&target.idp))
+    assert_eq!(offer["request"]["operation"]["issuer"], source.issuer);
+    let pending_ready = {
+        owner_setup::owner_setup_status(&target.config(&target.idp))
             .await
             .expect("pending independent target status")
             .ready
-    } else {
-        setup::setup_status(&target.config(&target.idp))
-            .await
-            .expect("pending target status")
-            .ready
     };
     assert!(!pending_ready);
-    let offer = retry_rejected_join(
-        &mut source,
-        &mut target,
-        &approval,
-        independent_layout,
-        &admission,
-        offer,
-    )
-    .await;
+    let offer = retry_rejected_join(&mut source, &mut target, &approval, &admission, offer).await;
     let id = offer["offer_id"]
         .as_str()
         .expect("exact pending offer ID")
         .to_owned();
-    if independent_layout {
-        authorization_denied(
-            independent_joins::independent_join_approve(
-                &anonymous,
-                independent_joins::IndependentJoinApproveParams { id: id.clone() },
-            )
-            .await,
-        );
-    } else {
-        authorization_denied(
-            joins::node_join_approve(&anonymous, joins::NodeJoinApproveParams { id: id.clone() })
-                .await,
-        );
-    }
-    if independent_layout {
+    authorization_denied(
         independent_joins::independent_join_approve(
-            &approval,
-            independent_joins::IndependentJoinApproveParams { id },
+            &anonymous,
+            independent_joins::IndependentJoinApproveParams { id: id.clone() },
         )
-        .await
-        .unwrap_or_else(|_| panic!("authorized exact independent Device approval"));
-    } else {
-        let approved = joins::node_join_approve(&approval, joins::NodeJoinApproveParams { id })
-            .await
-            .unwrap_or_else(|_| panic!("authorized exact Device approval"));
-        assert_eq!(
-            serde_json::to_value(approved.request).expect("public approved request"),
-            offer["request"]
-        );
-    }
+        .await,
+    );
+    independent_joins::independent_join_approve(
+        &approval,
+        independent_joins::IndependentJoinApproveParams { id },
+    )
+    .await
+    .unwrap_or_else(|_| panic!("authorized exact independent Device approval"));
     let deadline = Instant::now() + Duration::from_secs(180);
     loop {
         source.alive();
         target.alive();
-        if independent_layout {
-            let mut ready = true;
-            for base in [&target.idp, &target.device, &target.storage] {
-                ready &= independent::owner_setup_status(&target.config(base))
-                    .await
-                    .is_ok_and(|s| s.ready);
-            }
-            if ready {
-                break;
-            }
-        } else {
-            let status = setup::setup_status(&target.config(&target.idp))
+        let mut ready = true;
+        for base in [&target.idp, &target.device, &target.storage] {
+            ready &= owner_setup::owner_setup_status(&target.config(base))
                 .await
-                .expect("target Join progress");
-            if status.ready {
-                target.login = status
-                    .login_client
-                    .flatten()
-                    .expect("joined public operator login")
-                    .client_id;
-                break;
-            }
+                .is_ok_and(|s| s.ready);
+        }
+        if ready {
+            break;
         }
         assert!(
             Instant::now() < deadline,
@@ -1173,35 +1080,36 @@ pub async fn join_scenario(independent_layout: bool) {
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
     target.issuer = source.issuer.clone();
-    if independent_layout {
-        let mut operations = Vec::new();
-        let mut endpoints = Vec::new();
-        for (owner, base) in [
-            ("idp", &target.idp),
-            ("device", &target.device),
-            ("storage", &target.storage),
-        ] {
-            let public = independent::owner_setup_owner_public(&target.config(base))
-                .await
-                .expect("completed Join owner evidence");
-            assert_eq!(public.owner, owner);
-            assert_eq!(public.operation.operation_nonce, NONCE);
-            assert_eq!(public.operation.issuer, source.issuer);
-            assert_eq!(public.operation.node, "Joining System Node");
-            assert_eq!(public.operation.purpose, "join");
-            assert_eq!(public.operation.idp, target.idp);
-            assert_eq!(public.operation.device, target.device);
-            assert_eq!(public.operation.storage, target.storage);
-            endpoints.push(public.facts.expect("completed owner facts")["endpoint"].clone());
-            operations.push(public.operation);
-        }
-        assert_eq!(operations[0], operations[1]);
-        assert_eq!(operations[1], operations[2]);
-        assert_eq!(endpoints[0], endpoints[1]);
-        assert_eq!(endpoints[1], endpoints[2]);
-        assert!(endpoints[0].as_str().is_some_and(|value| !value.is_empty()));
-        target.start_management(target_authority.as_deref()).await;
+    let mut operations = Vec::new();
+    let mut endpoints = Vec::new();
+    for (owner, base) in [
+        ("idp", &target.idp),
+        ("device", &target.device),
+        ("storage", &target.storage),
+    ] {
+        let public = owner_setup::owner_setup_owner_public(&target.config(base))
+            .await
+            .expect("completed Join owner evidence");
+        assert_eq!(public.owner, owner);
+        assert_eq!(public.operation.operation_nonce, NONCE);
+        assert_eq!(public.operation.issuer, source.issuer);
+        assert_eq!(public.operation.node, "Joining System Node");
+        assert_eq!(public.operation.purpose, "join");
+        assert_eq!(public.operation.idp, target.idp);
+        assert_eq!(public.operation.device, target.device);
+        assert_eq!(public.operation.storage, target.storage);
+        endpoints.push(public.facts.expect("completed owner facts")["endpoint"].clone());
+        operations.push(public.operation);
     }
+    assert_eq!(operations[0], operations[1]);
+    assert_eq!(operations[1], operations[2]);
+    assert_eq!(endpoints[0], endpoints[1]);
+    assert_eq!(endpoints[1], endpoints[2]);
+    assert!(endpoints[0].as_str().is_some_and(|value| !value.is_empty()));
+    if independent_layout {
+        target.start_management(Some(&target_authority)).await;
+    }
+    target.management_ready().await;
     let mut user_config = source.config(&source.idp);
     user_config.bearer_access_token = Some(session);
     let subject = idp::userinfo(&user_config)
@@ -1230,7 +1138,7 @@ pub async fn join_scenario(independent_layout: bool) {
     while let Some(process) = source.processes.pop() {
         drop(process);
     }
-    target.restart(independent_layout).await;
+    target.restart().await;
     assert_eq!(
         of_device_client::apis::default_api::device(&device_config(&target))
             .await

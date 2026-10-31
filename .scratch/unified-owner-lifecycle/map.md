@@ -48,6 +48,8 @@ suite stays unchanged.
 
 - [Ticket 02](issues/02-unified-host-owner-local-lifecycle.md) resolved: Unified Host composes the existing Create/Join owner workers behind three capabilities and one CA; the parallel lifecycle, host metadata and credential bootstrap are deleted atomically. Focused live coverage includes source-offline Management authorization. [Validation and limits](ticket02-validation.md); [deleted coverage mapping](ticket02-deleted-coverage.md). Tickets 03/04 own cross-layout harness and full consumer/docs migration.
 
+- [Ticket 03](issues/03-cross-layout-lifecycle-and-filesystem-qualification.md) resolved: one shared owner-local production-process suite passes all nine scenarios, including filesystem content/residency/tombstones and retained/source-offline reads. The live target Join listener race is reproduced and fixed with bounded status polling; Unified all-feature runtime and unchanged offs powerset pass. [Validation and external manifest blocker](ticket03-validation.md).
+
 ## Fog
 
 - Whether the desktop application's reset flow needs an owner-local reset surface per owner or can drive
@@ -58,4 +60,4 @@ suite stays unchanged.
 
 ## Frontier
 
-Ticket 03 is the lowest-numbered open, unblocked ticket. Ticket 02 implementation is resolved with qualification limits recorded above; ticket 04 remains blocked by 03.
+Ticket 04 is the lowest-numbered open, unblocked ticket. Ticket 03 qualification is resolved with broader-gate limits recorded in its validation report; ticket 04 owns the remaining consumer/docs migration.
