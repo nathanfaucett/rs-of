@@ -8,6 +8,7 @@ import { notifications } from "$lib/common/state/notifications.svelte";
 import { getSdk } from "$lib/common/state/sdk";
 import { prepareSecrets } from "$lib/storage/startup";
 import { storageMessage } from "$lib/storage/sql";
+import { Alert, Page, PageHeader } from "$lib/ui";
 import type { PageProps } from "./$types";
 
 let { data }: PageProps = $props();
@@ -86,24 +87,53 @@ async function signOut(): Promise<void> {
 </script>
 
 {#if session.status === 'authenticated' && session.identity?.subject === data.userInfo?.sub}
-    <button class="btn secondary" type="button" onclick={() => void signOut()}>Sign out</button>
-    <div class="mx-auto flex w-full max-w-5xl grow flex-col gap-6 overflow-auto p-6">
-        <header>
-            <h1>Password Manager</h1>
-            <p>Your User/Application database opens automatically. This example adds no end-to-end encryption or concurrent-edit protection. Use test secrets only.</p>
-        </header>
-        {#if error}
-            <p role="alert">{error}</p>
-            <button class="btn secondary" type="button" onclick={() => void prepare()}>Retry preparation</button>
-        {:else if preparing}
-            <p role="status">Preparing secrets database…</p>
-        {/if}
-        {#key context}
-            {#if context}
-                <SecretEditor client={context.client} databaseId={context.databaseId} />
+    <div class="min-h-0 grow overflow-auto">
+        <Page>
+            <PageHeader
+                title="Password Manager"
+                description="Your User/Application database opens automatically. This example adds no end-to-end encryption or concurrent-edit protection. Use test secrets only."
+            >
+                {#snippet actions()}
+                    <button
+                        class="btn btn-secondary btn-md"
+                        type="button"
+                        onclick={() => void signOut()}>Sign out</button
+                    >
+                {/snippet}
+            </PageHeader>
+
+            {#if error}
+                <Alert tone="danger" title="Preparation failed">{error}</Alert>
+                <div>
+                    <button
+                        class="btn btn-secondary btn-md"
+                        type="button"
+                        onclick={() => void prepare()}>Retry preparation</button
+                    >
+                </div>
+            {:else if preparing}
+                <Alert tone="info" title="Preparing secrets database…"
+                    >Opening your vault.</Alert
+                >
             {/if}
-        {/key}
+
+            {#key context}
+                {#if context}
+                    <SecretEditor
+                        client={context.client}
+                        databaseId={context.databaseId}
+                    />
+                {/if}
+            {/key}
+        </Page>
     </div>
 {:else if session.status === 'ended' || session.status === 'disposed' || session.status === 'unauthenticated'}
-    <p>Your session has ended. <a href={resolve('/signin')}>Sign in again</a></p>
+    <div class="min-h-0 grow overflow-auto">
+        <Page width="narrow">
+            <Alert tone="warning">
+                Your session has ended.
+                <a href={resolve('/signin')}>Sign in again</a>
+            </Alert>
+        </Page>
+    </div>
 {/if}

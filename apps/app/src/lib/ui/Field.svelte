@@ -11,6 +11,7 @@
     }
 
     export interface FieldProps {
+        id?: string;
         label: string;
         description?: string;
         issues?: readonly FieldIssue[];
@@ -21,6 +22,7 @@
 
 <script lang="ts">
     let {
+        id,
         label,
         description,
         issues = [],
@@ -28,17 +30,20 @@
         children,
     }: FieldProps = $props();
 
-    const id = $props.id();
+    const generatedId = $props.id();
+    const fieldId = $derived(id ?? generatedId);
     const descriptionId = $derived(
-        description ? `${id}-description` : undefined,
+        description ? `${fieldId}-description` : undefined,
     );
-    const issuesId = $derived(issues.length > 0 ? `${id}-issues` : undefined);
+    const issuesId = $derived(
+        issues.length > 0 ? `${fieldId}-issues` : undefined,
+    );
     const describedby = $derived(
         [descriptionId, issuesId].filter(Boolean).join(" ") || undefined,
     );
     const invalid = $derived(issues.length > 0);
     const control = $derived<FieldControl>({
-        id,
+        id: fieldId,
         "aria-describedby": describedby,
         "aria-invalid": invalid ? true : undefined,
         required: required || undefined,
@@ -46,7 +51,7 @@
 </script>
 
 <div class="field">
-    <label class="field-label" for={id}>
+    <label class="field-label" for={fieldId}>
         <span class="field-label-text">
             <span>{label}</span>
             {#if required}<span class="field-required" aria-hidden="true"

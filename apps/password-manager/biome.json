@@ -1,0 +1,33 @@
+{
+    "extends": "//",
+    "assist": {
+        "actions": {
+            "source": {
+                "organizeImports": "on"
+            }
+        }
+    },
+    "css": {
+        "parser": {
+            "tailwindDirectives": true
+        }
+    },
+    "html": {
+        "experimentalFullSupportEnabled": true
+    },
+    "javascript": {
+        "experimentalEmbeddedSnippetsEnabled": true
+    },
+    "files": {
+        "ignoreUnknown": true,
+        "includes": [
+            "messages/**/*",
+            "src/**/*",
+            "biome.json",
+            "package.json",
+            "svelte.config.js",
+            "tsconfig.json",
+            "vite.config.ts"
+        ]
+    }
+}

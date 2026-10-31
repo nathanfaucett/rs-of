@@ -1,10 +1,16 @@
 <script lang="ts">
 import SignIn from "./_SignIn.svelte";
+import { Card, Page, PageHeader } from "$lib/ui";
 </script>
 
-<div class="flex grow flex-col items-center justify-center">
-	<div class="card w-sm">
-		<h1>Sign in</h1>
-		<SignIn />
-	</div>
+<div class="flex min-h-0 grow items-start justify-center overflow-auto p-6 sm:items-center">
+	<Page width="narrow">
+		<PageHeader
+			title="Sign in"
+			description="Authenticate with your identity provider to open your vault."
+		/>
+		<Card>
+			<SignIn />
+		</Card>
+	</Page>
 </div>

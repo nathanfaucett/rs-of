@@ -1,0 +1,132 @@
+/*
+ * Design tokens.
+ *
+ * Every surface, border and text colour in the app resolves through these
+ * variables, so light and dark are defined in exactly one place and a
+ * component never needs its own `dark:` variant.
+ */
+
+:root {
+    color-scheme: light;
+
+    --canvas: #f5f6f8;
+    --surface: #ffffff;
+    --surface-muted: #eef0f4;
+    --surface-hover: #e5e8ee;
+    --surface-inverse: #14181f;
+
+    --border: #e2e5ea;
+    --border-strong: #c9cfd9;
+
+    --text: #14181f;
+    --text-muted: #59616f;
+    --text-subtle: #858d9b;
+    --text-inverse: #ffffff;
+
+    --accent: #2f6feb;
+    --accent-hover: #2559c4;
+    --accent-soft: #e8f0fe;
+    --accent-text: #1c4da3;
+    --accent-contrast: #ffffff;
+
+    --danger: #d92d20;
+    --danger-hover: #b42318;
+    --danger-soft: #fdeceb;
+    --danger-text: #8f1d13;
+    --danger-contrast: #ffffff;
+
+    --success: #10805d;
+    --success-soft: #e2f5ee;
+    --success-text: #0b6045;
+
+    --warning: #b54708;
+    --warning-soft: #fdf2e3;
+    --warning-text: #8a3707;
+
+    --ring: #2f6feb;
+    --shadow: 0 1px 2px rgb(20 24 31 / 0.06), 0 1px 3px rgb(20 24 31 / 0.08);
+    --shadow-lg: 0 10px 30px rgb(20 24 31 / 0.12);
+}
+
+.dark {
+    color-scheme: dark;
+
+    --canvas: #0e1116;
+    --surface: #161a21;
+    --surface-muted: #1c212a;
+    --surface-hover: #232a34;
+    --surface-inverse: #f5f6f8;
+
+    --border: #262d38;
+    --border-strong: #39424f;
+
+    --text: #e7eaf0;
+    --text-muted: #9aa3b1;
+    --text-subtle: #717b8a;
+    --text-inverse: #14181f;
+
+    --accent: #4c8dff;
+    --accent-hover: #6ba0ff;
+    --accent-soft: #17233a;
+    --accent-text: #a9c7ff;
+    --accent-contrast: #08111f;
+
+    --danger: #f97066;
+    --danger-hover: #fda29b;
+    --danger-soft: #2b1614;
+    --danger-text: #fdb4ae;
+    --danger-contrast: #2b1614;
+
+    --success: #3ecf8e;
+    --success-hover: #6adea8;
+    --success-soft: #10251c;
+    --success-text: #8ce3bb;
+
+    --warning: #f5a524;
+    --warning-hover: #f8bd5c;
+    --warning-soft: #2a1e0c;
+    --warning-text: #f8cf8a;
+
+    --ring: #4c8dff;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.55);
+}
+
+@theme inline {
+    --color-canvas: var(--canvas);
+    --color-surface: var(--surface);
+    --color-surface-muted: var(--surface-muted);
+    --color-surface-hover: var(--surface-hover);
+    --color-surface-inverse: var(--surface-inverse);
+
+    --color-line: var(--border);
+    --color-line-strong: var(--border-strong);
+
+    --color-ink: var(--text);
+    --color-ink-muted: var(--text-muted);
+    --color-ink-subtle: var(--text-subtle);
+    --color-ink-inverse: var(--text-inverse);
+
+    --color-accent: var(--accent);
+    --color-accent-hover: var(--accent-hover);
+    --color-accent-soft: var(--accent-soft);
+    --color-accent-text: var(--accent-text);
+    --color-accent-contrast: var(--accent-contrast);
+
+    --color-danger: var(--danger);
+    --color-danger-hover: var(--danger-hover);
+    --color-danger-soft: var(--danger-soft);
+    --color-danger-text: var(--danger-text);
+    --color-danger-contrast: var(--danger-contrast);
+
+    --color-success: var(--success);
+    --color-success-soft: var(--success-soft);
+    --color-success-text: var(--success-text);
+
+    --color-warning: var(--warning);
+    --color-warning-soft: var(--warning-soft);
+    --color-warning-text: var(--warning-text);
+
+    --radius-card: 0.75rem;
+    --radius-control: 0.5rem;
+}
