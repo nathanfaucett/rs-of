@@ -83,7 +83,10 @@ pub(crate) async fn run(data: &Path) -> io::Result<()> {
         ));
     }
     publish(data, JOURNAL, &json!(completed))?;
-    if !completed.iter().any(|owner| owner == "idp") {
+    if !completed.iter().any(|owner| owner == "idp")
+        || read_optional(&Path::new(&config.idp.data_dir).with_extension("setup-reset.json"))?
+            .is_some()
+    {
         let reset =
             api::IndependentReset::open("idp", std::path::Path::new(&config.idp.data_dir), true)?;
         if let (Some(worker), Some(intent)) = (reset.worker(), reset.intent()) {
@@ -103,21 +106,38 @@ pub(crate) async fn run(data: &Path) -> io::Result<()> {
             }
         }
         drop(reset);
-        idp_server::reset_independent(&config.idp, true).await?;
-        completed.push("idp".into());
-        publish(data, JOURNAL, &json!(completed))?;
+        idp_server::reset_independent(&config.idp, true, || {
+            if !completed.iter().any(|owner| owner == "idp") {
+                completed.push("idp".into());
+            }
+            publish(data, JOURNAL, &json!(completed))
+        })
+        .await?;
     }
-    if !completed.iter().any(|owner| owner == "device") {
-        device_server::reset_independent(&config.device, true).await?;
-        completed.push("device".into());
-        publish(data, JOURNAL, &json!(completed))?;
+    if !completed.iter().any(|owner| owner == "device")
+        || read_optional(&Path::new(&config.device.data_dir).with_extension("setup-reset.json"))?
+            .is_some()
+    {
+        device_server::reset_independent(&config.device, true, || {
+            if !completed.iter().any(|owner| owner == "device") {
+                completed.push("device".into());
+            }
+            publish(data, JOURNAL, &json!(completed))
+        })
+        .await?;
     }
-    if !completed.iter().any(|owner| owner == "storage") {
-        storage_server::reset_independent(&config.storage, true).await?;
-        completed.push("storage".into());
-        publish(data, JOURNAL, &json!(completed))?;
+    if !completed.iter().any(|owner| owner == "storage")
+        || read_optional(&Path::new(&config.storage.data_dir).with_extension("setup-reset.json"))?
+            .is_some()
+    {
+        storage_server::reset_independent(&config.storage, true, || {
+            if !completed.iter().any(|owner| owner == "storage") {
+                completed.push("storage".into());
+            }
+            publish(data, JOURNAL, &json!(completed))
+        })
+        .await?;
     }
-    fs::remove_dir_all(&root)?;
     fs::File::open(data)?.sync_all()?;
     fs::remove_file(path)?;
     fs::File::open(data)?.sync_all()

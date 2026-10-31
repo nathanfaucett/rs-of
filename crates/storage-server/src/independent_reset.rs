@@ -18,7 +18,11 @@ struct References {
     complete: bool,
 }
 
-pub async fn reset_independent(config: &AppConfig, remove_os_trust: bool) -> io::Result<()> {
+pub async fn reset_independent(
+    config: &AppConfig,
+    remove_os_trust: bool,
+    acknowledge: impl FnOnce() -> io::Result<()>,
+) -> io::Result<()> {
     let mut reset =
         IndependentReset::open("storage", Path::new(&config.data_dir), remove_os_trust)?;
     if reset.secrets_pending() {
@@ -52,7 +56,7 @@ pub async fn reset_independent(config: &AppConfig, remove_os_trust: bool) -> io:
         }
         reset.secrets_removed()?;
     }
-    reset.finish()
+    reset.finish(acknowledge)
 }
 
 #[cfg(test)]
@@ -82,7 +86,7 @@ mod tests {
         )
         .expect("setup")
         .expect("host");
-        assert!(reset_independent(&config, true).await.is_err());
+        assert!(reset_independent(&config, true, || Ok(())).await.is_err());
         assert!(
             domain
                 .with_extension("setup-host")

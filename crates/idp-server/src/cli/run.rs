@@ -67,7 +67,7 @@ pub async fn run() -> io::Result<()> {
     if let Some(IdpCommand::ResetIndependent { remove_os_trust }) = args.command.as_ref() {
         let _ = dotenvy::dotenv();
         let config = crate::startup::load_config(Path::new(&args.config))?;
-        return crate::reset_independent(&config, *remove_os_trust).await;
+        return crate::reset_independent(&config, *remove_os_trust, || Ok(())).await;
     }
     if let Some(IdpCommand::ProvisionServiceClient {
         application_uri,

@@ -789,9 +789,27 @@ async fn resetting_one_composed_owner_preserves_the_shared_authority_and_other_o
         .expect("stopped Device reset");
     assert!(reset.worker().is_none());
     reset.secrets_removed().expect("no attempted material");
-    reset
-        .finish()
-        .expect("owner reset without removing shared trust");
+    assert!(
+        reset
+            .finish(|| Err(std::io::Error::other("acknowledgment interrupted")))
+            .is_err()
+    );
+    assert!(
+        IndependentSetupHost::prepare_with_tls(
+            "device",
+            &root.path().join("device"),
+            primary.local_addr(),
+            "https://localhost:5173",
+            "/device",
+            tls.clone(),
+        )
+        .is_err(),
+        "unacknowledged reset must fence fresh admission"
+    );
+    crate::IndependentReset::open("device", &root.path().join("device"), true)
+        .expect("reopen completion evidence without setup directory")
+        .finish(|| Ok(()))
+        .expect("acknowledged owner reset without removing shared trust");
     let response = storage
         .router()
         .oneshot(

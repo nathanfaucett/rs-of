@@ -247,11 +247,21 @@ impl IndependentReset {
         Ok(())
     }
 
-    pub fn finish(self) -> io::Result<()> {
-        self.finish_with_trust(uninstall_local_ca)
+    /// Retain exact completion evidence until the caller durably acknowledges cleanup.
+    pub fn finish(self, acknowledge: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
+        self.finish_with(uninstall_local_ca, acknowledge)
     }
 
-    fn finish_with_trust(mut self, remove: impl FnOnce(&Path) -> io::Result<()>) -> io::Result<()> {
+    #[cfg(test)]
+    fn finish_with_trust(self, remove: impl FnOnce(&Path) -> io::Result<()>) -> io::Result<()> {
+        self.finish_with(remove, || Ok(()))
+    }
+
+    fn finish_with(
+        mut self,
+        remove: impl FnOnce(&Path) -> io::Result<()>,
+        acknowledge: impl FnOnce() -> io::Result<()>,
+    ) -> io::Result<()> {
         if self.secrets_pending() {
             return Err(io::Error::other(
                 "protected secret deletion has not completed",
@@ -290,6 +300,12 @@ impl IndependentReset {
         if present(&self.retired)? {
             fs::remove_dir_all(&self.retired)?;
         }
+        sync_ancestry(
+            self.journal_path
+                .parent()
+                .expect("absolute reset journal parent"),
+        )?;
+        acknowledge()?;
         fs::remove_file(&self.journal_path)?;
         sync_ancestry(
             self.journal_path

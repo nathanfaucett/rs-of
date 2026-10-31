@@ -276,7 +276,7 @@ async fn remote_device_child() {
         ..Default::default()
     };
     if mode == "reset" {
-        device_server::reset_independent(&config, false)
+        device_server::reset_independent(&config, false, || Ok(()))
             .await
             .expect("remote consumer reset without deleting shared state");
         fs::write(root.join("reset.ready"), "ready").expect("reset ready");

@@ -7,7 +7,7 @@ use std::{
 use api::{
     IndependentCreateCommand, IndependentCreateHost, IndependentSetupHost, LocalTls, LocalTlsConfig,
 };
-use axum::{Router, extract::Request, http::StatusCode, response::IntoResponse};
+use axum::{Router, extract::Request, http::StatusCode};
 use tokio::{sync::mpsc, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
@@ -120,16 +120,22 @@ impl SetupHost {
     }
     pub fn router(&self) -> Router {
         let management = self.management.clone();
+        let metadata = management_server::public_metadata_router(
+            &self.config.management.api_public_uri,
+            self.config.management.server.prefix(),
+        )
+        .fallback(|| async { StatusCode::SERVICE_UNAVAILABLE });
         let management = Router::new().fallback(move |request: Request| {
-            let router = management.read().ok().and_then(|r| r.clone());
+            let router = management
+                .read()
+                .ok()
+                .and_then(|r| r.clone())
+                .unwrap_or_else(|| metadata.clone());
             async move {
-                match router {
-                    Some(router) => router
-                        .oneshot(request)
-                        .await
-                        .expect("infallible Management router"),
-                    None => StatusCode::SERVICE_UNAVAILABLE.into_response(),
-                }
+                router
+                    .oneshot(request)
+                    .await
+                    .expect("infallible Management router")
             }
         });
         compose_router(
