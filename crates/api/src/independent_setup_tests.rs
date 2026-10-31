@@ -746,3 +746,69 @@ async fn owner_setup_surface_uses_the_owner_prefix_in_both_layouts() {
         }
     }
 }
+
+#[tokio::test]
+async fn resetting_one_composed_owner_preserves_the_shared_authority_and_other_owner() {
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use tower::ServiceExt;
+    let root = tempfile::tempdir().expect("isolated owner roots");
+    let primary = IndependentSetupHost::prepare(
+        "idp",
+        &root.path().join("idp"),
+        "127.0.0.1:37444".parse().expect("loopback"),
+        "https://localhost:5173",
+        "/idp",
+        false,
+    )
+    .expect("local authority")
+    .expect("fresh owner");
+    let tls = primary.tls().clone();
+    let device = IndependentSetupHost::prepare_with_tls(
+        "device",
+        &root.path().join("device"),
+        primary.local_addr(),
+        "https://localhost:5173",
+        "/device",
+        tls.clone(),
+    )
+    .expect("composed Device");
+    let storage = IndependentSetupHost::prepare_with_tls(
+        "storage",
+        &root.path().join("storage"),
+        primary.local_addr(),
+        "https://localhost:5173",
+        "/storage",
+        tls.clone(),
+    )
+    .expect("composed Storage");
+    drop(device);
+    let mut reset = crate::IndependentReset::open("device", &root.path().join("device"), true)
+        .expect("stopped Device reset");
+    assert!(reset.worker().is_none());
+    reset.secrets_removed().expect("no attempted material");
+    reset
+        .finish()
+        .expect("owner reset without removing shared trust");
+    let response = storage
+        .router()
+        .oneshot(
+            Request::get("/storage/setup/owner/status")
+                .body(Body::empty())
+                .expect("sibling observation"),
+        )
+        .await
+        .expect("live sibling");
+    assert_eq!(response.status(), StatusCode::OK);
+    let _recreated = IndependentSetupHost::prepare_with_tls(
+        "device",
+        &root.path().join("device"),
+        primary.local_addr(),
+        "https://localhost:5173",
+        "/device",
+        tls,
+    )
+    .expect("explicit reset permits new Device admission behind the same authority");
+}

@@ -9,15 +9,9 @@ fn directory() -> PathBuf {
 }
 
 pub(crate) fn retained_identity(root: &std::path::Path) -> serde_json::Value {
-    let host = unified_server::BootstrapConfig::open(root).expect("stopped retained host");
-    let config = host.config();
-    serde_json::json!({
-        "listen": config.listen_addr, "issuer": config.idp.oauth2.issuer,
-        "namespace": config.idp.key_namespace,
-        "roots": [config.idp.data_dir, config.management.data_dir, config.device.data_dir, config.storage.data_dir, config.endpoint_data_dir.to_string_lossy().into_owned()],
-        "applications": [config.idp.api_public_uri, config.management.api_public_uri, config.device.api_public_uri, config.storage.api_public_uri],
-        "setup_attempted": host.setup_attempted(),
-    })
+    let config =
+        unified_server::UnifiedConfig::local_dynamic(root).expect("retained configuration");
+    serde_json::json!({"listen":config.listen_addr, "issuer":config.idp.oauth2.issuer})
 }
 
 fn fixture(root: &std::path::Path) -> (SetupHost, reqwest::Client) {
@@ -48,7 +42,7 @@ async fn native_host_keeps_one_listener_and_shared_routes_until_coordinated_clos
     .expect("injected trust installer, actual TLS listener");
     assert!(tokio::net::TcpListener::bind(address).await.is_err());
     let status = client
-        .get(format!("{}/idp/setup/status", host.base_url()))
+        .get(format!("{}/idp/setup/owner/status", host.base_url()))
         .send()
         .await
         .expect("shared status")
@@ -57,10 +51,7 @@ async fn native_host_keeps_one_listener_and_shared_routes_until_coordinated_clos
         .expect("status JSON");
     assert_eq!(status["state"], "awaiting_choice");
     assert_eq!(status["ready"], false);
-    assert_eq!(
-        status["owners"],
-        serde_json::json!(["idp", "device", "storage"])
-    );
+    assert_eq!(status["owners"], serde_json::json!(["idp"]));
     for path in ["idp", "device", "storage", "endpoint"] {
         assert!(
             !root.join(path).exists(),
@@ -77,11 +68,11 @@ async fn native_host_keeps_one_listener_and_shared_routes_until_coordinated_clos
     assert!(serialized["failure"].is_null());
     assert!(!serialized.to_string().contains("historical-marker"));
     assert!(!serialized.to_string().contains("setup-admission"));
-    let denied = client.post(format!("{}/idp/setup/create", host.base_url()))
+    let denied = client.post(format!("{}/idp/setup/owner/create", host.base_url()))
         .json(&serde_json::json!({"operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"admin", "node":"Desktop", "password":"not-authorized"}))
         .send().await.expect("real shared Create route");
     assert_eq!(denied.status(), reqwest::StatusCode::UNAUTHORIZED);
-    let denied = client.post(format!("{}/idp/setup/join", host.base_url()))
+    let denied = client.post(format!("{}/idp/setup/owner/join", host.base_url()))
         .json(&serde_json::json!({"operation_nonce":"0123456789abcdef0123456789abcdef", "node":"Desktop", "peer":iroh::SecretKey::generate().public().to_string()}))
         .send().await.expect("real shared Join route");
     assert_eq!(denied.status(), reqwest::StatusCode::UNAUTHORIZED);
@@ -136,8 +127,8 @@ async fn native_trust_failure_preserves_prerequisites_without_starting_domain_ow
 #[test]
 fn native_reopen_refuses_lost_host_and_tls_evidence_without_replacement() {
     for lost in [
-        "host.redb",
-        "setup-admission/state",
+        "listen.addr",
+        "idp.setup-host/setup-admission/state",
         "endpoint.tls/server.key",
     ] {
         let root = directory();
@@ -156,7 +147,7 @@ fn native_reopen_refuses_lost_host_and_tls_evidence_without_replacement() {
             "missing {lost} requires repair"
         );
         assert!(!root.join(lost).exists(), "must never regenerate {lost}");
-        if lost != "host.redb" {
+        if lost != "listen.addr" {
             assert_eq!(retained_identity(&root), host);
         }
         fs::remove_dir_all(root).expect("isolated cleanup");
@@ -170,7 +161,7 @@ async fn desktop_origin_is_explicit_and_does_not_admit_unrelated_browser_origins
     let mut host = NativeHost::start_with(setup, |_| Ok(()), || Ok(client.clone()))
         .await
         .expect("isolated host");
-    let url = format!("{}/idp/setup/status", host.base_url());
+    let url = format!("{}/idp/setup/owner/status", host.base_url());
     assert_eq!(
         client
             .get(&url)
@@ -501,7 +492,7 @@ fn corrupt_retained_identity_requires_repair_without_replacement() {
     let root = directory();
     drop(super::prepare(&root).expect("fresh host"));
     let corrupt = b"not a retained host identity";
-    fs::write(root.join("host.redb"), corrupt).expect("inject corrupt identity");
+    fs::write(root.join("listen.addr"), corrupt).expect("inject corrupt identity");
     let error = super::prepare(&root)
         .err()
         .expect("corrupt identity refused");
@@ -510,7 +501,7 @@ fn corrupt_retained_identity_requires_repair_without_replacement() {
         crate::onboarding::Failure::Repair
     ));
     assert!(
-        fs::read(root.join("host.redb")).expect("no replacement") == corrupt,
+        fs::read(root.join("listen.addr")).expect("no replacement") == corrupt,
         "corrupt database changed"
     );
     fs::remove_dir_all(root).expect("isolated cleanup");
@@ -522,7 +513,8 @@ fn corrupt_retained_admission_requires_repair_without_replacement() {
     drop(super::prepare(&root).expect("fresh host"));
     let identity = retained_identity(&root);
     let corrupt = b"not retained admission";
-    fs::write(root.join("setup-admission/state"), corrupt).expect("inject corrupt admission");
+    fs::write(root.join("idp.setup-host/setup-admission/state"), corrupt)
+        .expect("inject corrupt admission");
     let error = super::prepare(&root)
         .err()
         .expect("corrupt admission refused");
@@ -531,7 +523,7 @@ fn corrupt_retained_admission_requires_repair_without_replacement() {
         crate::onboarding::Failure::Repair
     ));
     assert_eq!(
-        fs::read(root.join("setup-admission/state")).expect("no replacement"),
+        fs::read(root.join("idp.setup-host/setup-admission/state")).expect("no replacement"),
         corrupt
     );
     assert_eq!(retained_identity(&root), identity);

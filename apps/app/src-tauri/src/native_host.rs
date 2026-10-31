@@ -1,27 +1,26 @@
-use std::{fs, io, path::Path, time::Duration};
+use std::{io, path::Path, time::Duration};
 
 use axum::http::HeaderValue;
 use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 #[cfg(unix)]
-use unified_server::{BootstrapConfig, BootstrapPurpose, LocalTls, SetupHost};
+use unified_server::{LocalTls, SetupHost, UnifiedConfig};
 
 #[cfg(unix)]
 pub(crate) fn prepare(root: &Path) -> io::Result<SetupHost> {
-    match fs::symlink_metadata(root) {
-        Ok(_) => (|| SetupHost::open(BootstrapConfig::open(root)?))().map_err(|error| match error
-            .kind()
-        {
-            io::ErrorKind::NotFound
-            | io::ErrorKind::NotADirectory
-            | io::ErrorKind::IsADirectory => io::Error::new(io::ErrorKind::InvalidData, error),
-            _ => error,
-        }),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => SetupHost::create(
-            BootstrapConfig::create(root, BootstrapPurpose::AwaitingChoice, None)?,
-        ),
-        Err(error) => Err(error),
-    }
+    let mut config = UnifiedConfig::local_dynamic(root)?;
+    config.idp.ui_public_uri = native_origin()
+        .to_str()
+        .map_err(io::Error::other)?
+        .to_owned();
+    config.device.server.setup_ui_origin = Some(config.idp.ui_public_uri.clone());
+    config.storage.server.setup_ui_origin = Some(config.idp.ui_public_uri.clone());
+    SetupHost::prepare(config).map_err(|error| match error.kind() {
+        io::ErrorKind::NotFound | io::ErrorKind::NotADirectory | io::ErrorKind::IsADirectory => {
+            io::Error::new(io::ErrorKind::InvalidData, error)
+        }
+        _ => error,
+    })
 }
 
 pub(crate) struct NativeHost {
@@ -95,14 +94,13 @@ impl NativeHost {
         let address = setup.local_addr();
         let listener = TcpListener::bind(address).await?;
         let tls = setup.tls().clone();
-        let worker = setup.into_worker(cancellation.clone());
-        let router = worker.router_for_origin(native_origin())?;
+        let router = setup.router();
         let shutdown = cancellation.clone();
         let install_tls = tls.clone();
         let task = tokio::spawn(async move {
             let _cancel_on_drop = shutdown.clone().drop_guard();
-            let owner = tokio::spawn(worker.run());
-            let result = axum::serve(tls.listener(listener), router)
+            let owner = tokio::spawn(setup.run(shutdown.clone()));
+            let result = axum::serve(tls.listener(listener), router.into_make_service())
                 .with_graceful_shutdown(shutdown.clone().cancelled_owned())
                 .await;
             shutdown.cancel();
@@ -151,9 +149,9 @@ impl NativeHost {
         &self.base_url
     }
 
-    pub(crate) async fn status(&self) -> io::Result<of_idp_client::models::CreateResult> {
+    pub(crate) async fn status(&self) -> io::Result<of_idp_client::models::OwnerSetupStatus> {
         let configuration = self.configuration();
-        match of_idp_client::apis::setup_api::setup_status(&configuration).await {
+        match of_idp_client::apis::owner_setup_api::owner_setup_status(&configuration).await {
             Ok(status) => Ok(status),
             Err(of_idp_client::apis::Error::ResponseError(response))
                 if response.status.as_u16() == 503 =>
@@ -172,9 +170,6 @@ impl NativeHost {
         };
         match self.status().await {
             Ok(status) => {
-                if status.ready && crate::onboarding::login_client(&status).is_err() {
-                    observation.failure = Some(Failure::Repair);
-                }
                 observation.status = Some(status);
             }
             Err(_) => observation.failure = Some(Failure::Retry),
@@ -201,7 +196,7 @@ impl NativeHost {
             .client
             .request(
                 reqwest::Method::OPTIONS,
-                format!("{}/idp/setup/status", self.base_url),
+                format!("{}/idp/setup/owner/status", self.base_url),
             )
             .timeout(Duration::from_secs(3))
             .send()
@@ -269,10 +264,6 @@ fn native_origin() -> HeaderValue {
 #[cfg(all(test, unix))]
 #[path = "desktop_lifecycle_tests.rs"]
 pub(crate) mod tests;
-
-#[cfg(all(test, target_os = "linux"))]
-#[path = "native_provider_lifecycle_tests.rs"]
-mod provider_lifecycle_tests;
 
 #[derive(Debug)]
 struct TrustConsentRequired;

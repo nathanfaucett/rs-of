@@ -1,174 +1,125 @@
 use axum::{
-    Router,
-    body::{Body, to_bytes},
+    body::Body,
     http::{Request, StatusCode},
-    routing::get,
 };
 use tower::ServiceExt;
-use unified_server::compose_router;
-
-async fn assert_response(router: &Router, path: &str, status: StatusCode, expected: &str) {
-    let response = router
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri(path)
-                .body(Body::empty())
-                .expect("build composition request"),
-        )
-        .await
-        .expect("call composed router");
-    assert_eq!(response.status(), status, "{path}");
-    let body = to_bytes(response.into_body(), 1024)
-        .await
-        .expect("read composition response");
-    assert_eq!(body.as_ref(), expected.as_bytes(), "{path}");
-}
+use unified_server::{SetupHost, UnifiedConfig};
 
 #[tokio::test]
-async fn composition_exposes_only_routes_supplied_by_the_four_services() {
-    let idp = Router::new().route("/idp/health", get(|| async { "idp" }));
-    let management = Router::new().route("/management/health", get(|| async { "management" }));
-    let device = Router::new().route("/device/health", get(|| async { "device" }));
-    let storage = Router::new().route("/storage/databases", get(|| async { "storage" }));
-    let router = compose_router(
-        idp.clone(),
-        management.clone(),
-        device.clone(),
-        storage.clone(),
-    );
-
-    for (path, expected) in [
-        ("/idp/health", "idp"),
-        ("/management/health", "management"),
-        ("/device/health", "device"),
-        ("/storage/databases", "storage"),
-    ] {
-        assert_response(&router, path, StatusCode::OK, expected).await;
-    }
-    for path in [
-        "/idp/setup/status",
-        "/management/node-joins/acceptance",
-        "/management/node-joins/pending",
-        "/idp/idp/health",
-        "/management/management/health",
-        "/storage/storage/databases",
-    ] {
-        assert_response(&router, path, StatusCode::NOT_FOUND, "").await;
-    }
-
-    let router = compose_router(
-        idp.route("/idp/setup/status", get(|| async { "setup" })),
-        management,
-        device.route(
-            "/device/node-joins/acceptance",
-            get(|| async { "acceptance" }),
-        ),
-        storage,
-    );
-    assert_response(&router, "/idp/setup/status", StatusCode::OK, "setup").await;
-    assert_response(
-        &router,
-        "/device/node-joins/acceptance",
-        StatusCode::OK,
-        "acceptance",
-    )
-    .await;
-}
-
-#[cfg(unix)]
-#[tokio::test]
-async fn owner_service_builders_supply_hosted_features_to_composition() {
-    use std::sync::Arc;
-
+async fn owner_surfaces_share_one_endpoint_and_exactly_one_prefix() {
     let root = std::env::temp_dir().join(format!(
-        "service-composition-{}",
+        "owner-composition-{}",
         idp_model::model::Id::now_v7()
     ));
-    api::setup_files::create_private_directory(&root, false).expect("private setup fixture");
-    let admission =
-        Arc::new(api::SetupAdmission::open(&root.join("admission")).expect("protected admission"));
-    let (setup, _commands) = idp_server::HostedSetupControl::new(
-        admission,
-        "awaiting_choice",
-        vec![],
-        tokio_util::sync::CancellationToken::new(),
-    );
-    let identity = Arc::new(db::Database::in_memory());
-    idp_model::replica::up(&identity)
-        .await
-        .expect("identity schema");
-    let devices = Arc::new(db::Database::in_memory());
-    device_service::replica::up(&devices)
-        .await
-        .expect("Management schema");
-    let control = Arc::new(
-        device_service::HostedControlPlane::new_with_services(
-            "https://idp.example",
-            "https://storage.example",
-            "https://installation.example",
-        )
-        .expect("owner interfaces"),
-    );
-    let router = compose_router(
-        idp_server::build_setup_router(setup, "https://idp.example/idp", "/idp"),
-        management_server::build_router(
-            identity.client(),
-            "https://management.example",
-            "/management",
-            control.clone(),
-        )
-        .await
-        .expect("Management router"),
-        device_server::build_router(
-            identity.client(),
-            devices.client(),
-            "https://device.example",
-            "/device",
-            "storage",
-            control,
-            None,
-        )
-        .await
-        .expect("Device router"),
-        storage_server::public_metadata_router("https://storage.example/storage", "/storage"),
-    );
-    for path in [
-        "/idp/version",
-        "/management/health",
-        "/device/health",
-        "/storage/version",
-        "/idp/setup/status",
-    ] {
+    let config = UnifiedConfig::local(&root, "127.0.0.1:37443".parse().expect("loopback"));
+    let host = SetupHost::prepare(config).expect("composed owner setup");
+    let router = host.router();
+    for owner in ["idp", "device", "storage"] {
         let response = router
             .clone()
             .oneshot(
-                Request::get(path)
+                Request::get(format!("/{owner}/setup/owner/status"))
                     .body(Body::empty())
-                    .expect("owner request"),
+                    .expect("request"),
             )
             .await
-            .expect("composed owner response");
-        assert_eq!(response.status(), StatusCode::OK, "{path}");
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK, "{owner}");
+        for path in [
+            format!("/{owner}/{owner}/setup/owner/status"),
+            format!("/{owner}/setup/status"),
+            format!("/{owner}/setup/independent/create"),
+        ] {
+            let response = router
+                .clone()
+                .oneshot(Request::get(&path).body(Body::empty()).expect("request"))
+                .await
+                .expect("response");
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+        }
+        assert!(
+            host.admission_path(owner)
+                .expect("owner admission")
+                .is_file()
+        );
     }
-    let response = router
-        .clone()
-        .oneshot(
-            Request::get("/device/node-joins/acceptance")
-                .body(Body::empty())
-                .expect("join request"),
-        )
-        .await
-        .expect("composed Management route");
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     for path in [
-        "/idp/nonexistent",
-        "/management/nonexistent",
-        "/storage/nonexistent",
-        "/idp/idp/setup/status",
+        "/setup/owner/status",
+        "/management/setup/owner/status",
+        "/setup/status",
     ] {
-        assert_response(&router, path, StatusCode::NOT_FOUND, "").await;
+        assert_eq!(
+            router
+                .clone()
+                .oneshot(Request::get(path).body(Body::empty()).expect("request"))
+                .await
+                .expect("response")
+                .status(),
+            StatusCode::NOT_FOUND,
+            "{path}"
+        );
+    }
+    let supplied = unified_server::compose_router(
+        axum::Router::new().route("/idp/health", axum::routing::get(|| async { "idp" })),
+        axum::Router::new().route(
+            "/management/health",
+            axum::routing::get(|| async { "management" }),
+        ),
+        axum::Router::new().route("/device/health", axum::routing::get(|| async { "device" })),
+        axum::Router::new().route(
+            "/storage/health",
+            axum::routing::get(|| async { "storage" }),
+        ),
+    );
+    for owner in ["idp", "management", "device", "storage"] {
+        for (path, expected) in [
+            (format!("/{owner}/health"), StatusCode::OK),
+            (format!("/{owner}/{owner}/health"), StatusCode::NOT_FOUND),
+        ] {
+            assert_eq!(
+                supplied
+                    .clone()
+                    .oneshot(
+                        Request::get(path)
+                            .body(Body::empty())
+                            .expect("supplied owner request")
+                    )
+                    .await
+                    .expect("supplied owner response")
+                    .status(),
+                expected
+            );
+        }
     }
     drop(router);
-    std::fs::remove_dir_all(root).expect("isolated cleanup");
+    drop(host);
+    let legacy = root.join("previous-installation");
+    std::fs::create_dir(&legacy).expect("retained prior host root");
+    std::fs::write(legacy.join("host.redb"), b"retained prior installation")
+        .expect("previous host evidence");
+    let failure = SetupHost::prepare(UnifiedConfig::local(
+        &legacy,
+        "127.0.0.1:37443".parse().expect("loopback"),
+    ))
+    .err()
+    .expect("previous host must not be reprovisioned");
+    assert!(failure.to_string().contains("previous binary"));
+    assert_eq!(
+        std::fs::read(legacy.join("host.redb")).expect("preserved prior installation"),
+        b"retained prior installation"
+    );
+    let orphan = root.join("orphaned-endpoint");
+    std::fs::create_dir_all(orphan.join("endpoint")).expect("orphaned prior endpoint");
+    let failure = SetupHost::prepare(UnifiedConfig::local(
+        &orphan,
+        "127.0.0.1:37443".parse().expect("loopback"),
+    ))
+    .err()
+    .expect("orphaned prior endpoint must not authorize fresh owners");
+    assert!(failure.to_string().contains("previous binary"));
+    assert_eq!(
+        std::fs::read_dir(&orphan).expect("preserved root").count(),
+        1
+    );
+    std::fs::remove_dir_all(root).expect("fixture cleanup");
 }

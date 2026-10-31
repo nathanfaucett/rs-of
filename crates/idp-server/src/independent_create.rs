@@ -146,17 +146,35 @@ pub async fn serve_independent_create(
 ) -> io::Result<()> {
     setup.require_owner("idp", Path::new(&config.data_dir))?;
     let (host, commands) = setup.into_create(shutdown.clone())?;
-    let control = host.control();
-    let (owners, receiver) = tokio::sync::watch::channel(None);
-    let identity_serving =
-        crate::independent_identity::serve(control.clone(), receiver, shutdown.clone());
-    let mut worker = tokio::spawn(run(config, control, commands, shutdown.clone(), owners));
-    let serving = async { tokio::try_join!(host.serve(), identity_serving).map(|_| ()) };
+    let mut worker = tokio::spawn(run_owner_setup(
+        config,
+        host.control(),
+        commands,
+        shutdown.clone(),
+    ));
+    let serving = host.serve();
     tokio::pin!(serving);
     tokio::select! {
         result = &mut serving => { shutdown.cancel(); result.and(worker.await.map_err(io::Error::other)?) },
         result = &mut worker => { shutdown.cancel(); result.map_err(io::Error::other)?.and(serving.await) },
     }
+}
+
+pub async fn run_owner_setup(
+    config: Arc<AppConfig>,
+    control: IndependentCreateControl,
+    commands: mpsc::Receiver<IndependentCreateCommand>,
+    shutdown: CancellationToken,
+) -> io::Result<()> {
+    let mut config = (*config).clone();
+    config.setup_http_client = Some(control.http_client());
+    let config = Arc::new(config);
+    let (owners, receiver) = tokio::sync::watch::channel(None);
+    tokio::try_join!(
+        crate::independent_identity::serve(control.clone(), receiver, shutdown.clone()),
+        run(config, control, commands, shutdown, owners),
+    )
+    .map(|_| ())
 }
 
 async fn run(

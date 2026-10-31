@@ -1,17 +1,14 @@
 use std::{
     fs::{self, OpenOptions},
-    future::Future,
     io::{self, Write},
     os::unix::fs::{MetadataExt, OpenOptionsExt},
     path::{Component, Path},
-    pin::Pin,
 };
 
 use serde_json::{Value, json};
-use unified_server::BootstrapConfig;
+use unified_server::UnifiedConfig;
 
 const JOURNAL: &str = "reset-state.json";
-const EVIDENCE: &str = "setup-reference-backup.json";
 
 pub(crate) fn pending(data: &Path) -> io::Result<bool> {
     Ok(read_optional(&data.join(JOURNAL))?.is_some())
@@ -69,135 +66,79 @@ pub(crate) fn publish(data: &Path, name: &str, value: &Value) -> io::Result<()> 
     Ok(())
 }
 
-fn read_record(data: &Path) -> io::Result<Option<Value>> {
-    let Some(bytes) = read_optional(&data.join(JOURNAL))? else {
-        return Ok(None);
+pub(crate) async fn run(data: &Path) -> io::Result<()> {
+    let root = data.join("node");
+    let config = UnifiedConfig::local_dynamic(&root)?;
+    let path = data.join(JOURNAL);
+    let mut completed = match read_optional(&path)? {
+        Some(bytes) => serde_json::from_slice::<Vec<String>>(&bytes)?,
+        None => Vec::new(),
     };
-    let record: Value = serde_json::from_slice(&bytes)?;
-    if record.as_object().map(|fields| fields.len()) != Some(3)
-        || record["version"] != 1
-        || !matches!(
-            record["phase"].as_str(),
-            Some("secrets-pending" | "data-pending")
-        )
-        || !record["references"].is_object()
+    if completed
+        .iter()
+        .any(|owner| !matches!(owner.as_str(), "idp" | "device" | "storage"))
     {
         return Err(io::Error::other(
-            "invalid native reset journal; exact recovery required",
+            "unsupported reset evidence; preserve the root and restore the previous binary for exact reset/recovery",
         ));
     }
-    Ok(Some(record))
-}
-
-pub(crate) async fn run(data: &Path) -> io::Result<()> {
-    run_with(data, |host, references| {
-        Box::pin(async move { host.delete_local_setup_secrets(&references).await })
-    })
-    .await
-}
-
-async fn run_with(
-    data: &Path,
-    delete: impl for<'a> FnOnce(
-        &'a BootstrapConfig,
-        Value,
-    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send + 'a>>,
-) -> io::Result<()> {
-    let root = data.join("node");
-    let mut record = match read_record(data)? {
-        Some(record) => record,
-        None => {
-            let host = BootstrapConfig::open(&root)?;
-            let references = host.local_reset_references()?;
-            let backup = json!({"version":1, "references":references});
-            match read_optional(&data.join(EVIDENCE))? {
-                Some(bytes) if serde_json::from_slice::<Value>(&bytes)? != backup => {
-                    return Err(io::Error::other(
-                        "native reset backup conflicts with current host",
-                    ));
+    publish(data, JOURNAL, &json!(completed))?;
+    if !completed.iter().any(|owner| owner == "idp") {
+        let reset =
+            api::IndependentReset::open("idp", std::path::Path::new(&config.idp.data_dir), true)?;
+        if let (Some(worker), Some(intent)) = (reset.worker(), reset.intent()) {
+            if let Some(member) = worker["member"].as_str() {
+                let target = json!({"version":1, "issuer":intent.issuer, "member_id":member, "status":"pending"});
+                validate_revocation(&target)?;
+                let name = format!("reset-revocation-{member}.json");
+                match read_optional(&data.join(&name))? {
+                    Some(bytes) if serde_json::from_slice::<Value>(&bytes)? != target => {
+                        return Err(io::Error::other(
+                            "retained revocation target conflicts with owner identity",
+                        ));
+                    }
+                    Some(_) => (),
+                    None => publish(data, &name, &target)?,
                 }
-                Some(_) => (),
-                None => publish(data, EVIDENCE, &backup)?,
             }
-            let record = json!({"version":1, "phase":"secrets-pending", "references":references});
-            publish(data, JOURNAL, &record)?;
-            record
         }
-    };
-    if record["references"]["root"] != json!(root) {
-        return Err(io::Error::other(
-            "native reset root conflicts with retained host",
-        ));
+        drop(reset);
+        idp_server::reset_independent(&config.idp, true).await?;
+        completed.push("idp".into());
+        publish(data, JOURNAL, &json!(completed))?;
     }
-    retain_revocation(data, &record["references"])?;
-    let mut host_guard = None;
-    if record["phase"] == "secrets-pending" {
-        host_guard = Some(BootstrapConfig::open(&root)?);
-        let host = host_guard.as_ref().expect("stopped reset host guard");
-        if host.local_reset_references()? != record["references"] {
-            return Err(io::Error::other(
-                "native reset identity changed; recover exact references",
-            ));
-        }
-        delete(host, record["references"].clone()).await?;
-        record["phase"] = json!("data-pending");
-        publish(data, JOURNAL, &record)?;
+    if !completed.iter().any(|owner| owner == "device") {
+        device_server::reset_independent(&config.device, true).await?;
+        completed.push("device".into());
+        publish(data, JOURNAL, &json!(completed))?;
     }
-    let _data_guard =
-        if host_guard.is_none() && read_optional(&root.join("operation.lock"))?.is_some() {
-            Some(lock_stopped_host(&root)?)
-        } else {
-            None
-        };
-    match fs::symlink_metadata(&root) {
-        Ok(metadata) if metadata.file_type().is_dir() => fs::remove_dir_all(&root)?,
-        Ok(_) => return Err(io::Error::other("native host root must be a directory")),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => (),
-        Err(error) => return Err(error),
+    if !completed.iter().any(|owner| owner == "storage") {
+        storage_server::reset_independent(&config.storage, true).await?;
+        completed.push("storage".into());
+        publish(data, JOURNAL, &json!(completed))?;
     }
-    drop(host_guard);
-    if read_optional(&data.join(EVIDENCE))?.is_some() {
-        fs::remove_file(data.join(EVIDENCE))?;
-    }
+    fs::remove_dir_all(&root)?;
     fs::File::open(data)?.sync_all()?;
-    fs::remove_file(data.join(JOURNAL))?;
+    fs::remove_file(path)?;
     fs::File::open(data)?.sync_all()
 }
 
 pub(crate) fn recover(data: &Path) -> io::Result<()> {
-    let backup: Value = serde_json::from_slice(
-        &read_optional(&data.join(EVIDENCE))?
-            .ok_or_else(|| io::Error::other("no exact native reset backup retained"))?,
-    )?;
-    if backup["version"] != 1 || backup["references"]["root"] != json!(data.join("node")) {
-        return Err(io::Error::other("invalid native reset backup"));
-    }
-    read_optional(&data.join("node/host.redb"))?.ok_or_else(|| io::Error::other(
-        "missing host SQL database; reference recovery cannot recreate workflow or admission; restore the exact database from an operator backup",
-    ))?;
-    let host = BootstrapConfig::open(&data.join("node"))?;
-    if host.local_reset_references()? != backup["references"] {
+    if read_optional(&data.join("setup-reference-backup.json"))?.is_some() {
         return Err(io::Error::other(
-            "recovered references do not match exact owner state",
+            "unsupported previous Unified Host reference backup; preserve it and use the previous binary for exact recovery/reset",
         ));
     }
+    let root = data.join("node");
+    for owner in ["idp", "device", "storage"] {
+        if !root.join(format!("{owner}.setup-host")).is_dir() {
+            return Err(io::Error::other(
+                "owner-local setup evidence is missing; restore the exact owner root from backup; reference recovery cannot synthesize setup history",
+            ));
+        }
+    }
+    drop(crate::native_host::prepare(&root)?);
     Ok(())
-}
-
-fn lock_stopped_host(root: &Path) -> io::Result<fs::File> {
-    let path = root.join("operation.lock");
-    read_optional(&path)?.ok_or_else(|| {
-        io::Error::other("missing stopped host lock; explicit independent recovery required")
-    })?;
-    let operation = OpenOptions::new().read(true).write(true).open(path)?;
-    operation.try_lock().map_err(|error| match error {
-        fs::TryLockError::WouldBlock => io::Error::new(
-            io::ErrorKind::WouldBlock,
-            "native host is still owned by a running worker",
-        ),
-        fs::TryLockError::Error(error) => error,
-    })?;
-    Ok(operation)
 }
 
 fn validate_revocation(target: &Value) -> io::Result<idp_model::model::Id> {
@@ -222,30 +163,6 @@ fn validate_revocation(target: &Value) -> io::Result<idp_model::model::Id> {
         return Err(io::Error::other("invalid reset revocation target"));
     }
     Ok(member)
-}
-
-fn retain_revocation(data: &Path, references: &Value) -> io::Result<()> {
-    if references["keys"].is_null() {
-        return Ok(());
-    }
-    let member = references["keys"]["member_id"]
-        .as_str()
-        .ok_or_else(|| io::Error::other("missing reset Device"))?;
-    let name = format!("reset-revocation-{member}.json");
-    if let Some(bytes) = read_optional(&data.join(&name))? {
-        let target: Value = serde_json::from_slice(&bytes)?;
-        validate_revocation(&target)?;
-        if target["issuer"] != references["issuer"] || target["member_id"] != member {
-            return Err(io::Error::other(
-                "retained revocation target conflicts with reset identity",
-            ));
-        }
-    } else {
-        let target = json!({"version":1, "issuer":references["issuer"], "member_id":member, "status":"pending"});
-        validate_revocation(&target)?;
-        publish(data, &name, &target)?;
-    }
-    Ok(())
 }
 
 pub(crate) fn revocations(data: &Path) -> io::Result<Vec<Value>> {

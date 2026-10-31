@@ -50,6 +50,11 @@ pub async fn build_independent_idp(
         state: state.clone(),
         endpoint,
         device,
+        client: config
+            .setup_http_client
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(api::LocalTls::verification_client)?,
     });
     let checked = source.clone();
     let check: CheckJoinHistory = Arc::new(move |approval| {
@@ -80,6 +85,7 @@ struct Source {
     state: RouterState,
     endpoint: String,
     device: String,
+    client: reqwest::Client,
 }
 impl Source {
     fn binding(&self, approval: &IndependentJoinApproval) -> io::Result<()> {
@@ -102,7 +108,7 @@ impl Source {
         self.binding(approval)?;
         let configuration = of_device_client::apis::configuration::Configuration {
             base_path: self.device.clone(),
-            client: api::LocalTls::verification_client()?,
+            client: self.client.clone(),
             ..Default::default()
         };
         of_device_client::apis::independent_join_api::independent_join_verify(

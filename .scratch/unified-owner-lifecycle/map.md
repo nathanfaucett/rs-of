@@ -46,6 +46,8 @@ suite stays unchanged.
 - [Ticket 01](issues/01-owner-setup-surface-at-owner-prefix.md) resolved: the full owner-relative surface is `/setup/owner/...`, including public facts and worker handoffs. Reuse the existing topology-neutral namespace instead of colliding with the host `/setup/...` lifecycle that ticket 02 deletes. One `owner_setup` generated group replaces the split neutral/independent descriptions; no old-path aliases remain.
 - Ticket 01 qualification: root/composed owner contracts and old-route absence pass; canonical contracts and both SDK families regenerate identically. Broader baseline/network/time-limit failures remain explicit in [the validation report](ticket01-validation.md); this is not full deployment acceptance. Ticket 02 owns Unified worker wiring and atomic lifecycle replacement.
 
+- [Ticket 02](issues/02-unified-host-owner-local-lifecycle.md) resolved: Unified Host composes the existing Create/Join owner workers behind three capabilities and one CA; the parallel lifecycle, host metadata and credential bootstrap are deleted atomically. Focused live coverage includes source-offline Management authorization. [Validation and limits](ticket02-validation.md); [deleted coverage mapping](ticket02-deleted-coverage.md). Tickets 03/04 own cross-layout harness and full consumer/docs migration.
+
 ## Fog
 
 - Whether the desktop application's reset flow needs an owner-local reset surface per owner or can drive
@@ -56,4 +58,4 @@ suite stays unchanged.
 
 ## Frontier
 
-Ticket 02 is the lowest-numbered open, unblocked ticket; ticket 01 implementation is resolved with qualification limits recorded above.
+Ticket 03 is the lowest-numbered open, unblocked ticket. Ticket 02 implementation is resolved with qualification limits recorded above; ticket 04 remains blocked by 03.

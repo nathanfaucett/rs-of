@@ -45,6 +45,10 @@ struct CachedToken {
 }
 
 impl DeviceClient {
+    pub fn with_http_client(mut self, client: Client) -> Self {
+        self.client = client;
+        self
+    }
     pub fn new(
         device_api_base: &str,
         idp_api_base: &str,

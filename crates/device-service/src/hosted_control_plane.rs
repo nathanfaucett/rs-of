@@ -192,6 +192,11 @@ impl HostedControlPlane {
         self.permission_evaluator_client_id.as_deref()
     }
 
+    pub fn with_http_client(mut self, client: Client) -> Self {
+        self.client = client;
+        self
+    }
+
     pub fn with_idp_service_client(
         self,
         client_id: impl Into<String>,
