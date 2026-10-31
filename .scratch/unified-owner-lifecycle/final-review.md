@@ -88,9 +88,41 @@ cargo hack test --feature-powerset --workspace --all-targets
 
 Also blocked at the duplicate table. No edits were made to get any gate past the blocker. No full GUI, browser, credential-provider, privileged trust, real crash/power-loss, filesystem cross-node sync, or other-platform qualification was performed. Rerun these checks after the sibling owner resolves the manifest.
 
-## Integration handoff
+## Original integration handoff (before independent review)
 
 - Implementation commit: `9d3301f05c0a34f5b96f3e2d6ff7cac5fc855f68` (`Fix owner reset acknowledgment, fresh metadata, and exact CLI retries`).
 - Ran `GIT_EDITOR=true git merge --no-edit unified-owner-lifecycle` on the implementation branch: **Already up to date.** Integration remains `58f4599da11b058edf447886f048f3ca9322fa99` and its ancestry check succeeded. No merge into integration was performed.
 - Implementation worktree was clean after commit/merge. The sibling manifest SHA-256 was unchanged after merge. This handoff update is committed separately; no production code changed after the final formatting/blocked test checks.
 - Git automatically reported background packing and its existing `gc.log`/unreachable-loose-object warning during commit. No manual GC, pruning, or removal of that log was performed.
+
+## Independent review and integration delivery
+
+Reviewed `3099be446` (implementation `9d3301f05`) against integration `58f4599da`, located with `git worktree list`. The fixes branch occupied the existing `of` worktree; integration was not checked out elsewhere. Read all four fixes and regression diffs, traced reset open/cleanup/reopen and desktop publication, inspected admission bind/retirement and exact operation types, Management metadata/prefix dispatch, reset call sites, native startup ownership, and ticket/spec/map status.
+
+**Finding corrected:** `apps/app/src-tauri/src/desktop_lifecycle_tests.rs::reset_during_startup_cancels_and_joins_before_deleting_isolated_state` still asserted that `node` disappeared. That assertion necessarily fails under the intended shared TLS/listener retention behavior. Replaced it with assertions that all three owner roots/setup/reset evidence are removed, the shared CA and listener/issuer identity are unchanged, and desktop reset is no longer pending. Startup cancellation/join and listener release assertions remain. This is a focused test correction; no further production change was identified.
+
+**Verdict:** the four implementation fixes are acceptable on independent static review, with the stale lifecycle-test assertion corrected. Call-site arities, closure ownership/borrowing, operation equality types, HTTPS fixture handlers, feature/dependency availability, and prefix flow appear plausible on inspection, but this is **not compiler evidence**. No claim that the final Rust source/tests compile or pass, and no complete validated acceptance. Reset callbacks test acknowledgment-boundary failures, not real crash/power-loss behavior; CLI fixtures do not provision real workers and primarily exercise retirement of the first owner. Broader real-provider/trust, GUI, cross-node filesystem and platform limits above still apply.
+
+All four implementation tickets remain resolved. Ticket02/04 now link these corrections and qualification limits; map Frontier no longer points to the obsolete ticket04 handoff. Spec triage is `needs-triage`, with implementation resolved and final qualification explicitly blocked, rather than stale `ready-for-agent` or a fully validated status. Ticket01's unchecked historical deployment qualification is not silently promoted to green.
+
+### Independent validation attempts
+
+- Passed targeted `rustfmt --edition 2024 --check` on all 17 changed Rust files from the original fixes plus `apps/app/src-tauri/src/desktop_lifecycle_tests.rs` (18 files total).
+- Passed `git --no-pager diff --check 58f4599da..HEAD` before the correction; final working-tree/commit whitespace checks also required before merge.
+- The following commands were actually retried from `of`; each Cargo command stopped before compilation at the unchanged `../offs/crates/file-system/Cargo.toml:70:67` duplicate table (exit 101), and cargo-hack stopped in metadata (exit 1):
+
+```sh
+cargo test -p unified-server --features cli --lib exact_retry_observes_retired_owner_and_submits_only_incomplete_owners
+cargo test -p lidp --lib reset_during_startup_cancels_and_joins_before_deleting_isolated_state
+cargo test -p lidp setup_reset --lib
+cargo test -p api independent_reset --lib
+cargo test -p api resetting_one_composed_owner_preserves_the_shared_authority_and_other_owner --lib
+cargo test -p unified-server --test composition --no-default-features
+cargo clippy -p api -p idp-server -p device-server -p storage-server -p unified-server -p lidp --all-targets --all-features --no-deps -- -D warnings
+cargo hack test --feature-powerset --workspace --all-targets
+just crap
+```
+
+`just crap` again built all four SDK ESM packages successfully, then exited 101 at llvm-cov metadata on that same manifest. No Rust coverage or CRAP score was produced. No workaround, sibling manifest change, or isolated dependency substitution was made. The deployment builds/scenarios, export parity, and sibling powerset commands in the original report above are historical attempts, not newly passing checks.
+
+Delivery: commit the focused test/status/report corrections on `unified-owner-lifecycle-review-fixes`, then merge that branch with `GIT_EDITOR=true` into `unified-owner-lifecycle` at the existing `of` worktree. Report the resulting merge SHA separately (embedding it in its own merged commit would be self-referential). Preserve sibling work, existing branch/worktrees, and leave cleanup to the parent.

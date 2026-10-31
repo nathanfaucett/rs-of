@@ -23,6 +23,10 @@ Claimed on branch `unified-owner-lifecycle-02`, worktree `/home/nathan/code/rust
 - [x] Every behavior asserted by a deleted Unified Host test file is asserted at an owning seam, or is intentionally dropped with a recorded reason.
 - [x] No dead code, unused configuration field, or orphaned public export remains in the crate.
 
+## Comments
+
+- Final review restored fresh composed Management version/OpenAPI metadata through the existing state-free owner router, while keeping runtime health unavailable until serving. The single composition test now covers this boundary. Implementation remains resolved, but this new regression has not compiled or run at the final tip because of the unrelated sibling manifest blocker; historical checks below are not final-tip validation. See [final review](../final-review.md).
+
 ## Answer
 
 Replaced Create and Join atomically with the existing owner workers, three owner-local capabilities and one shared local authority. Management is composed from the supplied configuration and Device runtime connection/control plane without a separate operator step. Deleted the parallel lifecycle and its repeated tests; migrated compile-critical native callers without compatibility APIs. Previous retained layouts fail closed, including orphaned endpoint state.
