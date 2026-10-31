@@ -90,4 +90,7 @@ Also blocked at the duplicate table. No edits were made to get any gate past the
 
 ## Integration handoff
 
-Implementation and this evidence are committed on the implementation branch. The current integration tip will be merged **into this branch**, not the other way around, before handoff; the exact commit and merge outcome are recorded below after the operation.
+- Implementation commit: `9d3301f05c0a34f5b96f3e2d6ff7cac5fc855f68` (`Fix owner reset acknowledgment, fresh metadata, and exact CLI retries`).
+- Ran `GIT_EDITOR=true git merge --no-edit unified-owner-lifecycle` on the implementation branch: **Already up to date.** Integration remains `58f4599da11b058edf447886f048f3ca9322fa99` and its ancestry check succeeded. No merge into integration was performed.
+- Implementation worktree was clean after commit/merge. The sibling manifest SHA-256 was unchanged after merge. This handoff update is committed separately; no production code changed after the final formatting/blocked test checks.
+- Git automatically reported background packing and its existing `gc.log`/unreachable-loose-object warning during commit. No manual GC, pruning, or removal of that log was performed.
