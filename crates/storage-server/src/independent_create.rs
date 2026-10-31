@@ -60,7 +60,12 @@ pub async fn serve_independent_create(
 ) -> io::Result<()> {
     setup.require_owner("storage", Path::new(&config.data_dir))?;
     let (host, commands) = setup.into_create(shutdown.clone())?;
-    let mut worker = tokio::spawn(run(config, host.control(), commands, shutdown.clone()));
+    let mut worker = tokio::spawn(run_owner_setup(
+        config,
+        host.control(),
+        commands,
+        shutdown.clone(),
+    ));
     let serving = host.serve();
     tokio::pin!(serving);
     tokio::select! {
@@ -68,7 +73,7 @@ pub async fn serve_independent_create(
         result = &mut worker => { shutdown.cancel(); result.map_err(io::Error::other)?.and(serving.await) },
     }
 }
-async fn run(
+pub async fn run_owner_setup(
     config: Arc<AppConfig>,
     control: IndependentCreateControl,
     mut commands: mpsc::Receiver<IndependentCreateCommand>,
@@ -182,7 +187,8 @@ fn observe(
         &intent.issuer,
         &intent.storage,
     )
-    .map_err(io::Error::other)?;
+    .map_err(io::Error::other)?
+    .with_http_client(control.http_client());
     let policy = crate::LocalReplicationAuthorizer::from_device_client(device);
     control.set_readiness(move |control| {
         let (config, intent, record, expected, secrets, policy) = (
@@ -249,7 +255,8 @@ fn build(
         &intent.issuer,
         &intent.idp,
     )
-    .map_err(io::Error::other)?;
+    .map_err(io::Error::other)?
+    .with_http_client(control.http_client());
     let device = DeviceClient::new(
         &intent.device,
         &intent.idp,
@@ -258,7 +265,8 @@ fn build(
         &intent.issuer,
         &intent.storage,
     )
-    .map_err(io::Error::other)?;
+    .map_err(io::Error::other)?
+    .with_http_client(control.http_client());
     let endpoint = record
         .endpoint
         .as_deref()

@@ -28,6 +28,8 @@ pub(crate) struct HostSettings {
     address: SocketAddr,
     pub(crate) origin: String,
     pub(crate) prefix: String,
+    #[serde(default)]
+    pub(crate) shared_tls: bool,
 }
 
 impl LocalTlsConfig for HostSettings {
@@ -57,6 +59,40 @@ impl IndependentSetupHost {
         origin: &str,
         prefix: &str,
         configured_identity: bool,
+    ) -> io::Result<Option<Self>> {
+        Self::prepare_inner(
+            owner,
+            domain,
+            address,
+            origin,
+            prefix,
+            configured_identity,
+            None,
+        )
+    }
+
+    /// Compose an owner behind the caller's one retained local TLS authority.
+    pub fn prepare_with_tls(
+        owner: &str,
+        domain: &Path,
+        address: SocketAddr,
+        origin: &str,
+        prefix: &str,
+        tls: LocalTls,
+    ) -> io::Result<Self> {
+        Self::prepare_inner(owner, domain, address, origin, prefix, false, Some(tls))?
+            .ok_or_else(|| io::Error::other("retained domain has no owner-local setup evidence; preserve it and explicitly reset or recover"))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_inner(
+        owner: &str,
+        domain: &Path,
+        address: SocketAddr,
+        origin: &str,
+        prefix: &str,
+        configured_identity: bool,
+        shared_tls: Option<LocalTls>,
     ) -> io::Result<Option<Self>> {
         SetupScope::from_owners(&[owner])?;
         let domain = absolute(domain)?;
@@ -99,6 +135,7 @@ impl IndependentSetupHost {
             address,
             origin: origin.into(),
             prefix: prefix.into(),
+            shared_tls: shared_tls.is_some(),
         };
         if !retained {
             require_absent(&directory)?;
@@ -110,7 +147,13 @@ impl IndependentSetupHost {
             require_private(&operation_path, false)?;
         }
         let operation = private_options(!retained).open(&operation_path)?;
-        operation.try_lock().map_err(io::Error::other)?;
+        operation.try_lock().map_err(|error| match error {
+            std::fs::TryLockError::WouldBlock => io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "owner setup is already running; stop it before retrying",
+            ),
+            std::fs::TryLockError::Error(error) => error,
+        })?;
         if !retained {
             operation.sync_all()?;
             sync_ancestry(&directory)?;
@@ -134,7 +177,9 @@ impl IndependentSetupHost {
                 "domain state has no admitted exact setup operation",
             ));
         }
-        let tls = if retained {
+        let tls = if let Some(tls) = shared_tls {
+            tls
+        } else if retained {
             LocalTls::open(&settings)?
         } else {
             LocalTls::create(&settings)?

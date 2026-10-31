@@ -187,7 +187,11 @@ impl IndependentReset {
             intent,
             worker,
             initialized,
-            ca_fingerprint: ca_fingerprint(&directory.join("tls"))?,
+            ca_fingerprint: if settings.shared_tls {
+                String::new()
+            } else {
+                ca_fingerprint(&directory.join("tls"))?
+            },
             phase: *phase,
         })
     }
@@ -254,7 +258,9 @@ impl IndependentReset {
             ));
         }
         if self.journal.phase == Phase::Trust {
-            remove(&self.directory.join("tls"))?;
+            if !self.journal.ca_fingerprint.is_empty() {
+                remove(&self.directory.join("tls"))?;
+            }
             self.journal.phase = Phase::Data;
             self.save()?;
         }

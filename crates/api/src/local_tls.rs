@@ -189,6 +189,23 @@ impl LocalTls {
             .map_err(io::Error::other)
     }
 
+    pub fn client(&self) -> io::Result<reqwest::Client> {
+        reqwest::Client::builder()
+            .use_rustls_tls()
+            .tls_built_in_root_certs(false)
+            .tls_built_in_native_certs(true)
+            .add_root_certificate(
+                reqwest::Certificate::from_pem(&read_private(&self.ca_path())?)
+                    .map_err(io::Error::other)?,
+            )
+            .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
+            .connect_timeout(Duration::from_secs(1))
+            .timeout(Duration::from_secs(30))
+            .build()
+            .map_err(io::Error::other)
+    }
+
     pub fn listener(&self, listener: TcpListener) -> TlsListener {
         TlsListener {
             inner: listener,

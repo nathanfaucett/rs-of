@@ -10,6 +10,8 @@ use super::{ManagementPermissionConfig, PairingConfig};
 #[serde(default)]
 pub struct AppConfig {
     pub server: ServerConfig,
+    #[serde(skip)]
+    pub setup_http_client: Option<reqwest::Client>,
     pub data_dir: String,
     pub identity_database: Option<db::RemoteDatabaseConfig>,
     pub oauth2: OAuth2Config,
@@ -61,6 +63,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             server: ServerConfig::default(),
+            setup_http_client: None,
             data_dir: "data".to_string(),
             identity_database: None,
             oauth2: OAuth2Config::default(),

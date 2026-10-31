@@ -163,7 +163,13 @@ pub async fn serve_independent_create(
 ) -> io::Result<()> {
     setup.require_owner("device", Path::new(&config.data_dir))?;
     let (host, commands) = setup.into_create(shutdown.clone())?;
-    let mut worker = tokio::spawn(run(config, host.control(), commands, shutdown.clone()));
+    let mut worker = tokio::spawn(run_owner_setup(
+        config,
+        host.control(),
+        commands,
+        shutdown.clone(),
+        None,
+    ));
     let serving = host.serve();
     tokio::pin!(serving);
     tokio::select! {
@@ -171,11 +177,12 @@ pub async fn serve_independent_create(
         result = &mut worker => { shutdown.cancel(); result.map_err(io::Error::other)?.and(serving.await) },
     }
 }
-async fn run(
+pub async fn run_owner_setup(
     config: Arc<AppConfig>,
     control: IndependentCreateControl,
     mut commands: mpsc::Receiver<IndependentCreateCommand>,
     shutdown: CancellationToken,
+    serving: Option<tokio::sync::watch::Sender<Option<(db::Client, Arc<HostedControlPlane>)>>>,
 ) -> io::Result<()> {
     let mut engine = None;
     let mut identity = None;
@@ -214,6 +221,9 @@ async fn run(
                 .await?;
         }
     }
+    if let (Some(serving), Some(runtime)) = (&serving, &router) {
+        serving.send_replace(Some((runtime.identity_client(), runtime.control_plane())));
+    }
     loop {
         let command = tokio::select! { biased; () = shutdown.cancelled() => break, command = commands.recv() => match command { Some(command) => command, None => break } };
         if let Err(error) = provision(
@@ -231,6 +241,9 @@ async fn run(
                 error.kind()
             );
             control.unfinished().await;
+        }
+        if let (Some(serving), Some(runtime)) = (&serving, &router) {
+            serving.send_replace(Some((runtime.identity_client(), runtime.control_plane())));
         }
     }
     if let Some(runtime) = router {
@@ -409,7 +422,8 @@ async fn build(
             )
         })
         .map_err(io::Error::other)?
-        .with_device_identity(identity.clone());
+        .with_device_identity(identity.clone())
+        .with_http_client(control.http_client());
     let mut serving = config.clone();
     serving.expected_issuer = intent.issuer.clone();
     serving.idp_api_base = intent.idp.clone();

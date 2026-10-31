@@ -68,6 +68,12 @@ struct CachedToken {
 }
 
 impl IdpClient {
+    pub fn with_http_client(mut self, client: Client) -> Self {
+        if let IdpBackend::Http(http) = &mut self.backend {
+            http.client = client;
+        }
+        self
+    }
     pub fn new(
         base_url: &str,
         client_id: &str,

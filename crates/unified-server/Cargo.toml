@@ -19,7 +19,7 @@ required-features = ["cli"]
 
 [features]
 default = []
-cli = ["dep:clap", "dep:cli", "dep:dialoguer", "dep:env_logger", "tokio/signal"]
+cli = ["dep:clap", "dep:cli", "dep:env_logger", "tokio/signal"]
 completions = ["cli", "dep:clap_complete"]
 swagger-ui = [
     "idp-server/swagger-ui",
@@ -29,18 +29,6 @@ swagger-ui = [
 ]
 
 [dependencies]
-of-device-client = { path = "../device-client", default-features = false }
-device-server = { path = "../device-server", default-features = false }
-device-service = { path = "../device-service", default-features = false, features = [
-    "replica",
-    "std",
-    "utoipa",
-] }
-# Generated HTTP operations
-of-idp-client = { path = "../idp-client", default-features = false }
-of-management-client = { path = "../management-client", default-features = false }
-of-storage-client = { path = "../storage-client", default-features = false }
-
 # CLI
 clap = { version = "4.6", default-features = false, features = [
     "std",
@@ -52,44 +40,17 @@ clap_complete = { version = "4.5", default-features = false, features = [
 cli = { path = "../cli", default-features = false, features = [
     "std",
 ], optional = true }
-dialoguer = { version = "0.12", default-features = false, features = [
-    "password",
-], optional = true }
 
 # Configuration
 config = { version = "0.15", default-features = false, features = ["yaml"] }
 
 # Internal
-key = { path = "../key", default-features = false, features = ["secure-store"] }
-api = { path = "../api", default-features = false, features = [] }
-db = { package = "idp-db", path = "../db", default-features = false, features = [
-    "replica",
-] }
-idp-model = { path = "../idp-model", default-features = false, features = [
-    "std",
-    "replica",
-] }
+api = { path = "../api", default-features = false }
+device-server = { path = "../device-server", default-features = false }
 idp-server = { path = "../idp-server", default-features = false }
-idp-service = { path = "../idp-service", default-features = false, features = [
-    "replica",
-    "std",
-] }
-iroh-chain = { path = "../../../ofnet/crates/iroh-chain", default-features = false, features = [
-] }
 management-server = { path = "../management-server", default-features = false }
-management-service = { path = "../management-service", default-features = false, features = [
-    "utoipa",
-    "replica",
-    "std",
-] }
-model = { path = "../model", default-features = false, features = ["std"] }
 storage-server = { path = "../storage-server", default-features = false, features = [
     "network",
-] }
-
-# Persistence
-ofdb-sql = { path = "../../../ofdb/crates/sql", default-features = false, features = [
-    "native-stage",
 ] }
 
 # Serialization
@@ -106,10 +67,6 @@ reqwest = { version = "0.12", default-features = false, features = [
     "rustls-tls-native-roots",
 ] }
 
-
-# Iroh
-iroh = { version = "1.1", default-features = false, features = ["tls-ring"] }
-
 # Async
 tokio = { version = "1.52", default-features = false, features = [
     "macros",
@@ -122,45 +79,29 @@ tokio-util = { version = "0.7", default-features = false, features = [] }
 # Logging
 env_logger = { version = "0.10", default-features = false, features = [
 ], optional = true }
-log = { version = "0.4", default-features = false, features = ["std"] }
 
 # Web
+tower = { version = "0.5", default-features = false, features = ["util"] }
 axum = { version = "0.8", default-features = false, features = [
     "http1",
     "http2",
     "tokio",
 ] }
-tower-http = { version = "0.7", default-features = false, features = [
-    "cors",
-    "trace",
-    "compression-gzip",
-] }
 
 [dev-dependencies]
+# Contract export and isolated composition fixtures
+device-service = { path = "../device-service", default-features = false, features = ["replica", "std", "utoipa"] }
+idp-model = { path = "../idp-model", default-features = false, features = [
+    "std",
+    "replica",
+] }
 # OpenAPI contract export example
 utoipa = { version = "5.5", default-features = false }
 
 # Setup trust/verifier fault injection, never a production feature
 api = { path = "../api", default-features = false, features = ["test-support"] }
 
-# Storage API integration
-storage-model = { path = "../storage-model", default-features = false, features = [
-    "std",
-] }
-storage-service = { path = "../storage-service", default-features = false, features = [
-] }
-
 # Identity fixtures
 keyring-core = { version = "1.0", default-features = false, features = [] }
 
 # Web
-futures-util = { version = "0.3", default-features = false, features = [
-    "sink",
-    "std",
-] }
-http = { version = "1.4", default-features = false }
-tokio-tungstenite = { version = "0.29", default-features = false, features = [
-    "connect",
-    "handshake",
-] }
-tower = { version = "0.5", default-features = false, features = ["util"] }

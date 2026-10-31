@@ -47,6 +47,12 @@ pub struct IndependentDeviceRuntime {
     task: JoinHandle<io::Result<()>>,
 }
 impl IndependentDeviceRuntime {
+    pub fn identity_client(&self) -> db::Client {
+        self.source.identity_engine.clone()
+    }
+    pub fn control_plane(&self) -> Arc<HostedControlPlane> {
+        self.source.plane.clone()
+    }
     pub fn router(&self) -> Router {
         self.router.clone()
     }

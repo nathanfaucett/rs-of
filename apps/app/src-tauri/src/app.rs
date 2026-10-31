@@ -144,7 +144,10 @@ pub async fn get_onboarding_host(app: AppHandle<Wry>) -> crate::onboarding::Host
 
 /// Protected local host management only. Never expose this capability through HTTPS status.
 #[tauri::command]
-pub async fn get_native_setup_code(app: AppHandle<Wry>) -> Result<Option<String>, String> {
+pub async fn get_native_setup_code(
+    app: AppHandle<Wry>,
+    owner: String,
+) -> Result<Option<String>, String> {
     let _operation = LIFECYCLE.operation.lock().await;
     let data = app
         .path()
@@ -155,8 +158,13 @@ pub async fn get_native_setup_code(app: AppHandle<Wry>) -> Result<Option<String>
     }
     #[cfg(unix)]
     {
-        unified_server::SetupHost::protected_code(&data.join("node/setup-admission"))
-            .map_err(|error| error.to_string())
+        if !matches!(owner.as_str(), "idp" | "device" | "storage") {
+            return Err("unknown setup owner".into());
+        }
+        api::SetupAdmission::protected_code(
+            &data.join(format!("node/{owner}.setup-host/setup-admission")),
+        )
+        .map_err(|error| error.to_string())
     }
     #[cfg(not(unix))]
     {

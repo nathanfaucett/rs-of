@@ -67,6 +67,7 @@ pub(crate) struct CreateShared {
     readiness: RwLock<Option<IndependentReadiness>>,
     commands: mpsc::Sender<IndependentCreateCommand>,
     pub(crate) shutdown: CancellationToken,
+    pub(crate) client: reqwest::Client,
 }
 
 #[derive(Clone)]
@@ -146,6 +147,7 @@ impl IndependentSetupHost {
             readiness: RwLock::new(None),
             commands,
             shutdown,
+            client: self.tls.client()?,
         });
         Ok((
             IndependentCreateHost {
@@ -208,6 +210,9 @@ impl IndependentCreateHost {
 }
 
 impl IndependentCreateControl {
+    pub fn http_client(&self) -> reqwest::Client {
+        self.0.client.clone()
+    }
     pub fn shutdown_token(&self) -> CancellationToken {
         self.0.shutdown.child_token()
     }
@@ -426,7 +431,7 @@ impl IndependentCreateControl {
     ) -> io::Result<IndependentOwnerPublic> {
         let configuration = of_idp_client::apis::configuration::Configuration {
             base_path: intent.base(owner)?.to_owned(),
-            client: LocalTls::verification_client()?,
+            client: self.http_client(),
             response_limit: 65536,
             ..Default::default()
         };
@@ -682,6 +687,9 @@ pub(crate) async fn status(State(control): State<IndependentCreateControl>) -> R
     Json(serde_json::json!({"stage":"installation", "state":view, "ready":view == "ready", "owners":[control.owner()]})).into_response()
 }
 async fn normal(State(control): State<IndependentCreateControl>, request: Request) -> Response {
+    if request.uri().path().contains("/setup/") {
+        return StatusCode::NOT_FOUND.into_response();
+    }
     let phase = if request.uri().path().ends_with("/oauth2/token") {
         "token"
     } else if request.uri().path().ends_with("/oauth2/introspect") {

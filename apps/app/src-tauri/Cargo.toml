@@ -51,6 +51,9 @@ tokio = { version = "1.52", default-features = false, features = [
 tokio-util = { version = "0.7", default-features = false, features = ["rt"] }
 
 # Service contracts
+device-server = { path = "../../../crates/device-server", default-features = false }
+idp-server = { path = "../../../crates/idp-server", default-features = false }
+storage-server = { path = "../../../crates/storage-server", default-features = false }
 api = { path = "../../../crates/api", default-features = false, features = [] }
 idp-model = { path = "../../../crates/idp-model", default-features = false, features = [
   "replica",

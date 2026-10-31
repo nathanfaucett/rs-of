@@ -1,218 +1,265 @@
-#[cfg(unix)]
-use std::sync::Arc;
-use std::{io, path::PathBuf};
+use std::{
+    io,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
-#[cfg(unix)]
-use api::SetupAdmission;
-#[cfg(unix)]
-use axum::http::HeaderValue;
-use idp_server::local_provisioning::{require_absent, require_retained_directory};
-#[cfg(unix)]
+use api::{
+    IndependentCreateCommand, IndependentCreateHost, IndependentSetupHost, LocalTls, LocalTlsConfig,
+};
+use axum::{Router, extract::Request, http::StatusCode, response::IntoResponse};
+use tokio::{sync::mpsc, task::JoinSet};
 use tokio_util::sync::CancellationToken;
+use tower::ServiceExt;
 
-use crate::LocalTls;
-#[cfg(unix)]
-use crate::{BootstrapConfig, BootstrapPurpose};
+use crate::{UnifiedConfig, compose_router};
 
-#[cfg(unix)]
-pub(crate) fn allowed_origin(value: &str) -> io::Result<HeaderValue> {
-    idp_server::hosted_setup::setup_origin(value, false)
-}
-
-pub(crate) use crate::config::{require_fresh_roots, require_host_separation};
-
-/// Awaiting-choice host only: no domain owners, grants, enrollment or completion.
-#[cfg(unix)]
 pub struct SetupHost {
-    host: BootstrapConfig,
-    admission: Arc<SetupAdmission>,
-    tls: Option<LocalTls>,
+    config: UnifiedConfig,
+    tls: LocalTls,
+    hosts: [IndependentCreateHost; 3],
+    commands: [mpsc::Receiver<IndependentCreateCommand>; 3],
+    shutdown: CancellationToken,
+    management: Arc<std::sync::RwLock<Option<Router>>>,
 }
 
-#[cfg(unix)]
 impl SetupHost {
-    pub fn create(host: BootstrapConfig) -> io::Result<Self> {
-        Self::prepare(host, true, true)
-    }
-
-    pub fn open(host: BootstrapConfig) -> io::Result<Self> {
-        Self::prepare(host, false, true)
-    }
-
-    pub fn create_http(host: BootstrapConfig) -> io::Result<Self> {
-        Self::prepare(host, true, false)
-    }
-
-    pub fn open_http(host: BootstrapConfig) -> io::Result<Self> {
-        Self::prepare(host, false, false)
-    }
-
-    fn prepare(mut host: BootstrapConfig, fresh: bool, https: bool) -> io::Result<Self> {
-        if host.purpose() != BootstrapPurpose::AwaitingChoice
-            && !(matches!(
-                host.purpose(),
-                BootstrapPurpose::Create | BootstrapPurpose::Join
-            ) && host.setup_attempted()
-                && !fresh)
+    pub fn prepare(config: UnifiedConfig) -> io::Result<Self> {
+        reject_previous_layout(&config)?;
+        LocalTls::api_base(config.listen_addr)?;
+        let roots = [
+            &config.idp.data_dir,
+            &config.device.data_dir,
+            &config.storage.data_dir,
+        ];
+        let mut paths = roots
+            .iter()
+            .map(|root| idp_server::local_provisioning::absolute(Path::new(root)))
+            .collect::<io::Result<Vec<_>>>()?;
+        paths.push(idp_server::local_provisioning::absolute(
+            &config.tls_directory(),
+        )?);
+        for (i, path) in paths.iter().enumerate() {
+            if paths[..i]
+                .iter()
+                .any(|other| path.starts_with(other) || other.starts_with(path))
+            {
+                return Err(io::Error::other("owner and TLS roots must not overlap"));
+            }
+        }
+        for (owner, prefix) in [
+            ("idp", config.idp.server.prefix()),
+            ("device", config.device.server.prefix()),
+            ("storage", config.storage.server.prefix()),
+            ("management", config.management.server.prefix()),
+        ] {
+            if prefix != format!("/{owner}") {
+                return Err(io::Error::other(
+                    "composed owners require their exact owner prefix",
+                ));
+            }
+        }
+        let retained = api::setup_files::present(&config.tls_directory())?;
+        if !retained
+            && paths[..3].iter().any(|path| {
+                api::setup_files::present(path).unwrap_or(true)
+                    || api::setup_files::present(&path.with_extension("setup-host")).unwrap_or(true)
+            })
         {
             return Err(io::Error::other(
-                "retained Create/Join is not a fresh setup host",
+                "retained owner state has no local authority; restore exact state or explicitly reset",
             ));
         }
-        if fresh == host.setup_attempted() {
-            return Err(io::Error::other(
-                "setup production history requires existing-only continuation or exact recovery",
-            ));
-        }
-        let config = host.config();
-        if host.purpose() == BootstrapPurpose::AwaitingChoice {
-            require_fresh_roots(&config, fresh, https)?;
-        }
-        require_host_separation(&config, host.directory())?;
-        if https {
-            api::setup_origin(&config.idp.ui_public_uri)?
+        let tls = if retained {
+            LocalTls::open(&config)?
         } else {
-            allowed_origin(&config.idp.ui_public_uri)?
+            LocalTls::create(&config)?
         };
-        let admission_root = host.directory().join("setup-admission");
-        if fresh {
-            require_absent(&admission_root)?;
-        } else {
-            require_retained_directory(&admission_root)?;
+        let shutdown = CancellationToken::new();
+        let mut prepared = Vec::new();
+        for (owner, root) in ["idp", "device", "storage"].into_iter().zip(roots) {
+            let host = IndependentSetupHost::prepare_with_tls(
+                owner,
+                Path::new(root),
+                config.listen_addr,
+                &config.idp.ui_public_uri,
+                &format!("/{owner}"),
+                tls.clone(),
+            )?;
+            prepared.push(host.into_create(shutdown.clone())?);
         }
-        if fresh {
-            host.begin_setup()?;
-        }
-        let store = host.store();
-        if fresh {
-            store.put("admission", &serde_json::json!({"retired": false}))?;
-        }
-        let admission = Arc::new(SetupAdmission::open_with_history(
-            &admission_root,
-            Arc::new(store),
-        )?);
-        let tls = if !https {
-            None
-        } else if fresh {
-            Some(LocalTls::create(&config)?)
-        } else {
-            Some(LocalTls::open(&config)?)
-        };
+        let [
+            (idp, idp_commands),
+            (device, device_commands),
+            (storage, storage_commands),
+        ] = prepared
+            .try_into()
+            .map_err(|_| io::Error::other("three setup owners required"))?;
         Ok(Self {
-            host,
-            admission,
+            config,
             tls,
+            hosts: [idp, device, storage],
+            commands: [idp_commands, device_commands, storage_commands],
+            shutdown,
+            management: Arc::new(std::sync::RwLock::new(None)),
         })
     }
 
-    /// Existing-only protected retrieval; SQL retirement overrides leftover code material.
-    pub fn protected_code(
-        root: &std::path::Path,
-    ) -> Result<Option<String>, api::SetupAdmissionError> {
-        let parent = root.parent().ok_or(api::SetupAdmissionError::Unavailable)?;
-        let store = crate::host_store::HostStore::open(parent)
-            .map_err(|_| api::SetupAdmissionError::Unavailable)?;
-        SetupAdmission::protected_code_with_history(root, Arc::new(store))
-    }
-
-    /// Path only; code delivery belongs exclusively to protected host management.
-    pub fn admission_path(&self) -> PathBuf {
-        self.host.directory().join("setup-admission/state")
-    }
-
-    /// Native HTTPS material. Panics when called on an HTTP setup host.
     pub fn tls(&self) -> &LocalTls {
-        self.tls.as_ref().expect("native HTTPS setup host")
+        &self.tls
     }
-
     pub fn local_addr(&self) -> std::net::SocketAddr {
-        self.host.config().listen_addr
+        self.config.listen_addr
     }
-
-    /// Transfer the lifecycle guard and owner worker to an external listener host.
-    /// The caller must preserve the selected transport and cancel/join the worker on shutdown.
-    pub fn into_worker(self, cancellation: CancellationToken) -> crate::ApiSetupHost {
-        crate::setup_runtime::setup_worker(self.host, self.tls, self.admission, cancellation)
+    pub fn admission_path(&self, owner: &str) -> io::Result<PathBuf> {
+        self.hosts
+            .iter()
+            .find(|host| host.control().owner() == owner)
+            .map(|host| host.control().directory().join("setup-admission/state"))
+            .ok_or_else(|| io::Error::other("unknown setup owner"))
     }
-
-    pub async fn serve(self, cancellation: CancellationToken) -> io::Result<()> {
-        let public_idp = self.host.config().idp.api_public_uri.clone();
-        let tls = self.tls.clone();
-        let address = self.local_addr();
-        let path = self.admission_path();
-        let _cancel_on_drop = cancellation.clone().drop_guard();
-        let create = crate::setup_runtime::setup_worker(
-            self.host,
-            self.tls,
-            self.admission,
-            cancellation.clone(),
-        );
-        let router = create.router()?;
-        let owner = tokio::spawn(create.run());
-        let result = if let Some(tls) = tls {
-            api::serve_setup(
-                (),
-                tls,
-                address,
-                router,
-                "/idp/setup/status".into(),
-                path,
-                cancellation.clone(),
+    pub fn router(&self) -> Router {
+        let management = self.management.clone();
+        let management = Router::new().fallback(move |request: Request| {
+            let router = management.read().ok().and_then(|r| r.clone());
+            async move {
+                match router {
+                    Some(router) => router
+                        .oneshot(request)
+                        .await
+                        .expect("infallible Management router"),
+                    None => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+                }
+            }
+        });
+        compose_router(
+            self.hosts[0].router(),
+            management,
+            self.hosts[1].router(),
+            self.hosts[2].router(),
+        )
+    }
+    pub async fn run(self, cancellation: CancellationToken) -> io::Result<()> {
+        let Self {
+            config,
+            tls: _,
+            hosts,
+            commands: [idp_commands, device_commands, storage_commands],
+            shutdown,
+            management,
+        } = self;
+        let _cancel = shutdown.clone().drop_guard();
+        let mut jobs = JoinSet::new();
+        jobs.spawn(idp_server::run_owner_setup(
+            Arc::new(config.idp),
+            hosts[0].control(),
+            idp_commands,
+            shutdown.clone(),
+        ));
+        let (serving, mut receiver) = tokio::sync::watch::channel(None);
+        jobs.spawn(device_server::run_owner_setup(
+            Arc::new(config.device),
+            hosts[1].control(),
+            device_commands,
+            shutdown.clone(),
+            Some(serving),
+        ));
+        let stop = shutdown.clone();
+        jobs.spawn(async move {
+            let (identity, control) = loop {
+                if let Some(serving) = receiver.borrow_and_update().clone() {
+                    break serving;
+                }
+                tokio::select! {
+                    () = stop.cancelled() => return Ok(()),
+                    changed = receiver.changed() => changed.map_err(io::Error::other)?,
+                }
+            };
+            let router = management_server::build_router(
+                identity,
+                &config.management.api_public_uri,
+                config.management.server.prefix(),
+                control,
             )
             .await
-        } else {
-            async {
-                let listener = tokio::net::TcpListener::bind(address).await?;
-                println!("Local setup HTTP: http://{}", listener.local_addr()?);
-                println!("Public IdP: {public_idp}");
-                println!(
-                    "Protected management setup-code retrieval path: {}",
-                    path.display()
-                );
-                axum::serve(listener, router.into_make_service())
-                    .with_graceful_shutdown(cancellation.clone().cancelled_owned())
-                    .await
-            }
-            .await
+            .map_err(io::Error::other)?;
+            *management
+                .write()
+                .map_err(|_| io::Error::other("Management router lock poisoned"))? = Some(router);
+            stop.cancelled().await;
+            Ok(())
+        });
+        jobs.spawn(storage_server::run_owner_setup(
+            Arc::new(config.storage),
+            hosts[2].control(),
+            storage_commands,
+            shutdown.clone(),
+        ));
+        let mut result = tokio::select! {
+            () = cancellation.cancelled() => Ok(()),
+            result = jobs.join_next() => result.expect("owner workers").map_err(io::Error::other).and_then(|r| r),
         };
-        cancellation.cancel();
-        let cleanup = owner.await.map_err(io::Error::other)?;
-        result.and(cleanup)
+        shutdown.cancel();
+        while let Some(job) = jobs.join_next().await {
+            result = result.and(job.map_err(io::Error::other).and_then(|r| r));
+        }
+        drop(hosts);
+        result
     }
+    pub async fn serve(self, cancellation: CancellationToken) -> io::Result<()> {
+        let listener = tokio::net::TcpListener::bind(self.local_addr()).await?;
+        let router = self.router();
+        let listener = self.tls.listener(listener);
+        for owner in ["idp", "device", "storage"] {
+            println!(
+                "Protected {owner} setup code: {}",
+                self.admission_path(owner)?.display()
+            );
+        }
+        println!("Local setup authority: {}", self.tls.ca_path().display());
+        let stop = cancellation.clone();
+        let serving = async move {
+            axum::serve(listener, router.into_make_service())
+                .with_graceful_shutdown(stop.cancelled_owned())
+                .await
+        };
+        let worker = self.run(cancellation.clone());
+        tokio::pin!(serving, worker);
+        let result = tokio::select! {
+            result = &mut serving => { cancellation.cancel(); result.and(worker.await) },
+            result = &mut worker => { cancellation.cancel(); result.and(serving.await) },
+        };
+        result
+    }
+}
 
-    #[cfg(test)]
-    pub(crate) async fn serve_verified(
-        self,
-        client: reqwest::Client,
-        cancellation: CancellationToken,
-        announce: bool,
-    ) -> io::Result<()> {
-        let tls = self.tls.clone();
-        let address = self.local_addr();
-        let path = self.admission_path();
-        let _cancel_on_drop = cancellation.clone().drop_guard();
-        let create = crate::setup_runtime::setup_worker(
-            self.host,
-            self.tls,
-            self.admission,
-            cancellation.clone(),
-        );
-        let router = create.router()?;
-        let owner = tokio::spawn(create.run());
-        let result = api::serve_setup_verified(
-            (),
-            tls.expect("verified native HTTPS setup host"),
-            address,
-            router,
-            "/idp/setup/status".into(),
-            path,
-            cancellation.clone(),
-            client,
-            announce,
-        )
-        .await;
-        cancellation.cancel();
-        let cleanup = owner.await.map_err(io::Error::other)?;
-        result.and(cleanup)
+fn reject_previous_layout(config: &UnifiedConfig) -> io::Result<()> {
+    let endpoint = &config.endpoint_data_dir;
+    let parent = endpoint
+        .parent()
+        .ok_or_else(|| io::Error::other("endpoint root has no parent"))?;
+    if let Some(data) = parent.parent()
+        && api::setup_files::present(&data.join("reset-state.json"))?
+    {
+        return Err(io::Error::other(
+            "native reset is pending; finish that exact reset before starting owner workers",
+        ));
     }
+    for path in [
+        parent.join("host.redb"),
+        parent.join("host.json"),
+        parent.join("credentials.json"),
+        parent.join("setup-admission"),
+        endpoint.with_extension("host"),
+        endpoint.with_extension("provisioning"),
+        endpoint.with_extension("credentials"),
+        endpoint.clone(),
+    ] {
+        if api::setup_files::present(&path)? {
+            return Err(io::Error::other(
+                "unsupported previous Unified Host installation; preserve this root and restore the previous binary for recovery/reset, or explicitly choose a new empty data directory; automatic migration is not supported",
+            ));
+        }
+    }
+    Ok(())
 }

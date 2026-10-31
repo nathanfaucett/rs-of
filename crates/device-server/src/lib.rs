@@ -30,7 +30,7 @@ mod independent_create;
 #[cfg(unix)]
 mod independent_join;
 #[cfg(unix)]
-pub use independent_create::serve_independent_create;
+pub use independent_create::{run_owner_setup, serve_independent_create};
 #[cfg(unix)]
 pub use independent_join::{IndependentDeviceRuntime, build_independent_device};
 

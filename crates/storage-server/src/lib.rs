@@ -68,4 +68,4 @@ pub use runtime::{StorageRuntime, build_http_runtime, build_runtime};
 #[cfg(all(unix, feature = "network"))]
 mod independent_create;
 #[cfg(all(unix, feature = "network"))]
-pub use independent_create::serve_independent_create;
+pub use independent_create::{run_owner_setup, serve_independent_create};

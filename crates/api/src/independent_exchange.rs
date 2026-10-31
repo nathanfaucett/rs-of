@@ -6,7 +6,7 @@ use std::{
 use axum::{Json, extract::State, http::StatusCode};
 use serde::{Deserialize, Serialize};
 
-use crate::{IndependentCreateControl, IndependentCreateIntent, IndependentOwnerPublic, LocalTls};
+use crate::{IndependentCreateControl, IndependentCreateIntent, IndependentOwnerPublic};
 
 #[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -136,7 +136,7 @@ impl IndependentCreateControl {
         }
         let configuration = of_idp_client::apis::configuration::Configuration {
             base_path: bound.operation.base(&bound.recipient)?.to_owned(),
-            client: LocalTls::verification_client()?,
+            client: self.http_client(),
             ..Default::default()
         };
         let result = of_idp_client::apis::owner_setup_api::owner_setup_challenge(
@@ -225,10 +225,7 @@ pub(crate) async fn challenge(
         registration,
         challenge: bound.challenge,
     };
-    let client = match LocalTls::verification_client() {
-        Ok(client) => client,
-        Err(_) => return StatusCode::SERVICE_UNAVAILABLE,
-    };
+    let client = control.http_client();
     let configuration = of_idp_client::apis::configuration::Configuration {
         base_path: bound.operation.idp.clone(),
         client,

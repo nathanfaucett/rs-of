@@ -64,11 +64,15 @@ impl IndependentPeer {
     }
 
     pub async fn discover(choice: &str) -> io::Result<Self> {
+        Self::discover_with_client(choice, LocalTls::verification_client()?).await
+    }
+
+    pub async fn discover_with_client(choice: &str, client: reqwest::Client) -> io::Result<Self> {
         let (base, _) = Self::choice(choice)?;
         let nonce = crate::independent_exchange::random_capability()?;
         let configuration = of_device_client::apis::configuration::Configuration {
             base_path: base.to_owned(),
-            client: LocalTls::verification_client()?,
+            client,
             ..Default::default()
         };
         let response = of_device_client::apis::independent_join_api::independent_join_discover(
