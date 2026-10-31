@@ -1,10 +1,7 @@
 use std::time::{Duration, Instant};
 
 use of_idp_client::{
-    apis::{
-        configuration::Configuration, default_api as idp, owner_setup_api as independent,
-        setup_api as setup,
-    },
+    apis::{configuration::Configuration, default_api as idp, owner_setup_api as owner_setup},
     models,
 };
 
@@ -89,121 +86,70 @@ pub(super) async fn assert_learned_grants(node: &Node, client_id: &str, grants: 
     }
 }
 
-pub(super) enum JoinAdmission {
-    Unified(Configuration, models::JoinRequest),
-    Independent(Vec<Configuration>, models::IndependentCreateRequest),
+pub(super) struct JoinAdmission {
+    pub(super) configs: Vec<Configuration>,
+    pub(super) request: models::IndependentCreateRequest,
 }
 
 impl JoinAdmission {
     pub(super) async fn submit(&self) {
-        match self {
-            Self::Unified(config, request) => {
-                setup::setup_join(
-                    config,
-                    setup::SetupJoinParams {
-                        join_request: request.clone(),
-                    },
-                )
-                .await
-                .unwrap_or_else(|_| panic!("exact Unified Join admission"));
-            }
-            Self::Independent(configs, request) => {
-                for config in configs {
-                    independent::owner_setup_join(
-                        config,
-                        independent::OwnerSetupJoinParams {
-                            independent_create_request: request.clone(),
-                        },
-                    )
-                    .await
-                    .unwrap_or_else(|_| panic!("exact independent worker Join admission"));
-                }
-            }
+        for config in &self.configs {
+            owner_setup::owner_setup_join(
+                config,
+                owner_setup::OwnerSetupJoinParams {
+                    independent_create_request: self.request.clone(),
+                },
+            )
+            .await
+            .unwrap_or_else(|_| panic!("exact owner Join admission"));
         }
     }
 
     async fn intents(&self) -> Vec<serde_json::Value> {
-        match self {
-            Self::Unified(config, _) => vec![
+        let mut intents = Vec::new();
+        for config in &self.configs {
+            intents.push(
                 serde_json::to_value(
-                    setup::setup_intent(config)
+                    owner_setup::owner_setup_recover(config)
                         .await
-                        .unwrap_or_else(|_| panic!("protected retained Join intent")),
+                        .unwrap_or_else(|_| panic!("protected retained owner intent")),
                 )
-                .expect("public intent"),
-            ],
-            Self::Independent(configs, _) => {
-                let mut intents = Vec::new();
-                for config in configs {
-                    intents.push(
-                        serde_json::to_value(
-                            independent::owner_setup_recover(config)
-                                .await
-                                .unwrap_or_else(|_| panic!("protected owner Join intent")),
-                        )
-                        .expect("public owner intent"),
-                    );
-                }
-                intents
-            }
+                .expect("public owner intent"),
+            );
         }
+        intents
     }
 
     async fn cancel(&self) {
-        match self {
-            Self::Unified(config, _) => {
-                let intent = setup::setup_intent(config)
-                    .await
-                    .unwrap_or_else(|_| panic!("retained cancellation intent"));
-                let anonymous = Configuration {
-                    api_key: None,
-                    ..config.clone()
-                };
-                assert!(
-                    matches!(setup::setup_cancel(&anonymous, setup::SetupCancelParams { setup_intent:intent.clone() }).await,
-                    Err(of_idp_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 401),
-                    "cancellation needs the host capability"
-                );
-                setup::setup_cancel(
-                    config,
-                    setup::SetupCancelParams {
-                        setup_intent: intent,
-                    },
-                )
+        for config in &self.configs {
+            let status = owner_setup::owner_setup_status(config)
                 .await
-                .unwrap_or_else(|_| panic!("signal Unified cancellation"));
+                .expect("owner status");
+            assert!(!status.ready);
+            if status.state == "unfinished" {
+                continue;
             }
-            Self::Independent(configs, _) => {
-                for config in configs {
-                    let status = independent::owner_setup_status(config)
-                        .await
-                        .expect("worker before cancellation");
-                    assert!(!status.ready);
-                    if status.state == "unfinished" {
-                        continue;
-                    }
-                    let intent = independent::owner_setup_recover(config)
-                        .await
-                        .unwrap_or_else(|_| panic!("exact owner cancellation intent"));
-                    let anonymous = Configuration {
-                        api_key: None,
-                        ..config.clone()
-                    };
-                    assert!(
-                        matches!(independent::owner_setup_cancel(&anonymous, independent::OwnerSetupCancelParams { independent_create_intent:intent.clone() }).await,
-                        Err(of_idp_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 401),
-                        "cancellation needs this worker capability"
-                    );
-                    independent::owner_setup_cancel(
-                        config,
-                        independent::OwnerSetupCancelParams {
-                            independent_create_intent: intent,
-                        },
-                    )
-                    .await
-                    .unwrap_or_else(|_| panic!("signal independent worker cancellation"));
-                }
-            }
+            let intent = owner_setup::owner_setup_recover(config)
+                .await
+                .unwrap_or_else(|_| panic!("exact cancellation intent"));
+            let anonymous = Configuration {
+                api_key: None,
+                ..config.clone()
+            };
+            assert!(
+                matches!(owner_setup::owner_setup_cancel(&anonymous,
+                owner_setup::OwnerSetupCancelParams { independent_create_intent: intent.clone() }).await,
+                Err(of_idp_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 401),
+                "cancellation requires this owners capability"
+            );
+            owner_setup::owner_setup_cancel(
+                config,
+                owner_setup::OwnerSetupCancelParams {
+                    independent_create_intent: intent,
+                },
+            )
+            .await
+            .unwrap_or_else(|_| panic!("signal owner cancellation"));
         }
     }
 
@@ -235,21 +181,13 @@ impl JoinAdmission {
         let deadline = Instant::now() + Duration::from_secs(90);
         loop {
             target.alive();
-            let states = match self {
-                Self::Unified(config, _) => setup::setup_status(config)
-                    .await
-                    .ok()
-                    .map(|s| vec![(s.ready, s.state, s.stage)]),
-                Self::Independent(configs, _) => {
-                    let mut states = Vec::new();
-                    for config in configs {
-                        if let Ok(s) = independent::owner_setup_status(config).await {
-                            states.push((s.ready, s.state, s.stage));
-                        }
-                    }
-                    (states.len() == configs.len()).then_some(states)
+            let mut observed = Vec::new();
+            for config in &self.configs {
+                if let Ok(s) = owner_setup::owner_setup_status(config).await {
+                    observed.push((s.ready, s.state, s.stage));
                 }
-            };
+            }
+            let states = (observed.len() == self.configs.len()).then_some(observed);
             if let Some(states) = &states {
                 assert!(
                     states.iter().all(|(ready, _, _)| !ready),
@@ -272,26 +210,16 @@ pub(super) async fn pending_offer(
     source: &mut Node,
     target: &mut Node,
     approval: &of_device_client::apis::configuration::Configuration,
-    independent_layout: bool,
 ) -> serde_json::Value {
-    use of_device_client::apis::{
-        independent_join_api as independent_joins, node_join_api as joins,
-    };
+    use of_device_client::apis::independent_join_api as independent_joins;
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         source.alive();
         target.alive();
-        let offers = if independent_layout {
+        let offers = {
             independent_joins::independent_join_pending(approval)
                 .await
                 .unwrap_or_else(|_| panic!("authorized independent pending list"))
-        } else {
-            joins::node_join_pending(approval)
-                .await
-                .unwrap_or_else(|_| panic!("authorized pending list"))
-                .as_array()
-                .expect("pending list")
-                .clone()
         };
         if let Some(offer) = offers.into_iter().find(|offer| {
             offer["request"]["name"] == "Joining System Node"
@@ -308,15 +236,12 @@ pub(super) async fn retry_rejected_join(
     source: &mut Node,
     target: &mut Node,
     approval: &of_device_client::apis::configuration::Configuration,
-    independent_layout: bool,
     admission: &JoinAdmission,
     first: serde_json::Value,
 ) -> serde_json::Value {
-    use of_device_client::apis::{
-        independent_join_api as independent_joins, node_join_api as joins,
-    };
+    use of_device_client::apis::independent_join_api as independent_joins;
     admission.submit().await;
-    let pending = pending_offer(source, target, approval, independent_layout).await;
+    let pending = pending_offer(source, target, approval).await;
     assert_eq!(
         pending["request"], first["request"],
         "active exact retry retains the request"
@@ -325,12 +250,11 @@ pub(super) async fn retry_rejected_join(
     assert_offer_released(
         source,
         approval,
-        independent_layout,
         first["offer_id"].as_str().expect("interrupted offer"),
     )
     .await;
     admission.submit().await;
-    let same = pending_offer(source, target, approval, independent_layout).await;
+    let same = pending_offer(source, target, approval).await;
     assert_eq!(
         same["request"], first["request"],
         "pending exact retry retains signer and endpoint"
@@ -340,49 +264,27 @@ pub(super) async fn retry_rejected_join(
         .expect("exact rejected offer")
         .to_owned();
     let anonymous = device_config(source);
-    if independent_layout {
-        authorization_denied(
-            independent_joins::independent_join_reject(
-                &anonymous,
-                independent_joins::IndependentJoinRejectParams { id: id.clone() },
-            )
-            .await,
-        );
+    authorization_denied(
         independent_joins::independent_join_reject(
-            approval,
+            &anonymous,
             independent_joins::IndependentJoinRejectParams { id: id.clone() },
         )
-        .await
-        .unwrap_or_else(|_| panic!("authorized independent rejection"));
-    } else {
-        authorization_denied(
-            joins::node_join_reject(&anonymous, joins::NodeJoinRejectParams { id: id.clone() })
-                .await,
-        );
-        joins::node_join_reject(approval, joins::NodeJoinRejectParams { id: id.clone() })
-            .await
-            .unwrap_or_else(|_| panic!("authorized Unified rejection"));
-    }
-    if independent_layout {
-        admission.interrupt_and_reopen(target).await;
-    } else {
-        admission.unfinished(target).await;
-    }
-    if independent_layout {
-        assert!(
-            matches!(independent_joins::independent_join_approve(approval, independent_joins::IndependentJoinApproveParams { id }).await,
-            Err(of_device_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 409),
-            "rejected offer is not approvable"
-        );
-    } else {
-        assert!(
-            matches!(joins::node_join_approve(approval, joins::NodeJoinApproveParams { id }).await,
-            Err(of_device_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 404),
-            "rejected offer is not approvable"
-        );
-    }
+        .await,
+    );
+    independent_joins::independent_join_reject(
+        approval,
+        independent_joins::IndependentJoinRejectParams { id: id.clone() },
+    )
+    .await
+    .unwrap_or_else(|_| panic!("authorized independent rejection"));
+    admission.interrupt_and_reopen(target).await;
+    assert!(
+        matches!(independent_joins::independent_join_approve(approval, independent_joins::IndependentJoinApproveParams { id }).await,
+        Err(of_device_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 409),
+        "rejected offer is not approvable"
+    );
     admission.submit().await;
-    let retried = pending_offer(source, target, approval, independent_layout).await;
+    let retried = pending_offer(source, target, approval).await;
     assert_eq!(
         retried["request"], first["request"],
         "rejection retains exact Node, signer and endpoint"
@@ -393,26 +295,16 @@ pub(super) async fn retry_rejected_join(
 async fn assert_offer_released(
     source: &mut Node,
     approval: &of_device_client::apis::configuration::Configuration,
-    independent_layout: bool,
     id: &str,
 ) {
-    use of_device_client::apis::{
-        independent_join_api as independent_joins, node_join_api as joins,
-    };
+    use of_device_client::apis::independent_join_api as independent_joins;
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         source.alive();
-        let offers = if independent_layout {
+        let offers = {
             independent_joins::independent_join_pending(approval)
                 .await
                 .unwrap_or_else(|_| panic!("pending independent release evidence"))
-        } else {
-            joins::node_join_pending(approval)
-                .await
-                .unwrap_or_else(|_| panic!("pending Unified release evidence"))
-                .as_array()
-                .expect("pending list")
-                .clone()
         };
         if offers.iter().all(|offer| offer["offer_id"] != id) {
             break;
@@ -423,17 +315,9 @@ async fn assert_offer_released(
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    if independent_layout {
-        assert!(
-            matches!(independent_joins::independent_join_approve(approval, independent_joins::IndependentJoinApproveParams { id:id.into() }).await,
-            Err(of_device_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 409),
-            "interrupted offer cannot be approved"
-        );
-    } else {
-        assert!(
-            matches!(joins::node_join_approve(approval, joins::NodeJoinApproveParams { id:id.into() }).await,
-            Err(of_device_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 404),
-            "interrupted offer cannot be approved"
-        );
-    }
+    assert!(
+        matches!(independent_joins::independent_join_approve(approval, independent_joins::IndependentJoinApproveParams { id:id.into() }).await,
+        Err(of_device_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 409),
+        "interrupted offer cannot be approved"
+    );
 }
