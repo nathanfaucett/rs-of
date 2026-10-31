@@ -176,3 +176,7 @@ post-Join production-process reconciliation qualification is claimed.
 The implementation is committed on ticket03 only. Final integration-tip merge
 result is recorded below after the commit; integration itself is not merged by
 this agent. Ticket04 owns the remaining frontend/operator/global-doc migration.
+
+- Implementation commit: `22b363d02` (`Qualify owner lifecycle and filesystem across production layouts`).
+- After that commit, ran `GIT_EDITOR=true git merge --no-edit unified-owner-lifecycle` in ticket03: **Already up to date.** Integration tip was still exactly `6b6480ab53aa9f249cacfebe138473d778aaf8bd`; it is an ancestor of ticket03. No integration branch or other worktree was merged/modified.
+- Post-merge `git --no-optional-locks status --short` was empty and `git --no-pager diff HEAD --check` passed. This final handoff entry is committed separately; no Rust changes followed the successful full scenario run.
