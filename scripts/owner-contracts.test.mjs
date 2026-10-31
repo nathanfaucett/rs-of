@@ -42,3 +42,21 @@ test("Management publishes policy administration without Device authority", () =
             route,
         );
 });
+
+test("setup contracts expose only owner-local capabilities in every layout", () => {
+    for (const owner of ["idp", "device", "storage"]) {
+        const doc = JSON.parse(
+            readFileSync(new URL(`openapi/${owner}.json`, root)),
+        );
+        assert.ok(doc.paths["/setup/owner/status"]);
+        for (const route of Object.keys(doc.paths).filter((route) =>
+            route.startsWith("/setup/"),
+        ))
+            assert.ok(
+                route.startsWith("/setup/owner/"),
+                `${owner}: retired route ${route}`,
+            );
+        assert.ok(!doc.components.schemas.CreateResult);
+        assert.ok(!doc.components.securitySchemes.setup_authorization);
+    }
+});

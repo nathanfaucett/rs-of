@@ -62,14 +62,6 @@ pub use independent_join::build_independent_idp;
 #[cfg(unix)]
 pub use independent_join::independent_join_openapi;
 
-#[cfg(unix)]
-pub mod hosted_setup;
-#[cfg(unix)]
-pub use hosted_setup::{
-    HostedSetup, HostedSetupControl, HostedSetupOwners, HostedSetupReady, HostedSetupSettings,
-    SetupCommand, SetupOperation, SetupPurpose, build_setup_router, setup_openapi,
-};
-
 pub mod issuer_discovery;
 pub mod local_provisioning;
 pub use api::LocalTls;

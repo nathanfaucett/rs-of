@@ -1,62 +1,54 @@
-# Default server configurations
+# Server configuration samples
 
-Run from the repository root (`of/`). Config and data paths are relative to the
-process working directory, not the YAML directory.
+Run from the repository root. Relative paths resolve against the working directory,
+not the YAML directory. All samples select `https://of.localhost:1355` as the exact
+app UI origin. Change it consistently for your actual browser/native deployment.
 
-| Command           | Default config                  | Public API                              | Listener         | Data root           |
-| ----------------- | ------------------------------- | --------------------------------------- | ---------------- | ------------------- |
-| `just unified`    | `config/unified/config.yaml`    | `https://unified.localhost:1355`        | `127.0.0.1:3000` | `./data/unified/`   |
-| `just idp`        | `config/idp/config.yaml`        | `https://idp-api.localhost:1355`        | `127.0.0.1:3000` | `./data/idp`        |
-| `just management` | `config/management/config.yaml` | `https://management-api.localhost:1355` | `127.0.0.1:3001` | `./data/management` |
-| `just storage`    | `config/storage/config.yaml`    | `https://storage-api.localhost:1355`    | `127.0.0.1:3002` | `./data/storage`    |
+| Command | Configuration | HTTPS base | Data |
+| --- | --- | --- | --- |
+| `just unified` | `config/unified/config.yaml` | `https://127.0.0.1:3000` | `data/unified` |
+| `just idp` | `config/idp/config.yaml` | `https://127.0.0.1:3000` | `data/idp` |
+| `just management` | `config/management/config.yaml` | `https://management-api.localhost:1355` | `data/management` |
+| `just device` | `config/device/config.yaml` | `https://127.0.0.1:3003` | `data/device` |
+| `just storage` | `config/storage/config.yaml` | `https://127.0.0.1:3002` | `data/storage` |
 
-All configs allow the app origin `https://of.localhost:1355` (`pnpm apps:dev`).
-Unified mounts `/idp`, `/management`, and `/storage`; standalone APIs have no
-prefix. Unified and standalone IdP share port 3000: run one mode at a time.
+Run Unified or standalone IdP, not both on port 3000. Unified explicitly mounts
+`/idp`, `/management`, `/device`, `/storage` once. Its local HTTPS listener owns one
+CA; it is not a Portless HTTP backend. Standalone setup owners keep their local
+HTTPS listeners/authorities and use their configured root bases. Browser callers
+need verified trust; CLI uses the actual CA path without installing OS trust.
+Management is policy-only: its separate CLI serves loopback HTTP on port 3001, not
+a setup listener/authority. Arrange a verified HTTPS proxy for its advertised
+public base. This is not an additional setup owner or a fourth setup CA.
 
-Pass another config as the first argument, followed by any server arguments:
+Configure the app's exact `PUBLIC_IDP_BASE_URL`, `PUBLIC_MANAGEMENT_BASE_URL`,
+`PUBLIC_DEVICE_BASE_URL` and `PUBLIC_STORAGE_BASE_URL`. Bundled desktop derives
+these from its one retained dynamic local HTTPS origin instead. Selecting remote
+bases never substitutes local services or forwards a bundled setup code.
+
+IdP, Device and Storage each expose `<base>/setup/owner/...` and issue their own
+protected code. Management has no fourth setup code or registration ceremony.
+Submit one public exact Create/Join tuple separately under each owner's code; only
+IdP receives the Create password. Correlate each current status and public operation
+before login. See [CLI examples](../docs/operations.md#automatic-unified-cli-bootstrap).
+
+Preserve separate domain roots and each `<owner>.setup-host` directory. The sample
+Unified TLS root is `data/unified/endpoint.tls`; the `endpoint_data_dir` selector
+locates that authority, not an old endpoint credential file. The composed Device
+worker owns installation endpoint material. Dynamic desktop also retains
+`listen.addr`. There is no host metadata SQL database or bootstrap journal.
+Existing/partial unsupported state is refused intact; do not delete evidence to
+manufacture freshness. Owner-local stopped reset preserves sibling/shared SQL state;
+hosted reset preserves the shared CA. See [reset/recovery](../docs/operations.md#persistence-reset-and-recovery).
+
+Pass an alternate config as the first recipe argument, then server arguments:
 
 ```sh
 just unified config/custom.yaml serve
-just idp config/idp/config.yaml serve --port 3100
+just device config/device/config.yaml serve --port 3103
 ```
 
-`just unified` retains Portless routing and TLS termination. Portless's `PORT`
-and `PORTLESS_URL` control the backend listener and public API base; the app
-origin comes from the config, with no launcher lookup or injection.
-Standalone recipes start native HTTPS listeners, not Portless routes. Arrange
-HTTPS-capable forwarding for their listed public names; an ordinary HTTP
-Portless backend cannot forward these HTTPS listeners. Native setup may require
-local CA trust with explicit OS consent.
-
-## Persistent state
-
-Unified uses separate `endpoint`, `idp`, `management`, and `storage` roots under
-`./data/unified/`. Bootstrap also derives adjacent `endpoint.host`,
-`endpoint.credentials`, `endpoint.provisioning`, and `endpoint.tls` paths.
-Standalone setup derives sibling `<owner>.setup-host` directories under `./data/`.
-Database files, filesystem content, keys, and other generated state are managed
-beneath their configured roots; they do not belong in `config/`.
-`/data/` is ignored by Git. Never share live roots between deployment modes.
-
-On fresh startup, leave domain roots absent; setup creates its own state.
-Credentials, signer bindings, and Installation issuers are not prefilled. The
-blank IdP issuer lets app-driven setup select and retain the real issuer.
-Start the servers without a subcommand, retrieve their protected setup codes,
-and choose Create or Join in the app. After starting neutral unified setup,
-continue through the app rather than switching to CLI `create`/`join`.
-
-Retained setup requires the same paths and host settings, including the effective
-listener, URLs, origin, and audiences. Keep the Portless backend port stable.
-Existing or partial state is never silently reset or migrated. Changing these
-configs does not relocate existing databases; select the old config to use old
-state. See [operations](../docs/operations.md) for continuation and recovery.
-
-Existing config-loader environment overrides remain supported, but are not
-required by these defaults. Remove stale overrides before fresh setup.
-
-Validate the defaults with:
-
-```sh
-cargo test -p unified-server --lib config::tests::default_
-```
+An explicit listener override must agree with the actual advertised HTTPS base and
+retained TLS identity. Keep retained paths/URLs/origins stable. Environment overrides
+remain supported but are not a substitute for recovering exact retained owner state.
+No passwords, private keys, internal IDs or setup codes belong in these samples.

@@ -208,7 +208,6 @@ try {
         "complete_routes_include_operation_bound_handoffs",
     ]);
     run("cargo", ["test", "-p", "api", "--lib", "canonical_openapi"]);
-    run("cargo", ["test", "-p", "unified-server", "--lib", "openapi"]);
     run("cargo", [
         "test",
         "-p",
@@ -223,7 +222,11 @@ try {
         "test",
         "-p",
         "unified-server",
-        "builds_three_prefixed_services_with_one_endpoint",
+        "--test",
+        "composition",
+        "owner_surfaces_share_one_endpoint_and_exactly_one_prefix",
+        "--",
+        "--exact",
     ]);
 } finally {
     rmSync(temp, { recursive: true, force: true });

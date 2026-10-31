@@ -1,73 +1,88 @@
-# Native/shared setup handoff
+# Native owner setup handoff
 
-Native owns OS trust/elevation consent, the bundled TLS listener, local host observation, coordinated shutdown, and explicit local reset. `native_host.rs` transfers `SetupHost` into the same `ApiSetupHost` worker used by the HTTPS unified host. There is no native administrator seeding, issuer discovery, enrollment, owner-store composition, or separate Create/Join runtime.
+Native owns one retained local HTTPS endpoint/CA, trust consent/elevation, startup,
+shutdown and explicit protected local maintenance. Unified composes the existing
+IdP, Device and Storage owner workers, not a second host lifecycle. Management
+participates from configuration and has no setup code/worker/operator step.
 
 ## Frontend integration contract
 
-The frontend handoff is complete: receipt 35 adopted the shared HTTPS setup client and removed obsolete native mutation branches; [receipt 41](../../../.scratch/ui-driven-node-bootstrap/evidence/41-management-cleanup-client.md) requalifies the focused owner/setup state, routes and rendered form contracts. Current behavior:
+- `get_localhost_server_base_url` returns the verified bundled origin. Apply each
+  of `/idp`, `/management`, `/device`, `/storage` once. Never substitute bundled
+  bases for selected remote services.
+- `get_onboarding_host` returns base/owner status or safe failure categories:
+  retry, prerequisite, repair, trust_consent, trust_declined. It contains no setup
+  capability. The app directly queries all three `/setup/owner/status` surfaces,
+  then correlates public operation/issuer/bases and IdP `facts.login_client` before
+  sign-in. No IPC status or singleton ready flag is aggregate completion.
+- `get_native_setup_code({owner})` accepts idp, device or storage and returns only
+  that owner's transient code (null after retirement). The client validates the
+  selected bundled owner base before/after retrieval. No remote target receives
+  a local code. `SetupAdmission::protected_code` owns private-state parsing.
+- `IndependentSetup.svelte`/`IndependentSetupSession` drive both layouts directly
+  through generated owner HTTPS operations. The same tuple reaches every owner;
+  only IdP gets the administrator password. Codes/passwords are not persisted,
+  logged or sent in URLs. Recovery, retry and cancellation retain exact intent;
+  request disconnect is not cancellation, 202 is not completion.
+- Source approval uses Device `/independent/node-joins/...` with an ordinary
+  Management-audience authorized User in both layouts. No native Create/Join,
+  approval, cancellation or recovery mutation proxy is provided.
 
-- `get_localhost_server_base_url` returns the bundled verified HTTPS origin. Apply `/idp`, `/management`, `/device`, `/storage` once. Only use this origin when the operator selects bundled services; selecting remote API bases must not call native Create/Join or substitute the local bases.
-- `get_native_setup_code` is **protected local host management**, retrieved internally for bundled Create/recovery/cancellation, returning the transient local setup capability or `null` after retirement. Never send it to a selected remote host, put it in a URL, persist it in frontend storage, or log it. This is not an HTTP status endpoint. Remote hosts retain their own admission and deployment-managed trust prerequisites.
-- Use the selected host's normal `/idp/setup/status`, `/admission`, `/create`, `/join`, `/intent`, `/cancel` contracts. Accepted work belongs to the host, not the invoking request or WebView. Source approval uses the existing authenticated owner HTTPS routes, not native commands.
-- `get_onboarding_host` is the bundled observation adapter: verified HTTPS base, typed shared status, or a safe `retry`/`prerequisite`/`repair`/`trust_consent`/`trust_declined` category. No raw startup errors, filesystem paths, intents or admission capabilities are exposed. The frontend projects the five onboarding states; see the [observation table](../../../docs/setup-workers.md#onboarding-observation-and-recovery-routing). Remote selection bypasses this command entirely. Failed startup never regenerates host/TLS/provider state.
-- `retry_local_runtime`, `reset_device`, `recover_reset_references`, `pending_reset_revocations`, `revoke_reset_on_peer` remain native capabilities. `complete_device_setup`, its marker persistence and the dismissal screen are removed. Verified current readiness leads directly to ordinary sign-in; local selection/Residency and Node naming remain editable in authenticated Devices.
+## Startup and one authority
 
-The superseded `get_setup_stage`, `get_desktop_client_id` and `get_native_host_error` commands are deleted, not wrapped. Login routing and OIDC consume the same verified onboarding snapshot. `get_localhost_server_base_url` remains for distinct owner-client address initialization and exact protected capability scoping, not as proof of readiness. Admission parsing belongs to `api::SetupAdmission::protected_code`; the desktop does not interpret the file format.
+The window starts before asynchronous protected-state preparation/trust checks.
+No published host projects starting; the page polls with navigation cleanup.
+Remote readiness is independent of bundled startup failures. Startup reuses the
+retained listener/TLS identity. Its bounded native-root OPTIONS probe accepts
+200/405, not readiness-bearing GET. Only typed UnknownIssuer can request trust
+installation; bind/expiry/other TLS/state errors do not authorize replacement.
 
-Removed Rust commands: `provision_initial_administrator`, `join_installation`, `cancel_installation_setup`, `get_setup_intent`, `node_join_accepting`, `pending_node_joins`, `approve_pending_node_join`, `reject_pending_node_join`. There are no compatibility wrappers. The old `/lidp/setup/status` probe and native `/trust` HTML route are also removed; use the shared `/idp/setup/status` contract.
+Consent explains the one OS trust anchor, possible elevation and effect on other
+OS-root clients. `set_local_trust_consent({consent:false})` preserves identity and
+projects trust_declined; true reopens/verifies the same identity before installing
+only if needed and reconstructs the verifier afterward. Failed verification is not
+success. Consent is not persisted. CLI pins the CA by path without installing it;
+no owner-specific hosted CA is generated. No warning bypass/plaintext fallback.
 
-The native router selects one exact bundled UI Origin: `https://idp-desktop.localhost:1355` under Tauri's build-script `dev` configuration (matching `tauri.conf.json`), otherwise the platform's Tauri Origin. The shared worker enforces that Origin and setup admission independently. TLS verification clients use native roots before deciding whether trust installation is needed and are reconstructed after a consented trust change. No custom CA is added to a production client.
+Start/retry/consent/reset/recovery share lifecycle ownership. Close cancels startup
+and rejects late publication; reset joins startup/workers before retained deletion.
+Owned installer processes are reaped; an unkillable elevated process must finish.
+Already-made OS trust changes are not rolled back. Unix protected state, actual
+provider availability and platform tools remain prerequisites, not reasons to reset.
 
-## Visible startup and trust consent
+## Persistence and owner-local reset
 
-The window is built before asynchronous host preparation, native-root TLS verification or installation. Protected-state preparation runs on a blocking worker. The onboarding adapter remains available while startup owns the lifecycle; no host yet projects `starting`, which the setup page polls with cleanup on navigation. Readiness remains a separate current shared-worker observation. Bundled failure never blocks a selected remote HTTPS target.
+Preserve `<app-data>/node/listen.addr`, `idp`, `device`, `storage`, their sibling
+`*.setup-host` directories and `endpoint.tls`. Each owner retains its exact
+operation/worker/inventory/lock evidence. There is no host metadata SQL store,
+operation journal, credential-bootstrap file or endpoint credential file. Unsupported
+previous native/Unified layouts refuse intact; use exact backup/previous-binary
+recovery or a new empty root, never migration or automatic regeneration.
 
-Startup opens the retained host, port, CA and server identity. Its bounded native-root OPTIONS probe accepts 200/405 and does not execute readiness-bearing GET. Only a typed rustls `UnknownIssuer` certificate failure can request trust installation. Bind errors, invalid/expired certificates, HTTP failures and missing retained evidence cannot authorize installation or replacement. Historical success markers are not consulted.
+Maintenance (`/maintenance`) is bundled-only and separate from onboarding. Explicit
+RESET confirmation is required for every attempt. `reset_device` stops/joins the
+composed host, then calls each owner's stopped reset entry point, preserving
+completed-owner evidence for exact retry after partial failure. This sequence is
+local protected management, not an HTTP reset surface or deployment broker. Each
+owner's boundary is independently usable and cannot delete another owner's state.
+Protected deletion precedes data deletion. Provider/state failures preserve exact
+remaining evidence; no secret enumeration, shared SQL-row deletion or replacement.
 
-`trust_consent` explains the OS trust-anchor change, possible administrator elevation and effect on other OS-root consumers before showing **Allow certificate trust** and **Not now**. `set_local_trust_consent({consent:false})` retains evidence and projects `trust_declined`; explicit runtime retry verifies again without implicit consent. `set_local_trust_consent({consent:true})` reopens and verifies the same identity before installing only if still necessary, rebuilds the verification client, and verifies again. Failed post-install verification offers retry, not assumed success. Consent is not persisted. There is no custom production root, plaintext or certificate-warning fallback.
+`recover_reset_references` validates retained owner directories/state; it cannot
+rebuild missing owner history, TLS, keys or domain data. Native reset preserves the
+shared CA and does not remove installed OS anchors. Standalone owner CLI reset
+instead explicitly removes only its owner CA with `--remove-os-trust`.
 
-Start/retry, stop, consent, reset and reference recovery share one lifecycle owner. Close cancels startup before waiting for ownership and permanently rejects late restart. Reset/recovery cancel and join startup before touching retained data. A cancelled attempt closes/joins its listener and worker before returning; a completed host is not published after cancellation. Owned installer commands are polled, killed when possible and reaped before lifecycle ownership is released. An elevated process that cannot be killed must finish before close/reset completes; the UI cannot promise instantaneous shutdown during an OS prompt. An OS trust change already made is not rolled back by cancellation or reset.
+`pending_reset_revocations` and `revoke_reset_on_peer` retain separate public targets;
+local cleanup does not acknowledge remote erasure/revocation. Authorized IdP signer
+and Device revocation must both succeed before acknowledgement. Remote selection
+cannot invoke local destructive controls or retrieve bundled setup capabilities.
 
-Linux requires a working graphical polkit agent, `pkexec`, `install`, and the matching distro refresh tool: Debian-family `update-ca-certificates` or Fedora-family `update-ca-trust extract`. Only the matched fingerprint-named anchor is installed; there is no `trust anchor` preflight/fallback in this native adapter. macOS uses `security` and the operator's login keychain. Native protected-state support remains Unix-only; a Windows installer branch is not Windows host qualification. Provider access must be available to the same operator; refusal/unavailable tools are prerequisites, never reasons to reset recoverable state.
+## Qualification
 
-Current focused checks and limits are recorded in [ticket 05 evidence](../../../.scratch/setup-simplification/evidence/05-visible-startup-and-trust.md). No real OS trust/profile operations or desktop GUI acceptance are implied by injected native/rendered tests.
-
-## Persistence and reset
-
-The shared host owns `<app-data>/node/{host.redb,setup-admission,idp,management,storage,endpoint,endpoint.credentials,endpoint.provisioning,endpoint.tls}`. Host configuration, Create/Join intent and attempt evidence, bootstrap references, and admission retirement are authoritative SQL metadata in `host.redb`; Join uses the same host SQL record. Protected inventories and owner runtime remain authoritative for their owners. Old native `setup-ids.json`/`node-setup.json`/`services` state is not migrated or treated as fresh; startup refuses it intact and reports the need for explicit independent recovery.
-
-Reset closes and joins the native listener/shared worker before taking the stopped host guard. It captures exact nonsecret SQL-owned protected-key references before deletion. Owner APIs validate the exact original SQL-owned Create/Join operation and secret inventory; missing owner metadata or provider failure leaves the owner data, journal and references intact. A durable `data-pending` phase prevents repeating provider work after successful key deletion. Resumed data cleanup coordinates the retained host lock when still present. Public revocation targets survive reset; both IdP signer and Management Device revocation require their ordinary authorized User audience exchanges before acknowledgement.
-
-The shared Unified endpoint now uses generic secure-provider byte storage below IdP, not an application-managed `endpoint.key`. Its current host operation owns the exact service/entry/target, expected public endpoint ID and creation-attempt evidence before provider work. Native/shared reopen verifies that same identity; missing/corrupt/mismatched or inaccessible material refuses without generation, file fallback or an authenticated IdP dependency. Existing raw-key layouts and operations without provider references are refused unchanged, without migration.
-
-Reset backs up that exact SQL-owned endpoint reference before deleting secrets. Endpoint deletion and absence readback must succeed before local metadata/data removal. A provider failure preserves the existing reset journal and references; explicit retry resumes the same deletion, including an already-absent entry after a lost acknowledgement, without enumeration or unrelated-secret removal. Create/Join endpoint references require the retained SQL database; reference recovery cannot reconstruct a missing database from the reset backup. Reference backups cannot restore workflow history or endpoint private bytes. These contracts are exercised with isolated mock providers and injected trust operations, not real OS stores/trust.
-
-Explicit reference recovery validates exact references against retained SQL, never rebuilding a missing database, endpoint keys, domain data, trust or setup admission. Lost/malformed provider inventories are not guessed. Reset does not execute OS CA removal; independently installed public CA anchors remain an explicit host-administration operation. No real profile, CA store or secure provider was modified during implementation.
-
-Complexity/risk/priority: high-priority security/lifecycle reconciliation; reduce complexity by deleting duplicate orchestration and retaining one shared worker. Critical risks are wrong host selection, competing lifecycle owners, premature completion, lost identity evidence and deleting data before protected-key cleanup. Tests exercise these seams rather than a platform/feature matrix.
-
-## Validation boundary
-
-Focused tests added for shared native HTTPS routing/admission/Origin, one listener, retained-port reopen, trust/verification refusal, host/TLS evidence loss, explicit reset retry/recovery, retained Join references, two-owner peer revocation, and mock-provider Create/completed retry/offline reopen/reset. The provider test runs in a bounded child process with an isolated in-memory provider and test-only native certificate roots; the trust tests inject commands. They do not qualify real OS trust installation, external provider availability, physical peer discovery, process-exit UI behavior or rendered desktop Create/Join. Independent/bundled frontend wiring is delivered and qualified separately at the HTTP/native-substitute seams in receipt 41, not by these Rust tests.
-
-[Receipt 43](../../../.scratch/ui-driven-node-bootstrap/evidence/43-final-native-shared.md) completes final MAIN native/shared qualification on unchanged `a4caa2f71` Rust: native `--tests` compilation, all 17 library tests plus the explicitly launched provider child, unified Create four tests plus its child, and combined HTTPS Create/Join/offline reopen pass (74.19s parent / 74.10s child). No source fix was needed. This completes the final regression check after receipt 36. [Receipt 44](../../../.scratch/ui-driven-node-bootstrap/evidence/44-acceptance.md) accepts the bounded spec and resolves tickets 02/03/04; no implementation TODO remains.
-
-[Receipt 42](../../../.scratch/ui-driven-node-bootstrap/evidence/42-finalreview.md) qualifies final independent lifecycle/security review fixes and actual signer-free normal Storage operation with same-token/connection and retained-revocation denial. Shared HTTPS startup now verifies native-root TLS/HTTP with OPTIONS on the existing status path (200 from CORS or 405 from the method router), not readiness-bearing GET. Slow/unavailable configured owners do not cancel the listener or disable normal authentication. GET still reports current readiness, including 503/unavailable. This adds no public route or auth-mode transition.
-
-All cited lifecycle qualification is bounded same-host Ubuntu Linux x86_64, isolated native roots and mock/injected provider/trust commands. No real OS install/provider/profile, rendered GUI, WAN/container, other-platform or production-deployment certification is inferred. Receipt 41's full Svelte check still fails with five inherited built Storage SDK export errors; the historical missing Paraglide outputs are no longer current. This documentation update runs no Cargo/code tests or privileged operations.
-
-The existing unified production Join tests remain the qualification seam for authenticated peer approval/import/offline reopen. This native slice delegates to that worker unchanged; it does not claim a new rendered GUI or physical Join qualification.
-
-## Maintenance presentation
-
-`/maintenance` is separate from normal onboarding and requires bundled desktop selection. Setup and settings link there; onboarding no longer mounts destructive controls. Runtime/prerequisite retry remains on setup, not in maintenance. Reset requires local-consequence disclosure and re-entered `RESET` confirmation on every attempt. Advanced exact-reference recovery is independent and never triggers reset. UI progress/failure projects the existing native commands; native startup, stop/join, journals, provider ordering and locks are unchanged.
-
-Local cleanup success does not acknowledge remote revocation. Retained public targets are refreshed separately; both authorized peer-owner operations must succeed before native acknowledgement. Maintenance requires an explicit User bearer instead of borrowing an ambient session; native issuer pinning and per-owner audiences remain authoritative. No automatic OS CA removal is added.
-
-## Current integrated qualification
-
-See [ticket 07 evidence](../../../.scratch/setup-simplification/evidence/07-integrated-qualification.md). The complete isolated native suite passes, including provider Create/reopen/reset, trust/refusal and lifecycle contention. The removed Device-marker argument must not be restored to observation. Mounted startup tests do not certify actual native window drawing or OS trust installation. Public HTTPS Join remains inconsistent; feature-matrix/CRAP completion and production/platform acceptance are not claimed.
-
-Unified setup admission is a temporary credential-only file; SQL retains its operation and durable retirement. Create/Join completion and retirement commit together after owner publication/verification. A leftover file cannot reopen setup, and retired reopen requires no code. Host SQL creation is fresh-root only: missing/corrupt databases, unsupported schemas, old host/configuration/Create/Join journals and interrupted code creation require explicit recovery, never regeneration. Filesystem lock directories and TLS artifacts remain, but are not parallel workflow journals. Native reset/recovery tests compare persisted logical settings and exact public references, not redb physical page bytes.
-
-Unified Join now retains its canonical operation, exact trusted peer/authenticated issuer, stable allocations, provider references and attempt acknowledgements in the same private `host.redb` as Create. Completion and admission retirement commit together after verified publication; leftover temporary code grants no authority. Completed reopen uses local owner/provider state without the source peer. Native reset preserves SQL and exact reference evidence until secret cleanup succeeds. Reference recovery validates existing SQL only: a missing database requires an exact operator backup, not reconstructed Join manifests. Legacy Join journals/fences are refused intact; independent-owner journals are unchanged.
+See [ticket03](../../../.scratch/unified-owner-lifecycle/ticket03-validation.md) and
+[ticket04](../../../.scratch/unified-owner-lifecycle/ticket04-validation.md) for exact
+process/client checks and Cargo blockers. Owner contract and process suites own
+lifecycle semantics; mounted forms/IPC substitutes qualify frontend wiring, not a
+real Wry GUI, secure provider, OS trust installation, WAN or other platforms. No
+privileged trust operation was run for ticket04.

@@ -20,6 +20,7 @@ help:
     @printf "  boundary-check Check server dependency boundaries\n"
     @printf "  idp [CONFIG]   Run the standalone IdP server\n"
     @printf "  management [CONFIG] Run the standalone Management server\n"
+    @printf "  device [CONFIG] Run the standalone Device server\n"
     @printf "  storage [CONFIG] Run the standalone Storage server\n"
     @printf "  unified [CONFIG] Run the unified server\n"
 
@@ -74,11 +75,14 @@ idp config="config/idp/config.yaml" *args:
 management config="config/management/config.yaml" *args:
     cargo run -p management-server --features cli --bin management-server -- --config "{{ config }}" {{ args }}
 
+device config="config/device/config.yaml" *args:
+    cargo run -p device-server --features cli --bin device-server -- --config "{{ config }}" {{ args }}
+
 storage config="config/storage/config.yaml" *args:
     cargo run -p storage-server --features cli --bin storage-server -- --config "{{ config }}" {{ args }}
 
 unified config="config/unified/config.yaml" *args:
-    PORTLESS_APP_PORT=${PORT:-3000} pnpm exec portless unified cargo run -p unified-server --features cli --bin unified-server -- --config "{{ config }}" {{ args }}
+    cargo run -p unified-server --features cli --bin unified-server -- --config "{{ config }}" {{ args }}
 
 openapi-export:
     cargo run -p unified-server --example export-openapi -- openapi

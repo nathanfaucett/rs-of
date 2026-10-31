@@ -50,14 +50,13 @@ suite stays unchanged.
 
 - [Ticket 03](issues/03-cross-layout-lifecycle-and-filesystem-qualification.md) resolved: one shared owner-local production-process suite passes all nine scenarios, including filesystem content/residency/tombstones and retained/source-offline reads. The live target Join listener race is reproduced and fixed with bounded status polling; Unified all-feature runtime and unchanged offs powerset pass. [Validation and external manifest blocker](ticket03-validation.md).
 
+- [Ticket 04](issues/04-consumers-clients-and-documentation.md) resolved: bundled/remote consumers share owner-local Create/Join, four configurable public bases, three scoped capabilities and one hosted authority. Deleted the remaining aggregate IdP contract/SDK and unused hosted implementation, migrated source sharing/approval and current docs/configuration. [Validation and exact external limits](ticket04-validation.md).
+- Reset fog resolved by owner-local stopped reset boundaries: a full desktop reset invokes the existing IdP, Device and Storage resets separately after shutdown, retaining per-owner completion across failures and preserving shared TLS. No deployment reset/setup broker or HTTP reset surface is introduced.
+
 ## Fog
 
-- Whether the desktop application's reset flow needs an owner-local reset surface per owner or can drive
-  the deployment reset once.
-- The offline-first filesystem deployment scenarios need a two-Node topology for any cross-node
-  synchronization assertion; single-Node resource, content, residency, deletion, and restart coverage is
-  unambiguous.
+No unresolved implementation choice remains for this effort. Cross-node filesystem synchronization, real GUI/provider/OS trust and platform qualification remain outside the bounded evidence; the sibling manifest and unchanged generator cold-cache tests block broader gates as recorded in ticket04.
 
 ## Frontier
 
-Ticket 04 is the lowest-numbered open, unblocked ticket. Ticket 03 qualification is resolved with broader-gate limits recorded in its validation report; ticket 04 owns the remaining consumer/docs migration.
+All four implementation tickets are resolved. Integration handoff remains on ticket04's own branch; no agent merge into integration is performed. Full Cargo/export/powerset/CRAP qualification must be rerun after the unrelated sibling manifest edit is complete.

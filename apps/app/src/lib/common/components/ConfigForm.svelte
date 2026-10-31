@@ -7,9 +7,16 @@
     } from "$lib/common/state/deviceClient.svelte";
     import { validateIdpApiUrl } from "$lib/common/state/idpClient.svelte";
     import { validateManagementApiUrl } from "$lib/common/state/managementClient.svelte";
+    import { getStorageApiUrl, setStorageApiUrl, validateStorageApiUrl } from "$lib/common/state/storageApiUrl.svelte";
     import { m } from "$lib/paraglide/messages";
 
     const configSchema = v.objectAsync({
+        storageApiUrl: v.pipeAsync(
+            v.string(),
+            v.nonEmpty(m.errors_message_required()),
+            v.url(m.errors_message_invalid_url()),
+            v.checkAsync(validateStorageApiUrl, m.errors_message_invalid_url()),
+        ),
         deviceApiUrl: v.pipeAsync(
             v.string(),
             v.nonEmpty(m.errors_message_required()),
@@ -54,12 +61,14 @@
     let { onSaved = () => {} }: Props = $props();
 
     const form = createForm(configSchema, {
+        storageApiUrl: getStorageApiUrl() ?? "",
         deviceApiUrl: getDeviceApiUrl() ?? "",
         idpApiUrl: getIdpApiUrl() ?? "",
         managementApiUrl: getManagementApiUrl() ?? "",
     });
 
     export function reset() {
+        form.fields.storageApiUrl.value = getStorageApiUrl() ?? "";
         form.fields.deviceApiUrl.value = getDeviceApiUrl() ?? "";
         form.fields.idpApiUrl.value = getIdpApiUrl() ?? "";
         form.fields.managementApiUrl.value = getManagementApiUrl() ?? "";
@@ -74,6 +83,7 @@
             return;
         }
 
+        setStorageApiUrl(output.storageApiUrl);
         setIdpApiUrl(output.idpApiUrl);
         setDeviceApiUrl(output.deviceApiUrl);
         setManagementApiUrl(output.managementApiUrl);
@@ -140,6 +150,13 @@
                 placeholder="https://node.example/device"
                 bind:value={form.fields.deviceApiUrl.value}
             />
+        {/snippet}
+    </Field>
+    <Field label="Storage API URL" issues={form.fields.storageApiUrl.issues}>
+        {#snippet children({ id, "aria-describedby": describedby, "aria-invalid": invalid, required })}
+            <input {id} aria-describedby={describedby} aria-invalid={invalid} {required}
+                type="url" aria-label="Storage API URL" placeholder="https://node.example/storage"
+                bind:value={form.fields.storageApiUrl.value} />
         {/snippet}
     </Field>
     <button class="btn btn-primary btn-md" type="submit"

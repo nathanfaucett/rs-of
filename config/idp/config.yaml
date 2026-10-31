@@ -4,6 +4,6 @@ server:
   setup_ui_origin: https://of.localhost:1355
 data_dir: ./data/idp
 ui_public_uri: https://of.localhost:1355
-api_public_uri: https://idp-api.localhost:1355
+api_public_uri: https://127.0.0.1:3000
 oauth2:
   issuer: ""

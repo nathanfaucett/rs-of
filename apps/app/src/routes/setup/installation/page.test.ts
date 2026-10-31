@@ -1,371 +1,172 @@
 import { render } from "svelte/server";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-
 const host = vi.hoisted(() => ({
     native: true,
     remote: false,
     invoke: vi.fn(),
     fetch: vi.fn(),
-    idp: "https://node.test/idp" as string | null,
-    device: "https://policy.test/api",
-    clientId: vi.fn(),
+    idp: "https://node.test/idp",
+    failure: undefined as string | undefined,
+    state: "awaiting_choice",
+    conflict: false,
 }));
 vi.mock("@tauri-apps/api/core", () => ({
     isTauri: () => host.native,
     invoke: host.invoke,
 }));
-vi.mock("$app/navigation", () => ({ goto: vi.fn(), invalidateAll: vi.fn() }));
+vi.mock("$app/navigation", () => ({ goto: vi.fn() }));
 vi.mock("$app/paths", () => ({ resolve: (path: string) => path }));
-vi.mock("$lib/common/state/oidc.svelte", () => ({
-    getOidcClient: vi.fn(),
-    ensureOidcClientId: host.clientId,
-}));
 vi.mock("$lib/common/state/idpClient.svelte", () => ({
     getIdpApiUrl: () => host.idp,
-    ensureTauriIdpApiUrl: async () => host.idp,
     usesRemoteApis: () => !host.native || host.remote,
 }));
 vi.mock("$lib/common/state/deviceClient.svelte", () => ({
-    getDeviceApiUrl: () => host.device,
+    getDeviceApiUrl: () => "https://node.test/device",
 }));
+vi.mock("$lib/common/state/oidc.svelte", () => ({ clearOidcSession: vi.fn() }));
 vi.mock("$env/dynamic/public", () => ({
-    env: { PUBLIC_STORAGE_BASE_URL: "https://data.test/api" },
+    env: { PUBLIC_STORAGE_BASE_URL: "https://node.test/storage" },
 }));
-
 const { load } = await import("./+page");
 const { default: Installation } = await import("./+page.svelte");
-const login = {
-    client_id: "01900000-0000-7000-8000-000000000001",
-    scopes: ["openid"],
+const operation = {
+    purpose: "create",
+    operation_nonce: "1".repeat(32),
+    administrator: "Alice",
+    node: "My Node",
+    idp: "https://node.test/idp",
+    device: "https://node.test/device",
+    storage: "https://node.test/storage",
+    issuer: "https://node.test/idp",
+    peer: null,
 };
-function status(state = "awaiting_choice") {
-    return {
-        stage: "installation",
-        state,
-        ready: state === "ready",
-        owners: ["idp", "device", "storage"],
-        ...(state === "ready" ? { login_client: login } : {}),
-    };
-}
-function native(state = "awaiting_choice", device = false) {
-    return {
-        base: "https://node.test",
-        status: status(state),
-        device_setup_required: device,
-    };
-}
 beforeEach(() => {
     vi.clearAllMocks();
     host.native = true;
     host.remote = false;
-    host.idp = "https://node.test/idp";
-    host.fetch.mockReset();
-    host.invoke.mockReset().mockResolvedValue(native());
-    vi.stubGlobal("fetch", host.fetch);
-    vi.stubGlobal("window", {
-        location: new URL("https://app.test"),
-        localStorage: { getItem: () => null },
+    host.failure = undefined;
+    host.state = "awaiting_choice";
+    host.conflict = false;
+    host.invoke.mockImplementation(async () => ({
+        base: "https://node.test",
+        failure: host.failure,
+    }));
+    host.fetch.mockImplementation(async (url: string) => {
+        const owner = ["idp", "device", "storage"].find((owner) =>
+            url.startsWith(`https://node.test/${owner}/`),
+        );
+        if (!owner) throw new Error("Unexpected owner");
+        if (url.endsWith("/setup/owner/status"))
+            return Response.json(
+                {
+                    stage: "installation",
+                    state: host.state,
+                    ready: host.state === "ready",
+                    owners: [owner],
+                },
+                { status: host.state === "unavailable" ? 503 : 200 },
+            );
+        if (url.endsWith("/setup/owner/public"))
+            return Response.json({
+                operation: {
+                    ...operation,
+                    operation_nonce:
+                        host.conflict && owner === "storage"
+                            ? "2".repeat(32)
+                            : operation.operation_nonce,
+                },
+                owner,
+                clients: [],
+                registered: [],
+                facts:
+                    owner === "idp"
+                        ? {
+                              login_client:
+                                  "01900000-0000-7000-8000-000000000001",
+                          }
+                        : {},
+            });
+        throw new Error("Retired or unexpected setup route");
     });
+    vi.stubGlobal("fetch", host.fetch);
+    vi.stubGlobal("window", { location: new URL("https://app.test") });
 });
 afterEach(() => vi.unstubAllGlobals());
-
-it("observes bundled setup through one secret-free target-bound snapshot", async () => {
+it("observes each bundled owner directly and presents one owner-local Create/Join form without codes in status", async () => {
     const data = await load();
     expect(data.observation).toMatchObject({
         state: "needs_setup",
-        target: { kind: "bundled", idp: "https://node.test/idp" },
-        action: "choose",
+        target: { kind: "bundled" },
     });
-    expect(host.invoke.mock.calls).toEqual([["get_onboarding_host"]]);
-    expect(host.fetch).not.toHaveBeenCalled();
-    expect(JSON.stringify(data.observation)).not.toContain("setup_code");
+    expect(host.fetch.mock.calls.map(([url]) => url)).toEqual(
+        ["idp", "device", "storage"].map(
+            (owner) => `https://node.test/${owner}/setup/owner/status`,
+        ),
+    );
     const { body } = render(Installation, { props: { data } });
     expect(body).toContain("Create an Installation");
     expect(body).toContain("Join through a trusted peer");
-    expect(body).not.toContain("Get bundled host code");
-    expect(body).not.toContain("Node name");
-    expect(body).toContain("Advanced connection settings");
-    expect(body).toContain('type="password"');
+    expect(body).not.toContain("host setup code");
+    expect(host.invoke).not.toHaveBeenCalledWith(
+        "get_native_setup_code",
+        expect.anything(),
+    );
 });
-
 it.each(["creating", "joining"])(
-    "shows %s as working, never readiness from acceptance",
+    "acceptance %s is not readiness",
     async (state) => {
-        host.invoke.mockResolvedValue(native(state));
-        const data = await load();
-        expect(data.observation).toMatchObject({
-            state: "working",
-            action: state === "joining" ? "approve" : "observe",
-        });
-        const { body } = render(Installation, { props: { data } });
-        expect(body).toContain('aria-label="Setup in progress"');
-        expect(body).not.toContain('href="/signin"');
-        if (state === "joining")
-            expect(body).toContain("Devices → Add a device");
+        host.state = state;
+        expect((await load()).observation).toMatchObject({ state: "working" });
     },
 );
-
 it.each([false, true])(
-    "preserves verified readiness and Device preferences without authenticating: %s",
-    async (device) => {
-        host.invoke.mockResolvedValue(native("ready", device));
+    "correlates every owner before ready login in bundled/remote mode: %s",
+    async (remote) => {
+        host.remote = remote;
+        host.state = "ready";
         const data = await load();
         expect(data.observation).toMatchObject({
             state: "ready",
-            action: "sign_in",
-            loginClient: login,
+            loginClient: { scopes: ["openid"] },
         });
-        const { body } = render(Installation, { props: { data } });
-        expect(body).toContain(
+        expect(render(Installation, { props: { data } }).body).toContain(
             'href="/signin"',
         );
-        expect(body).not.toContain("<form");
-        expect(host.clientId).not.toHaveBeenCalled();
+        if (remote) expect(host.invoke).not.toHaveBeenCalled();
     },
 );
-
-it("shows startup without inventing owner readiness", async () => {
-    host.invoke.mockResolvedValue({});
-    const data = await load();
-    expect(data.observation.state).toBe("starting");
-    const { body } = render(Installation, { props: { data } });
-    expect(body).toContain("Starting bundled services");
-    expect(body).not.toContain("<form");
+it("does not accept unrelated ready owners", async () => {
+    host.state = "ready";
+    host.conflict = true;
+    expect((await load()).observation.state).toBe("blocked");
 });
-
-it.each(["retry", "prerequisite", "repair"] as const)(
-    "shows safe %s instructions, not a default destructive recovery",
-    async (action) => {
-        host.invoke.mockResolvedValue({ failure: action });
-        const data = await load();
-        expect(data.observation).toMatchObject({ state: "blocked", action });
-        const { body } = render(Installation, { props: { data } });
-        expect(body).toContain("Retry observation");
-        expect(body).not.toContain("<form");
-        expect(body).not.toContain('href="/signin"');
-        expect(body).toContain('href="/maintenance"');
-        expect(body).not.toContain("Type RESET");
-        expect(body).not.toContain("Recover reset references</button>");
-        expect(body).not.toContain("Revoke on surviving peer</button>");
-        if (action === "repair")
-            expect(body).toContain("Preserve the existing identity");
-    },
-);
-
-it.each([
-    null,
-    { ...status("ready"), login_client: null },
-    { ...status("ready"), login_client: { ...login, scopes: [] } },
-    { ...status(), ready: true },
-    { ...status("ready"), owners: ["idp"] },
-    { ...status(), state: "invented" },
-])(
-    "blocks malformed native evidence without manufacturing readiness: %j",
-    async (evidence) => {
-        host.invoke.mockResolvedValue({
-            base: "https://node.test",
-            status: evidence,
-            device_setup_required: false,
-        });
-        const data = await load();
-        expect(data.observation.state).toBe("blocked");
-        const { body } = render(Installation, { props: { data } });
-        expect(body).not.toContain('href="/signin"');
-        expect(body).not.toContain("<form");
-    },
-);
-
-it.each(["unfinished", "unavailable"])(
-    "routes damaged shared %s evidence to repair",
-    async (state) => {
-        host.invoke.mockResolvedValue(native(state));
-        expect((await load()).observation).toMatchObject({
-            state: "blocked",
-            action: state === "unavailable" ? "prerequisite" : "repair",
-        });
-    },
-);
-
-it.each([true, false])(
-    "honors remote selection independently of failed bundled services, native=%s",
-    async (desktop) => {
-        host.native = desktop;
-        host.remote = true;
-        host.invoke.mockRejectedValue(new Error("bundled host failed"));
-        host.fetch.mockResolvedValue(Response.json(status("ready")));
+it.each(["trust_consent", "trust_declined", "repair", "prerequisite"])(
+    "keeps native %s actionable without sending setup requests",
+    async (failure) => {
+        host.failure = failure;
         const data = await load();
         expect(data.observation).toMatchObject({
-            state: "ready",
-            target: { kind: "remote", idp: host.idp },
-            loginClient: login,
+            state: "blocked",
+            action: failure,
         });
-        const { body } = render(Installation, { props: { data } });
-        expect(body).toContain('href="/signin"');
-        expect(body).not.toContain("Get bundled host code");
-        expect(body).not.toContain("Reset bundled Node");
-        expect(host.invoke).not.toHaveBeenCalled();
-        expect(host.fetch).toHaveBeenCalledTimes(1);
+        expect(host.fetch).not.toHaveBeenCalled();
+        expect(render(Installation, { props: { data } }).body).toContain(
+            failure === "trust_consent"
+                ? "Allow certificate trust"
+                : "Retry observation",
+        );
     },
 );
-
-it("discards readiness from a target changed during HTTP observation", async () => {
+it("remote selection ignores unrelated native startup failure", async () => {
     host.remote = true;
-    host.fetch.mockImplementation(async () => {
-        host.idp = "https://other.test/idp";
-        return Response.json(status("ready"));
-    });
-    const data = await load();
-    expect(data.observation).toMatchObject({
-        state: "blocked",
-        action: "retry",
-        target: { idp: "https://other.test/idp" },
-        hosts: [],
-    });
-});
-
-it("discards bundled readiness when remote selection changes during native observation", async () => {
-    host.invoke.mockImplementation(async () => {
-        host.remote = true;
-        host.idp = "https://other.test/idp";
-        return native("ready");
-    });
-    expect((await load()).observation).toMatchObject({
-        state: "blocked",
-        target: { kind: "remote", idp: "https://other.test/idp" },
-        hosts: [],
-    });
-});
-
-it("keeps browser transport failure actionable without native recovery", async () => {
-    host.native = false;
-    host.fetch.mockRejectedValue(new Error("offline"));
-    const data = await load();
-    expect(data.observation).toMatchObject({
-        state: "blocked",
-        action: "retry",
-    });
-    const { body } = render(Installation, { props: { data } });
-    expect(body).toContain("Retry observation");
-    expect(body).not.toContain("Reset bundled Node");
+    host.failure = "repair";
+    expect((await load()).observation.state).toBe("needs_setup");
     expect(host.invoke).not.toHaveBeenCalled();
 });
-
-it("keeps separate configured independent owner admission scopes", async () => {
-    host.native = false;
-    host.fetch.mockImplementation(async (url: string) =>
-        Response.json({
-            ...status(),
-            owners: [
-                url.startsWith(host.idp!)
-                    ? "idp"
-                    : url.startsWith(host.device)
-                      ? "device"
-                      : "storage",
-            ],
-        }),
-    );
-    const data = await load();
-    expect(data.observation.hosts.map((item) => item.status.owners)).toEqual([
-        ["idp"],
-        ["device"],
-        ["storage"],
-    ]);
-    const { body } = render(Installation, { props: { data } });
-    expect(body).toContain("https://policy.test/api");
-    expect(body).toContain("https://data.test/api");
-    expect(host.invoke).not.toHaveBeenCalled();
-});
-
-it("routes direct sign-in using the same observation and passes its verified login evidence", async () => {
-    const { load: signin } = await import("../../signin/+page");
-    host.invoke.mockResolvedValue(native("ready"));
-    await signin();
-    expect(host.clientId).toHaveBeenCalledWith(
-        expect.objectContaining({ state: "ready", loginClient: login }),
-    );
-    expect(host.invoke.mock.calls).toEqual([["get_onboarding_host"]]);
-    host.invoke.mockRejectedValue(new Error("offline"));
-    await expect(signin()).rejects.toMatchObject({
-        location: "/setup/installation",
-    });
-});
-
-it("offers retry for a transient remote server failure, not identity repair", async () => {
-    host.native = false;
-    host.fetch.mockResolvedValue(new Response(null, { status: 500 }));
+it("unavailable owner evidence never becomes fresh permission", async () => {
+    host.state = "unavailable";
     expect((await load()).observation).toMatchObject({
         state: "blocked",
-        action: "retry",
+        action: "prerequisite",
     });
 });
-
-it("does not disclose embedded credentials or query secrets from invalid selected addresses", async () => {
-    host.remote = true;
-    host.idp =
-        "https://operator:private-password@node.test/idp?setup=private-code";
-    const data = await load();
-    expect(data.observation.state).toBe("blocked");
-    expect(JSON.stringify(data.observation)).not.toContain("private-password");
-    expect(JSON.stringify(data.observation)).not.toContain("private-code");
-    expect(host.fetch).not.toHaveBeenCalled();
-    expect(host.invoke).not.toHaveBeenCalled();
-});
-
-it("discards a stale target's malformed evidence rather than requesting repair of the new target", async () => {
-    host.remote = true;
-    host.fetch.mockImplementation(async () => {
-        host.idp = "https://new.test/idp";
-        return Response.json({ ready: true });
-    });
-    expect((await load()).observation).toMatchObject({
-        state: "blocked",
-        action: "retry",
-        target: { idp: "https://new.test/idp" },
-        hosts: [],
-    });
-});
-
-it("allows deferred Device preferences after verified readiness", async () => {
-    host.invoke.mockResolvedValue({
-        base: "https://node.test",
-        status: status("ready"),
-    });
-    expect((await load()).observation).toMatchObject({
-        state: "ready",
-        action: "sign_in",
-    });
-});
-
-
-it.each(["matching", "nonce", "issuer", "base", "login"])(
-    "renders completed independent owners using correlated public evidence: %s",
-    async (variation) => {
-        host.native = false;
-        const bases = { idp: host.idp!, device: host.device, storage: "https://data.test/api" };
-        const operation = { purpose: "create", operation_nonce: "1".repeat(32), administrator: "Alice", node: "Node", ...bases, issuer: bases.idp, peer: null };
-        host.fetch.mockImplementation(async (url: string, init: RequestInit) => {
-            expect(init.headers).not.toHaveProperty("Authorization");
-            if (url === bases.idp + "/setup/status") return new Response(null, { status: 404 });
-            const owner = (["idp", "device", "storage"] as const).find(owner => url.startsWith(bases[owner] + "/"))!;
-            if (url.endsWith("/status")) return Response.json({ stage: "installation", state: "ready", ready: true, owners: [owner] });
-            const exact = { ...operation };
-            if (owner === "storage") {
-                if (variation === "nonce") exact.operation_nonce = "2".repeat(32);
-                if (variation === "issuer") exact.issuer = "https://wrong.test/idp";
-                if (variation === "base") exact.device = "https://wrong.test/device";
-            }
-            return Response.json({ operation: exact, owner, clients: [], registered: [], facts: owner === "idp" && variation !== "login" ? { login_client: login.client_id } : {} });
-        });
-        const data = await load();
-        const { body } = render(Installation, { props: { data } });
-        if (variation === "matching") {
-            expect(data.observation).toMatchObject({ state: "ready", action: "sign_in", loginClient: login });
-            expect(body).toContain('href="/signin"');
-            expect(body).not.toContain("needs repair");
-        } else {
-            expect(data.observation.state).toBe("blocked");
-            expect(body).not.toContain('href="/signin"');
-        }
-        expect(host.invoke).not.toHaveBeenCalled();
-    },
-);

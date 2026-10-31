@@ -4,9 +4,23 @@ Unified composes `/idp`, `/management`, `/device`, and `/storage`. One injected 
 
 Device and pairing, Node-join, restriction, selection, and replication HTTP use `/device`, not `/management`. Management exposes role/permission/assignment HTTP only (plus public metadata and permission evaluation). There are no old-route redirects. Device administration continues to require the existing `idp-management` actor audience and exact installation/application permissions; existing `management.device.*` and `management.replication.*` service scopes remain authorization identifiers, not route ownership.
 
-Storage receives a Device authority callback in Unified, or an authenticated `DeviceClient` for a separate service. It opens neither control-plane database. Unknown, inactive-owner, unapproved, revoked, conflicting, missing-policy, and pending-cleanup evidence fails closed; owner transfers retain the copy-retirement fence and binding rechecks. Reset removes only the stopped consumer's local setup and protected material; it does not delete rows or files belonging to either shared SQL owner.
+Storage consumes the configured authenticated Device owner interface in both layouts. The composed Device worker publishes local identity/control-plane clients to Management; that composition is not another setup worker. It opens neither control-plane database. Unknown, inactive-owner, unapproved, revoked, conflicting, missing-policy, and pending-cleanup evidence fails closed; owner transfers retain the copy-retirement fence and binding rechecks. Reset removes only the stopped consumer's local setup and protected material; it does not delete rows or files belonging to either shared SQL owner.
 
 `device.data_dir` is the second Unified database root (`devices.redb`). Storage uses `device_api_base_uri`, `device_oauth_client_id`, `device_oauth_client_secret`, `device_service_audience`, and `device_endpoint_id`. Browser Device calls use `PUBLIC_DEVICE_BASE_URL` or the explicit Device API URL; desktop composition mounts `/device`. Existing installations require fresh setup; there is no legacy file/schema migration. Standalone query repositories use the same `db::Client` facade over local injection or remote SQL; only database owners migrate schemas and retain history/sync capabilities.
+
+## Owner-local setup in both layouts
+
+IdP, Device and Storage each retain their own setup capability, exact operation,
+readiness and reset boundary. Use `<owner-base>/setup/owner/...` in both layouts;
+Unified supplies the corresponding prefix once on a single HTTPS endpoint with
+one local authority. Supply all four context bases and three codes once; only IdP
+receives the administrator password. Management participates from that configuration
+without a fourth code or manual registration step. Completed owner evidence must
+agree on operation/issuer/bases before login. Native installs the one authority it
+uses; CLI pins it by path and does not mutate OS trust. Hosted owner reset preserves
+that shared authority and cannot remove another owner's state/shared SQL rows.
+No host journal/metadata store, aggregate readiness endpoint or deployment broker
+exists. Previous host layouts refuse intact without migration.
 
 ## Standalone SQL owners and consumers
 
@@ -41,7 +55,7 @@ IdP and policy-only Management use that same `identity_database` section and dis
 
 With both identity selectors unset on Device and no remote SQL configuration on IdP, independent Create/Join now uses the IdP-owned identity database through ofdb-sql's Unix-socket adapter. IdP opens/migrates `idp.redb` once, serves `identity.sock` inside its private setup-host directory, and publishes the socket path in operation-bound HTTPS setup discovery. Device connects to that socket to seed and evaluate identity policy; it never opens IdP's live redb file. The socket is restarted with the IdP host and removed on clean shutdown. The protected setup-host directory limits access to the host OS account; SQL socket access is domain-level authority, not OAuth/per-table authorization. Do not share that directory or OS account with untrusted processes.
 
-Start IdP, Device, and Storage with their ordinary independent configuration, distinct data directories, correct HTTPS origins/prefixes, protected provider access and CA trust. Submit Create/Join to each setup host with its own code as below, without adding a SQL endpoint or identity file path. Device rediscovers the local socket on completed reopen. IdP must run alongside Device, but a joining Node needs no live source peer after its own local imports complete. Other machines, separate OS accounts without access to the private socket directory, and non-Unix platforms require explicit remote identity SQL; public discovery of a socket path grants no filesystem access. Unified continues to inject clients directly and starts no socket or gRPC listener.
+Start IdP, Device, and Storage with their ordinary independent configuration, distinct data directories, correct HTTPS origins/prefixes, protected provider access and CA trust. Submit Create/Join to each setup host with its own code as below, without adding a SQL endpoint or identity file path. Device rediscovers the local socket on completed reopen. IdP must run alongside Device, but a joining Node needs no live source peer after its own local imports complete. Other machines, separate OS accounts without access to the private socket directory, and non-Unix platforms require explicit remote identity SQL; public discovery of a socket path grants no filesystem access. The composed host reuses owner-local setup/discovery and supplies shared TLS; it does not introduce a separate SQL or setup broker.
 
 Policy-only standalone Management can explicitly select this same IdP-owned Unix
 socket instead of remote identity SQL:

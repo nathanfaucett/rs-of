@@ -19,6 +19,7 @@
         qr?: string | null;
         oncopy?: (endpoint: string) => void;
     } = $props();
+    const trustedPeer = $derived(endpoint ? `${getDeviceApiUrl()}#${endpoint}` : "");
     let nodeOffers = $state.raw<PendingNodeJoin[]>([]);
     let nodeAccepting = $state(false);
     let nodeError = $state<string | null>(null);
@@ -80,11 +81,9 @@
         nodeStatus = "";
         try {
             if (approve) {
-                const result = await approvePendingNodeJoin(offer.offer_id);
+                await approvePendingNodeJoin(offer.offer_id);
                 nodeStatus =
-                    result === "accepted"
-                        ? "Approval accepted. The other device is still finishing enrollment and provisioning. Check progress there; this is not proof it is ready."
-                        : "Source approval recorded. The other device must still finish provisioning and verify every owner before sign-in.";
+                    "Approval accepted. The other device is still finishing enrollment and provisioning. Check progress there; this is not proof it is ready.";
             } else {
                 await rejectPendingNodeJoin(offer.offer_id);
                 nodeStatus =
@@ -116,7 +115,7 @@
         <li>
             On the other device, choose <strong
                 >Join an existing Installation</strong
-            > and use this trusted source endpoint.
+            > and use this trusted source Device base and pinned endpoint.
         </li>
         <li>
             Compare the request below with the other device before approving.
@@ -124,21 +123,16 @@
         </li>
     </ol>
     {#if endpoint}
-        <code class="break-all">{endpoint}</code>
+        <code class="break-all">{trustedPeer}</code>
         {#if oncopy}<button
                 class="btn btn-secondary btn-md"
                 type="button"
-                onclick={() => oncopy?.(endpoint)}>Copy endpoint ID</button
+                onclick={() => oncopy?.(trustedPeer)}>Copy trusted peer</button
             >{/if}
-        <details>
-            <summary>Joining independently deployed owners?</summary>
-            <p>Use this full trusted peer instead of the endpoint alone:</p>
-            <code class="break-all">{getDeviceApiUrl()}#{endpoint}</code>
-        </details>
         {#if qr}<img
                 class="h-64 w-64 bg-surface p-2"
                 src={qr}
-                alt="Trusted source endpoint QR code"
+                alt="Trusted source Device base and pinned endpoint QR code"
             />{/if}
     {:else}
         <p>

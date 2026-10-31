@@ -16,6 +16,12 @@ for (const owner of ["idp", "management", "device", "storage"]) {
         test("built export resolves and loads: " + specifier, async () => {
             const module = await import(require.resolve(specifier));
             assert.ok(Object.keys(module).length > 0);
+            if (["idp", "device", "storage"].includes(owner)) {
+                if (owner !== "storage" || entry === "./generated")
+                    assert.equal(typeof module.OwnerSetupApi, "function");
+                assert.equal(module.SetupApi, undefined);
+                assert.equal(module.CreateResultFromJSON, undefined);
+            }
         });
     }
 }

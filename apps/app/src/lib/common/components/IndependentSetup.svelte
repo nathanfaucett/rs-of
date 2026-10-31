@@ -7,9 +7,15 @@
         independentOwners,
         type OwnerCodes,
     } from "../state/independentSetupApi";
+    import { readNativeSetupCode } from "../state/setupClient.svelte";
     import type { SetupHost } from "../state/setupApi";
 
-    let { hosts }: { hosts: SetupHost[] } = $props();
+    let { hosts, bundled = false }: {
+        hosts: SetupHost[];
+        bundled?: boolean;
+    } = $props();
+    let active = true;
+    let retrieving = $state(false);
     const session = untrack(() => new IndependentSetupSession(hosts));
     let purpose = $state<"create" | "join">(
         untrack(() =>
@@ -25,6 +31,7 @@
     let codes = $state<OwnerCodes>({ idp: "", device: "", storage: "" });
     const canSubmit = $derived(
         !session.busy &&
+            !retrieving &&
             !session.ready &&
             !session.observationRequired &&
             (!!session.intent ||
@@ -36,13 +43,42 @@
         password = "";
         codes = { idp: "", device: "", storage: "" };
     }
+    async function currentCodes(current: OwnerCodes): Promise<OwnerCodes | null> {
+        if (!bundled) return current;
+        retrieving = true;
+        try {
+            for (const owner of independentOwners) {
+                if (!active) return null;
+                if (session.hosts.find(
+                    (host) => host.status.owners[0] === owner,
+                )?.status.ready) continue;
+                const code = await readNativeSetupCode(
+                    session.bases[owner], owner,
+                );
+                if (!code)
+                    throw new Error("Owner capability retired; observe readiness");
+                current[owner] = code;
+            }
+            return active ? current : null;
+        } catch {
+            clearSecrets();
+            session.message =
+                "Protected owner code retrieval failed or selection changed. Observe the selected owners before retrying.";
+            return null;
+        } finally {
+            retrieving = false;
+        }
+    }
     async function submit(event: SubmitEvent) {
         event.preventDefault();
-        const currentCodes = { ...codes };
+        if (retrieving || session.busy) return;
+        const supplied = { ...codes };
         const credential = password;
         clearSecrets();
+        const current = await currentCodes(supplied);
+        if (!current) return;
         await session.submit(
-            currentCodes,
+            current,
             {
                 purpose,
                 administrator,
@@ -56,9 +92,12 @@
         );
     }
     async function recover() {
-        const currentCodes = { ...codes };
+        if (retrieving || session.busy) return;
+        const supplied = { ...codes };
         clearSecrets();
-        await session.recover(currentCodes);
+        const current = await currentCodes(supplied);
+        if (!current) return;
+        await session.recover(current);
         if (session.intent) {
             purpose = session.intent.purpose;
             administrator = session.intent.administrator;
@@ -67,27 +106,31 @@
         }
     }
     async function cancel() {
-        const currentCodes = { ...codes };
+        if (retrieving || session.busy) return;
+        const supplied = { ...codes };
         clearSecrets();
-        await session.cancel(currentCodes);
+        const current = await currentCodes(supplied);
+        if (!current) return;
+        await session.cancel(current);
     }
     async function observe() {
+        if (retrieving || session.busy) return;
         clearSecrets();
         await session.observe();
     }
     onDestroy(() => {
+        active = false;
         clearSecrets();
         session.destroy();
     });
 </script>
 
 <section aria-labelledby="independent-setup-title" class="flex flex-col gap-3">
-    <h2 id="independent-setup-title">Independent owner Create / Join</h2>
+    <h2 id="independent-setup-title">Owner Create / Join</h2>
     <p>
         Each owner requires its own code in its own HTTPS Authorization header.
-        Codes and passwords are transient, never saved. The deployment must
-        install OS CA trust on browsers and calling hosts; do not bypass
-        certificate warnings.
+        Codes and passwords are transient, never saved. Bundled setup uses one local
+        certificate authority for all owners. Remote deployments require verified HTTPS trust; never bypass certificate warnings.
     </p>
     <p>
         One operation targets the exact three bases below. Accepted work
@@ -116,7 +159,7 @@
                     {required}
                     bind:value={purpose}
                     onchange={clearSecrets}
-                    disabled={session.busy || !!session.intent}
+                    disabled={session.busy || retrieving || !!session.intent}
                 >
                     <option value="create">Create an Installation</option>
                     <option value="join">Join through a trusted peer</option>
@@ -133,7 +176,7 @@
                     ? ` — ${session.outcomes[owner]}`
                     : ""}
             </p>
-            {#if !current?.status.ready}
+            {#if !bundled && !current?.status.ready}
                 <Field label={`${owner} host setup code`}>
                     {#snippet children({
                         id,
@@ -153,7 +196,7 @@
                             pattern="[a-f0-9]{64}"
                             minlength="64"
                             maxlength="64"
-                            disabled={session.busy}
+                            disabled={session.busy || retrieving}
                         />
                     {/snippet}
                 </Field>
@@ -174,7 +217,7 @@
                         {required}
                         bind:value={administrator}
                         autocomplete="username"
-                        disabled={session.busy || !!session.intent}
+                        disabled={session.busy || retrieving || !!session.intent}
                     />
                 {/snippet}
             </Field>
@@ -194,7 +237,7 @@
                         {required}
                         bind:value={node}
                         autocomplete="off"
-                        disabled={session.busy || !!session.intent}
+                        disabled={session.busy || retrieving || !!session.intent}
                     />
                 {/snippet}
             </Field>
@@ -218,7 +261,7 @@
                         bind:value={peer}
                         autocomplete="off"
                         spellcheck="false"
-                        disabled={session.busy || !!session.intent}
+                        disabled={session.busy || retrieving || !!session.intent}
                         placeholder="https://source.example/device#…"
                     />
                 {/snippet}
@@ -244,7 +287,7 @@
                         type="password"
                         bind:value={password}
                         autocomplete="new-password"
-                        disabled={session.busy}
+                        disabled={session.busy || retrieving}
                     />
                 {/snippet}
             </Field>
@@ -266,7 +309,7 @@
             class="btn btn-secondary btn-md"
             type="button"
             onclick={recover}
-            disabled={session.busy || session.ready}
+            disabled={session.busy || retrieving || session.ready}
             >Recover exact operation across owners</button
         >
         <button
@@ -274,6 +317,7 @@
             type="button"
             onclick={cancel}
             disabled={session.busy ||
+                retrieving ||
                 session.ready ||
                 !session.intent ||
                 !session.intent.issuer ||
@@ -285,7 +329,7 @@
         class="btn btn-secondary btn-md"
         type="button"
         onclick={observe}
-        disabled={session.busy}>Observe all owners and verify readiness</button
+        disabled={session.busy || retrieving}>Observe all owners and verify readiness</button
     >
     {#if session.message}
         {#if session.observationRequired}

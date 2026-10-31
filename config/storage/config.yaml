@@ -3,4 +3,4 @@ server:
   port: 3002
   setup_ui_origin: https://of.localhost:1355
 data_dir: ./data/storage
-api_public_uri: https://storage-api.localhost:1355
+api_public_uri: https://127.0.0.1:3002

@@ -35,44 +35,69 @@ Keep independent private signers, raw passwords, raw secrets and confidential-cl
 
 `of` depends on public `ofdb-sql` and `ofdb-kv` facades. Owner-internal transitive dependencies, facade backend feature names and `.redb` data-file extensions are legitimate, not direct internal persistence dependencies. `offs` owns filesystem persistence, `ofnet` owns reusable endpoint/mesh/pairing/routing, and `of` owns domain authorization and protocol adapters. Preserve separate context roots and ordinary least-privilege local service-client scopes/audiences; no compatibility wrappers or central-role fallback are required.
 
-Unified endpoint private material is stored as bytes through the generic, feature-gated secure provider in `key`, below IdP signing-key derivation and repositories. The host's authoritative Create/Join operation retains the exact provider service, entry and target, the expected public endpoint ID, and an attempted-creation fence before any provider access. Creation refuses an occupied entry and verifies readback; the provider does not offer atomic create-only writes. Exclusive host ownership and unique retained references fence cooperating creators, not arbitrary external provider mutation. Reopen derives and compares the public ID on every load. Provider errors are not absence; missing, malformed, mismatched or inaccessible attempted material refuses without regeneration or application-managed file fallback. Transport identity still grants neither Device approval nor resource authorization, and retrieval needs no authenticated IdP operation or domain database.
+## Owner-local setup authority
 
-Raw Unified `endpoint.key`/pending-file layouts and host operations lacking endpoint provider references are unsupported. Startup refuses them intact before replacement secret creation; there is no migration, dual read/write or raw-file recovery path. Explicit native reset captures the endpoint reference in the SQL-owned references and stopped reset journal as other protected references, deletes only that entry with readback before removing local metadata, and preserves all evidence on failure. Already-absent material is idempotent only during explicit reset continuation. Reference recovery restores exact metadata, never secret bytes or replacement identity. Mock-provider tests do not certify production platform persistence or real OS trust.
+IdP, Device, and Storage each issue and retire one setup capability in every
+layout. Management issues none. One request carries only its issuing owner's code;
+only IdP receives the administrator password. Protected owner-only nonsymlink
+admission state and process-lifetime locks fence cooperating workers. Ambiguous IO,
+missing attempted material, malformed state and conflicting operations deny without
+replacement. Status, URLs, logs, stdout and browser persistence contain no codes.
 
-## Initial setup admission and worker authority
+Each owner durably binds its exact operation before mutation/202. Public nonce,
+operation equality, HTTPS and Origin are not admission authority. Recipient-scoped
+single-use challenges authorize direct consumer→IdP registration; secrets remain
+provider-local and never pass through the app. Configured exact UI origins and
+noncredentialed CORS do not replace setup capability or ordinary OAuth checks.
 
-The same app can run on web without Tauri; initial HTTPS setup is authorized by a host-generated 256-bit code retrieved through protected host management. The dedicated Unix state is owner-only and nonsymlink, guarded by an exclusive process-lifetime lock; it is not public host metadata or a replacement for secure-provider-backed domain keys. Exact code comparison is constant-time, duplicate/malformed authorization denies, and errors/Debug do not disclose credentials. Binding and retirement are durable; invalid state or ambiguous IO fails closed without repair. No code enters HTTP status, URLs, logs or ordinary stdout.
+Unified hosts the same owner workers, with separate owner state and one shared
+local TLS authority. It has no parallel host lifecycle, journal, metadata database,
+credential-bootstrap file, or deployment broker. Previous host layouts are refused
+intact before fresh secret production; no migration/dual-read/automatic reprovisioning
+exists. The IdP base is the canonical Create issuer. Join authenticates purpose/
+nonce-bound discovery from the exact Device HTTPS base plus pinned endpoint and
+retains the authenticated issuer. No private source signer/password is imported.
 
-Use `Authorization: Setup <64 lowercase hex>` only on setup routes, not as an ordinary OAuth token. Web/remote setup requires the exact configured HTTPS UI Origin; bundled native setup admits only its exact configured Tauri/development Origin. No-Origin clients still require the code. Explicit headers/noncredentialed CORS do not constitute identity or replace code authorization. Admission checks alone do not authorize later work: unified Create/Join bind validated exact nonsecret operation identity, coordinate mutation, preserve retries and retire the code only after owner verification. Cancellation and retirement have one serialized winner; once finalization wins, cancellation cannot return success. Current ready status rechecks local owner readiness rather than trusting the completion marker. Source Join approval still needs ordinary authorized User evidence.
+## Trust footprint
 
-Unified and independent-owner Create/Join now have HTTPS workers and existing-app/generated SDK wiring. Each owner independently binds the exact operation under its own code; public metadata/nonces do not authorize registration. Consumer-generated relationship secrets stay in that consumer's secure provider and travel directly to IdP only under an outstanding operation/recipient/registration-bound one-use challenge. Codes are never forwarded. Challenges are consumed before provisioning and invalid after restart/cancel/retirement. Provider-attempt fences and independent `initialized.json`/`worker.json` refuse lost evidence without replacement material/IDs.
+Desktop installs only its retained local dynamic setup server's certificate
+authority. Hosted owners sit behind that endpoint and need no additional authority.
+Explicit consent explains the OS anchor/elevation impact. Missing/expired/invalid
+identity and arbitrary TLS errors do not authorize replacing or installing trust;
+the native UnknownIssuer path verifies the same retained identity after consent.
+Remote selection never retrieves bundled codes or substitutes local services.
 
-Recipient provider/network callbacks do not hold the privileged lifecycle gate; cancellation is observed and active operation/retirement/registration are revalidated before progress writes. Configured-origin CORS surrounds setup/normal routing without replacing authentication. Independent Join pins the source HTTPS Management base/endpoint, imports approved public history only and never imports/replays administrator passwords. The app correlates every owner's operation/issuer/base evidence before accepting readiness. See [worker design](setup-workers.md), [API contracts](api.md) and [current bounded evidence](operations.md#qualification-boundary), not obsolete intermediate timeout/incomplete-SDK claims. Bounded ticket acceptance is recorded in receipt 44, not GUI/platform certification.
+CLI Create/Join uses `--ca-path` to pin the local authority in its HTTPS client.
+It does not install OS trust. Standalone owners retain their own local authorities;
+callers must verify each actual endpoint. No certificate-warning bypass, plaintext
+fallback or relaxed endpoint verification is permitted. Native-root listener OPTIONS
+is not readiness; owner GET/public correlation and normal authentication remain
+separate. OS trust alone grants no membership, signer trust or resource permission.
 
-Installer subprocesses are cancellation-owned and reaped, with host/admission leases held through ordinary process-group cleanup. Test verifier overrides are gated behind nondefault `api/test-support`; production requires installation and the native-root client. Cancellation fixtures do not certify escaped/new-session or privileged descendants, OS-denied termination or actual elevation. Normal protected API authentication and authorization are unchanged. A browser cannot install OS trust: desktop coordinates native consent, while web deployment must arrange required installation. No privileged installation was executed as a test.
+## Reset and recovery boundaries
 
-## Automatic bootstrap and trust installation
+Each owner is resettable through protected stopped-owner management, not HTTP setup.
+The full desktop reset closes/join workers and invokes the three owner boundaries
+separately; it does not add a deployment setup/reset broker. Reset retains exact
+inventories and completed-owner evidence across failure. Provider deletion precedes
+data deletion, with no cross-owner enumeration or shared-row removal. Hosted resets
+preserve the one shared CA and installed OS trust. Standalone explicit reset requires
+`--remove-os-trust` and removes only its retained owner CA after protected cleanup.
+Missing/contradictory evidence refuses unchanged; reference recovery validates
+retained owner state rather than synthesizing keys, histories or identities.
 
-Ordinary CLI `create`/`join` derives internal IDs, context roots, audiences and public settings. Bundled Management and Storage bearer/active-User validation calls local IdP, while Device/endpoint authority calls local Management, retaining principal, signer/root, registration, Application and exact consumer authorization checks without confidential relationship registrations or service secrets. Bundled IdP→Management permission evaluation and Storage→Management replication authorization likewise use current local owner interfaces. Independent deployments retain authenticated HTTPS evaluator/client APIs and least-privilege credentials. Durable consumed attempt history and exact readback still protect Node signers, endpoint identity and TLS; missing attempted material never authorizes replacement. Hidden initial password entry is the create default; an operator-only nonsymlink password file is optional automation. Passwords never enter argv/config/raw-secret manifests. Explicit custom configuration is optional, not an internal-ID/secret prerequisite.
+Reset/cancellation is not remote revocation, rollback, peer erasure, or a permission
+grant. Device and IdP signer revocation require their ordinary authorized owner
+operations. Completed reopen needs no original Join source, but current local trust
+and configured owner dependencies still apply; learned denial is enforced.
 
-Create and join also automatically retain a separate public operator-login Client. Its printed ID/scopes/audiences are public metadata, not secrets or authority. Ordinary password authentication and token exchange still require valid User credentials, exact audience/action and current local permissions; no confidential Client secret or bootstrap-only sign-in bypass is introduced. Never put the User password in argv/logs or confuse this public Client with independent deployments’ confidential service relationships. Old one-/two-/four-slot bundled references and intents are refused unchanged; native explicit reset retains every historical Client/key-name reference through cleanup failure. No migration or secret regeneration is performed.
+## Qualification boundary
 
-A fresh Installation retains a unique logical Canonical Issuer independent of its localhost API address. No-config join learns that issuer over authenticated pairing bound to purpose, fresh nonce and the operator-pinned endpoint before Node production. A fingerprint must be verified through a trusted channel; unsigned metadata and arbitrary discovered peers are not trust evidence. Retained identity/ports are not silently regenerated or migrated. Old bundled one-, two- and four-relationship records deny ordinary setup/reopen unchanged. Explicit native reset accepts those exact captured bundled Client/credential references. Separately, independent `reset-independent --remove-os-trust` validates its supported current/historical owner records and exact slots. Both preserve evidence across cleanup failure; neither gives removed relationships fresh production authorization.
-
-Source acceptance, pending offers and exact approval/rejection use `/management/node-joins` with ordinary Management-audience User authorization and both pairing-update and separate signer-enrollment permissions. IdP-audience tokens and target Setup codes deny. Management Device/endpoint/active-owner checks are separate from IdP signer trust; existing restrictions/selections survive. Admission refresh and final current authorization/enrollment checks precede signed reply. Post-enrollment failure remains partial for exact retry; transport approval grants no resource selection/access. All platforms use the HTTPS contract, not native approval commands.
-
-Both flows require OS trust installation and native-root HTTPS verification on the relevant deployment hosts/clients. Desktop coordinates explicit elevation/consent; browsers cannot install trust and web deployments must arrange it. Denied trust/provider/tools or verification failure stops work without plaintext, custom production CA clients, browser-only trust or certificate-warning bypass. Provisioning verifies current local readiness and actual HTTPS, not a health/token/service-call qualification suite. Completed reopen never manufactures missing trust or state. Native reset/reference recovery preserves exact evidence through provider deletion failures and does not remove OS CA anchors. Independent stopped reset instead requires explicit `--remove-os-trust`: delete exact protected material first, remove only the retained host CA, then delete data/setup evidence. Failed provider/trust removal retains the journal and remaining evidence for exact retry. Live setup locks exclude reset; no HTTP reset, automatic repair or remote erasure is implied. See [reset operations](operations.md#persistence-reset-and-recovery).
-
-Installing the local CA is an OS trust change, not merely a browser preference. Protect its private key and server keys as local sensitive material. Linux's matched platform anchor copy/refresh requires working elevation; macOS's login-keychain path is implemented but not newly qualified here. The CLI refuses unsupported platforms and non-localhost TLS addresses before material production. Desktop's existing native certificate preparation also requires OS trust installation/native-root verification; stale success markers do not waive that requirement. Desktop fresh create now automatically retains its own unique logical issuer and join uses the shared authenticated discovery helper against the pinned peer; manual issuer UI/input is removed. Existing retained intent is not silently replaced, and discovery does not change reset/recovery behavior.
-
-## Qualification limits
-
-[Receipt 42](../.scratch/ui-driven-node-bootstrap/evidence/42-finalreview.md) qualifies final independent same-host Ubuntu lifecycle/security seams, including actual authenticated Storage use for an endpoint absent from IdP signer trust, same-token/counted-connection policy/revocation denial and retained-reopen denial. It also qualifies listener/readiness separation, transfer/replay, current/historical reset and exact injected trust-removal behavior. [Receipt 41](../.scratch/ui-driven-node-bootstrap/evidence/41-management-cleanup-client.md) qualifies current generated cleanup/frontend contracts; its historical five Storage SDK export errors are superseded by the passing app/build qualification in OpenAPI ticket 02. [Receipt 43](../.scratch/ui-driven-node-bootstrap/evidence/43-final-native-shared.md) completes final native/shared qualification on unchanged `a4caa2f71` Rust; [receipt 44](../.scratch/ui-driven-node-bootstrap/evidence/44-acceptance.md) accepts the bounded spec and resolves tickets 02/03/04. [Operations](operations.md#qualification-boundary) preserves each result's scope, not a whole-workspace or production-deployment certification. **Verified GUI approval, profile-B completion and two-profile GUI offline restart remain deferred and not observed.** Real OS-provider persistence/loss recovery, native CA installation across platforms, containers, unattended deployment and broader process/crash behavior remain separately qualified concerns.
-
-This documentation update independently ran no Cargo/GUI/live-endpoint tests and performed no native OS trust installation. [Operations](operations.md#qualification-boundary) records the supplied focused unit, production HTTPS, Desktop localhost and `ofnet` passes, plus the separately inherited full frontend typecheck failure. Injected install commands and isolated native CA-file roots in the HTTPS harness do not modify or qualify a real OS trust store. No GUI acceptance is inferred. Focused/historical tests, receipts, generated routes and listener probes cannot waive current trust or qualification limits.
-
-## Unified host-local setup metadata
-
-`host.redb` is a private local `ofdb-sql` database, separate from domain databases, remote SQL and replication. It owns configuration, Create/Join operation/allocation and attempt/acknowledgement evidence, credential references, completion and admission retirement. Owner inventories and domain records remain owner-authoritative; endpoint private material remains provider-owned. Only one cooperating process may hold the host lifecycle guard.
-
-The temporary setup-code file contains credential material only, never administrator/Node choices or workflow history. SQL retirement wins over leftover code. Create/Join completion and retirement commit together after required owner verification/publication; owner/provider effects themselves are not part of that transaction. Completed Create retries correlate the retained operation and authenticate the administrator normally; completed Join retains exact peer/issuer checks and reopens from local state without the original peer. Missing live code or damaged/lost SQL metadata never permits new authority or replacement identities. Old host/configuration/Create/Join file layouts refuse intact without migration or fallback; operator restore/reset is explicit. Preserve exact SQL backups with owner and provider state; native reference recovery cannot rebuild lost workflow/admission history.
+[Ticket03](../.scratch/unified-owner-lifecycle/ticket03-validation.md) records the
+nine passing process scenarios before the unrelated sibling manifest edit blocked
+Cargo. [Ticket04](../.scratch/unified-owner-lifecycle/ticket04-validation.md) records
+current consumer/client checks and exact validation limits. Historical receipts
+are scoped evidence, not current platform certification. Mock providers/injected
+trust and mounted forms do not certify actual OS installation/provider persistence,
+GUI approval, WAN, containers, other platforms, crash recovery, or filesystem sync
+between Nodes. No privileged trust operation was run for this change.

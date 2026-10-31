@@ -30,11 +30,17 @@ A Device-service-owned persistent domain identity bound to a transport endpoint 
 A Device-service-approved, non-revoked Device eligible to participate in the mesh. Approval is transport trust, not User authentication, token-signing authority or resource authorization.
 
 **Bootstrap Service**:
-The coordinator that establishes the repeatable system baseline for a new Installation through separate IdP and Device owner operations.
+The setup functionality that establishes a repeatable Installation baseline through separate IdP, Device, and Storage owner operations. It is not a separate setup owner or deployment broker.
 
 **Installation Setup**:
 The process that establishes a new Installation or joins it as an equal Node through a trusted peer.
 _Avoid_: Master setup, primary-node setup
+
+**Setup Owner**:
+One of IdP, Device, or Storage, independently responsible for its admission capability, retained exact Installation Setup operation, readiness, and reset boundary. Management participates in the Installation but is not a setup owner.
+
+**Setup Capability**:
+Temporary authority issued by one Setup Owner and accepted only by that owner. It is not User authentication or authority over another owner.
 
 **Device Setup**:
 The process that configures and later edits the data an Installation member stores locally after Installation Setup completes.

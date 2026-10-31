@@ -26,12 +26,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     merge(
         documents.get_mut("idp").expect("IdP"),
-        idp_server::setup_openapi(),
-        "setup",
-        Some("/idp"),
-    );
-    merge(
-        documents.get_mut("idp").expect("IdP"),
         idp_server::independent_join_openapi(),
         "independent_join",
         None,
