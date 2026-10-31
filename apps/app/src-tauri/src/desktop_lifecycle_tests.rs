@@ -326,6 +326,9 @@ async fn reset_during_startup_cancels_and_joins_before_deleting_isolated_state()
     let lifecycle = crate::lifecycle::Lifecycle::default();
     let data = directory();
     let (setup, client) = fixture(&data.join("node"));
+    let ca_path = setup.tls().ca_path();
+    let ca = fs::read(&ca_path).expect("shared CA before reset");
+    let identity = retained_identity(&data.join("node"));
     let address = setup.local_addr();
     let (operation, cancellation) = lifecycle.start().await.expect("startup ownership");
     let stop = lifecycle.stop(false);
@@ -347,7 +350,14 @@ async fn reset_during_startup_cancels_and_joins_before_deleting_isolated_state()
             .await
             .expect("reset isolated neutral host only after startup joined");
         assert!(tokio::net::TcpListener::bind(address).await.is_ok());
-        assert!(!data.join("node").exists());
+        for owner in ["idp", "device", "storage"] {
+            for suffix in ["", ".setup-host", ".setup-reset", ".setup-reset.json"] {
+                assert!(!data.join("node").join(format!("{owner}{suffix}")).exists());
+            }
+        }
+        assert_eq!(fs::read(&ca_path).expect("shared CA after reset"), ca);
+        assert_eq!(retained_identity(&data.join("node")), identity);
+        assert!(!crate::setup_reset::pending(&data).expect("reset completed"));
     };
     tokio::join!(reset, startup);
     fs::remove_dir_all(data).expect("isolated cleanup");

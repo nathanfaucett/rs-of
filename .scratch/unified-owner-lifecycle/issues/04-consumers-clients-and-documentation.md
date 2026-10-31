@@ -17,6 +17,7 @@
 ## Comments
 
 - Claimed on branch `unified-owner-lifecycle-04`, worktree `of-consumers-04`, from `6e3dfa4a6823a7dc2f4bfaa70be0e30948171072`. Owner-local reset; no broker.
+- Final review corrections on `unified-owner-lifecycle-review-fixes` retain reset evidence until desktop acknowledgment, preserve shared TLS/listener identity, and let CLI exact retries observe retired owners without mutation authority. Independent review corrected the remaining startup/reset test's obsolete whole-root deletion assertion. This ticket stays resolved for implementation, not complete validated acceptance: the final Rust regressions remain uncompiled/unrun behind the sibling manifest blocker. See [final review and exact validation limits](../final-review.md).
 
 ## Answer
 

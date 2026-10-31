@@ -5,6 +5,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{SetupHost, UnifiedConfig};
 
+#[cfg(test)]
+#[path = "cli_tests.rs"]
+mod tests;
+
 #[derive(Parser)]
 #[command(
     version,
@@ -120,13 +124,14 @@ async fn submit(
         let admission = path.parent().ok_or_else(|| {
             io::Error::other("owner capability requires its protected admission path")
         })?;
-        let code = api::SetupAdmission::protected_code(admission)
-            .map_err(io::Error::other)?
-            .ok_or_else(|| {
-                io::Error::other(
-                    "owner capability is retired; observe that owner's public status instead",
-                )
-            })?;
+        let owner = ["idp", "device", "storage"][i];
+        let Some(code) =
+            api::SetupAdmission::protected_code(admission).map_err(io::Error::other)?
+        else {
+            observe_completed(&client, &operation, owner).await?;
+            println!("Owner {owner} already completed the exact operation");
+            continue;
+        };
         let mut request = serde_json::to_value(&operation)?;
         if i == 0 {
             request["password"] = serde_json::json!(password);
@@ -138,6 +143,10 @@ async fn submit(
             .send()
             .await
             .map_err(io::Error::other)?;
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            observe_completed(&client, &operation, owner).await?;
+            continue;
+        }
         if response.status() != reqwest::StatusCode::ACCEPTED {
             return Err(io::Error::other(format!(
                 "owner {i} refused setup (HTTP {}); retain the exact nonce and operation for an explicit retry",
@@ -163,6 +172,49 @@ async fn submit(
             ));
         }
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    Ok(())
+}
+
+async fn observe_completed(
+    client: &reqwest::Client,
+    operation: &api::IndependentCreateIntent,
+    owner: &str,
+) -> io::Result<()> {
+    let base = operation.base(owner)?;
+    let status: serde_json::Value = client
+        .get(format!("{base}/setup/owner/status"))
+        .send()
+        .await
+        .map_err(io::Error::other)?
+        .error_for_status()
+        .map_err(io::Error::other)?
+        .json()
+        .await
+        .map_err(io::Error::other)?;
+    if status["stage"] != "installation"
+        || status["state"] != "ready"
+        || status["ready"] != true
+        || status["owners"] != serde_json::json!([owner])
+    {
+        return Err(io::Error::other(format!(
+            "owner {owner} has no capability and is not currently ready; retain the exact operation for recovery"
+        )));
+    }
+    let public: api::IndependentOwnerPublic = client
+        .get(format!("{base}/setup/owner/public"))
+        .send()
+        .await
+        .map_err(io::Error::other)?
+        .error_for_status()
+        .map_err(io::Error::other)?
+        .json()
+        .await
+        .map_err(io::Error::other)?;
+    if public.owner != owner || public.operation != *operation {
+        return Err(io::Error::other(format!(
+            "owner {owner} completion conflicts with the exact operation"
+        )));
     }
     Ok(())
 }

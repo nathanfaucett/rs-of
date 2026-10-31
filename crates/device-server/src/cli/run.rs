@@ -66,7 +66,7 @@ pub async fn run() -> io::Result<()> {
 
     #[cfg(unix)]
     if let Some(DeviceCommand::ResetIndependent { remove_os_trust }) = args.command.as_ref() {
-        return crate::reset_independent(&app_config, *remove_os_trust).await;
+        return crate::reset_independent(&app_config, *remove_os_trust, || Ok(())).await;
     }
 
     #[cfg(unix)]

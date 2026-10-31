@@ -1,6 +1,9 @@
 # Converge Unified Host on the owner-local Installation Setup lifecycle
 
-Status: ready-for-agent
+Status: needs-triage
+
+Implementation: resolved (tickets 01–04 and the four final-review corrections).
+Final qualification: blocked; not complete validated acceptance. Review-fix Rust tests have not compiled or run because of the unrelated sibling offs manifest duplicate table. See [map.md](map.md) and [final-review.md](final-review.md) for historical evidence, exact final attempts, and remaining validation.
 
 ## Problem Statement
 

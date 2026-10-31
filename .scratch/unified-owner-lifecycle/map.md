@@ -53,10 +53,12 @@ suite stays unchanged.
 - [Ticket 04](issues/04-consumers-clients-and-documentation.md) resolved: bundled/remote consumers share owner-local Create/Join, four configurable public bases, three scoped capabilities and one hosted authority. Deleted the remaining aggregate IdP contract/SDK and unused hosted implementation, migrated source sharing/approval and current docs/configuration. [Validation and exact external limits](ticket04-validation.md).
 - Reset fog resolved by owner-local stopped reset boundaries: a full desktop reset invokes the existing IdP, Device and Storage resets separately after shutdown, retaining per-owner completion across failures and preserving shared TLS. No deployment reset/setup broker or HTTP reset surface is introduced.
 
+- [Final four-finding review](final-review.md): owner reset now retains completion evidence until desktop acknowledgment, fresh Management serves state-free metadata, CLI exact retries observe retired owners without authority, and desktop reset retains shared TLS/listener identity. Independent review also corrected the startup/reset lifecycle test's obsolete whole-root deletion assertion. These are implementation corrections, not newly passing runtime evidence.
+
 ## Fog
 
-No unresolved implementation choice remains for this effort. Cross-node filesystem synchronization, real GUI/provider/OS trust and platform qualification remain outside the bounded evidence; the sibling manifest and unchanged generator cold-cache tests block broader gates as recorded in ticket04.
+No unresolved implementation choice remains for this effort. Final Rust compilation/runtime qualification is unavailable: the review-fix regressions have not compiled or run because the unrelated sibling offs manifest has a duplicate target-dependencies table. Historical ticket01–03 results do not validate the final tip. Cross-node filesystem synchronization, real GUI/provider/OS trust and platform qualification remain outside the bounded evidence; unchanged generator cold-cache limitations remain as recorded in ticket04. See [final-review.md](final-review.md) for exact rerun attempts and limits.
 
 ## Frontier
 
-All four implementation tickets are resolved. Integration handoff remains on ticket04's own branch; no agent merge into integration is performed. Full Cargo/export/powerset/CRAP qualification must be rerun after the unrelated sibling manifest edit is complete.
+All four implementation tickets are resolved; this is not complete validated acceptance. The final review-fix delivery branch is `unified-owner-lifecycle-review-fixes`, with integration destination `unified-owner-lifecycle` in the existing `of` worktree. Full Cargo/export/powerset/CRAP qualification must be rerun after the unrelated sibling manifest edit is complete. Leave worktree/branch cleanup to the parent.

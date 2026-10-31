@@ -14,6 +14,44 @@ async fn owner_surfaces_share_one_endpoint_and_exactly_one_prefix() {
     let config = UnifiedConfig::local(&root, "127.0.0.1:37443".parse().expect("loopback"));
     let host = SetupHost::prepare(config).expect("composed owner setup");
     let router = host.router();
+    for path in ["/management/version", "/management/openapi.json"] {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::get(path)
+                    .body(Body::empty())
+                    .expect("metadata request"),
+            )
+            .await
+            .expect("fresh Management metadata");
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("metadata body");
+        let value: serde_json::Value = serde_json::from_slice(&body).expect("metadata JSON");
+        if path.ends_with("/version") {
+            assert_eq!(value["name"], "management-server");
+            assert!(value["version"].is_string());
+        } else {
+            assert_eq!(
+                value["servers"][0]["url"],
+                "https://127.0.0.1:37443/management"
+            );
+        }
+    }
+    assert_eq!(
+        router
+            .clone()
+            .oneshot(
+                Request::get("/management/health")
+                    .body(Body::empty())
+                    .expect("health request"),
+            )
+            .await
+            .expect("unprovisioned health")
+            .status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
     for owner in ["idp", "device", "storage"] {
         let response = router
             .clone()

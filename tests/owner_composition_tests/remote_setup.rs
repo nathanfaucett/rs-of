@@ -321,7 +321,7 @@ async fn remote_setup_child() {
     let retained = target_root.join("device/shared-owner.redb");
     fs::write(&retained, "unexpected owner evidence").expect("retained owner fixture");
     assert!(
-        device_server::reset_independent(&reset_config, true)
+        device_server::reset_independent(&reset_config, true, || Ok(()))
             .await
             .is_err(),
         "remote reset must refuse unknown owner data even with valid setup evidence"
@@ -331,7 +331,7 @@ async fn remote_setup_child() {
         "unexpected owner evidence"
     );
     fs::remove_file(retained).expect("remove injected fixture");
-    device_server::reset_independent(&reset_config, true)
+    device_server::reset_independent(&reset_config, true, || Ok(()))
         .await
         .expect("consumer-only Device reset");
     let response = http
@@ -408,6 +408,7 @@ async fn remote_setup_child() {
             ..Default::default()
         },
         true,
+        || Ok(()),
     )
     .await
     .expect("remote Create IdP consumer reset");

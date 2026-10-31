@@ -263,6 +263,7 @@ async fn reset(owner: &str, domain: &Path, trust: bool) -> io::Result<()> {
                     ..Default::default()
                 },
                 trust,
+                || Ok(()),
             )
             .await
         }
@@ -273,6 +274,7 @@ async fn reset(owner: &str, domain: &Path, trust: bool) -> io::Result<()> {
                     ..Default::default()
                 },
                 trust,
+                || Ok(()),
             )
             .await
         }
@@ -283,6 +285,7 @@ async fn reset(owner: &str, domain: &Path, trust: bool) -> io::Result<()> {
                     ..Default::default()
                 },
                 trust,
+                || Ok(()),
             )
             .await
         }

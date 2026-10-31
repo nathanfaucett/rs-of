@@ -37,7 +37,11 @@ struct References {
     complete: bool,
 }
 
-pub async fn reset_independent(config: &AppConfig, remove_os_trust: bool) -> io::Result<()> {
+pub async fn reset_independent(
+    config: &AppConfig,
+    remove_os_trust: bool,
+    acknowledge: impl FnOnce() -> io::Result<()>,
+) -> io::Result<()> {
     if let Some(remote) = &config.device_database {
         remote.validate()?;
         let domain = Path::new(&config.data_dir);
@@ -51,7 +55,7 @@ pub async fn reset_independent(config: &AppConfig, remove_os_trust: bool) -> io:
             retained |= path.is_symlink() || path.try_exists()?;
         }
         if !retained {
-            return Ok(());
+            return acknowledge();
         }
         if domain.is_symlink()
             || (domain.try_exists()? && std::fs::read_dir(domain)?.next().is_some())
@@ -157,7 +161,7 @@ pub async fn reset_independent(config: &AppConfig, remove_os_trust: bool) -> io:
         }
         reset.secrets_removed()?;
     }
-    reset.finish()
+    reset.finish(acknowledge)
 }
 
 #[cfg(test)]
@@ -182,7 +186,11 @@ mod tests {
         )
         .expect("prepare")
         .expect("host");
-        assert!(super::reset_independent(&config, true).await.is_err());
+        assert!(
+            super::reset_independent(&config, true, || Ok(()))
+                .await
+                .is_err()
+        );
         drop(host);
         std::fs::remove_dir_all(domain.with_extension("setup-host")).expect("isolated cleanup");
     }

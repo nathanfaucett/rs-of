@@ -69,7 +69,7 @@ pub async fn run() -> io::Result<()> {
 
     #[cfg(unix)]
     if let Some(StorageCommand::ResetIndependent { remove_os_trust }) = args.command.as_ref() {
-        return crate::reset_independent(&app_config, *remove_os_trust).await;
+        return crate::reset_independent(&app_config, *remove_os_trust, || Ok(())).await;
     }
 
     env_logger::Builder::from_env(
