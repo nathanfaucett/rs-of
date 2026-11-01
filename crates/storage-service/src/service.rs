@@ -197,7 +197,11 @@ mod policy_tests {
             "passthrough-service-{}",
             idp_model::model::Id::now_v7()
         ));
-        let filesystem = Arc::new(file_system::FileSystem::open(&root, 1_u8).expect("filesystem"));
+        let filesystem = Arc::new(
+            file_system::FileSystem::open(&root, 1_u8)
+                .await
+                .expect("filesystem"),
+        );
         filesystem
             .set_residency("", file_system::Residency::Full)
             .await
@@ -416,7 +420,7 @@ mod tests {
     async fn dispatches_scoped_file_system_operations() {
         let root = env::temp_dir().join(format!("storage-service-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
-        let file_system = Arc::new(FileSystem::open(&root, 1_u8).unwrap());
+        let file_system = Arc::new(FileSystem::open(&root, 1_u8).await.unwrap());
         file_system
             .set_residency("", Residency::Full)
             .await
@@ -515,7 +519,7 @@ mod tests {
             std::process::id()
         ));
         let _ = fs::remove_dir_all(&root);
-        let service = StorageService::new(Arc::new(FileSystem::open(&root, 1_u8).unwrap()));
+        let service = StorageService::new(Arc::new(FileSystem::open(&root, 1_u8).await.unwrap()));
         assert!(
             service
                 .execute(StorageRequest::Write {

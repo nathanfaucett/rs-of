@@ -180,7 +180,9 @@ async fn delivered_read_chunk_then_channel_closure_is_not_successful_eof() {
             super::WireMessage::Hello { .. }
         ));
         let directory = root();
-        let filesystem = FileSystem::open(&directory, server.id()).expect("open peer filesystem");
+        let filesystem = FileSystem::open(&directory, server.id())
+            .await
+            .expect("open peer filesystem");
         filesystem
             .set_residency("", Residency::Full)
             .await
@@ -375,10 +377,14 @@ async fn cancelled_sync_closes_its_peer_stream_and_releases_local_filesystem() {
         let initiator_root = root();
         let responder_root = root();
         let initiator_fs = Arc::new(
-            FileSystem::open(&initiator_root, initiator.id()).expect("open initiator filesystem"),
+            FileSystem::open(&initiator_root, initiator.id())
+                .await
+                .expect("open initiator filesystem"),
         );
         let responder_fs = Arc::new(
-            FileSystem::open(&responder_root, responder.id()).expect("open responder filesystem"),
+            FileSystem::open(&responder_root, responder.id())
+                .await
+                .expect("open responder filesystem"),
         );
         initiator_fs
             .set_residency("", Residency::Full)
@@ -510,8 +516,16 @@ async fn syncs_metadata_and_remote_file_sessions_over_one_stream() {
 
         let left_root = root();
         let right_root = root();
-        let left = Arc::new(FileSystem::open(&left_root, a.id()).expect("open left filesystem"));
-        let right = Arc::new(FileSystem::open(&right_root, b.id()).expect("open right filesystem"));
+        let left = Arc::new(
+            FileSystem::open(&left_root, a.id())
+                .await
+                .expect("open left filesystem"),
+        );
+        let right = Arc::new(
+            FileSystem::open(&right_root, b.id())
+                .await
+                .expect("open right filesystem"),
+        );
         left.set_residency("", Residency::Full)
             .await
             .expect("left full residency");
@@ -772,10 +786,14 @@ async fn shutdown_during_live_multichunk_file_read_closes_stream() {
         let initiator_root = root();
         let responder_root = root();
         let initiator_fs = Arc::new(
-            FileSystem::open(&initiator_root, initiator.id()).expect("open initiator filesystem"),
+            FileSystem::open(&initiator_root, initiator.id())
+                .await
+                .expect("open initiator filesystem"),
         );
         let responder_fs = Arc::new(
-            FileSystem::open(&responder_root, responder.id()).expect("open responder filesystem"),
+            FileSystem::open(&responder_root, responder.id())
+                .await
+                .expect("open responder filesystem"),
         );
         initiator_fs
             .set_residency("", Residency::Full)

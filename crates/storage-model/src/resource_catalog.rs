@@ -19,5 +19,5 @@ pub trait ResourceCatalog {
         &self,
         namespace: &dyn StorageNamespace,
         resource: &ResourceIdentity,
-    ) -> Result<bool, String>;
+    ) -> impl core::future::Future<Output = Result<bool, String>>;
 }

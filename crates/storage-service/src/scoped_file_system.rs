@@ -120,6 +120,7 @@ where
         let resource = self
             .catalog(&id)?
             .create(name)
+            .await
             .map_err(|error| error.to_string())?;
         self.changes.send_replace(());
         Ok(resource)
@@ -130,7 +131,10 @@ where
         scope: &S,
     ) -> Result<Vec<FileSystemResource>, String> {
         let id = storage_namespace_id(scope)?;
-        self.catalog(&id)?.list().map_err(|error| error.to_string())
+        self.catalog(&id)?
+            .list()
+            .await
+            .map_err(|error| error.to_string())
     }
 
     pub async fn delete_resource<S: StorageNamespace>(
@@ -140,7 +144,7 @@ where
     ) -> Result<bool, String> {
         let id = storage_namespace_id(scope)?;
         let mut resources = self.resources.lock().await;
-        match self.catalog(&id)?.delete(resource_id) {
+        match self.catalog(&id)?.delete(resource_id).await {
             Ok(()) => {
                 resources.remove(&(id, resource_id));
                 self.changes.send_replace(());
@@ -160,6 +164,7 @@ where
         let deleted = self.is_tombstoned(scope, resource_id).await?;
         self.catalog(&id)?
             .apply_tombstone(resource_id)
+            .await
             .map_err(|error| error.to_string())?;
         self.resources.lock().await.remove(&(id, resource_id));
         if !deleted {
@@ -177,6 +182,7 @@ where
         Ok(self
             .catalog(&id)?
             .snapshot()
+            .await
             .map_err(|error| error.to_string())?
             .iter()
             .any(|entry| entry.resource.id == resource_id && entry.deleted))
@@ -202,6 +208,7 @@ where
         if !self
             .catalog(&namespace)?
             .snapshot()
+            .await
             .map_err(|error| error.to_string())?
             .iter()
             .any(|entry| entry.resource.id == resource_id)
@@ -236,7 +243,8 @@ where
         {
             return Ok(());
         }
-        self.copy_catalog(&namespace, resource_id)?
+        self.copy_catalog(&namespace, resource_id)
+            .await?
             .remove_managed_copy(resource_id)
             .await
             .map_err(|error| error.to_string())?;
@@ -269,7 +277,11 @@ where
             if namespace.user_sub != owner {
                 continue;
             }
-            for entry in catalog.snapshot().map_err(|error| error.to_string())? {
+            for entry in catalog
+                .snapshot()
+                .await
+                .map_err(|error| error.to_string())?
+            {
                 let removal = self.remove_local_copy(&namespace, entry.resource.id).await;
                 result = result.and(removal);
             }
@@ -288,6 +300,7 @@ where
         let catalog = self.catalog(&id)?;
         if let Some(entry) = catalog
             .snapshot()
+            .await
             .map_err(|error| error.to_string())?
             .into_iter()
             .find(|entry| entry.resource.id == resource_id)
@@ -297,6 +310,7 @@ where
             } else {
                 catalog
                     .mark_projected_selected(resource_id)
+                    .await
                     .map_err(|error| error.to_string())?;
                 Ok(())
             };
@@ -309,9 +323,11 @@ where
                 },
                 deleted: false,
             }])
+            .await
             .map_err(|error| error.to_string())?;
         catalog
             .mark_projected(resource_id)
+            .await
             .map_err(|error| error.to_string())?;
         self.changes.send_replace(());
         Ok(())
@@ -349,6 +365,7 @@ where
         for (namespace, catalog) in catalogs {
             for resource_id in catalog
                 .projected_selected()
+                .await
                 .map_err(|error| error.to_string())?
             {
                 if selected.contains(&(namespace.clone(), resource_id)) {
@@ -371,6 +388,7 @@ where
             if self
                 .catalog(&namespace)?
                 .snapshot()
+                .await
                 .map_err(|error| error.to_string())?
                 .iter()
                 .any(|entry| entry.resource.id == resource_id)
@@ -452,8 +470,10 @@ where
             return Ok(Arc::clone(file_system));
         }
         let file_system = Arc::new(
-            self.copy_catalog(&id, resource_id)?
+            self.copy_catalog(&id, resource_id)
+                .await?
                 .open_filesystem(resource_id, self.local_peer.clone())
+                .await
                 .map_err(|error| error.to_string())?,
         );
         let residency = if self
@@ -474,7 +494,7 @@ where
         Ok(file_system)
     }
 
-    fn copy_catalog(
+    async fn copy_catalog(
         &self,
         namespace: &StorageNamespaceId,
         resource_id: FileSystemId,
@@ -486,23 +506,28 @@ where
         if generation == 0 {
             return self.catalog(namespace);
         }
-        let mut catalogs = self
-            .copy_catalogs
-            .lock()
-            .map_err(|_| "copy catalog lock poisoned".to_owned())?;
         let key = (namespace.clone(), resource_id, generation);
         let entry = self
             .catalog(namespace)?
             .snapshot()
+            .await
             .map_err(|error| error.to_string())?
             .into_iter()
             .find(|entry| entry.resource.id == resource_id)
             .ok_or_else(|| "unknown filesystem identity".to_owned())?;
-        if let Some(catalog) = catalogs.get(&key) {
+        let existing = {
+            let catalogs = self
+                .copy_catalogs
+                .lock()
+                .map_err(|_| "copy catalog lock poisoned".to_owned())?;
+            catalogs.get(&key).map(Arc::clone)
+        };
+        if let Some(catalog) = existing {
             catalog
                 .import_snapshot(&[entry])
+                .await
                 .map_err(|error| error.to_string())?;
-            return Ok(Arc::clone(catalog));
+            return Ok(catalog);
         }
         let root = namespace_root(&self.root, namespace)
             .join("copies")
@@ -511,8 +536,15 @@ where
         let catalog = Arc::new(FileSystemCatalog::open(root).map_err(|error| error.to_string())?);
         catalog
             .import_snapshot(&[entry])
+            .await
             .map_err(|error| error.to_string())?;
-        catalogs.insert(key, Arc::clone(&catalog));
+        {
+            let mut catalogs = self
+                .copy_catalogs
+                .lock()
+                .map_err(|_| "copy catalog lock poisoned".to_owned())?;
+            catalogs.insert(key, Arc::clone(&catalog));
+        }
         Ok(catalog)
     }
 
@@ -583,7 +615,7 @@ impl<PeerId> ResourceCatalog for ScopedFileSystemRuntime<PeerId>
 where
     PeerId: Clone + Debug + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
-    fn contains(
+    async fn contains(
         &self,
         namespace: &dyn StorageNamespace,
         resource: &ResourceIdentity,
@@ -595,10 +627,13 @@ where
             return Ok(false);
         };
         let id = storage_namespace_id(&NamespaceRef(namespace))?;
-        self.catalog(&id)?
+        Ok(self
+            .catalog(&id)?
             .list()
-            .map(|resources| resources.iter().any(|entry| entry.id == resource_id))
-            .map_err(|error| error.to_string())
+            .await
+            .map_err(|error| error.to_string())?
+            .iter()
+            .any(|entry| entry.id == resource_id))
     }
 }
 
@@ -855,6 +890,7 @@ mod tests {
                         id: selected_id.as_uuid().to_string(),
                     },
                 )
+                .await
                 .expect("selected resource is in the namespace catalog")
         );
         runtime
@@ -1389,6 +1425,7 @@ mod tests {
         assert!(
             runtime
                 .contains(&namespace, &identity)
+                .await
                 .expect("catalog lookup works")
         );
 
@@ -1401,6 +1438,7 @@ mod tests {
                         id: identity.id.clone(),
                     },
                 )
+                .await
                 .expect("cross-kind lookup works")
         );
         assert_eq!(
@@ -1422,6 +1460,7 @@ mod tests {
         assert!(
             !runtime
                 .contains(&other_namespace, &identity)
+                .await
                 .expect("foreign lookup works")
         );
         assert!(

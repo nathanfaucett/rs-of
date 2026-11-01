@@ -314,7 +314,7 @@ impl DatabaseCatalog {
 }
 
 impl ResourceCatalog for DatabaseCatalog {
-    fn contains(
+    async fn contains(
         &self,
         namespace: &dyn StorageNamespace,
         resource: &ResourceIdentity,
@@ -413,8 +413,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn resources_are_isolated_persistent_and_tombstoned() {
+    #[tokio::test]
+    async fn resources_are_isolated_persistent_and_tombstoned() {
         let root = std::env::temp_dir().join(format!(
             "database-catalog-{}-{}",
             std::process::id(),
@@ -447,11 +447,13 @@ mod tests {
         assert!(
             catalog
                 .contains(&scope, &first_identity)
+                .await
                 .expect("catalog lookup works")
         );
         assert!(
             !catalog
                 .contains(&other_subject, &first_identity)
+                .await
                 .expect("foreign lookup works")
         );
         assert!(
@@ -463,6 +465,7 @@ mod tests {
                         id: first.id.to_string(),
                     },
                 )
+                .await
                 .expect("cross-kind lookup works")
         );
         assert!(
