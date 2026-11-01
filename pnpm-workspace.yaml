@@ -7,5 +7,6 @@ packages:
 allowBuilds:
   '@openapitools/openapi-generator-cli': true
   esbuild: true
+  wasm-pack: true
 minimumReleaseAgeExclude:
   - '@aicacia/svelte-forms@0.1.1'

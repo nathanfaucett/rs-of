@@ -27,14 +27,18 @@ swagger-ui = ["utoipa-swagger-ui"]
 [dependencies]
 # Shared SQL stream framing
 idp-db = { path = "../db", default-features = false, features = ["network"] }
-device-service = { path = "../device-service", default-features = false, features = ["replica", "std", "utoipa"] }
+device-service = { path = "../device-service", default-features = false, features = [
+    "replica",
+    "std",
+    "utoipa",
+] }
 # CLI
 dotenvy = { version = "0.15", default-features = false, features = [
 ], optional = true }
 clap = { version = "4.6", default-features = false, features = [
-  "std",
-  "derive",
-  "help",
+    "std",
+    "derive",
+    "help",
 ], optional = true }
 cli = { path = "../cli", default-features = false, features = [
 ], optional = true }
@@ -43,25 +47,49 @@ cli = { path = "../cli", default-features = false, features = [
 of-device-client = { path = "../device-client", default-features = false }
 of-idp-client = { path = "../idp-client", default-features = false }
 api = { path = "../api", default-features = false, features = [] }
-file-system = { path = "../../../offs/crates/file-system", default-features = false, features = [] }
-idp-model = { path = "../idp-model", default-features = false, features = ["std"] }
-idp-service = { path = "../idp-service", default-features = false, features = ["std"] }
-management-service = { path = "../management-service", default-features = false, features = ["std"] }
+file-system = { path = "../../../offs/crates/file-system", default-features = false, features = [
+] }
+idp-model = { path = "../idp-model", default-features = false, features = [
+    "std",
+] }
+idp-service = { path = "../idp-service", default-features = false, features = [
+    "std",
+] }
+management-service = { path = "../management-service", default-features = false, features = [
+    "std",
+] }
 key = { path = "../key", default-features = false, features = ["std"] }
-model = { path = "../model", default-features = false, features = ["std", "utoipa", "axum"] }
-ofdb-kv = { path = "../../../ofdb/crates/kv", default-features = false, features = ["redb", "sync"] }
-ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = ["redb", "sync", "native-stage"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
-storage-model = { path = "../storage-model", default-features = false, features = ["std"] }
-storage-service = { path = "../storage-service", default-features = false, features = [] }
+model = { path = "../model", default-features = false, features = [
+    "std",
+    "utoipa",
+    "axum",
+] }
+ofdb-kv = { path = "../../../ofdb/crates/kv", default-features = false, features = [
+    "redb",
+    "sync",
+] }
+ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = [
+    "redb",
+    "sync",
+    "native-stage",
+] }
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls-native-roots",
+] }
+storage-model = { path = "../storage-model", default-features = false, features = [
+    "std",
+] }
+storage-service = { path = "../storage-service", default-features = false, features = [
+] }
 
 
 # Serialization
 base64 = { version = "0.22", default-features = false, features = ["std"] }
 postcard = { version = "1.1", default-features = false, features = ["alloc"] }
 serde = { version = "1.0", default-features = false, features = [
-  "derive",
-  "std",
+    "derive",
+    "std",
 ] }
 serde_json = { version = "1.0", default-features = false, features = ["std"] }
 serde_qs = { version = "1.1", default-features = false, features = ["axum"] }
@@ -69,40 +97,43 @@ serde_qs = { version = "1.1", default-features = false, features = ["axum"] }
 # Utilities
 bytes = { version = "1.11", default-features = false, features = ["std"] }
 config = { version = "0.15", features = ["yaml"], default-features = false }
-uuid = { version = "1.26", default-features = false, features = ["std"] }
+uuid = { version = "1.29", default-features = false, features = ["std"] }
 
 # Web
 axum = { version = "0.8", default-features = false, features = [
-  "http1",
-  "http2",
-  "form",
-  "query",
-  "json",
-  "ws",
-  "tokio",
-  "macros"
+    "http1",
+    "http2",
+    "form",
+    "query",
+    "json",
+    "ws",
+    "tokio",
+    "macros",
 ] }
 tower-http = { version = "0.7", features = [
-  "cors",
-  "trace",
-  "compression-gzip",
+    "cors",
+    "trace",
+    "compression-gzip",
 ], default-features = false }
 http = { version = "1.4", default-features = false }
 iroh = { version = "1.1", default-features = false, features = ["tls-ring"] }
 utoipa = { version = "5.5", default-features = false, features = ["macros"] }
 utoipa-axum = { version = "0.2", default-features = false, features = [] }
-utoipa-swagger-ui = { version = "9.0", default-features = false, features = ["axum"], optional = true }
+utoipa-swagger-ui = { version = "9.0", default-features = false, features = [
+    "axum",
+], optional = true }
 
 # Iroh
-iroh-chain = { path = "../../../ofnet/crates/iroh-chain", default-features = false, features = [] }
+iroh-chain = { path = "../../../ofnet/crates/iroh-chain", default-features = false, features = [
+] }
 
 # Async
 tokio = { version = "1.52", default-features = false, features = [
-  "fs",
-  "io-util",
-  "macros",
-  "rt-multi-thread",
-  "time",
+    "fs",
+    "io-util",
+    "macros",
+    "rt-multi-thread",
+    "time",
 ], optional = true }
 tokio-util = { version = "0.7", default-features = false, features = [
 ], optional = true }
@@ -113,13 +144,20 @@ env_logger = { version = "0.10", default-features = false, features = [] }
 
 [dev-dependencies]
 # Async
-tokio = { version = "1.52", default-features = false, features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.52", default-features = false, features = [
+    "macros",
+    "rt-multi-thread",
+] }
 
 # Local owner services
 idp-db = { path = "../db", default-features = false, features = ["replica"] }
 
-idp-service = { path = "../idp-service", default-features = false, features = ["replica"] }
-management-service = { path = "../management-service", default-features = false, features = ["replica"] }
+idp-service = { path = "../idp-service", default-features = false, features = [
+    "replica",
+] }
+management-service = { path = "../management-service", default-features = false, features = [
+    "replica",
+] }
 
 
 # Web

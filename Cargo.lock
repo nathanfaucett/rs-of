@@ -2175,8 +2175,8 @@ dependencies = [
  "futures-core",
  "futures-util",
  "ofdb-kv",
+ "ofdb-platform",
  "postcard",
- "redb",
  "serde",
  "serde_json",
  "tokio",
@@ -3460,10 +3460,15 @@ name = "iroh-chain"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "cfg_aliases",
+ "futures",
+ "gloo-timers",
  "iroh",
  "noq",
  "serde",
  "tokio",
+ "wasm-bindgen-futures",
+ "web-time",
 ]
 
 [[package]]
@@ -5016,6 +5021,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ofdb-btree-indexeddb"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "js-sys",
+ "ofdb-btree",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+]
+
+[[package]]
 name = "ofdb-btree-redb"
 version = "0.1.0"
 dependencies = [
@@ -5038,6 +5054,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "ofdb-btree",
+ "ofdb-btree-indexeddb",
  "ofdb-btree-redb",
  "ofdb-kv-store",
  "ofdb-kv-sync",
@@ -5824,7 +5841,7 @@ version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03da047801ff44bb6a4d407d4860c05fd70bb81714e6b2f3812603d5b145b042"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools",
  "log",
  "multimap",
@@ -8557,9 +8574,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.26.1"
+version = "1.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ef6dac1e96601b4fb3acccccff2139741fcb757cb9a36089bf5be91cfb285ce"
+checksum = "4a0e2d11620c50695fe12bbbfde96b3477fe606e7284c22d505c12ce51214514"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",

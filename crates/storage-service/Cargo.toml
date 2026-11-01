@@ -9,14 +9,29 @@ repository.workspace = true
 
 [dependencies]
 # Internal
-file-system = { path = "../../../offs/crates/file-system", default-features = false, features = [] }
-idp-model = { path = "../idp-model", default-features = false, features = ["std"] }
-ofdb-kv = { path = "../../../ofdb/crates/kv", default-features = false, features = ["redb", "sync"] }
-ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = ["redb", "sql", "sync"] }
-storage-model = { path = "../storage-model", default-features = false, features = ["std"] }
+file-system = { path = "../../../offs/crates/file-system", default-features = false, features = [
+] }
+idp-model = { path = "../idp-model", default-features = false, features = [
+    "std",
+] }
+ofdb-kv = { path = "../../../ofdb/crates/kv", default-features = false, features = [
+    "redb",
+    "sync",
+] }
+ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = [
+    "redb",
+    "sql",
+    "sync",
+] }
+storage-model = { path = "../storage-model", default-features = false, features = [
+    "std",
+] }
 
 # Serialization
-serde = { version = "1.0", default-features = false, features = ["derive", "std"] }
+serde = { version = "1.0", default-features = false, features = [
+    "derive",
+    "std",
+] }
 serde_json = { version = "1.0", default-features = false, features = ["std"] }
 
 # OpenAPI
@@ -26,11 +41,15 @@ utoipa = { version = "5.5", default-features = false, features = ["macros"] }
 tokio = { version = "1.53", default-features = false, features = ["sync"] }
 
 # Utilities
-uuid = { version = "1.26", default-features = false, features = ["std", "v5", "v7"] }
+uuid = { version = "1.29", default-features = false, features = [
+    "std",
+    "v5",
+    "v7",
+] }
 
 [dev-dependencies]
 # Async
 tokio = { version = "1.52", default-features = false, features = [
-  "rt",
-  "macros",
+    "rt",
+    "macros",
 ] }

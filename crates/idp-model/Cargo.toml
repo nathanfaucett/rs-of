@@ -13,7 +13,14 @@ name = "idp_model"
 
 [features]
 default = ["std", "replica"]
-std = ["key/std", "model/std", "serde/std", "serde_json/std", "chrono/std", "base64/std"]
+std = [
+    "key/std",
+    "model/std",
+    "serde/std",
+    "serde_json/std",
+    "chrono/std",
+    "base64/std",
+]
 replica = ["dep:db", "db/replica", "dep:include_dir"]
 utoipa = ["dep:utoipa", "std", "model/utoipa"]
 axum = ["dep:axum", "model/axum"]
@@ -23,15 +30,16 @@ wasm = ["dep:tsify", "dep:serde-wasm-bindgen", "dep:wasm-bindgen"]
 # Internal
 key = { path = "../key", default-features = false, features = [] }
 model = { path = "../model", default-features = false, features = [] }
-db = { package = "idp-db", path = "../db", default-features = false, features = [], optional = true }
+db = { package = "idp-db", path = "../db", default-features = false, features = [
+], optional = true }
 
 # Web
 utoipa = { version = "5.5", default-features = false, features = [
-  "macros",
-  "chrono",
+    "macros",
+    "chrono",
 ], optional = true }
 axum = { version = "0.8", default-features = false, features = [
-  "json",
+    "json",
 ], optional = true }
 
 # Serialization
@@ -39,29 +47,36 @@ serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 
 # Database
-include_dir = { version = "0.7", default-features = false, features = [], optional = true }
+include_dir = { version = "0.7", default-features = false, features = [
+], optional = true }
 
 # Utilities
 chrono = { version = "0.4", default-features = false, features = [
-  "serde",
-  "alloc",
+    "serde",
+    "alloc",
 ] }
 base64 = { version = "0.22", default-features = false, features = ["alloc"] }
 build-time = { version = "0.1", default-features = false }
-uuid = { version = "1.26", default-features = false, features = ["serde", "v7"] }
+uuid = { version = "1.29", default-features = false, features = [
+    "serde",
+    "v7",
+] }
 
 # Optional TS generation + serde for tsify
 tsify = { version = "0.5", default-features = false, features = [
-  "js",
+    "js",
 ], optional = true }
 serde-wasm-bindgen = { version = "0.6", default-features = false, optional = true }
 wasm-bindgen = { version = "0.2", default-features = false, features = [
-  "std",
+    "std",
 ], optional = true }
 
 [dev-dependencies]
 # Database sync tests
-ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = ["in-memory", "sync"] }
+ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = [
+    "in-memory",
+    "sync",
+] }
 
 # Async
 futures = { version = "0.3", default-features = false, features = ["executor"] }

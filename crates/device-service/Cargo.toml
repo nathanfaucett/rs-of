@@ -74,10 +74,12 @@ management-service = { path = "../management-service", default-features = false,
 model = { path = "../model", default-features = false, features = [] }
 storage-model = { path = "../storage-model", default-features = false, features = [
 ] }
-uuid = { version = "1.23", default-features = false, features = ["v5"] }
+uuid = { version = "1.29", default-features = false, features = ["v5"] }
 
 # Protocol diagnostics
-log = { version = "0.4", default-features = false, features = ["std"], optional = true }
+log = { version = "0.4", default-features = false, features = [
+    "std",
+], optional = true }
 
 # Error Handling
 thiserror = { version = "2.0", default-features = false, features = [] }
