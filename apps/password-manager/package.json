@@ -21,6 +21,7 @@
         "@aicacia/native-fetch": "workspace:*",
         "@biomejs/biome": "^2.5.3",
         "@inlang/paraglide-js": "^2.21.0",
+        "@playwright/test": "^1.64.1",
         "@standard-schema/spec": "^1.1.0",
         "@sveltejs/adapter-static": "^3.0.10",
         "@sveltejs/kit": "^2.69.2",
@@ -31,6 +32,7 @@
         "@types/node": "^26.1.1",
         "globals": "^17.7.0",
         "jsdom": "~27.4.0",
+        "playwright": "^1.64.1",
         "portless": "^0.15.4",
         "svelte": "^5.56.4",
         "svelte-check": "^4.7.2",
@@ -48,10 +50,10 @@
         "@aicacia/svelte-headless": "workspace:*",
         "@lucide/svelte": "^1.24.0",
         "@of/sdk": "workspace:*",
-        "sql": "link:/home/nathan/code/rust/aicacia/ofdb/packages/sql",
         "@tanstack/db": "~0.15.2",
         "@tanstack/svelte-db": "0.5.12",
         "jose": "5.9.6",
+        "sql": "link:/home/nathan/code/rust/aicacia/ofdb/packages/sql",
         "valibot": "^1.4.2"
     }
 }
