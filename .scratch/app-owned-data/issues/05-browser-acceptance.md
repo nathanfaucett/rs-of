@@ -1,7 +1,7 @@
 # 05 — Prove browser-only durability and offline use
 
-Status: needs-info
-Work status: open
+Status: resolved
+Work status: resolved
 Type: task
 Blocked by: 04
 
