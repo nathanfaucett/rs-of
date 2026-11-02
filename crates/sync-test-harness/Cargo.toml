@@ -1,0 +1,64 @@
+[package]
+name = "of-sync-test-harness"
+description = "Test harness for app-owned data sync protocol"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "sync_test_harness"
+path = "src/lib.rs"
+
+[features]
+default = []
+native = ["tokio", "tungstenite", "rustls", "tokio-tungstenite"]
+browser = ["wasm-bindgen", "web-sys", "js-sys", "gloo-net", "wasm-bindgen-futures"]
+
+[dependencies]
+# Platform
+platform = { version = "0.1", path = "../../../ofdb/crates/platform", package = "ofdb-platform", default-features = false, features = ["time"] }
+
+# SQL engine and sync
+engine = { version = "0.1", path = "../../../ofdb/crates/sql-engine", package = "ofdb-sql-engine", default-features = false }
+sql-sync = { version = "0.1", path = "../../../ofdb/crates/sql-sync", package = "ofdb-sql-sync", default-features = false, features = ["continuous"] }
+sync-runtime = { version = "0.1", path = "../../../ofdb/crates/sync-runtime", package = "ofdb-sync-runtime", default-features = false }
+
+# Transport
+tungstenite = { version = "0.25", default-features = false, features = ["native-tls", "__rustls-tls"], optional = true }
+rustls = { version = "0.23", default-features = false, optional = true }
+tokio = { version = "1.0", default-features = false, features = ["macros", "rt-multi-thread", "time", "net", "sync", "io-util"], optional = true }
+tokio-tungstenite = { version = "0.25", default-features = false, features = ["native-tls", "__rustls-tls", "connect"], optional = true }
+gloo-net = { version = "0.1", default-features = false, features = ["websocket"], optional = true }
+wasm-bindgen = { version = "0.2", default-features = false, optional = true }
+wasm-bindgen-futures = { version = "0.4", default-features = false, optional = true }
+web-sys = { version = "0.3", default-features = false, features = ["WebSocket"], optional = true }
+js-sys = { version = "0.3", default-features = false, optional = true }
+futures = { version = "0.3", default-features = true }
+futures-channel = { version = "0.3", default-features = false }
+
+# Serialization
+postcard = { version = "1.1", default-features = false, features = ["alloc"] }
+serde = { version = "1.0", default-features = false, features = ["alloc", "derive"] }
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
+
+# Crypto
+sha2 = { version = "0.10", default-features = false, features = [] }
+uuid = { version = "1.29", default-features = false, features = ["serde", "v4", "v7"] }
+crc32fast = { version = "1.4", default-features = false }
+
+# Utilities
+thiserror = { version = "2.0", default-features = false, features = [] }
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+async-trait = { version = "0.1", default-features = false }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "fmt"] }
+
+[dev-dependencies]
+engine-redb = { version = "0.1", path = "../../../ofdb/crates/sql-engine-redb", package = "ofdb-sql-engine-redb", default-features = false }
+schema = { version = "0.1", path = "../../../ofdb/crates/sql-schema", package = "ofdb-sql-schema", default-features = false }
+value = { version = "0.1", path = "../../../ofdb/crates/value", package = "ofdb-value", default-features = false }
+futures = { version = "0.3", default-features = false, features = ["std"] }
+tokio = { version = "1.0", default-features = false, features = ["macros", "rt", "test-util", "time"] }
+tempfile = { version = "3.27", default-features = false, features = [] }

@@ -1,7 +1,7 @@
 # 04 — Make app startup local and accounts optional
 
-Status: needs-triage
-Work status: open
+Status: resolved
+Work status: resolved
 Type: task
 Blocked by: 03
 

@@ -1,7 +1,7 @@
 # 06 — Prove optional sync and prepare the service plan
 
-Status: needs-triage
-Work status: open
+Status: resolved
+Work status: resolved
 Type: task
 Blocked by: 05
 

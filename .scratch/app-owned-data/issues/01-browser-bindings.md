@@ -1,7 +1,7 @@
 # 01 — Qualify browser SQL bindings
 
-Status: needs-triage
-Work status: open
+Status: resolved
+Work status: resolved
 Type: task
 Blocked by: none
 
