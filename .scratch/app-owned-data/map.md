@@ -26,14 +26,14 @@ Proposed direction, subject to review:
 
 ## Work
 
-| Ticket                                | Output                                                                 | Blocked by |
-| ------------------------------------- | ---------------------------------------------------------------------- | ---------- |
-| [01](issues/01-browser-bindings.md)   | Qualified SQL JS/WASM contract and reproducible artifacts              | —          |
-| [02](issues/02-local-vault.md)        | App-owned encrypted local vault and reopen/recovery tests              | 01         |
-| [03](issues/03-local-collection.md)   | Focused local-source collection; old adapters deleted                  | 02         |
-| [04](issues/04-app-startup.md)        | Browser-only app startup, local lock, optional account setup           | 03         |
-| [05](issues/05-browser-acceptance.md) | Real-browser offline, failure, and recovery evidence (pending drivers) | 04         |
-| [06](issues/06-sync-contract.md)      | Protocol draft, two-store proof, and later service-plan input          | 05         |
+| Ticket                                | Output                                                                        | Blocked by |
+| ------------------------------------- | ----------------------------------------------------------------------------- | ---------- |
+| [01](issues/01-browser-bindings.md)   | Qualified SQL JS/WASM contract and reproducible artifacts                     | —          |
+| [02](issues/02-local-vault.md)        | App-owned encrypted local vault and reopen/recovery tests                     | 01         |
+| [03](issues/03-local-collection.md)   | Focused local-source collection; old adapters deleted                         | 02         |
+| [04](issues/04-app-startup.md)        | Browser-only app startup, local lock, optional account setup                  | 03         |
+| [05](issues/05-browser-acceptance.md) | Real-browser offline, failure, and recovery evidence (pending drivers)        | 04         |
+| [06](issues/06-sync-contract.md)      | Protocol draft, two-store proof, and later service-plan input (blocked on 05) | 05         |
 
 ## Fog
 
