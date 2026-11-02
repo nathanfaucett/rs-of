@@ -1,7 +1,7 @@
 # 04 — Make app startup local and accounts optional
 
-Status: ready-for-agent
-Work status: claimed
+Status: resolved
+Work status: resolved
 Type: task
 Blocked by: 03
 
