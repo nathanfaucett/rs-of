@@ -48,8 +48,10 @@
         "@aicacia/svelte-headless": "workspace:*",
         "@lucide/svelte": "^1.24.0",
         "@of/sdk": "workspace:*",
+        "sql": "link:/home/nathan/code/rust/aicacia/ofdb/packages/sql",
         "@tanstack/db": "~0.15.2",
         "@tanstack/svelte-db": "0.5.12",
+        "jose": "5.9.6",
         "valibot": "^1.4.2"
     }
 }

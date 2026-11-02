@@ -18,5 +18,14 @@ export default defineConfig({
             ),
         },
     },
-    test: { environment: "jsdom", include: ["src/**/*.test.ts"] },
+    test: {
+        environment: "jsdom",
+        include: ["src/**/*.test.ts"],
+        browser: {
+            enabled: true,
+            provider: "playwright",
+            instances: [{ browser: "chromium" }],
+            headless: true,
+        },
+    },
 });

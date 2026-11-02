@@ -1,7 +1,7 @@
 # 03 — Replace the collection with a local-source implementation
 
-Status: needs-triage
-Work status: open
+Status: ready-for-agent
+Work status: claimed
 Type: task
 Blocked by: 02
 
