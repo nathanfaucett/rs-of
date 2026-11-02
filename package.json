@@ -23,6 +23,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3",
+    "@vitest/browser-playwright": "^4.1.12",
     "portless": "^0.15.4"
   }
 }
