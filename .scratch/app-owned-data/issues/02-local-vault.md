@@ -1,7 +1,7 @@
 # 02 — Build the app-owned local vault
 
-Status: ready-for-agent
-Work status: claimed
+Status: resolved
+Work status: resolved
 Type: task
 Blocked by: 01
 
