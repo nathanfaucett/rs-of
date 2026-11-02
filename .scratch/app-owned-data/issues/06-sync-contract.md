@@ -1,7 +1,7 @@
 # 06 — Prove optional sync and prepare the service plan
 
-Status: needs-info
-Work status: open
+Status: ready-for-agent
+Work status: claimed
 Type: task
 Blocked by: 05
 
