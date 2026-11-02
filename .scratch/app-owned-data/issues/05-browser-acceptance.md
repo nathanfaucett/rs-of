@@ -1,7 +1,7 @@
 # 05 — Prove browser-only durability and offline use
 
-Status: ready-for-agent
-Work status: claimed
+Status: needs-info
+Work status: open
 Type: task
 Blocked by: 04
 
