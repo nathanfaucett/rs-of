@@ -6,3 +6,4 @@
 /data/
 
 /config/**/*.redb
+node_modules/
