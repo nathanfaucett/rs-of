@@ -355,6 +355,7 @@ try {
     run("cargo", ["fetch"]);
     run("cargo", [
       "check",
+      "--offline",
       ...names.flatMap((name) => ["-p", `of-${name}-client`]),
     ]);
   } catch (error) {

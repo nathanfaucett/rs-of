@@ -857,7 +857,6 @@ async fn persisted_node_binding_reopens_for_real_offline_issuance_and_rotation()
             "local_client_credentials",
             "local_credential_secrets",
             "keys",
-            "devices",
             "idp_replica_members",
             "idp_replica_signers",
             "oauth2_refresh_tokens",

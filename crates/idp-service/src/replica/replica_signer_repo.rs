@@ -811,10 +811,10 @@ mod tests {
             "public_key = NULL",
             "address = NULL",
             "state = 9",
-            "approved_at = 'invalid'",
-            "revoked_at = 'invalid'",
+            "approved_at = 9223372036854775807",
+            "revoked_at = 9223372036854775807",
             "created_at = NULL",
-            "updated_at = 'invalid'",
+            "updated_at = 9223372036854775807",
             "state = 0",
             "state = 2, revoked_at = 1",
             "state = 1, revoked_at = 11",
@@ -897,7 +897,7 @@ mod tests {
             ("idp_replica_members", "revoked_at = 11"),
             ("idp_replica_members", "approved_at = 11"),
             ("idp_replica_members", "approved_at = NULL"),
-            ("idp_replica_members", "approved_at = 'invalid'"),
+            ("idp_replica_members", "approved_at = 9223372036854775807"),
             ("idp_replica_signers", "issuer = 'https://other.example'"),
             (
                 "idp_replica_signers",
@@ -915,9 +915,9 @@ mod tests {
             ("idp_replica_signers", "revoked_at = 11"),
             ("idp_replica_signers", "approved_at = 11"),
             ("idp_replica_signers", "approved_at = NULL"),
-            ("idp_replica_signers", "approved_at = 'invalid'"),
+            ("idp_replica_signers", "approved_at = 9223372036854775807"),
             ("idp_replica_signers", "expires_at = 10"),
-            ("idp_replica_signers", "expires_at = 'invalid'"),
+            ("idp_replica_signers", "expires_at = 0"),
         ] {
             let (engine, member, _) = public_trust_fixture().await;
             execute(&engine, &format!("UPDATE {table} SET {assignment}")).await;

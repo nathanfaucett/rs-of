@@ -20,9 +20,13 @@ pub(crate) async fn register(
     actor: StandardAuthorization,
     Json(body): Json<ClientRegistration>,
 ) -> Result<Json<ClientRegistration>, ErrorResponse> {
-    if body.client_id.is_some() {
-        return Err(ErrorResponse::new(ErrorCode::InvalidRequest));
-    }
+    let reject_client_id = || {
+        if body.client_id.is_some() {
+            Err(ErrorResponse::new(ErrorCode::InvalidRequest))
+        } else {
+            Ok(())
+        }
+    };
     let client = if infrastructure_client(&body) {
         let application_id = state
             .oauth2_service
@@ -35,6 +39,7 @@ pub(crate) async fn register(
             client_target(application_id, true, None),
         )
         .await?;
+        reject_client_id()?;
         state
             .oauth2_service
             .register_infrastructure_client(body)
@@ -49,6 +54,7 @@ pub(crate) async fn register(
             },
         )
         .await?;
+        reject_client_id()?;
         let allow_application_creation = match state
             .oauth2_service
             .application_id_for_uri(&body.application.uri)

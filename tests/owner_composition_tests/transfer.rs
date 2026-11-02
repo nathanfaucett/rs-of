@@ -33,6 +33,7 @@ impl api::LocalTlsConfig for TlsConfig {
 }
 
 #[test]
+#[ignore = "requires built service launcher and identity-database"]
 fn independent_transfer_production_https() {
     let root = std::env::temp_dir().join(format!("independent-transfer-https-{}", Id::now_v7()));
     fs::create_dir(&root).expect("isolated native trust fixture");

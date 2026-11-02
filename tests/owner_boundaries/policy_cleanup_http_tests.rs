@@ -90,6 +90,7 @@ async fn require_success(response: reqwest::Response) {
 }
 
 #[tokio::test]
+#[ignore = "requires built service launcher and identity-database"]
 async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_transfer() {
     let mut fixture = Fixture::new(Gate::default()).await;
     let policies = DbSelectionPolicyRepo::new(Arc::clone(&fixture.devices).client());

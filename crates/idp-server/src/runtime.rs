@@ -441,6 +441,8 @@ mod tests {
     async fn independent_oauth_signer_does_not_claim_the_transport_endpoint() {
         use std::sync::Arc;
 
+        use idp_service::repo::{PrivateKeyKeyringRepo, PrivateKeyRepo};
+
         let fixture = approval_fixture().await;
         let secret = iroh::SecretKey::generate();
         let transport = iroh_chain::Server::bind_with_secret_key(
@@ -458,6 +460,27 @@ mod tests {
             oauth2: fixture.state.oauth2_service.oauth_config.clone(),
             ..Default::default()
         };
+        let store = crate::node_join_tests::TestStore::new();
+        keyring_core::set_default_store(store.clone());
+        let binding = config
+            .oauth2
+            .local_signer
+            .clone()
+            .expect("fixture local signer");
+        let namespace = format!(
+            "{}:node:{}:{}",
+            config.key_namespace, binding.member_id, binding.key_id
+        );
+        let private = PrivateKeyKeyringRepo::new_with_store(
+            &config.oauth2.issuer,
+            fixture.store.clone(),
+        )
+        .load(&namespace, &key::DerivationPath::default())
+        .expect("load fixture signer")
+        .expect("fixture signer private material");
+        PrivateKeyKeyringRepo::new_with_store(&config.oauth2.issuer, store)
+            .store(&namespace, &private)
+            .expect("install fixture signer in the default store");
         assert_ne!(
             config
                 .oauth2
@@ -515,6 +538,7 @@ mod tests {
         assert!(reopened.join_state.transport_identity().is_err());
         assert!(reopened.pairing_acceptance().pairing_accepting().is_err());
         drop(reopened);
+        drop(engine);
         let mut invalid = config;
         invalid.oauth2.local_signer.as_mut().expect("signer").key_id =
             idp_model::model::Id::now_v7();

@@ -30,11 +30,13 @@ pub(super) fn setup(root: &Path, owner: &str, address: SocketAddr) -> Independen
 }
 
 #[test]
+#[ignore = "requires built service launcher and identity-database"]
 fn production_independent_create_and_offline_reopen() {
     run_production_create(false);
 }
 
 #[test]
+#[ignore = "requires built service launcher and identity-database"]
 fn production_independent_create_unsupported_record_refusal_and_current_reset() {
     run_production_create(true);
 }

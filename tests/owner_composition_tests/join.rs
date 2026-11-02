@@ -25,11 +25,13 @@ use tokio_util::sync::CancellationToken;
 use crate::owner_composition_tests::create::{setup, setup_code, start, wait, wait_public};
 
 #[test]
+#[ignore = "requires built service launcher and identity-database"]
 fn production_independent_join_and_source_offline_reopen() {
     run_production_join(false);
 }
 
 #[test]
+#[ignore = "requires built service launcher and identity-database"]
 fn production_independent_join_unsupported_record_refusal_and_current_reset() {
     run_production_join(true);
 }

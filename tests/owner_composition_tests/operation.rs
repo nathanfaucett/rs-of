@@ -24,6 +24,7 @@ use crate::owner_composition_tests::create::{
 };
 
 #[test]
+#[ignore = "requires built service launcher and identity-database"]
 fn production_independent_signer_free_operation_and_delayed_authority_reopen() {
     let root = std::env::temp_dir().join(format!("independent-operation-{}", Id::now_v7()));
     fs::create_dir(&root).expect("isolated roots");

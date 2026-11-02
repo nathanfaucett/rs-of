@@ -298,6 +298,7 @@ pub(crate) struct ApprovalFixture {
     pub(crate) root: std::path::PathBuf,
     pub(crate) owner: Id,
     pub(crate) management: Arc<db::Database>,
+    pub(crate) store: Arc<keyring_core::CredentialStore>,
 }
 
 pub(crate) async fn approval_fixture() -> ApprovalFixture {
@@ -311,12 +312,10 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
         ..AppConfig::default()
     };
     config.oauth2.issuer = issuer.clone();
-    let store: Arc<keyring_core::CredentialStore> = Arc::new(TestStore(
-        keyring_core::mock::Store::new().expect("test keyring"),
-    ));
+    let store = TestStore::new();
     let mut provisioner = OwnerProvisioner::open_with_private_keys(
         &config,
-        idp_service::repo::PrivateKeyKeyringRepo::new_with_store(&issuer, store),
+        idp_service::repo::PrivateKeyKeyringRepo::new_with_store(&issuer, Arc::clone(&store)),
     )
     .await
     .expect("native owner");
@@ -415,9 +414,12 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
         db::Database::open(root.join("management/management.redb"))
             .expect("native Management owner"),
     );
+    idp_model::replica::up_policy(&management)
+        .await
+        .expect("identity policy schema");
     device_service::replica::up(&management)
         .await
-        .expect("policy schema");
+        .expect("device schema");
     device_service::replica::DbDeviceRepo::new(management.clone().client())
         .enroll_approved_exact(
             peer_binding.member_id,
@@ -459,6 +461,7 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
         root,
         owner,
         management,
+        store,
     }
 }
 
@@ -1017,7 +1020,12 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
     std::fs::remove_dir_all(root).expect("remove isolated native owners");
 }
 
-struct TestStore(std::sync::Arc<keyring_core::mock::Store>);
+pub(crate) struct TestStore(std::sync::Arc<keyring_core::mock::Store>);
+impl TestStore {
+    pub(crate) fn new() -> Arc<keyring_core::CredentialStore> {
+        Arc::new(Self(keyring_core::mock::Store::new().expect("test keyring")))
+    }
+}
 impl keyring_core::api::CredentialStoreApi for TestStore {
     fn vendor(&self) -> String {
         self.0.vendor()

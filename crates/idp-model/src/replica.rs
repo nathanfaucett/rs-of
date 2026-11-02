@@ -314,6 +314,27 @@ mod tests {
     const CODE: u128 = 6;
     const REFRESH: u128 = 7;
 
+    // The unified database also carries the device-service `devices` table, which
+    // idp-model cannot depend on; sync tests only need the columns they touch.
+    async fn up_unified(engine: &db::Database) {
+        up(engine).await.expect("initialize identity schema");
+        let client = engine.client();
+        client
+            .translate_and_execute(
+                "CREATE TABLE IF NOT EXISTS devices (id UUID PRIMARY KEY, public_key TEXT, state INTEGER)",
+                &db::SqlTranslator,
+            )
+            .await
+            .expect("create unified devices table");
+        client
+            .translate_and_execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS devices_public_key ON devices (public_key)",
+                &db::SqlTranslator,
+            )
+            .await
+            .expect("create devices public key index");
+    }
+
     #[test]
     fn mixed_legacy_client_schema_is_rejected_not_silently_migrated() {
         block_on(async {
@@ -346,8 +367,8 @@ mod tests {
     fn identity_schema_initializes_idempotently_and_rejects_duplicate_device_bindings() {
         block_on(async {
             let engine = db::Database::in_memory();
-            up(&engine).await.unwrap();
-            up(&engine).await.unwrap();
+            up_unified(&engine).await;
+            up_unified(&engine).await;
 
             let clients_schema = engine
                 .client()
@@ -430,7 +451,7 @@ mod tests {
         block_on(async {
             let source = db::Database::in_memory();
             let destination = db::Database::in_memory();
-            up(&source).await.expect("initialize grant source");
+            up_unified(&source).await;
             seed(&source).await;
             synchronize(&source, &destination).await;
             update(&source, "oauth2_refresh_tokens", REFRESH, "revoked_at", "1").await;
@@ -551,7 +572,7 @@ mod tests {
         block_on(async {
             let source = db::Database::in_memory();
             let destination = db::Database::in_memory();
-            up(&source).await.expect("initialize identity schema");
+            up_unified(&source).await;
             seed(&source).await;
             let second_role = uuid(101);
             source
@@ -621,16 +642,16 @@ mod tests {
         block_on(async {
             let source = db::Database::in_memory();
             let destination = db::Database::in_memory();
-            up(&source).await.unwrap();
+            up_unified(&source).await;
             seed(&source).await;
             synchronize(&source, &destination).await;
 
             for (table, id, column) in [
                 ("devices", DEVICE, "state"),
-                ("clients", CLIENT, "client_name"),
-                ("roles", ROLE, "name"),
+                ("clients", CLIENT, "client_type"),
+                ("roles", ROLE, "revoked_at"),
                 ("credentials", CREDENTIAL, "active"),
-                ("keys", KEY, "name"),
+                ("keys", KEY, "revoked_at"),
                 ("oauth2_authorization_codes", CODE, "consumed_at"),
                 ("oauth2_refresh_tokens", REFRESH, "consumed_at"),
             ] {

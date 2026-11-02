@@ -627,9 +627,12 @@ mod tests {
             .expect("bind temporary IdP Iroh endpoint");
         let policy_engine =
             Arc::new(Database::open(root.join("devices.redb")).expect("open local policy store"));
+        idp_model::replica::up_policy(&policy_engine)
+            .await
+            .expect("initialize local policy schema");
         device_service::replica::up(&policy_engine)
             .await
-            .expect("initialize local policy");
+            .expect("initialize local device schema");
         let endpoint_id = endpoint.id().to_string();
         let local_signer = idp_service::oauth2::NodeSignerBinding {
             member_id: idp_model::model::Id::now_v7(),
@@ -1529,6 +1532,36 @@ mod tests {
                             );
                         }
 
+                        let local_signer = idp_service::oauth2::NodeSignerBinding {
+                            member_id: idp_model::model::Id::now_v7(),
+                            key_id: idp_model::model::Id::now_v7(),
+                            endpoint_id: "test-endpoint".to_owned(),
+                        };
+                        let public_jwk = key_service
+                            .prepare_node_signer(&local_signer)
+                            .expect("prepare local Node signer");
+                        idp_service::replica::DbReplicaSignerRepo::new(engine.client())
+                            .enroll(
+                                &idp_model::contract::ReplicaMembership {
+                                    installation_id: "https://idp.example.test".into(),
+                                    issuer: "https://idp.example.test".into(),
+                                    member_id: local_signer.member_id,
+                                    endpoint_id: local_signer.endpoint_id.clone(),
+                                    approved_at: 1,
+                                    revoked_at: None,
+                                },
+                                &idp_model::contract::IdpSignerRecord {
+                                    member_id: local_signer.member_id,
+                                    key_id: local_signer.key_id,
+                                    issuer: "https://idp.example.test".into(),
+                                    public_jwk,
+                                    approved_at: Some(1),
+                                    revoked_at: None,
+                                    expires_at: None,
+                                },
+                            )
+                            .await
+                            .expect("approve local signer trust");
                         let oauth2_service = OAuth2Service::new(
                             DbApplicationRepo::new(engine.client()),
                             DbClientRepo::new(engine.client(), Arc::clone(&key_service)),
@@ -1539,6 +1572,7 @@ mod tests {
                             Arc::clone(&key_service),
                             OAuth2Config {
                                 issuer: "https://idp.example.test".to_owned(),
+                                local_signer: Some(local_signer),
                                 ..OAuth2Config::default()
                             },
                         );

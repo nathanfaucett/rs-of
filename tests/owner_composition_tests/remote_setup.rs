@@ -15,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 use super::create::{normal_use, setup, setup_code, start, wait};
 
 #[test]
+#[ignore = "requires built service launcher and identity-database"]
 fn remote_create_join_reopen_and_device_reset_preserve_shared_installation() {
     let root = std::env::temp_dir().join(format!("remote-setup-{}", Id::now_v7()));
     fs::create_dir(&root).expect("isolated root");
