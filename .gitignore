@@ -6,4 +6,8 @@
 /data/
 
 /config/**/*.redb
-node_modules/
+**/node_modules/
+**/browser/
+**/esm/
+**/types/
+**/*.tsbuildinfo
