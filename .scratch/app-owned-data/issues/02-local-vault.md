@@ -1,7 +1,7 @@
 # 02 — Build the app-owned local vault
 
-Status: needs-triage
-Work status: open
+Status: ready-for-agent
+Work status: claimed
 Type: task
 Blocked by: 01
 
