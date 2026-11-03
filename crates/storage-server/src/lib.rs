@@ -67,7 +67,7 @@ pub use router::{
 #[cfg(feature = "network")]
 pub use runtime::{StorageRuntime, build_http_runtime, build_runtime};
 #[cfg(feature = "sync")]
-pub use sync::sync_router;
+pub use sync::{SyncState, sync_router};
 
 #[cfg(all(unix, feature = "network"))]
 mod independent_create;

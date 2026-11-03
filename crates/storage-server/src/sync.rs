@@ -1,6 +1,6 @@
 #![cfg(feature = "sync")]
 
-use std::{string::String, vec::Vec};
+use std::{io, path::PathBuf, string::String, sync::Arc, vec::Vec};
 
 use axum::{
     Router,
@@ -13,6 +13,8 @@ use axum::{
 };
 use crc32fast::Hasher;
 use serde::{Deserialize, Serialize};
+use storage_model::StorageNamespace;
+use storage_service::DatabaseRuntime;
 use uuid::Uuid;
 
 use crate::{DeviceClient, IdpClient, IdpIntrospectionError, RouterState};
@@ -250,17 +252,98 @@ fn unix_time_seconds() -> i64 {
         .map_or(0, |d| d.as_secs().min(i64::MAX as u64) as i64)
 }
 
-pub fn sync_router(state: RouterState) -> Router {
-    Router::new()
-        .route("/storage/sync/ws", get(sync_ws_handler))
-        .with_state(state)
+pub struct SyncState {
+    pub router_state: RouterState,
+    pub databases: Arc<DatabaseRuntime>,
+    pub staging_dir: PathBuf,
 }
 
-async fn sync_ws_handler(ws: WebSocketUpgrade, State(state): State<RouterState>) -> Response {
+pub fn sync_router(
+    state: RouterState,
+    databases: Arc<DatabaseRuntime>,
+    staging_dir: PathBuf,
+) -> Router {
+    Router::new()
+        .route("/storage/sync/ws", get(sync_ws_handler))
+        .with_state(Arc::new(SyncState {
+            router_state: state,
+            databases,
+            staging_dir,
+        }))
+}
+
+async fn sync_ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<SyncState>>) -> Response {
     ws.on_upgrade(|socket| handle_socket(socket, state))
 }
 
-async fn handle_socket(mut socket: WebSocket, state: RouterState) {
+struct WsNamespace {
+    subject: String,
+    application_id: idp_model::model::Id,
+}
+impl StorageNamespace for WsNamespace {
+    fn user_sub(&self) -> &str {
+        &self.subject
+    }
+    fn application_id(&self) -> idp_model::model::Id {
+        self.application_id
+    }
+}
+
+struct WebSocketTransport {
+    socket: WebSocket,
+}
+
+impl ofdb_sql::SyncTransport for WebSocketTransport {
+    type Error = io::Error;
+
+    async fn receive(&mut self) -> io::Result<Vec<u8>> {
+        loop {
+            match self.socket.recv().await {
+                Some(Ok(Message::Binary(data))) => {
+                    let frame = FrameCodec::decode(&data).map_err(|e| {
+                        io::Error::new(io::ErrorKind::InvalidData, format!("{e:?}"))
+                    })?;
+                    let msg = SyncMessage::decode(&frame.payload)
+                        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{e}")))?;
+                    match msg {
+                        SyncMessage::OwnerMessage { payload, .. } => return Ok(payload),
+                        SyncMessage::Ping => {
+                            let _ = send_message(&mut self.socket, &SyncMessage::Pong).await;
+                        }
+                        _ => {
+                            return Err(io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                "unexpected sync control message",
+                            ));
+                        }
+                    }
+                }
+                Some(Ok(Message::Close(_))) | None => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "socket closed",
+                    ));
+                }
+                Some(Ok(_)) => continue,
+                Some(Err(e)) => return Err(io::Error::other(e)),
+            }
+        }
+    }
+
+    async fn send(&mut self, frame: Vec<u8>) -> io::Result<()> {
+        let msg = SyncMessage::OwnerMessage {
+            protocol_id: ProtocolId::OfdbSqlV7,
+            payload: frame,
+        };
+        send_message(&mut self.socket, &msg)
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "websocket send failed"))
+    }
+}
+
+async fn handle_socket(socket: WebSocket, state: Arc<SyncState>) {
+    let mut socket = socket;
+
     while let Some(msg) = socket.recv().await {
         let Ok(msg) = msg else { break };
         match msg {
@@ -288,16 +371,17 @@ async fn handle_socket(mut socket: WebSocket, state: RouterState) {
                     SyncMessage::AttachRequest(request) => {
                         let token = String::from_utf8_lossy(&request.auth_token.0).to_string();
                         let endpoint_id = "local";
-                        let (idp, device) =
-                            match (state.idp_client.as_ref(), state.device_client.as_ref()) {
-                                (Some(idp), Some(device)) => (idp, device),
-                                _ => {
-                                    let _ =
-                                        send_abort(&mut socket, AbortReason::BackendUnavailable)
-                                            .await;
-                                    break;
-                                }
-                            };
+                        let (idp, device) = match (
+                            state.router_state.idp_client.as_ref(),
+                            state.router_state.device_client.as_ref(),
+                        ) {
+                            (Some(idp), Some(device)) => (idp, device),
+                            _ => {
+                                let _ =
+                                    send_abort(&mut socket, AbortReason::BackendUnavailable).await;
+                                break;
+                            }
+                        };
                         match authorize_sync(
                             idp,
                             device,
@@ -322,6 +406,9 @@ async fn handle_socket(mut socket: WebSocket, state: RouterState) {
                                 {
                                     break;
                                 }
+                                run_sync_session(socket, &state, &request.store_identity, &auth)
+                                    .await;
+                                break;
                             }
                             Err(SyncAuthError::Unauthorized) => {
                                 let _ = send_abort(&mut socket, AbortReason::Unauthorized).await;
@@ -345,6 +432,41 @@ async fn handle_socket(mut socket: WebSocket, state: RouterState) {
             _ => {}
         }
     }
+}
+
+async fn run_sync_session(
+    socket: WebSocket,
+    state: &SyncState,
+    store_identity: &StoreIdentity,
+    auth: &SyncAuth,
+) {
+    let application_id = match auth.application_id.parse::<idp_model::model::Id>() {
+        Ok(id) => id,
+        Err(_) => return,
+    };
+    let namespace = WsNamespace {
+        subject: auth.subject.clone(),
+        application_id,
+    };
+    let database_id = match store_identity.store_id.to_string().parse() {
+        Ok(id) => id,
+        Err(_) => return,
+    };
+    let database = match state.databases.open_selected(&namespace, database_id) {
+        Ok(Some(db)) => db,
+        _ => return,
+    };
+    let mut transport = WebSocketTransport { socket };
+    let config = ofdb_sql::SessionConfig::default();
+    let _ = database
+        .synchronize_with_stage_directory_checked(
+            &mut transport,
+            &config,
+            ofdb_sql::SyncRole::Responder,
+            &state.staging_dir,
+            || async { Ok(()) },
+        )
+        .await;
 }
 
 async fn send_message(socket: &mut WebSocket, msg: &SyncMessage) -> Result<(), ()> {
@@ -394,7 +516,14 @@ mod tests {
         use axum::{body::Body, http::Request};
         use tower::ServiceExt;
 
-        let router = sync_router(RouterState::new("http://localhost"));
+        let data_dir = std::env::temp_dir().join(format!("sync-test-{}", uuid::Uuid::now_v7()));
+        let databases =
+            Arc::new(DatabaseRuntime::new(data_dir.join("databases")).expect("db runtime"));
+        let router = sync_router(
+            RouterState::new("http://localhost"),
+            databases,
+            data_dir.join("staging"),
+        );
         let response = router
             .oneshot(
                 Request::builder()
@@ -405,5 +534,6 @@ mod tests {
             .await
             .expect("response");
         assert_ne!(response.status(), axum::http::StatusCode::NOT_FOUND);
+        let _ = std::fs::remove_dir_all(&data_dir);
     }
 }
