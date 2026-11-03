@@ -169,10 +169,13 @@ fn build_runtime_inner(
     } else {
         Router::new().nest(resource_prefix, resource_routes)
     };
-    let router = openapi_router(state, api_prefix)
+    let router = openapi_router(state.clone(), api_prefix)
         .split_for_parts()
         .0
         .merge(resource_routes);
+
+    #[cfg(feature = "sync")]
+    let router = router.merge(crate::sync::sync_router(state));
 
     Ok(StorageRuntime {
         router,

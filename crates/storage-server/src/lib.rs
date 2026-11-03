@@ -38,6 +38,8 @@ mod router;
 mod runtime;
 #[cfg(feature = "network")]
 mod storage_protocol;
+#[cfg(feature = "sync")]
+mod sync;
 
 #[cfg(feature = "cli")]
 pub use cli::run;
@@ -64,6 +66,8 @@ pub use router::{
 };
 #[cfg(feature = "network")]
 pub use runtime::{StorageRuntime, build_http_runtime, build_runtime};
+#[cfg(feature = "sync")]
+pub use sync::sync_router;
 
 #[cfg(all(unix, feature = "network"))]
 mod independent_create;
