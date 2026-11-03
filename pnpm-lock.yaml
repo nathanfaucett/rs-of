@@ -141,9 +141,6 @@ importers:
       '@lucide/svelte':
         specifier: ^1.24.0
         version: 1.28.0(svelte@5.56.8)
-      '@of/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
       '@ofdb/sql':
         specifier: link:/home/nathan/code/rust/aicacia/ofdb/packages/sql
         version: link:../../../ofdb/packages/sql

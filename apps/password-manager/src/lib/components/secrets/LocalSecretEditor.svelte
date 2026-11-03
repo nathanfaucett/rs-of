@@ -1,12 +1,11 @@
 <script lang="ts">
-import type { SqlStorage } from "$lib/storage/sql";
+import type { VaultHandle } from "$lib/vault/vault";
 import { onDestroy, untrack } from "svelte";
 import { Alert, Card, Field } from "$lib/ui";
-import { createSecretWorkflow } from "./workflow.svelte";
+import { createLocalSecretWorkflow } from "./local-workflow.svelte";
 
-let { client, databaseId }: { client: SqlStorage; databaseId: string } =
-    $props();
-const workflow = untrack(() => createSecretWorkflow({ client, databaseId }));
+let { vault }: { vault: VaultHandle } = $props();
+const workflow = untrack(() => createLocalSecretWorkflow({ vault }));
 onDestroy(workflow.dispose);
 
 let name = $derived(workflow.editor?.record?.name ?? "");
@@ -19,7 +18,7 @@ let favorite = $derived(workflow.editor?.record?.favorite ?? false);
 <div class="flex flex-col gap-4">
     <Card
         title="Secrets"
-        description="Refresh reloads Storage and closes unsaved form edits. No background synchronization."
+        description="Stored locally in your encrypted vault. No server required."
     >
         {#snippet actions()}
             <button
@@ -41,7 +40,7 @@ let favorite = $derived(workflow.editor?.record?.favorite ?? false);
         {/if}
 
         {#if workflow.loadError}
-            <Alert tone="danger" title="Storage unavailable">{workflow.loadError}</Alert>
+            <Alert tone="danger" title="Vault unavailable">{workflow.loadError}</Alert>
         {:else if workflow.loading}
             <p role="status">Loading secrets…</p>
         {:else}
@@ -97,7 +96,7 @@ let favorite = $derived(workflow.editor?.record?.favorite ?? false);
     {#if workflow.editor}
         <Card
             title={workflow.editor.record ? 'Edit secret' : 'New secret'}
-            description="Changes are written to Storage when you save."
+            description="Changes are encrypted and stored in your local vault when you save."
         >
             <div class="flex flex-col gap-4">
                 <Field id="name" label="Name" required>

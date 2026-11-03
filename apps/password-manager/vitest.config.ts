@@ -10,7 +10,6 @@ export default defineConfig({
         conditions: ["browser"],
         alias: {
             $lib: source("./src/lib"),
-            "@of/sdk": source("../../packages/sdk/src/index.ts"),
         },
     },
     test: {

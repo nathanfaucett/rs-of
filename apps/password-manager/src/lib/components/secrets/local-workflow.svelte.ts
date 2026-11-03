@@ -2,10 +2,10 @@ import { useLiveQuery } from "@tanstack/svelte-db";
 import { SvelteDate } from "svelte/reactivity";
 import * as v from "valibot";
 import {
-    createSecretCollection,
+    createLocalSecretCollection,
     UnacknowledgedStorageWriteError,
-} from "$lib/collections/secrets/collection";
-import type { SqlStorage } from "$lib/storage/sql";
+} from "$lib/collections/secrets/local-collection";
+import type { VaultHandle } from "$lib/vault/vault";
 import { type Secret, SecretSchema } from "$lib/models/secret";
 
 export type SecretDraft = {
@@ -53,11 +53,8 @@ function constructSecret(
     });
 }
 
-export function createSecretWorkflow(options: {
-    client: SqlStorage;
-    databaseId: string;
-}) {
-    const collection = createSecretCollection(options);
+export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
+    const collection = createLocalSecretCollection({ vault });
     let editor = $state.raw<{ record: Secret | null } | null>(null);
     let loadError = $state<string | null>(null);
     let error = $state<string | null>(null);
@@ -82,7 +79,7 @@ export function createSecretWorkflow(options: {
             editor = null;
             notice = "";
             loadError =
-                "Storage connection failed; a sent write may have persisted. Refresh and verify records before retrying.";
+                "Local vault read failed. Refresh and verify records before retrying.";
         }
     });
     void collection.preload().catch((cause: unknown) => {
@@ -109,7 +106,7 @@ export function createSecretWorkflow(options: {
             return (
                 loadError ??
                 (query.isError
-                    ? "Storage connection failed. Refresh and verify records before retrying."
+                    ? "Local vault read failed. Refresh and verify records before retrying."
                     : null)
             );
         },
@@ -177,7 +174,7 @@ export function createSecretWorkflow(options: {
                 const authoritative = collection.get(value.id);
                 if (authoritative) edit(authoritative);
                 else editor = null;
-                notice = "Saved. Authoritative records reloaded.";
+                notice = "Saved.";
             } catch (cause) {
                 if (active) {
                     error = message(cause);
@@ -204,7 +201,7 @@ export function createSecretWorkflow(options: {
                 if (!active) return;
                 editor = null;
                 loadError = null;
-                notice = "Refreshed. Authoritative records reloaded.";
+                notice = "Refreshed.";
             } catch (cause) {
                 if (active) loadError = message(cause);
             } finally {
@@ -223,7 +220,7 @@ export function createSecretWorkflow(options: {
                 await collection.delete(value.id).isPersisted.promise;
                 if (!active) return;
                 if (editor?.record?.id === value.id) editor = null;
-                notice = "Deleted. Authoritative records reloaded.";
+                notice = "Deleted.";
             } catch (cause) {
                 if (active) {
                     error = message(cause);
@@ -256,7 +253,7 @@ export function createSecretWorkflow(options: {
 }
 
 function message(cause: unknown): string {
-    return cause instanceof Error ? cause.message : "Storage request failed";
+    return cause instanceof Error ? cause.message : "Local vault operation failed";
 }
 
 function newSecretId(): string {

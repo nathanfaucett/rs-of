@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { paraglideVitePlugin } from "@inlang/paraglide-js";
 import { sveltekit } from "@sveltejs/kit/vite";
 import tailwindcss from "@tailwindcss/vite";
@@ -26,6 +27,18 @@ export default defineConfig({
     server: {
         port: parseInteger(process.env.PORT, 5173),
         strictPort: true,
+        fs: {
+            allow: [
+                fileURLToPath(new URL(".", import.meta.url)),
+                fileURLToPath(new URL("../../", import.meta.url)),
+                fileURLToPath(
+                    new URL(
+                        "../../../ofdb/packages/sql",
+                        import.meta.url,
+                    ),
+                ),
+            ],
+        },
     },
     preview: {
         port: parseInteger(process.env.PORT, 5173),
