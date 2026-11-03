@@ -21,6 +21,7 @@
     "files": {
         "ignoreUnknown": true,
         "includes": [
+            "!src/lib/paraglide/**/*",
             "messages/**/*",
             "src/**/*",
             "biome.json",

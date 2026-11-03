@@ -1,7 +1,7 @@
 <script lang="ts">
-import type { VaultHandle } from "$lib/vault/vault";
 import { onDestroy, untrack } from "svelte";
 import { Alert, Card, Field } from "$lib/ui";
+import type { VaultHandle } from "$lib/vault/vault";
 import { createLocalSecretWorkflow } from "./local-workflow.svelte";
 
 let { vault }: { vault: VaultHandle } = $props();

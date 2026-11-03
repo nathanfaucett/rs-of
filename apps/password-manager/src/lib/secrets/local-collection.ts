@@ -4,8 +4,8 @@ import {
     type MutationFnParams,
 } from "@tanstack/db";
 import * as v from "valibot";
-import { type Secret, SecretSchema } from "$lib/models/secret";
-import type { VaultHandle, EncryptedSecret } from "$lib/vault/vault";
+import type { VaultHandle } from "$lib/vault/vault";
+import { type Secret, SecretSchema } from "./secret";
 
 export class UnacknowledgedStorageWriteError extends Error {
     constructor() {

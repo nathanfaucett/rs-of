@@ -199,8 +199,7 @@ export class VaultHandle {
     }
 }
 
-export class VaultFactory {
-    static async create(password: string): Promise<VaultHandle> {
+export async function createVault(password: string): Promise<VaultHandle> {
         const salt = crypto.getRandomValues(new Uint8Array(16));
         const iv = crypto.getRandomValues(new Uint8Array(12));
         const vaultId = crypto.randomUUID();
@@ -233,9 +232,9 @@ export class VaultFactory {
             db.close();
             throw error;
         }
-    }
+}
 
-    static async unlock(password: string): Promise<VaultHandle> {
+export async function unlockVault(password: string): Promise<VaultHandle> {
         const db = await SqlDatabase.open(VAULT_DB_NAME);
         const client = db.client();
 
@@ -273,9 +272,9 @@ export class VaultFactory {
             db.close();
             throw error;
         }
-    }
+}
 
-    static async exists(): Promise<boolean> {
+export async function vaultExists(): Promise<boolean> {
         try {
             const db = await SqlDatabase.open(VAULT_DB_NAME);
             const client = db.client();
@@ -289,5 +288,4 @@ export class VaultFactory {
         } catch {
             return false;
         }
-    }
 }

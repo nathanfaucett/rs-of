@@ -1,5 +1,3 @@
-import { fileURLToPath } from "node:url";
-
 import adapter from "@sveltejs/adapter-static";
 import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
 

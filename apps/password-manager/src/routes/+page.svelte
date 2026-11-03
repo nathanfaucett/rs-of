@@ -1,8 +1,8 @@
 <script lang="ts">
 import { onMount } from "svelte";
-import LocalSecretEditor from "$lib/components/secrets/LocalSecretEditor.svelte";
-import { VaultFactory, type VaultHandle } from "$lib/vault/vault";
+import LocalSecretEditor from "$lib/secrets/LocalSecretEditor.svelte";
 import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
+import { createVault as createVaultHandle, unlockVault as unlockVaultHandle, vaultExists, type VaultHandle } from "$lib/vault/vault";
 
 type VaultState =
     | { status: "loading" }
@@ -19,7 +19,7 @@ let busy = $state(false);
 
 onMount(async () => {
     try {
-        const exists = await VaultFactory.exists();
+        const exists = await vaultExists();
         state = exists ? { status: "locked" } : { status: "no-vault" };
     } catch {
         state = { status: "error", message: "Failed to check vault status." };
@@ -42,7 +42,7 @@ async function createVault() {
     }
     busy = true;
     try {
-        const vault = await VaultFactory.create(password);
+        const vault = await createVaultHandle(password);
         password = "";
         confirmPassword = "";
         state = { status: "unlocked", vault };
@@ -61,7 +61,7 @@ async function unlockVault() {
     }
     busy = true;
     try {
-        const vault = await VaultFactory.unlock(password);
+        const vault = await unlockVaultHandle(password);
         password = "";
         state = { status: "unlocked", vault };
     } catch (cause) {

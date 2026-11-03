@@ -1,12 +1,9 @@
 import { useLiveQuery } from "@tanstack/svelte-db";
 import { SvelteDate } from "svelte/reactivity";
 import * as v from "valibot";
-import {
-    createLocalSecretCollection,
-    UnacknowledgedStorageWriteError,
-} from "$lib/collections/secrets/local-collection";
 import type { VaultHandle } from "$lib/vault/vault";
-import { type Secret, SecretSchema } from "$lib/models/secret";
+import { createLocalSecretCollection, UnacknowledgedStorageWriteError } from "./local-collection";
+import { type Secret, SecretSchema } from "./secret";
 
 export type SecretDraft = {
     name: string;
