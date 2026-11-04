@@ -1,6 +1,6 @@
 # 01: WebSocket Endpoint Responds
 
-**Status:** `ready-for-agent`
+**Status:** `done`
 **Type:** `task`
 **Blocked by:** none
 

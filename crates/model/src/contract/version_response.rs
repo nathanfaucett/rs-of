@@ -21,6 +21,8 @@ pub struct VersionResponse {
     pub name: String,
     pub version: String,
     pub build: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub features: Vec<String>,
 }
 
 impl Default for VersionResponse {
@@ -31,6 +33,7 @@ impl Default for VersionResponse {
             build: DateTime::parse_from_rfc3339(build_time_utc!())
                 .expect("invalid build time")
                 .with_timezone(&Utc),
+            features: Vec::new(),
         }
     }
 }

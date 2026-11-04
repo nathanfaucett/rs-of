@@ -175,7 +175,11 @@ fn build_runtime_inner(
         .merge(resource_routes);
 
     #[cfg(feature = "sync")]
-    let router = router.merge(crate::sync::sync_router(state));
+    let router = router.merge(crate::sync::sync_router(
+        state,
+        Arc::clone(&databases),
+        data_dir.join("sync-staging"),
+    ));
 
     Ok(StorageRuntime {
         router,

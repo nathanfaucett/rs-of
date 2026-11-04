@@ -11,3 +11,4 @@
 **/esm/
 **/types/
 **/*.tsbuildinfo
+storage-data.setup-host/

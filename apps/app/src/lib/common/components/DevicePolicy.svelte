@@ -5,7 +5,7 @@
         SelectionKind,
     } from "@aicacia/device-client";
     import * as v from "valibot";
-    import { deviceApi } from "$lib/common/state/deviceClient.svelte";
+    import { deviceApi, checkStorageSyncCapability } from "$lib/common/state/deviceClient.svelte";
     import Alert from "$lib/ui/Alert.svelte";
     import Card from "$lib/ui/Card.svelte";
     import Field from "$lib/ui/Field.svelte";
@@ -26,6 +26,20 @@
         "The owner API does not expose a User-readable selection directory. Mutation acknowledgements above are not presented as a current selection list.";
     const residencyScopeText =
         "Full/Passthrough Residency controls apply to whole filesystems, not databases. Choose Filesystem and enter its resource UUID above.";
+
+    // Sync capability per device (keyed by device id)
+    let syncCapability = $state<Record<string, boolean>>({});
+
+    // Check sync capability for all devices on mount
+    $effect(() => {
+        for (const device of devices) {
+            if (device.address && !syncCapability[device.id]) {
+                checkStorageSyncCapability(device.address).then((hasSync) => {
+                    syncCapability[device.id] = hasSync;
+                });
+            }
+        }
+    });
 
     async function readRestriction() {
         busy = true;
@@ -137,10 +151,18 @@
                     }}
                 >
                     <option value="">Select a Device</option>
-                    {#each devices as device (device.id)}<option
-                            value={device.id}
-                            >{device.name} — {device.id}</option
-                        >{/each}
+                    {#each devices as device (device.id)}
+                        <option value={device.id}>
+                            {device.name} — {device.id}
+                            {syncCapability[device.id] !== undefined && (
+                                <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
+                                    style="background-color: {syncCapability[device.id] ? '#dcfce7' : '#fee2e2'};
+                                           color: {syncCapability[device.id] ? '#166534' : '#991b1b'};">
+                                    Sync: {syncCapability[device.id] ? 'Yes' : 'No'}
+                                </span>
+                            )}
+                        </option>
+                    {/each}
                 </select>
             {/snippet}
         </Field>

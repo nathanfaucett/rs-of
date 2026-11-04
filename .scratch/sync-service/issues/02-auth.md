@@ -1,6 +1,6 @@
 # 02: Auth — Valid Token + Selected Resource = Sync Authorized
 
-**Status:** `ready-for-agent`
+**Status:** `done`
 **Type:** `task`
 **Blocked by:** 01
 

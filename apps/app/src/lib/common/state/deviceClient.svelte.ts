@@ -80,9 +80,7 @@ export function getDeviceApiUrl(): string | null {
   return deviceApiUrl.item;
 }
 
-export async function validateDeviceApiUrl(
-  basePath: string,
-): Promise<boolean> {
+export async function validateDeviceApiUrl(basePath: string): Promise<boolean> {
   if (!basePath) {
     return false;
   }
@@ -98,6 +96,25 @@ export async function validateDeviceApiUrl(
   } catch {}
   try {
     return (await fetchSetupStatus(basePath)).owners.includes("device");
+  } catch {
+    return false;
+  }
+}
+
+export async function checkStorageSyncCapability(
+  storageBaseUrl: string,
+): Promise<boolean> {
+  try {
+    const response = await fetch(
+      `${storageBaseUrl.replace(/\/+$/, "")}/version`,
+      {
+        method: "GET",
+        headers: { Accept: "application/json" },
+      },
+    );
+    if (!response.ok) return false;
+    const version = await response.json();
+    return Array.isArray(version.features) && version.features.includes("sync");
   } catch {
     return false;
   }
