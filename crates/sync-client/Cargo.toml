@@ -1,0 +1,89 @@
+[package]
+name = "sync-client"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Sync client for app-to-device mesh synchronization"
+repository = "https://github.com/aicacia/of"
+
+[features]
+default = []
+native = [
+    "dep:tokio",
+    "dep:tokio-tungstenite",
+    "dep:tungstenite",
+    "dep:futures-util",
+    "redb",
+]
+browser = [
+    "dep:gloo-net",
+    "dep:wasm-bindgen",
+    "dep:wasm-bindgen-futures",
+    "dep:web-sys",
+    "dep:getrandom",
+    "dep:futures-util",
+    "indexeddb",
+]
+# Storage backend features (choose one)
+redb = ["ofdb-sql/redb"]
+in-memory = ["ofdb-sql/in-memory"]
+indexeddb = ["ofdb-sql/indexeddb"]
+
+[dependencies]
+# Protocol + framing
+postcard = { version = "1.1", default-features = false, features = ["alloc"] }
+crc32fast = "1.4"
+uuid = { version = "1.29", default-features = false, features = ["std", "v7"] }
+serde = { version = "1.0", default-features = false, features = [
+    "derive",
+    "std",
+] }
+thiserror = "2.0"
+async-trait = "0.1"
+tracing = "0.1"
+
+# Core sync engine
+ofdb-sql = { path = "../../../ofdb/crates/sql", version = "0.1", default-features = false, features = [
+    "sync",
+    "native-stage",
+    "sql",
+] }
+getrandom = { version = "0.2", default-features = false, features = [
+    "js",
+], optional = true }
+storage-model = { path = "../storage-model", version = "0.1" }
+
+# Native transport
+tokio = { version = "1.42", default-features = false, features = [
+    "rt-multi-thread",
+    "net",
+    "sync",
+    "time",
+    "macros",
+], optional = true }
+tokio-tungstenite = { version = "0.24", default-features = false, features = [
+    "connect",
+    "rustls-tls-native-roots",
+], optional = true }
+tungstenite = { version = "0.24", default-features = false, optional = true }
+futures-util = { version = "0.3", default-features = false, features = [
+    "std",
+    "sink",
+    "futures-channel",
+], optional = true }
+futures-channel = { version = "0.3", default-features = false, features = [
+    "std",
+] }
+# Browser transport
+gloo-net = { version = "0.4", optional = true }
+wasm-bindgen = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+web-sys = { version = "0.3", features = [
+    "WebSocket",
+    "MessageEvent",
+    "BinaryType",
+    "ErrorEvent",
+    "CloseEvent",
+    "Event",
+], optional = true }
+js-sys = { version = "0.3", optional = true }

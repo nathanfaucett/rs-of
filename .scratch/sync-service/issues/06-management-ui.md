@@ -1,6 +1,6 @@
 # 06: Management UI — Sync Capability Indicator
 
-**Status:** `ready-for-human`
+**Status:** `done`
 **Type:** `task`
 **Blocked by:** 03
 

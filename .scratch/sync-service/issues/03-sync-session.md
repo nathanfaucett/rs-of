@@ -1,6 +1,6 @@
 # 03: Sync Session — SQL Sync Over WebSocket
 
-**Status:** `ready-for-agent`
+**Status:** `done`
 **Type:** `task`
 **Blocked by:** 02
 

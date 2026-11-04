@@ -1,6 +1,6 @@
 # 04: sync-client Native — Connect + Auth + Sync
 
-**Status:** `ready-for-agent`
+**Status:** `done`
 **Type:** `task`
 **Blocked by:** 03
 
