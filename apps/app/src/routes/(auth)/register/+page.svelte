@@ -5,11 +5,11 @@
         ClientRegistrationToJSON,
         ClientType,
         TokenEndpointAuthMethod,
-    } from "@aicacia/idp-client";
+    } from "@ofsdk/idp-client";
     import {
         handleNativeCallbackRequest,
         type NativeRequest,
-    } from "@aicacia/native-fetch";
+    } from "@ofsdk/native-fetch";
     import * as v from "valibot";
     import { page } from "$app/state";
     import { idpApi } from "$lib/common/state/idpClient.svelte";

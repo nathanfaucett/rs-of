@@ -4,7 +4,7 @@ import {
     ResponseError,
     IndependentCreateIntentToJSON,
     IndependentOwnerPublicToJSON,
-} from "@aicacia/idp-client";
+} from "@ofsdk/idp-client";
 import {
     fetchSetupStatus,
     setupBase,

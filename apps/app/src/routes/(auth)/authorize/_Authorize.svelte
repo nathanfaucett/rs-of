@@ -11,8 +11,8 @@
     import type {
         ClientConsentMetadata,
         ClientRegistration,
-    } from "@aicacia/idp-client";
-    import type { OidcUserInfo } from "@aicacia/oidc-client";
+    } from "@ofsdk/idp-client";
+    import type { OidcUserInfo } from "@ofsdk/oidc-client";
     import LoaderCircle from "@lucide/svelte/icons/loader-circle";
     import { isTauri } from "@tauri-apps/api/core";
     import { onMount } from "svelte";

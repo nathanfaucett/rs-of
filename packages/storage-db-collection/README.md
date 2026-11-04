@@ -3,8 +3,8 @@
 Framework-independent, eager filesystem collections with optimistic single-record CRUD for TanStack DB. Storage remains authoritative for persistence and authorization. This package has no Svelte, environment, OAuth Client ID, or Secret schema dependency.
 
 ```ts
-import { StorageClient } from "@aicacia/storage-client";
-import { createStorageCollection } from "@aicacia/storage-db-collection";
+import { StorageClient } from "@ofsdk/storage-client";
+import { createStorageCollection } from "@ofsdk/storage-db-collection";
 
 const client = new StorageClient({
   idpBaseUrl,
@@ -81,14 +81,14 @@ A failed, partial, or malformed refresh publishes nothing. The last complete sna
 
 ## Checks
 
-From the workspace root, install dependencies and build `@aicacia/idp-client` and `@aicacia/storage-client` with their `build:esm` scripts first. Then:
+From the workspace root, install dependencies and build `@ofsdk/idp-client` and `@ofsdk/storage-client` with their `build:esm` scripts first. Then:
 
 ```sh
-pnpm --filter @aicacia/storage-db-collection test
-pnpm --filter @aicacia/storage-db-collection check
-pnpm --filter @aicacia/storage-db-collection build
-pnpm --filter @aicacia/storage-db-collection lint
-pnpm --filter @aicacia/storage-db-collection format
+pnpm --filter @ofsdk/storage-db-collection test
+pnpm --filter @ofsdk/storage-db-collection check
+pnpm --filter @ofsdk/storage-db-collection build
+pnpm --filter @ofsdk/storage-db-collection lint
+pnpm --filter @ofsdk/storage-db-collection format
 ```
 
 Tests use real TanStack collections/live queries and the real Storage client with controlled HTTP/WebSocket responses, not a substituted DB or mocked collection implementation. They qualify client behavior, not a deployed Installation, server authorization, or cross-Node replication.

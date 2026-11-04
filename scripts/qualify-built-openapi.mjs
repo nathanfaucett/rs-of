@@ -4,13 +4,13 @@ import path from "node:path";
 const root = path.resolve(import.meta.dirname, "..");
 const idp = await import(
     createRequire(path.join(root, "packages/idp-client/package.json")).resolve(
-        "@aicacia/idp-client",
+        "@ofsdk/idp-client",
     )
 );
 const storage = await import(
     createRequire(
         path.join(root, "packages/storage-client/package.json"),
-    ).resolve("@aicacia/storage-client/generated")
+    ).resolve("@ofsdk/storage-client/generated")
 );
 const [basePath, storageBase, independentBase] = process.argv.slice(2);
 const api = new idp.DefaultApi(new idp.Configuration({ basePath }));
@@ -40,7 +40,7 @@ await assert.rejects(catalog.listFileSystems(), (error) =>
 const { StorageClient } = await import(
     createRequire(
         path.join(root, "packages/storage-client/package.json"),
-    ).resolve("@aicacia/storage-client")
+    ).resolve("@ofsdk/storage-client")
 );
 const consumer = new StorageClient({
     idpBaseUrl: basePath,
@@ -69,7 +69,7 @@ for (const owner of ["idp", "management", "device", "storage"]) {
     );
     const sdk = await import(
         require.resolve(
-            `@aicacia/${owner}-client${owner === "storage" ? "/generated" : ""}`,
+            `@ofsdk/${owner}-client${owner === "storage" ? "/generated" : ""}`,
         )
     );
     if (owner === "management") {
@@ -110,7 +110,7 @@ for (const owner of ["idp", "management", "device", "storage"]) {
 
 const owner = await import(
     createRequire(path.join(root, "packages/idp-client/package.json")).resolve(
-        "@aicacia/idp-client",
+        "@ofsdk/idp-client",
     )
 );
 const setup = new owner.OwnerSetupApi(

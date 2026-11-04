@@ -1,5 +1,5 @@
 {
-  "name": "@of/app",
+  "name": "@ofsdk/app",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -42,14 +42,14 @@
     "vitest": "4.1.10"
   },
   "dependencies": {
-    "@aicacia/device-client": "workspace:*",
-    "@aicacia/idp-client": "workspace:*",
-    "@aicacia/management-client": "workspace:*",
-    "@aicacia/native-fetch": "workspace:*",
-    "@aicacia/oidc-client": "workspace:*",
-    "@aicacia/storage-client": "workspace:*",
+    "@ofsdk/device-client": "workspace:*",
+    "@ofsdk/idp-client": "workspace:*",
+    "@ofsdk/management-client": "workspace:*",
+    "@ofsdk/native-fetch": "workspace:*",
+    "@ofsdk/oidc-client": "workspace:*",
+    "@ofsdk/storage-client": "workspace:*",
     "@aicacia/svelte-forms": "^0.1.1",
-    "@aicacia/svelte-headless": "workspace:*",
+    "@ofsdk/svelte-headless": "workspace:*",
     "@lucide/svelte": "^1.24.0",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-deep-link": "^2.4.9",

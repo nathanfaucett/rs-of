@@ -1,5 +1,5 @@
 {
-    "name": "@aicacia/native-fetch",
+    "name": "@ofsdk/native-fetch",
     "version": "0.1.0",
     "description": "Aicacia Native Fetch",
     "keywords": [

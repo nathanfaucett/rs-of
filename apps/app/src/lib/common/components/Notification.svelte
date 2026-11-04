@@ -5,7 +5,7 @@
 </script>
 
 <script lang="ts">
-    import type { Notification } from "@aicacia/svelte-headless";
+    import type { Notification } from "@ofsdk/svelte-headless";
     import { Alert } from "$lib/ui";
     import { notifications } from "$lib/common/state/notifications.svelte";
 

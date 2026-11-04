@@ -23,7 +23,7 @@ vi.mock("$app/navigation", () => ({ goto: vi.fn() }));
 vi.mock("$app/paths", () => ({ resolve: (path: string) => path }));
 vi.mock("$app/state", () => ({ page: { url: new URL("https://app.test") } }));
 vi.mock("$env/dynamic/public", () => ({ env: host.env }));
-vi.mock("@aicacia/svelte-headless", () => ({
+vi.mock("@ofsdk/svelte-headless", () => ({
     createStorage: (_key: string, item: unknown) => ({ item }),
 }));
 const fetchApi = vi.fn();
@@ -185,7 +185,7 @@ const filesystemId = "01900000-0000-7000-8000-000000000003";
 
 async function localResidency(accessToken = "filesystem-user-token") {
     const { ResourcesResidencyApi, StorageOwnerConfiguration } = await import(
-        "@aicacia/storage-client"
+        "@ofsdk/storage-client"
     );
     const { ensureLocalhostBaseUrl } = await import(
         "./localhostBaseUrl.svelte"
@@ -262,7 +262,7 @@ it.each(["full", "passthrough"] as const)(
 );
 
 it("does not turn deselection or Full acknowledgement into transferred-resource selection readiness", async () => {
-    const { SelectionKind } = await import("@aicacia/device-client");
+    const { SelectionKind } = await import("@ofsdk/device-client");
     const device = await import("./deviceClient.svelte");
     await device.ensureTauriDeviceApiUrl();
     const residency = await localResidency();

@@ -1,5 +1,5 @@
 {
-    "name": "@aicacia/management-client",
+    "name": "@ofsdk/management-client",
     "version": "0.1.0",
     "description": "Aicacia Local First Identity Provider Client",
     "keywords": [

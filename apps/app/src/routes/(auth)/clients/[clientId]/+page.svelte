@@ -1,5 +1,5 @@
 <script lang="ts">
-    import type { ClientRegistration } from "@aicacia/idp-client";
+    import type { ClientRegistration } from "@ofsdk/idp-client";
     import { onMount } from "svelte";
     import { goto } from "$app/navigation";
     import { resolve } from "$app/paths";

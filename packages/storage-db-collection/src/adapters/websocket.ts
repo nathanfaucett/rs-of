@@ -1,4 +1,4 @@
-import type { StorageClient } from "@aicacia/storage-client";
+import type { StorageClient } from "@ofsdk/storage-client";
 import type { ConnectBackend, StorageBackend } from "../adapters/backend.js";
 
 /** Adapts a StorageClient to the StorageBackend interface. */

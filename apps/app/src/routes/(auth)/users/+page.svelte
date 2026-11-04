@@ -1,5 +1,5 @@
 <script lang="ts">
-    import type { UserInfo } from "@aicacia/idp-client";
+    import type { UserInfo } from "@ofsdk/idp-client";
     import { onMount } from "svelte";
     import { resolve } from "$app/paths";
     import { idpApi } from "$lib/common/state/idpClient.svelte";

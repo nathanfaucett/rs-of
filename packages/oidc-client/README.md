@@ -7,7 +7,7 @@ sign‑in flows.
 ## Basic usage
 
 ```ts
-import { OidcClient } from "@aicacia/oidc-client";
+import { OidcClient } from "@ofsdk/oidc-client";
 
 const client = new OidcClient({
   clientConfig: {

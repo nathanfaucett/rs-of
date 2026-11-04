@@ -1,4 +1,4 @@
-import { ResponseError } from "@aicacia/idp-client";
+import { ResponseError } from "@ofsdk/idp-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
     authorizationError,

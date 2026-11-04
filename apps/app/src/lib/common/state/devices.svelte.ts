@@ -1,13 +1,13 @@
 import {
     Configuration as IndependentJoinConfiguration,
     IndependentJoinApi,
-} from "@aicacia/device-client";
+} from "@ofsdk/device-client";
 import * as v from "valibot";
 import type {
     DeviceEnrollment,
     DeviceInfo,
     DeviceState,
-} from "@aicacia/device-client";
+} from "@ofsdk/device-client";
 import {
     ownerAccessToken,
     ensureTauriIdpApiUrl,

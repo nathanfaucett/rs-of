@@ -1,6 +1,6 @@
 <script lang="ts">
-    import type { UserInfo } from "@aicacia/idp-client";
-    import type { UserApplicationRoleResponse } from "@aicacia/management-client";
+    import type { UserInfo } from "@ofsdk/idp-client";
+    import type { UserApplicationRoleResponse } from "@ofsdk/management-client";
     import { onMount } from "svelte";
     import { page } from "$app/state";
     import {

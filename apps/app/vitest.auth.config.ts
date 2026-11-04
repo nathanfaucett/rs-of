@@ -6,24 +6,24 @@ export default defineConfig({
   plugins: [sveltekit()],
   resolve: {
     alias: {
-      "@aicacia/native-fetch": fileURLToPath(new URL("../../packages/native-fetch/src/index.ts", import.meta.url)),
-      "@aicacia/oidc-client": fileURLToPath(
+      "@ofsdk/native-fetch": fileURLToPath(new URL("../../packages/native-fetch/src/index.ts", import.meta.url)),
+      "@ofsdk/oidc-client": fileURLToPath(
         new URL("../../packages/oidc-client/src/index.ts", import.meta.url),
       ),
-      "@aicacia/idp-client": fileURLToPath(
+      "@ofsdk/idp-client": fileURLToPath(
         new URL("../../packages/idp-client/src/index.ts", import.meta.url),
       ),
-      "@aicacia/device-client": fileURLToPath(new URL("../../packages/device-client/src/index.ts", import.meta.url)),
-            "@aicacia/management-client": fileURLToPath(
+      "@ofsdk/device-client": fileURLToPath(new URL("../../packages/device-client/src/index.ts", import.meta.url)),
+            "@ofsdk/management-client": fileURLToPath(
         new URL(
           "../../packages/management-client/src/index.ts",
           import.meta.url,
         ),
       ),
-      "@aicacia/storage-client": fileURLToPath(
+      "@ofsdk/storage-client": fileURLToPath(
         new URL("../../packages/storage-client/src/index.ts", import.meta.url),
       ),
-      "@aicacia/svelte-headless": fileURLToPath(
+      "@ofsdk/svelte-headless": fileURLToPath(
         new URL(
           "../../packages/svelte-headless/src/lib/state/storage.svelte.ts",
           import.meta.url,

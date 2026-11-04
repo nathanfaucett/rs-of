@@ -29,7 +29,7 @@ Existing management UI already has device selection and residency controls. This
 
 ## Notes
 
-- Selection UI already in `DevicePolicy.svelte` using `@aicacia/device-client`
-- Residency UI already in `ResourceResidency.svelte` using `@aicacia/storage-client`
+- Selection UI already in `DevicePolicy.svelte` using `@ofsdk/device-client`
+- Residency UI already in `ResourceResidency.svelte` using `@ofsdk/storage-client`
 - Token exchange for sync uses existing `StorageClient.exchangeToken(["read","write"], signal, "storage:sync")` pattern
 - No backend changes

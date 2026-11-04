@@ -3,7 +3,7 @@ import {
     Configuration as IdpConfiguration,
     ResponseError as IdpResponseError,
     SubjectTokenType,
-} from "@aicacia/idp-client";
+} from "@ofsdk/idp-client";
 import { DefaultApi as StorageApi } from "./generated/apis/DefaultApi.js";
 import { ResourcesApi } from "./generated/apis/ResourcesApi.js";
 import { ResourcesSqlApi } from "./generated/apis/ResourcesSqlApi.js";

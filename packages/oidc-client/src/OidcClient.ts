@@ -5,14 +5,14 @@ import {
   TokenGrantTypeEnum,
   TokenResponseToJSON,
   UserInfoToJSON,
-} from "@aicacia/idp-client";
+} from "@ofsdk/idp-client";
 import {
   createNativeFetch,
   generateState,
   isNativeProtocol,
   type NativeFetch,
   openUrl,
-} from "@aicacia/native-fetch";
+} from "@ofsdk/native-fetch";
 import { EventEmitter } from "eventemitter3";
 import type { OidcClientConfig } from "./OidcClientConfig.js";
 import { OidcClientError } from "./OidcClientError.js";

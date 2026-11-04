@@ -1,6 +1,6 @@
 # Password manager: application-provisioned SQL
 
-Sign in through `@of/sdk` and the app automatically opens its User/Application database. The app-owned SQL collection retains the **official** `@tanstack/svelte-db` binding and collection mutation path. No resource selector, database ID, or manual creation step is required.
+Sign in through `@ofsdk/sdk` and the app automatically opens its User/Application database. The app-owned SQL collection retains the **official** `@tanstack/svelte-db` binding and collection mutation path. No resource selector, database ID, or manual creation step is required.
 
 **Cutover:** existing filesystem records remain untouched. They are not imported, read as fallback, dual-written, or deleted. A fresh SQL database is separate from those records. This example adds **no end-to-end encryption, secure erasure, production-vault qualification, or concurrent-edit protection**. Use non-sensitive test secrets only.
 
@@ -10,18 +10,18 @@ From the workspace root:
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm --filter @aicacia/idp-client build:esm
-pnpm --filter @aicacia/native-fetch build:esm
-pnpm --filter @aicacia/oidc-client build:esm
-pnpm --filter @aicacia/storage-client build:esm
-pnpm --filter @of/sdk build
-pnpm --filter @aicacia/svelte-headless prepack
+pnpm --filter @ofsdk/idp-client build:esm
+pnpm --filter @ofsdk/native-fetch build:esm
+pnpm --filter @ofsdk/oidc-client build:esm
+pnpm --filter @ofsdk/storage-client build:esm
+pnpm --filter @ofsdk/sdk build
+pnpm --filter @ofsdk/svelte-headless prepack
 ```
 
 Copy `.env.example` to `.env` and configure `PUBLIC_URL`, `PUBLIC_IDP_BASE_URL`, and `PUBLIC_STORAGE_BASE_URL` for a provisioned Installation. Keep service prefixes (`/idp`, `/storage`); Storage need not share the IdP host. `PUBLIC_URL` must match the actual browser origin/base and registered callback URI. Use browser-trusted HTTPS and allowed browser origins; never disable certificate validation or authorization. Public configuration contains locations, not credentials.
 
 ```sh
-pnpm --filter password-manager dev
+pnpm --filter @ofsdk/password-manager dev
 ```
 
 Use an Installation User allowed to onboard Applications. The app supplies Application URI `password-manager.aicacia.com`, not an invented OAuth Client ID. IdP authorization registers/consents and returns its issued Client ID with code, PKCE-bound state, and issuer. OIDC verifies the callback, userinfo, and authenticated Client/Application mapping. Reload and renewal retain that issued ID. See [SDK authentication and credential policy](../../packages/sdk/README.md).
@@ -60,12 +60,12 @@ Storage receives plaintext serialized secret values. SQL/CRDT history and offlin
 ## Repeatable checks
 
 ```sh
-pnpm --filter password-manager test
-pnpm --filter password-manager exec node --test svelte.config.test.mjs
-pnpm --filter password-manager build
-pnpm --filter password-manager check
-pnpm --filter @of/sdk test
-pnpm --filter @aicacia/storage-client test
+pnpm --filter @ofsdk/password-manager test
+pnpm --filter @ofsdk/password-manager exec node --test svelte.config.test.mjs
+pnpm --filter @ofsdk/password-manager build
+pnpm --filter @ofsdk/password-manager check
+pnpm --filter @ofsdk/sdk test
+pnpm --filter @ofsdk/storage-client test
 cargo test -p idp-unified --test owner_boundaries sql_http_tests --no-default-features
 ```
 

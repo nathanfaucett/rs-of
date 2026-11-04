@@ -150,22 +150,22 @@ No new config. Uses existing:
 
 ### `of/apps/app` (management UI)
 
-- Device selection UI already exists: `DevicePolicy.svelte` uses `@aicacia/device-client` `PUT /devices/{id}/selection`
-- Residency UI already exists: `ResourceResidency.svelte` uses `@aicacia/storage-client` `ResourcesResidencyApi`
+- Device selection UI already exists: `DevicePolicy.svelte` uses `@ofsdk/device-client` `PUT /devices/{id}/selection`
+- Residency UI already exists: `ResourceResidency.svelte` uses `@ofsdk/storage-client` `ResourcesResidencyApi`
 - Token exchange pattern already in `StorageClient.exchangeToken()` — add `"sync"` resource for WS endpoint
 - **Only new UI**: indicator showing which devices have `sync` feature enabled (can serve `/storage/sync/ws`)
 
 ### `of/apps/password-manager`
 
-- Currently local-only: `@ofdb/sql` WASM SQLite + TanStack DB `createCollection` with manual sync hooks (`local-collection.ts`)
-- **New adapter needed** in `@aicacia/storage-db-collection`: bridge TanStack DB sync → sync WebSocket (binary protocol)
+- Currently local-only: `@ofsdk/sql` WASM SQLite + TanStack DB `createCollection` with manual sync hooks (`local-collection.ts`)
+- **New adapter needed** in `@ofsdk/storage-db-collection`: bridge TanStack DB sync → sync WebSocket (binary protocol)
 - Vault encrypts locally (PBKDF2+AES-GCM) before storage — sync carries ciphertext only
 
 ### `of/packages/*`
 
 - **No new OpenAPI client packages**: sync WS is binary (postcard+CRC32), not REST — not in OpenAPI specs
-- `@aicacia/storage-client` `openSocket()` already demonstrates token-exchange → WebSocket upgrade pattern
-- `@aicacia/storage-db-collection` already has `createWebSocketBackend` (KV over WS) and `createOfdbBackend` — add `createSyncBackend`
+- `@ofsdk/storage-client` `openSocket()` already demonstrates token-exchange → WebSocket upgrade pattern
+- `@ofsdk/storage-db-collection` already has `createWebSocketBackend` (KV over WS) and `createOfdbBackend` — add `createSyncBackend`
 
 ## Risks / Known Limits
 
@@ -183,4 +183,4 @@ No new config. Uses existing:
 4. Device selection via Management UI controls which resources sync to which devices (UI already exists)
 5. P2P device↔device sync continues working unchanged
 6. Password manager syncs vault via new `storage-db-collection` sync adapter
-7. No new `@aicacia/*-client` packages generated (sync WS is binary, outside OpenAPI)
+7. No new `@ofsdk/*-client` packages generated (sync WS is binary, outside OpenAPI)

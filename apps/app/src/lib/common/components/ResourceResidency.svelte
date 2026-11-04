@@ -3,7 +3,7 @@
         ResidencyMode,
         ResourcesResidencyApi,
         StorageOwnerConfiguration,
-    } from "@aicacia/storage-client";
+    } from "@ofsdk/storage-client";
     import { isTauri } from "@tauri-apps/api/core";
     import * as v from "valibot";
     import { ensureLocalhostBaseUrl } from "$lib/common/state/localhostBaseUrl.svelte";

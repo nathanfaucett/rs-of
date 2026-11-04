@@ -1,7 +1,7 @@
 <script lang="ts">
 import "../app.css";
 
-import { getTheme } from "@aicacia/svelte-headless";
+import { getTheme } from "@ofsdk/svelte-headless";
 import favicon from "$lib/assets/favicon.svg";
 import Notifications from "$lib/common/components/Notifications.svelte";
 import type { LayoutProps } from "./$types";

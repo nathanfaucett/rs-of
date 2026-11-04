@@ -1,5 +1,5 @@
 {
-    "name": "@aicacia/storage-db-collection",
+    "name": "@ofsdk/storage-db-collection",
     "version": "0.1.0",
     "type": "module",
     "main": "esm/index.js",
@@ -18,7 +18,7 @@
         "format": "biome format src package.json tsconfig.json"
     },
     "dependencies": {
-        "@aicacia/storage-client": "workspace:*",
+        "@ofsdk/storage-client": "workspace:*",
         "@standard-schema/spec": "~1.1.0",
         "@tanstack/db": "~0.15.2"
     },

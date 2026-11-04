@@ -6,11 +6,11 @@
         GrantType,
         ResponseType,
         TokenEndpointAuthMethod,
-    } from "@aicacia/idp-client";
+    } from "@ofsdk/idp-client";
     import type {
         PermissionResponse,
         RoleResponse,
-    } from "@aicacia/management-client";
+    } from "@ofsdk/management-client";
     import { onMount } from "svelte";
     import { goto } from "$app/navigation";
     import { resolve } from "$app/paths";

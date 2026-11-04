@@ -7,14 +7,14 @@ export type {
     NativeRequestJSON,
     NativeResponse,
     NativeResponseJSON,
-} from "@aicacia/native-fetch";
+} from "@ofsdk/native-fetch";
 export {
     createNativeFetch,
     handleNativeCallbackRequest,
     handleNativeCallbackRequestUrl,
     handleNativeFetchCallback,
     toNativeRequestUrl,
-} from "@aicacia/native-fetch";
+} from "@ofsdk/native-fetch";
 export type {
     AuthorizationUrlOptions,
     OidcClientOptions,

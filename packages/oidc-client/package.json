@@ -1,5 +1,5 @@
 {
-    "name": "@aicacia/oidc-client",
+    "name": "@ofsdk/oidc-client",
     "version": "0.1.0",
     "description": "Aicacia OIDC Client",
     "keywords": [
@@ -46,8 +46,8 @@
         }
     },
     "dependencies": {
-        "@aicacia/idp-client": "workspace:*",
-        "@aicacia/native-fetch": "workspace:*",
+        "@ofsdk/idp-client": "workspace:*",
+        "@ofsdk/native-fetch": "workspace:*",
         "eventemitter3": "^5.0.4"
     },
     "devDependencies": {

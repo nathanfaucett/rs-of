@@ -3,7 +3,7 @@
         type DeviceInfo,
         type DeviceRestriction,
         SelectionKind,
-    } from "@aicacia/device-client";
+    } from "@ofsdk/device-client";
     import * as v from "valibot";
     import { deviceApi, checkStorageSyncCapability } from "$lib/common/state/deviceClient.svelte";
     import Alert from "$lib/ui/Alert.svelte";

@@ -1,4 +1,4 @@
-import { Database as SqlDatabase, type Client as SqlClient, type DbValue } from "@ofdb/sql";
+import { Database as SqlDatabase, type Client as SqlClient, type DbValue } from "@ofsdk/sql";
 
 const VAULT_DB_NAME = "password-manager-vault";
 const META_TABLE = "vault_meta";

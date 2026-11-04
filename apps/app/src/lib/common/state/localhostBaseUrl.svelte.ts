@@ -1,9 +1,9 @@
-import { Configuration, DefaultApi } from "@aicacia/idp-client";
+import { Configuration, DefaultApi } from "@ofsdk/idp-client";
 import {
     Configuration as SetupConfiguration,
     OwnerSetupApi,
-} from "@aicacia/idp-client";
-import { createStorage } from "@aicacia/svelte-headless";
+} from "@ofsdk/idp-client";
+import { createStorage } from "@ofsdk/svelte-headless";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
 const localhostBaseUrl = createStorage<string | null>(

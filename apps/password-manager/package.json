@@ -1,5 +1,5 @@
 {
-    "name": "password-manager",
+    "name": "@ofsdk/password-manager",
     "private": true,
     "version": "0.0.0",
     "type": "module",
@@ -18,7 +18,7 @@
         "test": "vitest run"
     },
     "devDependencies": {
-        "@aicacia/native-fetch": "workspace:*",
+        "@ofsdk/native-fetch": "workspace:*",
         "@biomejs/biome": "^2.5.3",
         "@inlang/paraglide-js": "^2.21.0",
         "@playwright/test": "^1.64.1",
@@ -44,12 +44,12 @@
     },
     "dependencies": {
         "@aicacia/svelte-forms": "^0.1.1",
-        "@aicacia/svelte-headless": "workspace:*",
+        "@ofsdk/svelte-headless": "workspace:*",
         "@lucide/svelte": "^1.24.0",
         "@tanstack/db": "~0.15.2",
         "@tanstack/svelte-db": "0.5.12",
         "jose": "5.9.6",
-        "@ofdb/sql": "link:/home/nathan/code/rust/aicacia/ofdb/packages/sql",
+        "@ofsdk/sql": "link:/home/nathan/code/rust/aicacia/ofdb/packages/sql",
         "valibot": "^1.4.2"
     }
 }

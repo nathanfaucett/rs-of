@@ -5,7 +5,7 @@ Generated TypeScript client for the Device authority: Device lifecycle, endpoint
 Use a complete verified Device API base, including its mount prefix exactly once. Unified mounts this service at `/device`; Management's `/management` API is only for roles, permissions, and assignments.
 
 ```ts
-import { Configuration, DefaultApi } from "@aicacia/device-client";
+import { Configuration, DefaultApi } from "@ofsdk/device-client";
 
 const devices = new DefaultApi(
   new Configuration({

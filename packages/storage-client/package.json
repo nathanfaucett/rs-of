@@ -1,5 +1,5 @@
 {
-    "name": "@aicacia/storage-client",
+    "name": "@ofsdk/storage-client",
     "version": "0.1.0",
     "description": "Aicacia storage WebSocket client",
     "type": "module",
@@ -38,6 +38,6 @@
         "vitest": "4.1.10"
     },
     "dependencies": {
-        "@aicacia/idp-client": "workspace:*"
+        "@ofsdk/idp-client": "workspace:*"
     }
 }

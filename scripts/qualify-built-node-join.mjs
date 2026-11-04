@@ -5,7 +5,7 @@ const require = createRequire(
   path.resolve(import.meta.dirname, "../packages/device-client/package.json"),
 );
 const { NodeJoinApi: DefaultApi, Configuration } = await import(
-  require.resolve("@aicacia/device-client")
+  require.resolve("@ofsdk/device-client")
 );
 const basePath = process.argv[2];
 await assert.rejects(

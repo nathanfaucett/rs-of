@@ -1,5 +1,5 @@
 {
-    "name": "@aicacia/device-client",
+    "name": "@ofsdk/device-client",
     "version": "0.1.0",
     "description": "Aicacia Device authority client",
     "keywords": [

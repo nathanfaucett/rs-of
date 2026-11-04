@@ -3,7 +3,7 @@ import {
     type ClientConsentMetadata,
     type ClientRegistration,
     ResponseError,
-} from "@aicacia/idp-client";
+} from "@ofsdk/idp-client";
 import { replaceState } from "$app/navigation";
 import { page } from "$app/state";
 import { idpApi } from "$lib/common/state/idpClient.svelte";

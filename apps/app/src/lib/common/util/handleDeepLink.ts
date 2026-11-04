@@ -1,4 +1,4 @@
-import { handleNativeCallbackRequestUrl } from "@aicacia/native-fetch";
+import { handleNativeCallbackRequestUrl } from "@ofsdk/native-fetch";
 import { loadLocalhostBaseUrl } from "../state/localhostBaseUrl.svelte";
 import { redirectToUrl } from "./redirectToUrl";
 

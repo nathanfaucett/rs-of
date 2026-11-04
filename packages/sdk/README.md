@@ -1,9 +1,9 @@
-# @of/sdk
+# @ofsdk/sdk
 
 Framework-independent authenticated browser Storage access, composing the existing OIDC and Storage clients. Workspace-only package; registry publication and SSR/native/confidential-client qualification are not included. The password manager is the working consumer.
 
 ```ts
-import { ApplicationSdk } from "@of/sdk";
+import { ApplicationSdk } from "@ofsdk/sdk";
 
 const sdk = new ApplicationSdk({
   idpBaseUrl: "https://node.example/idp",
@@ -83,7 +83,7 @@ await collection.preload();
 await collection.cleanup();
 ```
 
-`createStorageCollection` above is imported by the application from `@aicacia/storage-db-collection`, **not** by the SDK. The adapter consumes the Storage owner's structural connection seam (`socket` events, `request`, `close`); it retains all schema/path validation, optimistic settlement, reconciliation, deadlines, explicit Refresh, and collection cleanup logic. The app owns Filesystem ID selection, schemas, editor state, navigation, subscriptions, and official TanStack Svelte bindings. Neither package depends on the other, and there is no SDK collection registry or Svelte wrapper.
+`createStorageCollection` above is imported by the application from `@ofsdk/storage-db-collection`, **not** by the SDK. The adapter consumes the Storage owner's structural connection seam (`socket` events, `request`, `close`); it retains all schema/path validation, optimistic settlement, reconciliation, deadlines, explicit Refresh, and collection cleanup logic. The app owns Filesystem ID selection, schemas, editor state, navigation, subscriptions, and official TanStack Svelte bindings. Neither package depends on the other, and there is no SDK collection registry or Svelte wrapper.
 
 **Handoff:** the SDK owns an open attempt until `openSocket()` successfully resolves. Failed, canceled, or obsolete opens are closed by the Storage client/SDK before rejection, including a socket that finishes opening after retirement. Successful resolution transfers cleanup responsibility to the recipient; when the adapter awaits this capability, the adapter owns the adopted connection and closes it through its existing `cleanup()` (including disposal racing adoption). A direct caller must likewise close every successfully returned connection. Do not open a connection separately and then open another for the adapter. SDK disposal does not close an already transferred connection a second time; its synchronous notification lets the application dispose the adapter. Close is idempotent.
 
@@ -93,7 +93,7 @@ Renewal for the same verified identity retains the session and open collections.
 
 ## Checks and limits
 
-`pnpm --filter @of/sdk test` runs real OIDC workflows against controlled HTTP/browser responses. Tests cover guarded list/create/open, obsolete token exchanges/discovery/create/open completions, queued and late connection requests, one-owner/idempotent cleanup, caller cancellation, callback-generation replacement, Storage denial versus transient failure, fresh-runtime redirect continuity, reload, metadata/prefixes, invalid/no-op/substituted callbacks, client isolation, renewal/concurrency, identity changes, missing credentials, denial versus transient/terminal failures, local logout with failed provider discovery, unsubscribe, and disposal during discovery/callback/renewal. The password manager's mounted smoke additionally uses the real SDK, OIDC and Storage clients, collection adapter, and official TanStack binding for sign-in/callback, application-owned keyed database provisioning/schema checks, SQL CRUD/Refresh/reload, same-identity renewal retaining its editor/collection, pending-operation context changes, and local sign-out teardown. Its SQL collection has no SDK dependency and receives an already provisioned database; generic filesystem capabilities and adapters remain available to other consumers.
+`pnpm --filter @ofsdk/sdk test` runs real OIDC workflows against controlled HTTP/browser responses. Tests cover guarded list/create/open, obsolete token exchanges/discovery/create/open completions, queued and late connection requests, one-owner/idempotent cleanup, caller cancellation, callback-generation replacement, Storage denial versus transient failure, fresh-runtime redirect continuity, reload, metadata/prefixes, invalid/no-op/substituted callbacks, client isolation, renewal/concurrency, identity changes, missing credentials, denial versus transient/terminal failures, local logout with failed provider discovery, unsubscribe, and disposal during discovery/callback/renewal. The password manager's mounted smoke additionally uses the real SDK, OIDC and Storage clients, collection adapter, and official TanStack binding for sign-in/callback, application-owned keyed database provisioning/schema checks, SQL CRUD/Refresh/reload, same-identity renewal retaining its editor/collection, pending-operation context changes, and local sign-out teardown. Its SQL collection has no SDK dependency and receives an already provisioned database; generic filesystem capabilities and adapters remain available to other consumers.
 
 Controlled responses do not qualify a deployed provider, provider logout, cross-Node authorization convergence/replication, or production password-vault security. Follow the password manager's manual real-system qualification procedure with non-sensitive test records.
 
@@ -127,7 +127,7 @@ undo a committed remote operation; arbitrary mutations are never replayed.
 schema-ready promise. A key names one namespace-scoped logical identity permanently;
 its first accepted label is not identity. `410` means deleted (do not auto-recreate),
 `409` means fenced, and `503` means unavailable content/authorization. A caller can
-inspect `DatabaseOperationError.status` from `@aicacia/storage-client`, without
+inspect `DatabaseOperationError.status` from `@ofsdk/storage-client`, without
 retaining provider bodies. Only an explicit different key creates a replacement.
 The unkeyed `createDatabase(name?, signal?)` intentionally allocates a fresh identity
 on every successful invocation and is not an ensure/retry primitive.

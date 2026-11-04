@@ -3,7 +3,7 @@
         AuthorizationRequest,
         CodeChallengeMethod,
         ClientRegistration,
-    } from "@aicacia/idp-client";
+    } from "@ofsdk/idp-client";
     import { page } from "$app/state";
     import { m } from "$lib/paraglide/messages";
     import { Card, Page, PageHeader } from "$lib/ui";

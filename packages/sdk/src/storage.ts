@@ -3,7 +3,7 @@ import type {
     StorageRequest,
     StorageResponse,
     StorageSocket,
-} from "@aicacia/storage-client";
+} from "@ofsdk/storage-client";
 
 export class ContextSocket implements StorageConnection {
     readonly socket: StorageConnection["socket"];

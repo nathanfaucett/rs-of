@@ -1,4 +1,4 @@
-import type { AuthorizationRequest } from "@aicacia/idp-client";
+import type { AuthorizationRequest } from "@ofsdk/idp-client";
 import { idpApi } from "$lib/common/state/idpClient.svelte";
 import { redirectToUrl } from "$lib/common/util/redirectToUrl";
 

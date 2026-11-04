@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { handleNativeFetchCallback } from "@aicacia/native-fetch";
+    import { handleNativeFetchCallback } from "@ofsdk/native-fetch";
     import { onMount } from "svelte";
     import { page } from "$app/state";
     import { Alert, Card, Page, PageHeader } from "$lib/ui";

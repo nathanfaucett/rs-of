@@ -1,5 +1,5 @@
 {
-    "name": "@of/sdk",
+    "name": "@ofsdk/sdk",
     "version": "0.1.0",
     "private": true,
     "type": "module",
@@ -16,8 +16,8 @@
         "format": "biome format ."
     },
     "dependencies": {
-        "@aicacia/oidc-client": "workspace:*",
-        "@aicacia/storage-client": "workspace:*"
+        "@ofsdk/oidc-client": "workspace:*",
+        "@ofsdk/storage-client": "workspace:*"
     },
     "devDependencies": {
         "@biomejs/biome": "^2.5.3",

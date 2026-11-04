@@ -9,8 +9,8 @@
 </script>
 
 <script lang="ts">
-    import type { ClientConsentMetadata } from "@aicacia/idp-client";
-    import type { OidcUserInfo } from "@aicacia/oidc-client";
+    import type { ClientConsentMetadata } from "@ofsdk/idp-client";
+    import type { OidcUserInfo } from "@ofsdk/oidc-client";
     import { m } from "$lib/paraglide/messages";
 
     import Avatar from "../../../lib/common/components/Avatar.svelte";

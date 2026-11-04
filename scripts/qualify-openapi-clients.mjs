@@ -89,13 +89,13 @@ try {
     }
     run(pnpm, [
         "--filter",
-        "@aicacia/idp-client",
+        "@ofsdk/idp-client",
         "--filter",
-        "@aicacia/management-client",
+        "@ofsdk/management-client",
         "--filter",
-        "@aicacia/device-client",
+        "@ofsdk/device-client",
         "--filter",
-        "@aicacia/storage-client",
+        "@ofsdk/storage-client",
         "run",
         "build:esm",
     ]);
@@ -153,13 +153,13 @@ try {
     }
     run(pnpm, [
         "--filter",
-        "@aicacia/idp-client",
+        "@ofsdk/idp-client",
         "--filter",
-        "@aicacia/management-client",
+        "@ofsdk/management-client",
         "--filter",
-        "@aicacia/device-client",
+        "@ofsdk/device-client",
         "--filter",
-        "@aicacia/storage-client",
+        "@ofsdk/storage-client",
         "run",
         "build:esm",
     ]);

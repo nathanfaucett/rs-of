@@ -138,7 +138,7 @@ Rust route/schema definitions remain authoritative. `openapi/*.json` are determi
 ```sh
 pnpm install --frozen-lockfile --ignore-scripts
 cargo run -p unified-server --example export-openapi -- openapi
-pnpm --filter @aicacia/idp-client run build:esm
+pnpm --filter @ofsdk/idp-client run build:esm
 pnpm openapi
 pnpm openapi:check
 pnpm sdk:build

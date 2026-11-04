@@ -7,7 +7,7 @@ import {
     JSONApiResponse,
     ResponseError,
     FetchError,
-} from "@aicacia/idp-client";
+} from "@ofsdk/idp-client";
 export class SetupEvidenceError extends Error {}
 export class SetupPrerequisiteError extends Error {}
 export type SetupOwner = "idp" | "device" | "storage";

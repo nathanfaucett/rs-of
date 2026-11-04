@@ -1,4 +1,4 @@
-import { FetchError, ResponseError, type UserInfo } from "@aicacia/idp-client";
+import { FetchError, ResponseError, type UserInfo } from "@ofsdk/idp-client";
 import { isTauri } from "@tauri-apps/api/core";
 import { error, redirect } from "@sveltejs/kit";
 import { resolve } from "$app/paths";

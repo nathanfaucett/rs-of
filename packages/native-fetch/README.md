@@ -1,4 +1,4 @@
-# @aicacia/native-fetch
+# @ofsdk/native-fetch
 
 Bridge HTTP-style requests between a web app and a native application using custom URL schemes (for example `app://`, `app://`).
 
@@ -180,13 +180,13 @@ Notes for native implementers:
 Install:
 
 ```bash
-pnpm add @aicacia/native-fetch
+pnpm add @ofsdk/native-fetch
 ```
 
 ### Initiating a request from the web app
 
 ```typescript
-import { nativeFetch } from "@aicacia/native-fetch";
+import { nativeFetch } from "@ofsdk/native-fetch";
 
 const response = await nativeFetch("app://app/config", {
   method: "GET",
@@ -206,7 +206,7 @@ const config = await response.json();
 <script lang="ts">
     import { onMount } from "svelte";
     import { page } from "$app/state";
-    import { handleNativeFetchCallback } from "@aicacia/native-fetch";
+    import { handleNativeFetchCallback } from "@ofsdk/native-fetch";
 
     onMount(() => {
         handleNativeFetchCallback(page.url.searchParams);
@@ -221,7 +221,7 @@ const config = await response.json();
 When the native app opens your web UI with a `native` request (for example client registration), use the server-side helpers:
 
 ```typescript
-import { handleNativeCallbackRequestUrl } from "@aicacia/native-fetch";
+import { handleNativeCallbackRequestUrl } from "@ofsdk/native-fetch";
 
 // Tauri deep-link handler, or similar
 const callbackUrl = await handleNativeCallbackRequestUrl(
@@ -243,7 +243,7 @@ Or with a parsed request object:
 import {
   handleNativeCallbackRequest,
   type NativeRequestJSON,
-} from "@aicacia/native-fetch";
+} from "@ofsdk/native-fetch";
 
 const callbackUrl = await handleNativeCallbackRequest(
   nativeRequest,
@@ -254,7 +254,7 @@ const callbackUrl = await handleNativeCallbackRequest(
 ### Detecting custom schemes
 
 ```typescript
-import { isNativeProtocol } from "@aicacia/native-fetch";
+import { isNativeProtocol } from "@ofsdk/native-fetch";
 
 if (isNativeProtocol(new URL(endpoint))) {
   await nativeFetch(endpoint, init);

@@ -2,8 +2,8 @@ import {
   Configuration,
   type ConfigurationParameters,
   DefaultApi,
-} from "@aicacia/device-client";
-import { createStorage } from "@aicacia/svelte-headless";
+} from "@ofsdk/device-client";
+import { createStorage } from "@ofsdk/svelte-headless";
 import { isTauri } from "@tauri-apps/api/core";
 import { goto } from "$app/navigation";
 import { resolve } from "$app/paths";

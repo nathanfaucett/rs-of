@@ -13,7 +13,7 @@ const source = fileURLToPath(
 );
 
 test("production SvelteKit config maps Storage to the current handwritten entry", () => {
-    assert.equal(config.kit.alias?.["@aicacia/storage-client"], source);
+    assert.equal(config.kit.alias?.["@ofsdk/storage-client"], source);
 });
 
 test("SvelteKit propagates the production Storage alias into Vite runtime resolution", async (t) => {
@@ -26,7 +26,7 @@ test("SvelteKit propagates the production Storage alias into Vite runtime resolu
         "serve",
     );
     const alias = resolved.resolve.alias.find(
-        (entry) => entry.find === "@aicacia/storage-client",
+        (entry) => entry.find === "@ofsdk/storage-client",
     );
     assert.equal(alias?.replacement, source);
     assert.equal(realpathSync(alias.replacement), realpathSync(source));

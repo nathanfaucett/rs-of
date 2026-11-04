@@ -1,4 +1,4 @@
-import type { CreateApplicationRequest, GetApplicationRequest, ListApplicationsRequest, ListClientKeysRequest, ListConsentsRequest, UpdateApplicationRequest } from "@aicacia/idp-client";
+import type { CreateApplicationRequest, GetApplicationRequest, ListApplicationsRequest, ListClientKeysRequest, ListConsentsRequest, UpdateApplicationRequest } from "@ofsdk/idp-client";
 import * as v from "valibot";
 import { idpApi } from "./idpClient.svelte";
 

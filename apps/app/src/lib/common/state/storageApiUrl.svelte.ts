@@ -1,4 +1,4 @@
-import { createStorage } from "@aicacia/svelte-headless";
+import { createStorage } from "@ofsdk/svelte-headless";
 import { env } from "$env/dynamic/public";
 import { fetchSetupStatus } from "./setupApi";
 

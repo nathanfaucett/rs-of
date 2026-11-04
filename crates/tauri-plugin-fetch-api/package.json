@@ -1,5 +1,5 @@
 {
-  "name": "tauri-plugin-fetch-api",
+  "name": "@ofsdk/tauri-plugin-fetch-api",
   "version": "0.1.0",
   "author": "nathanfaucett@gmail.com",
   "description": "",

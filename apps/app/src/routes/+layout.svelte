@@ -3,7 +3,7 @@
 </script>
 
 <script lang="ts">
-    import { getTheme } from "@aicacia/svelte-headless";
+    import { getTheme } from "@ofsdk/svelte-headless";
     import Settings from "@lucide/svelte/icons/settings";
     import { isTauri } from "@tauri-apps/api/core";
     import { onMount } from "svelte";

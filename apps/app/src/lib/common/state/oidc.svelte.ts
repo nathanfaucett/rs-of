@@ -1,4 +1,4 @@
-import { OidcClient } from "@aicacia/oidc-client";
+import { OidcClient } from "@ofsdk/oidc-client";
 import { isTauri } from "@tauri-apps/api/core";
 import { env } from "$env/dynamic/public";
 import icon256x256Png from "$lib/assets/icon256x256.png";

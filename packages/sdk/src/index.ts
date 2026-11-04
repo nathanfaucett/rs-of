@@ -5,7 +5,7 @@ import {
     type OidcClientOptions,
     type RegistrationOptions,
     type SigninOptions,
-} from "@aicacia/oidc-client";
+} from "@ofsdk/oidc-client";
 
 import {
     type EnsureDatabaseRequest,
@@ -13,7 +13,7 @@ import {
     type StorageAction,
     StorageClient,
     type StorageConnection,
-} from "@aicacia/storage-client";
+} from "@ofsdk/storage-client";
 
 import { ContextSocket } from "./storage.js";
 
