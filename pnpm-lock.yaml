@@ -20,6 +20,12 @@ importers:
 
   apps/app:
     dependencies:
+      '@aicacia/svelte-forms':
+        specifier: ^0.1.1
+        version: 0.1.1(svelte@5.56.8)(tslib@2.8.1)
+      '@lucide/svelte':
+        specifier: ^1.24.0
+        version: 1.28.0(svelte@5.56.8)
       '@ofsdk/device-client':
         specifier: workspace:*
         version: link:../../packages/device-client
@@ -38,15 +44,9 @@ importers:
       '@ofsdk/storage-client':
         specifier: workspace:*
         version: link:../../packages/storage-client
-      '@aicacia/svelte-forms':
-        specifier: ^0.1.1
-        version: 0.1.1(svelte@5.56.8)(tslib@2.8.1)
       '@ofsdk/svelte-headless':
         specifier: workspace:*
         version: link:../../packages/svelte-headless
-      '@lucide/svelte':
-        specifier: ^1.24.0
-        version: 1.28.0(svelte@5.56.8)
       '@tauri-apps/api':
         specifier: ^2.11.1
         version: 2.11.1
@@ -135,15 +135,15 @@ importers:
       '@aicacia/svelte-forms':
         specifier: ^0.1.1
         version: 0.1.1(svelte@5.56.8)(tslib@2.8.1)
-      '@ofsdk/svelte-headless':
-        specifier: workspace:*
-        version: link:../../packages/svelte-headless
       '@lucide/svelte':
         specifier: ^1.24.0
         version: 1.28.0(svelte@5.56.8)
       '@ofsdk/sql':
         specifier: link:/home/nathan/code/rust/aicacia/ofdb/packages/sql
         version: link:../../../ofdb/packages/sql
+      '@ofsdk/svelte-headless':
+        specifier: workspace:*
+        version: link:../../packages/svelte-headless
       '@tanstack/db':
         specifier: ~0.15.2
         version: 0.15.2(typescript@5.9.3)
@@ -157,15 +157,15 @@ importers:
         specifier: ^1.4.2
         version: 1.4.2(typescript@5.9.3)
     devDependencies:
-      '@ofsdk/native-fetch':
-        specifier: workspace:*
-        version: link:../../packages/native-fetch
       '@biomejs/biome':
         specifier: ^2.5.3
         version: 2.5.6
       '@inlang/paraglide-js':
         specifier: ^2.21.0
         version: 2.23.0(typescript@5.9.3)(vite@8.2.0(@types/node@26.1.2)(jiti@2.7.0)(yaml@2.9.0))
+      '@ofsdk/native-fetch':
+        specifier: workspace:*
+        version: link:../../packages/native-fetch
       '@playwright/test':
         specifier: ^1.64.1
         version: 1.64.1
@@ -595,6 +595,9 @@ importers:
       globals:
         specifier: ^17.8.0
         version: 17.8.0
+      portless:
+        specifier: ^0.15.4
+        version: 0.15.5
       publint:
         specifier: ^0.3.22
         version: 0.3.22
