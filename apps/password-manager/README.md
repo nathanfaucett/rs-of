@@ -52,6 +52,58 @@ The transition retains the original database and an authenticated pre-transition
 backup. It never publishes an unverified or partial record set. Close old app tabs
 before upgrade; retained source/staging data is not automatically removed.
 
+## Password and passphrase generator
+
+Select **Password generator** in an unlocked vault. It works without an editor.
+Open a Login draft to enable **Use in Login draft**. This explicit action replaces
+only that draft's password and confirmation, masks the password, and does not
+save. Save uses the existing confirmation and dated-history rules. Cancel does
+not change the stored item. No schema, backup format, or shared workflow changed.
+
+Supported settings:
+
+- Password: integer length 8–128 (default 20), lowercase, uppercase, digits, and
+  symbols `!@#$%&*?+-=_.`. At least one class must be enabled. Every selected
+  class occurs at least once. Optional ambiguity exclusion removes `I l 1 O 0 o`.
+- Passphrase: integer word count 4–20 (default 6), hyphen/space/period/underscore
+  separator, optional initial capitalization of each word, and optional random
+  trailing digit. Words are independent selections with replacement; repeats
+  are allowed. More words are recommended when a long password is accepted.
+
+`crypto.getRandomValues` is the only randomness source. Integer sampling rejects
+values in the uneven uint32 tail before modulo reduction. Password generation
+rejects whole candidates that lack an enabled class. It does not force class
+positions or replace characters after sampling. Invalid settings block generation;
+randomness and clipboard failures use fixed errors, not exception text or secrets.
+No measured-entropy or security-audit claim is made.
+
+The complete 2,048-word BIP-39 English list is bundled from
+[trezor/python-mnemonic](https://github.com/trezor/python-mnemonic/blob/b57a5ad77a981e743f4167ab2f7927a55c1e82a8/src/mnemonic/wordlist/english.txt),
+revision `b57a5ad77a981e743f4167ab2f7927a55c1e82a8`.
+SHA-256: `2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda`.
+It is unmodified. The upstream MIT license, copyright Pavol Rusnak (2013–2016),
+is retained in `src/lib/generator/WORDLIST-LICENSE` and shown in the component.
+This uses the word list only: it does not generate BIP-39 wallet mnemonics.
+The list and license are Vite imports, included in the precached app bundle.
+No runtime download or new dependency is required.
+
+Generated values are masked by `ProtectedValue`. Generation never writes to the
+vault or a persistent generated-history store. Settings changes, clear, internal
+item navigation, route navigation, page hide, disposal, and lock release generated
+state. Insertion transfers the value into the existing isolated Login draft.
+Copy is explicit and may fail. Copied values can remain in the clipboard; no
+unsafe automatic clearing is attempted. JavaScript memory zeroization is not
+guaranteed.
+
+Checks: `src/lib/generator/generator.test.ts` uses deterministic vectors for
+sampling and constraints, including a checksum/uniqueness check for the complete
+word list. `component.test.ts` checks visible validation, settings changes,
+clipboard/RNG failure, and clear. Editor and mounted page tests check explicit
+insertion, confirmation, cancel/save/reopen, history, navigation, late copy,
+lock, and exact encrypted-backup recovery in clean storage. The offline script
+also runs the generator with the server stopped and checks saved passphrase
+reopen and absence of generated values from the application cache.
+
 ## Encrypted backup and recovery
 
 Unlock a vault and select **Download encrypted backup**. To recover, select

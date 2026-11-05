@@ -1,6 +1,7 @@
 <script lang="ts">
 import { onDestroy, untrack } from "svelte";
 import SecretDetail from "./SecretDetail.svelte";
+import PasswordGenerator from "$lib/generator/PasswordGenerator.svelte";
 import { Alert, Card, Field } from "$lib/ui";
 import type { VaultHandle } from "$lib/vault/vault";
 import { createLocalSecretWorkflow } from "./local-workflow.svelte";
@@ -12,13 +13,15 @@ onDestroy(workflow.dispose);
 
 
 let pendingDelete = $state<Secret | null>(null);
+let showGenerator = $state(false);
 const newSecretId = $props.id();
 
 export function hasUnsavedChanges() { return workflow.dirty || workflow.busy; }
-export function retire() { pendingDelete = null; workflow.dispose(); }
+export function retire() { showGenerator = false; pendingDelete = null; workflow.dispose(); }
 
 function navigate(action: () => void) {
     if (workflow.dirty && !window.confirm("Discard unsaved changes?")) return;
+    showGenerator = false;
     pendingDelete = null;
     action();
 }
@@ -32,6 +35,8 @@ function navigate(action: () => void) {
 <div class="flex flex-col gap-4">
     <Card title="Secrets" description="Stored locally in your encrypted vault.">
         {#snippet actions()}
+            <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canEdit}
+                aria-expanded={showGenerator} onclick={() => showGenerator = !showGenerator}>Password generator</button>
             <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canRefresh}
                 onclick={() => navigate(() => void workflow.refresh())}>Refresh</button>
             <button id={newSecretId} class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
@@ -94,6 +99,20 @@ function navigate(action: () => void) {
             {/if}
         {/if}
     </Card>
+
+    {#if showGenerator && workflow.canEdit}
+        {#key workflow.editor ?? workflow.detail}
+            {@const editor = workflow.editor}
+            <PasswordGenerator onuse={editor ? (value) => {
+                if (workflow.editor !== editor || !workflow.canEdit) return;
+                editor.draft.secret = value;
+                editor.confirmPassword = value;
+                editor.showPassword = false;
+                showGenerator = false;
+                document.getElementById("secret")?.focus();
+            } : undefined} />
+        {/key}
+    {/if}
 
     {#if workflow.detail && !workflow.editor}
         {#key workflow.detail}
