@@ -151,6 +151,19 @@ try {
         .getByRole("button", { name: "Show History password 1", exact: true })
         .press("Enter");
     await page.getByText("synthetic-secret-19", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "New secure note", exact: true }).press("Enter");
+    assert.equal(await page.getByLabel("Password", { exact: true }).count(), 0);
+    await page.getByLabel(/^Name/).fill("Synthetic offline Note");
+    await page.getByLabel("Notes", { exact: true }).fill("PRIVATE-NOTE 秘密 📝\nOffline second line");
+    await page.getByRole("button", { name: "Save", exact: true }).press("Enter");
+    await page.getByRole("button", { name: "Show Notes", exact: true }).waitFor();
+    assert.equal(await page.getByText(/PRIVATE-NOTE/).count(), 0);
+    await page.getByRole("button", { name: "Show Notes", exact: true }).press("Enter");
+    await page.getByText(/PRIVATE-NOTE 秘密 📝/).waitFor();
+    await page.getByRole("button", { name: "Edit", exact: true }).press("Enter");
+    await page.getByLabel("Notes", { exact: true }).fill("Discarded Note edit");
+    await page.getByRole("button", { name: "Cancel", exact: true }).press("Enter");
+    assert.equal(await page.getByText(/PRIVATE-NOTE/).count(), 0);
     await page.getByRole("button", { name: "Lock vault", exact: true }).click();
     const vaultId = await page
         .getByRole("button", { name: /^offline-test ID: / })
@@ -204,6 +217,15 @@ try {
     console.log(
         "PASS: built app offline reload, create, read-only detail, keyboard edit/reveal, protected dated history, lock, cold start, unlock and persisted Login; zero server requests",
     );
+    await reopened.getByRole("button", { name: "Synthetic offline Note", exact: true }).press("Enter");
+    assert.equal(await reopened.getByText(/PRIVATE-NOTE/).count(), 0);
+    await reopened.getByRole("button", { name: "Edit", exact: true }).press("Enter");
+    assert.equal(await reopened.getByLabel("Notes", { exact: true }).inputValue(), "PRIVATE-NOTE 秘密 📝\nOffline second line");
+    await reopened.getByLabel("Notes", { exact: true }).fill("PRIVATE-NOTE 秘密 📝\nSaved offline edit");
+    await reopened.getByRole("button", { name: "Save", exact: true }).press("Enter");
+    await reopened.getByRole("button", { name: "Show Notes", exact: true }).waitFor();
+    assert.equal(await reopened.getByText(/PRIVATE-NOTE/).count(), 0);
+    console.log("PASS: offline keyboard Note create, masked detail/reveal, cancel, cold reopen and edit; no Login password required");
     await reopened
         .getByRole("button", { name: "Close details", exact: true })
         .click();

@@ -6,18 +6,20 @@ import {
     createLocalSecretCollection,
     UnacknowledgedStorageWriteError,
 } from "./local-collection";
-import { type Login, type Secret, LoginSchema } from "./secret";
+import { type Secret, LoginSchema, SecureNoteSchema } from "./secret";
 
 import {
     constructSecret,
     createSecretDraft,
     type SecretDraft,
+    type EditableSecret,
+    type EditableKind,
 } from "./secret-draft";
 
 export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
     const collection = createLocalSecretCollection({ vault });
     let editor = $state<{
-        record: Login | null;
+        record: EditableSecret | null;
         draft: SecretDraft;
         confirmPassword: string;
         showPassword: boolean;
@@ -27,7 +29,7 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
     const dirty = $derived(
         !!editor &&
             (JSON.stringify(editor.draft) !==
-                JSON.stringify(createSecretDraft(editor.record)) ||
+                JSON.stringify(createSecretDraft(editor.record, editor.draft.kind)) ||
                 editor.confirmPassword !== ""),
     );
     let loadError = $state<string | null>(null);
@@ -65,16 +67,18 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
     void collection.preload().catch((cause: unknown) => {
         if (active) loadError = message(cause);
     });
-    function edit(value: Secret | null = null) {
+    function edit(value: Secret | null = null, kind: EditableKind = "login") {
         if (!canEdit()) return;
-        if (value && value.kind !== "login") return;
+        if (value && value.kind !== "login" && value.kind !== "secureNote") return;
         const record = value
-            ? v.parse(v.object(LoginSchema.entries), value)
+            ? value.kind === "login"
+                ? v.parse(v.object(LoginSchema.entries), value)
+                : v.parse(v.object(SecureNoteSchema.entries), value)
             : null;
         selectedId = record?.id ?? null;
         editor = {
             record,
-            draft: createSecretDraft(record),
+            draft: createSecretDraft(record, kind),
             confirmPassword: "",
             showPassword: false,
         };
@@ -148,13 +152,14 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
             notice = "";
         },
         async save(draft: SecretDraft) {
-            if (!canEdit() || !editor) return;
+            if (!canEdit() || !editor || draft.kind !== editor.draft.kind) return;
             error = null;
             notice = "";
             const previous = editor.record;
             if (
+                draft.kind === "login" &&
                 draft.secret &&
-                draft.secret !== previous?.secret &&
+                draft.secret !== (previous?.kind === "login" ? previous.secret : undefined) &&
                 (!editor.confirmPassword ||
                     draft.secret !== editor.confirmPassword)
             ) {
@@ -169,7 +174,9 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
                 new SvelteDate().toISOString(),
             );
             if (!result.success) {
-                error = "Invalid Login: A name is required; check the fields.";
+                error = draft.kind === "login"
+                    ? "Invalid Login: A name is required; check the fields."
+                    : "Invalid Secure Note: A name is required; check the fields.";
                 return;
             }
             busy = true;

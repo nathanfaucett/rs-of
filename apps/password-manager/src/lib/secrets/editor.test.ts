@@ -138,6 +138,36 @@ afterEach(async () => {
 });
 
 describe("local secret editor with the real workflow and collection", () => {
+    it("creates a private multiline Secure Note without Login controls and cancels isolated edits", async () => {
+        const { records } = await setup([original]);
+        await click("New secure note");
+        expect(target.querySelector("#secret")).toBeNull();
+        expect(target.querySelector("#username")).toBeNull();
+        expect(target.querySelector("#totp")).toBeNull();
+        await fill("name", "Private note");
+        await fill("notes", "秘密 📝\nSecond line <script>plain text</script>");
+        await click("Add custom field");
+        await fill("field-name-0", "PIN");
+        await fill("field-type-0", "hidden");
+        await fill("field-value-0", "PRIVATE-NOTE-FIELD");
+        await click("Save");
+        await saved();
+        const note = [...records.values()].find((record) => record.name === "Private note");
+        expect(note).toMatchObject({ kind: "secureNote", type: 0, notes: "秘密 📝\nSecond line <script>plain text</script>", history: [] });
+        expect(note).not.toHaveProperty("secret");
+        expect(target.innerHTML).not.toContain("秘密");
+        expect(target.innerHTML).not.toContain("PRIVATE-NOTE-FIELD");
+        await click("Show Notes");
+        expect(target.textContent).toContain("秘密 📝\nSecond line <script>plain text</script>");
+        expect(target.querySelector("script")).toBeNull();
+        await click("Edit");
+        await fill("notes", "abandoned");
+        await fill("field-value-0", "abandoned");
+        await click("Cancel");
+        expect(target.innerHTML).not.toContain("秘密");
+        expect(records.get(note!.id)).toEqual(note);
+        expect(records.get(original.id)).toEqual(original);
+    });
     it("opens read-only details without writes and reveals only on an explicit action", async () => {
         const { vault, records } = await setup([original, other]);
         await click(original.name);

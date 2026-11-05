@@ -36,6 +36,8 @@ function navigate(action: () => void) {
                 onclick={() => navigate(() => void workflow.refresh())}>Refresh</button>
             <button id={newSecretId} class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
                 onclick={() => navigate(() => workflow.edit())}>New secret</button>
+            <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
+                onclick={() => navigate(() => workflow.edit(null, "secureNote"))}>New secure note</button>
         {/snippet}
 
         {#if workflow.refreshing}
@@ -117,63 +119,65 @@ function navigate(action: () => void) {
                         <input {...control} {@attach (element) => { element.focus(); }} bind:value={draft.name} disabled={!workflow.canEdit} />
                     {/snippet}
                 </Field>
-                <Field id="username" label="Username">
-                    {#snippet children(control)}
-                        <input {...control} bind:value={draft.username} autocomplete="off" disabled={!workflow.canEdit} />
-                    {/snippet}
-                </Field>
-                <Field id="secret" label="Password">
-                    {#snippet children(control)}
-                        <input {...control} bind:value={draft.secret} type={editor?.showPassword ? "text" : "password"} autocomplete="new-password" disabled={!workflow.canEdit} />
-                    {/snippet}
-                </Field>
-                <button class="btn btn-secondary btn-md self-start" type="button"
-                    aria-controls="secret" aria-pressed={editor.showPassword}
-                    onclick={() => {
-                        if (editor) editor.showPassword = !editor.showPassword;
-                    }}>{editor.showPassword ? "Hide password" : "Show password"}</button>
-                {#if draft.secret && draft.secret !== editor.record?.secret}
-                    <Field id="confirm-secret" label="Confirm password" required>
+                {#if draft.kind === "login"}
+                    <Field id="username" label="Username">
                         {#snippet children(control)}
-                            <input {...control} bind:value={editor.confirmPassword} type="password" autocomplete="new-password" disabled={!workflow.canEdit} />
+                            <input {...control} bind:value={draft.username} autocomplete="off" disabled={!workflow.canEdit} />
                         {/snippet}
                     </Field>
-                {/if}
-                <Field id="totp" label="Authenticator key (TOTP)" description="Store a key or otpauth URI. Code generation is not available.">
-                    {#snippet children(control)}
-                        <input {...control} bind:value={draft.totp} type="password" autocomplete="off" disabled={!workflow.canEdit} />
-                    {/snippet}
-                </Field>
-
-                <fieldset class="flex min-w-0 flex-col gap-3" disabled={!workflow.canEdit}>
-                    <legend class="text-sm font-medium">Websites</legend>
-                    {#each draft.uris as uri, i (uri)}
-                        <div class="flex flex-wrap items-end gap-2">
-                            <Field id={`uri-${i}`} label={`Website ${i + 1}`}>
-                                {#snippet children(control)}
-                                    <input {...control} bind:value={uri.uri} placeholder="https://example.com" />
-                                {/snippet}
-                            </Field>
-                            <Field id={`match-${i}`} label={`Match rule ${i + 1}`}>
-                                {#snippet children(control)}
-                                    <select {...control} bind:value={uri.match}>
-                                        <option value={null}>Default (inherited)</option>
-                                        <option value="domain">Domain</option>
-                                        <option value="host">Host</option>
-                                        <option value="startsWith">Starts with</option>
-                                        <option value="exact">Exact</option>
-                                        <option value="regex">Regular expression</option>
-                                        <option value="never">Never</option>
-                                    </select>
-                                {/snippet}
-                            </Field>
-                            <button class="btn btn-ghost btn-md text-danger-text" type="button" aria-label={`Remove website ${i + 1}`}
-                                onclick={() => draft?.uris.splice(i, 1)}>Remove</button>
-                        </div>
-                    {/each}
+                    <Field id="secret" label="Password">
+                        {#snippet children(control)}
+                            <input {...control} bind:value={draft.secret} type={editor?.showPassword ? "text" : "password"} autocomplete="new-password" disabled={!workflow.canEdit} />
+                        {/snippet}
+                    </Field>
                     <button class="btn btn-secondary btn-md self-start" type="button"
-                        onclick={() => draft?.uris.push({ uri: "", match: "domain" })}>Add website</button>
-                </fieldset>
+                        aria-controls="secret" aria-pressed={editor.showPassword}
+                        onclick={() => {
+                            if (editor) editor.showPassword = !editor.showPassword;
+                        }}>{editor.showPassword ? "Hide password" : "Show password"}</button>
+                    {#if draft.secret && draft.secret !== (editor.record?.kind === "login" ? editor.record.secret : undefined)}
+                        <Field id="confirm-secret" label="Confirm password" required>
+                            {#snippet children(control)}
+                                <input {...control} bind:value={editor.confirmPassword} type="password" autocomplete="new-password" disabled={!workflow.canEdit} />
+                            {/snippet}
+                        </Field>
+                    {/if}
+                    <Field id="totp" label="Authenticator key (TOTP)" description="Store a key or otpauth URI. Code generation is not available.">
+                        {#snippet children(control)}
+                            <input {...control} bind:value={draft.totp} type="password" autocomplete="off" disabled={!workflow.canEdit} />
+                        {/snippet}
+                    </Field>
+
+                    <fieldset class="flex min-w-0 flex-col gap-3" disabled={!workflow.canEdit}>
+                        <legend class="text-sm font-medium">Websites</legend>
+                        {#each draft.uris as uri, i (uri)}
+                            <div class="flex flex-wrap items-end gap-2">
+                                <Field id={`uri-${i}`} label={`Website ${i + 1}`}>
+                                    {#snippet children(control)}
+                                        <input {...control} bind:value={uri.uri} placeholder="https://example.com" />
+                                    {/snippet}
+                                </Field>
+                                <Field id={`match-${i}`} label={`Match rule ${i + 1}`}>
+                                    {#snippet children(control)}
+                                        <select {...control} bind:value={uri.match}>
+                                            <option value={null}>Default (inherited)</option>
+                                            <option value="domain">Domain</option>
+                                            <option value="host">Host</option>
+                                            <option value="startsWith">Starts with</option>
+                                            <option value="exact">Exact</option>
+                                            <option value="regex">Regular expression</option>
+                                            <option value="never">Never</option>
+                                        </select>
+                                    {/snippet}
+                                </Field>
+                                <button class="btn btn-ghost btn-md text-danger-text" type="button" aria-label={`Remove website ${i + 1}`}
+                                    onclick={() => draft?.uris.splice(i, 1)}>Remove</button>
+                            </div>
+                        {/each}
+                        <button class="btn btn-secondary btn-md self-start" type="button"
+                            onclick={() => draft?.uris.push({ uri: "", match: "domain" })}>Add website</button>
+                    </fieldset>
+                {/if}
 
                 <fieldset class="flex min-w-0 flex-col gap-3" disabled={!workflow.canEdit}>
                     <legend class="text-sm font-medium">Custom fields</legend>

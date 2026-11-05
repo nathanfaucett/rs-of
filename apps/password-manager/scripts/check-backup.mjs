@@ -101,10 +101,15 @@ export async function checkBackupRestore(browser, origin) {
                         exact: true,
                     })
                     .waitFor();
+                await page.getByRole("button", { name: "New secure note", exact: true }).click();
+                await page.getByLabel(/^Name/).fill("Synthetic recovery Note");
+                await page.getByLabel("Notes", { exact: true }).fill("PRIVATE-RECOVERY-NOTE 秘密\nSecond line 📝");
+                await page.getByRole("button", { name: "Save", exact: true }).click();
+                await page.getByRole("button", { name: "Show Notes", exact: true }).waitFor();
             }
             const backup = await download(page);
             assert.ok(
-                !backup.includes(password) && !backup.includes(itemPassword),
+                !backup.includes(password) && !backup.includes(itemPassword) && !backup.includes("PRIVATE-RECOVERY-NOTE"),
                 "Encrypted download must not expose synthetic passwords",
             );
             backups.push({
@@ -202,6 +207,14 @@ export async function checkBackupRestore(browser, origin) {
                     .getByRole("button", { name: "Show Password", exact: true })
                     .click();
                 await page.getByText(itemPassword, { exact: true }).waitFor();
+                await page.getByRole("button", { name: "Synthetic recovery Note", exact: true }).click();
+                assert.equal(await page.getByText(/PRIVATE-RECOVERY-NOTE/).count(), 0);
+                await page.getByRole("button", { name: "Show Notes", exact: true }).press("Enter");
+                await page.getByText(/PRIVATE-RECOVERY-NOTE 秘密/).waitFor();
+                await page.getByRole("button", { name: "Edit", exact: true }).press("Enter");
+                assert.equal(await page.getByLabel("Notes", { exact: true }).inputValue(), "PRIVATE-RECOVERY-NOTE 秘密\nSecond line 📝");
+                assert.equal(await page.getByLabel("Password", { exact: true }).count(), 0);
+                await page.getByRole("button", { name: "Cancel", exact: true }).press("Enter");
                 await page
                     .getByRole("button", { name: "Close details", exact: true })
                     .click();

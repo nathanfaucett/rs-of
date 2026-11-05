@@ -1,59 +1,86 @@
 import * as v from "valibot";
-import { type Login, LoginSchema } from "./secret";
+import {
+    type Login,
+    LoginSchema,
+    type SecureNote,
+    SecureNoteSchema,
+} from "./secret";
 
-export type SecretDraft = Pick<
-    Login,
-    "name" | "uris" | "fields" | "favorite"
-> & {
+export type EditableSecret = Login | SecureNote;
+export type EditableKind = EditableSecret["kind"];
+type CommonDraft = Pick<Login, "name" | "fields" | "favorite"> & { notes: string };
+export type LoginDraft = CommonDraft & Pick<Login, "kind" | "uris"> & {
     secret: string;
     username: string;
     totp: string;
-    notes: string;
 };
+export type SecureNoteDraft = CommonDraft & Pick<SecureNote, "kind" | "type">;
+export type SecretDraft = LoginDraft | SecureNoteDraft;
 
-export function createSecretDraft(record: Login | null): SecretDraft {
-    return {
+export function createSecretDraft(record: Login | null): LoginDraft;
+export function createSecretDraft(record: SecureNote): SecureNoteDraft;
+export function createSecretDraft(
+    record: EditableSecret | null,
+    kind?: EditableKind,
+): SecretDraft;
+export function createSecretDraft(
+    record: EditableSecret | null,
+    kind: EditableKind = "login",
+): SecretDraft {
+    const common = {
         name: record?.name ?? "",
-        secret: record?.secret ?? "",
-        username: record?.username ?? "",
-        totp: record?.totp ?? "",
-        uris: record?.uris.map((uri) => ({ ...uri })) ?? [],
         fields: record?.fields.map((field) => ({ ...field })) ?? [],
         notes: record?.notes ?? "",
         favorite: record?.favorite ?? false,
     };
+    if ((record?.kind ?? kind) === "secureNote") {
+        return { ...common, kind: "secureNote", type: 0 };
+    }
+    const login = record?.kind === "login" ? record : null;
+    return {
+        ...common,
+        kind: "login",
+        secret: login?.secret ?? "",
+        username: login?.username ?? "",
+        totp: login?.totp ?? "",
+        uris: login?.uris.map((uri) => ({ ...uri })) ?? [],
+    };
 }
 
 export function constructSecret(
-    previous: Login | null,
+    previous: EditableSecret | null,
     draft: SecretDraft,
     id: string,
     now: string,
 ) {
-    return v.safeParse(LoginSchema, {
-        kind: "login",
+    const common = {
         ...previous,
         ...draft,
         id,
+        notes:
+            previous && draft.notes === (previous.notes ?? "")
+                ? previous.notes
+                : draft.notes,
+        history: previous?.history ?? [],
+        createdAt: previous?.createdAt ?? now,
+        updatedAt: now,
+    };
+    if (draft.kind === "secureNote") return v.safeParse(SecureNoteSchema, common);
+    const login = previous?.kind === "login" ? previous : null;
+    return v.safeParse(LoginSchema, {
+        ...common,
         ...Object.fromEntries(
-            (["secret", "username", "totp", "notes"] as const).map((key) => [
+            (["secret", "username", "totp"] as const).map((key) => [
                 key,
-                previous && draft[key] === (previous[key] ?? "")
-                    ? previous[key]
+                login && draft[key] === (login[key] ?? "")
+                    ? login[key]
                     : draft[key],
             ]),
         ),
         uris: draft.uris.filter(({ uri }) => uri.trim().length > 0),
         history:
-            previous &&
-            previous.secret != null &&
-            previous.secret !== draft.secret
-                ? [
-                      ...previous.history,
-                      { secret: previous.secret, changedAt: now },
-                  ]
+            login && login.secret != null && login.secret !== draft.secret
+                ? [...login.history, { secret: login.secret, changedAt: now }]
                 : (previous?.history ?? []),
-        createdAt: previous?.createdAt ?? now,
-        updatedAt: now,
     });
 }
