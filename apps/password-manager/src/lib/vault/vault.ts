@@ -103,6 +103,51 @@ async function decrypt(
     return new TextDecoder().decode(decrypted);
 }
 
+function authenticationPlaintext(meta: VaultMeta): string {
+    return JSON.stringify([
+        "password-manager/vault-authentication",
+        1,
+        meta.id,
+        meta.salt,
+        meta.iv,
+        meta.createdAt,
+    ]);
+}
+
+async function createAuthentication(
+    key: CryptoKey,
+    meta: VaultMeta,
+): Promise<string> {
+    return JSON.stringify({
+        version: 1,
+        ...(await encrypt(key, authenticationPlaintext(meta))),
+    });
+}
+
+async function verifyAuthentication(
+    key: CryptoKey,
+    meta: VaultMeta,
+    authentication: string,
+): Promise<void> {
+    try {
+        const proof = JSON.parse(authentication);
+        if (
+            proof?.version !== 1 ||
+            typeof proof.ciphertext !== "string" ||
+            typeof proof.nonce !== "string" ||
+            fromBase64(proof.nonce).byteLength !== 12 ||
+            (await decrypt(key, proof.ciphertext, proof.nonce)) !==
+                authenticationPlaintext(meta)
+        ) {
+            throw new Error("Invalid authentication proof");
+        }
+    } catch {
+        throw new Error(
+            "Wrong password or damaged vault authentication. Retry with the correct password. If this continues, keep the vault and recover from a backup.",
+        );
+    }
+}
+
 function rowToText(row: DbValue[], index: number): string {
     const value = row[index];
     if (value?.type === "text" || value?.type === "uuid") return value.value;
@@ -227,15 +272,23 @@ export async function createVault(
             iv: toBase64(iv.buffer),
             createdAt: new Date().toISOString(),
         };
-        await client.execute(
-            `INSERT INTO ${META_TABLE} (id, vault_id, salt, iv, created_at) VALUES (1, $1, $2, $3, $4)`,
-            [
-                { type: "text", value: vaultId },
-                { type: "text", value: meta.salt },
-                { type: "text", value: meta.iv },
-                { type: "text", value: meta.createdAt },
-            ],
-        );
+        const authentication = await createAuthentication(key, meta);
+        try {
+            await client.execute(
+                `INSERT INTO ${META_TABLE} (id, vault_id, salt, iv, created_at, authentication) VALUES (1, $1, $2, $3, $4, $5)`,
+                [
+                    { type: "text", value: vaultId },
+                    { type: "text", value: meta.salt },
+                    { type: "text", value: meta.iv },
+                    { type: "text", value: meta.createdAt },
+                    { type: "text", value: authentication },
+                ],
+            );
+        } catch {
+            throw new Error(
+                "Could not confirm vault creation. Check local storage access and reopen the vault before retrying. Do not delete existing vault data.",
+            );
+        }
         return VaultHandle.create(key, db, client, meta);
     } catch (error) {
         client.close();
@@ -254,7 +307,7 @@ export async function unlockVault(
     try {
         await client.migrate(vaultMigrations);
         const results = await client.execute(
-            `SELECT vault_id, salt, iv, created_at FROM ${META_TABLE} WHERE id = 1`,
+            `SELECT vault_id, salt, iv, created_at, authentication FROM ${META_TABLE} WHERE id = 1`,
         );
         const result = results[0];
         if (!result || result.rows.length === 0) {
@@ -267,23 +320,66 @@ export async function unlockVault(
             iv: rowToText(row, 2),
             createdAt: rowToText(row, 3),
         };
-        const key = await deriveKey(password, fromBase64(meta.salt));
+        let key: CryptoKey;
+        try {
+            const salt = fromBase64(meta.salt);
+            if (salt.byteLength !== 16)
+                throw new Error("Invalid derivation salt");
+            key = await deriveKey(password, salt);
+        } catch {
+            throw new Error(
+                "Damaged vault derivation metadata. Keep the vault and recover from a backup.",
+            );
+        }
 
-        // Verify the key by attempting to decrypt stored data
-        const secrets = await client.execute(
-            `SELECT nonce, ciphertext FROM ${SECRETS_TABLE} LIMIT 1`,
-        );
-        if (secrets[0]?.rows.length > 0) {
-            const secretRow = secrets[0].rows[0];
+        if (row[4]?.type === "null") {
+            const secrets = await client.execute(
+                `SELECT nonce, ciphertext FROM ${SECRETS_TABLE}`,
+            );
+            if (!secrets[0]?.rows.length) {
+                throw new Error(
+                    "This legacy empty vault has no password proof. Its original password cannot be verified. Keep it unchanged and create a separate new vault. No password was set.",
+                );
+            }
             try {
-                await decrypt(
-                    key,
-                    rowToText(secretRow, 1),
-                    rowToText(secretRow, 0),
+                for (const secretRow of secrets[0].rows) {
+                    await decrypt(
+                        key,
+                        rowToText(secretRow, 1),
+                        rowToText(secretRow, 0),
+                    );
+                }
+            } catch {
+                throw new Error(
+                    "Wrong password or damaged legacy records. Retry with the correct password. Keep the vault if this continues.",
+                );
+            }
+            const authentication = await createAuthentication(key, meta);
+            try {
+                await client.execute(
+                    `UPDATE ${META_TABLE} SET authentication = $1 WHERE id = 1 AND authentication IS NULL`,
+                    [{ type: "text", value: authentication }],
                 );
             } catch {
-                throw new Error("Wrong password.");
+                throw new Error(
+                    "Could not confirm the vault authentication upgrade. Check local storage access and reopen the vault before retrying. Existing encrypted records were not changed.",
+                );
             }
+            const saved = await client.execute(
+                `SELECT authentication FROM ${META_TABLE} WHERE id = 1`,
+            );
+            await verifyAuthentication(
+                key,
+                meta,
+                rowToText(saved[0].rows[0], 0),
+            );
+        } else {
+            if (row[4]?.type !== "text") {
+                throw new Error(
+                    "Damaged vault authentication. Keep the vault and recover from a backup.",
+                );
+            }
+            await verifyAuthentication(key, meta, row[4].value);
         }
 
         return VaultHandle.create(key, db, client, meta);
