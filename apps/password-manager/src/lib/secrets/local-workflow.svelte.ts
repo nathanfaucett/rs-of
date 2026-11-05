@@ -152,9 +152,7 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
                 await tx.isPersisted.promise;
                 if (!active) return;
                 busy = false;
-                const authoritative = collection.get(value.id);
-                if (authoritative) edit(authoritative);
-                else editor = null;
+                editor = null;
                 notice = "Saved.";
             } catch (cause) {
                 if (active) {

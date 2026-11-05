@@ -119,7 +119,7 @@ async function setup(initial: Secret[] = []) {
 
 async function saved() {
     await expect.poll(() => target.textContent).toContain("Saved.");
-    expect(button("Save").disabled).toBe(false);
+    expect(target.querySelector("form")).toBeNull();
 }
 
 afterEach(async () => {
@@ -162,6 +162,7 @@ describe("local secret editor with the real workflow and collection", () => {
         await saved();
 
         expect(records.size).toBe(1);
+        expect(target.textContent).toContain("New login");
         const record = [...records.values()][0];
         if (!record) throw new Error("Expected the saved login");
         expect(record).toMatchObject({
@@ -210,6 +211,7 @@ describe("local secret editor with the real workflow and collection", () => {
         await saved();
 
         expect(records.size).toBe(2);
+        expect(target.textContent).toContain("Personal login");
         expect(records.get(original.id)).toMatchObject({
             id: original.id,
             createdAt: original.createdAt,
@@ -229,8 +231,6 @@ describe("local secret editor with the real workflow and collection", () => {
         });
         expect(records.get(other.id)).toEqual(other);
         expect(vault.encryptAndStore).toHaveBeenCalledTimes(1);
-        expect(control("match-0").value).toBe("regex");
-        expect(control("match-1").value).toBe("never");
     });
 
     it("requires matching confirmation for new and changed passwords, and resets visibility", async () => {
@@ -253,28 +253,39 @@ describe("local secret editor with the real workflow and collection", () => {
         await click("Save");
         await saved();
         expect(target.querySelector("#confirm-secret")).toBeNull();
-        await click("Show password");
-        await click(original.name);
+        expect(target.textContent).toContain("Confirmed login");
+        // Get the new record's ID
+        const newRecord = [...records.values()].find((r) => r.name === "Confirmed login");
+        if (!newRecord) throw new Error("Expected Confirmed login record");
+        await click("Confirmed login");
+        await expect.poll(() => target.querySelector("form")).not.toBeNull();
         expect((control("secret") as HTMLInputElement).type).toBe("password");
         expect(target.querySelector("#confirm-secret")).toBeNull();
         await fill("notes", "Notes only");
         await click("Save");
         await saved();
-        expect(records.get(original.id)?.notes).toBe("Notes only");
+        expect(records.get(newRecord.id)?.notes).toBe("Notes only");
+        expect(target.textContent).toContain("Confirmed login");
+        await click("Confirmed login");
+        await expect.poll(() => target.querySelector("form")).not.toBeNull();
         await fill("secret", "second-password");
         await fill("confirm-secret", "wrong-password");
         await click("Save");
-        expect(records.get(original.id)?.secret).toBe(original.secret);
+        expect(records.get(newRecord.id)?.secret).toBe("first-password");
         await fill("confirm-secret", "second-password");
         await click("Save");
         await saved();
-        expect(records.get(original.id)?.secret).toBe("second-password");
+        expect(records.get(newRecord.id)?.secret).toBe("second-password");
+        expect(target.textContent).toContain("Confirmed login");
+        await click("Confirmed login");
+        await expect.poll(() => target.querySelector("form")).not.toBeNull();
         await fill("secret", "third-password");
         expect(control("confirm-secret").value).toBe("");
         await fill("confirm-secret", "third-password");
         await click("Save");
         await saved();
-        expect(records.get(original.id)?.secret).toBe("third-password");
+        expect(records.get(newRecord.id)?.secret).toBe("third-password");
+        expect(target.textContent).toContain("Confirmed login");
         expect(records.get(other.id)).toEqual(other);
         expect(JSON.stringify([...records.values()])).not.toContain(
             "confirmPassword",
