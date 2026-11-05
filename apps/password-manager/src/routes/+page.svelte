@@ -1,10 +1,11 @@
 <script lang="ts">
-import { onMount } from "svelte";
+import { onMount, tick } from "svelte";
 import { beforeNavigate } from "$app/navigation";
 import RestoreBackup from "$lib/vault/RestoreBackup.svelte";
 import LockSettingsControl from "$lib/vault/LockSettings.svelte";
 import { createInactivityLock, DEFAULT_LOCK_SETTINGS, type LockSettings } from "$lib/vault/lock";
 import LocalSecretEditor from "$lib/secrets/LocalSecretEditor.svelte";
+import ImportJson from "$lib/import/ImportJson.svelte";
 import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 import {
     createVault as createVaultHandle,
@@ -31,6 +32,24 @@ let error = $state("");
 let busy = $state(false);
 let notice = $state("");
 let itemEditor = $state<ReturnType<typeof LocalSecretEditor>>();
+let importControl = $state<ReturnType<typeof ImportJson>>();
+let importing = $state(false);
+function showImport() {
+    if (inactivity.check() || busy || vaultState.status !== "unlocked") return;
+    if (itemEditor?.hasUnsavedChanges() && !window.confirm("Discard unsaved changes?")) return;
+    itemEditor?.retire();
+    importing = true;
+    notice = "";
+}
+function finishImport(success = false) {
+    if (inactivity.check() || vaultState.status !== "unlocked") return;
+    importing = false;
+    notice = success ? "Import verified. All accepted items and folders were added. Check the data and keep an encrypted backup." : "";
+    const request = session;
+    void tick().then(() => {
+        if (request === session && !inactivity.check()) document.getElementById("import-json-action")?.focus();
+    });
+}
 let session = 0;
 let lockSettings = $state<LockSettings>({ ...DEFAULT_LOCK_SETTINGS });
 const inactivity = createInactivityLock(() => { void lockVault(); });
@@ -55,7 +74,7 @@ async function enterVault(vault: VaultHandle, request: number) {
 }
 
 beforeNavigate((navigation) => {
-    if (!busy && !itemEditor?.hasUnsavedChanges()) return;
+    if (!busy && !importing && !itemEditor?.hasUnsavedChanges()) return;
     if (navigation.willUnload || !window.confirm("Leave with unsaved or pending changes?")) navigation.cancel();
 });
 
@@ -112,6 +131,7 @@ onMount(() => {
         password = "";
         confirmPassword = "";
         itemEditor?.retire();
+        importControl?.retire();
         if (vaultState.status === "unlocked") vaultState.vault.close();
     };
 });
@@ -213,6 +233,8 @@ async function lockVault() {
     error = "";
     busy = false;
     itemEditor?.retire();
+    importControl?.retire();
+    importing = false;
     if (vaultState.status === "unlocked") vaultState.vault.close();
     itemEditor = undefined;
     const request = session;
@@ -387,8 +409,9 @@ async function lockVault() {
                 description="Your vault is stored locally and encrypted. This is a local-first app — no server required."
             >
                 {#snippet actions()}
-                    <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => void downloadBackup()}>{busy ? "Preparing backup…" : "Download encrypted backup"}</button>
-                    <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => void downloadBackup(true)}>Download pre-transition backup</button>
+                    <button id="import-json-action" class="btn btn-secondary btn-md" type="button" disabled={busy || importing} onclick={showImport}>Import Bitwarden JSON</button>
+                    <button class="btn btn-secondary btn-md" type="button" disabled={busy || importing} onclick={() => void downloadBackup()}>{busy ? "Preparing backup…" : "Download encrypted backup"}</button>
+                    <button class="btn btn-secondary btn-md" type="button" disabled={busy || importing} onclick={() => void downloadBackup(true)}>Download pre-transition backup</button>
                     <button
                         class="btn btn-secondary btn-md"
                         type="button"
@@ -399,7 +422,13 @@ async function lockVault() {
             {#if error}<Alert tone="danger">{error}</Alert>{/if}
             {#if notice}<p role="status">{notice}</p>{/if}
             <LockSettingsControl vault={vaultState.vault} settings={lockSettings} onsaved={settingsSaved} />
-            <LocalSecretEditor bind:this={itemEditor} vault={vaultState.vault} />
+            {#if importing}
+                <ImportJson bind:this={importControl} vault={vaultState.vault}
+                    active={() => !inactivity.check() && vaultState.status === "unlocked"}
+                    oncancel={() => finishImport()} onimported={() => finishImport(true)} />
+            {:else}
+                <LocalSecretEditor bind:this={itemEditor} vault={vaultState.vault} />
+            {/if}
         </Page>
     {:else if vaultState.status === "error"}
         <Page width="narrow">
