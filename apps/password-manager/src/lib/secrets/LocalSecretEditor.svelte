@@ -100,10 +100,10 @@ function navigate(action: () => void) {
                 onclick={() => navigate(() => { trash = false; workflow.edit(null, "secureNote"); })}>New secure note</button>
             <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
                 onclick={() => navigate(() => { trash = false; workflow.edit(null, "card"); })}>New card</button>
-                            <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
-                                onclick={() => navigate(() => { trash = false; workflow.edit(null, "identity"); })}>New identity</button>
-                            <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
-                                onclick={() => navigate(() => { trash = false; workflow.edit(null, "sshKey"); })}>New SSH key</button>
+            <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
+                onclick={() => navigate(() => { trash = false; workflow.edit(null, "identity"); })}>New identity</button>
+            <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
+                onclick={() => navigate(() => { trash = false; workflow.edit(null, "sshKey"); })}>New SSH key</button>
         {/snippet}
 
         {#if !retired && !trash}

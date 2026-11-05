@@ -6,13 +6,11 @@ import { extname, join, resolve } from "node:path";
 import { chromium } from "playwright";
 import { checkBackupRestore } from "./check-backup.mjs";
 import { checkCard, checkCardReopened } from "./check-card.mjs";
-import { createSshKey, verifySshKey } from "./check-ssh-key.mjs";
-import { checkSearch } from "./check-search.mjs";
-import { createIdentity, verifyIdentity } from "./check-identity.mjs";
-
-import { checkTrash } from "./check-trash.mjs";
-
 import { checkGenerator, checkGeneratorReopened } from "./check-generator.mjs";
+import { createIdentity, verifyIdentity } from "./check-identity.mjs";
+import { checkSearch } from "./check-search.mjs";
+import { createSshKey, verifySshKey } from "./check-ssh-key.mjs";
+import { checkTrash } from "./check-trash.mjs";
 
 // Only synthetic data in a new test browser. Never connect to a live browser.
 const root = resolve("build");
@@ -189,24 +187,44 @@ try {
         .getByRole("button", { name: "Show History password 1", exact: true })
         .press("Enter");
     await page.getByText("synthetic-secret-19", { exact: true }).waitFor();
-    await page.getByRole("button", { name: "New secure note", exact: true }).press("Enter");
+    await page
+        .getByRole("button", { name: "New secure note", exact: true })
+        .press("Enter");
     assert.equal(await page.getByLabel("Password", { exact: true }).count(), 0);
     await page.getByLabel(/^Name/).fill("Synthetic offline Note");
-    await page.getByLabel("Notes", { exact: true }).fill("PRIVATE-NOTE 秘密 📝\nOffline second line");
-    await page.getByRole("button", { name: "Save", exact: true }).press("Enter");
-    await page.getByRole("button", { name: "Show Notes", exact: true }).waitFor();
+    await page
+        .getByLabel("Notes", { exact: true })
+        .fill("PRIVATE-NOTE 秘密 📝\nOffline second line");
+    await page
+        .getByRole("button", { name: "Save", exact: true })
+        .press("Enter");
+    await page
+        .getByRole("button", { name: "Show Notes", exact: true })
+        .waitFor();
     assert.equal(await page.getByText(/PRIVATE-NOTE/).count(), 0);
-    await page.getByRole("button", { name: "Show Notes", exact: true }).press("Enter");
+    await page
+        .getByRole("button", { name: "Show Notes", exact: true })
+        .press("Enter");
     await page.getByText(/PRIVATE-NOTE 秘密 📝/).waitFor();
-    await page.getByRole("button", { name: "Edit", exact: true }).press("Enter");
+    await page
+        .getByRole("button", { name: "Edit", exact: true })
+        .press("Enter");
     await page.getByLabel("Notes", { exact: true }).fill("Discarded Note edit");
-    await page.getByRole("button", { name: "Cancel", exact: true }).press("Enter");
+    await page
+        .getByRole("button", { name: "Cancel", exact: true })
+        .press("Enter");
     assert.equal(await page.getByText(/PRIVATE-NOTE/).count(), 0);
     await checkCard(page, "Synthetic offline Card");
     await createIdentity(page, "Synthetic offline Identity");
     await page.getByRole("button", { name: "Lock vault", exact: true }).click();
-    assert.equal(await page.getByRole("searchbox", { name: "Search items" }).count(), 0);
-    assert.equal(await page.getByRole("list", { name: "Search results" }).count(), 0);
+    assert.equal(
+        await page.getByRole("searchbox", { name: "Search items" }).count(),
+        0,
+    );
+    assert.equal(
+        await page.getByRole("list", { name: "Search results" }).count(),
+        0,
+    );
     const vaultId = await page
         .getByRole("button", { name: /^offline-test ID: / })
         .locator("span")
@@ -272,21 +290,42 @@ try {
     console.log(
         "PASS: built app offline reload, create, read-only detail, keyboard edit/reveal, protected dated history, local TOTP boundary/countdown and reopen, lock, cold start, unlock and persisted Login; zero server requests",
     );
-    await reopened.getByRole("button", { name: "Synthetic offline Note", exact: true }).press("Enter");
+    await reopened
+        .getByRole("button", { name: "Synthetic offline Note", exact: true })
+        .press("Enter");
     assert.equal(await reopened.getByText(/PRIVATE-NOTE/).count(), 0);
-    await reopened.getByRole("button", { name: "Edit", exact: true }).press("Enter");
-    assert.equal(await reopened.getByLabel("Notes", { exact: true }).inputValue(), "PRIVATE-NOTE 秘密 📝\nOffline second line");
-    await reopened.getByLabel("Notes", { exact: true }).fill("PRIVATE-NOTE 秘密 📝\nSaved offline edit");
-    await reopened.getByRole("button", { name: "Save", exact: true }).press("Enter");
-    await reopened.getByRole("button", { name: "Show Notes", exact: true }).waitFor();
+    await reopened
+        .getByRole("button", { name: "Edit", exact: true })
+        .press("Enter");
+    assert.equal(
+        await reopened.getByLabel("Notes", { exact: true }).inputValue(),
+        "PRIVATE-NOTE 秘密 📝\nOffline second line",
+    );
+    await reopened
+        .getByLabel("Notes", { exact: true })
+        .fill("PRIVATE-NOTE 秘密 📝\nSaved offline edit");
+    await reopened
+        .getByRole("button", { name: "Save", exact: true })
+        .press("Enter");
+    await reopened
+        .getByRole("button", { name: "Show Notes", exact: true })
+        .waitFor();
     assert.equal(await reopened.getByText(/PRIVATE-NOTE/).count(), 0);
-    console.log("PASS: offline keyboard Note create, masked detail/reveal, cancel, cold reopen and edit; no Login password required");
+    console.log(
+        "PASS: offline keyboard Note create, masked detail/reveal, cancel, cold reopen and edit; no Login password required",
+    );
     await reopened
         .getByRole("button", { name: "Close details", exact: true })
         .click();
     await verifyIdentity(reopened, "Synthetic offline Identity", true);
-    console.log("PASS: offline keyboard Identity create, protected detail, cancel, cold reopen and edit; all international fields preserved");
-    await checkTrash(reopened, { vaultName: "offline-test", vaultId, password: "synthetic-master-19" });
+    console.log(
+        "PASS: offline keyboard Identity create, protected detail, cancel, cold reopen and edit; all international fields preserved",
+    );
+    await checkTrash(reopened, {
+        vaultName: "offline-test",
+        vaultId,
+        password: "synthetic-master-19",
+    });
     assert.equal(serverRequests, before, "Trash must make no server requests");
     await reopened
         .getByRole("button", { name: "Lock vault", exact: true })
@@ -320,7 +359,7 @@ try {
         cacheContents.every(
             (entry) =>
                 !entry.body.includes(generated) &&
-                !/synthetic-master-19|synthetic-secret-19|edited-user-19|PRIVATE-IDENTITY/.test(
+                !/synthetic-master-19|synthetic-secret-19|edited-user-19|PRIVATE-NOTE|PRIVATE-IDENTITY|PRIVATE-OFFLINE-SSH|0000 1234 5678 0000/.test(
                     entry.body,
                 ),
         ),

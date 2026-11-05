@@ -15,9 +15,7 @@ let { record, canEdit, onedit, onclose }: {
 
 <Card title="Item details" description="Read-only. Use Edit to change this item.">
     {#snippet actions()}
-        {#if record.kind === "login" || record.kind === "secureNote" || record.kind === "card" || record.kind === "identity" || record.kind === "sshKey"}
-            <button class="btn btn-primary btn-md" type="button" disabled={!canEdit} onclick={onedit}>Edit</button>
-        {/if}
+        <button class="btn btn-primary btn-md" type="button" disabled={!canEdit} onclick={onedit}>Edit</button>
         <button class="btn btn-secondary btn-md" type="button" disabled={!canEdit} onclick={onclose}>Close details</button>
     {/snippet}
     <div class="flex flex-col gap-4">
@@ -52,8 +50,6 @@ let { record, canEdit, onedit, onclose }: {
             <p>Stored key text only. Key pairs and fingerprints are not verified.</p>
         {:else if record.kind === "secureNote"}
             <p>Secure Note: private plain text.</p>
-        {:else}
-            <p>Type-specific details and editing are not available yet.</p>
         {/if}
         <ProtectedValue label="Notes" value={record.notes} protected={record.kind === "secureNote" || record.kind === "identity"} />
         <h3>Custom fields</h3>

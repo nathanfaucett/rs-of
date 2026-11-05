@@ -161,9 +161,18 @@ export async function checkBackupRestore(browser, origin) {
                     .getByRole("button", { name: "Move item", exact: true })
                     .click();
                 await page.getByText("Item moved.", { exact: true }).waitFor();
-                await page.getByRole("button", { name: "Synthetic recovery Card", exact: true }).click();
-                await page.getByLabel("Move to folder", { exact: true }).selectOption(folderId);
-                await page.getByRole("button", { name: "Move item", exact: true }).click();
+                await page
+                    .getByRole("button", {
+                        name: "Synthetic recovery Card",
+                        exact: true,
+                    })
+                    .click();
+                await page
+                    .getByLabel("Move to folder", { exact: true })
+                    .selectOption(folderId);
+                await page
+                    .getByRole("button", { name: "Move item", exact: true })
+                    .click();
                 await page.getByText("Item moved.", { exact: true }).waitFor();
                 await page
                     .getByRole("button", {
@@ -246,10 +255,17 @@ export async function checkBackupRestore(browser, origin) {
             }
             if (populated) {
                 await createIdentity(page, "Synthetic recovery Identity");
-                const folder = await page.getByLabel("Folder filter", { exact: true })
-                    .locator("option").filter({ hasText: "Renamed/日本語" }).getAttribute("value");
-                await page.getByLabel("Move to folder", { exact: true }).selectOption(folder);
-                await page.getByRole("button", { name: "Move item", exact: true }).click();
+                const folder = await page
+                    .getByLabel("Folder filter", { exact: true })
+                    .locator("option")
+                    .filter({ hasText: "Renamed/日本語" })
+                    .getAttribute("value");
+                await page
+                    .getByLabel("Move to folder", { exact: true })
+                    .selectOption(folder);
+                await page
+                    .getByRole("button", { name: "Move item", exact: true })
+                    .click();
                 await page.getByText("Item moved.", { exact: true }).waitFor();
             }
             const backup = await download(page);

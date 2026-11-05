@@ -1,20 +1,27 @@
 import { useLiveQuery } from "@tanstack/svelte-db";
 import { SvelteDate } from "svelte/reactivity";
 import * as v from "valibot";
-import type { VaultHandle } from "$lib/vault/vault";
 import type { Folder } from "$lib/vault/folder";
+import type { VaultHandle } from "$lib/vault/vault";
 import {
     createLocalSecretCollection,
     UnacknowledgedStorageWriteError,
 } from "./local-collection";
-import { type Secret, CardSchema, LoginSchema, SecureNoteSchema, IdentitySchema, SshKeySchema } from "./secret";
+import {
+    CardSchema,
+    IdentitySchema,
+    LoginSchema,
+    type Secret,
+    SecureNoteSchema,
+    SshKeySchema,
+} from "./secret";
 
 import {
     constructSecret,
     createSecretDraft,
-    type SecretDraft,
-    type EditableSecret,
     type EditableKind,
+    type EditableSecret,
+    type SecretDraft,
 } from "./secret-draft";
 
 export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
@@ -37,7 +44,9 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
     const dirty = $derived(
         !!editor &&
             (JSON.stringify(editor.draft) !==
-                JSON.stringify(createSecretDraft(editor.record, editor.draft.kind)) ||
+                JSON.stringify(
+                    createSecretDraft(editor.record, editor.draft.kind),
+                ) ||
                 editor.confirmPassword !== ""),
     );
     let loadError = $state<string | null>(null);
@@ -49,7 +58,9 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
     let query: ReturnType<typeof liveQuery>;
     const detail = $derived(
         active && !loadError && query.isReady && !query.isError
-            ? (query.data.find((record) => record.id === selectedId && !record.deletedAt) ?? null)
+            ? (query.data.find(
+                  (record) => record.id === selectedId && !record.deletedAt,
+              ) ?? null)
             : null,
     );
     function liveQuery() {
@@ -77,7 +88,7 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
     });
     function edit(value: Secret | null = null, kind: EditableKind = "login") {
         if (!canEdit()) return;
-        if (value && (value.deletedAt || (value.kind !== "login" && value.kind !== "secureNote" && value.kind !== "card" && value.kind !== "identity" && value.kind !== "sshKey"))) return;
+        if (value?.deletedAt) return;
         const record = value
             ? value.kind === "login"
                 ? v.parse(v.object(LoginSchema.entries), value)
@@ -86,8 +97,8 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
                   : value.kind === "identity"
                     ? v.parse(v.object(IdentitySchema.entries), value)
                     : value.kind === "sshKey"
-                        ? v.parse(v.object(SshKeySchema.entries), value)
-                    : v.parse(v.object(SecureNoteSchema.entries), value)
+                      ? v.parse(v.object(SshKeySchema.entries), value)
+                      : v.parse(v.object(SecureNoteSchema.entries), value)
             : null;
         selectedId = record?.id ?? null;
         editor = {
@@ -137,28 +148,48 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
             if (active) busy = false;
         }
     }
-    async function changeTrash(value: Secret, action: "trash" | "restore" | "purge") {
+    async function changeTrash(
+        value: Secret,
+        action: "trash" | "restore" | "purge",
+    ) {
         if (!canEdit()) return;
         const current = collection.get(value.id);
-        if (!current || (action === "trash" ? !!current.deletedAt : !current.deletedAt)) return;
+        if (
+            !current ||
+            (action === "trash" ? !!current.deletedAt : !current.deletedAt)
+        )
+            return;
         error = null;
         notice = "";
         busy = true;
         editor = null;
         selectedId = null;
         try {
-            const tx = action === "purge"
-                ? collection.delete(current.id)
-                : collection.update(current.id, (record) => {
-                      if (action === "trash") record.deletedAt = new SvelteDate().toISOString();
-                      else {
-                          delete record.deletedAt;
-                          if (record.folderId != null && !folders.some((folder) => folder.id === record.folderId)) record.folderId = null;
-                      }
-                  });
+            const tx =
+                action === "purge"
+                    ? collection.delete(current.id)
+                    : collection.update(current.id, (record) => {
+                          if (action === "trash")
+                              record.deletedAt = new SvelteDate().toISOString();
+                          else {
+                              delete record.deletedAt;
+                              if (
+                                  record.folderId != null &&
+                                  !folders.some(
+                                      (folder) => folder.id === record.folderId,
+                                  )
+                              )
+                                  record.folderId = null;
+                          }
+                      });
             await tx.isPersisted.promise;
             if (!active) return;
-            notice = action === "trash" ? "Moved to Trash." : action === "restore" ? "Restored." : "Permanently deleted.";
+            notice =
+                action === "trash"
+                    ? "Moved to Trash."
+                    : action === "restore"
+                      ? "Restored."
+                      : "Permanently deleted.";
         } catch (cause) {
             if (active) error = message(cause);
         } finally {
@@ -253,10 +284,11 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
             return active && !loadError && query.isReady && !query.isError
                 ? query.data.filter(
                       (record) =>
-                          !record.deletedAt && (folderFilter === "all" ||
-                          (folderFilter === "unfiled"
-                              ? record.folderId == null
-                              : record.folderId === folderFilter)),
+                          !record.deletedAt &&
+                          (folderFilter === "all" ||
+                              (folderFilter === "unfiled"
+                                  ? record.folderId == null
+                                  : record.folderId === folderFilter)),
                   )
                 : [];
         },
@@ -282,14 +314,18 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
             notice = "";
         },
         async save(draft: SecretDraft) {
-            if (!canEdit() || !editor || draft.kind !== editor.draft.kind) return;
+            if (!canEdit() || !editor || draft.kind !== editor.draft.kind)
+                return;
             error = null;
             notice = "";
             const previous = editor.record;
             if (
                 draft.kind === "login" &&
                 draft.secret &&
-                draft.secret !== (previous?.kind === "login" ? previous.secret : undefined) &&
+                draft.secret !==
+                    (previous?.kind === "login"
+                        ? previous.secret
+                        : undefined) &&
                 (!editor.confirmPassword ||
                     draft.secret !== editor.confirmPassword)
             ) {
@@ -304,15 +340,16 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
                 new SvelteDate().toISOString(),
             );
             if (!result.success) {
-                error = draft.kind === "login"
-                    ? "Invalid Login: A name is required; check the fields."
-                    : draft.kind === "card"
-                      ? "Invalid Card: A name is required; check the fields."
-                      : draft.kind === "identity"
-                        ? "Invalid Identity: A name is required; check the fields."
-                    : draft.kind === "sshKey"
-                        ? "Invalid SSH Key: A name and nonblank private key are required; check the fields."
-                        : "Invalid Secure Note: A name is required; check the fields.";
+                error =
+                    draft.kind === "login"
+                        ? "Invalid Login: A name is required; check the fields."
+                        : draft.kind === "card"
+                          ? "Invalid Card: A name is required; check the fields."
+                          : draft.kind === "identity"
+                            ? "Invalid Identity: A name is required; check the fields."
+                            : draft.kind === "sshKey"
+                              ? "Invalid SSH Key: A name and nonblank private key are required; check the fields."
+                              : "Invalid Secure Note: A name is required; check the fields.";
                 return;
             }
             busy = true;

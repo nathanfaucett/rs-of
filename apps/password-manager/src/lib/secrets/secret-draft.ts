@@ -1,27 +1,29 @@
 import * as v from "valibot";
+import { identityFields } from "./identity-fields";
 import {
-    type Identity,
-    IdentitySchema,
-    type SshKey,
-    SshKeySchema,
     type Card,
     CardSchema,
+    type Identity,
+    IdentitySchema,
     type Login,
     LoginSchema,
     type SecureNote,
     SecureNoteSchema,
+    type SshKey,
+    SshKeySchema,
 } from "./secret";
-
-import { identityFields } from "./identity-fields";
 
 export type EditableSecret = Login | SecureNote | Card | Identity | SshKey;
 export type EditableKind = EditableSecret["kind"];
-type CommonDraft = Pick<Login, "name" | "fields" | "favorite"> & { notes: string };
-export type LoginDraft = CommonDraft & Pick<Login, "kind" | "uris"> & {
-    secret: string;
-    username: string;
-    totp: string;
+type CommonDraft = Pick<Login, "name" | "fields" | "favorite"> & {
+    notes: string;
 };
+export type LoginDraft = CommonDraft &
+    Pick<Login, "kind" | "uris"> & {
+        secret: string;
+        username: string;
+        totp: string;
+    };
 export type SecureNoteDraft = CommonDraft & Pick<SecureNote, "kind" | "type">;
 const cardKeys = [
     "cardholderName",
@@ -38,11 +40,17 @@ export type CardDraft = CommonDraft & { kind: "card" } & Record<
 export type IdentityDraft = CommonDraft &
     Pick<Identity, "kind"> &
     Record<(typeof identityFields)[number][0], string>;
-export type SshKeyDraft = CommonDraft & Pick<SshKey, "kind" | "privateKey"> & {
-    publicKey: string;
-    keyFingerprint: string;
-};
-export type SecretDraft = LoginDraft | SecureNoteDraft | CardDraft | IdentityDraft | SshKeyDraft;
+export type SshKeyDraft = CommonDraft &
+    Pick<SshKey, "kind" | "privateKey"> & {
+        publicKey: string;
+        keyFingerprint: string;
+    };
+export type SecretDraft =
+    | LoginDraft
+    | SecureNoteDraft
+    | CardDraft
+    | IdentityDraft
+    | SshKeyDraft;
 
 export function createSecretDraft(record: Login | null): LoginDraft;
 export function createSecretDraft(record: SecureNote): SecureNoteDraft;
@@ -128,7 +136,8 @@ export function constructSecret(
         createdAt: previous?.createdAt ?? now,
         updatedAt: now,
     };
-    if (draft.kind === "secureNote") return v.safeParse(SecureNoteSchema, common);
+    if (draft.kind === "secureNote")
+        return v.safeParse(SecureNoteSchema, common);
     if (draft.kind === "card") {
         const card = previous?.kind === "card" ? previous : null;
         return v.safeParse(CardSchema, {

@@ -199,6 +199,28 @@ it("cancels isolated edits, copies explicitly, saves only the selected key, and 
     fill("key-fingerprint", "stored-fingerprint-not-derived");
     await click("Save");
     await saved();
+    const afterKeySave = await persisted(id);
+    for (const item of neighbors)
+        expect(afterKeySave.items).toContainEqual(item);
+    for (const item of neighbors) {
+        await click(item.name);
+        await click("Edit");
+        expect(control("name").value).toBe(item.name);
+        fill("notes", "Discarded mixed edit");
+        await click("Cancel");
+        expect((await persisted(id)).items).toContainEqual(item);
+        await click("Edit");
+        if (item.kind !== "login") {
+            expect(target.querySelector("#secret")).toBeNull();
+            await click("Password generator");
+            await click("Generate");
+            expect(target.textContent).not.toContain("Use in Login draft");
+            await click("Password generator");
+        }
+        fill("notes", `Mixed saved ${item.kind} 秘密\nSecond line`);
+        await click("Save");
+        await saved();
+    }
     const expected = await persisted(id);
     expect(expected.items.find((item) => item.id === key.id)).toEqual({
         ...key,
@@ -207,7 +229,12 @@ it("cancels isolated edits, copies explicitly, saves only the selected key, and 
         keyFingerprint: "stored-fingerprint-not-derived",
         updatedAt: expect.any(String),
     });
-    for (const item of neighbors) expect(expected.items).toContainEqual(item);
+    for (const item of neighbors)
+        expect(expected.items).toContainEqual({
+            ...item,
+            notes: `Mixed saved ${item.kind} 秘密\nSecond line`,
+            updatedAt: expect.any(String),
+        });
     expect(target.innerHTML).not.toContain("PRIVATE-");
     await click("Lock vault");
     const source = await unlockVault(password, id);
