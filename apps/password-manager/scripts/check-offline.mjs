@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { extname, join, resolve } from "node:path";
 import { chromium } from "playwright";
 import { checkBackupRestore } from "./check-backup.mjs";
+import { checkCard, checkCardReopened } from "./check-card.mjs";
 import { checkSearch } from "./check-search.mjs";
 
 import { checkTrash } from "./check-trash.mjs";
@@ -198,6 +199,7 @@ try {
     await page.getByLabel("Notes", { exact: true }).fill("Discarded Note edit");
     await page.getByRole("button", { name: "Cancel", exact: true }).press("Enter");
     assert.equal(await page.getByText(/PRIVATE-NOTE/).count(), 0);
+    await checkCard(page, "Synthetic offline Card");
     await page.getByRole("button", { name: "Lock vault", exact: true }).click();
     assert.equal(await page.getByRole("searchbox", { name: "Search items" }).count(), 0);
     assert.equal(await page.getByRole("list", { name: "Search results" }).count(), 0);
@@ -217,6 +219,7 @@ try {
     await reopened.getByLabel(/^Master password/).fill("synthetic-master-19");
     await reopened.getByRole("button", { name: "Unlock", exact: true }).click();
     await checkGeneratorReopened(reopened, generated);
+    await checkCardReopened(reopened, "Synthetic offline Card");
     await reopened
         .getByRole("button", { name: "Synthetic offline Login", exact: true })
         .click();

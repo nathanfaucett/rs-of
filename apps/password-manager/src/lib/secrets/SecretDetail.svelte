@@ -14,7 +14,7 @@ let { record, canEdit, onedit, onclose }: {
 
 <Card title="Item details" description="Read-only. Use Edit to change this item.">
     {#snippet actions()}
-        {#if record.kind === "login" || record.kind === "secureNote"}
+        {#if record.kind === "login" || record.kind === "secureNote" || record.kind === "card"}
             <button class="btn btn-primary btn-md" type="button" disabled={!canEdit} onclick={onedit}>Edit</button>
         {/if}
         <button class="btn btn-secondary btn-md" type="button" disabled={!canEdit} onclick={onclose}>Close details</button>
@@ -33,6 +33,13 @@ let { record, canEdit, onedit, onclose }: {
                 <ProtectedValue label={`Website ${i + 1}`} value={uri.uri} protected={false} />
                 <p>Match rule: {uri.match ?? "Default (inherited)"}</p>
             {:else}<p>No websites.</p>{/each}
+        {:else if record.kind === "card"}
+            <ProtectedValue label="Cardholder name" value={record.cardholderName} protected={false} />
+            <ProtectedValue label="Brand" value={record.brand} protected={false} />
+            <ProtectedValue label="Card number" value={record.number} />
+            <ProtectedValue label="Expiration month" value={record.expMonth} protected={false} />
+            <ProtectedValue label="Expiration year" value={record.expYear} protected={false} />
+            <ProtectedValue label="Security code" value={record.code} />
         {:else if record.kind === "secureNote"}
             <p>Secure Note: private plain text.</p>
         {:else}

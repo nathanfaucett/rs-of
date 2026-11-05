@@ -1,12 +1,14 @@
 import * as v from "valibot";
 import {
+    type Card,
+    CardSchema,
     type Login,
     LoginSchema,
     type SecureNote,
     SecureNoteSchema,
 } from "./secret";
 
-export type EditableSecret = Login | SecureNote;
+export type EditableSecret = Login | SecureNote | Card;
 export type EditableKind = EditableSecret["kind"];
 type CommonDraft = Pick<Login, "name" | "fields" | "favorite"> & { notes: string };
 export type LoginDraft = CommonDraft & Pick<Login, "kind" | "uris"> & {
@@ -15,10 +17,23 @@ export type LoginDraft = CommonDraft & Pick<Login, "kind" | "uris"> & {
     totp: string;
 };
 export type SecureNoteDraft = CommonDraft & Pick<SecureNote, "kind" | "type">;
-export type SecretDraft = LoginDraft | SecureNoteDraft;
+const cardKeys = [
+    "cardholderName",
+    "brand",
+    "number",
+    "expMonth",
+    "expYear",
+    "code",
+] as const;
+export type CardDraft = CommonDraft & { kind: "card" } & Record<
+        (typeof cardKeys)[number],
+        string
+    >;
+export type SecretDraft = LoginDraft | SecureNoteDraft | CardDraft;
 
 export function createSecretDraft(record: Login | null): LoginDraft;
 export function createSecretDraft(record: SecureNote): SecureNoteDraft;
+export function createSecretDraft(record: Card): CardDraft;
 export function createSecretDraft(
     record: EditableSecret | null,
     kind?: EditableKind,
@@ -35,6 +50,19 @@ export function createSecretDraft(
     };
     if ((record?.kind ?? kind) === "secureNote") {
         return { ...common, kind: "secureNote", type: 0 };
+    }
+    if ((record?.kind ?? kind) === "card") {
+        const card = record?.kind === "card" ? record : null;
+        return {
+            ...common,
+            kind: "card",
+            cardholderName: card?.cardholderName ?? "",
+            brand: card?.brand ?? "",
+            number: card?.number ?? "",
+            expMonth: card?.expMonth ?? "",
+            expYear: card?.expYear ?? "",
+            code: card?.code ?? "",
+        };
     }
     const login = record?.kind === "login" ? record : null;
     return {
@@ -66,6 +94,20 @@ export function constructSecret(
         updatedAt: now,
     };
     if (draft.kind === "secureNote") return v.safeParse(SecureNoteSchema, common);
+    if (draft.kind === "card") {
+        const card = previous?.kind === "card" ? previous : null;
+        return v.safeParse(CardSchema, {
+            ...common,
+            ...Object.fromEntries(
+                cardKeys.map((key) => [
+                    key,
+                    card && draft[key] === (card[key] ?? "")
+                        ? card[key]
+                        : draft[key],
+                ]),
+            ),
+        });
+    }
     const login = previous?.kind === "login" ? previous : null;
     return v.safeParse(LoginSchema, {
         ...common,

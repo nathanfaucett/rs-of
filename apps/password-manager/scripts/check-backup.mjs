@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
+import { checkCard, checkCardReopened } from "./check-card.mjs";
 
 async function download(page) {
     const pending = page.waitForEvent("download");
@@ -113,6 +114,7 @@ export async function checkBackupRestore(browser, origin) {
                         exact: true,
                     })
                     .waitFor();
+                await checkCard(page, "Synthetic recovery Card");
                 await page
                     .getByRole("button", {
                         name: "New secure note",
@@ -156,6 +158,10 @@ export async function checkBackupRestore(browser, origin) {
                 await page
                     .getByRole("button", { name: "Move item", exact: true })
                     .click();
+                await page.getByText("Item moved.", { exact: true }).waitFor();
+                await page.getByRole("button", { name: "Synthetic recovery Card", exact: true }).click();
+                await page.getByLabel("Move to folder", { exact: true }).selectOption(folderId);
+                await page.getByRole("button", { name: "Move item", exact: true }).click();
                 await page.getByText("Item moved.", { exact: true }).waitFor();
                 await page
                     .getByRole("button", {
@@ -324,6 +330,7 @@ export async function checkBackupRestore(browser, origin) {
                     .getByText("No items in this folder view.", { exact: true })
                     .waitFor();
                 await options.selectOption(folder);
+                await checkCardReopened(page, "Synthetic recovery Card");
                 await page
                     .getByRole("button", {
                         name: "Synthetic recovery Login",
