@@ -4,6 +4,7 @@ import "../app.css";
 import { getTheme } from "@ofsdk/svelte-headless";
 import favicon from "$lib/assets/favicon.svg";
 import Notifications from "$lib/common/components/Notifications.svelte";
+import OfflineStatus from "$lib/offline/OfflineStatus.svelte";
 import type { LayoutProps } from "./$types";
 
 let { children }: LayoutProps = $props();
@@ -21,5 +22,6 @@ $effect(() => {
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
+<OfflineStatus />
 {@render children()}
 <Notifications />
