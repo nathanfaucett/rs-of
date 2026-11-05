@@ -2,6 +2,7 @@
 import { onDestroy, tick, untrack } from "svelte";
 import SecretDetail from "./SecretDetail.svelte";
 import FolderControls from "./FolderControls.svelte";
+import PasswordGenerator from "$lib/generator/PasswordGenerator.svelte";
 import { Alert, Card, Field } from "$lib/ui";
 import type { VaultHandle } from "$lib/vault/vault";
 import { createLocalSecretWorkflow } from "./local-workflow.svelte";
@@ -43,12 +44,14 @@ async function cancelDelete() {
     await tick();
     trigger?.focus();
 }
+let showGenerator = $state(false);
 const newSecretId = $props.id();
 const searchId = `${newSecretId}-search`;
 let folderControls = $state<ReturnType<typeof FolderControls>>();
 
 export function hasUnsavedChanges() { return workflow.dirty || workflow.busy || !!folderControls?.dirty(); }
 export function retire() {
+    showGenerator = false;
     retired = true;
     clearFilters();
     sort = "favorites";
@@ -62,6 +65,7 @@ export function retire() {
 
 function navigate(action: () => void) {
     if ((workflow.dirty || folderControls?.dirty()) && !window.confirm("Discard unsaved changes?")) return;
+    showGenerator = false;
     pendingDelete = null;
     folderControls?.retire();
     action();
@@ -82,6 +86,8 @@ function navigate(action: () => void) {
     </nav>
     <Card title={trash ? "Trash" : "Secrets"} description={trash ? "Items stay here until you restore or permanently delete them. No automatic deletion." : "Stored locally in your encrypted vault."}>
         {#snippet actions()}
+            <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canEdit}
+                aria-expanded={showGenerator} onclick={() => showGenerator = !showGenerator}>Password generator</button>
             <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canRefresh}
                 onclick={() => navigate(() => void workflow.refresh())}>Refresh</button>
             <button id={newSecretId} class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
@@ -201,6 +207,20 @@ function navigate(action: () => void) {
             {/if}
         {/if}
     </Card>
+
+    {#if showGenerator && workflow.canEdit}
+        {#key workflow.editor ?? workflow.detail}
+            {@const editor = workflow.editor}
+            <PasswordGenerator onuse={editor?.draft.kind === "login" ? (value) => {
+                if (workflow.editor !== editor || !workflow.canEdit || editor.draft.kind !== "login") return;
+                editor.draft.secret = value;
+                editor.confirmPassword = value;
+                editor.showPassword = false;
+                showGenerator = false;
+                document.getElementById("secret")?.focus();
+            } : undefined} />
+        {/key}
+    {/if}
 
     {#if workflow.detail && !workflow.editor}
         {#key workflow.detail}

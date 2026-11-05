@@ -9,6 +9,8 @@ import { checkSearch } from "./check-search.mjs";
 
 import { checkTrash } from "./check-trash.mjs";
 
+import { checkGenerator, checkGeneratorReopened } from "./check-generator.mjs";
+
 // Only synthetic data in a new test browser. Never connect to a live browser.
 const root = resolve("build");
 const types = {
@@ -126,6 +128,7 @@ try {
     await page
         .getByRole("button", { name: "Create vault", exact: true })
         .click();
+    const generated = await checkGenerator(page);
     await page.getByRole("button", { name: "New secret", exact: true }).click();
     await page.getByLabel(/^Name/).fill("Synthetic offline Login");
     await page
@@ -186,6 +189,7 @@ try {
         .click();
     await reopened.getByLabel(/^Master password/).fill("synthetic-master-19");
     await reopened.getByRole("button", { name: "Unlock", exact: true }).click();
+    await checkGeneratorReopened(reopened, generated);
     await reopened
         .getByRole("button", { name: "Synthetic offline Login", exact: true })
         .click();
@@ -269,6 +273,7 @@ try {
     assert.ok(
         cacheContents.every(
             (entry) =>
+                !entry.body.includes(generated) &&
                 !/synthetic-master-19|synthetic-secret-19|edited-user-19/.test(
                     entry.body,
                 ),

@@ -174,6 +174,62 @@ describe("local secret editor with the real workflow and collection", () => {
         expect(records.get(note!.id)).toEqual(note);
         expect(records.get(original.id)).toEqual(original);
     });
+
+    it("generates without writes, inserts only on request with confirmation, and preserves history through cancel/save", async () => {
+        const { records, vault } = await setup([original, other]);
+        await click("Password generator");
+        await click("Generate");
+        expect(target.textContent).not.toContain("Use in Login draft");
+        expect(vault.encryptAndStore).not.toHaveBeenCalled();
+        await click(original.name);
+        await click("Edit");
+        await click("Password generator");
+        await click("Generate");
+        await click("Show Generated value");
+        const generated = button("Hide Generated value").closest("fieldset")?.querySelector("p")?.textContent;
+        expect(generated).toHaveLength(20);
+        expect(control("secret").value).toBe(original.secret);
+        await click("Use in Login draft");
+        expect(control("secret").value).toBe(generated);
+        expect(control("confirm-secret").value).toBe(generated);
+        expect(control("secret").type).toBe("password");
+        expect(vault.encryptAndStore).not.toHaveBeenCalled();
+        await click("Cancel");
+        expect(records.get(original.id)).toEqual(original);
+        await click("Edit");
+        await click("Password generator");
+        await click("Generate");
+        await click("Use in Login draft");
+        const savedPassword = control("secret").value;
+        await click("Save");
+        await saved();
+        const changed = records.get(original.id)!;
+        expect(changed.secret).toBe(savedPassword);
+        expect(changed.history).toEqual([{ secret: original.secret, changedAt: changed.updatedAt }]);
+        expect(records.get(other.id)).toEqual(other);
+        await click("Edit");
+        expect(control("secret").value).toBe(savedPassword);
+    });
+
+    it("discards generated state and pending clipboard feedback on navigation and retirement", async () => {
+        await setup([original, other]);
+        let finish!: () => void;
+        const write = vi.spyOn(navigator.clipboard, "writeText").mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+        await click("Password generator");
+        await click("Generate");
+        await click("Copy Generated value");
+        expect(write).toHaveBeenCalledOnce();
+        await click(other.name);
+        finish();
+        await tick();
+        expect(target.textContent).not.toContain("Copied.");
+        await click("Password generator");
+        expect(button("Copy Generated value").disabled).toBe(true);
+        await click("Generate");
+        (component as { retire: () => void }).retire();
+        flushSync();
+        expect(target.textContent).not.toContain("Generated value");
+    });
     it("opens read-only details without writes and reveals only on an explicit action", async () => {
         const { vault, records } = await setup([original, other]);
         await click(original.name);
