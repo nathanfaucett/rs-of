@@ -1,0 +1,77 @@
+{
+  "retrievedOn": "2026-11-05",
+  "repository": "bitwarden/clients",
+  "commit": "ab8ea7db118f6f0b4878014594c5d822a658dbe0",
+  "sources": [
+    {
+      "path": "libs/common/src/models/export/cipher.export.ts",
+      "url": "https://raw.githubusercontent.com/bitwarden/clients/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/models/export/cipher.export.ts",
+      "sha256": "23079f1d5c94673de08842ce9e95bbe3ae04286bbcfbf4ca5f7add1140b7e08f"
+    },
+    {
+      "path": "libs/common/src/models/export/login.export.ts",
+      "url": "https://raw.githubusercontent.com/bitwarden/clients/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/models/export/login.export.ts",
+      "sha256": "a2c5ed7f4d7bf8aabd4cf49e6cb852df7485753b687fd56fba031d5d53f4da10"
+    },
+    {
+      "path": "libs/common/src/models/export/card.export.ts",
+      "url": "https://raw.githubusercontent.com/bitwarden/clients/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/models/export/card.export.ts",
+      "sha256": "ae47107f0724853334d6cc158f6f1a0efa7d5dbfed067777124777392b34b759"
+    },
+    {
+      "path": "libs/common/src/models/export/identity.export.ts",
+      "url": "https://raw.githubusercontent.com/bitwarden/clients/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/models/export/identity.export.ts",
+      "sha256": "92fe631efbd1b66738bc79326e2c0665c8c29b26106ed2d811fe23ffda3087f7"
+    },
+    {
+      "path": "libs/common/src/models/export/secure-note.export.ts",
+      "url": "https://raw.githubusercontent.com/bitwarden/clients/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/models/export/secure-note.export.ts",
+      "sha256": "2d1f017c10c18238bae50b43dd35cf117dc3a3817e94224a347022a48d90f360"
+    },
+    {
+      "path": "libs/common/src/models/export/ssh-key.export.ts",
+      "url": "https://raw.githubusercontent.com/bitwarden/clients/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/models/export/ssh-key.export.ts",
+      "sha256": "e6d770519ded60d9582ecdb4455e47bb6f9d7a0478cbc7f64fad6e585b620dcc"
+    },
+    {
+      "path": "libs/common/src/models/export/field.export.ts",
+      "url": "https://raw.githubusercontent.com/bitwarden/clients/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/models/export/field.export.ts",
+      "sha256": "a85dbd95081c6f4015e94022ee5960c258d2ceaa998664e9cd0b222843afa9f8"
+    },
+    {
+      "path": "libs/common/src/models/export/login-uri.export.ts",
+      "url": "https://raw.githubusercontent.com/bitwarden/clients/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/models/export/login-uri.export.ts",
+      "sha256": "43875075fa9de25b22bca3f49236d2c5842baba0bfecdf15c126fa73208ef8ce"
+    },
+    {
+      "path": "libs/common/src/models/export/password-history.export.ts",
+      "url": "https://raw.githubusercontent.com/bitwarden/clients/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/models/export/password-history.export.ts",
+      "sha256": "4e22caed2fd9c46da1d5157e2c3c0ef4fa710ac4b092f69ed60e01aebf8d0c8e"
+    },
+    {
+      "path": "libs/common/src/vault/enums/field-type.enum.ts",
+      "url": "https://raw.githubusercontent.com/bitwarden/clients/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/vault/enums/field-type.enum.ts",
+      "sha256": "7b1e1ff41d37afd492c4adac5bf8da91391a7bfa4568c46f9f39f94285a3435e"
+    },
+    {
+      "path": "libs/common/src/vault/enums/secure-note-type.enum.ts",
+      "url": "https://raw.githubusercontent.com/bitwarden/clients/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/vault/enums/secure-note-type.enum.ts",
+      "sha256": "bef3a4b07e0a4ea8ca2595bcdccdf5b7e4a82d2f5cc476e241e28cfb5d1b0b05"
+    },
+    {
+      "path": "libs/common/src/vault/enums/cipher-type.ts",
+      "url": "https://raw.githubusercontent.com/bitwarden/clients/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/vault/enums/cipher-type.ts",
+      "sha256": "c1f92913c9c6e3b2b1a7e0fd667b20a42bdbcd0dd84fd9ad8500839dc7a1350c"
+    },
+    {
+      "path": "libs/common/src/models/domain/domain-service.ts",
+      "url": "https://raw.githubusercontent.com/bitwarden/clients/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/models/domain/domain-service.ts",
+      "sha256": "3497c35f855362a40ab5afd2ff7d0ad1b78c480a3d0a8417deae35cb92aba51d"
+    },
+    {
+      "path": "libs/tools/export-vault-core/src/types/bitwarden-json-export-types.ts",
+      "url": "https://raw.githubusercontent.com/bitwarden/clients/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/tools/export-vault-core/src/types/bitwarden-json-export-types.ts",
+      "sha256": "b70c36bce8e007780d53ec708d3e519010ea484b50470ac43718ec7be66658d3"
+    }
+  ]
+}

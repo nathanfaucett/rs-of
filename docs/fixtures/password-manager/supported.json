@@ -1,0 +1,114 @@
+{
+  "encrypted": false,
+  "folders": [
+    { "id": "10000000-0000-4000-8000-000000000001", "name": "Synthetic" },
+    { "id": "10000000-0000-4000-8000-000000000002", "name": "Synthetic/日本語" }
+  ],
+  "items": [
+    {
+      "id": "20000000-0000-4000-8000-000000000001",
+      "organizationId": null,
+      "collectionIds": [],
+      "folderId": "10000000-0000-4000-8000-000000000002",
+      "type": 1,
+      "reprompt": 0,
+      "name": "SYNTHETIC Login café 日本語 🔐",
+      "notes": "Synthetic only.\nSecond line, café.\n",
+      "favorite": true,
+      "fields": [
+        { "name": "label", "value": "line one\n日本語", "type": 0 },
+        { "name": "hidden", "value": "NOT-A-REAL-SECRET", "type": 1, "linkedId": null },
+        { "name": "check", "value": "true", "type": 2 },
+        { "name": "check", "value": "false", "type": 2 },
+        { "name": "empty", "value": "", "type": 0 },
+        { "name": "absent-value", "value": null, "type": 0 }
+      ],
+      "login": {
+        "username": "synthetic@example.invalid",
+        "password": "SYNTHETIC-NOT-A-CREDENTIAL",
+        "totp": "JBSWY3DPEHPK3PXP",
+        "uris": [
+          { "uri": "https://default.example.invalid/", "match": null },
+          { "uri": "https://domain.example.invalid/", "match": 0 },
+          { "uri": "https://host.example.invalid:8443/", "match": 1 },
+          { "uri": "https://prefix.example.invalid/path/", "match": 2 },
+          { "uri": "https://exact.example.invalid/path?q=1", "match": 3 },
+          { "uri": "^https://[a-z]+\\.example\\.invalid/", "match": 4 },
+          { "uri": "androidapp://invalid.example.synthetic", "match": 5 }
+        ],
+        "fido2Credentials": []
+      },
+      "passwordHistory": [
+        { "password": "SYNTHETIC-PRIOR-ONE", "lastUsedDate": "2025-01-02T03:04:05.000Z" },
+        { "password": "", "lastUsedDate": "2025-02-03T04:05:06.000Z" }
+      ],
+      "creationDate": "2025-01-01T00:00:00.000Z",
+      "revisionDate": "2025-03-01T00:00:00.000Z",
+      "deletedDate": null,
+      "archivedDate": null
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000002",
+      "type": 2,
+      "name": "SYNTHETIC Secure Note",
+      "notes": "Private text fixture only.\nNo password field.\n",
+      "favorite": false,
+      "folderId": null,
+      "secureNote": { "type": 0 },
+      "fields": [],
+      "passwordHistory": [],
+      "creationDate": "2025-01-01T00:00:00.000Z",
+      "revisionDate": "2025-03-01T00:00:00.000Z"
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000003",
+      "type": 3,
+      "name": "SYNTHETIC Card (not usable)",
+      "folderId": "10000000-0000-4000-8000-000000000001",
+      "notes": null,
+      "card": {
+        "cardholderName": "Synthetic Person",
+        "brand": "Synthetic Brand",
+        "number": "0000000000000000",
+        "expMonth": "01",
+        "expYear": "2000",
+        "code": "000"
+      }
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000004",
+      "type": 4,
+      "name": "SYNTHETIC Identity",
+      "identity": {
+        "title": "Mx",
+        "firstName": "Synthetic",
+        "middleName": "Test",
+        "lastName": "Person",
+        "address1": "Not a real address",
+        "address2": "Fixture floor",
+        "address3": "Fixture room",
+        "city": "Example",
+        "state": "XX",
+        "postalCode": "00001",
+        "country": "ZZ",
+        "company": "Synthetic Company",
+        "email": "synthetic@example.invalid",
+        "phone": "+1-202-555-0100",
+        "ssn": "SYNTHETIC-NOT-AN-SSN",
+        "username": "synthetic-user",
+        "passportNumber": "SYNTHETIC-PASSPORT",
+        "licenseNumber": "SYNTHETIC-LICENSE"
+      }
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000005",
+      "type": 5,
+      "name": "SYNTHETIC SSH (text storage only)",
+      "sshKey": {
+        "privateKey": "SYNTHETIC PRIVATE KEY TEXT\nNot an SSH key.\n",
+        "publicKey": "SYNTHETIC PUBLIC KEY TEXT",
+        "keyFingerprint": "SYNTHETIC-NOT-A-FINGERPRINT"
+      }
+    }
+  ]
+}
