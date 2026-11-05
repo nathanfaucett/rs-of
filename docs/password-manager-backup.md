@@ -55,6 +55,7 @@ Both versions have these decrypted payload fields:
 - `meta`: original `id`, `salt`, `iv`, and `createdAt`.
 - `authentication`: the original versioned vault authentication proof string.
 - `name`: the source registry's display name.
+- Optional nullable `lockSettings`: the exact per-vault encrypted timeout settings. Missing/null selects the 5-minute default. Saved values are authenticated and validated during export, staging, and restore. Older strict readers reject this payload extension; use a supported current reader. See [lock settings and recovery](password-manager-lock.md).
 - `secrets`: the full encrypted record array, including deleted/Trash records. Each entry retains `id`, `ciphertext`, `nonce`, `createdAt`, and `updatedAt`.
 
 The outer GCM tag binds the full set, order, IDs, timestamps, name, proof, and source metadata. The proof is separately checked against the original metadata and derived key. All records are decrypted and validated against the current application schema, with matching inner/outer IDs and no duplicate IDs, before export or restore preparation succeeds. No partial supported subset is accepted. Decrypted record text is not reserialized into storage: its original ciphertext and nonce are retained.
@@ -63,7 +64,7 @@ Version 1 retains the original untyped Login records, including all credentials,
 
 Version 2 adds required `itemFormat: 2` and `transitionBackup`, which is null for a new vault or the complete authenticated version 1 source-backup string for a transitioned vault. The embedded backup is authenticated and validated too; it must have the same source metadata/proof and cannot contain another nested backup. All five discriminated item types, optional credentials, inherited URI rules, folder membership IDs, and encrypted import provenance are preserved. Envelope version and payload item format must agree. Restore verifies the exact saved item format and recovery backup as well as the record set.
 
-See [typed items and recoverable transition](password-manager-items.md) for field names, source retention, recovery downloads, and later-ticket interfaces. Folder tables, attachments, and settings are not implemented by ticket 05. A later schema that adds separate persisted logical data must extend/version this contract and its complete-snapshot tests. App assets, cache readiness, registry storage paths, and transient editor drafts are not vault data and are not restored.
+See [typed items and recoverable transition](password-manager-items.md) for field names, source retention, recovery downloads, and later-ticket interfaces. Folder tables and attachments are not implemented by ticket 05. Ticket 16 adds the encrypted lock-settings payload extension without changing the envelope version. A later schema that adds separate persisted logical data must extend/version this contract and its complete-snapshot tests. App assets, cache readiness, registry storage paths, and transient editor drafts are not vault data and are not restored.
 
 Maximum input/output: **16 MiB** of UTF-8 JSON and **10,000 current records**. The byte limit includes any embedded pre-transition backup. The UI checks file size before reading it; the API checks encoded size before JSON parse/key derivation. These are tested implementation limits, not encryption limits. Export fails rather than omitting records above the limits.
 
@@ -86,7 +87,7 @@ A rejected publication or failed readback can have an uncertain outcome. The err
 
 Validation rejects wrong passwords, missing metadata, changed authenticated values, damaged/truncated files, unsupported versions/parameters, duplicate/mismatched IDs, invalid logical data, and unsupported payload fields before destination writes. Errors do not contain passwords, keys, decrypted content, parser values, or imported field values. The UI displays only authenticated preview metadata, not decrypted records.
 
-Authenticated backup detects alteration of a file's interpreted contents. It does not prove that the source record set was historically complete, detect replacement with an older valid backup, prevent source deletion, recover a forgotten password, or protect a compromised browser/OS. Someone who knows the master password can create another valid backup. JavaScript does not guarantee memory zeroization. Key lifecycle/automatic lock qualification and independent cryptographic review remain separate work.
+Authenticated backup detects alteration of a file's interpreted contents. It does not prove that the source record set was historically complete, detect replacement with an older valid backup, prevent source deletion, recover a forgotten password, or protect a compromised browser/OS. Someone who knows the master password can create another valid backup. JavaScript does not guarantee memory zeroization. Ticket 16 tests local key/handle retirement and automatic lock at the application/public persistence boundaries; see [lock evidence and limits](password-manager-lock.md). Independent cryptographic review remains separate work.
 
 ## Evidence and checks
 

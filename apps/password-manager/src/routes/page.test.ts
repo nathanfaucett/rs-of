@@ -64,6 +64,8 @@ beforeEach(async () => {
         prepareItems: vi.fn(async () => {}),
         readItems: vi.fn(async () => ({ items: [], folders: [] })),
         loadSecrets: vi.fn(async () => []),
+        loadLockSettings: vi.fn(async () => ({ timeoutMinutes: 5 })),
+        saveLockSettings: vi.fn(async (settings) => settings),
     } as unknown as VaultHandle;
     vi.mocked(listVaults).mockResolvedValue([
         {

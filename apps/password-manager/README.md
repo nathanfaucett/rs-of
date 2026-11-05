@@ -114,6 +114,16 @@ lock, and exact encrypted-backup recovery in clean storage. The offline script
 also runs the generator with the server stopped and checks saved passphrase
 reopen and absence of generated values from the application cache.
 
+## Manual and automatic lock
+
+Each vault has an encrypted inactivity timeout: 1, 5, 15, or 30 minutes (default 5).
+Save it under **Automatic lock**. Unlock starts a new deadline; reload requires
+master-password authentication. Expired activity and tab resume lock before
+extending a session. Manual lock also works during pending work. A write already
+sent may have committed; reopen and verify before retrying. Copied values can
+remain on the clipboard. Browser code cannot reliably detect OS lock or erase
+JavaScript memory. See [lock behavior, API, limits, and tests](../../docs/password-manager-lock.md).
+
 ## Encrypted backup and recovery
 
 Unlock a vault and select **Download encrypted backup**. To recover, select

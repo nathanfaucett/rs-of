@@ -58,6 +58,7 @@ async function start() {
     const name = `Detail ${crypto.randomUUID()}`;
     const vault = await createVault(password, name);
     await vault.prepareItems();
+    await vault.saveLockSettings({ timeoutMinutes: 1 });
     await vault.encryptAndStore(JSON.stringify(original), original.id);
     const id = vault.id;
     vault.close();
@@ -198,9 +199,11 @@ it("shows a failed save without adding history or changing the stored Login", as
     await click("Lock vault");
 }, 15000);
 
-it.each(["copy", "read", "write", "acknowledgement"] as const)(
-    "locks during a pending %s and does not restore secrets or feedback from its late result",
-    async (operation) => {
+it.each((["copy", "read", "write", "acknowledgement"] as const).flatMap((operation) =>
+    (["manual", "automatic"] as const).map((mode) => ({ operation, mode })),
+))(
+    "$mode lock during a pending $operation does not restore secrets or feedback from its late result",
+    async ({ operation, mode }) => {
         const { id, name } = await start();
         await click(original.name);
         let release!: () => void;
@@ -253,7 +256,12 @@ it.each(["copy", "read", "write", "acknowledgement"] as const)(
             await click("Save");
         }
         await expect.poll(() => started).toBe(true);
-        await click("Lock vault");
+        if (mode === "manual") await click("Lock vault");
+        else {
+            vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_001);
+            window.dispatchEvent(new Event("focus"));
+            flushSync();
+        }
         await expect
             .poll(() => target.textContent)
             .toContain("Select a vault to unlock");

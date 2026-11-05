@@ -30,4 +30,8 @@ CREATE TABLE secrets (
         version: 4,
         sql: "CREATE TABLE folders (id TEXT PRIMARY KEY, ciphertext TEXT NOT NULL, nonce TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
     },
+    {
+        version: 5,
+        sql: "ALTER TABLE vault_meta ADD COLUMN lock_settings TEXT",
+    },
 ];
