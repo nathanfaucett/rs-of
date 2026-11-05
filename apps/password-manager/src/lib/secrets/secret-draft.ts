@@ -15,6 +15,11 @@ import {
     SshKeySchema,
 } from "./secret";
 
+const fieldOrigin = Symbol("draft-field-origin");
+type DraftField = Secret["fields"][number] & {
+    [fieldOrigin]?: { itemId: string; index: number };
+};
+
 export type EditableSecret = Login | SecureNote | Card | Identity | SshKey;
 export type EditableKind = EditableSecret["kind"];
 type CommonDraft = Pick<Login, "name" | "fields" | "favorite"> & {
@@ -69,7 +74,13 @@ export function createSecretDraft(
 ): SecretDraft {
     const common = {
         name: record?.name ?? "",
-        fields: record?.fields.map((field) => ({ ...field })) ?? [],
+        fields:
+            record?.fields.map((field, index) =>
+                Object.defineProperty({ ...field }, fieldOrigin, {
+                    value: { itemId: record.id, index },
+                    enumerable: false,
+                }),
+            ) ?? [],
         notes: record?.notes ?? "",
         favorite: record?.favorite ?? false,
     };
@@ -122,17 +133,28 @@ export function createSecretDraft(
 
 export function customFieldIssue(
     previous: EditableSecret | null,
-    field: Secret["fields"][number],
+    fields: Secret["fields"],
     index: number,
 ): string | null {
-    const old = previous?.fields[index];
+    const field = fields[index];
     if (
         field.type !== "boolean" ||
         field.value === "true" ||
-        field.value === "false" ||
-        (old?.type === "boolean" &&
-            old.name === field.name &&
-            old.value === field.value)
+        field.value === "false"
+    )
+        return null;
+    const origin = (field as DraftField)[fieldOrigin];
+    const old =
+        origin && previous && origin.itemId === previous.id
+            ? previous.fields[origin.index]
+            : undefined;
+    if (
+        old?.type === "boolean" &&
+        old.name === field.name &&
+        old.value === field.value &&
+        fields.findIndex(
+            (entry) => (entry as DraftField)[fieldOrigin] === origin,
+        ) === index
     )
         return null;
     return `Custom field ${index + 1}: Select True or False, change the field type, or remove the field before saving.`;
@@ -145,7 +167,7 @@ export function constructSecret(
     now: string,
 ) {
     const fieldIssue = draft.fields
-        .map((field, index) => customFieldIssue(previous, field, index))
+        .map((_field, index) => customFieldIssue(previous, draft.fields, index))
         .find(Boolean);
     const fields = v.safeParse(
         v.pipe(
@@ -159,6 +181,7 @@ export function constructSecret(
     const common = {
         ...previous,
         ...draft,
+        fields: fields.output,
         id,
         notes:
             previous && draft.notes === (previous.notes ?? "")

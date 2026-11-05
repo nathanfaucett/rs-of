@@ -1,6 +1,7 @@
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import { LoginSchema } from "./secret";
+import { serializeJsonExport } from "../json-export/export";
 import { constructSecret, createSecretDraft } from "./secret-draft";
 
 const id = "12345678-1234-4234-8234-123456789abc";
@@ -103,6 +104,55 @@ describe("secret drafts", () => {
             expect(constructSecret(valid, changed, id, now).success).toBe(
                 false,
             );
+        },
+    );
+
+    it("preserves an unchanged legacy Boolean after removing a preceding Text field", () => {
+        const legacy = {
+            ...record,
+            fields: [
+                { name: "Text", type: "text" as const, value: "Unrelated" },
+                { name: "Legacy", type: "boolean" as const, value: null },
+            ],
+        };
+        const draft = createSecretDraft(legacy);
+        draft.fields.splice(0, 1);
+        const result = constructSecret(legacy, draft, id, now);
+        expect(result.success).toBe(true);
+        if (!result.success)
+            throw new Error("Expected the unchanged legacy field to save");
+        expect(result.output.fields).toEqual([legacy.fields[1]]);
+        expect(Reflect.ownKeys(result.output.fields[0]).sort()).toEqual([
+            "name",
+            "type",
+            "value",
+        ]);
+        expect(() =>
+            serializeJsonExport({ items: [result.output], folders: [] }),
+        ).toThrow("Cannot represent Boolean at /items/0/fields/0/value");
+    });
+
+    it.each(["replacement", "copy", "same origin", "altered"] as const)(
+        "rejects an invalid legacy Boolean %s rather than treating it as an unchanged field",
+        (operation) => {
+            const field = {
+                name: "Legacy",
+                type: "boolean" as const,
+                value: null,
+            };
+            const legacy = { ...record, fields: [field, { ...field }] };
+            expect(
+                constructSecret(legacy, createSecretDraft(legacy), id, now)
+                    .success,
+            ).toBe(true);
+            const draft = createSecretDraft(legacy);
+            if (operation === "replacement") draft.fields[0] = { ...field };
+            else if (operation === "copy")
+                draft.fields[1] = { ...draft.fields[0] };
+            else if (operation === "same origin")
+                draft.fields[1] = draft.fields[0];
+            else draft.fields[0].name = "Changed";
+            expect(constructSecret(legacy, draft, id, now).success).toBe(false);
         },
     );
 

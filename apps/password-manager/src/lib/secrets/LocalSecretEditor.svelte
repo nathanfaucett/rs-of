@@ -325,7 +325,7 @@ function navigate(action: () => void) {
                 <fieldset class="flex min-w-0 flex-col gap-3" disabled={!workflow.canEdit}>
                     <legend class="text-sm font-medium">Custom fields</legend>
                     {#each draft.fields as field, i (field)}
-                        {@const issue = customFieldIssue(editor.record, field, i)}
+                        {@const issue = customFieldIssue(editor.record, draft.fields, i)}
                         <div class="flex flex-wrap items-end gap-2">
                             <Field id={`field-name-${i}`} label={`Field name ${i + 1}`} required>
                                 {#snippet children(control)}<input {...control} bind:value={field.name} />{/snippet}

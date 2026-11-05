@@ -205,6 +205,60 @@ describe("local secret editor with the real workflow and collection", () => {
         },
     );
 
+    it.each([null, ""])(
+        "preserves an unchanged legacy Boolean %s after removing a preceding Text field",
+        async (value) => {
+            const legacy = {
+                ...original,
+                fields: [
+                    { name: "Text", type: "text" as const, value: "Unrelated" },
+                    { name: "Legacy", type: "boolean" as const, value },
+                ],
+            };
+            const { records } = await setup([legacy]);
+            await edit(legacy.name);
+            const remove = target.querySelector<HTMLButtonElement>(
+                '[aria-label="Remove custom field 1"]',
+            );
+            if (!remove) throw new Error("Missing Text field removal control");
+            remove.click();
+            flushSync();
+            await tick();
+            await click("Save");
+            await saved();
+            const stored = records.get(legacy.id)!;
+            expect(stored.fields).toEqual([legacy.fields[1]]);
+            expect(Reflect.ownKeys(stored.fields[0]).sort()).toEqual([
+                "name",
+                "type",
+                "value",
+            ]);
+            expect(() =>
+                serializeJsonExport({ items: [stored], folders: [] }),
+            ).toThrow("Cannot represent Boolean at /items/0/fields/0/value");
+            await click("Edit");
+            await click("Add custom field");
+            await fill("field-name-1", "Legacy");
+            await fill("field-type-1", "boolean");
+            await click("Save");
+            expect(control("field-value-1").getAttribute("aria-invalid")).toBe(
+                "true",
+            );
+            expect(records.get(legacy.id)).toEqual(stored);
+            target
+                .querySelector<HTMLButtonElement>(
+                    '[aria-label="Remove custom field 2"]',
+                )!
+                .click();
+            flushSync();
+            await tick();
+            await fill("field-name-0", "Altered legacy");
+            await click("Save");
+            expect(target.textContent).toContain("Select True or False");
+            expect(records.get(legacy.id)).toEqual(stored);
+        },
+    );
+
     it("rejects changing a Text field to an unset Boolean until corrected", async () => {
         const { records } = await setup([
             {
