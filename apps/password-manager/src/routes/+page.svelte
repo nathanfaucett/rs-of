@@ -2,6 +2,8 @@
 import { onMount } from "svelte";
 import { beforeNavigate } from "$app/navigation";
 import RestoreBackup from "$lib/vault/RestoreBackup.svelte";
+import LockSettingsControl from "$lib/vault/LockSettings.svelte";
+import { createInactivityLock, DEFAULT_LOCK_SETTINGS, type LockSettings } from "$lib/vault/lock";
 import LocalSecretEditor from "$lib/secrets/LocalSecretEditor.svelte";
 import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 import {
@@ -30,6 +32,27 @@ let busy = $state(false);
 let notice = $state("");
 let itemEditor = $state<ReturnType<typeof LocalSecretEditor>>();
 let session = 0;
+let lockSettings = $state<LockSettings>({ ...DEFAULT_LOCK_SETTINGS });
+const inactivity = createInactivityLock(() => { void lockVault(); });
+
+function settingsSaved(settings: LockSettings) {
+    if (inactivity.check() || vaultState.status !== "unlocked") return;
+    lockSettings = settings;
+    inactivity.start(settings);
+}
+
+async function enterVault(vault: VaultHandle, request: number) {
+    try {
+        const settings = await vault.loadLockSettings();
+        if (request !== session) { vault.close(); return; }
+        lockSettings = settings;
+        inactivity.start(settings);
+        vaultState = { status: "unlocked", vault };
+    } catch (cause) {
+        vault.close();
+        throw cause;
+    }
+}
 
 beforeNavigate((navigation) => {
     if (!busy && !itemEditor?.hasUnsavedChanges()) return;
@@ -45,7 +68,7 @@ async function downloadBackup(recovery = false) {
     const request = session;
     try {
         const backup = await (recovery ? vault.exportTransitionBackup() : vault.exportBackup());
-        if (request !== session) return;
+        if (inactivity.check() || request !== session) return;
         const url = URL.createObjectURL(new Blob([backup], { type: "application/json" }));
         const link = document.createElement("a");
         link.href = url;
@@ -70,7 +93,21 @@ async function restored(identity: VaultIdentity) {
 
 onMount(() => {
     void showVaultSelector();
+    const activity = (event: Event) => {
+        if (inactivity.check()) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            return;
+        }
+        inactivity.activity();
+    };
+    const events = ["pointerdown", "pointermove", "keydown", "input", "click", "wheel"];
+    for (const event of events) window.addEventListener(event, activity, { capture: true });
+    const timer = setInterval(() => inactivity.check(), 1000);
     return () => {
+        clearInterval(timer);
+        for (const event of events) window.removeEventListener(event, activity, { capture: true });
+        inactivity.stop();
         session++;
         password = "";
         confirmPassword = "";
@@ -106,7 +143,7 @@ async function createVault() {
         password = "";
         confirmPassword = "";
         vaultName = "";
-        vaultState = { status: "unlocked", vault };
+        await enterVault(vault, request);
     } catch (cause) {
         if (request === session) error = `${cause instanceof Error ? cause.message : "Failed to create vault."} Check browser storage and free space. Return to the selector to recover an interrupted registration before retrying. Do not clear browser data.`;
     } finally {
@@ -127,7 +164,7 @@ async function unlockVault() {
         const vault = await unlockVaultHandle(password, vaultState.identity.id);
         if (request !== session) { vault.close(); return; }
         password = "";
-        vaultState = { status: "unlocked", vault };
+        await enterVault(vault, request);
     } catch (cause) {
         if (request === session) error = cause instanceof Error ? cause.message : "Failed to unlock vault. Wrong password?";
     } finally {
@@ -167,14 +204,26 @@ async function showVaultSelector() {
 }
 
 async function lockVault() {
+    inactivity.stop();
     session++;
+    lockSettings = { ...DEFAULT_LOCK_SETTINGS };
+    password = "";
+    confirmPassword = "";
+    notice = "";
+    error = "";
     busy = false;
     itemEditor?.retire();
     if (vaultState.status === "unlocked") vaultState.vault.close();
+    itemEditor = undefined;
+    const request = session;
     await showVaultSelector();
+    if (request !== session) return;
     notice = "Vault locked. Unsaved edits were discarded. A write already sent may have persisted; unlock and verify before retrying. Copied values can remain on the clipboard.";
 }
 </script>
+
+<svelte:window onfocus={() => inactivity.check()} onpageshow={() => inactivity.check()} />
+<svelte:document onvisibilitychange={() => inactivity.check()} />
 
 <div class="flex min-h-0 grow items-start justify-center overflow-auto p-6">
     {#if vaultState.status === "loading"}
@@ -349,6 +398,7 @@ async function lockVault() {
             </PageHeader>
             {#if error}<Alert tone="danger">{error}</Alert>{/if}
             {#if notice}<p role="status">{notice}</p>{/if}
+            <LockSettingsControl vault={vaultState.vault} settings={lockSettings} onsaved={settingsSaved} />
             <LocalSecretEditor bind:this={itemEditor} vault={vaultState.vault} />
         </Page>
     {:else if vaultState.status === "error"}

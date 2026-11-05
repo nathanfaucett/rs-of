@@ -12,6 +12,7 @@ import {
     verifyAuthentication,
 } from "./crypto";
 import { vaultMigrations } from "./migrations";
+import { decryptLockSettings } from "./lock";
 import {
     listVaultIdentities,
     publishRestoredVault,
@@ -42,6 +43,7 @@ const recordSchema = v.strictObject({
     updatedAt: date,
 });
 const payloadSchema = v.strictObject({
+    lockSettings: v.optional(v.nullable(text)),
     itemFormat: v.optional(v.literal(2)),
     transitionBackup: v.optional(v.nullable(text)),
     meta: metaSchema,
@@ -101,6 +103,7 @@ async function validatePayload(
     bytes(payload.meta.salt, 16);
     bytes(payload.meta.iv, 12);
     await verifyAuthentication(key, payload.meta, payload.authentication);
+    await decryptLockSettings(key, payload.meta.id, payload.lockSettings ?? null);
     if (payload.transitionBackup != null) {
         if (payload.itemFormat !== 2) throw invalid();
         await validateTransitionBackup(key, payload, payload.transitionBackup);
@@ -286,7 +289,7 @@ export async function stageVault(
             const tx = await client.transaction();
             try {
                 await tx.execute(
-                    "INSERT INTO vault_meta (id, vault_id, salt, iv, created_at, authentication, item_format, transition_backup) VALUES (1, $1, $2, $3, $4, $5, $6, $7)",
+                    "INSERT INTO vault_meta (id, vault_id, salt, iv, created_at, authentication, item_format, transition_backup, lock_settings) VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8)",
                     [
                         ...params([
                             payload.meta.id,
@@ -302,6 +305,7 @@ export async function stageVault(
                         payload.transitionBackup
                             ? { type: "text", value: payload.transitionBackup }
                             : { type: "null" },
+                        payload.lockSettings ? { type: "text", value: payload.lockSettings } : { type: "null" },
                     ],
                 );
                 for (const record of payload.secrets) {
@@ -363,7 +367,7 @@ export async function stageVault(
             )
                 throw invalid();
             const format = await reader.execute(
-                "SELECT item_format, transition_backup FROM vault_meta WHERE id = 1",
+                "SELECT item_format, transition_backup, lock_settings FROM vault_meta WHERE id = 1",
             );
             if (
                 JSON.stringify(format[0].rows[0][0]) !==
@@ -379,6 +383,9 @@ export async function stageVault(
                     )
             )
                 throw invalid();
+            const storedSettings = format[0].rows[0][2];
+            if (JSON.stringify(storedSettings) !== JSON.stringify(payload.lockSettings ? { type: "text", value: payload.lockSettings } : { type: "null" })) throw invalid();
+            await decryptLockSettings(key, payload.meta.id, payload.lockSettings ?? null);
             await verifyAuthentication(
                 key,
                 payload.meta,
