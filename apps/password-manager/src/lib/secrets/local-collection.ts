@@ -5,7 +5,7 @@ import {
 } from "@tanstack/db";
 import * as v from "valibot";
 import type { VaultHandle } from "$lib/vault/vault";
-import { type Secret, SecretSchema } from "./secret";
+import { type Secret, SecretSchema, SecretIdSchema } from "./secret";
 
 export class UnacknowledgedStorageWriteError extends Error {
     constructor() {
@@ -37,6 +37,8 @@ export function createLocalSecretCollection({
     }
 
     async function snapshot(): Promise<Secret[]> {
+        active();
+        await vault.prepareItems();
         active();
         const encrypted = await vault.loadSecrets();
         const secrets: Secret[] = [];
@@ -160,7 +162,7 @@ export function createLocalSecretCollection({
                             "Only single-secret mutations are supported",
                         );
                     const key = String(mutation.key);
-                    if (!v.safeParse(SecretSchema.entries.id, key).success)
+                    if (!v.safeParse(SecretIdSchema, key).success)
                         throw new Error("Invalid secret identity");
                     const value =
                         mutation.type === "delete"

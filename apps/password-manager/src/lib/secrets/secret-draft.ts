@@ -1,16 +1,17 @@
 import * as v from "valibot";
-import { type Secret, SecretSchema } from "./secret";
+import { type Login, LoginSchema } from "./secret";
 
 export type SecretDraft = Pick<
-    Secret,
-    "name" | "secret" | "uris" | "fields" | "favorite"
+    Login,
+    "name" | "uris" | "fields" | "favorite"
 > & {
+    secret: string;
     username: string;
     totp: string;
     notes: string;
 };
 
-export function createSecretDraft(record: Secret | null): SecretDraft {
+export function createSecretDraft(record: Login | null): SecretDraft {
     return {
         name: record?.name ?? "",
         secret: record?.secret ?? "",
@@ -24,18 +25,29 @@ export function createSecretDraft(record: Secret | null): SecretDraft {
 }
 
 export function constructSecret(
-    previous: Secret | null,
+    previous: Login | null,
     draft: SecretDraft,
     id: string,
     now: string,
 ) {
-    return v.safeParse(SecretSchema, {
+    return v.safeParse(LoginSchema, {
+        kind: "login",
         ...previous,
         ...draft,
         id,
+        ...Object.fromEntries(
+            (["secret", "username", "totp", "notes"] as const).map((key) => [
+                key,
+                previous && draft[key] === (previous[key] ?? "")
+                    ? previous[key]
+                    : draft[key],
+            ]),
+        ),
         uris: draft.uris.filter(({ uri }) => uri.trim().length > 0),
         history:
-            previous && previous.secret !== draft.secret
+            previous &&
+            previous.secret != null &&
+            previous.secret !== draft.secret
                 ? [
                       ...previous.history,
                       { secret: previous.secret, changedAt: now },

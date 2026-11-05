@@ -17,7 +17,7 @@ pnpm --filter @ofsdk/password-manager dev
 ```
 
 The current dependency uses the sibling `ofdb` checkout. The browser must allow
-IndexedDB and Web Crypto. Local development must use a secure browser context.
+IndexedDB, Web Crypto, and Web Locks. Local development must use a secure browser context.
 
 ## Local vault identities
 
@@ -41,6 +41,16 @@ leaves the source unchanged and can be retried. A duplicate stored ID in differe
 databases fails explicitly instead of selecting one silently. Unsupported old
 development schemas still need separate recovery; this transition does not
 repair them. There is no remaining name-based creation or unlock path.
+
+## Typed items
+
+Login supports optional credentials, ordered websites and match settings, notes,
+favorites, custom fields, and dated password history. Only Login has an editor.
+All five item types have validated encrypted storage and backup support. See
+[typed fields, safe transition, and later-ticket interfaces](../../docs/password-manager-items.md).
+The transition retains the original database and an authenticated pre-transition
+backup. It never publishes an unverified or partial record set. Close old app tabs
+before upgrade; retained source/staging data is not automatically removed.
 
 ## Encrypted backup and recovery
 

@@ -14,33 +14,41 @@ Export contains the last committed record snapshot. Wait for pending edits to sa
 
 Restore preserves the vault ID and every record ID. An existing ID, including an interrupted creation reservation, blocks restore. There is no overwrite, merge, replace, or import-as-new mode. Use a separate clean profile; do not delete the source to bypass this check. Independent vaults can share a display name; the selector identifies them by full ID.
 
-## Version 1 format
+## Versions 1 and 2
 
 The UTF-8 JSON envelope has these exact supported fields. Unknown fields and other parameter values are rejected. Object member order and whitespace do not change authenticated semantic values.
 
-| Field | Value |
-| --- | --- |
-| `format` | `password-manager/encrypted-backup` |
-| `version` | Integer `1` |
-| `kdf.name` | `PBKDF2` |
-| `kdf.hash` | `SHA-512` |
-| `kdf.iterations` | Integer `600000` |
-| `kdf.salt` | Canonical Base64 of the source's 16-byte derivation salt |
-| `cipher` | `AES-256-GCM` |
-| `nonce` | Canonical Base64 of a fresh random 12-byte nonce |
-| `ciphertext` | Canonical Base64 of the encrypted payload, including the 128-bit GCM tag |
+| Field            | Value                                                                    |
+| ---------------- | ------------------------------------------------------------------------ |
+| `format`         | `password-manager/encrypted-backup`                                      |
+| `version`        | Integer `1` (legacy Login) or `2` (typed items)                          |
+| `kdf.name`       | `PBKDF2`                                                                 |
+| `kdf.hash`       | `SHA-512`                                                                |
+| `kdf.iterations` | Integer `600000`                                                         |
+| `kdf.salt`       | Canonical Base64 of the source's 16-byte derivation salt                 |
+| `cipher`         | `AES-256-GCM`                                                            |
+| `nonce`          | Canonical Base64 of a fresh random 12-byte nonce                         |
+| `ciphertext`     | Canonical Base64 of the encrypted payload, including the 128-bit GCM tag |
 
 The non-exportable 256-bit source key is derived locally from the master password and salt. No password, raw key, recovery key, plaintext item, or plaintext vault name is in the envelope. Export never calls `exportKey`. No network request is needed.
 
 GCM additional authenticated data is the UTF-8 encoding of this compact JSON array:
 
 ```json
-["password-manager/encrypted-backup",1,"PBKDF2","SHA-512",600000,"<kdf.salt>","AES-256-GCM"]
+[
+  "password-manager/encrypted-backup",
+  1,
+  "PBKDF2",
+  "SHA-512",
+  600000,
+  "<kdf.salt>",
+  "AES-256-GCM"
+]
 ```
 
-`<kdf.salt>` means the envelope's exact canonical Base64 salt string. This purpose label separates backup encryption from record/proof encryption. GCM also authenticates its nonce and the complete ciphertext. The parser accepts only the fixed supported derivation parameters, not attacker-selected work factors or algorithms.
+The example is version 1. For version 2, the second array element is integer `2`; use the envelope's version, never a fixed `1`. `<kdf.salt>` means the envelope's exact canonical Base64 salt string. This purpose label separates backup encryption from record/proof encryption. GCM also authenticates its nonce and the complete ciphertext. The parser accepts only the fixed supported derivation parameters, not attacker-selected work factors or algorithms.
 
-The decrypted payload has exactly:
+Both versions have these decrypted payload fields:
 
 - `meta`: original `id`, `salt`, `iv`, and `createdAt`.
 - `authentication`: the original versioned vault authentication proof string.
@@ -49,14 +57,19 @@ The decrypted payload has exactly:
 
 The outer GCM tag binds the full set, order, IDs, timestamps, name, proof, and source metadata. The proof is separately checked against the original metadata and derived key. All records are decrypted and validated against the current application schema, with matching inner/outer IDs and no duplicate IDs, before export or restore preparation succeeds. No partial supported subset is accepted. Decrypted record text is not reserialized into storage: its original ciphertext and nonce are retained.
 
-Version 1 backs up the current Login-like Secret model: credentials, ordered URI rules, TOTP text, notes, favorite state, ordered custom fields, history, dates, and deletion state. It does not claim that later typed items, folder tables, import provenance, attachments, or settings already exist. A future schema that adds persisted logical data must extend/version this contract and its complete-snapshot tests before claiming complete backup support. App assets, cache readiness, registry storage paths, and transient editor drafts are not vault data and are not restored.
+Version 1 retains the original untyped Login records, including all credentials, URI rules, TOTP, notes, favorites, custom fields, history, dates, and deletion state. Its payload must not contain the version 2 fields. The reader validates the whole legacy set without rewriting ciphertext. It remains available for existing backups and pre-transition recovery, not as a second item writer.
 
-Maximum input/output: **16 MiB** of UTF-8 JSON and **10,000 records**. The UI checks file size before reading it; the API checks encoded size before JSON parse/key derivation. These are tested implementation limits, not encryption limits. Export fails rather than omitting records above the limits.
+Version 2 adds required `itemFormat: 2` and `transitionBackup`, which is null for a new vault or the complete authenticated version 1 source-backup string for a transitioned vault. The embedded backup is authenticated and validated too; it must have the same source metadata/proof and cannot contain another nested backup. All five discriminated item types, optional credentials, inherited URI rules, folder membership IDs, and encrypted import provenance are preserved. Envelope version and payload item format must agree. Restore verifies the exact saved item format and recovery backup as well as the record set.
+
+See [typed items and recoverable transition](password-manager-items.md) for field names, source retention, recovery downloads, and later-ticket interfaces. Folder tables, attachments, and settings are not implemented by ticket 05. A later schema that adds separate persisted logical data must extend/version this contract and its complete-snapshot tests. App assets, cache readiness, registry storage paths, and transient editor drafts are not vault data and are not restored.
+
+Maximum input/output: **16 MiB** of UTF-8 JSON and **10,000 current records**. The byte limit includes any embedded pre-transition backup. The UI checks file size before reading it; the API checks encoded size before JSON parse/key derivation. These are tested implementation limits, not encryption limits. Export fails rather than omitting records above the limits.
 
 The obsolete `exportEncrypted()` record-only file is not recoverable by this contract: it lacks required derivation metadata and complete authentication. It is rejected, not wrapped or guessed. Keep its original source browser data for separate recovery.
 
 ## API and atomic publication
 
+- `VaultHandle.exportTransitionBackup()` returns the retained version 1 pre-transition file, if one exists. The page's **Download pre-transition backup** action uses it. This is the state before conversion, not later edits. Restore it in clean storage and keep the current vault.
 - `VaultHandle.exportBackup()` returns the complete encrypted file. It validates the proof and all records and does not modify source storage.
 - `prepareBackupRestore(password, file)` returns an authenticated preview with `id`, `name`, `recordCount`, and `restore()`. Preparation does not open or write a destination database. Drop the preview when cancelling; it holds a non-exportable key and encrypted records in memory.
 - `preview.restore()` checks existing identities, writes to a fresh unlisted `password-manager-restore-<random UUID>` database, and commits metadata/proof plus all records in one SQL transaction.

@@ -6,7 +6,7 @@ import {
     createLocalSecretCollection,
     UnacknowledgedStorageWriteError,
 } from "./local-collection";
-import { type Secret, SecretSchema } from "./secret";
+import { type Login, type Secret, LoginSchema } from "./secret";
 
 import {
     constructSecret,
@@ -17,7 +17,7 @@ import {
 export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
     const collection = createLocalSecretCollection({ vault });
     let editor = $state<{
-        record: Secret | null;
+        record: Login | null;
         draft: SecretDraft;
         confirmPassword: string;
         showPassword: boolean;
@@ -53,7 +53,10 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
     });
     function edit(value: Secret | null = null) {
         if (!canEdit()) return;
-        const record = value ? v.parse(SecretSchema, value) : null;
+        if (value && value.kind !== "login") return;
+        const record = value
+            ? v.parse(v.object(LoginSchema.entries), value)
+            : null;
         editor = {
             record,
             draft: createSecretDraft(record),
@@ -122,6 +125,7 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
             notice = "";
             const previous = editor.record;
             if (
+                draft.secret &&
                 draft.secret !== previous?.secret &&
                 (!editor.confirmPassword ||
                     draft.secret !== editor.confirmPassword)
@@ -137,8 +141,7 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
                 new SvelteDate().toISOString(),
             );
             if (!result.success) {
-                error =
-                    "Invalid secret: Name and Secret are required; check the fields.";
+                error = "Invalid Login: A name is required; check the fields.";
                 return;
             }
             busy = true;

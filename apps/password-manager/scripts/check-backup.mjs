@@ -37,7 +37,7 @@ async function payload(backup, password) {
     const additionalData = new TextEncoder().encode(
         JSON.stringify([
             "password-manager/encrypted-backup",
-            1,
+            envelope.version,
             "PBKDF2",
             "SHA-512",
             600000,
@@ -140,13 +140,11 @@ export async function checkBackupRestore(browser, origin) {
                     exact: true,
                 })
                 .click();
-            await page
-                .getByLabel(/^Encrypted backup file/)
-                .setInputFiles({
-                    name: "encrypted-backup.json",
-                    mimeType: "application/json",
-                    buffer: Buffer.from(backup),
-                });
+            await page.getByLabel(/^Encrypted backup file/).setInputFiles({
+                name: "encrypted-backup.json",
+                mimeType: "application/json",
+                buffer: Buffer.from(backup),
+            });
             await page
                 .getByLabel(/^Backup master password/)
                 .fill("synthetic-wrong-password");

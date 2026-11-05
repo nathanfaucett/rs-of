@@ -4,9 +4,10 @@ import {
     createLocalSecretCollection,
     UnacknowledgedStorageWriteError,
 } from "./local-collection";
-import type { Secret } from "./secret";
+import type { Login as Secret } from "./secret";
 
 const secret: Secret = {
+    kind: "login",
     id: "12345678-1234-4234-8234-123456789abc",
     name: "Delete me",
     secret: "password",
@@ -36,6 +37,7 @@ async function setup(remove: boolean) {
     );
     const vault = {
         id: "deletion-test",
+        prepareItems: vi.fn(async () => {}),
         loadSecrets: vi.fn(async () =>
             [...records.values()].map(
                 (record): EncryptedSecret => ({
@@ -72,16 +74,20 @@ describe("local secret writes", () => {
         vault.encryptAndStore.mockImplementationOnce(async () => undefined);
         await expect(
             collection.update(secret.id, (record) => {
-                record.secret = "changed password";
+                if (record.kind === "login") record.secret = "changed password";
             }).isPersisted.promise,
         ).rejects.toBeInstanceOf(UnacknowledgedStorageWriteError);
-        expect(collection.get(secret.id)?.secret).toBe(secret.secret);
+        expect((collection.get(secret.id) as Secret | undefined)?.secret).toBe(
+            secret.secret,
+        );
         expect(records.get(secret.id)?.secret).toBe(secret.secret);
         await collection.update(secret.id, (record) => {
-            record.secret = "changed password";
+            if (record.kind === "login") record.secret = "changed password";
         }).isPersisted.promise;
         await collection.utils.refresh();
-        expect(collection.get(secret.id)?.secret).toBe("changed password");
+        expect((collection.get(secret.id) as Secret | undefined)?.secret).toBe(
+            "changed password",
+        );
         expect(collection.get(other.id)).toMatchObject(other);
     });
     it("removes only the selected secret and stays deleted after refresh", async () => {

@@ -2,9 +2,10 @@ import { flushSync, mount, tick, unmount } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EncryptedSecret, VaultHandle } from "../vault/vault";
 import LocalSecretEditor from "./LocalSecretEditor.svelte";
-import type { Secret } from "./secret";
+import type { Login as Secret } from "./secret";
 
 const original: Secret = {
+    kind: "login",
     id: "12345678-1234-4234-8234-123456789abc",
     name: "Personal login",
     secret: "old-password",
@@ -83,6 +84,7 @@ async function setup(initial: Secret[] = []) {
     }
     const vault = {
         id: crypto.randomUUID(),
+        prepareItems: vi.fn(async () => {}),
         loadSecrets: vi.fn(async () => [...records.values()].map(encrypted)),
         decryptSecret: vi.fn(
             async (record: EncryptedSecret) => record.ciphertext,
@@ -100,6 +102,7 @@ async function setup(initial: Secret[] = []) {
     } satisfies Pick<
         VaultHandle,
         | "id"
+        | "prepareItems"
         | "loadSecrets"
         | "decryptSecret"
         | "encryptAndStore"
@@ -129,6 +132,23 @@ afterEach(async () => {
 });
 
 describe("local secret editor with the real workflow and collection", () => {
+    it("saves and reopens a username-only Login without password confirmation", async () => {
+        const { records } = await setup();
+        await click("New secret");
+        await fill("name", "Passwordless login");
+        await fill("username", "alice");
+        expect((control("secret") as HTMLInputElement).required).toBe(false);
+        expect(target.querySelector("#confirm-secret")).toBeNull();
+        await click("Save");
+        await saved();
+        expect([...records.values()][0]).toMatchObject({
+            kind: "login",
+            username: "alice",
+        });
+        await click("Passwordless login");
+        expect(control("secret").value).toBe("");
+        expect(control("username").value).toBe("alice");
+    });
     it("adds and saves two websites, match rules, username, and custom field types", async () => {
         const { records, vault } = await setup();
         await click("New secret");
@@ -255,7 +275,9 @@ describe("local secret editor with the real workflow and collection", () => {
         expect(target.querySelector("#confirm-secret")).toBeNull();
         expect(target.textContent).toContain("Confirmed login");
         // Get the new record's ID
-        const newRecord = [...records.values()].find((r) => r.name === "Confirmed login");
+        const newRecord = [...records.values()].find(
+            (r) => r.name === "Confirmed login",
+        );
         if (!newRecord) throw new Error("Expected Confirmed login record");
         await click("Confirmed login");
         await expect.poll(() => target.querySelector("form")).not.toBeNull();

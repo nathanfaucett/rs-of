@@ -61,11 +61,11 @@ let pendingDelete = $state<Secret | null>(null);
                         <li class="flex items-center justify-between gap-3 rounded-control border border-line bg-surface-muted/40 px-3 py-2">
                             <div class="flex min-w-0 flex-col">
                                 <button class="btn btn-ghost btn-md w-full justify-start truncate px-0 text-left font-medium"
-                                    type="button" disabled={!workflow.canEdit} onclick={() => workflow.edit(value)}>
+                                    type="button" disabled={!workflow.canEdit || value.kind !== "login"} onclick={() => workflow.edit(value)}>
                                     {value.favorite ? "★ " : ""}{value.name}
                                 </button>
-                                {#if value.username}<p class="truncate text-sm text-ink-subtle">{value.username}</p>{/if}
-                                {#each value.uris as uri}
+                                {#if (value.kind === "login" || value.kind === "identity") && value.username}<p class="truncate text-sm text-ink-subtle">{value.username}</p>{/if}
+                                {#each value.kind === "login" ? value.uris : [] as uri (uri)}
                                     <p class="truncate text-xs text-ink-subtle">{uri.uri}</p>
                                 {/each}
                             </div>
@@ -95,7 +95,7 @@ let pendingDelete = $state<Secret | null>(null);
                         <input {...control} bind:value={draft.username} autocomplete="off" disabled={!workflow.canEdit} />
                     {/snippet}
                 </Field>
-                <Field id="secret" label="Password" required>
+                <Field id="secret" label="Password">
                     {#snippet children(control)}
                         <input {...control} bind:value={draft.secret} type={workflow.editor?.showPassword ? "text" : "password"} autocomplete="new-password" disabled={!workflow.canEdit} />
                     {/snippet}
@@ -105,7 +105,7 @@ let pendingDelete = $state<Secret | null>(null);
                     onclick={() => {
                         if (workflow.editor) workflow.editor.showPassword = !workflow.editor.showPassword;
                     }}>{workflow.editor.showPassword ? "Hide password" : "Show password"}</button>
-                {#if draft.secret !== workflow.editor.record?.secret}
+                {#if draft.secret && draft.secret !== workflow.editor.record?.secret}
                     <Field id="confirm-secret" label="Confirm password" required>
                         {#snippet children(control)}
                             <input {...control} bind:value={workflow.editor.confirmPassword} type="password" autocomplete="new-password" disabled={!workflow.canEdit} />
@@ -130,6 +130,7 @@ let pendingDelete = $state<Secret | null>(null);
                             <Field id={`match-${i}`} label={`Match rule ${i + 1}`}>
                                 {#snippet children(control)}
                                     <select {...control} bind:value={uri.match}>
+                                        <option value={null}>Default (inherited)</option>
                                         <option value="domain">Domain</option>
                                         <option value="host">Host</option>
                                         <option value="startsWith">Starts with</option>
@@ -197,7 +198,7 @@ let pendingDelete = $state<Secret | null>(null);
                     <details>
                         <summary>Password history ({workflow.editor.record.history.length})</summary>
                         <ul class="flex list-none flex-col gap-2 p-0">
-                            {#each workflow.editor.record.history as entry, i}
+                            {#each workflow.editor.record.history as entry, i (entry)}
                                 <li><Field id={`history-${i}`} label={`Password changed at ${entry.changedAt}`}>
                                     {#snippet children(control)}<input {...control} type="password" value={entry.secret} readonly />{/snippet}
                                 </Field></li>

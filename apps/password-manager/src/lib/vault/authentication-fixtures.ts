@@ -3,7 +3,13 @@ import { vaultMigrations } from "./migrations";
 import { listVaults } from "./vault";
 
 export const fixturePassword = "synthetic-master-password";
-export const fixturePlaintext = "synthetic legacy encrypted content";
+export const fixturePlaintext = JSON.stringify({
+    id: "12345678-1234-4234-8234-123456789abc",
+    name: "Synthetic legacy login",
+    secret: "synthetic legacy encrypted content",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+});
 
 function base64(bytes: Uint8Array): string {
     return btoa(String.fromCharCode(...bytes));
@@ -50,7 +56,7 @@ export async function legacyVault(
                 new TextEncoder().encode(fixturePlaintext),
             );
             await client.execute(
-                "INSERT INTO secrets (id, ciphertext, nonce, created_at, updated_at) VALUES ('legacy-record', $1, $2, $3, $3)",
+                "INSERT INTO secrets (id, ciphertext, nonce, created_at, updated_at) VALUES ('12345678-1234-4234-8234-123456789abc', $1, $2, $3, $3)",
                 [
                     { type: "text", value: base64(new Uint8Array(ciphertext)) },
                     { type: "text", value: base64(nonce) },

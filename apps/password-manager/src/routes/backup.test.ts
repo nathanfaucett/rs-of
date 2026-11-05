@@ -63,6 +63,7 @@ it("downloads an encrypted backup through the page and restores it after source 
     const vault = await createVault(password, name);
     const id = crypto.randomUUID();
     const logical = {
+        kind: "login",
         id,
         name: "Synthetic recovered login",
         secret: "SENSITIVE-BACKUP-UI",

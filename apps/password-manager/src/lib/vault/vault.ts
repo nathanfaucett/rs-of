@@ -3,6 +3,9 @@ import {
     type Client as SqlClient,
     Database as SqlDatabase,
 } from "@ofsdk/sql";
+import * as v from "valibot";
+import { SecretSchema } from "../secrets/secret";
+import { transitionLogin } from "../secrets/legacy-login";
 import {
     createAuthentication,
     decrypt,
@@ -12,9 +15,14 @@ import {
     toBase64,
     verifyAuthentication,
 } from "./crypto";
-import { encodeBackup } from "./backup";
+import { encodeBackup, stageVault, validateTransitionBackup } from "./backup";
 import { vaultMigrations } from "./migrations";
-import { completeRegistration, findVault, reserveVault } from "./registry";
+import {
+    completeRegistration,
+    findVault,
+    publishItemTransition,
+    reserveVault,
+} from "./registry";
 
 export type { VaultIdentity } from "./registry";
 
@@ -36,6 +44,18 @@ export interface EncryptedSecret {
     updatedAt: string;
 }
 
+function itemFormat(row: DbValue[], index: number): number {
+    const value = row[index];
+    if (
+        value?.type === "integer" &&
+        (value.value === "1" || value.value === "2")
+    )
+        return Number(value.value);
+    throw new Error(
+        "Unsupported item format. Keep the source vault and backup.",
+    );
+}
+
 function rowToText(row: DbValue[], index: number): string {
     const value = row[index];
     if (value?.type === "text" || value?.type === "uuid") return value.value;
@@ -43,7 +63,9 @@ function rowToText(row: DbValue[], index: number): string {
 }
 
 export class VaultHandle {
-    private key: CryptoKey;
+    private key: CryptoKey | null;
+    private prepared = false;
+    private databaseName: string;
     private db: SqlDatabase;
     private client: SqlClient;
     private meta: VaultMeta;
@@ -53,11 +75,13 @@ export class VaultHandle {
         db: SqlDatabase,
         client: SqlClient,
         meta: VaultMeta,
+        databaseName: string,
     ) {
         this.key = key;
         this.db = db;
         this.client = client;
         this.meta = meta;
+        this.databaseName = databaseName;
     }
 
     static create(
@@ -65,8 +89,61 @@ export class VaultHandle {
         db: SqlDatabase,
         client: SqlClient,
         meta: VaultMeta,
+        databaseName: string,
     ): VaultHandle {
-        return new VaultHandle(key, db, client, meta);
+        return new VaultHandle(key, db, client, meta, databaseName);
+    }
+
+    private activeKey(): CryptoKey {
+        if (!this.key) throw new Error("Vault is closed");
+        return this.key;
+    }
+
+    private async currentStorage(): Promise<void> {
+        this.activeKey();
+        const identity = await findVault(this.id);
+        if (identity.databaseName === this.databaseName) return;
+        const db = await SqlDatabase.open(identity.databaseName);
+        try {
+            this.activeKey();
+        } catch (error) {
+            db.close();
+            throw error;
+        }
+        const client = db.client();
+        try {
+            const result = await client.execute(
+                "SELECT vault_id, salt, iv, created_at, authentication FROM vault_meta WHERE id = 1",
+            );
+            const row = result[0].rows[0];
+            if (
+                JSON.stringify(
+                    row.slice(0, 4).map((_, index) => rowToText(row, index)),
+                ) !==
+                JSON.stringify([
+                    this.meta.id,
+                    this.meta.salt,
+                    this.meta.iv,
+                    this.meta.createdAt,
+                ])
+            )
+                throw new Error("Vault metadata mismatch");
+            await verifyAuthentication(
+                this.activeKey(),
+                this.meta,
+                rowToText(row, 4),
+            );
+            this.activeKey();
+        } catch (error) {
+            client.close();
+            db.close();
+            throw error;
+        }
+        this.client.close();
+        this.db.close();
+        this.db = db;
+        this.client = client;
+        this.databaseName = identity.databaseName;
     }
 
     get id(): string {
@@ -74,6 +151,7 @@ export class VaultHandle {
     }
 
     async loadSecrets(): Promise<EncryptedSecret[]> {
+        this.activeKey();
         const results = await this.client.execute(
             `SELECT id, ciphertext, nonce, created_at, updated_at FROM ${SECRETS_TABLE} ORDER BY created_at ASC`,
         );
@@ -89,48 +167,118 @@ export class VaultHandle {
     }
 
     async decryptSecret(encrypted: EncryptedSecret): Promise<string> {
-        return decrypt(this.key, encrypted.ciphertext, encrypted.nonce);
+        const plaintext = await decrypt(
+            this.activeKey(),
+            encrypted.ciphertext,
+            encrypted.nonce,
+        );
+        this.activeKey();
+        return plaintext;
     }
 
     async encryptAndStore(
         plaintext: string,
         id?: string,
     ): Promise<EncryptedSecret> {
-        const secretId = id ?? crypto.randomUUID();
-        const now = new Date().toISOString();
-        const { ciphertext, nonce } = await encrypt(this.key, plaintext);
-        await this.client.execute(
-            `INSERT INTO ${SECRETS_TABLE} (id, ciphertext, nonce, created_at, updated_at) VALUES ($1, $2, $3, $4, $4) ON CONFLICT(id) DO UPDATE SET ciphertext = $2, nonce = $3, updated_at = $4`,
-            [
-                { type: "text", value: secretId },
-                { type: "text", value: ciphertext },
-                { type: "text", value: nonce },
-                { type: "text", value: now },
-            ],
+        return navigator.locks.request(
+            `password-manager-items-${this.id}`,
+            async () => {
+                await this.currentStorage();
+                const state = await this.client.execute(
+                    "SELECT item_format FROM vault_meta WHERE id = 1",
+                );
+                if (itemFormat(state[0].rows[0], 0) !== 2)
+                    throw new Error(
+                        "Prepare the item transition before writing. Source data was not changed.",
+                    );
+                if (this.prepared) {
+                    try {
+                        const value = v.parse(
+                            SecretSchema,
+                            JSON.parse(plaintext),
+                        );
+                        if (value.id !== id)
+                            throw new Error("Identity mismatch");
+                    } catch {
+                        throw new Error("Invalid typed vault record");
+                    }
+                }
+                const secretId = id ?? crypto.randomUUID();
+                const now = new Date().toISOString();
+                const { ciphertext, nonce } = await encrypt(
+                    this.activeKey(),
+                    plaintext,
+                );
+                this.activeKey();
+                await this.client.execute(
+                    `INSERT INTO ${SECRETS_TABLE} (id, ciphertext, nonce, created_at, updated_at) VALUES ($1, $2, $3, $4, $4) ON CONFLICT(id) DO UPDATE SET ciphertext = $2, nonce = $3, updated_at = $4`,
+                    [
+                        { type: "text", value: secretId },
+                        { type: "text", value: ciphertext },
+                        { type: "text", value: nonce },
+                        { type: "text", value: now },
+                    ],
+                );
+                return {
+                    id: secretId,
+                    ciphertext,
+                    nonce,
+                    createdAt: now,
+                    updatedAt: now,
+                };
+            },
         );
-        return {
-            id: secretId,
-            ciphertext,
-            nonce,
-            createdAt: now,
-            updatedAt: now,
-        };
     }
 
     async deleteSecret(id: string): Promise<void> {
-        await this.client.execute(
-            `DELETE FROM ${SECRETS_TABLE} WHERE id = $1`,
-            [{ type: "text", value: id }],
+        await navigator.locks.request(
+            `password-manager-items-${this.id}`,
+            async () => {
+                await this.currentStorage();
+                const state = await this.client.execute(
+                    "SELECT item_format FROM vault_meta WHERE id = 1",
+                );
+                if (itemFormat(state[0].rows[0], 0) !== 2)
+                    throw new Error(
+                        "Prepare the item transition before deleting. Source data was not changed.",
+                    );
+                await this.client.execute(
+                    `DELETE FROM ${SECRETS_TABLE} WHERE id = $1`,
+                    [{ type: "text", value: id }],
+                );
+            },
         );
     }
 
     async exportBackup(): Promise<string> {
+        return navigator.locks.request(
+            `password-manager-items-${this.id}`,
+            async () => {
+                await this.currentStorage();
+                return this.backupSnapshot();
+            },
+        );
+    }
+
+    private async backupSnapshot(): Promise<string> {
         const result = await this.client.execute(
-            "SELECT authentication FROM vault_meta WHERE id = 1",
+            "SELECT authentication, item_format, transition_backup FROM vault_meta WHERE id = 1",
         );
         const authentication = rowToText(result[0].rows[0], 0);
         const identity = await findVault(this.id);
-        return encodeBackup(this.key, {
+        const format = itemFormat(result[0].rows[0], 1);
+        if (format !== 1 && format !== 2)
+            throw new Error("Unsupported item format. Keep the source vault.");
+        return encodeBackup(this.activeKey(), {
+            ...(format === 2
+                ? {
+                      itemFormat: 2 as const,
+                      transitionBackup:
+                          result[0].rows[0][2].type === "text"
+                              ? (result[0].rows[0][2].value as string)
+                              : null,
+                  }
+                : {}),
             meta: this.meta,
             authentication,
             name: identity.name,
@@ -138,7 +286,119 @@ export class VaultHandle {
         });
     }
 
+    async exportTransitionBackup(): Promise<string> {
+        return navigator.locks.request(
+            `password-manager-items-${this.id}`,
+            async () => {
+                await this.currentStorage();
+                const saved = await this.client.execute(
+                    "SELECT transition_backup, authentication FROM vault_meta WHERE id = 1",
+                );
+                const value = saved[0].rows[0][0];
+                if (value.type !== "text")
+                    throw new Error(
+                        "No pre-transition backup is stored for this vault.",
+                    );
+                await validateTransitionBackup(
+                    this.activeKey(),
+                    {
+                        meta: this.meta,
+                        authentication: rowToText(saved[0].rows[0], 1),
+                    },
+                    value.value,
+                );
+                this.activeKey();
+                return value.value;
+            },
+        );
+    }
+
+    async prepareItems(): Promise<void> {
+        if (!navigator.locks)
+            throw new Error(
+                "This browser cannot protect local writes. Use a browser with Web Locks support. Keep the vault and backup.",
+            );
+        await navigator.locks.request(
+            `password-manager-items-${this.id}`,
+            async () => {
+                await this.currentStorage();
+                const state = await this.client.execute(
+                    "SELECT item_format FROM vault_meta WHERE id = 1",
+                );
+                const format = itemFormat(state[0].rows[0], 0);
+                if (format !== 1 && format !== 2)
+                    throw new Error(
+                        "Unsupported item format. Keep the source vault and backup.",
+                    );
+                const source = await this.loadSecrets();
+                const seen = new Set<string>();
+                const target: EncryptedSecret[] = [];
+                try {
+                    for (const record of source) {
+                        const input = JSON.parse(
+                            await this.decryptSecret(record),
+                        );
+                        const item =
+                            format === 1
+                                ? transitionLogin(input)
+                                : v.parse(SecretSchema, input);
+                        if (item.id !== record.id || seen.has(item.id))
+                            throw new Error("Invalid identity");
+                        seen.add(item.id);
+                        target.push(
+                            format === 1
+                                ? {
+                                      ...record,
+                                      ...(await encrypt(
+                                          this.activeKey(),
+                                          JSON.stringify(item),
+                                      )),
+                                  }
+                                : record,
+                        );
+                    }
+                } catch {
+                    throw new Error(
+                        "Malformed vault record. No partial records were loaded or transitioned. Keep the source vault and recover from a complete backup.",
+                    );
+                }
+                if (format === 2) {
+                    this.prepared = true;
+                    return;
+                }
+                const backup = await this.backupSnapshot();
+                const identity = await findVault(this.id);
+                const authentication = await this.client.execute(
+                    "SELECT authentication FROM vault_meta WHERE id = 1",
+                );
+                const payload = {
+                    meta: this.meta,
+                    authentication: rowToText(authentication[0].rows[0], 0),
+                    name: identity.name,
+                    itemFormat: 2 as const,
+                    transitionBackup: backup,
+                    secrets: target,
+                };
+                // Reject transitions whose complete recovery backup would exceed the supported bound.
+                await encodeBackup(this.activeKey(), payload);
+                try {
+                    const destination = `password-manager-transition-${crypto.randomUUID()}`;
+                    await stageVault(destination, this.activeKey(), payload);
+                    this.activeKey();
+                    await publishItemTransition(identity, destination);
+                    await this.currentStorage();
+                    this.prepared = true;
+                } catch {
+                    throw new Error(
+                        "Item transition could not be confirmed. No partial vault was loaded. Reopen and verify before retrying. The original source database was retained. Download its encrypted backup or the pre-transition backup for clean-profile recovery; do not clear browser data.",
+                    );
+                }
+            },
+        );
+    }
+
     close(): void {
+        this.key = null;
         this.client.close();
         this.db.close();
     }
@@ -168,7 +428,7 @@ export async function createVault(
         const authentication = await createAuthentication(key, meta);
         try {
             await client.execute(
-                `INSERT INTO ${META_TABLE} (id, vault_id, salt, iv, created_at, authentication) VALUES (1, $1, $2, $3, $4, $5)`,
+                `INSERT INTO ${META_TABLE} (id, vault_id, salt, iv, created_at, authentication, item_format) VALUES (1, $1, $2, $3, $4, $5, 2)`,
                 [
                     { type: "text", value: vaultId },
                     { type: "text", value: meta.salt },
@@ -183,7 +443,7 @@ export async function createVault(
             );
         }
         await completeRegistration(identity);
-        return VaultHandle.create(key, db, client, meta);
+        return VaultHandle.create(key, db, client, meta, identity.databaseName);
     } catch (error) {
         client.close();
         db.close();
@@ -285,7 +545,7 @@ export async function unlockVault(
         }
 
         await completeRegistration(identity);
-        return VaultHandle.create(key, db, client, meta);
+        return VaultHandle.create(key, db, client, meta, identity.databaseName);
     } catch (error) {
         client.close();
         db.close();

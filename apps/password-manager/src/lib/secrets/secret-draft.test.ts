@@ -1,12 +1,13 @@
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
-import { SecretSchema } from "./secret";
+import { LoginSchema } from "./secret";
 import { constructSecret, createSecretDraft } from "./secret-draft";
 
 const id = "12345678-1234-4234-8234-123456789abc";
 const createdAt = "2026-01-01T00:00:00.000Z";
 const now = "2026-11-04T00:00:00.000Z";
-const record = v.parse(SecretSchema, {
+const record = v.parse(LoginSchema, {
+    kind: "login",
     id,
     name: "Login",
     secret: "old password",
@@ -72,11 +73,11 @@ describe("secret drafts", () => {
         );
     });
 
-    it("rejects missing names, passwords, and invalid match modes", () => {
+    it("rejects missing names and invalid match modes but accepts absent passwords", () => {
         const draft = createSecretDraft(null);
         expect(constructSecret(null, draft, id, now).success).toBe(false);
         draft.name = "Login";
-        expect(constructSecret(null, draft, id, now).success).toBe(false);
+        expect(constructSecret(null, draft, id, now).success).toBe(true);
         draft.secret = "password";
         expect(constructSecret(null, draft, id, now).success).toBe(true);
         const invalid = {

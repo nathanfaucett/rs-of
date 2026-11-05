@@ -59,6 +59,7 @@ async function populatedBackup() {
     for (const deleted of [false, true]) {
         const id = crypto.randomUUID();
         const value = {
+            kind: "login",
             id,
             name: markers[0],
             username: markers[1],
@@ -148,7 +149,7 @@ async function decode(backup: string) {
     const additionalData = new TextEncoder().encode(
         JSON.stringify([
             "password-manager/encrypted-backup",
-            1,
+            envelope.version,
             "PBKDF2",
             "SHA-512",
             600000,
@@ -196,7 +197,7 @@ it("rejects wrong passwords, missing metadata, tampering, truncation and unsuppo
         "null",
         "{}",
         backup.slice(0, -1),
-        JSON.stringify({ ...envelope, version: 2 }),
+        JSON.stringify({ ...envelope, version: 99 }),
         JSON.stringify({ ...envelope, format: "other-format" }),
         JSON.stringify({ ...envelope, kdf: undefined }),
         JSON.stringify({
@@ -251,6 +252,10 @@ it("authenticates and validates the complete payload, not only its first record"
     await clearStorage();
     const { payload } = decoded;
     const variants = [
+        { ...payload, itemFormat: undefined },
+        { ...payload, itemFormat: 1 },
+        { ...payload, transitionBackup: undefined },
+        { ...payload, transitionBackup: "damaged recovery file" },
         { ...payload, authentication: undefined },
         { ...payload, authentication: "{}" },
         { ...payload, meta: { ...payload.meta, id: crypto.randomUUID() } },

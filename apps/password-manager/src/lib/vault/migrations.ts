@@ -22,4 +22,8 @@ CREATE TABLE secrets (
         version: 2,
         sql: "ALTER TABLE vault_meta ADD COLUMN authentication TEXT",
     },
+    {
+        version: 3,
+        sql: "ALTER TABLE vault_meta ADD COLUMN item_format INTEGER NOT NULL DEFAULT 1; ALTER TABLE vault_meta ADD COLUMN transition_backup TEXT",
+    },
 ];

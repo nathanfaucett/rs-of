@@ -1,5 +1,6 @@
 import { Database, type DbValue } from "@ofsdk/sql";
 import * as v from "valibot";
+import { transitionLogin } from "../secrets/legacy-login";
 import { SecretSchema } from "../secrets/secret";
 import {
     decrypt,
@@ -41,6 +42,8 @@ const recordSchema = v.strictObject({
     updatedAt: date,
 });
 const payloadSchema = v.strictObject({
+    itemFormat: v.optional(v.literal(2)),
+    transitionBackup: v.optional(v.nullable(text)),
     meta: metaSchema,
     authentication: text,
     name: v.pipe(
@@ -52,7 +55,7 @@ const payloadSchema = v.strictObject({
 type BackupPayload = v.InferOutput<typeof payloadSchema>;
 const envelopeSchema = v.strictObject({
     format: v.literal(FORMAT),
-    version: v.literal(1),
+    version: v.picklist([1, 2]),
     kdf: v.strictObject({
         name: v.literal("PBKDF2"),
         hash: v.literal("SHA-512"),
@@ -74,11 +77,11 @@ function bytes(value: string, length?: number): ArrayBuffer {
     return decoded;
 }
 
-function aad(salt: string): Uint8Array<ArrayBuffer> {
+function aad(salt: string, version: number): Uint8Array<ArrayBuffer> {
     return new TextEncoder().encode(
         JSON.stringify([
             FORMAT,
-            1,
+            version,
             "PBKDF2",
             "SHA-512",
             PBKDF2_ITERATIONS,
@@ -93,9 +96,15 @@ async function validatePayload(
     input: unknown,
 ): Promise<BackupPayload> {
     const payload = v.parse(payloadSchema, input);
+    if (payload.itemFormat === 2 && !Object.hasOwn(payload, "transitionBackup"))
+        throw invalid();
     bytes(payload.meta.salt, 16);
     bytes(payload.meta.iv, 12);
     await verifyAuthentication(key, payload.meta, payload.authentication);
+    if (payload.transitionBackup != null) {
+        if (payload.itemFormat !== 2) throw invalid();
+        await validateTransitionBackup(key, payload, payload.transitionBackup);
+    }
     const ids = new Set<string>();
     for (const record of payload.secrets) {
         if (ids.has(record.id)) throw invalid();
@@ -103,10 +112,52 @@ async function validatePayload(
         bytes(record.nonce, 12);
         bytes(record.ciphertext);
         const plaintext = await decrypt(key, record.ciphertext, record.nonce);
-        const logical = v.parse(SecretSchema, JSON.parse(plaintext));
+        const logical =
+            payload.itemFormat === 2
+                ? v.parse(SecretSchema, JSON.parse(plaintext))
+                : transitionLogin(JSON.parse(plaintext));
         if (logical.id !== record.id) throw invalid();
     }
     return payload;
+}
+
+export async function validateTransitionBackup(
+    key: CryptoKey,
+    current: Pick<BackupPayload, "meta" | "authentication">,
+    backup: string,
+): Promise<void> {
+    try {
+        if (new TextEncoder().encode(backup).byteLength > BACKUP_MAX_BYTES)
+            throw invalid();
+        const envelope = v.parse(envelopeSchema, JSON.parse(backup));
+        if (envelope.version !== 1 || envelope.kdf.salt !== current.meta.salt)
+            throw invalid();
+        bytes(envelope.nonce, 12);
+        bytes(envelope.ciphertext);
+        const source = JSON.parse(
+            await decrypt(
+                key,
+                envelope.ciphertext,
+                envelope.nonce,
+                aad(envelope.kdf.salt, 1),
+            ),
+        );
+        if (
+            source.itemFormat !== undefined ||
+            source.transitionBackup !== undefined
+        )
+            throw invalid();
+        const recovery = await validatePayload(key, source);
+        if (
+            JSON.stringify(recovery.meta) !== JSON.stringify(current.meta) ||
+            recovery.authentication !== current.authentication
+        )
+            throw invalid();
+    } catch {
+        throw new Error(
+            "Cannot validate the pre-transition backup. Keep the original source database and use a verified external backup. Do not clear browser data.",
+        );
+    }
 }
 
 export async function encodeBackup(
@@ -118,11 +169,11 @@ export async function encodeBackup(
         const encrypted = await encrypt(
             key,
             JSON.stringify(payload),
-            aad(payload.meta.salt),
+            aad(payload.meta.salt, payload.itemFormat === 2 ? 2 : 1),
         );
         const backup = JSON.stringify({
             format: FORMAT,
-            version: 1,
+            version: payload.itemFormat === 2 ? 2 : 1,
             kdf: {
                 name: "PBKDF2",
                 hash: "SHA-512",
@@ -167,10 +218,16 @@ export async function prepareBackupRestore(
             key,
             envelope.ciphertext,
             envelope.nonce,
-            aad(envelope.kdf.salt),
+            aad(envelope.kdf.salt, envelope.version),
         );
         payload = await validatePayload(key, JSON.parse(plaintext));
-        if (payload.meta.salt !== envelope.kdf.salt) throw invalid();
+        if (
+            payload.meta.salt !== envelope.kdf.salt ||
+            (envelope.version === 2) !== (payload.itemFormat === 2)
+        )
+            throw invalid();
+        if (envelope.version === 1 && payload.transitionBackup !== undefined)
+            throw invalid();
     } catch {
         throw new Error(
             "Wrong password or invalid encrypted backup. Check the password, complete file, supported version, and 16 MiB / 10,000 record limit. Nothing was restored.",
@@ -203,7 +260,7 @@ export async function prepareBackupRestore(
                     databaseName: `password-manager-restore-${crypto.randomUUID()}`,
                     status: "ready",
                 };
-                await stageRestore(identity.databaseName, key, payload);
+                await stageVault(identity.databaseName, key, payload);
                 await publishRestoredVault(identity);
                 return identity;
             } finally {
@@ -216,7 +273,7 @@ export async function prepareBackupRestore(
 const params = (values: string[]): DbValue[] =>
     values.map((value) => ({ type: "text", value }));
 
-async function stageRestore(
+export async function stageVault(
     name: string,
     key: CryptoKey,
     payload: BackupPayload,
@@ -229,14 +286,23 @@ async function stageRestore(
             const tx = await client.transaction();
             try {
                 await tx.execute(
-                    "INSERT INTO vault_meta (id, vault_id, salt, iv, created_at, authentication) VALUES (1, $1, $2, $3, $4, $5)",
-                    params([
-                        payload.meta.id,
-                        payload.meta.salt,
-                        payload.meta.iv,
-                        payload.meta.createdAt,
-                        payload.authentication,
-                    ]),
+                    "INSERT INTO vault_meta (id, vault_id, salt, iv, created_at, authentication, item_format, transition_backup) VALUES (1, $1, $2, $3, $4, $5, $6, $7)",
+                    [
+                        ...params([
+                            payload.meta.id,
+                            payload.meta.salt,
+                            payload.meta.iv,
+                            payload.meta.createdAt,
+                            payload.authentication,
+                        ]),
+                        {
+                            type: "integer",
+                            value: String(payload.itemFormat ?? 1),
+                        },
+                        payload.transitionBackup
+                            ? { type: "text", value: payload.transitionBackup }
+                            : { type: "null" },
+                    ],
                 );
                 for (const record of payload.secrets) {
                     await tx.execute(
@@ -294,6 +360,23 @@ async function stageRestore(
             if (
                 JSON.stringify(meta) !== JSON.stringify(expectedMeta) ||
                 JSON.stringify(records) !== JSON.stringify(expectedRecords)
+            )
+                throw invalid();
+            const format = await reader.execute(
+                "SELECT item_format, transition_backup FROM vault_meta WHERE id = 1",
+            );
+            if (
+                JSON.stringify(format[0].rows[0][0]) !==
+                    JSON.stringify({
+                        type: "integer",
+                        value: String(payload.itemFormat ?? 1),
+                    }) ||
+                JSON.stringify(format[0].rows[0][1]) !==
+                    JSON.stringify(
+                        payload.transitionBackup
+                            ? { type: "text", value: payload.transitionBackup }
+                            : { type: "null" },
+                    )
             )
                 throw invalid();
             await verifyAuthentication(

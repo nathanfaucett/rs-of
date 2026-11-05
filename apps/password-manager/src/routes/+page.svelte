@@ -28,23 +28,23 @@ let error = $state("");
 let busy = $state(false);
 let notice = $state("");
 
-async function downloadBackup() {
+async function downloadBackup(recovery = false) {
     if (busy || vaultState.status !== "unlocked") return;
     busy = true;
     error = "";
     notice = "";
     try {
-        const backup = await vaultState.vault.exportBackup();
+        const backup = await (recovery ? vaultState.vault.exportTransitionBackup() : vaultState.vault.exportBackup());
         const url = URL.createObjectURL(new Blob([backup], { type: "application/json" }));
         const link = document.createElement("a");
         link.href = url;
-        link.download = `vault-${vaultState.vault.id}-encrypted-backup.json`;
+        link.download = `vault-${vaultState.vault.id}-${recovery ? "pre-transition" : "encrypted"}-backup.json`;
         document.body.append(link);
         try { link.click(); } finally {
             link.remove();
             setTimeout(() => URL.revokeObjectURL(url), 1000);
         }
-        notice = "Download requested. Check that the file was saved. Keep it outside browser storage and test restore in a clean profile. It uses this vault's master password and contains the last committed records.";
+        notice = recovery ? "Pre-transition download requested. This contains the records before conversion, not later edits. Keep the current vault. Restore in a clean profile and verify it before discarding any source data." : "Download requested. Check that the file was saved. Keep it outside browser storage and test restore in a clean profile. It uses this vault's master password and contains the last committed records.";
     } catch (cause) {
         error = cause instanceof Error ? cause.message : "Backup download failed. Keep the source vault and retry.";
     } finally {
@@ -59,6 +59,7 @@ async function restored(identity: VaultIdentity) {
 
 onMount(() => {
     void showVaultSelector();
+    return () => { if (vaultState.status === "unlocked") vaultState.vault.close(); };
 });
 
 async function createVault() {
@@ -314,7 +315,8 @@ async function lockVault() {
                 description="Your vault is stored locally and encrypted. This is a local-first app — no server required."
             >
                 {#snippet actions()}
-                    <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={downloadBackup}>{busy ? "Preparing backup…" : "Download encrypted backup"}</button>
+                    <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => void downloadBackup()}>{busy ? "Preparing backup…" : "Download encrypted backup"}</button>
+                    <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => void downloadBackup(true)}>Download pre-transition backup</button>
                     <button
                         class="btn btn-secondary btn-md"
                         type="button"

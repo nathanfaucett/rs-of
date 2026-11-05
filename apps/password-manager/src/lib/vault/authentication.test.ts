@@ -83,6 +83,7 @@ it("upgrades v1 only after password proof and preserves all source records", asy
                     "SELECT vault_id, salt, iv, created_at FROM vault_meta; SELECT * FROM secrets",
                 ),
             ).toEqual(before);
+            await upgraded.prepareItems();
             await upgraded.deleteSecret(record.id);
         } finally {
             upgraded.close();

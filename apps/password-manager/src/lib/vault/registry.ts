@@ -8,6 +8,7 @@ export interface VaultIdentity {
     id: string;
     name: string;
     databaseName: string;
+    previousDatabaseName?: string;
     status: "pending" | "ready";
 }
 
@@ -64,6 +65,9 @@ async function entries(): Promise<VaultIdentity[]> {
                             !v.name ||
                             typeof v.databaseName !== "string" ||
                             !v.databaseName ||
+                            (v.previousDatabaseName !== undefined &&
+                                (typeof v.previousDatabaseName !== "string" ||
+                                    !v.previousDatabaseName)) ||
                             !["pending", "ready"].includes(v.status),
                     )
                 ) {
@@ -113,6 +117,43 @@ export async function publishRestoredVault(
         throw new Error(
             "Restore outcome is uncertain. Reload the selector and verify the vault ID before retrying. Keep the backup; do not clear browser data.",
         );
+    }
+}
+
+export async function publishItemTransition(
+    source: VaultIdentity,
+    databaseName: string,
+): Promise<void> {
+    const entry: VaultIdentity = {
+        ...source,
+        databaseName,
+        previousDatabaseName: source.databaseName,
+    };
+    const db = await registry();
+    try {
+        await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(STORE, "readwrite");
+            const store = tx.objectStore(STORE);
+            const request = store.get(source.id);
+            request.onsuccess = () => {
+                if (JSON.stringify(request.result) !== JSON.stringify(source)) {
+                    tx.abort();
+                    return;
+                }
+                try {
+                    store.put(entry);
+                } catch {
+                    tx.abort();
+                }
+            };
+            tx.oncomplete = () => resolve();
+            tx.onabort = () => reject(storageError(tx.error));
+            tx.onerror = () => reject(storageError(tx.error));
+        });
+        if (JSON.stringify(await findVault(entry.id)) !== JSON.stringify(entry))
+            throw storageError("Transition registry mismatch");
+    } finally {
+        db.close();
     }
 }
 
@@ -185,7 +226,14 @@ export async function listVaultIdentities(): Promise<VaultIdentity[]> {
     for (const database of databases) {
         if (!database.name?.startsWith(LEGACY_PREFIX)) continue;
         const databaseName = database.name.slice("ofdb:sql:".length);
-        if (saved.some((v) => v.databaseName === databaseName)) continue;
+        if (
+            saved.some(
+                (v) =>
+                    v.databaseName === databaseName ||
+                    v.previousDatabaseName === databaseName,
+            )
+        )
+            continue;
         const db = await Database.open(databaseName);
         const client = db.client();
         try {

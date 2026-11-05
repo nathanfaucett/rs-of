@@ -107,6 +107,7 @@ it.each(["populated", "last-item-removed"])(
         const secret = await vault.encryptAndStore(
             JSON.stringify({
                 id,
+                kind: "login",
                 name: "Synthetic visible login",
                 secret: "synthetic-item-password",
                 createdAt: new Date().toISOString(),
