@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
+import { createSshKey, verifySshKey } from "./check-ssh-key.mjs";
 
 async function download(page) {
     const pending = page.waitForEvent("download");
@@ -221,12 +222,27 @@ export async function checkBackupRestore(browser, origin) {
                 await page
                     .getByLabel("Folder filter", { exact: true })
                     .selectOption("all");
+                await createSshKey(page);
+                await page
+                    .getByRole("button", {
+                        name: "Synthetic offline SSH Key",
+                        exact: true,
+                    })
+                    .click();
+                await page
+                    .getByLabel("Move to folder", { exact: true })
+                    .selectOption(folderId);
+                await page
+                    .getByRole("button", { name: "Move item", exact: true })
+                    .click();
+                await page.getByText("Item moved.", { exact: true }).waitFor();
             }
             const backup = await download(page);
             assert.ok(
                 !backup.includes(password) &&
                     !backup.includes(itemPassword) &&
-                    !backup.includes("PRIVATE-RECOVERY-NOTE"),
+                    !backup.includes("PRIVATE-RECOVERY-NOTE") &&
+                    !backup.includes("PRIVATE-OFFLINE-SSH"),
                 "Encrypted download must not expose synthetic passwords",
             );
             backups.push({
@@ -376,6 +392,7 @@ export async function checkBackupRestore(browser, origin) {
                 await page
                     .getByRole("button", { name: "Close details", exact: true })
                     .click();
+                await verifySshKey(page);
             }
             await page
                 .getByRole("button", { name: "Lock vault", exact: true })

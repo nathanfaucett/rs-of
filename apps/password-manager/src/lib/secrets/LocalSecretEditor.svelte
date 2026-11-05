@@ -1,12 +1,14 @@
 <script lang="ts">
 import { onDestroy, tick, untrack } from "svelte";
 import SecretDetail from "./SecretDetail.svelte";
+import SshKeyFields from "./SshKeyFields.svelte";
 import FolderControls from "./FolderControls.svelte";
 import PasswordGenerator from "$lib/generator/PasswordGenerator.svelte";
 import { Alert, Card, Field } from "$lib/ui";
 import type { VaultHandle } from "$lib/vault/vault";
 import { createLocalSecretWorkflow } from "./local-workflow.svelte";
 import type { Secret } from "./secret";
+import type { SshKeyDraft } from "./secret-draft";
 import { searchItems, type ItemTypeFilter, type ItemSort } from "./search";
 
 let { vault }: { vault: VaultHandle } = $props();
@@ -94,6 +96,8 @@ function navigate(action: () => void) {
                 onclick={() => navigate(() => { trash = false; workflow.edit(); })}>New secret</button>
             <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
                 onclick={() => navigate(() => { trash = false; workflow.edit(null, "secureNote"); })}>New secure note</button>
+                            <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
+                                onclick={() => navigate(() => { trash = false; workflow.edit(null, "sshKey"); })}>New SSH key</button>
         {/snippet}
 
         {#if !retired && !trash}
@@ -302,6 +306,10 @@ function navigate(action: () => void) {
                         <button class="btn btn-secondary btn-md self-start" type="button"
                             onclick={() => draft?.uris.push({ uri: "", match: "domain" })}>Add website</button>
                     </fieldset>
+                {:else if draft.kind === "sshKey"}
+                    {#key editor}
+                        <SshKeyFields bind:draft={editor.draft as SshKeyDraft} disabled={!workflow.canEdit} />
+                    {/key}
                 {/if}
 
                 <fieldset class="flex min-w-0 flex-col gap-3" disabled={!workflow.canEdit}>

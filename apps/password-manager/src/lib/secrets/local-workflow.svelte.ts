@@ -7,7 +7,7 @@ import {
     createLocalSecretCollection,
     UnacknowledgedStorageWriteError,
 } from "./local-collection";
-import { type Secret, LoginSchema, SecureNoteSchema } from "./secret";
+import { type Secret, LoginSchema, SecureNoteSchema, SshKeySchema } from "./secret";
 
 import {
     constructSecret,
@@ -77,11 +77,13 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
     });
     function edit(value: Secret | null = null, kind: EditableKind = "login") {
         if (!canEdit()) return;
-        if (value && (value.deletedAt || (value.kind !== "login" && value.kind !== "secureNote"))) return;
+        if (value && (value.deletedAt || (value.kind !== "login" && value.kind !== "secureNote" && value.kind !== "sshKey"))) return;
         const record = value
             ? value.kind === "login"
                 ? v.parse(v.object(LoginSchema.entries), value)
-                : v.parse(v.object(SecureNoteSchema.entries), value)
+                : value.kind === "sshKey"
+                    ? v.parse(v.object(SshKeySchema.entries), value)
+                    : v.parse(v.object(SecureNoteSchema.entries), value)
             : null;
         selectedId = record?.id ?? null;
         editor = {
@@ -300,7 +302,9 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
             if (!result.success) {
                 error = draft.kind === "login"
                     ? "Invalid Login: A name is required; check the fields."
-                    : "Invalid Secure Note: A name is required; check the fields.";
+                    : draft.kind === "sshKey"
+                        ? "Invalid SSH Key: A name and nonblank private key are required; check the fields."
+                        : "Invalid Secure Note: A name is required; check the fields.";
                 return;
             }
             busy = true;
