@@ -1,7 +1,7 @@
 import { useLiveQuery } from "@tanstack/svelte-db";
 import { SvelteDate } from "svelte/reactivity";
 import * as v from "valibot";
-import type { Folder } from "$lib/vault/folder";
+import { type Folder, StaleItemMutationError } from "$lib/vault/folder";
 import type { VaultHandle } from "$lib/vault/vault";
 import {
     createLocalSecretCollection,
@@ -340,6 +340,13 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
                 new SvelteDate().toISOString(),
             );
             if (!result.success) {
+                const fieldIssue = result.issues.find((issue) =>
+                    issue.message.startsWith("Custom field "),
+                );
+                if (fieldIssue) {
+                    error = fieldIssue.message;
+                    return;
+                }
                 error =
                     draft.kind === "login"
                         ? "Invalid Login: A name is required; check the fields."
@@ -369,7 +376,10 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
             } catch (cause) {
                 if (active) {
                     error = message(cause);
-                    if (cause instanceof UnacknowledgedStorageWriteError)
+                    if (
+                        cause instanceof UnacknowledgedStorageWriteError ||
+                        cause instanceof StaleItemMutationError
+                    )
                         editor = null;
                 }
             } finally {

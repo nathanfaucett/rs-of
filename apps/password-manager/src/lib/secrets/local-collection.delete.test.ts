@@ -40,7 +40,8 @@ async function setup(remove: boolean) {
         prepareItems: vi.fn(async () => {}),
         readItems: vi.fn(async () => {
             const items = [];
-            for (const record of await vault.loadSecrets()) items.push(JSON.parse(await vault.decryptSecret(record)));
+            for (const record of await vault.loadSecrets())
+                items.push(JSON.parse(await vault.decryptSecret(record)));
             return { items, folders: [] };
         }),
         loadSecrets: vi.fn(async () =>
@@ -99,7 +100,10 @@ describe("local secret writes", () => {
         const { collection, vault, records } = await setup(true);
 
         await collection.delete(secret.id).isPersisted.promise;
-        expect(vault.deleteSecret).toHaveBeenCalledExactlyOnceWith(secret.id);
+        expect(vault.deleteSecret).toHaveBeenCalledExactlyOnceWith(
+            secret.id,
+            secret,
+        );
         expect(records.has(secret.id)).toBe(false);
         expect(collection.has(secret.id)).toBe(false);
         expect(collection.get(other.id)).toMatchObject(other);

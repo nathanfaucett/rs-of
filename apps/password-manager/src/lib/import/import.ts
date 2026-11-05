@@ -1,11 +1,8 @@
 import type { Secret } from "$lib/secrets/secret";
-import type { ItemSnapshot } from "$lib/vault/folder";
+import { type ItemSnapshot, StaleItemMutationError } from "$lib/vault/folder";
 import type { VaultHandle } from "$lib/vault/vault";
-import {
-    normalizeImportDate,
-    parsePersonalJson,
-    type ParsedImport,
-} from "./personal-json";
+import { normalizeTimestamp } from "$lib/timestamp";
+import { parsePersonalJson, type ParsedImport } from "./personal-json";
 
 export type ImportPreview = Awaited<
     ReturnType<typeof preparePersonalJsonImport>
@@ -35,7 +32,7 @@ function logical(
                     .map(([key, entry]) => [
                         key,
                         key === "changedAt" && typeof entry === "string"
-                            ? normalizeImportDate(entry)
+                            ? normalizeTimestamp(entry)
                             : ordered(entry),
                     ]),
             );
@@ -48,10 +45,10 @@ function logical(
             folder: folderId ? folders.get(folderId) : null,
             ...(omitCreated
                 ? {}
-                : { createdAt: normalizeImportDate(createdAt) }),
+                : { createdAt: normalizeTimestamp(createdAt) }),
             ...(omitUpdated
                 ? {}
-                : { updatedAt: normalizeImportDate(updatedAt) }),
+                : { updatedAt: normalizeTimestamp(updatedAt) }),
         }),
         (_key, value) => (value === undefined ? null : value),
     );
@@ -137,7 +134,7 @@ export async function preparePersonalJsonImport(
                 throw new Error(
                     "Import already submitted. Reopen and verify before retrying.",
                 );
-            if (issues.length)
+            if (issues.length || !snapshot)
                 throw new Error(
                     "Import blocked. Correct every validation issue first.",
                 );
@@ -170,6 +167,7 @@ export async function preparePersonalJsonImport(
                         await vault.mutateItems({
                             upsert: batch.items,
                             folders: batch.folders,
+                            expectedSnapshot: snapshot,
                         });
                         if (retired)
                             throw new Error(
@@ -179,7 +177,14 @@ export async function preparePersonalJsonImport(
                         retired = true;
                     },
                 );
-            } catch {
+            } catch (cause) {
+                if (cause instanceof StaleItemMutationError) {
+                    parsed = null;
+                    retired = true;
+                    throw new Error(
+                        "Import not submitted. Vault changed since preview. Cancel and validate the file again.",
+                    );
+                }
                 if (attempted) {
                     parsed = null;
                     retired = true;

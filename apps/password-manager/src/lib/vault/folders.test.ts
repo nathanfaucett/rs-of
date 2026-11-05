@@ -249,6 +249,29 @@ it("retires a pending folder mutation on lock without publishing or returning de
     reopened.close();
 }, 15000);
 
+it("requires current Trash state and rejects stale records even when the Trash state is unchanged", async () => {
+    const vault = await createVault(password, "Record expectations");
+    const original = item("Active");
+    await vault.mutateItems({ upsert: [original] });
+    await expect(vault.deleteSecret(original.id, original)).rejects.toThrow(
+        "Vault changed",
+    );
+    const trashed = { ...original, deletedAt: date };
+    await vault.encryptAndStore(JSON.stringify(trashed), original.id, original);
+    const other = await unlockVault(password, vault.id);
+    const edited = { ...trashed, notes: "Edited while still in Trash" };
+    await other.mutateItems({ upsert: [edited] });
+    await expect(vault.deleteSecret(trashed.id, trashed)).rejects.toThrow(
+        "Vault changed",
+    );
+    await expect(
+        vault.encryptAndStore(JSON.stringify(original), original.id, trashed),
+    ).rejects.toThrow("Vault changed");
+    expect((await other.readItems()).items).toEqual([edited]);
+    other.close();
+    vault.close();
+}, 15000);
+
 it("rejects invalid batches before writing and serializes concurrent handles without losing folder changes", async () => {
     const vault = await createVault(password, "Atomic owner");
     const other = await unlockVault(password, vault.id);

@@ -2,6 +2,7 @@ import { flushSync, mount, tick, unmount } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EncryptedSecret, VaultHandle } from "../vault/vault";
 import LocalSecretEditor from "./LocalSecretEditor.svelte";
+import { serializeJsonExport } from "../json-export/export";
 import type { Login as Secret } from "./secret";
 
 const original: Secret = {
@@ -145,6 +146,86 @@ afterEach(async () => {
 });
 
 describe("local secret editor with the real workflow and collection", () => {
+    it("requires a new Boolean value, then saves an exportable item after correction", async () => {
+        const { records, vault } = await setup();
+        await click("New secure note");
+        await fill("name", "Boolean note");
+        await click("Add custom field");
+        await fill("field-name-0", "Enabled");
+        await fill("field-type-0", "boolean");
+        await click("Save");
+        expect(records.size).toBe(0);
+        expect(vault.encryptAndStore).not.toHaveBeenCalled();
+        expect(target.textContent).toContain("Select True or False");
+        expect(control("field-value-0").getAttribute("aria-invalid")).toBe(
+            "true",
+        );
+        await fill("field-value-0", "false");
+        await click("Save");
+        await saved();
+        const exported = JSON.parse(
+            serializeJsonExport({ items: [...records.values()], folders: [] }),
+        );
+        expect(exported.items[0].fields).toEqual([
+            { name: "Enabled", type: 2, value: "false" },
+        ]);
+    });
+
+    it.each([null, ""])(
+        "preserves unchanged legacy Boolean %s and offers an explicit export fix",
+        async (value) => {
+            const legacy = {
+                ...original,
+                fields: [{ name: "Legacy", type: "boolean" as const, value }],
+            };
+            const { records } = await setup([legacy]);
+            await edit(legacy.name);
+            await fill("name", "Renamed legacy");
+            await click("Save");
+            await saved();
+            expect(records.get(legacy.id)?.fields).toEqual(legacy.fields);
+            expect(() =>
+                serializeJsonExport({
+                    items: [...records.values()],
+                    folders: [],
+                }),
+            ).toThrow("Cannot represent Boolean");
+            await click("Edit");
+            await fill("field-value-0", "true");
+            await click("Save");
+            await saved();
+            expect(
+                JSON.parse(
+                    serializeJsonExport({
+                        items: [...records.values()],
+                        folders: [],
+                    }),
+                ).items[0].fields[0].value,
+            ).toBe("true");
+        },
+    );
+
+    it("rejects changing a Text field to an unset Boolean until corrected", async () => {
+        const { records } = await setup([
+            {
+                ...original,
+                fields: [{ name: "Empty", type: "text", value: "" }],
+            },
+        ]);
+        await edit(original.name);
+        await fill("field-type-0", "boolean");
+        await click("Save");
+        expect(target.textContent).toContain("Select True or False");
+        expect(records.get(original.id)?.fields[0].type).toBe("text");
+        await fill("field-value-0", "false");
+        await click("Save");
+        await saved();
+        expect(records.get(original.id)?.fields[0]).toEqual({
+            name: "Empty",
+            type: "boolean",
+            value: "false",
+        });
+    });
     it("creates a private multiline Secure Note without Login controls and cancels isolated edits", async () => {
         const { records } = await setup([original]);
         await click("New secure note");
@@ -427,6 +508,7 @@ describe("local secret editor with the real workflow and collection", () => {
         expect(vault.encryptAndStore).toHaveBeenCalledExactlyOnceWith(
             JSON.stringify(record),
             record.id,
+            null,
         );
         await click("Refresh");
         await expect.poll(() => target.textContent).toContain("Refreshed.");
@@ -675,7 +757,13 @@ describe("local secret editor with the real workflow and collection", () => {
         await expect
             .poll(() => target.textContent)
             .toContain("Permanently deleted.");
-        expect(vault.deleteSecret).toHaveBeenCalledExactlyOnceWith(original.id);
+        expect(vault.deleteSecret).toHaveBeenCalledExactlyOnceWith(
+            original.id,
+            expect.objectContaining({
+                ...original,
+                deletedAt: expect.any(String),
+            }),
+        );
         expect(records.has(original.id)).toBe(false);
         expect(records.get(other.id)).toEqual(other);
         expect(target.textContent).toContain("Trash is empty.");

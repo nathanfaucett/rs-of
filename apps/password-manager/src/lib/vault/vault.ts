@@ -22,6 +22,7 @@ import {
     FolderSchema,
     type ItemMutation,
     type ItemSnapshot,
+    StaleItemMutationError,
     validateItemSnapshot,
 } from "./folder";
 import {
@@ -241,6 +242,28 @@ export class VaultHandle {
     async mutateItems(mutation: ItemMutation): Promise<void> {
         await this.prepareItems();
         await this.changeItems((snapshot) => {
+            if (
+                mutation.expectedSnapshot &&
+                JSON.stringify(snapshot) !==
+                    JSON.stringify(
+                        validateItemSnapshot(mutation.expectedSnapshot),
+                    )
+            )
+                throw new StaleItemMutationError();
+            for (const { id, record } of mutation.expectedItems ?? []) {
+                const current =
+                    snapshot.items.find((item) => item.id === id) ?? null;
+                if (
+                    JSON.stringify(current) !==
+                        JSON.stringify(
+                            record === null
+                                ? null
+                                : v.parse(SecretSchema, record),
+                        ) ||
+                    (mutation.deleteIds?.includes(id) && !current?.deletedAt)
+                )
+                    throw new StaleItemMutationError();
+            }
             const update = <T extends { id: string }>(
                 previous: T[],
                 upsert: T[] = [],
@@ -453,8 +476,10 @@ export class VaultHandle {
     async encryptAndStore(
         plaintext: string,
         id?: string,
+        expected?: Secret | null,
     ): Promise<EncryptedSecret> {
         this.activeKey();
+        if (expected !== undefined) await this.prepareItems();
         if (this.prepared) {
             const result = v.safeParse(
                 SecretSchema,
@@ -468,7 +493,16 @@ export class VaultHandle {
             );
             if (!result.success || result.output.id !== id)
                 throw new Error("Invalid typed vault record");
-            await this.mutateItems({ upsert: [result.output] });
+            await this.mutateItems({
+                upsert: [result.output],
+                ...(expected !== undefined
+                    ? {
+                          expectedItems: [
+                              { id: result.output.id, record: expected },
+                          ],
+                      }
+                    : {}),
+            });
             const record = (await this.loadSecrets()).find(
                 (entry) => entry.id === id,
             );
@@ -519,9 +553,16 @@ export class VaultHandle {
         );
     }
 
-    async deleteSecret(id: string): Promise<void> {
+    async deleteSecret(id: string, expected?: Secret): Promise<void> {
         this.activeKey();
-        if (this.prepared) return this.mutateItems({ deleteIds: [id] });
+        if (expected !== undefined) await this.prepareItems();
+        if (this.prepared)
+            return this.mutateItems({
+                deleteIds: [id],
+                ...(expected !== undefined
+                    ? { expectedItems: [{ id, record: expected }] }
+                    : {}),
+            });
         await navigator.locks.request(
             `password-manager-items-${this.id}`,
             async () => {

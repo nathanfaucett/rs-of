@@ -10,7 +10,7 @@ import { Alert, Card, Field } from "$lib/ui";
 import type { VaultHandle } from "$lib/vault/vault";
 import { createLocalSecretWorkflow } from "./local-workflow.svelte";
 import type { Secret } from "./secret";
-import type { SshKeyDraft } from "./secret-draft";
+import { customFieldIssue, type SshKeyDraft } from "./secret-draft";
 import { searchItems, type ItemTypeFilter, type ItemSort } from "./search";
 
 let { vault }: { vault: VaultHandle } = $props();
@@ -325,6 +325,7 @@ function navigate(action: () => void) {
                 <fieldset class="flex min-w-0 flex-col gap-3" disabled={!workflow.canEdit}>
                     <legend class="text-sm font-medium">Custom fields</legend>
                     {#each draft.fields as field, i (field)}
+                        {@const issue = customFieldIssue(editor.record, field, i)}
                         <div class="flex flex-wrap items-end gap-2">
                             <Field id={`field-name-${i}`} label={`Field name ${i + 1}`} required>
                                 {#snippet children(control)}<input {...control} bind:value={field.name} />{/snippet}
@@ -338,11 +339,15 @@ function navigate(action: () => void) {
                                     </select>
                                 {/snippet}
                             </Field>
-                            <Field id={`field-value-${i}`} label={`Field value ${i + 1}`}>
+                            <Field id={`field-value-${i}`} label={`Field value ${i + 1}`}
+                                issues={issue ? [{ message: issue }] : []}
+                                description={field.type === "boolean" && field.value !== "true" && field.value !== "false" ? "Select True or False to enable JSON export. An unchanged legacy value is preserved." : undefined}>
                                 {#snippet children(control)}
                                     {#if field.type === "boolean"}
                                         <select {...control} bind:value={field.value}>
-                                            <option value="">Not set</option>
+                                            {#if field.value !== "true" && field.value !== "false"}
+                                                <option value={field.value} disabled>Not set — select True or False</option>
+                                            {/if}
                                             <option value="true">True</option>
                                             <option value="false">False</option>
                                         </select>

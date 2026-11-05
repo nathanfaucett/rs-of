@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { normalizeTimestamp } from "$lib/timestamp";
 import {
     SecretSchema,
     type Secret,
@@ -105,13 +106,6 @@ function strictJson(text: string): unknown {
     space();
     if (offset !== text.length) fail("");
     return result;
-}
-
-export function normalizeImportDate(value: string): string {
-    const fraction = (/\.(\d+)/.exec(value)?.[1] ?? "")
-        .replace(/0+$/, "")
-        .padEnd(3, "0");
-    return new Date(value).toISOString().replace(/\.\d{3}Z$/, `.${fraction}Z`);
 }
 
 const kinds = ["login", "secureNote", "card", "identity", "sshKey"] as const;
@@ -249,40 +243,10 @@ export function parsePersonalJson(
             return fallback;
         }
         if (typeof value === "string") {
-            const match =
-                /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.exec(
-                    value,
-                );
-            if (match) {
-                const [, year, month, day, hour, minute, second] =
-                    match.map(Number);
-                const leap =
-                    year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-                const days = [
-                    31,
-                    leap ? 29 : 28,
-                    31,
-                    30,
-                    31,
-                    30,
-                    31,
-                    31,
-                    30,
-                    31,
-                    30,
-                    31,
-                ][month - 1];
-                if (
-                    month >= 1 &&
-                    month <= 12 &&
-                    day >= 1 &&
-                    day <= days &&
-                    hour < 24 &&
-                    minute < 60 &&
-                    second < 60 &&
-                    Number.isFinite(Date.parse(value))
-                )
-                    return normalizeImportDate(value);
+            try {
+                return normalizeTimestamp(value);
+            } catch {
+                // Report the path below, never the source value.
             }
         }
         issue(path, "Expected a valid RFC 3339 date with timezone.");

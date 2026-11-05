@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { normalizeTimestamp } from "../timestamp";
 import { SecretSchema, type Secret } from "../secrets/secret";
 import {
     FolderSchema,
@@ -53,22 +54,13 @@ const identityKeys = [
 const sshKeys = ["privateKey", "publicKey", "keyFingerprint"] as const;
 
 function date(value: string, path: string) {
-    const [year, month, day] = value.slice(0, 10).split("-").map(Number);
-    const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-    const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][
-        month - 1
-    ];
-    if (
-        !days ||
-        day < 1 ||
-        day > days ||
-        !Number.isFinite(Date.parse(value)) ||
-        /\.\d{3}\d*[1-9]\d*(?:Z|[+-]\d\d:\d\d)$/.test(value)
-    )
+    try {
+        return normalizeTimestamp(value);
+    } catch {
         throw new JsonExportError(
             `Cannot represent date at ${path}. Export blocked; use an encrypted backup.`,
         );
-    return new Date(value).toISOString();
+    }
 }
 
 export function inspectJsonExport(input: ItemSnapshot) {

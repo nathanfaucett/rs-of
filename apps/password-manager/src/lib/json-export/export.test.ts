@@ -3,6 +3,7 @@ import { expect, it } from "vitest";
 import expected from "../../../../../docs/fixtures/password-manager/export-expected.json";
 import local from "../../../../../docs/fixtures/password-manager/export-local.json";
 import { SecretSchema } from "../secrets/secret";
+import { parsePersonalJson } from "../import/personal-json";
 import type { ItemSnapshot } from "../vault/folder";
 import { inspectJsonExport, serializeJsonExport } from "./export";
 
@@ -98,12 +99,52 @@ it.each([
         expect(String(cause)).not.toContain("SYNTHETIC-PRIVATE-VALUE");
     }
 });
-it("rejects impossible calendar dates instead of changing their instant", () => {
+it.each([
+    "2025-02-30T00:00:00Z",
+    "2025-01-01T24:00:00Z",
+    "2025-01-01T00:60:00Z",
+    "2025-01-01T00:00:60Z",
+    "2025-01-01T00:00:00+24:00",
+    "2025-01-01T00:00:00",
+])("rejects invalid timestamp %s on import and export", (value) => {
+    const wire = structuredClone(expected);
+    wire.items[0].creationDate = value;
+    expect(parsePersonalJson(JSON.stringify(wire)).issues).not.toEqual([]);
     const input = snapshot();
-    input.items[0].createdAt = "2025-02-30T00:00:00Z";
-    expect(() => serializeJsonExport(input)).toThrow("Cannot represent date");
+    input.items[0].createdAt = value;
+    expect(() => serializeJsonExport(input)).toThrow(
+        /Cannot represent date|Unsupported or invalid data/,
+    );
 });
-it("rejects dangling memberships, duplicate identities, and dates that lose precision", () => {
+it.each([
+    ["2025-01-01T01:02:03.1234567+02:00", "2024-12-31T23:02:03.1234567Z"],
+    ["2025-01-01T01:02:03.0001000-03:30", "2025-01-01T04:32:03.0001Z"],
+])(
+    "round-trips imported fractional timestamp %s without precision loss",
+    (source, normalized) => {
+        const wire = structuredClone(expected);
+        wire.items[0].creationDate = source;
+        wire.items[0].revisionDate = source;
+        wire.items[0].passwordHistory[0].lastUsedDate = source;
+        const imported = parsePersonalJson(JSON.stringify(wire));
+        expect(imported.issues).toEqual([]);
+        const exported = serializeJsonExport({
+            items: imported.items,
+            folders: imported.folders,
+        });
+        const emitted = JSON.parse(exported).items[0];
+        expect(emitted.creationDate).toBe(normalized);
+        expect(emitted.revisionDate).toBe(normalized);
+        expect(emitted.passwordHistory[0].lastUsedDate).toBe(normalized);
+        const reimported = parsePersonalJson(exported);
+        expect(reimported.issues).toEqual([]);
+        expect(reimported.items[0].createdAt).toBe(normalized);
+        expect(reimported.items[0].updatedAt).toBe(normalized);
+        expect(reimported.items[0].history[0].changedAt).toBe(normalized);
+    },
+);
+
+it("rejects dangling memberships and duplicate identities", () => {
     const input = snapshot();
     input.folders = [];
     expect(() => serializeJsonExport(input)).toThrow(
@@ -114,9 +155,6 @@ it("rejects dangling memberships, duplicate identities, and dates that lose prec
     expect(() => serializeJsonExport(duplicate)).toThrow(
         "Malformed vault snapshot",
     );
-    const precise = snapshot();
-    precise.items[0].createdAt = "2025-01-01T00:00:00.0001Z";
-    expect(() => serializeJsonExport(precise)).toThrow("Cannot represent date");
 });
 it.each(["login", "secureNote", "card", "identity", "sshKey"])(
     "emits null optional scalars and empty arrays for minimal %s",

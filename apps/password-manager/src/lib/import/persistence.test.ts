@@ -3,6 +3,7 @@ import supported from "../../../../../docs/fixtures/password-manager/supported.j
 import { prepareBackupRestore } from "$lib/vault/backup";
 import { createVault, unlockVault } from "$lib/vault/vault";
 import { preparePersonalJsonImport } from "./import";
+import { parsePersonalJson } from "./personal-json";
 
 const password = "synthetic-import-persistence";
 const date = "2025-01-01T00:00:00.000Z";
@@ -197,6 +198,64 @@ it("rejects stale previews and concurrent confirmations rather than overwriting 
     second.retire();
     vault.close();
 });
+
+it.each(["save", "folder"] as const)(
+    "rejects an import when another handle commits a %s after its preflight read",
+    async (operation) => {
+        const vault = await createVault(
+            password,
+            `Import race ${crypto.randomUUID()}`,
+        );
+        const other = await unlockVault(password, vault.id);
+        const preview = await preparePersonalJsonImport(
+            vault,
+            JSON.stringify(supported),
+        );
+        expect(preview.duplicates).toEqual({ sourceIds: 0, logical: 0 });
+        let entered!: () => void;
+        let release!: () => void;
+        const started = new Promise<void>((resolve) => {
+            entered = resolve;
+        });
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const mutate = vault.mutateItems.bind(vault);
+        vi.spyOn(vault, "mutateItems").mockImplementationOnce(
+            async (mutation) => {
+                entered();
+                await gate;
+                return mutate(mutation);
+            },
+        );
+        const outcome = preview.commit().then(
+            () => null,
+            (error: unknown) => error,
+        );
+        await started;
+        if (operation === "save") {
+            const record = {
+                ...parsePersonalJson(JSON.stringify(supported)).items[0],
+                folderId: null,
+            };
+            await other.prepareItems();
+            await other.encryptAndStore(
+                JSON.stringify(record),
+                record.id,
+                null,
+            );
+        } else await other.createFolder("Committed after preflight");
+        const committed = await other.readItems();
+        release();
+        expect(await outcome).toBeInstanceOf(Error);
+        expect(((await outcome) as Error).message).toContain("changed");
+        expect(await vault.readItems()).toEqual(committed);
+        await expect(preview.commit()).rejects.toThrow("closed");
+        other.close();
+        vault.close();
+    },
+    20000,
+);
 
 it("a closed handle cannot submit a prepared import", async () => {
     const vault = await createVault(

@@ -5,7 +5,7 @@ import {
 } from "@tanstack/db";
 import * as v from "valibot";
 import type { VaultHandle } from "$lib/vault/vault";
-import type { Folder } from "$lib/vault/folder";
+import { type Folder, StaleItemMutationError } from "$lib/vault/folder";
 import { type Secret, SecretSchema, SecretIdSchema } from "./secret";
 
 export class UnacknowledgedStorageWriteError extends Error {
@@ -162,15 +162,25 @@ export function createLocalSecretCollection({
 
                     try {
                         if (mutation.type === "delete") {
-                            await vault.deleteSecret(key);
+                            await vault.deleteSecret(
+                                key,
+                                v.parse(SecretSchema, mutation.original),
+                            );
                         } else if (value) {
                             await vault.encryptAndStore(
                                 JSON.stringify(value),
                                 key,
+                                mutation.type === "insert"
+                                    ? null
+                                    : v.parse(SecretSchema, mutation.original),
                             );
                         }
                     } catch (cause) {
                         active();
+                        if (cause instanceof StaleItemMutationError) {
+                            await reload();
+                            throw cause;
+                        }
                         const error = new Error(
                             cause instanceof Error
                                 ? cause.message

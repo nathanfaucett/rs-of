@@ -184,6 +184,51 @@ afterEach(async () => {
     await stop();
 });
 
+it.each(["trash", "restore", "purge", "save"] as const)(
+    "rejects stale %s after another session restores or edits the record",
+    async (operation) => {
+        const { id } = await start();
+        if (operation === "restore" || operation === "purge") {
+            await trashItem();
+            await click("Trash");
+        } else if (operation === "save") {
+            await click(originals[0].name);
+            await click("Edit");
+        }
+        const other = await unlockVault(password, id);
+        const current = (await other.readItems()).items.find(
+            (item) => item.id === originals[0].id,
+        )!;
+        const updated = {
+            ...current,
+            name: "Updated in session B",
+            updatedAt: "2026-11-05T12:00:00.000Z",
+        };
+        delete updated.deletedAt;
+        await other.mutateItems({ upsert: [updated] });
+        other.close();
+        if (operation === "purge") await purgeItem();
+        else if (operation === "restore") await click("Restore");
+        else if (operation === "save") await click("Save");
+        else {
+            await click("Delete");
+            await click("Confirm delete");
+        }
+        await expect
+            .poll(() => target.querySelector('[role="alert"]')?.textContent)
+            .toContain("changed");
+        expect(target.querySelector("form")).toBeNull();
+        expect(await persisted(id)).toEqual(
+            expect.arrayContaining([updated, keeper]),
+        );
+        await click("Refresh");
+        await expect.poll(() => target.textContent).toContain("Refreshed.");
+        await click("All items");
+        expect(target.textContent).toContain(updated.name);
+    },
+    20000,
+);
+
 it.each(originals)(
     "keeps $kind encrypted in Trash across reopen and clean backup restore, restores all fields, and deletes only the confirmed item",
     async (original) => {

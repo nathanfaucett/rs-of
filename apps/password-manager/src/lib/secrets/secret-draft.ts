@@ -3,6 +3,8 @@ import { identityFields } from "./identity-fields";
 import {
     type Card,
     CardSchema,
+    CustomFieldSchema,
+    type Secret,
     type Identity,
     IdentitySchema,
     type Login,
@@ -118,12 +120,42 @@ export function createSecretDraft(
     };
 }
 
+export function customFieldIssue(
+    previous: EditableSecret | null,
+    field: Secret["fields"][number],
+    index: number,
+): string | null {
+    const old = previous?.fields[index];
+    if (
+        field.type !== "boolean" ||
+        field.value === "true" ||
+        field.value === "false" ||
+        (old?.type === "boolean" &&
+            old.name === field.name &&
+            old.value === field.value)
+    )
+        return null;
+    return `Custom field ${index + 1}: Select True or False, change the field type, or remove the field before saving.`;
+}
+
 export function constructSecret(
     previous: EditableSecret | null,
     draft: SecretDraft,
     id: string,
     now: string,
 ) {
+    const fieldIssue = draft.fields
+        .map((field, index) => customFieldIssue(previous, field, index))
+        .find(Boolean);
+    const fields = v.safeParse(
+        v.pipe(
+            v.array(CustomFieldSchema),
+            v.check(() => !fieldIssue, fieldIssue ?? "Invalid custom field."),
+        ),
+        draft.fields,
+    );
+    if (!fields.success)
+        return { success: false as const, issues: fields.issues };
     const common = {
         ...previous,
         ...draft,

@@ -13,7 +13,15 @@ export interface ItemSnapshot {
     items: Secret[];
     folders: Folder[];
 }
+export class StaleItemMutationError extends Error {
+    constructor() {
+        super("Vault changed. Refresh and verify records before retrying.");
+    }
+}
+
 export interface ItemMutation {
+    expectedSnapshot?: ItemSnapshot;
+    expectedItems?: { id: string; record: Secret | null }[];
     upsert?: Secret[];
     deleteIds?: string[];
     folders?: Folder[];

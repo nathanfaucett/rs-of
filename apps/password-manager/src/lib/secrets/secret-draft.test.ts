@@ -73,6 +73,39 @@ describe("secret drafts", () => {
         );
     });
 
+    it.each([null, "", "TRUE", "0"])(
+        "rejects a new or changed Boolean %s at construction, but preserves an unchanged legacy field",
+        (value) => {
+            const draft = createSecretDraft(record);
+            draft.fields.push({ name: "Flag", type: "boolean", value });
+            expect(constructSecret(record, draft, id, now).success).toBe(false);
+            const legacy = {
+                ...record,
+                fields: [{ name: "Flag", type: "boolean" as const, value }],
+            };
+            const unchanged = constructSecret(
+                legacy,
+                createSecretDraft(legacy),
+                id,
+                now,
+            );
+            expect(unchanged.success && unchanged.output.fields).toEqual(
+                legacy.fields,
+            );
+            const valid = {
+                ...legacy,
+                fields: [
+                    { name: "Flag", type: "boolean" as const, value: "true" },
+                ],
+            };
+            const changed = createSecretDraft(valid);
+            changed.fields[0].value = value;
+            expect(constructSecret(valid, changed, id, now).success).toBe(
+                false,
+            );
+        },
+    );
+
     it("rejects missing names and invalid match modes but accepts absent passwords", () => {
         const draft = createSecretDraft(null);
         expect(constructSecret(null, draft, id, now).success).toBe(false);
