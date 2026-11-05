@@ -4,6 +4,7 @@
 
 - 2026-11-05: Integration root `of`, branch `implement/password-manager-parity`, baseline `42391ef3c943365a2319b8118215e333d28d3e44`. No implementer worktree edits, parent spec changes, dependency installation, or push.
 - Verified and merged in order: `implement/password-manager-01` (`0e59e8b519a3acdc271674805e11e3d031d2c99b`, fast-forward), `implement/password-manager-02` (`3c8831c2ccf1ca04605197e410af80fd47f03e29`, merge `d7e66f228`), `implement/password-manager-03` (`a25aa10dc18f8ff1722b56151857b6b2a5b754df`, merge `9cce7267b`), then `implement/password-manager-19` (`e45e8da4048c758e41550aad04c78a295c4e00ef`, merge `23ac8b403`). All four tips are ancestors of the integrated head.
+- 2026-11-05: Verified `implement/password-manager-04` at `0bcfaa8d5705ec8123459cca0c1b73cca8e93841` and merged it with `GIT_EDITOR=true git merge --no-edit implement/password-manager-04`. Fast-forward from `4e444a520`; no conflicts or integration code edits. Parent spec, migrations 1/2, `Cargo.lock`, and existing map were unchanged by the merge. Only this map is changed in the follow-up integration commit.
 - Complexity: medium. Risk: high at authentication/identity overlap because a wrong resolution could deny vault access or return an unauthenticated handle. Scope: combine existing mechanisms and update their existing public API, mounted-page, and built-app test boundaries; no new feature or compatibility path.
 - Integrity checks compare migration 1, `Cargo.lock`, and the parent spec with baseline Git objects. All are unchanged. Authentication appends migration 2; no baseline SQL rewrite.
 
@@ -14,6 +15,7 @@
 - [03: Vault identity — resolved](issues/03-vault-identity.md). Keep random stable IDs, independent database names, reservation before writes, metadata-ID checks, and registration completion only after metadata/proof persistence. Unlock takes an ID, never a display name. Preserve in-place legacy registration and interrupted-registration recovery.
 - Auth/identity conflict resolution keeps both derivation validation and identity validation. Creation inserts metadata plus proof before completing registration; unlock verifies the proof before completing registration. Test schema expectations now use authentication version 2 and reject future version 3.
 - Authentication tests resolve storage through registered IDs. Legacy fixtures return/register their original IDs. The creation-write fault uses a prepared database with a reserved synthetic ID so the real IndexedDB failure reaches metadata persistence, not database initialization. It also proves that retry creates a separate identity and leaves the interrupted reservation locked.
+- [04: Complete encrypted backup and restore — resolved](issues/04-encrypted-backup-restore.md). Read the ticket Answer and [backup contract](../../docs/password-manager-backup.md). Version 1 authenticates the full current-model snapshot, including original metadata/proof, stable IDs, display name, and encrypted records. Restore validates before writes, commits to fresh unlisted storage, reopens/verifies persisted data, then publishes the destination atomically in the registry. Existing IDs cannot be overwritten. Removed the obsolete record-only export; no legacy wrapper. Limits: 16 MiB / 10,000 records; original master password required.
 - [19: Offline startup — resolved](issues/19-offline-startup.md). Keep the production asset/WASM service worker, complete-version cache updates, safe storage guidance, and built-app browser harness. The harness now captures the selector's stable ID and reuses it after reload, update, and cold browser restart. Keep the package-resolved SQL test allowlist and local Vitest cache.
 
 ### Integration evidence
@@ -30,12 +32,21 @@ Commands run from the repository root unless stated otherwise:
 - `cargo hack test --feature-powerset --all-targets --locked`: **timed out after 120 seconds during compilation**; no full Rust result.
 - `just crap`: **timed out after 120 seconds during Rust compilation** after its SDK build prerequisite; no CRAP score or coverage result. Do not infer success from compilation progress.
 
+### Ticket 04 integration evidence
+
+- `pnpm --filter @ofsdk/password-manager test`: passed, including backup API and mounted-page tests with real persistence.
+- `pnpm --filter @ofsdk/password-manager check`: passed.
+- `pnpm --filter @ofsdk/password-manager build`: passed; existing SQL WASM static/dynamic import and plugin timing notices remain non-blocking.
+- `node scripts/check-offline.mjs` from `apps/password-manager`: passed all existing scenarios plus built-app offline encrypted downloads, source-profile disposal, empty/populated clean-profile restore, wrong-password rejection, reload/unlock, and exact encrypted-data/authentication/identity preservation.
+- `git diff --check`: passed. `git merge-base --is-ancestor 0bcfaa8d5705ec8123459cca0c1b73cca8e93841 HEAD`: passed. Diff against `4e444a520` for the parent spec, `Cargo.lock`, and migrations: empty. No unrelated tracked changes or push.
+- No new Rust validation run for this app-only merge; the earlier Rust/CRAP timeout limits below still apply.
+
 ## Fog
 
 - No unresolved merge conflicts or known app test/check/build/offline failures after integration.
 - Rust feature combinations and CRAP remain unqualified because both bounded commands timed out. A longer run is required if workspace-wide validation is needed; no Rust source changed here.
 - [01](issues/01-reference-baseline.md): enabled reference tabs were unavailable. Selected server version/configuration and unlocked reference workflows remain unverified; inherited client version is not a fresh observation.
 - [19](issues/19-offline-startup.md): Chromium/root-path/current Login flows only. Other engines, mobile/private modes, real disk exhaustion/eviction, non-root deployment, and the final typed-item release need qualification in [20](issues/20-offline-release-qualification.md).
-- [04](issues/04-encrypted-backup-restore.md) still owns complete encrypted backup/restore. Preserve the authentication proof and bound metadata, or deliberately re-establish proof under a verified key. Current encrypted export is not a complete backup.
+- [04](issues/04-encrypted-backup-restore.md) is resolved for the current Login-like model. Future typed items, folders, settings, and import provenance must extend/version the complete-backup contract before claiming coverage. Failed restore staging can leave encrypted unlisted storage; automatic cleanup is not implemented. Uncertain publication requires selector/ID verification before retry. Browser download persistence and independent cryptographic review remain unqualified.
 - Typed items and remaining parity work are not implemented by this merge. No independent cryptographic audit, rollback prevention, secure-erasure guarantee, or production readiness claim.
 - Git reports an existing failed automatic-GC log and excess unreachable loose objects. No prune or repository-maintenance operation was run. Existing untracked `.scratch/worktrees/` is left intact.
