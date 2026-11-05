@@ -491,12 +491,33 @@ describe("local secret editor with the real workflow and collection", () => {
         expect(vault.encryptAndStore).not.toHaveBeenCalled();
     });
 
-    it("requires delete confirmation, supports cancellation, and removes only the selected record", async () => {
+    it.each(["trash", "restore", "purge"] as const)("does not claim success for an unacknowledged %s", async (operation) => {
+        const initial = operation === "trash" ? original : { ...original, deletedAt: "2026-01-01T00:00:00.000Z" };
+        const { vault, records } = await setup([initial, other]);
+        if (operation !== "trash") await click("Trash");
+        if (operation === "purge") {
+            vault.deleteSecret.mockImplementationOnce(async () => {});
+            await click("Delete permanently");
+            await click("Confirm permanent delete");
+        } else {
+            vault.encryptAndStore.mockImplementationOnce(async () => ({ id: initial.id, ciphertext: JSON.stringify(initial), nonce: "test", createdAt: initial.createdAt, updatedAt: initial.updatedAt }));
+            if (operation === "trash") { await click("Delete"); await click("Confirm delete"); }
+            else await click("Restore");
+        }
+        await expect.poll(() => target.textContent).toContain("Storage write was not acknowledged; authoritative records reloaded. Verify the outcome before retrying.");
+        expect(records.get(original.id)).toEqual(initial);
+        expect(records.get(other.id)).toEqual(other);
+        expect(target.textContent).not.toContain(operation === "trash" ? "Moved to Trash." : operation === "restore" ? "Restored." : "Permanently deleted.");
+        if (operation === "trash") expect(button(original.name)).toBeDefined();
+        else expect(button("Restore")).toBeDefined();
+    });
+
+    it("moves only the selected item to Trash, restores it intact, and separately confirms permanent deletion", async () => {
         const { records, vault } = await setup([original, other]);
         await edit(original.name);
         await click("Delete");
         expect(target.textContent).toContain(
-            `Delete ${original.name}? This cannot be undone.`,
+            `Move ${original.name} to Trash?`,
         );
         expect(records.get(original.id)).toEqual(original);
         expect(vault.deleteSecret).not.toHaveBeenCalled();
@@ -506,9 +527,9 @@ describe("local secret editor with the real workflow and collection", () => {
         expect(vault.deleteSecret).not.toHaveBeenCalled();
         await click("Delete");
         await click("Confirm delete");
-        await expect.poll(() => target.textContent).toContain("Deleted.");
-        expect(vault.deleteSecret).toHaveBeenCalledExactlyOnceWith(original.id);
-        expect(records.has(original.id)).toBe(false);
+        await expect.poll(() => target.textContent).toContain("Moved to Trash.");
+        expect(vault.deleteSecret).not.toHaveBeenCalled();
+        expect(records.get(original.id)).toEqual({ ...original, deletedAt: expect.any(String) });
         expect(records.get(other.id)).toEqual(other);
         expect(target.querySelector("form")).toBeNull();
         expect(target.textContent).not.toContain(original.name);
@@ -517,6 +538,33 @@ describe("local secret editor with the real workflow and collection", () => {
         await expect.poll(() => target.textContent).toContain("Refreshed.");
         expect(target.textContent).not.toContain(original.name);
         expect(button(other.name)).toBeDefined();
-        expect(vault.encryptAndStore).not.toHaveBeenCalled();
+        await click("Trash");
+        expect(button("Trash").getAttribute("aria-pressed")).toBe("true");
+        expect(target.textContent).toContain(original.name);
+        expect(target.textContent).not.toContain(other.name);
+        expect(target.querySelector("form")).toBeNull();
+        await click("Restore");
+        await expect.poll(() => target.textContent).toContain("Restored.");
+        expect(records.get(original.id)).toEqual(original);
+        expect(target.textContent).toContain("Trash is empty.");
+        await click("All items");
+        await click("Delete");
+        await click("Confirm delete");
+        await expect.poll(() => target.textContent).toContain("Moved to Trash.");
+        await click("Trash");
+        await click("Delete permanently");
+        expect(target.querySelector('[role="alertdialog"]')).not.toBeNull();
+        expect(document.activeElement).toBe(button("Cancel delete"));
+        expect(vault.deleteSecret).not.toHaveBeenCalled();
+        await click("Cancel delete");
+        expect(document.activeElement).toBe(button("Delete permanently"));
+        expect(records.has(original.id)).toBe(true);
+        await click("Delete permanently");
+        await click("Confirm permanent delete");
+        await expect.poll(() => target.textContent).toContain("Permanently deleted.");
+        expect(vault.deleteSecret).toHaveBeenCalledExactlyOnceWith(original.id);
+        expect(records.has(original.id)).toBe(false);
+        expect(records.get(other.id)).toEqual(other);
+        expect(target.textContent).toContain("Trash is empty.");
     });
 });

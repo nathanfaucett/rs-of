@@ -68,6 +68,25 @@ Search state belongs to one mounted editor only. Retirement and unmount clear qu
 
 Evidence: `src/lib/secrets/search.test.ts` mounts the real workflow/collection in Chromium with a synthetic vault adapter. It covers combined filters and clear, read-only navigation/no writes, all kinds, Unicode composition/case, optional data, allowed/excluded fields, deleted records, every sort and stable ID ties, acknowledged mutations and refresh, failed-read retry, retired late refresh, and 2,000 synthetic records without a timing claim. Storage assertions compare local/session storage, database registrations, and URL state; they are not a general storage security audit. `scripts/check-search.mjs`, called by `check-offline.mjs`, exercises keyboard controls, real SQL/WASM persistence, read-only result navigation, and unchanged UI storage with networking disabled and the server stopped. The existing lock, cold-start, and clean-profile encrypted backup checks still pass. The full app suite did not pass in this run; exact commands and failure limits are recorded in ticket 11.
 
+## Trash and recovery
+
+Ticket 13 changes normal **Delete** to an encrypted, persisted `deletedAt` update. **All items** and read-only details exclude deleted records. **Trash** is a separate, keyboard-accessible view with item names and deletion dates; it does not expose credential fields. No retention timer or automatic purge exists.
+
+**Restore** removes only `deletedAt` and returns the same item ID, contents, creation/update dates, favorite state, fields, history, and import provenance. If folder membership cannot be resolved, restore makes the item unfiled (`folderId: null`). This branch has no folder catalog, so any non-null membership is unresolved. Omitted/null memberships remain unchanged. Ticket 12 integration must retain a membership when its folder exists and clear it only when missing. Its atomic folder deletion must unfile both active and trashed members; do not make a loop of independent item writes appear atomic.
+
+**Delete permanently** is available only in Trash and requires a separate modal confirmation. Cancel or Escape changes nothing and returns focus to the invoking control; initial focus is on Cancel. Permanent deletion affects only the selected trashed item. It is not secure erasure: SQL history, retained transition sources, browser storage, and earlier backups can still contain ciphertext or earlier item data.
+
+Trash changes use the existing collection acknowledgement and complete authoritative snapshot reload. An unconfirmed write never produces success feedback. On failure or uncertain outcome, refresh and verify before retrying. Lock retires the workflow and removes decrypted Trash/confirmation state; an already-sent write can still persist, but its late result cannot restore the view or success feedback. Encrypted backups include Trash, with no backup format change.
+
+### Ticket 13 evidence and integration
+
+- `src/routes/trash.test.ts`: real page, workflow, collection, Chromium SQL/WASM, IndexedDB, and Web Crypto. All five types cover cancel, Trash navigation, encrypted persisted deletion, lock/reopen, clean-storage encrypted backup restore, exact restore, selected permanent deletion, and unresolved-folder fallback. Fault cases cover encryption failure, actual IndexedDB quota/write rejection, uncertain post-delete readback, and lock during each pending operation. Old deletion dates survive load/refresh/reopen.
+- `src/lib/secrets/editor.test.ts`: cancellation/focus, isolated selected mutations, and successful-but-unacknowledged trash/restore/permanent deletion through the real workflow/collection with controlled storage.
+- `scripts/check-trash.mjs`, called by `check-offline.mjs`: built app with the server stopped and network disabled; keyboard confirmation/cancel/focus, lock/reload, restore with history, and selected permanent deletion. Only synthetic vaults in isolated test profiles are used.
+- Ticket 11 integration must keep the `!deletedAt` guard before normal search/filter/sort and retain the separate unfiltered Trash view. Ticket 12 integration must replace the no-catalog restore fallback with catalog-aware membership validation and test deleting a folder while an item is in Trash, restoring to a retained folder, and clean-storage backup restoration of both folders and Trash. These cross-ticket combinations are not established by the ticket 13 baseline alone.
+
+Serialize browser validation with `flock /home/nathan/code/rust/aicacia/of/.scratch/password-manager-validation.lock <command>`; run Vitest with `--maxWorkers=1 --no-file-parallelism`.
+
 ## Versioned transition and recovery
 
 SQL migration 3 appends `item_format` (default `1`) and `transition_backup`; migrations 1 and 2 are unchanged. New vaults start at item format `2`. Authentication/identity transitions remain separate. Unlock alone does not rewrite records. The collection prepares the format before exposing any records or enabling editing.
