@@ -1,0 +1,60 @@
+{
+  "folders": [
+    {"id":"10000000-0000-4000-8000-000000000001","name":"Synthetic"},
+    {"id":"10000000-0000-4000-8000-000000000002","name":"Synthetic/日本語"}
+  ],
+  "items": [
+    {
+      "kind":"login", "id":"20000000-0000-4000-8000-000000000001",
+      "folderId":"10000000-0000-4000-8000-000000000002",
+      "name":"SYNTHETIC Login café 日本語 🔐", "notes":"Synthetic only.\nSecond line, café.\n", "favorite":true,
+      "username":"synthetic@example.invalid", "secret":"SYNTHETIC-NOT-A-CREDENTIAL", "totp":"JBSWY3DPEHPK3PXP",
+      "uris":[
+        {"uri":"https://default.example.invalid/","match":null},
+        {"uri":"https://domain.example.invalid/","match":"domain"},
+        {"uri":"https://host.example.invalid:8443/","match":"host"},
+        {"uri":"https://prefix.example.invalid/path/","match":"startsWith"},
+        {"uri":"https://exact.example.invalid/path?q=1","match":"exact"},
+        {"uri":"^https://[a-z]+\\.example\\.invalid/","match":"regex"},
+        {"uri":"androidapp://invalid.example.synthetic","match":"never"}
+      ],
+      "fields":[
+        {"name":"label","value":"line one\n日本語","type":"text"},
+        {"name":"hidden","value":"NOT-A-REAL-SECRET","type":"hidden"},
+        {"name":"check","value":"true","type":"boolean"},
+        {"name":"check","value":"false","type":"boolean"},
+        {"name":"empty","value":"","type":"text"},
+        {"name":"absent-value","value":null,"type":"text"}
+      ],
+      "history":[
+        {"secret":"SYNTHETIC-PRIOR-ONE","changedAt":"2025-01-02T04:04:05+01:00"},
+        {"secret":"","changedAt":"2025-02-03T04:05:06.000Z"}
+      ],
+      "createdAt":"2025-01-01T01:00:00+01:00", "updatedAt":"2025-03-01T00:00:00.000Z",
+      "importSource":{"format":"personal-json-v1","id":"source-not-output-identity"}
+    },
+    {
+      "kind":"secureNote","type":0,"id":"20000000-0000-4000-8000-000000000002",
+      "name":"SYNTHETIC Secure Note","notes":"Private text fixture only.\nNo password field.\n",
+      "favorite":false,"folderId":null,"fields":[],"history":[],
+      "createdAt":"2025-01-01T00:00:00.000Z","updatedAt":"2025-03-01T00:00:00.000Z"
+    },
+    {
+      "kind":"card","id":"20000000-0000-4000-8000-000000000003",
+      "name":"SYNTHETIC Card (not usable)","folderId":"10000000-0000-4000-8000-000000000001","notes":null,
+      "cardholderName":"Synthetic Person","brand":"Synthetic Brand","number":"0000000000000000","expMonth":"01","expYear":"2000","code":"000",
+      "createdAt":"2025-01-01T00:00:00.000Z","updatedAt":"2025-03-01T00:00:00.000Z"
+    },
+    {
+      "kind":"identity","id":"20000000-0000-4000-8000-000000000004","name":"SYNTHETIC Identity",
+      "title":"Mx","firstName":"Synthetic","middleName":"Test","lastName":"Person",
+      "address1":"Not a real address","address2":"Fixture floor","address3":"Fixture room","city":"Example","state":"XX","postalCode":"00001","country":"ZZ","company":"Synthetic Company","email":"synthetic@example.invalid","phone":"+1-202-555-0100","ssn":"SYNTHETIC-NOT-AN-SSN","username":"synthetic-user","passportNumber":"SYNTHETIC-PASSPORT","licenseNumber":"SYNTHETIC-LICENSE",
+      "createdAt":"2025-01-01T00:00:00.000Z","updatedAt":"2025-03-01T00:00:00.000Z"
+    },
+    {
+      "kind":"sshKey","id":"20000000-0000-4000-8000-000000000005","name":"SYNTHETIC SSH (text storage only)",
+      "privateKey":"SYNTHETIC PRIVATE KEY TEXT\nNot an SSH key.\n","publicKey":"SYNTHETIC PUBLIC KEY TEXT","keyFingerprint":"SYNTHETIC-NOT-A-FINGERPRINT",
+      "createdAt":"2025-01-01T00:00:00.000Z","updatedAt":"2025-03-01T00:00:00.000Z"
+    }
+  ]
+}
