@@ -1,6 +1,6 @@
 # Password manager offline qualification and operations
 
-Qualification date: 2026-11-05. Task: [20](../.scratch/password-manager-bitwarden-parity/issues/20-offline-release-qualification.md). Initial base: `769850d61`, branch `implement/password-manager-20`. Final review fix commit: `c4c422e73f22a0ddaf8397914bad76d6d6aee605`, merged into root `implement/password-manager-parity` and freshly revalidated below.
+Qualification date: 2026-11-05. Task: [20](../.scratch/password-manager-bitwarden-parity/issues/20-offline-release-qualification.md). Initial base: `769850d61`, branch `implement/password-manager-20`. Final review fix commit: `c4c422e73f22a0ddaf8397914bad76d6d6aee605`. Boolean-origin follow-up: `77a7b521007700721b580e6fb26e670bbe1cdc7e`. Both are merged into root `implement/password-manager-parity`; evidence for each is separated below.
 
 This qualifies the tested local personal-vault subset. It is not full Bitwarden/Vaultwarden parity, selected reference-client acceptance, an independent security audit, or production approval. No live account, credential, or user browser session was used. The [reference evidence limits](password-manager-reference.md) remain unchanged.
 
@@ -23,7 +23,7 @@ The scripts bind a temporary loopback port and create isolated synthetic browser
 
 ## Recorded environment and results
 
-Environment rows retain the ticket 20 record. Test/check/build/browser results below are fresh root-merger checks after the review fix commit, not only implementer evidence. The earlier ticket 20 run passed 388 tests in 519.40 seconds; the final suite now includes 410 tests.
+Environment rows retain the ticket 20 record. The latest follow-up full-suite count is **417 tests passed**, reported by the implementer together with passing build/offline/JSON checks. Fresh root follow-up evidence is **4 files / 83 focused tests passed** plus sync/check with **0 errors / 0 warnings**; the merger did not rerun the full suite or build/browser scripts for `77a7b5210`. The preceding review had a fresh root full run of 410 tests in 533.96 seconds; ticket 20's earlier 388-test result is historical. These evidence boundaries are not interchangeable.
 
 | Item                                       | Recorded value/result                                                                                                                                          |
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -32,11 +32,12 @@ Environment rows retain the ticket 20 record. Test/check/build/browser results b
 | Svelte / Vite                              | `5.56.8` / `8.2.0`                                                                                                                                             |
 | Vitest                                     | `4.1.10`; existing browser package `4.1.12` version warning remains                                                                                            |
 | Playwright / browser                       | `1.64.1`; bundled Google Chrome for Testing `156.0.8078.4`, Chromium revision `1248`, headless                                                                 |
-| Full application tests                     | **33 files, 410 tests passed**, 533.96 seconds; fresh root run after review, actual SQL/WASM, IndexedDB and Web Crypto                                         |
-| Svelte sync/check                          | **0 errors, 0 warnings**                                                                                                                                       |
-| Production build                           | **Passed**; static assets, service worker and database WASM emitted                                                                                            |
-| Built core/offline/recovery/upgrade script | **Passed**, including new historical version-1 conversion fixture                                                                                              |
-| Built JSON export/import/recovery script   | **Passed**, including injected import quota rejection and deadline/clipboard cases                                                                             |
+| Full application tests                     | **417 tests passed** — latest follow-up implementer report; not rerun in root. Prior fresh root full run: 33 files / 410 tests, 533.96 seconds                 |
+| Focused follow-up tests                    | **4 files / 83 tests passed**, 28.92 seconds; fresh root draft/editor/serializer/mounted export run                                                            |
+| Svelte sync/check                          | **0 errors, 0 warnings**, fresh root follow-up                                                                                                                 |
+| Production build                           | **Passed** — follow-up implementer report; prior review root build also passed; not rerun in root for the follow-up                                            |
+| Built core/offline/recovery/upgrade script | **Passed** — follow-up implementer report; prior review root run passed historical v1 conversion; not rerun in root for the follow-up                          |
+| Built JSON export/import/recovery script   | **Passed** — follow-up implementer report; prior review root run passed quota/deadline/clipboard/recovery cases; not rerun in root for the follow-up           |
 | Targeted Biome                             | **Passed** in ticket 20 after formatting six browser scripts; not rerun for the review-only source changes                                                     |
 | Whitespace/integrity                       | `git diff --check`; parent spec, manifests, migrations, durable schemas and dependency lockfiles unchanged by review; follow-up updates map/qualification only |
 
@@ -63,6 +64,20 @@ Fresh commands ran from root `apps/password-manager`, one at a time under the sh
 - Svelte autofixer 5.56.8 on `LocalSecretEditor.svelte` and `local-workflow.svelte.ts` — no issues or suggestions.
 
 The reported review count of 410 is now independently confirmed by the fresh root run. No test timeout was raised. The parent spec, dependency files, SQL migrations, and durable item/folder schemas are unchanged; review adds mutation preconditions to application APIs, not a new storage format. No Rust, full-monorepo, or CRAP command ran. The synthetic-browser and security limits below still apply.
+
+## Boolean-origin follow-up and evidence
+
+`77a7b521007700721b580e6fb26e670bbe1cdc7e` fixes the remaining legacy Boolean-field shift case within review finding 4. Index-based comparison could reject an unchanged legacy null/empty Boolean after removing an earlier field. Each copied draft field now has a transient non-enumerable source identity, independent of its current index. Only the original unchanged field qualifies for the legacy exception; replacements, copies, altered fields, and duplicate uses of one origin are rejected. Validated field output strips origin metadata before storage. Legacy unset values remain unchanged and still block plaintext export until explicitly corrected.
+
+The follow-up adds seven tests. Literal durable-key assertions confirm that stored fields contain only `name`, `type`, and `value`, with no origin symbol. Draft and mounted editor cases check shifted null/empty legacy values, replacements/copies/duplicate origins, invalid new fields, and export rejection for preserved unset values. No durable schema, storage API, migration, dependency, or parent spec changed.
+
+Fresh root commands, serialized under the shared absolute lock before cleanup:
+
+- `node node_modules/vitest/vitest.mjs run src/lib/secrets/secret-draft.test.ts src/lib/secrets/editor.test.ts src/lib/json-export/export.test.ts src/routes/json-export.test.ts --maxWorkers=1 --no-file-parallelism` — **4 files / 83 tests passed**, 28.92 seconds.
+- `node node_modules/@sveltejs/kit/svelte-kit.js sync` then `node node_modules/svelte-check/bin/svelte-check --tsconfig ./tsconfig.json` — **0 errors / 0 warnings**.
+- Svelte autofixer 5.56.8 on `LocalSecretEditor.svelte` — no issues or suggestions.
+
+The implementer reports **417 full tests**, production build, core offline, and JSON qualification passed for the follow-up. Those broader commands were not rerun by the merger for this commit. The earlier fresh 410-test/build/offline/JSON review results remain recorded above, not relabelled as fresh 417-test evidence. No Rust, monorepo, CRAP, dependency installation, or push command ran.
 
 ## Coverage and evidence boundary
 
