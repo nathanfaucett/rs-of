@@ -1,4 +1,9 @@
-import { Database as SqlDatabase, type Client as SqlClient, type DbValue } from "@ofsdk/sql";
+import {
+    type DbValue,
+    type Client as SqlClient,
+    Database as SqlDatabase,
+} from "@ofsdk/sql";
+import { vaultMigrations } from "./migrations";
 
 const META_TABLE = "vault_meta";
 const SECRETS_TABLE = "secrets";
@@ -40,10 +45,6 @@ function fromBase64(base64: string): ArrayBuffer {
         bytes[i] = binary.charCodeAt(i);
     }
     return bytes.buffer;
-}
-
-function escapeSql(value: string): string {
-    return value.replace(/'/g, "''");
 }
 
 async function deriveKey(
@@ -158,32 +159,36 @@ export class VaultHandle {
         return decrypt(this.key, encrypted.ciphertext, encrypted.nonce);
     }
 
-    async encryptAndStore(plaintext: string, id?: string): Promise<EncryptedSecret> {
+    async encryptAndStore(
+        plaintext: string,
+        id?: string,
+    ): Promise<EncryptedSecret> {
         const secretId = id ?? crypto.randomUUID();
         const now = new Date().toISOString();
         const { ciphertext, nonce } = await encrypt(this.key, plaintext);
-        const tx = await this.client.transaction();
-        try {
-            await tx.execute(
-                `INSERT INTO ${SECRETS_TABLE} VALUES ('${escapeSql(secretId)}', '${escapeSql(ciphertext)}', '${escapeSql(nonce)}', '${escapeSql(now)}', '${escapeSql(now)}') ON CONFLICT(id) DO UPDATE SET ciphertext = '${escapeSql(ciphertext)}', nonce = '${escapeSql(nonce)}', updated_at = '${escapeSql(now)}'`,
-            );
-            await tx.commit();
-        } catch (error) {
-            await tx.rollback().catch(() => {});
-            throw error;
-        }
-        return { id: secretId, ciphertext, nonce, createdAt: now, updatedAt: now };
+        await this.client.execute(
+            `INSERT INTO ${SECRETS_TABLE} (id, ciphertext, nonce, created_at, updated_at) VALUES ($1, $2, $3, $4, $4) ON CONFLICT(id) DO UPDATE SET ciphertext = $2, nonce = $3, updated_at = $4`,
+            [
+                { type: "text", value: secretId },
+                { type: "text", value: ciphertext },
+                { type: "text", value: nonce },
+                { type: "text", value: now },
+            ],
+        );
+        return {
+            id: secretId,
+            ciphertext,
+            nonce,
+            createdAt: now,
+            updatedAt: now,
+        };
     }
 
     async deleteSecret(id: string): Promise<void> {
-        const tx = await this.client.transaction();
-        try {
-            await tx.execute(`DELETE FROM ${SECRETS_TABLE} WHERE id = '${escapeSql(id)}'`);
-            await tx.commit();
-        } catch (error) {
-            await tx.rollback().catch(() => {});
-            throw error;
-        }
+        await this.client.execute(
+            `DELETE FROM ${SECRETS_TABLE} WHERE id = $1`,
+            [{ type: "text", value: id }],
+        );
     }
 
     async exportEncrypted(): Promise<string> {
@@ -202,107 +207,127 @@ export class VaultHandle {
     }
 }
 
-export async function createVault(password: string, name: string): Promise<VaultHandle> {
-        const salt = crypto.getRandomValues(new Uint8Array(16));
-        const iv = crypto.getRandomValues(new Uint8Array(12));
-        const vaultId = crypto.randomUUID();
-        const key = await deriveKey(password, salt.buffer);
+export async function createVault(
+    password: string,
+    name: string,
+): Promise<VaultHandle> {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const vaultId = crypto.randomUUID();
+    const key = await deriveKey(password, salt.buffer);
 
-        const db = await SqlDatabase.open(vaultDbName(name));
-        const client = db.client();
+    const db = await SqlDatabase.open(vaultDbName(name));
+    const client = db.client();
 
-        try {
-            const tx = await client.transaction();
-            await tx.execute(
-                `CREATE TABLE IF NOT EXISTS ${META_TABLE} (id TEXT PRIMARY KEY, salt TEXT NOT NULL, iv TEXT NOT NULL, created_at TEXT NOT NULL)`,
-            );
-            await tx.execute(
-                `CREATE TABLE IF NOT EXISTS ${SECRETS_TABLE} (id TEXT PRIMARY KEY, ciphertext TEXT NOT NULL, nonce TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
-            );
-            const meta: VaultMeta = {
-                id: vaultId,
-                salt: toBase64(salt.buffer),
-                iv: toBase64(iv.buffer),
-                createdAt: new Date().toISOString(),
-            };
-            await tx.execute(
-                `INSERT INTO ${META_TABLE} VALUES ('${escapeSql(vaultId)}', '${escapeSql(meta.salt)}', '${escapeSql(meta.iv)}', '${escapeSql(meta.createdAt)}')`,
-            );
-            await tx.commit();
-            return VaultHandle.create(key, db, client, meta);
-        } catch (error) {
-            client.close();
-            db.close();
-            throw error;
-        }
+    try {
+        await client.migrate(vaultMigrations);
+        const meta: VaultMeta = {
+            id: vaultId,
+            salt: toBase64(salt.buffer),
+            iv: toBase64(iv.buffer),
+            createdAt: new Date().toISOString(),
+        };
+        await client.execute(
+            `INSERT INTO ${META_TABLE} (id, vault_id, salt, iv, created_at) VALUES (1, $1, $2, $3, $4)`,
+            [
+                { type: "text", value: vaultId },
+                { type: "text", value: meta.salt },
+                { type: "text", value: meta.iv },
+                { type: "text", value: meta.createdAt },
+            ],
+        );
+        return VaultHandle.create(key, db, client, meta);
+    } catch (error) {
+        client.close();
+        db.close();
+        throw error;
+    }
 }
 
-export async function unlockVault(password: string, name: string): Promise<VaultHandle> {
-        const db = await SqlDatabase.open(vaultDbName(name));
-        const client = db.client();
+export async function unlockVault(
+    password: string,
+    name: string,
+): Promise<VaultHandle> {
+    const db = await SqlDatabase.open(vaultDbName(name));
+    const client = db.client();
 
-        try {
-            const results = await client.execute(
-                `SELECT id, salt, iv, created_at FROM ${META_TABLE} LIMIT 1`,
-            );
-            const result = results[0];
-            if (!result || result.rows.length === 0) {
-                throw new Error("No vault found. Create a new vault first.");
-            }
-            const row = result.rows[0];
-            const meta: VaultMeta = {
-                id: rowToText(row, 0),
-                salt: rowToText(row, 1),
-                iv: rowToText(row, 2),
-                createdAt: rowToText(row, 3),
-            };
-            const key = await deriveKey(password, fromBase64(meta.salt));
-
-            // Verify the key by attempting to decrypt stored data
-            const secrets = await client.execute(`SELECT nonce, ciphertext FROM ${SECRETS_TABLE} LIMIT 1`);
-            if (secrets[0]?.rows.length > 0) {
-                const secretRow = secrets[0].rows[0];
-                try {
-                    await decrypt(key, rowToText(secretRow, 1), rowToText(secretRow, 0));
-                } catch {
-                    throw new Error("Wrong password.");
-                }
-            }
-
-            return VaultHandle.create(key, db, client, meta);
-        } catch (error) {
-            client.close();
-            db.close();
-            throw error;
+    try {
+        await client.migrate(vaultMigrations);
+        const results = await client.execute(
+            `SELECT vault_id, salt, iv, created_at FROM ${META_TABLE} WHERE id = 1`,
+        );
+        const result = results[0];
+        if (!result || result.rows.length === 0) {
+            throw new Error("No vault found. Create a new vault first.");
         }
+        const row = result.rows[0];
+        const meta: VaultMeta = {
+            id: rowToText(row, 0),
+            salt: rowToText(row, 1),
+            iv: rowToText(row, 2),
+            createdAt: rowToText(row, 3),
+        };
+        const key = await deriveKey(password, fromBase64(meta.salt));
+
+        // Verify the key by attempting to decrypt stored data
+        const secrets = await client.execute(
+            `SELECT nonce, ciphertext FROM ${SECRETS_TABLE} LIMIT 1`,
+        );
+        if (secrets[0]?.rows.length > 0) {
+            const secretRow = secrets[0].rows[0];
+            try {
+                await decrypt(
+                    key,
+                    rowToText(secretRow, 1),
+                    rowToText(secretRow, 0),
+                );
+            } catch {
+                throw new Error("Wrong password.");
+            }
+        }
+
+        return VaultHandle.create(key, db, client, meta);
+    } catch (error) {
+        client.close();
+        db.close();
+        throw error;
+    }
 }
 
 export async function listVaults(): Promise<string[]> {
-        const databases = await indexedDB.databases?.();
-        if (!databases) return [];
-        const prefix = "password-manager-vault-";
-        return databases
-            .filter((db) => db.name?.includes(prefix))
-            .map((db) => {
-                const name = db.name!;
-                const idx = name.indexOf(prefix);
-                return name.slice(idx + prefix.length);
-            })
-            .filter((name): name is string => !!name);
-    }
+    const databases = await indexedDB.databases?.();
+    if (!databases) return [];
+    const prefix = "password-manager-vault-";
+    return databases
+        .filter((db) => db.name?.includes(prefix))
+        .map((db) => {
+            const name = db.name!;
+            const idx = name.indexOf(prefix);
+            return name.slice(idx + prefix.length);
+        })
+        .filter((name): name is string => !!name);
+}
 
-    export async function vaultExists(name: string): Promise<boolean> {
+export async function vaultExists(name: string): Promise<boolean> {
+    try {
+        const db = await SqlDatabase.open(vaultDbName(name));
+        const client = db.client();
         try {
-            const db = await SqlDatabase.open(vaultDbName(name));
-            const client = db.client();
             const results = await client.execute(
-                `SELECT name FROM sqlite_master WHERE type='table' AND name='${META_TABLE}'`,
+                `SELECT name FROM tables WHERE name = '${META_TABLE}'`,
             );
             const hasTable = (results[0]?.rows.length ?? 0) > 0;
+            const metadata = hasTable
+                ? await client.execute(
+                      `SELECT vault_id FROM ${META_TABLE} WHERE id = 1`,
+                  )
+                : [];
+            return (metadata[0]?.rows.length ?? 0) === 1;
+        } finally {
             client.close();
             db.close();
-            return hasTable;
-        } catch {
-            return false;
         }
+    } catch {
+        return false;
     }
+}

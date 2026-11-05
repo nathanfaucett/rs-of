@@ -5164,6 +5164,7 @@ dependencies = [
  "ofdb-sql-sync",
  "ofdb-sql-translator",
  "ofdb-value",
+ "sha2 0.10.9",
  "tokio",
  "uuid",
 ]

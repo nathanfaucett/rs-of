@@ -1,5 +1,107 @@
+import { Database, MigrationError } from "@ofsdk/sql";
 import { expect, it } from "vitest";
-import { createVault, unlockVault } from "./vault";
+import { vaultMigrations } from "./migrations";
+import { createVault, unlockVault, vaultExists } from "./vault";
+
+it("rejects an old development schema without migration history", async () => {
+    const name = `test-old-${crypto.randomUUID()}`;
+    const db = await Database.open(`password-manager-vault-${name}`);
+    const client = db.client();
+    try {
+        await client.execute(
+            "CREATE TABLE vault_meta (id TEXT PRIMARY KEY, salt TEXT NOT NULL, iv TEXT NOT NULL, created_at TEXT NOT NULL); CREATE TABLE secrets (id TEXT PRIMARY KEY, ciphertext TEXT NOT NULL, nonce TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+        );
+        await expect(
+            createVault("test-only-master-password", name),
+        ).rejects.toBeInstanceOf(MigrationError);
+        await expect(
+            unlockVault("test-only-master-password", name),
+        ).rejects.toBeInstanceOf(MigrationError);
+    } finally {
+        client.close();
+        db.close();
+    }
+}, 15000);
+
+it("creates a vault in a migrated empty database without repeating schema changes", async () => {
+    const name = `test-prepared-${crypto.randomUUID()}`;
+    const db = await Database.open(`password-manager-vault-${name}`);
+    const client = db.client();
+    try {
+        expect(await client.migrate(vaultMigrations)).toEqual({
+            currentVersion: 1,
+            appliedVersions: [1],
+        });
+        expect(await vaultExists(name)).toBe(false);
+        const vault = await createVault("test-only-master-password", name);
+        vault.close();
+        expect(await vaultExists(name)).toBe(true);
+        expect(await client.migrate(vaultMigrations)).toEqual({
+            currentVersion: 1,
+            appliedVersions: [],
+        });
+    } finally {
+        client.close();
+        db.close();
+    }
+}, 15000);
+
+it("rejects duplicate creation without changing the original vault", async () => {
+    const name = `test-duplicate-${crypto.randomUUID()}`;
+    const vault = await createVault("original-password", name);
+    const vaultId = vault.id;
+    let secretId: string;
+    try {
+        secretId = (await vault.encryptAndStore("original encrypted content"))
+            .id;
+        await expect(
+            createVault("replacement-password", name),
+        ).rejects.toThrow();
+        expect(await vault.loadSecrets()).toHaveLength(1);
+    } finally {
+        vault.close();
+    }
+    const reopened = await unlockVault("original-password", name);
+    try {
+        expect(reopened.id).toBe(vaultId);
+        const [secret] = await reopened.loadSecrets();
+        expect(secret.id).toBe(secretId);
+        expect(await reopened.decryptSecret(secret)).toBe(
+            "original encrypted content",
+        );
+    } finally {
+        reopened.close();
+    }
+}, 15000);
+
+it("rejects a newer schema before creating or unlocking a vault", async () => {
+    const name = `test-newer-${crypto.randomUUID()}`;
+    const vault = await createVault("test-only-master-password", name);
+    vault.close();
+    const db = await Database.open(`password-manager-vault-${name}`);
+    const client = db.client();
+    try {
+        await client.migrate([
+            ...vaultMigrations,
+            {
+                version: 2,
+                sql: "ALTER TABLE secrets ADD COLUMN future_note TEXT",
+            },
+        ]);
+        for (const open of [createVault, unlockVault]) {
+            await expect(
+                open("test-only-master-password", name),
+            ).rejects.toMatchObject({
+                name: "MigrationError",
+                phase: "History",
+                version: 2,
+            });
+        }
+    } finally {
+        client.close();
+        db.close();
+    }
+}, 15000);
 
 it("persists encrypted logins across lock/unlock and permanently removes a deleted login", async () => {
     const name = `test-crud-${crypto.randomUUID()}`;
