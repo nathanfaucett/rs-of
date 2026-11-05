@@ -4,11 +4,11 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 **Type:** task
 
-**Work status:** open
+**Work status:** claimed
 
 - [ ] Use stable vault identity separate from display name through storage and the visible selector. Do not use a normalized display name as the sole identity.
 - [ ] Handle case, punctuation, whitespace, and duplicate-name collisions explicitly. Creation must never overwrite an existing vault; selection must identify the intended vault without ambiguity.
@@ -18,3 +18,6 @@
 - [ ] Keep this a local-vault concern, not an IdP User, Installation, Node, or organization model.
 
 ## Comments
+
+- 2026-11-05: Claimed on `implement/password-manager-03` in `.scratch/worktrees/password-manager-03`, based on `implement/password-manager-parity` at `42391ef3c`. Own registry, storage identity, selector/create UI, and their tests. Preserve the v1 schema migration. Ticket 02 owns authentication; avoid changes to that logic.
+- Test seams: approved spec boundaries: mounted create/select/unlock flows and public vault API with real close/reopen persistence. Complexity: medium; risk: high (vault access/data loss); priority: collision safety and recoverable registration.
