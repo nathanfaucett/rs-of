@@ -87,7 +87,8 @@ async function setup(initial: Secret[] = []) {
         prepareItems: vi.fn(async () => {}),
         readItems: vi.fn(async () => {
             const items = [];
-            for (const record of await vault.loadSecrets()) items.push(JSON.parse(await vault.decryptSecret(record)));
+            for (const record of await vault.loadSecrets())
+                items.push(JSON.parse(await vault.decryptSecret(record)));
             return { items, folders: [] };
         }),
         loadSecrets: vi.fn(async () => [...records.values()].map(encrypted)),
@@ -150,6 +151,10 @@ describe("local secret editor with the real workflow and collection", () => {
         expect(target.querySelector("#secret")).toBeNull();
         expect(target.querySelector("#username")).toBeNull();
         expect(target.querySelector("#totp")).toBeNull();
+        await click("Password generator");
+        await click("Generate");
+        expect(target.textContent).not.toContain("Use in Login draft");
+        await click("Password generator");
         await fill("name", "Private note");
         await fill("notes", "秘密 📝\nSecond line <script>plain text</script>");
         await click("Add custom field");
@@ -158,13 +163,22 @@ describe("local secret editor with the real workflow and collection", () => {
         await fill("field-value-0", "PRIVATE-NOTE-FIELD");
         await click("Save");
         await saved();
-        const note = [...records.values()].find((record) => record.name === "Private note");
-        expect(note).toMatchObject({ kind: "secureNote", type: 0, notes: "秘密 📝\nSecond line <script>plain text</script>", history: [] });
+        const note = [...records.values()].find(
+            (record) => record.name === "Private note",
+        );
+        expect(note).toMatchObject({
+            kind: "secureNote",
+            type: 0,
+            notes: "秘密 📝\nSecond line <script>plain text</script>",
+            history: [],
+        });
         expect(note).not.toHaveProperty("secret");
         expect(target.innerHTML).not.toContain("秘密");
         expect(target.innerHTML).not.toContain("PRIVATE-NOTE-FIELD");
         await click("Show Notes");
-        expect(target.textContent).toContain("秘密 📝\nSecond line <script>plain text</script>");
+        expect(target.textContent).toContain(
+            "秘密 📝\nSecond line <script>plain text</script>",
+        );
         expect(target.querySelector("script")).toBeNull();
         await click("Edit");
         await fill("notes", "abandoned");
@@ -186,7 +200,9 @@ describe("local secret editor with the real workflow and collection", () => {
         await click("Password generator");
         await click("Generate");
         await click("Show Generated value");
-        const generated = button("Hide Generated value").closest("fieldset")?.querySelector("p")?.textContent;
+        const generated = button("Hide Generated value")
+            .closest("fieldset")
+            ?.querySelector("p")?.textContent;
         expect(generated).toHaveLength(20);
         expect(control("secret").value).toBe(original.secret);
         await click("Use in Login draft");
@@ -205,7 +221,9 @@ describe("local secret editor with the real workflow and collection", () => {
         await saved();
         const changed = records.get(original.id)!;
         expect(changed.secret).toBe(savedPassword);
-        expect(changed.history).toEqual([{ secret: original.secret, changedAt: changed.updatedAt }]);
+        expect(changed.history).toEqual([
+            { secret: original.secret, changedAt: changed.updatedAt },
+        ]);
         expect(records.get(other.id)).toEqual(other);
         await click("Edit");
         expect(control("secret").value).toBe(savedPassword);
@@ -214,7 +232,14 @@ describe("local secret editor with the real workflow and collection", () => {
     it("discards generated state and pending clipboard feedback on navigation and retirement", async () => {
         await setup([original, other]);
         let finish!: () => void;
-        const write = vi.spyOn(navigator.clipboard, "writeText").mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+        const write = vi
+            .spyOn(navigator.clipboard, "writeText")
+            .mockImplementation(
+                () =>
+                    new Promise<void>((resolve) => {
+                        finish = resolve;
+                    }),
+            );
         await click("Password generator");
         await click("Generate");
         await click("Copy Generated value");
@@ -547,34 +572,57 @@ describe("local secret editor with the real workflow and collection", () => {
         expect(vault.encryptAndStore).not.toHaveBeenCalled();
     });
 
-    it.each(["trash", "restore", "purge"] as const)("does not claim success for an unacknowledged %s", async (operation) => {
-        const initial = operation === "trash" ? original : { ...original, deletedAt: "2026-01-01T00:00:00.000Z" };
-        const { vault, records } = await setup([initial, other]);
-        if (operation !== "trash") await click("Trash");
-        if (operation === "purge") {
-            vault.deleteSecret.mockImplementationOnce(async () => {});
-            await click("Delete permanently");
-            await click("Confirm permanent delete");
-        } else {
-            vault.encryptAndStore.mockImplementationOnce(async () => ({ id: initial.id, ciphertext: JSON.stringify(initial), nonce: "test", createdAt: initial.createdAt, updatedAt: initial.updatedAt }));
-            if (operation === "trash") { await click("Delete"); await click("Confirm delete"); }
-            else await click("Restore");
-        }
-        await expect.poll(() => target.textContent).toContain("Storage write was not acknowledged; authoritative records reloaded. Verify the outcome before retrying.");
-        expect(records.get(original.id)).toEqual(initial);
-        expect(records.get(other.id)).toEqual(other);
-        expect(target.textContent).not.toContain(operation === "trash" ? "Moved to Trash." : operation === "restore" ? "Restored." : "Permanently deleted.");
-        if (operation === "trash") expect(button(original.name)).toBeDefined();
-        else expect(button("Restore")).toBeDefined();
-    });
+    it.each(["trash", "restore", "purge"] as const)(
+        "does not claim success for an unacknowledged %s",
+        async (operation) => {
+            const initial =
+                operation === "trash"
+                    ? original
+                    : { ...original, deletedAt: "2026-01-01T00:00:00.000Z" };
+            const { vault, records } = await setup([initial, other]);
+            if (operation !== "trash") await click("Trash");
+            if (operation === "purge") {
+                vault.deleteSecret.mockImplementationOnce(async () => {});
+                await click("Delete permanently");
+                await click("Confirm permanent delete");
+            } else {
+                vault.encryptAndStore.mockImplementationOnce(async () => ({
+                    id: initial.id,
+                    ciphertext: JSON.stringify(initial),
+                    nonce: "test",
+                    createdAt: initial.createdAt,
+                    updatedAt: initial.updatedAt,
+                }));
+                if (operation === "trash") {
+                    await click("Delete");
+                    await click("Confirm delete");
+                } else await click("Restore");
+            }
+            await expect
+                .poll(() => target.textContent)
+                .toContain(
+                    "Storage write was not acknowledged; authoritative records reloaded. Verify the outcome before retrying.",
+                );
+            expect(records.get(original.id)).toEqual(initial);
+            expect(records.get(other.id)).toEqual(other);
+            expect(target.textContent).not.toContain(
+                operation === "trash"
+                    ? "Moved to Trash."
+                    : operation === "restore"
+                      ? "Restored."
+                      : "Permanently deleted.",
+            );
+            if (operation === "trash")
+                expect(button(original.name)).toBeDefined();
+            else expect(button("Restore")).toBeDefined();
+        },
+    );
 
     it("moves only the selected item to Trash, restores it intact, and separately confirms permanent deletion", async () => {
         const { records, vault } = await setup([original, other]);
         await edit(original.name);
         await click("Delete");
-        expect(target.textContent).toContain(
-            `Move ${original.name} to Trash?`,
-        );
+        expect(target.textContent).toContain(`Move ${original.name} to Trash?`);
         expect(records.get(original.id)).toEqual(original);
         expect(vault.deleteSecret).not.toHaveBeenCalled();
         await click("Cancel delete");
@@ -583,9 +631,14 @@ describe("local secret editor with the real workflow and collection", () => {
         expect(vault.deleteSecret).not.toHaveBeenCalled();
         await click("Delete");
         await click("Confirm delete");
-        await expect.poll(() => target.textContent).toContain("Moved to Trash.");
+        await expect
+            .poll(() => target.textContent)
+            .toContain("Moved to Trash.");
         expect(vault.deleteSecret).not.toHaveBeenCalled();
-        expect(records.get(original.id)).toEqual({ ...original, deletedAt: expect.any(String) });
+        expect(records.get(original.id)).toEqual({
+            ...original,
+            deletedAt: expect.any(String),
+        });
         expect(records.get(other.id)).toEqual(other);
         expect(target.querySelector("form")).toBeNull();
         expect(target.textContent).not.toContain(original.name);
@@ -606,7 +659,9 @@ describe("local secret editor with the real workflow and collection", () => {
         await click("All items");
         await click("Delete");
         await click("Confirm delete");
-        await expect.poll(() => target.textContent).toContain("Moved to Trash.");
+        await expect
+            .poll(() => target.textContent)
+            .toContain("Moved to Trash.");
         await click("Trash");
         await click("Delete permanently");
         expect(target.querySelector('[role="alertdialog"]')).not.toBeNull();
@@ -617,7 +672,9 @@ describe("local secret editor with the real workflow and collection", () => {
         expect(records.has(original.id)).toBe(true);
         await click("Delete permanently");
         await click("Confirm permanent delete");
-        await expect.poll(() => target.textContent).toContain("Permanently deleted.");
+        await expect
+            .poll(() => target.textContent)
+            .toContain("Permanently deleted.");
         expect(vault.deleteSecret).toHaveBeenCalledExactlyOnceWith(original.id);
         expect(records.has(original.id)).toBe(false);
         expect(records.get(other.id)).toEqual(other);

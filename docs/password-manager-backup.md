@@ -16,7 +16,7 @@ Restore preserves the vault ID and every record ID. An existing ID, including an
 
 ## Versions 1 and 2
 
-Current typed-vault exports use [version 3 with encrypted folders](password-manager-folders.md#backup-version-3). Versions 1 and 2 retain the meanings below. Version 3 uses the same envelope with integer `3` authenticated in the additional data, `itemFormat: 2`, and a required encrypted `folders` record array. Restore validates every folder identity and item assignment, stages folders with items, and verifies both exact encrypted sets before publication.
+Current typed-vault exports use [version 3 with encrypted folders](password-manager-folders.md#backup-version-3). Versions 1 and 2 retain the meanings below. Version 3 uses the same envelope with integer `3` authenticated in the additional data, `itemFormat: 2`, and a required encrypted `folders` record array. Restore validates every folder identity, item assignment, and encrypted lock setting. It stages folders, items, and settings together and verifies the exact encrypted data before publication.
 
 The UTF-8 JSON envelope has these exact supported fields. Unknown fields and other parameter values are rejected. Object member order and whitespace do not change authenticated semantic values.
 
@@ -64,7 +64,7 @@ Version 1 retains the original untyped Login records, including all credentials,
 
 Version 2 adds required `itemFormat: 2` and `transitionBackup`, which is null for a new vault or the complete authenticated version 1 source-backup string for a transitioned vault. The embedded backup is authenticated and validated too; it must have the same source metadata/proof and cannot contain another nested backup. All five discriminated item types, optional credentials, inherited URI rules, folder membership IDs, and encrypted import provenance are preserved. Envelope version and payload item format must agree. Restore verifies the exact saved item format and recovery backup as well as the record set.
 
-See [typed items and recoverable transition](password-manager-items.md) for field names, source retention, recovery downloads, and later-ticket interfaces. Folder tables and attachments are not implemented by ticket 05. Ticket 16 adds the encrypted lock-settings payload extension without changing the envelope version. A later schema that adds separate persisted logical data must extend/version this contract and its complete-snapshot tests. App assets, cache readiness, registry storage paths, and transient editor drafts are not vault data and are not restored.
+See [typed items and recoverable transition](password-manager-items.md) for field names, source retention, recovery downloads, and later-ticket interfaces. Folder tables and attachments are not implemented by ticket 05. Ticket 16 adds the encrypted lock-settings payload extension; the combined current export is version 3. A later schema that adds separate persisted logical data must extend/version this contract and its complete-snapshot tests. App assets, cache readiness, registry storage paths, and transient editor drafts are not vault data and are not restored.
 
 Maximum input/output: **16 MiB** of UTF-8 JSON and **10,000 current records**. The byte limit includes any embedded pre-transition backup. The UI checks file size before reading it; the API checks encoded size before JSON parse/key derivation. These are tested implementation limits, not encryption limits. Export fails rather than omitting records above the limits.
 
@@ -98,10 +98,10 @@ Authenticated backup detects alteration of a file's interpreted contents. It doe
 Run from `apps/password-manager`:
 
 ```sh
-pnpm test
-pnpm run check
-pnpm run build
-node scripts/check-offline.mjs
+flock ../../.scratch/password-manager-validation.lock pnpm test --maxWorkers=1 --no-file-parallelism
+flock ../../.scratch/password-manager-validation.lock pnpm run check
+flock ../../.scratch/password-manager-validation.lock pnpm run build
+flock ../../.scratch/password-manager-validation.lock node scripts/check-offline.mjs
 ```
 
 The built-app check reuses the existing test server and creates isolated test browser contexts. It exports empty/populated synthetic vaults offline, closes the source context, restores into a new clean context offline, reloads/unlocks, and compares a second backup's complete metadata/proof/encrypted record set. It uses no live browser tabs. Other engines, actual disk exhaustion, private-browsing eviction, and independent security review are not established by these checks.

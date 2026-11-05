@@ -17,6 +17,10 @@ it("persists encrypted timeout settings through reopen and clean backup restore"
         id: crypto.randomUUID(),
         name: "Synthetic recovery Login",
         secret: "PRIVATE-RECOVERY",
+        favorite: false,
+        fields: [],
+        history: [],
+        uris: [],
         createdAt: "2026-01-02T03:04:05.000Z",
         updatedAt: "2026-01-02T03:04:05.000Z",
     };

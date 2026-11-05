@@ -22,7 +22,6 @@ let results = $derived(retired ? [] : searchItems(workflow.records, {
     text: searchText, kind: itemType, favoritesOnly, sort,
 }));
 
-const records = $derived(trash ? workflow.trashRecords : results);
 
 function clearFilters() {
     searchText = "";
@@ -45,7 +44,8 @@ async function cancelDelete() {
     trigger?.focus();
 }
 let showGenerator = $state(false);
-const newSecretId = $props.id();
+const newSecretId = `${uid}-new`;
+const records = $derived(trash ? workflow.trashRecords : results);
 const searchId = `${newSecretId}-search`;
 let folderControls = $state<ReturnType<typeof FolderControls>>();
 

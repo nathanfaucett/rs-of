@@ -4,8 +4,10 @@ import {
     Database as SqlDatabase,
 } from "@ofsdk/sql";
 import * as v from "valibot";
-import { SecretSchema } from "../secrets/secret";
 import { transitionLogin } from "../secrets/legacy-login";
+import type { Secret } from "../secrets/secret";
+import { SecretSchema } from "../secrets/secret";
+import { encodeBackup, stageVault, validateTransitionBackup } from "./backup";
 import {
     createAuthentication,
     decrypt,
@@ -15,17 +17,19 @@ import {
     toBase64,
     verifyAuthentication,
 } from "./crypto";
-import { encodeBackup, stageVault, validateTransitionBackup } from "./backup";
-import { vaultMigrations } from "./migrations";
-import { decryptLockSettings, encryptLockSettings, type LockSettings } from "./lock";
 import {
-    FolderSchema,
-    validateItemSnapshot,
     type Folder,
-    type ItemSnapshot,
+    FolderSchema,
     type ItemMutation,
+    type ItemSnapshot,
+    validateItemSnapshot,
 } from "./folder";
-import type { Secret } from "../secrets/secret";
+import {
+    decryptLockSettings,
+    encryptLockSettings,
+    type LockSettings,
+} from "./lock";
+import { vaultMigrations } from "./migrations";
 import {
     completeRegistration,
     findVault,
@@ -320,7 +324,7 @@ export class VaultHandle {
                 this.activeKey();
                 const identity = await findVault(this.id);
                 const state = await this.client.execute(
-                    "SELECT authentication, transition_backup FROM vault_meta WHERE id = 1",
+                    "SELECT authentication, transition_backup, lock_settings FROM vault_meta WHERE id = 1",
                 );
                 const payload = {
                     meta: this.meta,
@@ -333,6 +337,10 @@ export class VaultHandle {
                             : null,
                     secrets: expected.secrets,
                     folders: expected.folders,
+                    lockSettings:
+                        state[0].rows[0][2].type === "text"
+                            ? rowToText(state[0].rows[0], 2)
+                            : null,
                 };
                 await encodeBackup(this.activeKey(), payload);
                 try {
@@ -557,7 +565,10 @@ export class VaultHandle {
         if (format !== 1 && format !== 2)
             throw new Error("Unsupported item format. Keep the source vault.");
         const backup = await encodeBackup(this.activeKey(), {
-            lockSettings: result[0].rows[0][3].type === "text" ? rowToText(result[0].rows[0], 3) : null,
+            lockSettings:
+                result[0].rows[0][3].type === "text"
+                    ? rowToText(result[0].rows[0], 3)
+                    : null,
             ...(format === 2
                 ? {
                       itemFormat: 2 as const,
@@ -672,7 +683,11 @@ export class VaultHandle {
                     itemFormat: 2 as const,
                     transitionBackup: backup,
                     secrets: target,
-                    lockSettings: authentication[0].rows[0][1].type === "text" ? rowToText(authentication[0].rows[0], 1) : null,
+                    folders: await this.loadFolders(),
+                    lockSettings:
+                        authentication[0].rows[0][1].type === "text"
+                            ? rowToText(authentication[0].rows[0], 1)
+                            : null,
                 };
                 // Reject transitions whose complete recovery backup would exceed the supported bound.
                 await encodeBackup(this.activeKey(), payload);
@@ -693,35 +708,65 @@ export class VaultHandle {
     }
 
     async loadLockSettings(): Promise<LockSettings> {
-        return navigator.locks.request(`password-manager-items-${this.id}`, async () => {
-            await this.currentStorage();
-            const result = await this.client.execute("SELECT lock_settings FROM vault_meta WHERE id = 1");
-            const cell = result[0].rows[0][0];
-            const settings = await decryptLockSettings(this.activeKey(), this.id, cell.type === "null" ? null : rowToText(result[0].rows[0], 0));
-            this.activeKey();
-            return settings;
-        });
+        return navigator.locks.request(
+            `password-manager-items-${this.id}`,
+            async () => {
+                await this.currentStorage();
+                const result = await this.client.execute(
+                    "SELECT lock_settings FROM vault_meta WHERE id = 1",
+                );
+                const cell = result[0].rows[0][0];
+                const settings = await decryptLockSettings(
+                    this.activeKey(),
+                    this.id,
+                    cell.type === "null"
+                        ? null
+                        : rowToText(result[0].rows[0], 0),
+                );
+                this.activeKey();
+                return settings;
+            },
+        );
     }
 
     async saveLockSettings(settings: LockSettings): Promise<LockSettings> {
-        return navigator.locks.request(`password-manager-items-${this.id}`, async () => {
-            await this.currentStorage();
-            const saved = await encryptLockSettings(this.activeKey(), this.id, settings);
-            this.activeKey();
-            try {
-                await this.client.execute("UPDATE vault_meta SET lock_settings = $1 WHERE id = 1", [{ type: "text", value: saved }]);
+        return navigator.locks.request(
+            `password-manager-items-${this.id}`,
+            async () => {
+                await this.currentStorage();
+                const saved = await encryptLockSettings(
+                    this.activeKey(),
+                    this.id,
+                    settings,
+                );
                 this.activeKey();
-                const result = await this.client.execute("SELECT lock_settings FROM vault_meta WHERE id = 1");
-                this.activeKey();
-                if (rowToText(result[0].rows[0], 0) !== saved) throw new Error("Unacknowledged settings");
-                const confirmed = await decryptLockSettings(this.activeKey(), this.id, saved);
-                this.activeKey();
-                return confirmed;
-            } catch {
-                this.activeKey();
-                throw new Error("Lock settings write could not be confirmed; it may have persisted. Lock, reopen, and verify before retrying.");
-            }
-        });
+                try {
+                    await this.client.execute(
+                        "UPDATE vault_meta SET lock_settings = $1 WHERE id = 1",
+                        [{ type: "text", value: saved }],
+                    );
+                    this.activeKey();
+                    const result = await this.client.execute(
+                        "SELECT lock_settings FROM vault_meta WHERE id = 1",
+                    );
+                    this.activeKey();
+                    if (rowToText(result[0].rows[0], 0) !== saved)
+                        throw new Error("Unacknowledged settings");
+                    const confirmed = await decryptLockSettings(
+                        this.activeKey(),
+                        this.id,
+                        saved,
+                    );
+                    this.activeKey();
+                    return confirmed;
+                } catch {
+                    this.activeKey();
+                    throw new Error(
+                        "Lock settings write could not be confirmed; it may have persisted. Lock, reopen, and verify before retrying.",
+                    );
+                }
+            },
+        );
     }
 
     close(): void {

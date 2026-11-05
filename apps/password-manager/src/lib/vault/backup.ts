@@ -1,8 +1,7 @@
 import { Database, type DbValue } from "@ofsdk/sql";
 import * as v from "valibot";
 import { transitionLogin } from "../secrets/legacy-login";
-import { SecretSchema, type Secret } from "../secrets/secret";
-import { FolderSchema, validateItemSnapshot, type Folder } from "./folder";
+import { type Secret, SecretSchema } from "../secrets/secret";
 import {
     decrypt,
     deriveKey,
@@ -12,8 +11,9 @@ import {
     toBase64,
     verifyAuthentication,
 } from "./crypto";
-import { vaultMigrations } from "./migrations";
+import { type Folder, FolderSchema, validateItemSnapshot } from "./folder";
 import { decryptLockSettings } from "./lock";
+import { vaultMigrations } from "./migrations";
 import {
     listVaultIdentities,
     publishRestoredVault,
@@ -108,7 +108,11 @@ async function validatePayload(
     bytes(payload.meta.salt, 16);
     bytes(payload.meta.iv, 12);
     await verifyAuthentication(key, payload.meta, payload.authentication);
-    await decryptLockSettings(key, payload.meta.id, payload.lockSettings ?? null);
+    await decryptLockSettings(
+        key,
+        payload.meta.id,
+        payload.lockSettings ?? null,
+    );
     if (payload.transitionBackup != null) {
         if (payload.itemFormat !== 2) throw invalid();
         await validateTransitionBackup(key, payload, payload.transitionBackup);
@@ -334,7 +338,9 @@ export async function stageVault(
                         payload.transitionBackup
                             ? { type: "text", value: payload.transitionBackup }
                             : { type: "null" },
-                        payload.lockSettings ? { type: "text", value: payload.lockSettings } : { type: "null" },
+                        payload.lockSettings
+                            ? { type: "text", value: payload.lockSettings }
+                            : { type: "null" },
                     ],
                 );
                 for (const record of payload.secrets) {
@@ -442,8 +448,20 @@ export async function stageVault(
             )
                 throw invalid();
             const storedSettings = format[0].rows[0][2];
-            if (JSON.stringify(storedSettings) !== JSON.stringify(payload.lockSettings ? { type: "text", value: payload.lockSettings } : { type: "null" })) throw invalid();
-            await decryptLockSettings(key, payload.meta.id, payload.lockSettings ?? null);
+            if (
+                JSON.stringify(storedSettings) !==
+                JSON.stringify(
+                    payload.lockSettings
+                        ? { type: "text", value: payload.lockSettings }
+                        : { type: "null" },
+                )
+            )
+                throw invalid();
+            await decryptLockSettings(
+                key,
+                payload.meta.id,
+                payload.lockSettings ?? null,
+            );
             await verifyAuthentication(
                 key,
                 payload.meta,

@@ -82,6 +82,18 @@ export async function checkBackupRestore(browser, origin) {
             await page
                 .getByRole("button", { name: "Create vault", exact: true })
                 .click();
+            await page
+                .getByLabel("Lock after inactivity", { exact: true })
+                .selectOption("15");
+            await page
+                .getByRole("button", {
+                    name: "Save lock settings",
+                    exact: true,
+                })
+                .click();
+            await page
+                .getByText("Lock settings saved.", { exact: true })
+                .waitFor();
             if (populated) {
                 await page
                     .getByRole("button", { name: "New secret", exact: true })
@@ -101,11 +113,22 @@ export async function checkBackupRestore(browser, origin) {
                         exact: true,
                     })
                     .waitFor();
-                await page.getByRole("button", { name: "New secure note", exact: true }).click();
+                await page
+                    .getByRole("button", {
+                        name: "New secure note",
+                        exact: true,
+                    })
+                    .click();
                 await page.getByLabel(/^Name/).fill("Synthetic recovery Note");
-                await page.getByLabel("Notes", { exact: true }).fill("PRIVATE-RECOVERY-NOTE 秘密\nSecond line 📝");
-                await page.getByRole("button", { name: "Save", exact: true }).click();
-                await page.getByRole("button", { name: "Show Notes", exact: true }).waitFor();
+                await page
+                    .getByLabel("Notes", { exact: true })
+                    .fill("PRIVATE-RECOVERY-NOTE 秘密\nSecond line 📝");
+                await page
+                    .getByRole("button", { name: "Save", exact: true })
+                    .click();
+                await page
+                    .getByRole("button", { name: "Show Notes", exact: true })
+                    .waitFor();
             }
             if (populated) {
                 await page.getByText("Saved.", { exact: true }).waitFor();
@@ -127,6 +150,19 @@ export async function checkBackupRestore(browser, origin) {
                     .locator("option")
                     .last()
                     .getAttribute("value");
+                await page
+                    .getByLabel("Move to folder", { exact: true })
+                    .selectOption(folderId);
+                await page
+                    .getByRole("button", { name: "Move item", exact: true })
+                    .click();
+                await page.getByText("Item moved.", { exact: true }).waitFor();
+                await page
+                    .getByRole("button", {
+                        name: "Synthetic recovery Login",
+                        exact: true,
+                    })
+                    .click();
                 await page
                     .getByLabel("Move to folder", { exact: true })
                     .selectOption(folderId);
@@ -188,7 +224,9 @@ export async function checkBackupRestore(browser, origin) {
             }
             const backup = await download(page);
             assert.ok(
-                !backup.includes(password) && !backup.includes(itemPassword) && !backup.includes("PRIVATE-RECOVERY-NOTE"),
+                !backup.includes(password) &&
+                    !backup.includes(itemPassword) &&
+                    !backup.includes("PRIVATE-RECOVERY-NOTE"),
                 "Encrypted download must not expose synthetic passwords",
             );
             backups.push({
@@ -260,6 +298,12 @@ export async function checkBackupRestore(browser, origin) {
             await page
                 .getByRole("button", { name: "Unlock", exact: true })
                 .click();
+            assert.equal(
+                await page
+                    .getByLabel("Lock after inactivity", { exact: true })
+                    .inputValue(),
+                "15",
+            );
             const restoredBackup = await download(page);
             assert.deepEqual(
                 await payload(restoredBackup, password),
@@ -299,14 +343,36 @@ export async function checkBackupRestore(browser, origin) {
                     .getByRole("button", { name: "Show Password", exact: true })
                     .click();
                 await page.getByText(itemPassword, { exact: true }).waitFor();
-                await page.getByRole("button", { name: "Synthetic recovery Note", exact: true }).click();
-                assert.equal(await page.getByText(/PRIVATE-RECOVERY-NOTE/).count(), 0);
-                await page.getByRole("button", { name: "Show Notes", exact: true }).press("Enter");
+                await page
+                    .getByRole("button", {
+                        name: "Synthetic recovery Note",
+                        exact: true,
+                    })
+                    .click();
+                assert.equal(
+                    await page.getByText(/PRIVATE-RECOVERY-NOTE/).count(),
+                    0,
+                );
+                await page
+                    .getByRole("button", { name: "Show Notes", exact: true })
+                    .press("Enter");
                 await page.getByText(/PRIVATE-RECOVERY-NOTE 秘密/).waitFor();
-                await page.getByRole("button", { name: "Edit", exact: true }).press("Enter");
-                assert.equal(await page.getByLabel("Notes", { exact: true }).inputValue(), "PRIVATE-RECOVERY-NOTE 秘密\nSecond line 📝");
-                assert.equal(await page.getByLabel("Password", { exact: true }).count(), 0);
-                await page.getByRole("button", { name: "Cancel", exact: true }).press("Enter");
+                await page
+                    .getByRole("button", { name: "Edit", exact: true })
+                    .press("Enter");
+                assert.equal(
+                    await page
+                        .getByLabel("Notes", { exact: true })
+                        .inputValue(),
+                    "PRIVATE-RECOVERY-NOTE 秘密\nSecond line 📝",
+                );
+                assert.equal(
+                    await page.getByLabel("Password", { exact: true }).count(),
+                    0,
+                );
+                await page
+                    .getByRole("button", { name: "Cancel", exact: true })
+                    .press("Enter");
                 await page
                     .getByRole("button", { name: "Close details", exact: true })
                     .click();

@@ -1,8 +1,8 @@
 import { Database } from "@ofsdk/sql";
 import { afterEach, expect, it, vi } from "vitest";
+import type { Secret } from "../secrets/secret";
 import { prepareBackupRestore } from "./backup";
 import { createVault, listVaults, unlockVault } from "./vault";
-import type { Secret } from "../secrets/secret";
 
 const password = "synthetic-folders-master";
 const date = "2026-01-02T03:04:05.000Z";
@@ -25,6 +25,7 @@ afterEach(() => vi.restoreAllMocks());
 it("keeps literal duplicate folder identities, atomically unfiles only direct members, and restores the complete encrypted snapshot in clean storage", async () => {
     const vault = await createVault(password, "Synthetic folders");
     await vault.prepareItems();
+    await vault.saveLockSettings({ timeoutMinutes: 15 });
     const parent = await vault.createFolder(" Private / 日本語 ");
     const child = await vault.createFolder(" Private / 日本語 /child");
     const duplicate = await vault.createFolder(parent.name);
@@ -34,6 +35,7 @@ it("keeps literal duplicate folder identities, atomically unfiles only direct me
     const third = { ...item("Child"), folderId: child.id };
     await vault.mutateItems({ upsert: [first, second, third] });
     await vault.renameFolder(parent.id, "Renamed");
+    expect(await vault.loadLockSettings()).toEqual({ timeoutMinutes: 15 });
     expect(
         (await vault.readItems()).folders.find((f) => f.id === child.id)?.name,
     ).toBe(child.name);
@@ -70,6 +72,7 @@ it("keeps literal duplicate folder identities, atomically unfiles only direct me
     const restored = await unlockVault(password, id);
     expect(await restored.readItems()).toEqual(snapshot);
     expect(await restored.loadFolders()).toEqual(encrypted);
+    expect(await restored.loadLockSettings()).toEqual({ timeoutMinutes: 15 });
     restored.close();
 }, 20000);
 

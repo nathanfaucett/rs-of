@@ -87,11 +87,12 @@ async function setup(initial: Secret[] = []) {
     });
     const vault = {
         id: crypto.randomUUID(),
-        prepareItems: vi.fn(async () => {}),
-        loadSecrets: vi.fn(async () => [...records.values()].map(encrypted)),
-        decryptSecret: vi.fn(
-            async (record: EncryptedSecret) => record.ciphertext,
-        ),
+        readItems: vi.fn(async () => ({
+            items: [...records.values()].map((record) =>
+                structuredClone(record),
+            ),
+            folders: [],
+        })),
         encryptAndStore: vi.fn(async (plaintext: string) => {
             const record: Secret = JSON.parse(plaintext);
             records.set(record.id, record);
@@ -319,9 +320,12 @@ describe("unlocked search through the real workflow and collection", () => {
         expect(names()).toEqual(["★ Renamed"]);
         await click("Delete");
         await click("Confirm delete");
-        await expect.poll(() => target.textContent).toContain("Deleted.");
+        await expect
+            .poll(() => target.textContent)
+            .toContain("Moved to Trash.");
         expect(names()).toEqual([]);
-        expect(records.size).toBe(0);
+        expect(records.size).toBe(1);
+        expect([...records.values()][0].deletedAt).toEqual(expect.any(String));
         const external = login("Match external", { favorite: true });
         records.set(external.id, external);
         await fill("Search items", "match");
@@ -338,8 +342,9 @@ describe("unlocked search through the real workflow and collection", () => {
         const { vault, encrypted } = await setup([item]);
         await fill("Search items", "Sensitive query");
         await click(item.name);
-        let finish: (records: EncryptedSecret[]) => void = () => {};
-        vault.loadSecrets.mockImplementationOnce(
+        let finish: (snapshot: { items: Secret[]; folders: [] }) => void =
+            () => {};
+        vault.readItems.mockImplementationOnce(
             () =>
                 new Promise((resolve) => {
                     finish = resolve;
@@ -353,7 +358,7 @@ describe("unlocked search through the real workflow and collection", () => {
         expect(names()).toEqual([]);
         expect(target.innerHTML).not.toContain("Sensitive query");
         expect(target.querySelector('input[type="search"]')).toBeNull();
-        finish([encrypted(item)]);
+        finish({ items: [item], folders: [] });
         await tick();
         flushSync();
         expect(names()).toEqual([]);
@@ -364,7 +369,7 @@ describe("unlocked search through the real workflow and collection", () => {
     it("hides stale results on a read error and retains filters for a successful retry", async () => {
         const { vault } = await setup([login("Retry result")]);
         await fill("Search items", "retry");
-        vault.loadSecrets.mockRejectedValueOnce(
+        vault.readItems.mockRejectedValueOnce(
             new Error("Synthetic read failure"),
         );
         await click("Refresh");

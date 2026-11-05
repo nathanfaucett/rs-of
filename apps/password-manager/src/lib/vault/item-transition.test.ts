@@ -85,6 +85,7 @@ afterEach(() => vi.restoreAllMocks());
 
 it("transitions the complete legacy snapshot and restores both current and pre-transition backups in clean storage", async () => {
     const { vault, identity } = await source();
+    await vault.saveLockSettings({ timeoutMinutes: 15 });
     const id = vault.id;
     const originalStorage = await raw(id);
     const before = await vault.loadSecrets();
@@ -96,6 +97,8 @@ it("transitions the complete legacy snapshot and restores both current and pre-t
     expect(JSON.parse(await vault.decryptSecret(records[0]))).toEqual(
         transitioned,
     );
+    expect(await vault.loadLockSettings()).toEqual({ timeoutMinutes: 15 });
+    const folder = await vault.createFolder("After transition");
     const backup = await vault.exportTransitionBackup();
     const current = await vault.exportBackup();
     expect(JSON.parse(backup).version).toBe(1);
@@ -113,10 +116,13 @@ it("transitions the complete legacy snapshot and restores both current and pre-t
     await restored.prepareItems();
     expect(await restored.loadSecrets()).toEqual(records);
     expect(await restored.exportTransitionBackup()).toBe(backup);
+    expect(await restored.loadLockSettings()).toEqual({ timeoutMinutes: 15 });
+    expect((await restored.readItems()).folders).toEqual([folder]);
     restored.close();
     await clearStorage();
     await (await prepareBackupRestore(password, backup)).restore();
     const original = await unlockVault(password, id);
+    expect(await original.loadLockSettings()).toEqual({ timeoutMinutes: 15 });
     expect(await original.loadSecrets()).toEqual(before);
     await original.prepareItems();
     expect(

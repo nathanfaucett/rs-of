@@ -23,9 +23,21 @@ async function click(name: string) {
     await tick();
 }
 function fill(label: string, value: string) {
-    const el = target.querySelector<HTMLInputElement | HTMLSelectElement>(
-        `[aria-label="${label}"]`,
-    );
+    const el =
+        target.querySelector<HTMLInputElement | HTMLSelectElement>(
+            `[aria-label="${label}"]`,
+        ) ??
+        [
+            ...target.querySelectorAll<HTMLInputElement | HTMLSelectElement>(
+                "input, select",
+            ),
+        ].find(
+            (element) =>
+                (
+                    element.labels?.[0]?.querySelector(".field-label-text") ??
+                    element.labels?.[0]
+                )?.textContent?.trim() === label,
+        );
     if (!el) throw new Error(`Missing control: ${label}`);
     el.value = value;
     el.dispatchEvent(
@@ -135,6 +147,30 @@ it("creates, cancels, renames, filters, moves and unfiles through the real page,
     );
     fill("Folder filter", folder.id);
     expect(target.querySelector("ul")?.textContent).toContain(item.name);
+    fill("Search items", "synthetic");
+    fill("Item type", "secureNote");
+    expect(target.querySelector("ul")).toBeNull();
+    fill("Item type", "login");
+    fill("Sort items", "nameDesc");
+    expect(target.querySelector("ul")?.textContent).toContain(item.name);
+    await click("Delete");
+    await click("Confirm delete");
+    await expect.poll(() => target.textContent).toContain("Moved to Trash.");
+    expect(target.querySelector("ul")).toBeNull();
+    fill("Search items", "no match");
+    await click("Trash");
+    expect(target.querySelector("ul")?.textContent).toContain(item.name);
+    expect(target.querySelector('input[type="search"]')).toBeNull();
+    await click("Restore");
+    await expect.poll(() => target.textContent).toContain("Restored.");
+    await click("All items");
+    expect(target.querySelector("ul")).toBeNull();
+    fill("Search items", "synthetic");
+    expect(target.querySelector("ul")?.textContent).toContain(item.name);
+    const retained = await unlockVault(password, id);
+    expect((await retained.readItems()).items[0].folderId).toBe(folder.id);
+    retained.close();
+    await click("Clear filters");
     await click(item.name);
     await click("New folder");
     fill("Folder name", "Unsaved folder");

@@ -103,6 +103,46 @@ it("locks an active draft through the visible inactivity timer and discards it",
     await locked();
 }, 30000);
 
+it.each(["generator", "totp"] as const)(
+    "disposes %s output and pending copy feedback on automatic lock",
+    async (kind) => {
+        await start();
+        if (kind === "totp") {
+            await click("New secret");
+            fill("name", "PRIVATE-DRAFT");
+            fill("totp", "JBSWY3DPEHPK3PXP");
+            await click("Save");
+            await expect
+                .poll(() => target.querySelector('[aria-label="TOTP code"]'))
+                .not.toBeNull();
+        } else {
+            await click("Password generator");
+            await click("Generate");
+            await click("Show Generated value");
+        }
+        let release!: () => void;
+        vi.spyOn(navigator.clipboard, "writeText").mockImplementationOnce(
+            () =>
+                new Promise<void>((resolve) => {
+                    release = resolve;
+                }),
+        );
+        await click(
+            kind === "totp" ? "Copy TOTP code" : "Copy Generated value",
+        );
+        vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_001);
+        window.dispatchEvent(new Event("focus"));
+        flushSync();
+        await locked();
+        release();
+        await tick();
+        expect(target.textContent).not.toContain("Copied.");
+        expect(target.querySelector('[aria-label="TOTP code"]')).toBeNull();
+        expect(target.textContent).not.toContain("Generated value");
+    },
+    30000,
+);
+
 it.each(["focus", "pageshow", "visibilitychange", "keydown", "click"])(
     "checks the expired deadline before %s can revive the session",
     async (event) => {

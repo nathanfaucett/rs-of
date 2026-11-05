@@ -1,8 +1,8 @@
 import { flushSync, mount, tick, unmount } from "svelte";
 import { afterEach, expect, it, vi } from "vitest";
-import { prepareBackupRestore } from "$lib/vault/backup";
-import { createVault, unlockVault } from "$lib/vault/vault";
 import type { Login, Secret, SecureNote } from "$lib/secrets/secret";
+import { prepareBackupRestore } from "$lib/vault/backup";
+import { createVault, unlockVault, VaultHandle } from "$lib/vault/vault";
 import Page from "./+page.svelte";
 
 const password = "synthetic-note-master";
@@ -44,8 +44,12 @@ const login: Login = {
 let target: HTMLDivElement;
 let component: ReturnType<typeof mount> | undefined;
 function button(name: string) {
-    const found = [...target.querySelectorAll("button")].find((element) =>
-        (element.querySelector(".vault-name")?.textContent ?? element.textContent)?.trim() === name,
+    const found = [...target.querySelectorAll("button")].find(
+        (element) =>
+            (
+                element.querySelector(".vault-name")?.textContent ??
+                element.textContent
+            )?.trim() === name,
     );
     if (!found) throw new Error(`Missing button: ${name}`);
     return found;
@@ -57,7 +61,9 @@ async function click(name: string) {
     await tick();
 }
 function control(id: string) {
-    const found = target.querySelector<HTMLInputElement | HTMLTextAreaElement>(`#${id}`);
+    const found = target.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+        `#${id}`,
+    );
     if (!found) throw new Error(`Missing control: ${id}`);
     return found;
 }
@@ -79,7 +85,11 @@ async function start(initial: Secret[] = [note, login]) {
     const name = `Note ${crypto.randomUUID()}`;
     const vault = await createVault(password, name);
     await vault.prepareItems();
-    for (const record of initial) await vault.encryptAndStore(JSON.stringify(record), record.id);
+    await vault.mutateItems({
+        folders: [{ id: note.folderId!, name: "Synthetic Note folder" }],
+    });
+    for (const record of initial)
+        await vault.encryptAndStore(JSON.stringify(record), record.id);
     const id = vault.id;
     vault.close();
     target = document.createElement("div");
@@ -97,10 +107,15 @@ async function saved() {
 async function persisted(id: string) {
     const vault = await unlockVault(password, id);
     try {
-        return await Promise.all((await vault.loadSecrets()).map(async (record) =>
-            JSON.parse(await vault.decryptSecret(record)) as Secret,
-        ));
-    } finally { vault.close(); }
+        return await Promise.all(
+            (await vault.loadSecrets()).map(
+                async (record) =>
+                    JSON.parse(await vault.decryptSecret(record)) as Secret,
+            ),
+        );
+    } finally {
+        vault.close();
+    }
 }
 afterEach(async () => {
     vi.restoreAllMocks();
@@ -129,8 +144,14 @@ it("creates and edits private Unicode multiline Notes without Login fields, then
     fill("notes", `${body}\nSaved edit`);
     await click("Save");
     await saved();
-    const changed = (await persisted(id)).find((record) => record.id === note.id)!;
-    expect(changed).toEqual({ ...note, notes: `${body}\nSaved edit`, updatedAt: expect.any(String) });
+    const changed = (await persisted(id)).find(
+        (record) => record.id === note.id,
+    )!;
+    expect(changed).toEqual({
+        ...note,
+        notes: `${body}\nSaved edit`,
+        updatedAt: expect.any(String),
+    });
     expect(changed.updatedAt).not.toBe(date);
     expect(target.innerHTML).not.toContain("PRIVATE-");
     await click("New secure note");
@@ -147,7 +168,12 @@ it("creates and edits private Unicode multiline Notes without Login fields, then
     await saved();
     const expected = await persisted(id);
     const created = expected.find((record) => record.name === "Created Note")!;
-    expect(created).toMatchObject({ kind: "secureNote", type: 0, notes: body, history: [] });
+    expect(created).toMatchObject({
+        kind: "secureNote",
+        type: 0,
+        notes: body,
+        history: [],
+    });
     expect(created).not.toHaveProperty("secret");
     expect(expected.find((record) => record.id === login.id)).toEqual(login);
     expect(target.innerHTML).not.toContain("PRIVATE-");
@@ -177,89 +203,175 @@ it("creates and edits private Unicode multiline Notes without Login fields, then
             request.onblocked = () => reject(new Error("Open test database"));
         });
     }
-    await expect(prepareBackupRestore("wrong-password", backup)).rejects.toThrow();
+    await expect(
+        prepareBackupRestore("wrong-password", backup),
+    ).rejects.toThrow();
     await (await prepareBackupRestore(password, backup)).restore();
     expect(await persisted(id)).toEqual(expected);
 }, 25000);
 
-it.each([{ notes: undefined }, { notes: null }, { notes: "" }])("retains an unchanged optional Note body ($notes) and common metadata on save", async ({ notes }) => {
-    const original = { ...note, notes };
-    const { id } = await start([original, login]);
-    await click(noteName);
-    await click("Edit");
-    fill("name", "Renamed Note");
-    await click("Save");
-    await saved();
-    expect((await persisted(id)).find((record) => record.id === note.id)).toEqual({
-        ...original, name: "Renamed Note", updatedAt: expect.any(String),
-    });
-    expect((await persisted(id)).find((record) => record.id === login.id)).toEqual(login);
-}, 15000);
-
-it.each(["encryption", "readback"] as const)("does not claim a Note save after %s failure and recovers the authoritative record", async (operation) => {
-    const { id } = await start();
-    await click(noteName);
-    await click("Edit");
-    fill("notes", "PRIVATE-CHANGED");
-    if (operation === "encryption") {
-        vi.spyOn(crypto.subtle, "encrypt").mockRejectedValueOnce(new Error("Synthetic quota/write failure"));
-    } else {
-        vi.spyOn(crypto.subtle, "decrypt").mockRejectedValueOnce(new Error("Synthetic readback failure"));
-    }
-    await click("Save");
-    await expect.poll(() => target.querySelector('[role="alert"]')?.textContent).toContain("Refresh and verify");
-    expect(target.textContent).not.toContain("Saved.");
-    expect(target.innerHTML).not.toContain("PRIVATE-");
-    await click("Refresh");
-    await expect.poll(() => button(noteName).disabled).toBe(false);
-    await click(noteName);
-    expect(target.innerHTML).not.toContain("PRIVATE-");
-    expect((await persisted(id)).find((record) => record.id === note.id)).toEqual(operation === "encryption"
-        ? note : { ...note, notes: "PRIVATE-CHANGED", updatedAt: expect.any(String) });
-    expect((await persisted(id)).find((record) => record.id === login.id)).toEqual(login);
-}, 15000);
-
-it.each(["draft", "copy", "read", "write", "acknowledgement"] as const)("locks a Note during %s and rejects late UI results", async (operation) => {
-    const { id, name } = await start();
-    await click(noteName);
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => { release = resolve; });
-    let started = operation === "draft";
-    if (operation === "copy") {
-        vi.spyOn(navigator.clipboard, "writeText").mockImplementationOnce(async () => { started = true; await gate; });
-        await click("Show Notes");
-        await click("Copy Notes");
-    } else if (operation === "read") {
-        const decrypt = crypto.subtle.decrypt.bind(crypto.subtle);
-        vi.spyOn(crypto.subtle, "decrypt").mockImplementationOnce(async (...args) => { started = true; await gate; return decrypt(...args); });
-        await click("Refresh");
-    } else {
+it.each([{ notes: undefined }, { notes: null }, { notes: "" }])(
+    "retains an unchanged optional Note body ($notes) and common metadata on save",
+    async ({ notes }) => {
+        const original = { ...note, notes };
+        const { id } = await start([original, login]);
+        await click(noteName);
         await click("Edit");
-        fill("notes", "PRIVATE-LATE");
-        if (operation === "acknowledgement") {
-            const decrypt = crypto.subtle.decrypt.bind(crypto.subtle);
-            vi.spyOn(crypto.subtle, "decrypt").mockImplementationOnce(async (...args) => { started = true; await gate; return decrypt(...args); });
-        } else if (operation === "write") {
-            const encrypt = crypto.subtle.encrypt.bind(crypto.subtle);
-            vi.spyOn(crypto.subtle, "encrypt").mockImplementationOnce(async (...args) => { started = true; await gate; return encrypt(...args); });
+        fill("name", "Renamed Note");
+        await click("Save");
+        await saved();
+        expect(
+            (await persisted(id)).find((record) => record.id === note.id),
+        ).toEqual({
+            ...original,
+            name: "Renamed Note",
+            updatedAt: expect.any(String),
+        });
+        expect(
+            (await persisted(id)).find((record) => record.id === login.id),
+        ).toEqual(login);
+    },
+    15000,
+);
+
+it.each(["encryption", "readback"] as const)(
+    "does not claim a Note save after %s failure and recovers the authoritative record",
+    async (operation) => {
+        const { id } = await start();
+        await click(noteName);
+        await click("Edit");
+        fill("notes", "PRIVATE-CHANGED");
+        if (operation === "encryption") {
+            vi.spyOn(crypto.subtle, "encrypt").mockRejectedValueOnce(
+                new Error("Synthetic quota/write failure"),
+            );
+        } else {
+            const store = VaultHandle.prototype.encryptAndStore;
+            vi.spyOn(
+                VaultHandle.prototype,
+                "encryptAndStore",
+            ).mockImplementationOnce(async function (...args) {
+                const result = await store.apply(this, args);
+                vi.spyOn(crypto.subtle, "decrypt").mockRejectedValueOnce(
+                    new Error("Synthetic readback failure"),
+                );
+                return result;
+            });
         }
-        if (operation !== "draft") await click("Save");
-    }
-    await expect.poll(() => started).toBe(true);
-    await click("Lock vault");
-    await expect.poll(() => target.textContent).toContain("Select a vault to unlock");
-    expect(target.querySelector("form")).toBeNull();
-    expect(target.innerHTML).not.toContain("PRIVATE-");
-    release();
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    flushSync();
-    expect(target.innerHTML).not.toContain("PRIVATE-");
-    for (const text of ["Saved.", "Copied.", "Refreshed."]) expect(target.textContent).not.toContain(text);
-    vi.restoreAllMocks();
-    await unlock(name);
-    await click(noteName);
-    expect(target.innerHTML).not.toContain("PRIVATE-");
-    expect((await persisted(id)).find((record) => record.id === note.id)).toEqual(operation === "acknowledgement"
-        ? { ...note, notes: "PRIVATE-LATE", updatedAt: expect.any(String) } : note);
-    expect((await persisted(id)).find((record) => record.id === login.id)).toEqual(login);
-}, 15000);
+        await click("Save");
+        await expect
+            .poll(() => target.querySelector('[role="alert"]')?.textContent)
+            .toContain("Refresh and verify");
+        expect(target.textContent).not.toContain("Saved.");
+        expect(target.innerHTML).not.toContain("PRIVATE-");
+        await click("Refresh");
+        await expect.poll(() => button(noteName).disabled).toBe(false);
+        await click(noteName);
+        expect(target.innerHTML).not.toContain("PRIVATE-");
+        expect(
+            (await persisted(id)).find((record) => record.id === note.id),
+        ).toEqual(
+            operation === "encryption"
+                ? note
+                : {
+                      ...note,
+                      notes: "PRIVATE-CHANGED",
+                      updatedAt: expect.any(String),
+                  },
+        );
+        expect(
+            (await persisted(id)).find((record) => record.id === login.id),
+        ).toEqual(login);
+    },
+    15000,
+);
+
+it.each(["draft", "copy", "read", "write", "acknowledgement"] as const)(
+    "locks a Note during %s and rejects late UI results",
+    async (operation) => {
+        const { id, name } = await start();
+        await click(noteName);
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        let started = operation === "draft";
+        if (operation === "copy") {
+            vi.spyOn(navigator.clipboard, "writeText").mockImplementationOnce(
+                async () => {
+                    started = true;
+                    await gate;
+                },
+            );
+            await click("Show Notes");
+            await click("Copy Notes");
+        } else if (operation === "read") {
+            const decrypt = crypto.subtle.decrypt.bind(crypto.subtle);
+            vi.spyOn(crypto.subtle, "decrypt").mockImplementationOnce(
+                async (...args) => {
+                    started = true;
+                    await gate;
+                    return decrypt(...args);
+                },
+            );
+            await click("Refresh");
+        } else {
+            await click("Edit");
+            fill("notes", "PRIVATE-LATE");
+            if (operation === "acknowledgement") {
+                const store = VaultHandle.prototype.encryptAndStore;
+                vi.spyOn(
+                    VaultHandle.prototype,
+                    "encryptAndStore",
+                ).mockImplementationOnce(async function (...args) {
+                    const result = await store.apply(this, args);
+                    started = true;
+                    await gate;
+                    return result;
+                });
+            } else if (operation === "write") {
+                const encrypt = crypto.subtle.encrypt.bind(crypto.subtle);
+                vi.spyOn(crypto.subtle, "encrypt").mockImplementationOnce(
+                    async (...args) => {
+                        started = true;
+                        await gate;
+                        return encrypt(...args);
+                    },
+                );
+            }
+            if (operation !== "draft") await click("Save");
+        }
+        await expect.poll(() => started).toBe(true);
+        await click("Lock vault");
+        await expect
+            .poll(() => target.textContent)
+            .toContain("Select a vault to unlock");
+        expect(target.querySelector("form")).toBeNull();
+        expect(target.innerHTML).not.toContain("PRIVATE-");
+        release();
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        flushSync();
+        expect(target.innerHTML).not.toContain("PRIVATE-");
+        for (const text of ["Saved.", "Copied.", "Refreshed."])
+            expect(target.textContent).not.toContain(text);
+        vi.restoreAllMocks();
+        await unlock(name);
+        await click(noteName);
+        expect(target.innerHTML).not.toContain("PRIVATE-");
+        expect(
+            (await persisted(id)).find((record) => record.id === note.id),
+        ).toEqual(
+            operation === "acknowledgement"
+                ? {
+                      ...note,
+                      notes: "PRIVATE-LATE",
+                      updatedAt: expect.any(String),
+                  }
+                : note,
+        );
+        expect(
+            (await persisted(id)).find((record) => record.id === login.id),
+        ).toEqual(login);
+    },
+    15000,
+);

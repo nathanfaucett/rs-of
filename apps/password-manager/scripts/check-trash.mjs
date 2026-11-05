@@ -2,23 +2,49 @@ import assert from "node:assert/strict";
 
 export async function checkTrash(page, { vaultName, vaultId, password }) {
     const action = (name) => page.getByRole("button", { name, exact: true });
-    await action("Delete").click();
+    const deleteLogin = () =>
+        page
+            .getByRole("listitem")
+            .filter({ has: action("Synthetic offline Login") })
+            .getByRole("button", { name: "Delete", exact: true })
+            .click();
+    await deleteLogin();
     await action("Cancel delete").press("Escape");
     assert.equal(await page.getByRole("alertdialog").count(), 0);
-    await action("Delete").click();
+    await deleteLogin();
     await action("Confirm delete").press("Enter");
     await page.getByText("Moved to Trash.", { exact: true }).waitFor();
     assert.equal(await action("Synthetic offline Login").count(), 0);
     await action("Trash").press("Enter");
     await page.getByText("Synthetic offline Login", { exact: true }).waitFor();
     await action("Delete permanently").press("Enter");
-    assert.equal(await action("Cancel delete").evaluate((node) => node === document.activeElement), true);
+    assert.equal(
+        await action("Cancel delete").evaluate(
+            (node) => node === document.activeElement,
+        ),
+        true,
+    );
     await action("Cancel delete").press("Shift+Tab");
-    assert.equal(await action("Confirm permanent delete").evaluate((node) => node === document.activeElement), true);
+    assert.equal(
+        await action("Confirm permanent delete").evaluate(
+            (node) => node === document.activeElement,
+        ),
+        true,
+    );
     await action("Confirm permanent delete").press("Escape");
-    assert.equal(await action("Delete permanently").evaluate((node) => node === document.activeElement), true);
+    assert.equal(
+        await action("Delete permanently").evaluate(
+            (node) => node === document.activeElement,
+        ),
+        true,
+    );
     await action("Lock vault").click();
-    assert.equal((await page.locator("body").innerText()).includes("Synthetic offline Login"), false);
+    assert.equal(
+        (await page.locator("body").innerText()).includes(
+            "Synthetic offline Login",
+        ),
+        false,
+    );
     await page.reload();
     await action(`${vaultName} ${vaultId}`).click();
     await page.getByLabel(/^Master password/).fill(password);
@@ -35,7 +61,11 @@ export async function checkTrash(page, { vaultName, vaultId, password }) {
     await page.getByLabel(/^Name/).fill("Synthetic purge item");
     await action("Save").click();
     await page.getByText("Saved.", { exact: true }).waitFor();
-    await page.getByRole("listitem").filter({ has: action("Synthetic purge item") }).getByRole("button", { name: "Delete", exact: true }).click();
+    await page
+        .getByRole("listitem")
+        .filter({ has: action("Synthetic purge item") })
+        .getByRole("button", { name: "Delete", exact: true })
+        .click();
     await action("Confirm delete").click();
     await page.getByText("Moved to Trash.", { exact: true }).waitFor();
     await action("Trash").click();
@@ -45,5 +75,7 @@ export async function checkTrash(page, { vaultName, vaultId, password }) {
     await page.getByText("Trash is empty.", { exact: true }).waitFor();
     await action("All items").click();
     assert.equal(await action("Synthetic offline Login").count(), 1);
-    console.log("PASS: offline Trash, keyboard cancel/focus, lock/reload, restore with history, and selected permanent deletion");
+    console.log(
+        "PASS: offline Trash, keyboard cancel/focus, lock/reload, restore with history, and selected permanent deletion",
+    );
 }
