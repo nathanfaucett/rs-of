@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onMount } from "svelte";
+import { beforeNavigate } from "$app/navigation";
 import RestoreBackup from "$lib/vault/RestoreBackup.svelte";
 import LocalSecretEditor from "$lib/secrets/LocalSecretEditor.svelte";
 import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
@@ -27,18 +28,28 @@ let vaultName = $state("");
 let error = $state("");
 let busy = $state(false);
 let notice = $state("");
+let itemEditor = $state<ReturnType<typeof LocalSecretEditor>>();
+let session = 0;
+
+beforeNavigate((navigation) => {
+    if (!busy && !itemEditor?.hasUnsavedChanges()) return;
+    if (navigation.willUnload || !window.confirm("Leave with unsaved or pending changes?")) navigation.cancel();
+});
 
 async function downloadBackup(recovery = false) {
     if (busy || vaultState.status !== "unlocked") return;
     busy = true;
     error = "";
     notice = "";
+    const vault = vaultState.vault;
+    const request = session;
     try {
-        const backup = await (recovery ? vaultState.vault.exportTransitionBackup() : vaultState.vault.exportBackup());
+        const backup = await (recovery ? vault.exportTransitionBackup() : vault.exportBackup());
+        if (request !== session) return;
         const url = URL.createObjectURL(new Blob([backup], { type: "application/json" }));
         const link = document.createElement("a");
         link.href = url;
-        link.download = `vault-${vaultState.vault.id}-${recovery ? "pre-transition" : "encrypted"}-backup.json`;
+        link.download = `vault-${vault.id}-${recovery ? "pre-transition" : "encrypted"}-backup.json`;
         document.body.append(link);
         try { link.click(); } finally {
             link.remove();
@@ -46,9 +57,9 @@ async function downloadBackup(recovery = false) {
         }
         notice = recovery ? "Pre-transition download requested. This contains the records before conversion, not later edits. Keep the current vault. Restore in a clean profile and verify it before discarding any source data." : "Download requested. Check that the file was saved. Keep it outside browser storage and test restore in a clean profile. It uses this vault's master password and contains the last committed records.";
     } catch (cause) {
-        error = cause instanceof Error ? cause.message : "Backup download failed. Keep the source vault and retry.";
+        if (request === session) error = cause instanceof Error ? cause.message : "Backup download failed. Keep the source vault and retry.";
     } finally {
-        busy = false;
+        if (request === session) busy = false;
     }
 }
 
@@ -59,7 +70,13 @@ async function restored(identity: VaultIdentity) {
 
 onMount(() => {
     void showVaultSelector();
-    return () => { if (vaultState.status === "unlocked") vaultState.vault.close(); };
+    return () => {
+        session++;
+        password = "";
+        confirmPassword = "";
+        itemEditor?.retire();
+        if (vaultState.status === "unlocked") vaultState.vault.close();
+    };
 });
 
 async function createVault() {
@@ -82,16 +99,18 @@ async function createVault() {
     }
     if (busy) return;
     busy = true;
+    const request = session;
     try {
         const vault = await createVaultHandle(password, vaultName.trim());
+        if (request !== session) { vault.close(); return; }
         password = "";
         confirmPassword = "";
         vaultName = "";
         vaultState = { status: "unlocked", vault };
     } catch (cause) {
-        error = `${cause instanceof Error ? cause.message : "Failed to create vault."} Check browser storage and free space. Return to the selector to recover an interrupted registration before retrying. Do not clear browser data.`;
+        if (request === session) error = `${cause instanceof Error ? cause.message : "Failed to create vault."} Check browser storage and free space. Return to the selector to recover an interrupted registration before retrying. Do not clear browser data.`;
     } finally {
-        busy = false;
+        if (request === session) busy = false;
     }
 }
 
@@ -103,14 +122,16 @@ async function unlockVault() {
         return;
     }
     busy = true;
+    const request = session;
     try {
         const vault = await unlockVaultHandle(password, vaultState.identity.id);
+        if (request !== session) { vault.close(); return; }
         password = "";
         vaultState = { status: "unlocked", vault };
     } catch (cause) {
-        error = cause instanceof Error ? cause.message : "Failed to unlock vault. Wrong password?";
+        if (request === session) error = cause instanceof Error ? cause.message : "Failed to unlock vault. Wrong password?";
     } finally {
-        busy = false;
+        if (request === session) busy = false;
     }
 }
 
@@ -136,24 +157,26 @@ async function showVaultSelector() {
     password = "";
     confirmPassword = "";
     vaultName = "";
+    const request = session;
     try {
         const vaults = await listVaults();
-        vaultState = { status: "select-vault", vaults };
+        if (request === session) vaultState = { status: "select-vault", vaults };
     } catch (cause) {
-        vaultState = { status: "error", message: cause instanceof Error ? cause.message : "Cannot load local vaults. Allow browser storage and reload. Do not clear browser data." };
+        if (request === session) vaultState = { status: "error", message: cause instanceof Error ? cause.message : "Cannot load local vaults. Allow browser storage and reload. Do not clear browser data." };
     }
 }
 
 async function lockVault() {
-    if (busy) return;
-    if (vaultState.status === "unlocked") {
-        vaultState.vault.close();
-    }
+    session++;
+    busy = false;
+    itemEditor?.retire();
+    if (vaultState.status === "unlocked") vaultState.vault.close();
     await showVaultSelector();
+    notice = "Vault locked. Unsaved edits were discarded. A write already sent may have persisted; unlock and verify before retrying. Copied values can remain on the clipboard.";
 }
 </script>
 
-<div class="flex min-h-0 grow items-start justify-center overflow-auto p-6 sm:items-center">
+<div class="flex min-h-0 grow items-start justify-center overflow-auto p-6">
     {#if vaultState.status === "loading"}
         <Page width="narrow">
             <p role="status">Loading…</p>
@@ -320,14 +343,13 @@ async function lockVault() {
                     <button
                         class="btn btn-secondary btn-md"
                         type="button"
-                        disabled={busy}
                         onclick={lockVault}>Lock vault</button
                     >
                 {/snippet}
             </PageHeader>
             {#if error}<Alert tone="danger">{error}</Alert>{/if}
             {#if notice}<p role="status">{notice}</p>{/if}
-            <LocalSecretEditor vault={vaultState.vault} />
+            <LocalSecretEditor bind:this={itemEditor} vault={vaultState.vault} />
         </Page>
     {:else if vaultState.status === "error"}
         <Page width="narrow">

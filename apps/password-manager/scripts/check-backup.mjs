@@ -189,18 +189,21 @@ export async function checkBackupRestore(browser, origin) {
                         exact: true,
                     })
                     .click();
+                assert.equal(await page.locator("form").count(), 0);
+                await page
+                    .getByText("synthetic-recovery-user-04", { exact: true })
+                    .last()
+                    .waitFor();
                 assert.equal(
-                    await page
-                        .getByLabel("Username", { exact: true })
-                        .inputValue(),
-                    "synthetic-recovery-user-04",
-                );
-                assert.equal(
-                    await page.getByLabel(/^Password/).inputValue(),
-                    itemPassword,
+                    await page.getByText(itemPassword, { exact: true }).count(),
+                    0,
                 );
                 await page
-                    .getByRole("button", { name: "Cancel", exact: true })
+                    .getByRole("button", { name: "Show Password", exact: true })
+                    .click();
+                await page.getByText(itemPassword, { exact: true }).waitFor();
+                await page
+                    .getByRole("button", { name: "Close details", exact: true })
                     .click();
             }
             await page

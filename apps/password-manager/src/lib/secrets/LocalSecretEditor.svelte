@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onDestroy, untrack } from "svelte";
+import SecretDetail from "./SecretDetail.svelte";
 import { Alert, Card, Field } from "$lib/ui";
 import type { VaultHandle } from "$lib/vault/vault";
 import { createLocalSecretWorkflow } from "./local-workflow.svelte";
@@ -9,17 +10,32 @@ let { vault }: { vault: VaultHandle } = $props();
 const workflow = untrack(() => createLocalSecretWorkflow({ vault }));
 onDestroy(workflow.dispose);
 
-let draft = $derived(workflow.editor?.draft);
+
 let pendingDelete = $state<Secret | null>(null);
+const newSecretId = $props.id();
+
+export function hasUnsavedChanges() { return workflow.dirty || workflow.busy; }
+export function retire() { pendingDelete = null; workflow.dispose(); }
+
+function navigate(action: () => void) {
+    if (workflow.dirty && !window.confirm("Discard unsaved changes?")) return;
+    pendingDelete = null;
+    action();
+}
+
 </script>
+
+<svelte:window onbeforeunload={(event) => {
+    if (hasUnsavedChanges()) { event.preventDefault(); event.returnValue = ""; }
+}} />
 
 <div class="flex flex-col gap-4">
     <Card title="Secrets" description="Stored locally in your encrypted vault.">
         {#snippet actions()}
             <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canRefresh}
-                onclick={() => void workflow.refresh()}>Refresh</button>
-            <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
-                onclick={() => workflow.edit()}>New secret</button>
+                onclick={() => navigate(() => void workflow.refresh())}>Refresh</button>
+            <button id={newSecretId} class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
+                onclick={() => navigate(() => workflow.edit())}>New secret</button>
         {/snippet}
 
         {#if workflow.refreshing}
@@ -43,6 +59,7 @@ let pendingDelete = $state<Secret | null>(null);
                     <p>Delete {pendingDelete.name}? This cannot be undone.</p>
                     <div class="flex gap-2">
                         <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
+                            {@attach (element) => { element.focus(); }}
                             onclick={() => {
                                 const value = pendingDelete;
                                 pendingDelete = null;
@@ -61,7 +78,7 @@ let pendingDelete = $state<Secret | null>(null);
                         <li class="flex items-center justify-between gap-3 rounded-control border border-line bg-surface-muted/40 px-3 py-2">
                             <div class="flex min-w-0 flex-col">
                                 <button class="btn btn-ghost btn-md w-full justify-start truncate px-0 text-left font-medium"
-                                    type="button" disabled={!workflow.canEdit || value.kind !== "login"} onclick={() => workflow.edit(value)}>
+                                    type="button" disabled={!workflow.canEdit} onclick={() => navigate(() => workflow.open(value.id))}>
                                     {value.favorite ? "★ " : ""}{value.name}
                                 </button>
                                 {#if (value.kind === "login" || value.kind === "identity") && value.username}<p class="truncate text-sm text-ink-subtle">{value.username}</p>{/if}
@@ -70,7 +87,7 @@ let pendingDelete = $state<Secret | null>(null);
                                 {/each}
                             </div>
                             <button class="btn btn-ghost btn-md shrink-0 text-danger-text hover:bg-danger-soft"
-                                type="button" disabled={!workflow.canEdit} onclick={() => pendingDelete = value}>Delete</button>
+                                type="button" disabled={!workflow.canEdit} onclick={() => navigate(() => { workflow.cancel(); pendingDelete = value; })}>Delete</button>
                         </li>
                     {/each}
                 </ul>
@@ -78,8 +95,18 @@ let pendingDelete = $state<Secret | null>(null);
         {/if}
     </Card>
 
-    {#if workflow.editor && draft}
-        <Card title={workflow.editor.record ? "Edit secret" : "New secret"}
+    {#if workflow.detail && !workflow.editor}
+        {#key workflow.detail}
+            <SecretDetail record={workflow.detail} canEdit={workflow.canEdit}
+                onedit={() => workflow.edit(workflow.detail)}
+                onclose={() => { workflow.open(null); document.getElementById(newSecretId)?.focus(); }} />
+        {/key}
+    {/if}
+
+    {#if workflow.editor}
+        {@const editor = workflow.editor}
+        {@const draft = editor.draft}
+        <Card title={editor.record ? "Edit secret" : "New secret"}
             description="Changes are encrypted and stored when you save.">
             <form class="flex flex-col gap-4" onsubmit={(event) => {
                 event.preventDefault();
@@ -87,7 +114,7 @@ let pendingDelete = $state<Secret | null>(null);
             }}>
                 <Field id="name" label="Name" required>
                     {#snippet children(control)}
-                        <input {...control} bind:value={draft.name} disabled={!workflow.canEdit} />
+                        <input {...control} {@attach (element) => { element.focus(); }} bind:value={draft.name} disabled={!workflow.canEdit} />
                     {/snippet}
                 </Field>
                 <Field id="username" label="Username">
@@ -97,18 +124,18 @@ let pendingDelete = $state<Secret | null>(null);
                 </Field>
                 <Field id="secret" label="Password">
                     {#snippet children(control)}
-                        <input {...control} bind:value={draft.secret} type={workflow.editor?.showPassword ? "text" : "password"} autocomplete="new-password" disabled={!workflow.canEdit} />
+                        <input {...control} bind:value={draft.secret} type={editor?.showPassword ? "text" : "password"} autocomplete="new-password" disabled={!workflow.canEdit} />
                     {/snippet}
                 </Field>
                 <button class="btn btn-secondary btn-md self-start" type="button"
-                    aria-controls="secret" aria-pressed={workflow.editor.showPassword}
+                    aria-controls="secret" aria-pressed={editor.showPassword}
                     onclick={() => {
-                        if (workflow.editor) workflow.editor.showPassword = !workflow.editor.showPassword;
-                    }}>{workflow.editor.showPassword ? "Hide password" : "Show password"}</button>
-                {#if draft.secret && draft.secret !== workflow.editor.record?.secret}
+                        if (editor) editor.showPassword = !editor.showPassword;
+                    }}>{editor.showPassword ? "Hide password" : "Show password"}</button>
+                {#if draft.secret && draft.secret !== editor.record?.secret}
                     <Field id="confirm-secret" label="Confirm password" required>
                         {#snippet children(control)}
-                            <input {...control} bind:value={workflow.editor.confirmPassword} type="password" autocomplete="new-password" disabled={!workflow.canEdit} />
+                            <input {...control} bind:value={editor.confirmPassword} type="password" autocomplete="new-password" disabled={!workflow.canEdit} />
                         {/snippet}
                     </Field>
                 {/if}
@@ -194,22 +221,11 @@ let pendingDelete = $state<Secret | null>(null);
                     <input id="favorite" bind:checked={draft.favorite} type="checkbox" disabled={!workflow.canEdit} />
                     Favorite
                 </label>
-                {#if workflow.editor.record?.history.length}
-                    <details>
-                        <summary>Password history ({workflow.editor.record.history.length})</summary>
-                        <ul class="flex list-none flex-col gap-2 p-0">
-                            {#each workflow.editor.record.history as entry, i (entry)}
-                                <li><Field id={`history-${i}`} label={`Password changed at ${entry.changedAt}`}>
-                                    {#snippet children(control)}<input {...control} type="password" value={entry.secret} readonly />{/snippet}
-                                </Field></li>
-                            {/each}
-                        </ul>
-                    </details>
-                {/if}
+
                 <div class="flex gap-2">
                     <button class="btn btn-primary btn-md" type="submit" disabled={!workflow.canEdit}>Save</button>
                     <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canEdit}
-                        onclick={() => workflow.cancel()}>Cancel</button>
+                        onclick={() => { workflow.cancel(); if (!workflow.detail) document.getElementById(newSecretId)?.focus(); }}>Cancel</button>
                 </div>
             </form>
         </Card>

@@ -22,6 +22,14 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
         confirmPassword: string;
         showPassword: boolean;
     } | null>(null);
+    let selectedId = $state<string | null>(null);
+
+    const dirty = $derived(
+        !!editor &&
+            (JSON.stringify(editor.draft) !==
+                JSON.stringify(createSecretDraft(editor.record)) ||
+                editor.confirmPassword !== ""),
+    );
     let loadError = $state<string | null>(null);
     let error = $state<string | null>(null);
     let notice = $state("");
@@ -29,6 +37,11 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
     let refreshing = $state(false);
     let active = $state(true);
     let query: ReturnType<typeof liveQuery>;
+    const detail = $derived(
+        active && !loadError && query.isReady && !query.isError
+            ? (query.data.find((record) => record.id === selectedId) ?? null)
+            : null,
+    );
     function liveQuery() {
         return useLiveQuery((q) =>
             q
@@ -43,6 +56,7 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
     const unsubscribe = collection.on("status:change", ({ status }) => {
         if (active && status === "error") {
             editor = null;
+            selectedId = null;
             notice = "";
             loadError =
                 "Local vault read failed. Refresh and verify records before retrying.";
@@ -57,6 +71,7 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
         const record = value
             ? v.parse(v.object(LoginSchema.entries), value)
             : null;
+        selectedId = record?.id ?? null;
         editor = {
             record,
             draft: createSecretDraft(record),
@@ -70,6 +85,19 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
         return active && !busy && !loadError && query.isReady && !query.isError;
     }
     return {
+        get detail() {
+            return detail;
+        },
+        get dirty() {
+            return dirty;
+        },
+        open(id: string | null) {
+            if (!canEdit()) return;
+            editor = null;
+            selectedId = id;
+            error = null;
+            notice = "";
+        },
         get busy() {
             return busy;
         },
@@ -156,6 +184,7 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
                 if (!active) return;
                 busy = false;
                 editor = null;
+                selectedId = value.id;
                 notice = "Saved.";
             } catch (cause) {
                 if (active) {
@@ -174,6 +203,8 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
                 (!query.isReady && !query.isError && !loadError)
             )
                 return;
+            editor = null;
+            selectedId = null;
             busy = true;
             refreshing = true;
             error = null;
@@ -181,7 +212,6 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
             try {
                 await collection.utils.refresh();
                 if (!active) return;
-                editor = null;
                 loadError = null;
                 notice = "Refreshed.";
             } catch (cause) {
@@ -222,6 +252,7 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
             busy = false;
             refreshing = false;
             loadError = null;
+            selectedId = null;
             editor = null;
             error = null;
             notice = "";

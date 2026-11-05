@@ -1,6 +1,6 @@
 # Password manager typed items
 
-Implemented by ticket 05. The field authority is [personal-json-v1](password-manager-json.md); the evidence limits remain in [the reference baseline](password-manager-reference.md). Only Login has an editor in this ticket. The other four types have validated storage and backup support, not type-specific UI, autofill, import, or export.
+Implemented by ticket 05. The field authority is [personal-json-v1](password-manager-json.md); the evidence limits remain in [the reference baseline](password-manager-reference.md). Ticket 06 adds read-only detail and protected actions. Only Login has an editor. The other four types have validated storage, backup, and common details, not type-specific UI, autofill, import, or export.
 
 ## Model and interfaces
 
@@ -27,10 +27,29 @@ URI `match: null` means inherited default and differs from explicit `domain`. Th
 ### Callers for ticket 06 and type tickets
 
 - `createLocalSecretCollection({ vault })` accepts the full union. It calls `vault.prepareItems()` before loading a complete validated snapshot. Existing single-mutation acknowledgement and authoritative reconciliation remain. This is **not** an atomic batch importer.
-- `createLocalSecretWorkflow({ vault })` exposes union `records`. Its current `edit`/draft/save path is Login-only. It refuses other kinds instead of converting them into Login. Detail actions in ticket 06 must narrow the kind. Later editors can use the corresponding schema without changing storage or backup routing.
+- `createLocalSecretWorkflow({ vault })` exposes union `records`, `detail`, `open(id | null)`, and `dirty`. Selection stores only an ID; `detail` comes from the collection, not another item store. Opening is read-only. Its `edit`/draft/save path is Login-only and refuses other kinds instead of converting them into Login. Later editors can use the corresponding schema without changing storage or backup routing.
 - `createSecretDraft` / `constructSecret` accept `Login`, not the union. They preserve metadata and isolate nested editable arrays. Transient TanStack virtual properties are stripped only when making a draft; durable records use strict validation.
 - Public vault preparation: `await vault.prepareItems()`. Call it before typed writes and reads outside the collection. The low-level encrypted storage API still accepts serialized text for storage tests/recovery inspection; after preparation it validates the full typed item and matching ID. There is no old-format write path. `close()` retires the handle and releases its key reference. Late decrypted results cannot return through a closed handle.
 - `exportBackup()` exports the current committed format. `exportTransitionBackup()` independently authenticates and exports the retained pre-transition version 1 file, if present. It does not depend on current records being valid; damaged recovery metadata is rejected. The page provides both download actions, even when collection loading fails.
+
+## Detail, editing, and protected actions
+
+Ticket 06 keeps one durable item authority: `SecretSchema` and the collection snapshot. `SecretDetail.svelte` takes `{ record: Secret, canEdit, onedit, onclose }`. It renders common notes, fields, dates, and history once, then narrows `record.kind` for Login fields. Other kinds show common data and a clear type-specific availability message. Tickets 07–10 should add direct kind branches, not a plugin registry, a second schema, or a parallel store. Their storage and backup schemas already exist. The Login-only `SecretDraft`/`constructSecret` must not be called with other kinds; extend editor/draft construction with explicit kind narrowing when adding each editor.
+
+`ProtectedValue.svelte` takes `{ label, value: string | null | undefined, protected?: boolean }`, protected by default. Password, TOTP seed, hidden custom fields, and history use the same control. Masked values are not inserted into DOM text, attributes, or input values. Null/absent values show Not set and cannot be copied; empty strings remain copyable. Reveal is explicit. Copy never requires reveal and catches unavailable/denied clipboard access with fixed, accessible feedback that cannot include rejected values or exception text. Values are plain text, never HTML or clickable credential-bearing URLs.
+
+The detail subtree is keyed by the selected collection record. Leaving it, entering edit, cancelling, refreshing, or locking destroys revealed state and pending-copy feedback. Keep that boundary when extending details. No automatic clipboard clearing is attempted: browser clipboard APIs cannot atomically compare and clear, so even read-then-write can overwrite newer content. The copy and lock messages state that copied values can remain. Clipboard access, OS retention, secure JavaScript memory erasure, and compromised-browser protection are not guaranteed.
+
+`LocalSecretEditor` remains the page's list/detail/editor owner. It exports `hasUnsavedChanges()` (dirty draft or pending collection work) and `retire()` (synchronous, idempotent UI/workflow cleanup). Item/new/refresh/delete navigation asks before discarding a dirty draft. Cancel explicitly discards the isolated draft and returns to masked details. Save waits for the existing collection acknowledgement, returns to details, and updates history only through `constructSecret`; notes-only edits and abandoned drafts add no history. Block-local editor bindings prevent late input events from reading a retired draft. Focus goes to the detail heading, edit name, delete confirmation, or New secret control as appropriate. Long pages stay top-aligned so controls remain reachable.
+
+The page guards route/document navigation with unsaved/pending work. Manual Lock is never blocked by a write or backup and does not ask permission: it retires the editor, closes the vault, and warns that an already-sent write may have persisted. Unlock and verify before retrying. Late collection/read/copy results cannot restore the view. A session counter also rejects late backup downloads/errors after lock or unmount and closes late create/unlock handles after page destruction. No drafts, revealed values, or selected items are serialized into browser history, URLs, or persistent UI state.
+
+### Ticket 06 evidence
+
+- `src/lib/secrets/editor.test.ts`: mounted real workflow/collection; read-only/no-write detail, optional Login, protected reveal/reset, success/denied/unavailable clipboard, hidden-field copy, late copy after navigation, dirty nested navigation refusal/approval, unload guard, focus, save/cancel and history triggers.
+- `src/routes/detail.test.ts`: mounted real page with Chromium SQL/WASM, IndexedDB and Web Crypto; exact read-only persistence, nested/password cancellation, notes-only history preservation, dated password change, protected historical copy, save failure/recovery, lock/reopen, exact clean-storage encrypted backup restore, and gated late copy/read/write cleanup.
+- `src/routes/page.test.ts`: pending backup can be locked; late result cannot initiate a download or success message.
+- `scripts/check-offline.mjs` and `check-backup.mjs`: built application with network disabled, normal pointer/keyboard actions, read-only details, keyboard edit/reveal, protected history across lock/reload, new browser process with server stopped, and clean-profile encrypted backup restore. Synthetic data only; no live browser session.
 
 ## Versioned transition and recovery
 

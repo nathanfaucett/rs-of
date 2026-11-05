@@ -134,8 +134,23 @@ try {
     await page
         .getByRole("button", { name: "Synthetic offline Login", exact: true })
         .click();
+    assert.equal(await page.locator("form").count(), 0);
+    assert.equal(
+        await page.getByText("synthetic-secret-19", { exact: true }).count(),
+        0,
+    );
+    await page
+        .getByRole("button", { name: "Edit", exact: true })
+        .press("Enter");
     await page.getByLabel("Username", { exact: true }).fill("edited-user-19");
+    await page.getByLabel(/^Password/).fill("synthetic-replacement-06");
+    await page.getByLabel(/^Confirm password/).fill("synthetic-replacement-06");
     await page.getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByText("Password history (1)", { exact: true }).waitFor();
+    await page
+        .getByRole("button", { name: "Show History password 1", exact: true })
+        .press("Enter");
+    await page.getByText("synthetic-secret-19", { exact: true }).waitFor();
     await page.getByRole("button", { name: "Lock vault", exact: true }).click();
     const vaultId = await page
         .getByRole("button", { name: /^offline-test ID: / })
@@ -155,22 +170,43 @@ try {
         .getByRole("button", { name: "Synthetic offline Login", exact: true })
         .click();
     assert.equal(
-        await reopened.getByLabel("Username", { exact: true }).inputValue(),
+        await reopened
+            .getByText("edited-user-19", { exact: true })
+            .last()
+            .textContent(),
         "edited-user-19",
     );
+    assert.equal(await reopened.locator("form").count(), 0);
     assert.equal(
-        await reopened.getByLabel(/^Password/).inputValue(),
-        "synthetic-secret-19",
+        await reopened
+            .getByText("synthetic-secret-19", { exact: true })
+            .count(),
+        0,
     );
+    await reopened.getByText("Password history (1)", { exact: true }).waitFor();
+    assert.equal(
+        await reopened
+            .getByText("synthetic-replacement-06", { exact: true })
+            .count(),
+        0,
+    );
+    await reopened
+        .getByRole("button", { name: "Show Password", exact: true })
+        .press("Enter");
+    await reopened
+        .getByText("synthetic-replacement-06", { exact: true })
+        .waitFor();
     assert.equal(
         serverRequests,
         before,
         "Offline flow must not reach the server",
     );
     console.log(
-        "PASS: built app offline reload, create, edit, lock, close, start, select, unlock and persisted Login; zero server requests",
+        "PASS: built app offline reload, create, read-only detail, keyboard edit/reveal, protected dated history, lock, cold start, unlock and persisted Login; zero server requests",
     );
-    await reopened.getByRole("button", { name: "Cancel", exact: true }).click();
+    await reopened
+        .getByRole("button", { name: "Close details", exact: true })
+        .click();
     await reopened
         .getByRole("button", { name: "Lock vault", exact: true })
         .click();
@@ -318,7 +354,10 @@ try {
         .getByRole("button", { name: "Synthetic offline Login", exact: true })
         .click();
     assert.equal(
-        await next.getByLabel("Username", { exact: true }).inputValue(),
+        await next
+            .getByText("edited-user-19", { exact: true })
+            .last()
+            .textContent(),
         "edited-user-19",
     );
     console.log(
@@ -342,7 +381,10 @@ try {
         .getByRole("button", { name: "Synthetic offline Login", exact: true })
         .click();
     assert.equal(
-        await next.getByLabel("Username", { exact: true }).inputValue(),
+        await next
+            .getByText("edited-user-19", { exact: true })
+            .last()
+            .textContent(),
         "edited-user-19",
     );
     assert.equal(serverRequests, coldRequests);

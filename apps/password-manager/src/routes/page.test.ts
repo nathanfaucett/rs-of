@@ -17,6 +17,7 @@ vi.mock("$lib/vault/vault", () => ({
 let target: HTMLDivElement;
 let component: ReturnType<typeof mount>;
 let close: ReturnType<typeof vi.fn>;
+let vault: VaultHandle;
 
 function button(name: string) {
     const value = [...target.querySelectorAll("button")].find(
@@ -57,7 +58,7 @@ async function selector() {
 beforeEach(async () => {
     vi.resetAllMocks();
     close = vi.fn();
-    const vault = {
+    vault = {
         id: crypto.randomUUID(),
         close,
         prepareItems: vi.fn(async () => {}),
@@ -92,6 +93,61 @@ afterEach(async () => {
 });
 
 describe("vault page navigation", () => {
+    it.each(["unlock", "create"] as const)(
+        "closes a late %s handle after navigation destroys its page",
+        async (operation) => {
+            let finish!: (value: VaultHandle) => void;
+            const pending = () =>
+                new Promise<VaultHandle>((resolve) => {
+                    finish = resolve;
+                });
+            if (operation === "unlock") {
+                vi.mocked(unlockVault).mockImplementationOnce(pending);
+                await click("personal");
+                input("password", "master-password");
+                await click("Unlock");
+            } else {
+                vi.mocked(createVault).mockImplementationOnce(pending);
+                await click("Create new vault");
+                input("vault-name", "personal");
+                input("password", "master-password");
+                input("confirm", "master-password");
+                await click("Create vault");
+            }
+            await unmount(component);
+            component = mount(Page, { target });
+            flushSync();
+            await selector();
+            finish(vault);
+            await expect.poll(() => close.mock.calls.length).toBe(1);
+            expect(target.textContent).not.toContain("Lock vault");
+            expect(target.querySelector("#password")).toBeNull();
+        },
+    );
+    it("locks during a pending backup and ignores the late download result", async () => {
+        let finish!: (value: string) => void;
+        vault.exportBackup = vi.fn(
+            () =>
+                new Promise<string>((resolve) => {
+                    finish = resolve;
+                }),
+        );
+        const download = vi.spyOn(URL, "createObjectURL");
+        await click("personal");
+        input("password", "master-password");
+        await click("Unlock");
+        await expect.poll(() => target.textContent).toContain("Lock vault");
+        await click("Download encrypted backup");
+        await click("Lock vault");
+        await selector();
+        finish("synthetic-encrypted-backup");
+        await tick();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(download).not.toHaveBeenCalled();
+        expect(target.textContent).not.toContain("Download requested");
+        expect(close).toHaveBeenCalledOnce();
+        download.mockRestore();
+    });
     it("shows actionable registry errors and permits a selector retry", async () => {
         await click("personal");
         vi.mocked(listVaults).mockRejectedValueOnce(

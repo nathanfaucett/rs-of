@@ -447,6 +447,7 @@ it("mounts the real page to transition, cancel nested edits, save optional crede
         await expect.poll(() => button("Lock vault").disabled).toBe(false);
         const persisted = await raw(identity.id);
         await click(`★ ${login.name}`);
+        await click("Edit");
         fill("uri-0", "discarded");
         fill("match-1", "never");
         fill("field-value-0", "discarded");
@@ -454,6 +455,7 @@ it("mounts the real page to transition, cancel nested edits, save optional crede
         await click("Cancel");
         expect(await raw(identity.id)).toEqual(persisted);
         await click(`★ ${login.name}`);
+        await click("Edit");
         expect(field("uri-0").value).toBe("androidapp://synthetic");
         expect(field("field-value-0").value).toBe("0000");
         fill("secret", "");
@@ -478,10 +480,12 @@ it("mounts the real page to transition, cancel nested edits, save optional crede
         await click("Unlock");
         await expect.poll(() => target.textContent).toContain("Username only");
         await click("Username only");
+        await click("Edit");
         expect(field("username").value).toBe("alice");
         expect(field("secret").value).toBe("");
         await click("Cancel");
         await click(`★ ${login.name}`);
+        await click("Edit");
         expect(field("secret").value).toBe("");
         expect(field("totp").value).toBe("seed");
         expect(field("match-1").value).toBe("domain");

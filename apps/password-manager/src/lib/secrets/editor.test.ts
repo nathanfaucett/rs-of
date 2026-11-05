@@ -125,13 +125,121 @@ async function saved() {
     expect(target.querySelector("form")).toBeNull();
 }
 
+async function edit(name: string) {
+    await click(name);
+    await click("Edit");
+}
+
 afterEach(async () => {
+    vi.restoreAllMocks();
     if (component) await unmount(component);
     component = undefined;
     target?.remove();
 });
 
 describe("local secret editor with the real workflow and collection", () => {
+    it("opens read-only details without writes and reveals only on an explicit action", async () => {
+        const { vault, records } = await setup([original, other]);
+        await click(original.name);
+        expect(target.querySelector("form")).toBeNull();
+        expect(target.textContent).toContain("Original notes");
+        expect(target.innerHTML).not.toContain("old-password");
+        expect(button("Edit")).toBeDefined();
+        await click("Show Password");
+        expect(target.textContent).toContain("old-password");
+        await click(other.name);
+        expect(target.innerHTML).not.toContain("old-password");
+        await click(original.name);
+        expect(target.innerHTML).not.toContain("old-password");
+        expect(vault.encryptAndStore).not.toHaveBeenCalled();
+        expect(records.get(original.id)).toEqual(original);
+    });
+    it("reports clipboard success, denied and unavailable access without exposing the value in feedback", async () => {
+        await setup([original]);
+        const write = vi.fn().mockResolvedValue(undefined);
+        vi.spyOn(navigator, "clipboard", "get").mockReturnValue({
+            writeText: write,
+        } as unknown as Clipboard);
+        await click(original.name);
+        await click("Copy Password");
+        await expect
+            .poll(() => target.querySelector('[role="status"]')?.textContent)
+            .toContain("Copied.");
+        expect(write).toHaveBeenCalledWith("old-password");
+        expect(target.innerHTML).not.toContain("old-password");
+        write.mockRejectedValueOnce(new Error("old-password"));
+        await click("Copy Password");
+        await expect
+            .poll(() => target.querySelector('[role="alert"]')?.textContent)
+            .toContain("Copy failed.");
+        expect(target.innerHTML).not.toContain("old-password");
+        vi.spyOn(navigator, "clipboard", "get").mockReturnValue(
+            undefined as unknown as Clipboard,
+        );
+        await click("Copy Password");
+        await expect
+            .poll(() => target.querySelector('[role="alert"]')?.textContent)
+            .toContain("unavailable or denied");
+    });
+    it("protects hidden fields and ignores clipboard completion after item navigation", async () => {
+        await setup([
+            {
+                ...original,
+                fields: [{ name: "PIN", type: "hidden", value: "PRIVATE-PIN" }],
+            },
+            other,
+        ]);
+        let finish!: () => void;
+        const write = vi
+            .spyOn(navigator.clipboard, "writeText")
+            .mockImplementationOnce(
+                () =>
+                    new Promise<void>((resolve) => {
+                        finish = resolve;
+                    }),
+            );
+        await click(original.name);
+        expect(target.innerHTML).not.toContain("PRIVATE-PIN");
+        await click("Show Custom field 1: PIN");
+        expect(target.textContent).toContain("PRIVATE-PIN");
+        await click("Copy Custom field 1: PIN");
+        expect(write).toHaveBeenCalledWith("PRIVATE-PIN");
+        await click(other.name);
+        finish();
+        await tick();
+        expect(target.textContent).not.toContain("Copied.");
+        expect(target.innerHTML).not.toContain("PRIVATE-PIN");
+        await click(original.name);
+        expect(target.innerHTML).not.toContain("PRIVATE-PIN");
+    });
+    it("keeps dirty nested edits when navigation is rejected and discards them only on approval", async () => {
+        const { records, vault } = await setup([original, other]);
+        const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+        await edit(original.name);
+        await fill("uri-0", "discarded");
+        await fill("field-value-0", "discarded");
+        await click(other.name);
+        expect(confirm).toHaveBeenCalledWith("Discard unsaved changes?");
+        expect(control("uri-0").value).toBe("discarded");
+        await click("Refresh");
+        expect(control("field-value-0").value).toBe("discarded");
+        const leave = new Event("beforeunload", { cancelable: true });
+        window.dispatchEvent(leave);
+        expect(leave.defaultPrevented).toBe(true);
+        confirm.mockReturnValue(true);
+        await click(other.name);
+        expect(target.querySelector("form")).toBeNull();
+        expect(target.querySelector("[data-detail-heading]")?.textContent).toBe(
+            other.name,
+        );
+        expect(document.activeElement).toBe(
+            target.querySelector("[data-detail-heading]"),
+        );
+        await edit(original.name);
+        expect(control("uri-0").value).toBe(original.uris[0].uri);
+        expect(records.get(original.id)).toEqual(original);
+        expect(vault.encryptAndStore).not.toHaveBeenCalled();
+    });
     it("saves and reopens a username-only Login without password confirmation", async () => {
         const { records } = await setup();
         await click("New secret");
@@ -145,7 +253,7 @@ describe("local secret editor with the real workflow and collection", () => {
             kind: "login",
             username: "alice",
         });
-        await click("Passwordless login");
+        await edit("Passwordless login");
         expect(control("secret").value).toBe("");
         expect(control("username").value).toBe("alice");
     });
@@ -205,7 +313,7 @@ describe("local secret editor with the real workflow and collection", () => {
         );
         await click("Refresh");
         await expect.poll(() => target.textContent).toContain("Refreshed.");
-        await click("New login");
+        await edit("New login");
         expect(control("username").value).toBe("alice");
         expect(control("uri-1").value).toBe(record.uris[1]?.uri);
         expect(control("match-1").value).toBe("startsWith");
@@ -214,7 +322,7 @@ describe("local secret editor with the real workflow and collection", () => {
 
     it("edits both websites and match rules and saves the same record", async () => {
         const { records, vault } = await setup([original, other]);
-        await click(original.name);
+        await edit(original.name);
         expect(control("username").value).toBe("old-user");
         await fill("username", "new-user");
         await fill("secret", "changed-password");
@@ -279,7 +387,7 @@ describe("local secret editor with the real workflow and collection", () => {
             (r) => r.name === "Confirmed login",
         );
         if (!newRecord) throw new Error("Expected Confirmed login record");
-        await click("Confirmed login");
+        await edit("Confirmed login");
         await expect.poll(() => target.querySelector("form")).not.toBeNull();
         expect((control("secret") as HTMLInputElement).type).toBe("password");
         expect(target.querySelector("#confirm-secret")).toBeNull();
@@ -288,7 +396,7 @@ describe("local secret editor with the real workflow and collection", () => {
         await saved();
         expect(records.get(newRecord.id)?.notes).toBe("Notes only");
         expect(target.textContent).toContain("Confirmed login");
-        await click("Confirmed login");
+        await edit("Confirmed login");
         await expect.poll(() => target.querySelector("form")).not.toBeNull();
         await fill("secret", "second-password");
         await fill("confirm-secret", "wrong-password");
@@ -299,7 +407,7 @@ describe("local secret editor with the real workflow and collection", () => {
         await saved();
         expect(records.get(newRecord.id)?.secret).toBe("second-password");
         expect(target.textContent).toContain("Confirmed login");
-        await click("Confirmed login");
+        await edit("Confirmed login");
         await expect.poll(() => target.querySelector("form")).not.toBeNull();
         await fill("secret", "third-password");
         expect(control("confirm-secret").value).toBe("");
@@ -316,7 +424,7 @@ describe("local secret editor with the real workflow and collection", () => {
 
     it("Cancel discards nested edits without changing the collection or persisted record", async () => {
         const { records, vault } = await setup([original]);
-        await click(original.name);
+        await edit(original.name);
         await fill("name", "Discarded login");
         await fill("username", "discarded-user");
         await fill("uri-0", "https://discarded.example.com");
@@ -331,7 +439,7 @@ describe("local secret editor with the real workflow and collection", () => {
         expect(vault.encryptAndStore).not.toHaveBeenCalled();
         expect(vault.deleteSecret).not.toHaveBeenCalled();
 
-        await click(original.name);
+        await edit(original.name);
         expect(control("username").value).toBe(original.username);
         expect(control("uri-0").value).toBe(original.uris[0]?.uri);
         expect(control("match-0").value).toBe("domain");
@@ -349,7 +457,7 @@ describe("local secret editor with the real workflow and collection", () => {
 
     it("requires delete confirmation, supports cancellation, and removes only the selected record", async () => {
         const { records, vault } = await setup([original, other]);
-        await click(original.name);
+        await edit(original.name);
         await click("Delete");
         expect(target.textContent).toContain(
             `Delete ${original.name}? This cannot be undone.`,
@@ -358,7 +466,7 @@ describe("local secret editor with the real workflow and collection", () => {
         expect(vault.deleteSecret).not.toHaveBeenCalled();
         await click("Cancel delete");
         expect(target.textContent).not.toContain("This cannot be undone.");
-        expect(target.querySelector("form")).not.toBeNull();
+        expect(target.querySelector("form")).toBeNull();
         expect(vault.deleteSecret).not.toHaveBeenCalled();
         await click("Delete");
         await click("Confirm delete");
