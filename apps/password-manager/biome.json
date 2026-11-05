@@ -23,12 +23,14 @@
         "includes": [
             "!src/lib/paraglide/**/*",
             "messages/**/*",
+            "scripts/**/*.mjs",
             "src/**/*",
             "biome.json",
             "package.json",
             "svelte.config.js",
             "tsconfig.json",
-            "vite.config.ts"
+            "vite.config.ts",
+            "vitest.config.ts"
         ]
     }
 }

@@ -41,6 +41,89 @@ leaves the source unchanged and can be retried. A duplicate stored ID in differe
 databases fails explicitly instead of selecting one silently. Unsupported old
 development schemas still need separate recovery; this transition does not
 repair them. There is no remaining name-based creation or unlock path.
+## Offline delivery
+
+Run `pnpm --filter @ofsdk/password-manager test:offline` to build and qualify the
+static application. The test needs the installed Playwright Chromium browser.
+It starts a temporary loopback static server, uses only synthetic vaults in an
+isolated temporary browser profile, and closes browsers/server in `finally`.
+It does not connect to the live comparison browser or use Playwriter.
+
+In a worktree with symlinked dependencies, pnpm can reject its task-state path.
+Run the same tools directly from `apps/password-manager`:
+
+```sh
+node node_modules/vite/bin/vite.js build
+node scripts/check-offline.mjs
+node node_modules/vitest/vitest.mjs run
+node node_modules/@sveltejs/kit/svelte-kit.js sync
+node node_modules/svelte-check/bin/svelte-check --tsconfig ./tsconfig.json
+```
+
+### Asset convention
+
+`src/service-worker.ts` uses SvelteKit's production `build`/`files` manifest.
+Every generated chunk, stylesheet, and database WASM asset is precached, even
+when a feature has not yet been opened. New features must import their assets
+through Vite or put public, non-sensitive assets in `static`. Do not fetch
+required local feature assets from a CDN or add private data to `static`.
+The worker caches only these public assets and the static root application
+shell. It never caches API responses, decrypted items, keys, drafts, or exports.
+It handles only same-origin GET requests for the allowlist; other requests are
+not cached. No runtime response cache is used.
+
+Serve the complete static `build` directory on HTTPS (loopback is sufficient for
+tests), with correct JavaScript and `application/wasm` MIME types. Do not serve
+an HTML fallback for missing JS/WASM files. Publish each deployment atomically;
+keep old hashed assets available while old tabs remain open. Use a unique
+SvelteKit deployment version for each build. Service workers are not installed
+by the development server. A first-ever offline visit is not supported.
+
+### Readiness, updates, and recovery
+
+Wait for **Offline ready** before disconnecting. The layout checks local storage
+and the active worker's complete asset set. It shows storage denial, quota,
+unsupported-browser, failed-install, missing-asset, and waiting-update guidance.
+The check does not promise future free space or prevent eviction. Browser storage
+can be evicted; private browsing can discard it on close. Local storage is not a
+backup. Keep an external encrypted backup; backup-format qualification belongs
+to the separate backup ticket.
+
+An install checks the deployment version before and after fetching assets. It
+caches one complete version or removes only its failed application cache. It does not activate early. Existing tabs keep the old complete version
+until all controlled tabs close. Lock the vault, close all app tabs, and reopen
+when an update is ready. Activation deletes only this application's old asset
+caches at its base path, never IndexedDB vaults or other applications' caches.
+A missing cached asset returns a clear 503 instead of mixing files from another
+deployment. Reconnect for a complete new deployment. If the installed version's
+cache was evicted and no new deployment exists, use browser developer tools to
+unregister only this app's service worker and delete only its
+`password-manager-app-…` Cache Storage entries, then reload online. **Do not
+clear site data or IndexedDB**: that deletes source vaults. A fully evicted shell
+cannot show an in-app warning while offline; reconnect to load it.
+
+### Qualification and extension
+
+`test:offline` checks the built root-path app in Chromium with real SQL/WASM,
+IndexedDB, and Web Crypto. It checks offline create/edit/lock/select/unlock,
+reload, tab restart, and a new browser process using the same test-only profile.
+The static server is stopped during the first offline flow and the cold browser
+start; those flows complete with zero server requests. It also checks:
+
+- WASM precaching and absence of recognizable synthetic passwords/item values
+  from the application cache;
+- failed WASM installs/updates, deployment changes during install, retained old
+  shell, waiting update, complete-version
+  activation, unrelated-cache retention, and source vault preservation;
+- evicted WASM and a first-ever uncached offline visit;
+- actionable storage-denial/quota/browser-support states through injected browser
+  API faults (not real disk exhaustion or browser policy testing).
+
+Later feature tickets should extend this script's visible workflows using only
+synthetic items. Retain the real storage, stopped-server, update, and cold-process
+checks. This is the current Login baseline, **not** final typed-item release or
+Bitwarden parity qualification. Other browser engines, private modes, mobile
+browsers, eviction policies, and non-root deployments need separate qualification.
 
 ## Schema migrations
 
