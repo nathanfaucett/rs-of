@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
+import { createIdentity, verifyIdentity } from "./check-identity.mjs";
 
 async function download(page) {
     const pending = page.waitForEvent("download");
@@ -222,11 +223,20 @@ export async function checkBackupRestore(browser, origin) {
                     .getByLabel("Folder filter", { exact: true })
                     .selectOption("all");
             }
+            if (populated) {
+                await createIdentity(page, "Synthetic recovery Identity");
+                const folder = await page.getByLabel("Folder filter", { exact: true })
+                    .locator("option").filter({ hasText: "Renamed/日本語" }).getAttribute("value");
+                await page.getByLabel("Move to folder", { exact: true }).selectOption(folder);
+                await page.getByRole("button", { name: "Move item", exact: true }).click();
+                await page.getByText("Item moved.", { exact: true }).waitFor();
+            }
             const backup = await download(page);
             assert.ok(
                 !backup.includes(password) &&
                     !backup.includes(itemPassword) &&
-                    !backup.includes("PRIVATE-RECOVERY-NOTE"),
+                    !backup.includes("PRIVATE-RECOVERY-NOTE") &&
+                    !backup.includes("PRIVATE-IDENTITY"),
                 "Encrypted download must not expose synthetic passwords",
             );
             backups.push({
@@ -324,6 +334,7 @@ export async function checkBackupRestore(browser, origin) {
                     .getByText("No items in this folder view.", { exact: true })
                     .waitFor();
                 await options.selectOption(folder);
+                await verifyIdentity(page, "Synthetic recovery Identity");
                 await page
                     .getByRole("button", {
                         name: "Synthetic recovery Login",

@@ -2,6 +2,7 @@
 import { Card } from "$lib/ui";
 import type { Secret } from "./secret";
 import ProtectedValue from "./ProtectedValue.svelte";
+import { identityFields } from "./identity-fields";
 import TotpCode from "./TotpCode.svelte";
 
 let { record, canEdit, onedit, onclose }: {
@@ -14,7 +15,7 @@ let { record, canEdit, onedit, onclose }: {
 
 <Card title="Item details" description="Read-only. Use Edit to change this item.">
     {#snippet actions()}
-        {#if record.kind === "login" || record.kind === "secureNote"}
+        {#if record.kind === "login" || record.kind === "secureNote" || record.kind === "identity"}
             <button class="btn btn-primary btn-md" type="button" disabled={!canEdit} onclick={onedit}>Edit</button>
         {/if}
         <button class="btn btn-secondary btn-md" type="button" disabled={!canEdit} onclick={onclose}>Close details</button>
@@ -33,12 +34,16 @@ let { record, canEdit, onedit, onclose }: {
                 <ProtectedValue label={`Website ${i + 1}`} value={uri.uri} protected={false} />
                 <p>Match rule: {uri.match ?? "Default (inherited)"}</p>
             {:else}<p>No websites.</p>{/each}
+        {:else if record.kind === "identity"}
+            {#each identityFields as [key, label] (key)}
+                <ProtectedValue {label} value={record[key]} />
+            {/each}
         {:else if record.kind === "secureNote"}
             <p>Secure Note: private plain text.</p>
         {:else}
             <p>Type-specific details and editing are not available yet.</p>
         {/if}
-        <ProtectedValue label="Notes" value={record.notes} protected={record.kind === "secureNote"} />
+        <ProtectedValue label="Notes" value={record.notes} protected={record.kind === "secureNote" || record.kind === "identity"} />
         <h3>Custom fields</h3>
         {#each record.fields as field, i (field)}
             <ProtectedValue label={`Custom field ${i + 1}: ${field.name}`} value={field.value} protected={field.type === "hidden"} />

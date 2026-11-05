@@ -6,6 +6,7 @@ import { extname, join, resolve } from "node:path";
 import { chromium } from "playwright";
 import { checkBackupRestore } from "./check-backup.mjs";
 import { checkSearch } from "./check-search.mjs";
+import { createIdentity, verifyIdentity } from "./check-identity.mjs";
 
 import { checkTrash } from "./check-trash.mjs";
 
@@ -198,6 +199,7 @@ try {
     await page.getByLabel("Notes", { exact: true }).fill("Discarded Note edit");
     await page.getByRole("button", { name: "Cancel", exact: true }).press("Enter");
     assert.equal(await page.getByText(/PRIVATE-NOTE/).count(), 0);
+    await createIdentity(page, "Synthetic offline Identity");
     await page.getByRole("button", { name: "Lock vault", exact: true }).click();
     assert.equal(await page.getByRole("searchbox", { name: "Search items" }).count(), 0);
     assert.equal(await page.getByRole("list", { name: "Search results" }).count(), 0);
@@ -276,6 +278,8 @@ try {
     await reopened
         .getByRole("button", { name: "Close details", exact: true })
         .click();
+    await verifyIdentity(reopened, "Synthetic offline Identity", true);
+    console.log("PASS: offline keyboard Identity create, protected detail, cancel, cold reopen and edit; all international fields preserved");
     await checkTrash(reopened, { vaultName: "offline-test", vaultId, password: "synthetic-master-19" });
     assert.equal(serverRequests, before, "Trash must make no server requests");
     await reopened
@@ -310,7 +314,7 @@ try {
         cacheContents.every(
             (entry) =>
                 !entry.body.includes(generated) &&
-                !/synthetic-master-19|synthetic-secret-19|edited-user-19/.test(
+                !/synthetic-master-19|synthetic-secret-19|edited-user-19|PRIVATE-IDENTITY/.test(
                     entry.body,
                 ),
         ),

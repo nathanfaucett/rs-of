@@ -1,6 +1,7 @@
 <script lang="ts">
 import { onDestroy, tick, untrack } from "svelte";
 import SecretDetail from "./SecretDetail.svelte";
+import IdentityFields from "./IdentityFields.svelte";
 import FolderControls from "./FolderControls.svelte";
 import PasswordGenerator from "$lib/generator/PasswordGenerator.svelte";
 import { Alert, Card, Field } from "$lib/ui";
@@ -94,6 +95,8 @@ function navigate(action: () => void) {
                 onclick={() => navigate(() => { trash = false; workflow.edit(); })}>New secret</button>
             <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
                 onclick={() => navigate(() => { trash = false; workflow.edit(null, "secureNote"); })}>New secure note</button>
+                            <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
+                                onclick={() => navigate(() => { trash = false; workflow.edit(null, "identity"); })}>New identity</button>
         {/snippet}
 
         {#if !retired && !trash}
@@ -302,6 +305,8 @@ function navigate(action: () => void) {
                         <button class="btn btn-secondary btn-md self-start" type="button"
                             onclick={() => draft?.uris.push({ uri: "", match: "domain" })}>Add website</button>
                     </fieldset>
+                {:else if draft.kind === "identity"}
+                    <IdentityFields {draft} disabled={!workflow.canEdit} />
                 {/if}
 
                 <fieldset class="flex min-w-0 flex-col gap-3" disabled={!workflow.canEdit}>
