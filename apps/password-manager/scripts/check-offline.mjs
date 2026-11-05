@@ -11,6 +11,7 @@ import { createIdentity, verifyIdentity } from "./check-identity.mjs";
 import { checkSearch } from "./check-search.mjs";
 import { createSshKey, verifySshKey } from "./check-ssh-key.mjs";
 import { checkTrash } from "./check-trash.mjs";
+import { checkLegacyUpgrade } from "./check-upgrade.mjs";
 
 // Only synthetic data in a new test browser. Never connect to a live browser.
 const root = resolve("build");
@@ -519,7 +520,13 @@ try {
         [],
         "Core flow must not produce unhandled browser errors",
     );
+    const qualificationRequests = serverRequests;
     await checkBackupRestore(browser, origin);
+    await checkLegacyUpgrade(browser, origin);
+    assert.ok(
+        serverRequests > qualificationRequests,
+        "Separate clean profiles must first load application assets online",
+    );
     await next.evaluate(async () => {
         const names = await caches.keys();
         const cache = await caches.open(

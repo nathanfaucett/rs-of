@@ -16,7 +16,7 @@
         "format:fix": "biome format --write .",
         "postinstall": "svelte-kit sync",
         "test": "vitest run",
-        "test:offline": "vite build && node scripts/check-offline.mjs"
+        "test:offline": "vite build && node scripts/check-offline.mjs && node scripts/check-json-export.mjs"
     },
     "devDependencies": {
         "@ofsdk/native-fetch": "workspace:*",

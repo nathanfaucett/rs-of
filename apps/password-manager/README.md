@@ -45,8 +45,8 @@ repair them. There is no remaining name-based creation or unlock path.
 ## Typed items
 
 Login supports optional credentials, ordered websites and match settings, notes,
-favorites, custom fields, and dated password history. Only Login has an editor.
-All five item types have validated encrypted storage and backup support. See
+favorites, custom fields, and dated password history. All five item types have
+create/view/edit/cancel/save/reopen, validated encrypted storage and backup support. See
 [typed fields, safe transition, and later-ticket interfaces](../../docs/password-manager-items.md).
 The transition retains the original database and an authenticated pre-transition
 backup. It never publishes an unverified or partial record set. Close old app tabs
@@ -151,7 +151,8 @@ Run the same tools directly from `apps/password-manager`:
 ```sh
 node node_modules/vite/bin/vite.js build
 node scripts/check-offline.mjs
-node node_modules/vitest/vitest.mjs run
+node scripts/check-json-export.mjs
+node node_modules/vitest/vitest.mjs run --maxWorkers=1 --no-file-parallelism
 node node_modules/@sveltejs/kit/svelte-kit.js sync
 node node_modules/svelte-check/bin/svelte-check --tsconfig ./tsconfig.json
 ```
@@ -203,7 +204,10 @@ cannot show an in-app warning while offline; reconnect to load it.
 IndexedDB, and Web Crypto. It checks offline create/edit/lock/select/unlock,
 reload, tab restart, and a new browser process using the same test-only profile.
 The static server is stopped during the first offline flow and the cold browser
-start; those flows complete with zero server requests. It also checks:
+start; those flows complete with zero server requests. The existing JSON browser
+entry point also checks complete offline UI export/preview/import and clean-context
+recovery. Serialize all commands with the shared lock; use the exact commands in
+[qualification and operations](../../docs/password-manager-qualification.md). It also checks:
 
 - WASM precaching and absence of recognizable synthetic passwords/item values
   from the application cache;
@@ -216,9 +220,11 @@ start; those flows complete with zero server requests. It also checks:
 
 Later feature tickets should extend this script's visible workflows using only
 synthetic items. Retain the real storage, stopped-server, update, and cold-process
-checks. This is the current Login baseline, **not** final typed-item release or
-Bitwarden parity qualification. Other browser engines, private modes, mobile
-browsers, eviction policies, and non-root deployments need separate qualification.
+checks. The complete five-type synthetic release subset, historical version-1
+recovery/upgrade fixture, independent supported JSON portability, faults and
+remaining limits are recorded in [qualification and operations](../../docs/password-manager-qualification.md).
+This is not Bitwarden parity or a security audit. Other browser engines, private
+modes, mobile browsers, eviction policies and non-root deployments remain unverified.
 
 ## Schema migrations
 
@@ -300,7 +306,8 @@ migration are separate concerns; the SQL runner does not decrypt records.
 
 Existing development limits remain:
 
-- The current encrypted export is not a self-contained backup or restore format.
+- The current encrypted backup is self-contained and has tested clean-profile
+  recovery. Historical record-only exports remain incomplete and are rejected.
 - Deletion is not secure erasure. SQL history, browser storage, and backups can
   retain prior ciphertext. No JavaScript memory-zeroization guarantee is made.
 

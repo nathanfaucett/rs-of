@@ -3,6 +3,10 @@ import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, resolve } from "node:path";
 import { chromium } from "playwright";
+import {
+    checkJsonRoundTrip,
+    checkPortableRecovery,
+} from "./check-json-roundtrip.mjs";
 
 const root = resolve("build");
 const types = {
@@ -181,7 +185,30 @@ try {
     assert.equal(await button("Download plaintext JSON").count(), 0);
     assert.equal(downloads, 1);
     assert.equal(requests, before);
+    const recovery = await checkJsonRoundTrip(page);
+    assert.equal(
+        requests,
+        before,
+        "Complete portability flow must make no server requests",
+    );
     assert.deepEqual(errors, []);
+    const origin = page.url();
+    const port = Number(new URL(origin).port);
+    await context.close();
+    await new Promise((done) => server.listen(port, "127.0.0.1", done));
+    const clean = await browser.newContext({ acceptDownloads: true });
+    const restored = await clean.newPage();
+    restored.on("pageerror", (error) => errors.push(error.message));
+    await restored.goto(origin);
+    await restored.getByText("Offline ready", { exact: true }).waitFor();
+    await clean.setOffline(true);
+    await new Promise((done) => server.close(done));
+    const recoveryRequests = requests;
+    await restored.reload();
+    await checkPortableRecovery(restored, recovery);
+    assert.equal(requests, recoveryRequests);
+    assert.deepEqual(errors, []);
+    await clean.close();
     console.log(
         "PASS: built offline five-type JSON export, Unicode/multiline/optional values, empty folder, keyboard cancel/focus, real download, lock, reload, and no network",
     );

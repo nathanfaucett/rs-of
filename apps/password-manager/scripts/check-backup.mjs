@@ -4,7 +4,7 @@ import { checkCard, checkCardReopened } from "./check-card.mjs";
 import { createIdentity, verifyIdentity } from "./check-identity.mjs";
 import { createSshKey, verifySshKey } from "./check-ssh-key.mjs";
 
-async function download(page) {
+export async function download(page) {
     const pending = page.waitForEvent("download");
     await page
         .getByRole("button", { name: "Download encrypted backup", exact: true })
@@ -16,8 +16,7 @@ async function download(page) {
     return Buffer.concat(chunks).toString("utf8");
 }
 
-async function payload(backup, password) {
-    const envelope = JSON.parse(backup);
+async function backupKey(envelope, password) {
     const material = await webcrypto.subtle.importKey(
         "raw",
         new TextEncoder().encode(password),
@@ -25,7 +24,7 @@ async function payload(backup, password) {
         false,
         ["deriveKey"],
     );
-    const key = await webcrypto.subtle.deriveKey(
+    return webcrypto.subtle.deriveKey(
         {
             name: "PBKDF2",
             hash: "SHA-512",
@@ -37,6 +36,11 @@ async function payload(backup, password) {
         false,
         ["decrypt"],
     );
+}
+
+export async function payload(backup, password) {
+    const envelope = JSON.parse(backup);
+    const key = await backupKey(envelope, password);
     const additionalData = new TextEncoder().encode(
         JSON.stringify([
             "password-manager/encrypted-backup",
@@ -58,6 +62,39 @@ async function payload(backup, password) {
         Buffer.from(envelope.ciphertext, "base64"),
     );
     return JSON.parse(new TextDecoder().decode(plaintext));
+}
+
+export async function logicalPayload(backup, password) {
+    const data = await payload(backup, password);
+    const key = await backupKey(JSON.parse(backup), password);
+    const decode = async (record, additionalData) =>
+        JSON.parse(
+            new TextDecoder().decode(
+                await webcrypto.subtle.decrypt(
+                    {
+                        name: "AES-GCM",
+                        iv: Buffer.from(record.nonce, "base64"),
+                        ...(additionalData
+                            ? { additionalData: Buffer.from(additionalData) }
+                            : {}),
+                    },
+                    key,
+                    Buffer.from(record.ciphertext, "base64"),
+                ),
+            ),
+        );
+    return {
+        items: await Promise.all(data.secrets.map((record) => decode(record))),
+        folders: await Promise.all(
+            (data.folders ?? []).map((record) => decode(record)),
+        ),
+        settings: data.lockSettings
+            ? await decode(
+                  JSON.parse(data.lockSettings),
+                  `password-manager/lock-settings/v1/${data.meta.id}`,
+              )
+            : { timeoutMinutes: 5 },
+    };
 }
 
 export async function checkBackupRestore(browser, origin) {
