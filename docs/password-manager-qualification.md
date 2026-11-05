@@ -1,12 +1,12 @@
 # Password manager offline qualification and operations
 
-Qualification date: 2026-11-05. Task: [20](../.scratch/password-manager-bitwarden-parity/issues/20-offline-release-qualification.md). Base: `769850d61`, branch `implement/password-manager-20`.
+Qualification date: 2026-11-05. Task: [20](../.scratch/password-manager-bitwarden-parity/issues/20-offline-release-qualification.md). Initial base: `769850d61`, branch `implement/password-manager-20`. Final review fix commit: `c4c422e73f22a0ddaf8397914bad76d6d6aee605`, merged into root `implement/password-manager-parity` and freshly revalidated below.
 
 This qualifies the tested local personal-vault subset. It is not full Bitwarden/Vaultwarden parity, selected reference-client acceptance, an independent security audit, or production approval. No live account, credential, or user browser session was used. The [reference evidence limits](password-manager-reference.md) remain unchanged.
 
 ## Repeat the checks
 
-Run from `apps/password-manager` in the task worktree. Use the existing installed workspace dependencies, linked `@ofsdk/sql` WASM package, headless UI package output, and Playwright Chromium. Do not run a development server. The build generates locale and SvelteKit output. No dependency versions were changed for this task. No application credentials, URL override or extra environment variable is required; all master passwords and record values are synthetic test data in the harness.
+Run from `apps/password-manager` in root integration or a matching task worktree. Use the existing installed workspace dependencies, linked `@ofsdk/sql` WASM package, headless UI package output, and Playwright Chromium. Do not run a development server. The build generates locale and SvelteKit output. No dependency versions were changed for this task. No application credentials, URL override or extra environment variable is required; all master passwords and record values are synthetic test data in the harness.
 
 Every browser, build, and check command must use this same shared lock, including commands from other worktrees. Vitest must use one worker and no file parallelism. These direct commands avoid pnpm's symlinked-worktree task-state error:
 
@@ -23,24 +23,46 @@ The scripts bind a temporary loopback port and create isolated synthetic browser
 
 ## Recorded environment and results
 
-| Item                                       | Recorded value/result                                                                                             |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| OS                                         | Linux `6.8.0-147-generic`                                                                                         |
-| Node / pnpm                                | `26.5.0` / `12.4.1`                                                                                               |
-| Svelte / Vite                              | `5.56.8` / `8.2.0`                                                                                                |
-| Vitest                                     | `4.1.10`; existing browser package `4.1.12` version warning remains                                               |
-| Playwright / browser                       | `1.64.1`; bundled Google Chrome for Testing `156.0.8078.4`, Chromium revision `1248`, headless                    |
-| Full application tests                     | **33 files, 388 tests passed**, 519.40 seconds; actual SQL/WASM, IndexedDB and Web Crypto                         |
-| Svelte sync/check                          | **0 errors, 0 warnings**                                                                                          |
-| Production build                           | **Passed**; static assets, service worker and database WASM emitted                                               |
-| Built core/offline/recovery/upgrade script | **Passed**, including new historical version-1 conversion fixture                                                 |
-| Built JSON export/import/recovery script   | **Passed**, including injected import quota rejection and deadline/clipboard cases                                |
-| Targeted Biome                             | **Passed** after formatting the six touched browser scripts                                                       |
-| Whitespace/integrity                       | `git diff --check`; parent spec, shared map, storage source, migrations and dependency lockfiles remain unchanged |
+Environment rows retain the ticket 20 record. Test/check/build/browser results below are fresh root-merger checks after the review fix commit, not only implementer evidence. The earlier ticket 20 run passed 388 tests in 519.40 seconds; the final suite now includes 410 tests.
+
+| Item                                       | Recorded value/result                                                                                                                                          |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OS                                         | Linux `6.8.0-147-generic`                                                                                                                                      |
+| Node / pnpm                                | `26.5.0` / `12.4.1`                                                                                                                                            |
+| Svelte / Vite                              | `5.56.8` / `8.2.0`                                                                                                                                             |
+| Vitest                                     | `4.1.10`; existing browser package `4.1.12` version warning remains                                                                                            |
+| Playwright / browser                       | `1.64.1`; bundled Google Chrome for Testing `156.0.8078.4`, Chromium revision `1248`, headless                                                                 |
+| Full application tests                     | **33 files, 410 tests passed**, 533.96 seconds; fresh root run after review, actual SQL/WASM, IndexedDB and Web Crypto                                         |
+| Svelte sync/check                          | **0 errors, 0 warnings**                                                                                                                                       |
+| Production build                           | **Passed**; static assets, service worker and database WASM emitted                                                                                            |
+| Built core/offline/recovery/upgrade script | **Passed**, including new historical version-1 conversion fixture                                                                                              |
+| Built JSON export/import/recovery script   | **Passed**, including injected import quota rejection and deadline/clipboard cases                                                                             |
+| Targeted Biome                             | **Passed** in ticket 20 after formatting six browser scripts; not rerun for the review-only source changes                                                     |
+| Whitespace/integrity                       | `git diff --check`; parent spec, manifests, migrations, durable schemas and dependency lockfiles unchanged by review; follow-up updates map/qualification only |
 
 The build retains existing SQL/WASM static/dynamic import and plugin-timing notices. No application assertion was removed, test timeout relaxed, dependency changed, or failure hidden.
 
-Earlier new-harness attempts failed on preview readiness, exact selector labels (favorite star and vault `ID:`), selector-versus-unlock state after automatic lock, and the historical fixture's missing nullable settings default. Harness waits/locators and the fixture were corrected. The final serialized runs above pass. These were not application defects or evidence of an actual storage outage. No product source fix was needed.
+Earlier new-harness attempts failed on preview readiness, exact selector labels (favorite star and vault `ID:`), selector-versus-unlock state after automatic lock, and the historical fixture's missing nullable settings default. Harness waits/locators and the fixture were corrected. The final serialized runs above pass. These ticket 20 harness issues were not application defects or evidence of an actual storage outage. The later final review found and fixed the four application issues below.
+
+## Final review and root revalidation
+
+All four review findings are resolved in `c4c422e73f22a0ddaf8397914bad76d6d6aee605`:
+
+1. **Import preflight race:** an editor or folder commit could occur after preview preflight but before item mutation. Import now passes `expectedSnapshot`; the existing vault item lock compares the complete authoritative snapshot before staging. A changed destination rejects and closes the preview without publication. `src/lib/import/persistence.test.ts` covers deterministic two-handle editor/folder commits in that window.
+2. **Stale item overwrite/purge:** editor saves and Trash actions now pass the expected original record through the collection to the existing item mutation boundary. The comparison runs under the same lock; guarded permanent deletion also requires current Trash state. Conflicts reload authoritative records and close stale editors instead of overwriting a newer save/restore. `src/routes/trash.test.ts`, `src/lib/vault/folders.test.ts`, and collection/editor tests cover stale save/Trash/restore/purge, changed records, and independent-item merging.
+3. **Portable timestamp precision:** import, logical duplicate checks, and export now share `normalizeTimestamp`. Calendar/timezone/time validation remains strict; UTC conversion preserves fractional digits beyond milliseconds without rounding. `src/lib/json-export/export.test.ts` checks import/export/reimport against literal UTC values, including offsets and seven-digit fractions, alongside the independent full-field fixture.
+4. **New Boolean fields could block later export:** draft construction/save now requires exact `"true"` or `"false"` for new or changed Boolean custom fields, with field-specific feedback and an explicit choice. Unchanged legacy null/empty values remain unchanged and still block plaintext export until corrected. Draft and mounted editor tests cover invalid new/type-changed fields, save/export, legacy preservation, and explicit correction.
+
+Fresh commands ran from root `apps/password-manager`, one at a time under the shared absolute `flock` above:
+
+- `node node_modules/vitest/vitest.mjs run --maxWorkers=1 --no-file-parallelism` — **33 files / 410 tests passed**, 533.96 seconds.
+- `node node_modules/@sveltejs/kit/svelte-kit.js sync` then `node node_modules/svelte-check/bin/svelte-check --tsconfig ./tsconfig.json` — **0 errors / 0 warnings**.
+- `node node_modules/vite/bin/vite.js build` — passed.
+- `node scripts/check-offline.mjs` — passed, including core tools, cold-process startup, exact clean-profile recovery, historical v1 conversion, and cache/update/storage fault cases.
+- `node scripts/check-json-export.mjs` — passed, including independent complete five-type portability, Trash exclusion, invalid/cancel/duplicate cases, quota retry, clipboard/deadline behavior, and exact complete encrypted recovery after source-profile disposal.
+- Svelte autofixer 5.56.8 on `LocalSecretEditor.svelte` and `local-workflow.svelte.ts` — no issues or suggestions.
+
+The reported review count of 410 is now independently confirmed by the fresh root run. No test timeout was raised. The parent spec, dependency files, SQL migrations, and durable item/folder schemas are unchanged; review adds mutation preconditions to application APIs, not a new storage format. No Rust, full-monorepo, or CRAP command ran. The synthetic-browser and security limits below still apply.
 
 ## Coverage and evidence boundary
 
@@ -85,4 +107,4 @@ Only this headless Chromium, root-path static deployment and synthetic fixtures 
 
 Retained encrypted source/staging databases and embedded recovery can consume substantial space and retain old/deleted values. There is no automatic cleanup or secure deletion. JavaScript memory zeroization, a compromised browser/OS, rollback prevention, clipboard removal and reliable OS-lock detection are not guaranteed. Clipboard contents may remain; no unsafe automatic read-and-clear was added.
 
-No Rust, storage-library source, SQL migration or schema changed. Per task scope, no Rust feature-powerset, full monorepo, or `just crap` run was performed. Earlier integration Rust/CRAP timeouts are not reclassified as passes. Attachments, autofill, passkeys, sharing, sync, remote accounts and other connected/follow-on features remain outside core qualification.
+No Rust, storage-library source, SQL migration or durable record schema changed. Final review changes the application's mutation preconditions, draft validation, and shared timestamp handling, as recorded above. Per task scope, no Rust feature-powerset, full monorepo, or `just crap` run was performed. Earlier integration Rust/CRAP timeouts are not reclassified as passes. Attachments, autofill, passkeys, sharing, sync, remote accounts and other connected/follow-on features remain outside core qualification.
