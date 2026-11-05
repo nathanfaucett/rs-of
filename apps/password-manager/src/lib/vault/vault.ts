@@ -4,15 +4,14 @@ import {
     Database as SqlDatabase,
 } from "@ofsdk/sql";
 import { vaultMigrations } from "./migrations";
+import { completeRegistration, findVault, reserveVault } from "./registry";
+
+export type { VaultIdentity } from "./registry";
 
 const META_TABLE = "vault_meta";
 const SECRETS_TABLE = "secrets";
 const PBKDF2_ITERATIONS = 600_000;
 const AES_KEY_LENGTH = 256;
-
-function vaultDbName(name: string): string {
-    return `password-manager-vault-${name.toLowerCase().replace(/[^a-z0-9]/g, "-")}`;
-}
 
 export interface VaultMeta {
     id: string;
@@ -211,12 +210,13 @@ export async function createVault(
     password: string,
     name: string,
 ): Promise<VaultHandle> {
+    const identity = await reserveVault(name);
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const iv = crypto.getRandomValues(new Uint8Array(12));
-    const vaultId = crypto.randomUUID();
+    const vaultId = identity.id;
     const key = await deriveKey(password, salt.buffer);
 
-    const db = await SqlDatabase.open(vaultDbName(name));
+    const db = await SqlDatabase.open(identity.databaseName);
     const client = db.client();
 
     try {
@@ -236,6 +236,7 @@ export async function createVault(
                 { type: "text", value: meta.createdAt },
             ],
         );
+        await completeRegistration(identity);
         return VaultHandle.create(key, db, client, meta);
     } catch (error) {
         client.close();
@@ -246,9 +247,10 @@ export async function createVault(
 
 export async function unlockVault(
     password: string,
-    name: string,
+    id: string,
 ): Promise<VaultHandle> {
-    const db = await SqlDatabase.open(vaultDbName(name));
+    const identity = await findVault(id);
+    const db = await SqlDatabase.open(identity.databaseName);
     const client = db.client();
 
     try {
@@ -258,7 +260,9 @@ export async function unlockVault(
         );
         const result = results[0];
         if (!result || result.rows.length === 0) {
-            throw new Error("No vault found. Create a new vault first.");
+            throw new Error(
+                "Vault creation was interrupted before metadata was saved. Create a new vault with a new identity. Do not clear browser data.",
+            );
         }
         const row = result.rows[0];
         const meta: VaultMeta = {
@@ -267,6 +271,11 @@ export async function unlockVault(
             iv: rowToText(row, 2),
             createdAt: rowToText(row, 3),
         };
+        if (meta.id !== identity.id) {
+            throw new Error(
+                "Vault identity does not match local storage. Reload the selector and check your backup; this vault was not changed.",
+            );
+        }
         const key = await deriveKey(password, fromBase64(meta.salt));
 
         // Verify the key by attempting to decrypt stored data
@@ -286,6 +295,7 @@ export async function unlockVault(
             }
         }
 
+        await completeRegistration(identity);
         return VaultHandle.create(key, db, client, meta);
     } catch (error) {
         client.close();
@@ -294,40 +304,4 @@ export async function unlockVault(
     }
 }
 
-export async function listVaults(): Promise<string[]> {
-    const databases = await indexedDB.databases?.();
-    if (!databases) return [];
-    const prefix = "password-manager-vault-";
-    return databases
-        .filter((db) => db.name?.includes(prefix))
-        .map((db) => {
-            const name = db.name!;
-            const idx = name.indexOf(prefix);
-            return name.slice(idx + prefix.length);
-        })
-        .filter((name): name is string => !!name);
-}
-
-export async function vaultExists(name: string): Promise<boolean> {
-    try {
-        const db = await SqlDatabase.open(vaultDbName(name));
-        const client = db.client();
-        try {
-            const results = await client.execute(
-                `SELECT name FROM tables WHERE name = '${META_TABLE}'`,
-            );
-            const hasTable = (results[0]?.rows.length ?? 0) > 0;
-            const metadata = hasTable
-                ? await client.execute(
-                      `SELECT vault_id FROM ${META_TABLE} WHERE id = 1`,
-                  )
-                : [];
-            return (metadata[0]?.rows.length ?? 0) === 1;
-        } finally {
-            client.close();
-            db.close();
-        }
-    } catch {
-        return false;
-    }
-}
+export { listVaultIdentities as listVaults } from "./registry";

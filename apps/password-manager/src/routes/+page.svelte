@@ -4,17 +4,17 @@ import LocalSecretEditor from "$lib/secrets/LocalSecretEditor.svelte";
 import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 import {
     createVault as createVaultHandle,
-    unlockVault as unlockVaultHandle,
     listVaults,
-    vaultExists,
+    unlockVault as unlockVaultHandle,
     type VaultHandle,
+    type VaultIdentity,
 } from "$lib/vault/vault";
 
 type VaultState =
     | { status: "loading" }
-    | { status: "select-vault"; vaults: string[] }
+    | { status: "select-vault"; vaults: VaultIdentity[] }
     | { status: "create-vault" }
-    | { status: "unlock-vault"; name: string }
+    | { status: "unlock-vault"; identity: VaultIdentity }
     | { status: "unlocked"; vault: VaultHandle }
     | { status: "error"; message: string };
 
@@ -47,11 +47,7 @@ async function createVault() {
         error = "Password must be at least 8 characters.";
         return;
     }
-    const exists = await vaultExists(vaultName.trim());
-    if (exists) {
-        error = "A vault with this name already exists.";
-        return;
-    }
+    if (busy) return;
     busy = true;
     try {
         const vault = await createVaultHandle(password, vaultName.trim());
@@ -60,7 +56,7 @@ async function createVault() {
         vaultName = "";
         vaultState = { status: "unlocked", vault };
     } catch (cause) {
-        error = cause instanceof Error ? cause.message : "Failed to create vault.";
+        error = `${cause instanceof Error ? cause.message : "Failed to create vault."} Check browser storage and free space. Return to the selector to recover an interrupted registration before retrying. Do not clear browser data.`;
     } finally {
         busy = false;
     }
@@ -68,14 +64,14 @@ async function createVault() {
 
 async function unlockVault() {
     error = "";
-    if (vaultState.status !== "unlock-vault") return;
+    if (busy || vaultState.status !== "unlock-vault") return;
     if (!password) {
         error = "Password is required.";
         return;
     }
     busy = true;
     try {
-        const vault = await unlockVaultHandle(password, vaultState.name);
+        const vault = await unlockVaultHandle(password, vaultState.identity.id);
         password = "";
         vaultState = { status: "unlocked", vault };
     } catch (cause) {
@@ -85,10 +81,10 @@ async function unlockVault() {
     }
 }
 
-function selectVault(name: string) {
+function selectVault(identity: VaultIdentity) {
     error = "";
     password = "";
-    vaultState = { status: "unlock-vault", name };
+    vaultState = { status: "unlock-vault", identity };
 }
 
 function showCreateVault() {
@@ -108,8 +104,8 @@ async function showVaultSelector() {
     try {
         const vaults = await listVaults();
         vaultState = { status: "select-vault", vaults };
-    } catch {
-        vaultState = { status: "error", message: "Failed to load vaults." };
+    } catch (cause) {
+        vaultState = { status: "error", message: cause instanceof Error ? cause.message : "Cannot load local vaults. Allow browser storage and reload. Do not clear browser data." };
     }
 }
 
@@ -137,13 +133,17 @@ async function lockVault() {
                     {#if vaultState.vaults.length > 0}
                         <div class="flex flex-col gap-2">
                             <p class="text-sm font-medium text-muted-foreground">Existing vaults</p>
-                            {#each vaultState.vaults as name}
+                            {#each vaultState.vaults as identity (identity.id)}
                                 <button
                                     class="btn btn-secondary btn-md text-left"
                                     type="button"
-                                    onclick={() => selectVault(name)}
+                                    onclick={() => selectVault(identity)}
                                 >
-                                    {name}
+                                    <span class="vault-name">{identity.name}</span>
+                                    <span class="block break-all text-xs">ID: {identity.id}</span>
+                                    {#if identity.status === "pending"}
+                                        <span class="block text-xs">Registration interrupted. Unlock to recover. If no data was saved, create a new vault.</span>
+                                    {/if}
                                 </button>
                             {/each}
                         </div>
@@ -226,8 +226,8 @@ async function lockVault() {
     {:else if vaultState.status === "unlock-vault"}
         <Page width="narrow">
             <PageHeader
-                title="Unlock vault: {vaultState.name}"
-                description="Enter your master password to access your passwords."
+                title="Unlock vault: {vaultState.identity.name}"
+                description="Vault ID: {vaultState.identity.id}. Enter your master password to access your passwords."
             />
             <Card>
                 <div class="flex flex-col gap-4">
@@ -286,7 +286,7 @@ async function lockVault() {
         <Page width="narrow">
             <Alert tone="danger" title="Error">{vaultState.message}</Alert>
             <div class="mt-4">
-                <button class="btn btn-secondary btn-md" onclick={showVaultSelector}>Try again</button>
+                <button type="button" class="btn btn-secondary btn-md" onclick={showVaultSelector}>Try again</button>
             </div>
         </Page>
     {/if}

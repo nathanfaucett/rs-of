@@ -5,10 +5,16 @@ import { playwright } from "@vitest/browser-playwright";
 
 const source = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 export default defineConfig({
+    cacheDir: ".svelte-kit/vitest-cache",
     plugins: [sveltekit()],
     server: {
         fs: {
-            allow: [source("../../"), source("../../../ofdb/packages/sql")],
+            allow: [
+                source("../../"),
+                fileURLToPath(
+                    new URL(".", import.meta.resolve("@ofsdk/sql/package.json")),
+                ),
+            ],
         },
     },
     resolve: {

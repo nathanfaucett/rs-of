@@ -19,6 +19,29 @@ pnpm --filter @ofsdk/password-manager dev
 The current dependency uses the sibling `ofdb` checkout. The browser must allow
 IndexedDB and Web Crypto. Local development must use a secure browser context.
 
+## Local vault identities
+
+Display names are labels, not storage keys. New vaults use a random stable ID and
+an independent SQL database. Case, punctuation, whitespace, and duplicate names
+cannot merge vaults. Names are trimmed; the selector shows the full ID to make
+identical names distinct. `unlockVault(password, id)` accepts that ID, not a name.
+
+The IndexedDB registry reserves each ID and database name with unique constraints
+before creation writes vault data. It marks registration complete only after the
+vault metadata is saved. Interrupted registrations stay visible. Unlock recovers
+a saved vault only when its metadata ID matches the reservation. If metadata was
+not saved, create a new vault with a new ID. Retrying creation never adopts the
+interrupted vault. Storage errors are not success; reload the selector and check
+browser permissions and free space. Do not clear browser data as a repair step.
+
+Existing v1 named databases are registered in place with their stored vault ID.
+No secret, salt, migration history, or source database is copied or deleted. The
+old normalized name is the only available display label. Failed registration
+leaves the source unchanged and can be retried. A duplicate stored ID in different
+databases fails explicitly instead of selecting one silently. Unsupported old
+development schemas still need separate recovery; this transition does not
+repair them. There is no remaining name-based creation or unlock path.
+
 ## Schema migrations
 
 `src/lib/vault/migrations.ts` is the complete ordered SQL migration list.
@@ -66,8 +89,7 @@ migration are separate concerns; the SQL runner does not decrypt records.
 
 Existing development limits remain:
 
-- Display names determine database names after normalization; distinct display
-  names can collide. Duplicate creation now fails instead of adding metadata.
+
 - An empty vault does not authenticate its master password against an independent
   verifier. Populated vaults check a stored record. This needs separate work.
 - The current encrypted export is not a self-contained backup or restore format.
@@ -85,7 +107,10 @@ pnpm --filter @ofsdk/password-manager check
 ```
 
 Vault tests use real browser SQL, migrations, IndexedDB, and Web Crypto. They cover
-fresh/prepared databases, repeated startup, old/newer schema rejection, duplicate
-creation, encrypted CRUD, and lock/unlock persistence. Collection and editor tests
+v1 migration history, repeated startup, old/newer schema rejection, colliding and
+duplicate names, concurrent creation, interrupted registration, storage failure,
+existing-vault registration, encrypted CRUD, and lock/unlock persistence. Mounted
+page tests also use real persistence and the real workflow to create, select by
+ID, lock, and reopen isolated records. Collection and editor tests
 cover the existing local workflow. These checks do not qualify production vault
 security, secure erasure, backup recovery, or large-vault performance.
