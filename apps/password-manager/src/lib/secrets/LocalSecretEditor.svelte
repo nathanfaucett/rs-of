@@ -3,12 +3,14 @@ import { onDestroy, tick, untrack } from "svelte";
 import SecretDetail from "./SecretDetail.svelte";
 import CardFields from "./CardFields.svelte";
 import IdentityFields from "./IdentityFields.svelte";
+import SshKeyFields from "./SshKeyFields.svelte";
 import FolderControls from "./FolderControls.svelte";
 import PasswordGenerator from "$lib/generator/PasswordGenerator.svelte";
 import { Alert, Card, Field } from "$lib/ui";
 import type { VaultHandle } from "$lib/vault/vault";
 import { createLocalSecretWorkflow } from "./local-workflow.svelte";
 import type { Secret } from "./secret";
+import type { SshKeyDraft } from "./secret-draft";
 import { searchItems, type ItemTypeFilter, type ItemSort } from "./search";
 
 let { vault }: { vault: VaultHandle } = $props();
@@ -100,6 +102,8 @@ function navigate(action: () => void) {
                 onclick={() => navigate(() => { trash = false; workflow.edit(null, "card"); })}>New card</button>
                             <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
                                 onclick={() => navigate(() => { trash = false; workflow.edit(null, "identity"); })}>New identity</button>
+                            <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
+                                onclick={() => navigate(() => { trash = false; workflow.edit(null, "sshKey"); })}>New SSH key</button>
         {/snippet}
 
         {#if !retired && !trash}
@@ -312,6 +316,10 @@ function navigate(action: () => void) {
                     {#key draft}<CardFields {draft} disabled={!workflow.canEdit} />{/key}
                 {:else if draft.kind === "identity"}
                     <IdentityFields {draft} disabled={!workflow.canEdit} />
+                {:else if draft.kind === "sshKey"}
+                    {#key editor}
+                        <SshKeyFields bind:draft={editor.draft as SshKeyDraft} disabled={!workflow.canEdit} />
+                    {/key}
                 {/if}
 
                 <fieldset class="flex min-w-0 flex-col gap-3" disabled={!workflow.canEdit}>

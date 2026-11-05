@@ -7,7 +7,7 @@ import {
     createLocalSecretCollection,
     UnacknowledgedStorageWriteError,
 } from "./local-collection";
-import { type Secret, CardSchema, LoginSchema, SecureNoteSchema, IdentitySchema } from "./secret";
+import { type Secret, CardSchema, LoginSchema, SecureNoteSchema, IdentitySchema, SshKeySchema } from "./secret";
 
 import {
     constructSecret,
@@ -77,7 +77,7 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
     });
     function edit(value: Secret | null = null, kind: EditableKind = "login") {
         if (!canEdit()) return;
-        if (value && (value.deletedAt || (value.kind !== "login" && value.kind !== "secureNote" && value.kind !== "card" && value.kind !== "identity"))) return;
+        if (value && (value.deletedAt || (value.kind !== "login" && value.kind !== "secureNote" && value.kind !== "card" && value.kind !== "identity" && value.kind !== "sshKey"))) return;
         const record = value
             ? value.kind === "login"
                 ? v.parse(v.object(LoginSchema.entries), value)
@@ -85,6 +85,8 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
                   ? v.parse(v.object(CardSchema.entries), value)
                   : value.kind === "identity"
                     ? v.parse(v.object(IdentitySchema.entries), value)
+                    : value.kind === "sshKey"
+                        ? v.parse(v.object(SshKeySchema.entries), value)
                     : v.parse(v.object(SecureNoteSchema.entries), value)
             : null;
         selectedId = record?.id ?? null;
@@ -308,6 +310,8 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
                       ? "Invalid Card: A name is required; check the fields."
                       : draft.kind === "identity"
                         ? "Invalid Identity: A name is required; check the fields."
+                    : draft.kind === "sshKey"
+                        ? "Invalid SSH Key: A name and nonblank private key are required; check the fields."
                         : "Invalid Secure Note: A name is required; check the fields.";
                 return;
             }

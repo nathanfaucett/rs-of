@@ -2,6 +2,8 @@ import * as v from "valibot";
 import {
     type Identity,
     IdentitySchema,
+    type SshKey,
+    SshKeySchema,
     type Card,
     CardSchema,
     type Login,
@@ -12,7 +14,7 @@ import {
 
 import { identityFields } from "./identity-fields";
 
-export type EditableSecret = Login | SecureNote | Card | Identity;
+export type EditableSecret = Login | SecureNote | Card | Identity | SshKey;
 export type EditableKind = EditableSecret["kind"];
 type CommonDraft = Pick<Login, "name" | "fields" | "favorite"> & { notes: string };
 export type LoginDraft = CommonDraft & Pick<Login, "kind" | "uris"> & {
@@ -36,12 +38,17 @@ export type CardDraft = CommonDraft & { kind: "card" } & Record<
 export type IdentityDraft = CommonDraft &
     Pick<Identity, "kind"> &
     Record<(typeof identityFields)[number][0], string>;
-export type SecretDraft = LoginDraft | SecureNoteDraft | CardDraft | IdentityDraft;
+export type SshKeyDraft = CommonDraft & Pick<SshKey, "kind" | "privateKey"> & {
+    publicKey: string;
+    keyFingerprint: string;
+};
+export type SecretDraft = LoginDraft | SecureNoteDraft | CardDraft | IdentityDraft | SshKeyDraft;
 
 export function createSecretDraft(record: Login | null): LoginDraft;
 export function createSecretDraft(record: SecureNote): SecureNoteDraft;
 export function createSecretDraft(record: Card): CardDraft;
 export function createSecretDraft(record: Identity): IdentityDraft;
+export function createSecretDraft(record: SshKey): SshKeyDraft;
 export function createSecretDraft(
     record: EditableSecret | null,
     kind?: EditableKind,
@@ -81,6 +88,16 @@ export function createSecretDraft(
                 identityFields.map(([key]) => [key, identity?.[key] ?? ""]),
             ),
         } as IdentityDraft;
+    }
+    if ((record?.kind ?? kind) === "sshKey") {
+        const key = record?.kind === "sshKey" ? record : null;
+        return {
+            ...common,
+            kind: "sshKey",
+            privateKey: key?.privateKey ?? "",
+            publicKey: key?.publicKey ?? "",
+            keyFingerprint: key?.keyFingerprint ?? "",
+        };
     }
     const login = record?.kind === "login" ? record : null;
     return {
@@ -136,6 +153,20 @@ export function constructSecret(
                     identity && draft[key] === (identity[key] ?? "")
                         ? identity[key]
                         : draft[key],
+                ]),
+            ),
+        });
+    }
+    if (draft.kind === "sshKey") {
+        const key = previous?.kind === "sshKey" ? previous : null;
+        return v.safeParse(SshKeySchema, {
+            ...common,
+            ...Object.fromEntries(
+                (["publicKey", "keyFingerprint"] as const).map((field) => [
+                    field,
+                    key && draft[field] === (key[field] ?? "")
+                        ? key[field]
+                        : draft[field],
                 ]),
             ),
         });

@@ -6,6 +6,7 @@ import { extname, join, resolve } from "node:path";
 import { chromium } from "playwright";
 import { checkBackupRestore } from "./check-backup.mjs";
 import { checkCard, checkCardReopened } from "./check-card.mjs";
+import { createSshKey, verifySshKey } from "./check-ssh-key.mjs";
 import { checkSearch } from "./check-search.mjs";
 import { createIdentity, verifyIdentity } from "./check-identity.mjs";
 
@@ -144,6 +145,7 @@ try {
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await page.getByText("Saved.", { exact: true }).waitFor();
     await checkSearch(page);
+    await createSshKey(page);
     await page
         .getByRole("button", { name: "Synthetic offline Login", exact: true })
         .click();
@@ -222,6 +224,7 @@ try {
     await reopened.getByRole("button", { name: "Unlock", exact: true }).click();
     await checkGeneratorReopened(reopened, generated);
     await checkCardReopened(reopened, "Synthetic offline Card");
+    await verifySshKey(reopened);
     await reopened
         .getByRole("button", { name: "Synthetic offline Login", exact: true })
         .click();
@@ -467,6 +470,7 @@ try {
         "edited-user-19",
     );
     assert.equal(serverRequests, coldRequests);
+    await verifySshKey(next);
     console.log(
         "PASS: new browser process starts offline and reopens the saved vault with the server stopped",
     );
