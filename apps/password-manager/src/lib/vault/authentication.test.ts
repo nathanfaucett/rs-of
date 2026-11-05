@@ -6,10 +6,12 @@ import {
     legacyVault,
 } from "./authentication-fixtures";
 import { vaultMigrations } from "./migrations";
-import { createVault, unlockVault } from "./vault";
+import { createVault, listVaults, unlockVault } from "./vault";
 
-async function storage(name: string) {
-    const db = await Database.open(`password-manager-vault-${name}`);
+async function storage(id: string) {
+    const identity = (await listVaults()).find((vault) => vault.id === id);
+    if (!identity) throw new Error("Missing persisted vault identity");
+    const db = await Database.open(identity.databaseName);
     const client = db.client();
     return {
         client,
@@ -23,14 +25,15 @@ async function storage(name: string) {
 it("rejects wrong passwords without changing populated or last-item-removed vaults", async () => {
     const name = `test-auth-${crypto.randomUUID()}`;
     const vault = await createVault(fixturePassword, name);
+    const id = vault.id;
     const record = await vault.encryptAndStore(fixturePlaintext);
     vault.close();
     for (const populated of [true, false]) {
-        const db = await storage(name);
+        const db = await storage(id);
         const before = await db.client.execute(
             "SELECT * FROM vault_meta; SELECT * FROM secrets",
         );
-        await expect(unlockVault("wrong-password", name)).rejects.toThrow(
+        await expect(unlockVault("wrong-password", id)).rejects.toThrow(
             "Wrong password",
         );
         expect(
@@ -39,7 +42,7 @@ it("rejects wrong passwords without changing populated or last-item-removed vaul
             ),
         ).toEqual(before);
         db.close();
-        const reopened = await unlockVault(fixturePassword, name);
+        const reopened = await unlockVault(fixturePassword, id);
         try {
             const records = await reopened.loadSecrets();
             if (populated) {
@@ -59,19 +62,19 @@ it("rejects wrong passwords without changing populated or last-item-removed vaul
 
 it("upgrades v1 only after password proof and preserves all source records", async () => {
     const name = `test-legacy-${crypto.randomUUID()}`;
-    await legacyVault(name, true);
-    const db = await storage(name);
+    const id = await legacyVault(name, true);
+    const db = await storage(id);
     try {
         const before = await db.client.execute(
             "SELECT vault_id, salt, iv, created_at FROM vault_meta; SELECT * FROM secrets",
         );
-        await expect(unlockVault("wrong-password", name)).rejects.toThrow(
+        await expect(unlockVault("wrong-password", id)).rejects.toThrow(
             "Wrong password",
         );
         expect(
             await db.client.execute("SELECT authentication FROM vault_meta"),
         ).toMatchObject([{ rows: [[{ type: "null" }]] }]);
-        const upgraded = await unlockVault(fixturePassword, name);
+        const upgraded = await unlockVault(fixturePassword, id);
         try {
             const [record] = await upgraded.loadSecrets();
             expect(await upgraded.decryptSecret(record)).toBe(fixturePlaintext);
@@ -84,10 +87,10 @@ it("upgrades v1 only after password proof and preserves all source records", asy
         } finally {
             upgraded.close();
         }
-        await expect(unlockVault("wrong-password", name)).rejects.toThrow(
+        await expect(unlockVault("wrong-password", id)).rejects.toThrow(
             "Wrong password",
         );
-        const reopened = await unlockVault(fixturePassword, name);
+        const reopened = await unlockVault(fixturePassword, id);
         expect(await reopened.loadSecrets()).toEqual([]);
         reopened.close();
     } finally {
@@ -97,14 +100,14 @@ it("upgrades v1 only after password proof and preserves all source records", asy
 
 it("keeps a legacy empty vault unchanged without setting any attempted password", async () => {
     const name = `test-legacy-empty-${crypto.randomUUID()}`;
-    await legacyVault(name, false);
-    const db = await storage(name);
+    const id = await legacyVault(name, false);
+    const db = await storage(id);
     try {
         const before = await db.client.execute(
             "SELECT * FROM vault_meta; SELECT * FROM secrets",
         );
         for (const password of ["wrong-password", fixturePassword]) {
-            await expect(unlockVault(password, name)).rejects.toThrow(
+            await expect(unlockVault(password, id)).rejects.toThrow(
                 "original password cannot be verified",
             );
         }
@@ -122,9 +125,10 @@ it("keeps a legacy empty vault unchanged without setting any attempted password"
 it("fails closed on malformed, unsupported, truncated, tampered, and mismatched authentication", async () => {
     const name = `test-proof-${crypto.randomUUID()}`;
     const vault = await createVault(fixturePassword, name);
+    const id = vault.id;
     await vault.encryptAndStore(fixturePlaintext);
     vault.close();
-    const db = await storage(name);
+    const db = await storage(id);
     try {
         const records = await db.client.execute("SELECT * FROM secrets");
         const original = await db.client.execute(
@@ -151,7 +155,7 @@ it("fails closed on malformed, unsupported, truncated, tampered, and mismatched 
                 "UPDATE vault_meta SET authentication = $1",
                 [{ type: "text", value: damaged }],
             );
-            await expect(unlockVault(fixturePassword, name)).rejects.toThrow(
+            await expect(unlockVault(fixturePassword, id)).rejects.toThrow(
                 "damaged vault authentication",
             );
             expect(
@@ -164,7 +168,7 @@ it("fails closed on malformed, unsupported, truncated, tampered, and mismatched 
             "UPDATE vault_meta SET authentication = $1, created_at = 'changed'",
             [cell],
         );
-        await expect(unlockVault(fixturePassword, name)).rejects.toThrow(
+        await expect(unlockVault(fixturePassword, id)).rejects.toThrow(
             "damaged vault authentication",
         );
         expect(await db.client.execute("SELECT * FROM secrets")).toEqual(
@@ -177,14 +181,14 @@ it("fails closed on malformed, unsupported, truncated, tampered, and mismatched 
 
 it("does not upgrade a legacy vault if any encrypted record is damaged", async () => {
     const name = `test-legacy-corrupt-${crypto.randomUUID()}`;
-    await legacyVault(name, true);
-    const db = await storage(name);
+    const id = await legacyVault(name, true);
+    const db = await storage(id);
     try {
         await db.client.execute(
             "INSERT INTO secrets (id, ciphertext, nonce, created_at, updated_at) VALUES ('damaged', 'AA==', 'AA==', 'old', 'old')",
         );
         const before = await db.client.execute("SELECT * FROM secrets");
-        await expect(unlockVault(fixturePassword, name)).rejects.toThrow(
+        await expect(unlockVault(fixturePassword, id)).rejects.toThrow(
             "damaged legacy records",
         );
         expect(await db.client.execute("SELECT * FROM secrets")).toEqual(
@@ -200,9 +204,12 @@ it("does not upgrade a legacy vault if any encrypted record is damaged", async (
 
 it("does not return an unlocked handle when creation cannot persist authentication", async () => {
     const name = `test-write-failure-${crypto.randomUUID()}`;
-    const db = await storage(name);
+    const id = crypto.randomUUID();
+    const database = await Database.open(`password-manager-local-${id}`);
+    const client = database.client();
     try {
-        await db.client.migrate(vaultMigrations);
+        await client.migrate(vaultMigrations);
+        const identity = vi.spyOn(crypto, "randomUUID").mockReturnValueOnce(id);
         const failure = vi
             .spyOn(IDBObjectStore.prototype, "put")
             .mockImplementation(() => {
@@ -218,26 +225,33 @@ it("does not return an unlocked handle when creation cannot persist authenticati
             expect(failure).toHaveBeenCalled();
         } finally {
             failure.mockRestore();
+            identity.mockRestore();
         }
         expect(
-            (await db.client.execute("SELECT * FROM vault_meta"))[0].rows,
+            (await client.execute("SELECT * FROM vault_meta"))[0].rows,
         ).toEqual([]);
+        await expect(unlockVault(fixturePassword, id)).rejects.toThrow(
+            "creation was interrupted",
+        );
         const retried = await createVault(fixturePassword, name);
+        const retryId = retried.id;
+        expect(retryId).not.toBe(id);
         retried.close();
-        await expect(unlockVault("wrong-password", name)).rejects.toThrow(
+        await expect(unlockVault("wrong-password", retryId)).rejects.toThrow(
             "Wrong password",
         );
-        const reopened = await unlockVault(fixturePassword, name);
+        const reopened = await unlockVault(fixturePassword, retryId);
         reopened.close();
     } finally {
-        db.close();
+        client.close();
+        database.close();
     }
 }, 15000);
 
 it("leaves legacy records usable after an authentication upgrade write fails", async () => {
     const name = `test-upgrade-failure-${crypto.randomUUID()}`;
-    await legacyVault(name, true);
-    const db = await storage(name);
+    const id = await legacyVault(name, true);
+    const db = await storage(id);
     try {
         await db.client.migrate(vaultMigrations);
         const before = await db.client.execute(
@@ -252,7 +266,7 @@ it("leaves legacy records usable after an authentication upgrade write fails", a
                 );
             });
         try {
-            await expect(unlockVault(fixturePassword, name)).rejects.toThrow(
+            await expect(unlockVault(fixturePassword, id)).rejects.toThrow(
                 "Could not confirm the vault authentication upgrade",
             );
             expect(failure).toHaveBeenCalled();
@@ -264,7 +278,7 @@ it("leaves legacy records usable after an authentication upgrade write fails", a
                 "SELECT * FROM vault_meta; SELECT * FROM secrets",
             ),
         ).toEqual(before);
-        const reopened = await unlockVault(fixturePassword, name);
+        const reopened = await unlockVault(fixturePassword, id);
         try {
             expect(
                 await reopened.decryptSecret((await reopened.loadSecrets())[0]),

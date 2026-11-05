@@ -1,5 +1,6 @@
 import { Database } from "@ofsdk/sql";
 import { vaultMigrations } from "./migrations";
+import { listVaults } from "./vault";
 
 export const fixturePassword = "synthetic-master-password";
 export const fixturePlaintext = "synthetic legacy encrypted content";
@@ -11,7 +12,8 @@ function base64(bytes: Uint8Array): string {
 export async function legacyVault(
     name: string,
     populated: boolean,
-): Promise<void> {
+): Promise<string> {
+    const id = crypto.randomUUID();
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const material = await crypto.subtle.importKey(
         "raw",
@@ -34,7 +36,7 @@ export async function legacyVault(
         await client.execute(
             "INSERT INTO vault_meta (id, vault_id, salt, iv, created_at) VALUES (1, $1, $2, $3, $4)",
             [
-                { type: "text", value: crypto.randomUUID() },
+                { type: "text", value: id },
                 { type: "text", value: base64(salt) },
                 { type: "text", value: base64(new Uint8Array(12)) },
                 { type: "text", value: "2026-01-01T00:00:00.000Z" },
@@ -60,4 +62,6 @@ export async function legacyVault(
         client.close();
         db.close();
     }
+    await listVaults();
+    return id;
 }

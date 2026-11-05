@@ -136,12 +136,17 @@ try {
     await page.getByLabel("Username", { exact: true }).fill("edited-user-19");
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await page.getByRole("button", { name: "Lock vault", exact: true }).click();
+    const vaultId = await page
+        .getByRole("button", { name: /^offline-test ID: / })
+        .locator("span")
+        .nth(1)
+        .innerText();
     await page.reload();
     await page.close();
     const reopened = await context.newPage();
     await reopened.goto(origin);
     await reopened
-        .getByRole("button", { name: "offline-test", exact: true })
+        .getByRole("button", { name: `offline-test ${vaultId}`, exact: true })
         .click();
     await reopened.getByLabel(/^Master password/).fill("synthetic-master-19");
     await reopened.getByRole("button", { name: "Unlock", exact: true }).click();
@@ -304,7 +309,7 @@ try {
     await context.setOffline(true);
     await next.reload();
     await next
-        .getByRole("button", { name: "offline-test", exact: true })
+        .getByRole("button", { name: `offline-test ${vaultId}`, exact: true })
         .click();
     await next.getByLabel(/^Master password/).fill("synthetic-master-19");
     await next.getByRole("button", { name: "Unlock", exact: true }).click();
@@ -328,7 +333,7 @@ try {
     next = context.pages()[0];
     await next.goto(origin);
     await next
-        .getByRole("button", { name: "offline-test", exact: true })
+        .getByRole("button", { name: `offline-test ${vaultId}`, exact: true })
         .click();
     await next.getByLabel(/^Master password/).fill("synthetic-master-19");
     await next.getByRole("button", { name: "Unlock", exact: true }).click();

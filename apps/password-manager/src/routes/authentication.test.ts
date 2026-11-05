@@ -22,7 +22,11 @@ async function start() {
 
 function button(name: string): HTMLButtonElement {
     const element = [...target.querySelectorAll("button")].find(
-        (button) => button.textContent?.trim() === name,
+        (button) =>
+            (
+                button.querySelector(".vault-name")?.textContent ??
+                button.textContent
+            )?.trim() === name,
     );
     if (!element) throw new Error(`Missing button: ${name}`);
     return element;

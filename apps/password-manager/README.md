@@ -41,6 +41,7 @@ leaves the source unchanged and can be retried. A duplicate stored ID in differe
 databases fails explicitly instead of selecting one silently. Unsupported old
 development schemas still need separate recovery; this transition does not
 repair them. There is no remaining name-based creation or unlock path.
+
 ## Offline delivery
 
 Run `pnpm --filter @ofsdk/password-manager test:offline` to build and qualify the
@@ -220,17 +221,14 @@ pnpm --filter @ofsdk/password-manager check
 ```
 
 Vault tests use real browser SQL, migrations, IndexedDB, and Web Crypto. They cover
-v1 migration history, repeated startup, old/newer schema rejection, colliding and
+migration history, repeated startup, old/newer schema rejection, colliding and
 duplicate names, concurrent creation, interrupted registration, storage failure,
-existing-vault registration, encrypted CRUD, and lock/unlock persistence. Mounted
-page tests also use real persistence and the real workflow to create, select by
-ID, lock, and reopen isolated records. Collection and editor tests
-fresh/prepared databases, repeated startup, old/newer schema rejection, duplicate
-creation, encrypted CRUD, and lock/unlock persistence. Authentication tests also
-cover empty and populated vaults, last-item removal, v1 upgrades, unprovable legacy
-empty vaults, damaged proofs, metadata binding, and actual IndexedDB write failures.
-Mounted page tests use the real vault, workflow, collection, and persistence to
-check visible create/lock/reopen, rejected passwords, and legacy-empty guidance.
-Collection and editor tests
-cover the existing local workflow. These checks do not qualify production vault
-security, secure erasure, backup recovery, or large-vault performance.
+existing-vault registration, encrypted CRUD, and lock/unlock persistence.
+Authentication tests cover empty and populated vaults, last-item removal, v1
+upgrades, unprovable legacy empty vaults, damaged proofs, metadata binding, and
+actual IndexedDB write failures. Mounted page tests use the real vault, workflow,
+collection, and persistence to create, select by ID, lock, and reopen isolated
+records, reject wrong passwords, and show legacy-empty guidance. Collection and
+editor tests cover the existing local workflow. These checks do not qualify
+production vault security, secure erasure, backup recovery, or large-vault
+performance.
