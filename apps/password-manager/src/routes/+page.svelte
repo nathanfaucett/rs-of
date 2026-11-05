@@ -2,6 +2,7 @@
 import { onMount } from "svelte";
 import { beforeNavigate } from "$app/navigation";
 import RestoreBackup from "$lib/vault/RestoreBackup.svelte";
+import JsonExport from "$lib/json-export/JsonExport.svelte";
 import LockSettingsControl from "$lib/vault/LockSettings.svelte";
 import { createInactivityLock, DEFAULT_LOCK_SETTINGS, type LockSettings } from "$lib/vault/lock";
 import LocalSecretEditor from "$lib/secrets/LocalSecretEditor.svelte";
@@ -31,6 +32,7 @@ let error = $state("");
 let busy = $state(false);
 let notice = $state("");
 let itemEditor = $state<ReturnType<typeof LocalSecretEditor>>();
+let jsonExport = $state<ReturnType<typeof JsonExport>>();
 let session = 0;
 let lockSettings = $state<LockSettings>({ ...DEFAULT_LOCK_SETTINGS });
 const inactivity = createInactivityLock(() => { void lockVault(); });
@@ -112,6 +114,7 @@ onMount(() => {
         password = "";
         confirmPassword = "";
         itemEditor?.retire();
+        jsonExport?.retire();
         if (vaultState.status === "unlocked") vaultState.vault.close();
     };
 });
@@ -213,6 +216,7 @@ async function lockVault() {
     error = "";
     busy = false;
     itemEditor?.retire();
+    jsonExport?.retire();
     if (vaultState.status === "unlocked") vaultState.vault.close();
     itemEditor = undefined;
     const request = session;
@@ -398,6 +402,9 @@ async function lockVault() {
             </PageHeader>
             {#if error}<Alert tone="danger">{error}</Alert>{/if}
             {#if notice}<p role="status">{notice}</p>{/if}
+            {#key vaultState.vault}
+                <JsonExport bind:this={jsonExport} vault={vaultState.vault} isActive={() => !inactivity.check() && vaultState.status === "unlocked"} />
+            {/key}
             <LockSettingsControl vault={vaultState.vault} settings={lockSettings} onsaved={settingsSaved} />
             <LocalSecretEditor bind:this={itemEditor} vault={vaultState.vault} />
         </Page>
