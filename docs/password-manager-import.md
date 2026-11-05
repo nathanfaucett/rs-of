@@ -1,6 +1,6 @@
 # Personal JSON import
 
-Ticket 17 implements the [personal-json-v1 subset](password-manager-json.md), not a general Bitwarden migration tool. All five item types use the existing typed model. The exporter is separate work; this importer does not depend on it.
+Ticket 17 implements the [personal-json-v1 subset](password-manager-json.md), not a general Bitwarden migration tool. All five item types use the existing typed model. The [plaintext exporter](password-manager-export.md) is now integrated; the importer remains independent of its serializer.
 
 ## Operation
 
@@ -40,4 +40,6 @@ Manual lock, expired-deadline checks, and destruction retire the controls and pr
 - `src/lib/import/persistence.test.ts`: real Chromium SQL/WASM, IndexedDB and Web Crypto; one batch call, unchanged neighbors/Trash/history/settings, encrypted markers/provenance, exact clean-storage backup recovery, quota/lost/publication/uncertain failures, concurrent confirmations, stale previews and retired handles.
 - `src/routes/import.test.ts`: mounted real page/workflow/collection/storage; preview/cancel/commit, protected details, folder catalog, Trash/restore, close/reopen, duplicate choice, dirty-navigation refusal, focus, unsupported paths, failure feedback, and manual/automatic lock across pending reads, encryption, submission and completed-write acknowledgement.
 
-Synthetic fixtures only. No live vault, credential export, or reference-client import is used. Production-export round-trip, selected Bitwarden/Vaultwarden acceptance, other engines, independent security review, actual disk exhaustion and secure erasure are not established by this ticket.
+- Combined integration: `src/routes/json-export.test.ts` captures a confirmed UI export and compares it with the independent static `export-expected.json` oracle before feeding its bytes into the import file control in a fresh destination vault. It checks all five kinds, folders plus an empty folder, ordered history/custom fields, all seven URI states, normalized dates, fresh/remapped IDs and provenance, no preview writes, and exactly one public atomic mutation. Trash is counted and deliberately excluded. A repeated file is rejected without explicit duplicate confirmation. Both open previews retire on lock; close/reopen verifies the committed destination.
+
+Synthetic fixtures only. No live vault, credential export, or reference-client import is used. The combined test uses the mounted real application, SQL/WASM, IndexedDB, and Web Crypto, not a built-app offline import scenario. Built-app combined import/round-trip qualification, selected Bitwarden/Vaultwarden acceptance, other engines, independent security review, actual disk exhaustion and secure erasure remain for ticket 20 or separate review.

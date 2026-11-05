@@ -16,25 +16,25 @@ Exclusions are explicit: Trash, attachments, passkeys, Sends, source account def
 
 `src/lib/json-export/export.ts` contains explicit allowlisted mappings. It validates the strict complete item/folder snapshot before preview and again before serialization. Unknown keys, item kinds, URI strategies, field variants, malformed records, duplicate IDs, or dangling folders block export. Controlled validation errors name JSON-pointer paths, never field values. Read/download/serialization failures use fixed messages, not exception text.
 
-| Local data | Output |
-| --- | --- |
-| Envelope | `encrypted: false`, `folders`, `items`; no encrypted/account envelope |
-| Current local item/folder UUID | `id`; membership uses the same current folder UUID in `folderId`, never an external source ID |
-| `kind` | Login 1, Secure Note 2, Card 3, Identity 4, SSH Key 5; exactly one matching payload |
-| `name`, `notes`, `favorite` | Same logical text/flag; absent/null optional text becomes null; empty string remains empty |
-| Personal ownership | `organizationId: null`, `collectionIds: []`, `reprompt: 0`, `archivedDate: null`, `deletedDate: null` |
-| `fields` | Same order and duplicate names; text 0, hidden 1, Boolean 2; values preserved; optional null `linkedId` sentinel omitted |
-| Boolean fields | Only exact strings `"true"` and `"false"`; old null, unset, or other text blocks export with the field path, never a truthiness conversion |
-| `history[].secret/changedAt` | `passwordHistory[].password/lastUsedDate`; all types, ordered, no truncation/deduplication |
-| `createdAt/updatedAt` | `creationDate/revisionDate` in UTC ISO form; preserve the supplied instant; invalid calendar dates and nonzero sub-millisecond precision block instead of silently changing the instant |
-| Login `username`, `secret`, `totp` | `login.username`, `login.password`, `login.totp`; no password requirement |
-| Login `uris` | Ordered `{ uri, match }`; inherited null stays null; domain 0, host 1, startsWith 2, exact 3, regex 4, never 5; no regex execution/autofill claim |
-| No local passkeys | `login.fido2Credentials: []` |
-| Secure Note `type`, common `notes` | `secureNote.type: 0`; body remains common `notes` |
-| Card | `card.cardholderName`, `brand`, `number`, `expMonth`, `expYear`, `code`, unchanged strings; no numeric/date/brand normalization |
-| Identity | `identity.title`, `firstName`, `middleName`, `lastName`, `address1`, `address2`, `address3`, `city`, `state`, `postalCode`, `country`, `company`, `email`, `phone`, `ssn`, `username`, `passportNumber`, `licenseNumber`, unchanged strings |
-| SSH Key | `sshKey.privateKey`, `publicKey`, `keyFingerprint`, unchanged opaque text; no parsing, fingerprint derivation, or key-pair validity claim |
-| Missing arrays | Empty arrays, not null; optional type-specific strings are null; Unicode, multiline text, leading zeroes, and array order remain intact |
+| Local data                         | Output                                                                                                                                                                                                                                      |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Envelope                           | `encrypted: false`, `folders`, `items`; no encrypted/account envelope                                                                                                                                                                       |
+| Current local item/folder UUID     | `id`; membership uses the same current folder UUID in `folderId`, never an external source ID                                                                                                                                               |
+| `kind`                             | Login 1, Secure Note 2, Card 3, Identity 4, SSH Key 5; exactly one matching payload                                                                                                                                                         |
+| `name`, `notes`, `favorite`        | Same logical text/flag; absent/null optional text becomes null; empty string remains empty                                                                                                                                                  |
+| Personal ownership                 | `organizationId: null`, `collectionIds: []`, `reprompt: 0`, `archivedDate: null`, `deletedDate: null`                                                                                                                                       |
+| `fields`                           | Same order and duplicate names; text 0, hidden 1, Boolean 2; values preserved; optional null `linkedId` sentinel omitted                                                                                                                    |
+| Boolean fields                     | Only exact strings `"true"` and `"false"`; old null, unset, or other text blocks export with the field path, never a truthiness conversion                                                                                                  |
+| `history[].secret/changedAt`       | `passwordHistory[].password/lastUsedDate`; all types, ordered, no truncation/deduplication                                                                                                                                                  |
+| `createdAt/updatedAt`              | `creationDate/revisionDate` in UTC ISO form; preserve the supplied instant; invalid calendar dates and nonzero sub-millisecond precision block instead of silently changing the instant                                                     |
+| Login `username`, `secret`, `totp` | `login.username`, `login.password`, `login.totp`; no password requirement                                                                                                                                                                   |
+| Login `uris`                       | Ordered `{ uri, match }`; inherited null stays null; domain 0, host 1, startsWith 2, exact 3, regex 4, never 5; no regex execution/autofill claim                                                                                           |
+| No local passkeys                  | `login.fido2Credentials: []`                                                                                                                                                                                                                |
+| Secure Note `type`, common `notes` | `secureNote.type: 0`; body remains common `notes`                                                                                                                                                                                           |
+| Card                               | `card.cardholderName`, `brand`, `number`, `expMonth`, `expYear`, `code`, unchanged strings; no numeric/date/brand normalization                                                                                                             |
+| Identity                           | `identity.title`, `firstName`, `middleName`, `lastName`, `address1`, `address2`, `address3`, `city`, `state`, `postalCode`, `country`, `company`, `email`, `phone`, `ssn`, `username`, `passportNumber`, `licenseNumber`, unchanged strings |
+| SSH Key                            | `sshKey.privateKey`, `publicKey`, `keyFingerprint`, unchanged opaque text; no parsing, fingerprint derivation, or key-pair validity claim                                                                                                   |
+| Missing arrays                     | Empty arrays, not null; optional type-specific strings are null; Unicode, multiline text, leading zeroes, and array order remain intact                                                                                                     |
 
 ## Session and plaintext lifetime
 
@@ -65,4 +65,8 @@ flock /home/nathan/code/rust/aicacia/of/.scratch/password-manager-validation.loc
 flock /home/nathan/code/rust/aicacia/of/.scratch/password-manager-validation.lock node scripts/check-offline.mjs
 ```
 
-Import/export clean-storage round trips remain a release-qualification gate once ticket 17 lands. They are not required to block ticket 18 and are not claimed here. Other engines, actual disk exhaustion, selected reference-client acceptance, and an independent security review remain unverified.
+## Combined importer integration
+
+Ticket 17 is now integrated. The additional mounted `src/routes/json-export.test.ts` flow compares the actual confirmed download with the independent static expected wire fixture, then previews and atomically imports those bytes into a fresh vault. It checks all five types, empty folders and remapped membership, history/date normalization, all seven URI states, ordered custom fields and duplicate names, fresh IDs/provenance, deliberate counted Trash exclusion, unchanged source data, no preview writes, one public mutation, and rejection of an unconfirmed repeat. Imported logical values are checked against the separately specified local fixture, not a second serialization of importer output. Lock retires both previews; reopen verifies the destination.
+
+This is real mounted-application SQL/WASM/IndexedDB/Web Crypto evidence, not a built-app offline import or selected reference-client acceptance claim. The standalone built export check and core offline/recovery suite pass on the combined build. Built-app combined import/round-trip remains a ticket 20 gate. Other engines, actual disk exhaustion, selected reference-client acceptance, and an independent security review remain unverified.
