@@ -1,6 +1,6 @@
 # Password manager typed items
 
-Implemented by ticket 05. The field authority is [personal-json-v1](password-manager-json.md); the evidence limits remain in [the reference baseline](password-manager-reference.md). Ticket 06 adds read-only detail and protected actions. Ticket 07 adds Secure Note creation and editing. Ticket 08 adds Card creation, editing, and protected details. Login, Secure Note, and Card have editors; Identity and SSH Key have validated storage, backup, and common details, not type-specific UI. These editors do not implement autofill, import, or export.
+Implemented by ticket 05. The field authority is [personal-json-v1](password-manager-json.md); the evidence limits remain in [the reference baseline](password-manager-reference.md). Ticket 06 adds read-only detail and protected actions. Ticket 07 adds Secure Note creation and editing. Ticket 08 adds Card creation, editing, and protected details. Login, Secure Note, Card, and [Identity (ticket 09)](password-manager-identity.md) have editors and type-specific details. SSH Key UI remains ticket 10. These editors do not implement autofill, import, or export.
 
 ## Model and interfaces
 

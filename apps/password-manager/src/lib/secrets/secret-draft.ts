@@ -1,5 +1,7 @@
 import * as v from "valibot";
 import {
+    type Identity,
+    IdentitySchema,
     type Card,
     CardSchema,
     type Login,
@@ -8,7 +10,9 @@ import {
     SecureNoteSchema,
 } from "./secret";
 
-export type EditableSecret = Login | SecureNote | Card;
+import { identityFields } from "./identity-fields";
+
+export type EditableSecret = Login | SecureNote | Card | Identity;
 export type EditableKind = EditableSecret["kind"];
 type CommonDraft = Pick<Login, "name" | "fields" | "favorite"> & { notes: string };
 export type LoginDraft = CommonDraft & Pick<Login, "kind" | "uris"> & {
@@ -29,11 +33,15 @@ export type CardDraft = CommonDraft & { kind: "card" } & Record<
         (typeof cardKeys)[number],
         string
     >;
-export type SecretDraft = LoginDraft | SecureNoteDraft | CardDraft;
+export type IdentityDraft = CommonDraft &
+    Pick<Identity, "kind"> &
+    Record<(typeof identityFields)[number][0], string>;
+export type SecretDraft = LoginDraft | SecureNoteDraft | CardDraft | IdentityDraft;
 
 export function createSecretDraft(record: Login | null): LoginDraft;
 export function createSecretDraft(record: SecureNote): SecureNoteDraft;
 export function createSecretDraft(record: Card): CardDraft;
+export function createSecretDraft(record: Identity): IdentityDraft;
 export function createSecretDraft(
     record: EditableSecret | null,
     kind?: EditableKind,
@@ -63,6 +71,16 @@ export function createSecretDraft(
             expYear: card?.expYear ?? "",
             code: card?.code ?? "",
         };
+    }
+    if ((record?.kind ?? kind) === "identity") {
+        const identity = record?.kind === "identity" ? record : null;
+        return {
+            ...common,
+            kind: "identity",
+            ...Object.fromEntries(
+                identityFields.map(([key]) => [key, identity?.[key] ?? ""]),
+            ),
+        } as IdentityDraft;
     }
     const login = record?.kind === "login" ? record : null;
     return {
@@ -103,6 +121,20 @@ export function constructSecret(
                     key,
                     card && draft[key] === (card[key] ?? "")
                         ? card[key]
+                        : draft[key],
+                ]),
+            ),
+        });
+    }
+    if (draft.kind === "identity") {
+        const identity = previous?.kind === "identity" ? previous : null;
+        return v.safeParse(IdentitySchema, {
+            ...common,
+            ...Object.fromEntries(
+                identityFields.map(([key]) => [
+                    key,
+                    identity && draft[key] === (identity[key] ?? "")
+                        ? identity[key]
                         : draft[key],
                 ]),
             ),

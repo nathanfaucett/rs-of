@@ -2,6 +2,7 @@
 import { onDestroy, tick, untrack } from "svelte";
 import SecretDetail from "./SecretDetail.svelte";
 import CardFields from "./CardFields.svelte";
+import IdentityFields from "./IdentityFields.svelte";
 import FolderControls from "./FolderControls.svelte";
 import PasswordGenerator from "$lib/generator/PasswordGenerator.svelte";
 import { Alert, Card, Field } from "$lib/ui";
@@ -97,6 +98,8 @@ function navigate(action: () => void) {
                 onclick={() => navigate(() => { trash = false; workflow.edit(null, "secureNote"); })}>New secure note</button>
             <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
                 onclick={() => navigate(() => { trash = false; workflow.edit(null, "card"); })}>New card</button>
+                            <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
+                                onclick={() => navigate(() => { trash = false; workflow.edit(null, "identity"); })}>New identity</button>
         {/snippet}
 
         {#if !retired && !trash}
@@ -307,6 +310,8 @@ function navigate(action: () => void) {
                     </fieldset>
                 {:else if draft.kind === "card"}
                     {#key draft}<CardFields {draft} disabled={!workflow.canEdit} />{/key}
+                {:else if draft.kind === "identity"}
+                    <IdentityFields {draft} disabled={!workflow.canEdit} />
                 {/if}
 
                 <fieldset class="flex min-w-0 flex-col gap-3" disabled={!workflow.canEdit}>
