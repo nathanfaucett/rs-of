@@ -1,6 +1,7 @@
 <script lang="ts">
 import { onDestroy, untrack } from "svelte";
 import SecretDetail from "./SecretDetail.svelte";
+import FolderControls from "./FolderControls.svelte";
 import { Alert, Card, Field } from "$lib/ui";
 import type { VaultHandle } from "$lib/vault/vault";
 import { createLocalSecretWorkflow } from "./local-workflow.svelte";
@@ -13,13 +14,16 @@ onDestroy(workflow.dispose);
 
 let pendingDelete = $state<Secret | null>(null);
 const newSecretId = $props.id();
+let folderControls = $state<ReturnType<typeof FolderControls>>();
 
-export function hasUnsavedChanges() { return workflow.dirty || workflow.busy; }
-export function retire() { pendingDelete = null; workflow.dispose(); }
+
+export function hasUnsavedChanges() { return workflow.dirty || workflow.busy || !!folderControls?.dirty(); }
+export function retire() { pendingDelete = null; folderControls?.retire(); workflow.dispose(); }
 
 function navigate(action: () => void) {
-    if (workflow.dirty && !window.confirm("Discard unsaved changes?")) return;
+    if ((workflow.dirty || folderControls?.dirty()) && !window.confirm("Discard unsaved changes?")) return;
     pendingDelete = null;
+    folderControls?.retire();
     action();
 }
 
@@ -54,6 +58,7 @@ function navigate(action: () => void) {
             {:else if workflow.notice}
                 <Alert tone="success">{workflow.notice}</Alert>
             {/if}
+            <FolderControls bind:this={folderControls} {workflow} {navigate} />
             {#if pendingDelete}
                 <div class="flex flex-col gap-2 rounded-control border border-line p-3">
                     <p>Delete {pendingDelete.name}? This cannot be undone.</p>
@@ -71,7 +76,7 @@ function navigate(action: () => void) {
                 </div>
             {/if}
             {#if workflow.records.length === 0}
-                <p class="mb-0">No secrets yet.</p>
+                <p class="mb-0">{workflow.folderFilter === "all" ? "No secrets yet." : "No items in this folder view."}</p>
             {:else}
                 <ul class="flex list-none flex-col gap-2 p-0">
                     {#each workflow.records as value (value.id)}
@@ -98,8 +103,8 @@ function navigate(action: () => void) {
     {#if workflow.detail && !workflow.editor}
         {#key workflow.detail}
             <SecretDetail record={workflow.detail} canEdit={workflow.canEdit}
-                onedit={() => workflow.edit(workflow.detail)}
-                onclose={() => { workflow.open(null); document.getElementById(newSecretId)?.focus(); }} />
+                onedit={() => navigate(() => workflow.edit(workflow.detail))}
+                onclose={() => navigate(() => { workflow.open(null); document.getElementById(newSecretId)?.focus(); })} />
         {/key}
     {/if}
 

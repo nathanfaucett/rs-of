@@ -16,6 +16,8 @@ Restore preserves the vault ID and every record ID. An existing ID, including an
 
 ## Versions 1 and 2
 
+Current typed-vault exports use [version 3 with encrypted folders](password-manager-folders.md#backup-version-3). Versions 1 and 2 retain the meanings below. Version 3 uses the same envelope with integer `3` authenticated in the additional data, `itemFormat: 2`, and a required encrypted `folders` record array. Restore validates every folder identity and item assignment, stages folders with items, and verifies both exact encrypted sets before publication.
+
 The UTF-8 JSON envelope has these exact supported fields. Unknown fields and other parameter values are rejected. Object member order and whitespace do not change authenticated semantic values.
 
 | Field            | Value                                                                    |

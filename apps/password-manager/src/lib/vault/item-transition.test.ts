@@ -99,7 +99,7 @@ it("transitions the complete legacy snapshot and restores both current and pre-t
     const backup = await vault.exportTransitionBackup();
     const current = await vault.exportBackup();
     expect(JSON.parse(backup).version).toBe(1);
-    expect(JSON.parse(current).version).toBe(2);
+    expect(JSON.parse(current).version).toBe(3);
     expect(backup + current).not.toContain(login.secret);
     vault.close();
     const reopened = await unlockVault(password, id);
@@ -263,7 +263,7 @@ it("persists all five exact field sets, optional values, inherited rules and enc
         favorite: false,
         fields: [],
         history: [],
-        folderId: crypto.randomUUID(),
+        folderId: (await vault.createFolder("Synthetic folder")).id,
         importSource: { format: "personal-json-v1", id: "external-source-id" },
     };
     const values = [

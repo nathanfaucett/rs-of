@@ -1,7 +1,8 @@
 import { Database, type DbValue } from "@ofsdk/sql";
 import * as v from "valibot";
 import { transitionLogin } from "../secrets/legacy-login";
-import { SecretSchema } from "../secrets/secret";
+import { SecretSchema, type Secret } from "../secrets/secret";
+import { FolderSchema, validateItemSnapshot, type Folder } from "./folder";
 import {
     decrypt,
     deriveKey,
@@ -42,6 +43,9 @@ const recordSchema = v.strictObject({
     updatedAt: date,
 });
 const payloadSchema = v.strictObject({
+    folders: v.optional(
+        v.pipe(v.array(recordSchema), v.maxLength(MAX_RECORDS)),
+    ),
     itemFormat: v.optional(v.literal(2)),
     transitionBackup: v.optional(v.nullable(text)),
     meta: metaSchema,
@@ -55,7 +59,7 @@ const payloadSchema = v.strictObject({
 type BackupPayload = v.InferOutput<typeof payloadSchema>;
 const envelopeSchema = v.strictObject({
     format: v.literal(FORMAT),
-    version: v.picklist([1, 2]),
+    version: v.picklist([1, 2, 3]),
     kdf: v.strictObject({
         name: v.literal("PBKDF2"),
         hash: v.literal("SHA-512"),
@@ -105,6 +109,20 @@ async function validatePayload(
         if (payload.itemFormat !== 2) throw invalid();
         await validateTransitionBackup(key, payload, payload.transitionBackup);
     }
+    if (payload.folders !== undefined && payload.itemFormat !== 2)
+        throw invalid();
+    const folders: Folder[] = [];
+    for (const record of payload.folders ?? []) {
+        bytes(record.nonce, 12);
+        bytes(record.ciphertext);
+        const folder = v.parse(
+            FolderSchema,
+            JSON.parse(await decrypt(key, record.ciphertext, record.nonce)),
+        );
+        if (folder.id !== record.id) throw invalid();
+        folders.push(folder);
+    }
+    const items: Secret[] = [];
     const ids = new Set<string>();
     for (const record of payload.secrets) {
         if (ids.has(record.id)) throw invalid();
@@ -117,7 +135,9 @@ async function validatePayload(
                 ? v.parse(SecretSchema, JSON.parse(plaintext))
                 : transitionLogin(JSON.parse(plaintext));
         if (logical.id !== record.id) throw invalid();
+        items.push(logical);
     }
+    if (payload.folders !== undefined) validateItemSnapshot({ items, folders });
     return payload;
 }
 
@@ -144,7 +164,8 @@ export async function validateTransitionBackup(
         );
         if (
             source.itemFormat !== undefined ||
-            source.transitionBackup !== undefined
+            source.transitionBackup !== undefined ||
+            source.folders !== undefined
         )
             throw invalid();
         const recovery = await validatePayload(key, source);
@@ -166,14 +187,20 @@ export async function encodeBackup(
 ): Promise<string> {
     try {
         const payload = await validatePayload(key, input);
+        const version =
+            payload.folders !== undefined
+                ? 3
+                : payload.itemFormat === 2
+                  ? 2
+                  : 1;
         const encrypted = await encrypt(
             key,
             JSON.stringify(payload),
-            aad(payload.meta.salt, payload.itemFormat === 2 ? 2 : 1),
+            aad(payload.meta.salt, version),
         );
         const backup = JSON.stringify({
             format: FORMAT,
-            version: payload.itemFormat === 2 ? 2 : 1,
+            version,
             kdf: {
                 name: "PBKDF2",
                 hash: "SHA-512",
@@ -223,7 +250,8 @@ export async function prepareBackupRestore(
         payload = await validatePayload(key, JSON.parse(plaintext));
         if (
             payload.meta.salt !== envelope.kdf.salt ||
-            (envelope.version === 2) !== (payload.itemFormat === 2)
+            envelope.version >= 2 !== (payload.itemFormat === 2) ||
+            (envelope.version === 3) !== (payload.folders !== undefined)
         )
             throw invalid();
         if (envelope.version === 1 && payload.transitionBackup !== undefined)
@@ -316,6 +344,18 @@ export async function stageVault(
                         ]),
                     );
                 }
+                for (const record of payload.folders ?? []) {
+                    await tx.execute(
+                        "INSERT INTO folders (id, ciphertext, nonce, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)",
+                        params([
+                            record.id,
+                            record.ciphertext,
+                            record.nonce,
+                            record.createdAt,
+                            record.updatedAt,
+                        ]),
+                    );
+                }
                 await tx.commit();
             } finally {
                 tx.close();
@@ -360,6 +400,23 @@ export async function stageVault(
             if (
                 JSON.stringify(meta) !== JSON.stringify(expectedMeta) ||
                 JSON.stringify(records) !== JSON.stringify(expectedRecords)
+            )
+                throw invalid();
+            const savedFolders = await reader.execute(
+                "SELECT id, ciphertext, nonce, created_at, updated_at FROM folders ORDER BY id",
+            );
+            const expectedFolders = [...(payload.folders ?? [])]
+                .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+                .map((record) => [
+                    record.id,
+                    record.ciphertext,
+                    record.nonce,
+                    record.createdAt,
+                    record.updatedAt,
+                ]);
+            if (
+                JSON.stringify(savedFolders[0].rows.map(strings)) !==
+                JSON.stringify(expectedFolders)
             )
                 throw invalid();
             const format = await reader.execute(

@@ -127,7 +127,7 @@ export async function publishItemTransition(
     const entry: VaultIdentity = {
         ...source,
         databaseName,
-        previousDatabaseName: source.databaseName,
+        previousDatabaseName: source.previousDatabaseName ?? source.databaseName,
     };
     const db = await registry();
     try {
