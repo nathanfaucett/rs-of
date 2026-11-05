@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { extname, join, resolve } from "node:path";
 import { chromium } from "playwright";
+import { checkBackupRestore } from "./check-backup.mjs";
 
 // Only synthetic data in a new test browser. Never connect to a live browser.
 const root = resolve("build");
@@ -354,6 +355,7 @@ try {
         [],
         "Core flow must not produce unhandled browser errors",
     );
+    await checkBackupRestore(browser, origin);
     await next.evaluate(async () => {
         const names = await caches.keys();
         const cache = await caches.open(

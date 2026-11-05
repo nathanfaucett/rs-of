@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onMount } from "svelte";
+import RestoreBackup from "$lib/vault/RestoreBackup.svelte";
 import LocalSecretEditor from "$lib/secrets/LocalSecretEditor.svelte";
 import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 import {
@@ -14,6 +15,7 @@ type VaultState =
     | { status: "loading" }
     | { status: "select-vault"; vaults: VaultIdentity[] }
     | { status: "create-vault" }
+    | { status: "restore-vault" }
     | { status: "unlock-vault"; identity: VaultIdentity }
     | { status: "unlocked"; vault: VaultHandle }
     | { status: "error"; message: string };
@@ -24,6 +26,36 @@ let confirmPassword = $state("");
 let vaultName = $state("");
 let error = $state("");
 let busy = $state(false);
+let notice = $state("");
+
+async function downloadBackup() {
+    if (busy || vaultState.status !== "unlocked") return;
+    busy = true;
+    error = "";
+    notice = "";
+    try {
+        const backup = await vaultState.vault.exportBackup();
+        const url = URL.createObjectURL(new Blob([backup], { type: "application/json" }));
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `vault-${vaultState.vault.id}-encrypted-backup.json`;
+        document.body.append(link);
+        try { link.click(); } finally {
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+        notice = "Download requested. Check that the file was saved. Keep it outside browser storage and test restore in a clean profile. It uses this vault's master password and contains the last committed records.";
+    } catch (cause) {
+        error = cause instanceof Error ? cause.message : "Backup download failed. Keep the source vault and retry.";
+    } finally {
+        busy = false;
+    }
+}
+
+async function restored(identity: VaultIdentity) {
+    await showVaultSelector();
+    notice = `Restore verified: ${identity.name}. ID: ${identity.id}. Unlock it and check the data before discarding the backup.`;
+}
 
 onMount(() => {
     void showVaultSelector();
@@ -82,6 +114,7 @@ async function unlockVault() {
 }
 
 function selectVault(identity: VaultIdentity) {
+    notice = "";
     error = "";
     password = "";
     vaultState = { status: "unlock-vault", identity };
@@ -96,6 +129,7 @@ function showCreateVault() {
 }
 
 async function showVaultSelector() {
+    notice = "";
     vaultState = { status: "loading" };
     error = "";
     password = "";
@@ -110,6 +144,7 @@ async function showVaultSelector() {
 }
 
 async function lockVault() {
+    if (busy) return;
     if (vaultState.status === "unlocked") {
         vaultState.vault.close();
     }
@@ -128,8 +163,10 @@ async function lockVault() {
                 title="Password Manager"
                 description="Select a vault to unlock, or create a new one."
             />
+            {#if notice}<p role="status">{notice}</p>{/if}
             <Card>
                 <div class="flex flex-col gap-4">
+                    <button class="btn btn-secondary btn-md" type="button" onclick={() => { notice = ""; vaultState = { status: "restore-vault" }; }}>Restore encrypted backup</button>
                     {#if vaultState.vaults.length > 0}
                         <div class="flex flex-col gap-2">
                             <p class="text-sm font-medium text-muted-foreground">Existing vaults</p>
@@ -158,6 +195,10 @@ async function lockVault() {
                     </button>
                 </div>
             </Card>
+        </Page>
+    {:else if vaultState.status === "restore-vault"}
+        <Page width="narrow">
+            <RestoreBackup onrestored={restored} oncancel={() => void showVaultSelector()} />
         </Page>
     {:else if vaultState.status === "create-vault"}
         <Page width="narrow">
@@ -273,13 +314,17 @@ async function lockVault() {
                 description="Your vault is stored locally and encrypted. This is a local-first app — no server required."
             >
                 {#snippet actions()}
+                    <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={downloadBackup}>{busy ? "Preparing backup…" : "Download encrypted backup"}</button>
                     <button
                         class="btn btn-secondary btn-md"
                         type="button"
+                        disabled={busy}
                         onclick={lockVault}>Lock vault</button
                     >
                 {/snippet}
             </PageHeader>
+            {#if error}<Alert tone="danger">{error}</Alert>{/if}
+            {#if notice}<p role="status">{notice}</p>{/if}
             <LocalSecretEditor vault={vaultState.vault} />
         </Page>
     {:else if vaultState.status === "error"}

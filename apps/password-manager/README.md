@@ -42,6 +42,19 @@ databases fails explicitly instead of selecting one silently. Unsupported old
 development schemas still need separate recovery; this transition does not
 repair them. There is no remaining name-based creation or unlock path.
 
+## Encrypted backup and recovery
+
+Unlock a vault and select **Download encrypted backup**. To recover, select
+**Restore encrypted backup** in a clean browser profile. Validate the file with
+its original master password, check the full vault ID and count, then confirm.
+Existing vault IDs are never overwritten. Keep the file outside browser storage
+and verify the recovered data before discarding it.
+
+See [the backup format and recovery contract](../../docs/password-manager-backup.md)
+for authenticated contents, API use, limits, atomic publication, uncertain outcomes,
+and the real-persistence/clean-profile test evidence. Old record-only exports are
+not complete backups. No raw key or plaintext item is exported.
+
 ## Offline delivery
 
 Run `pnpm --filter @ofsdk/password-manager test:offline` to build and qualify the
@@ -87,8 +100,7 @@ and the active worker's complete asset set. It shows storage denial, quota,
 unsupported-browser, failed-install, missing-asset, and waiting-update guidance.
 The check does not promise future free space or prevent eviction. Browser storage
 can be evicted; private browsing can discard it on close. Local storage is not a
-backup. Keep an external encrypted backup; backup-format qualification belongs
-to the separate backup ticket.
+backup. Keep an external encrypted backup and test clean-profile recovery.
 
 An install checks the deployment version before and after fetching assets. It
 caches one complete version or removes only its failed application cache. It does not activate early. Existing tabs keep the old complete version

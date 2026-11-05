@@ -95,6 +95,27 @@ async function add(entry: VaultIdentity): Promise<void> {
     }
 }
 
+export async function publishRestoredVault(
+    entry: VaultIdentity,
+): Promise<void> {
+    try {
+        await add(entry);
+    } catch {
+        throw new Error(
+            "Restore publication was not acknowledged. Reload the selector and check the vault ID before retrying. Existing vaults were not replaced. Keep the backup; do not clear browser data.",
+        );
+    }
+    try {
+        const saved = await findVault(entry.id);
+        if (JSON.stringify(saved) !== JSON.stringify(entry))
+            throw new Error("Registry mismatch");
+    } catch {
+        throw new Error(
+            "Restore outcome is uncertain. Reload the selector and verify the vault ID before retrying. Keep the backup; do not clear browser data.",
+        );
+    }
+}
+
 export async function reserveVault(name: string): Promise<VaultIdentity> {
     const displayName = name.trim();
     if (!displayName) throw new Error("Vault name is required.");

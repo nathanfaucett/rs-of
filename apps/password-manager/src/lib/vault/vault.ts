@@ -3,6 +3,16 @@ import {
     type Client as SqlClient,
     Database as SqlDatabase,
 } from "@ofsdk/sql";
+import {
+    createAuthentication,
+    decrypt,
+    deriveKey,
+    encrypt,
+    fromBase64,
+    toBase64,
+    verifyAuthentication,
+} from "./crypto";
+import { encodeBackup } from "./backup";
 import { vaultMigrations } from "./migrations";
 import { completeRegistration, findVault, reserveVault } from "./registry";
 
@@ -10,8 +20,6 @@ export type { VaultIdentity } from "./registry";
 
 const META_TABLE = "vault_meta";
 const SECRETS_TABLE = "secrets";
-const PBKDF2_ITERATIONS = 600_000;
-const AES_KEY_LENGTH = 256;
 
 export interface VaultMeta {
     id: string;
@@ -26,125 +34,6 @@ export interface EncryptedSecret {
     nonce: string;
     createdAt: string;
     updatedAt: string;
-}
-
-function toBase64(buffer: ArrayBuffer): string {
-    const bytes = new Uint8Array(buffer);
-    let binary = "";
-    for (let i = 0; i < bytes.byteLength; i++) {
-        binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary);
-}
-
-function fromBase64(base64: string): ArrayBuffer {
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes.buffer;
-}
-
-async function deriveKey(
-    password: string,
-    salt: ArrayBuffer,
-): Promise<CryptoKey> {
-    const encoder = new TextEncoder();
-    const keyMaterial = await crypto.subtle.importKey(
-        "raw",
-        encoder.encode(password),
-        "PBKDF2",
-        false,
-        ["deriveKey"],
-    );
-    return crypto.subtle.deriveKey(
-        {
-            name: "PBKDF2",
-            salt,
-            iterations: PBKDF2_ITERATIONS,
-            hash: "SHA-512",
-        },
-        keyMaterial,
-        { name: "AES-GCM", length: AES_KEY_LENGTH },
-        false,
-        ["encrypt", "decrypt"],
-    );
-}
-
-async function encrypt(
-    key: CryptoKey,
-    plaintext: string,
-): Promise<{ ciphertext: string; nonce: string }> {
-    const encoder = new TextEncoder();
-    const nonce = crypto.getRandomValues(new Uint8Array(12));
-    const encrypted = await crypto.subtle.encrypt(
-        { name: "AES-GCM", iv: nonce },
-        key,
-        encoder.encode(plaintext),
-    );
-    return {
-        ciphertext: toBase64(encrypted),
-        nonce: toBase64(nonce.buffer),
-    };
-}
-
-async function decrypt(
-    key: CryptoKey,
-    ciphertext: string,
-    nonce: string,
-): Promise<string> {
-    const decrypted = await crypto.subtle.decrypt(
-        { name: "AES-GCM", iv: new Uint8Array(fromBase64(nonce)) },
-        key,
-        fromBase64(ciphertext),
-    );
-    return new TextDecoder().decode(decrypted);
-}
-
-function authenticationPlaintext(meta: VaultMeta): string {
-    return JSON.stringify([
-        "password-manager/vault-authentication",
-        1,
-        meta.id,
-        meta.salt,
-        meta.iv,
-        meta.createdAt,
-    ]);
-}
-
-async function createAuthentication(
-    key: CryptoKey,
-    meta: VaultMeta,
-): Promise<string> {
-    return JSON.stringify({
-        version: 1,
-        ...(await encrypt(key, authenticationPlaintext(meta))),
-    });
-}
-
-async function verifyAuthentication(
-    key: CryptoKey,
-    meta: VaultMeta,
-    authentication: string,
-): Promise<void> {
-    try {
-        const proof = JSON.parse(authentication);
-        if (
-            proof?.version !== 1 ||
-            typeof proof.ciphertext !== "string" ||
-            typeof proof.nonce !== "string" ||
-            fromBase64(proof.nonce).byteLength !== 12 ||
-            (await decrypt(key, proof.ciphertext, proof.nonce)) !==
-                authenticationPlaintext(meta)
-        ) {
-            throw new Error("Invalid authentication proof");
-        }
-    } catch {
-        throw new Error(
-            "Wrong password or damaged vault authentication. Retry with the correct password. If this continues, keep the vault and recover from a backup.",
-        );
-    }
 }
 
 function rowToText(row: DbValue[], index: number): string {
@@ -235,13 +124,17 @@ export class VaultHandle {
         );
     }
 
-    async exportEncrypted(): Promise<string> {
-        const secrets = await this.loadSecrets();
-        return JSON.stringify({
-            version: 1,
-            vaultId: this.meta.id,
-            exportedAt: new Date().toISOString(),
-            secrets,
+    async exportBackup(): Promise<string> {
+        const result = await this.client.execute(
+            "SELECT authentication FROM vault_meta WHERE id = 1",
+        );
+        const authentication = rowToText(result[0].rows[0], 0);
+        const identity = await findVault(this.id);
+        return encodeBackup(this.key, {
+            meta: this.meta,
+            authentication,
+            name: identity.name,
+            secrets: await this.loadSecrets(),
         });
     }
 
