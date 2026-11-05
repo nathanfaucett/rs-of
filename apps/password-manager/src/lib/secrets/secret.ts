@@ -9,8 +9,7 @@ export const UriMatchType = {
     Never: "never",
 } as const;
 
-export type UriMatchType =
-    (typeof UriMatchType)[keyof typeof UriMatchType];
+export type UriMatchType = (typeof UriMatchType)[keyof typeof UriMatchType];
 
 export const UriMatchTypeSchema = v.picklist([
     UriMatchType.Domain,
@@ -55,6 +54,8 @@ export const SecretSchema = v.object({
     id: v.pipe(v.string(), v.uuid()),
     name: v.pipe(v.string(), v.minLength(1)),
     secret: v.pipe(v.string(), v.minLength(1)),
+    username: v.optional(v.string()),
+    totp: v.optional(v.string()),
     uris: v.optional(v.array(UriSchema), []),
     notes: v.optional(v.string()),
     favorite: v.optional(v.boolean(), false),

@@ -2,57 +2,26 @@ import { useLiveQuery } from "@tanstack/svelte-db";
 import { SvelteDate } from "svelte/reactivity";
 import * as v from "valibot";
 import type { VaultHandle } from "$lib/vault/vault";
-import { createLocalSecretCollection, UnacknowledgedStorageWriteError } from "./local-collection";
+import {
+    createLocalSecretCollection,
+    UnacknowledgedStorageWriteError,
+} from "./local-collection";
 import { type Secret, SecretSchema } from "./secret";
 
-export type SecretDraft = {
-    name: string;
-    secret: string;
-    uri: string;
-    notes: string;
-    favorite: boolean;
-};
-
-function constructSecret(
-    previous: Secret | null,
-    draft: SecretDraft,
-    id: string,
-    now: string,
-) {
-    const uris = previous?.uris.slice() ?? [];
-    if (draft.uri)
-        uris.splice(0, uris.length ? 1 : 0, {
-            uri: draft.uri,
-            match: uris[0]?.match ?? "domain",
-        });
-    else if (uris.length) uris.shift();
-    return v.safeParse(SecretSchema, {
-        ...previous,
-        id,
-        name: draft.name,
-        secret: draft.secret,
-        uris,
-        notes:
-            draft.notes === (previous?.notes ?? "")
-                ? previous?.notes
-                : draft.notes || undefined,
-        favorite: draft.favorite,
-        fields: previous?.fields ?? [],
-        history:
-            previous && previous.secret !== draft.secret
-                ? [
-                      ...previous.history,
-                      { secret: previous.secret, changedAt: now },
-                  ]
-                : (previous?.history ?? []),
-        createdAt: previous?.createdAt ?? now,
-        updatedAt: now,
-    });
-}
+import {
+    constructSecret,
+    createSecretDraft,
+    type SecretDraft,
+} from "./secret-draft";
 
 export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
     const collection = createLocalSecretCollection({ vault });
-    let editor = $state.raw<{ record: Secret | null } | null>(null);
+    let editor = $state<{
+        record: Secret | null;
+        draft: SecretDraft;
+        confirmPassword: string;
+        showPassword: boolean;
+    } | null>(null);
     let loadError = $state<string | null>(null);
     let error = $state<string | null>(null);
     let notice = $state("");
@@ -84,7 +53,13 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
     });
     function edit(value: Secret | null = null) {
         if (!canEdit()) return;
-        editor = { record: value ? v.parse(SecretSchema, value) : null };
+        const record = value ? v.parse(SecretSchema, value) : null;
+        editor = {
+            record,
+            draft: createSecretDraft(record),
+            confirmPassword: "",
+            showPassword: false,
+        };
         error = null;
         notice = "";
     }
@@ -146,6 +121,15 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
             error = null;
             notice = "";
             const previous = editor.record;
+            if (
+                draft.secret !== previous?.secret &&
+                (!editor.confirmPassword ||
+                    draft.secret !== editor.confirmPassword)
+            ) {
+                error =
+                    "Passwords do not match. Confirm the password before saving.";
+                return;
+            }
             const result = constructSecret(
                 previous,
                 draft,
@@ -250,7 +234,9 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
 }
 
 function message(cause: unknown): string {
-    return cause instanceof Error ? cause.message : "Local vault operation failed";
+    return cause instanceof Error
+        ? cause.message
+        : "Local vault operation failed";
 }
 
 function newSecretId(): string {

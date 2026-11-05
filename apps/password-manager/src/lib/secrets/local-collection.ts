@@ -192,8 +192,9 @@ export function createLocalSecretCollection({
                         throw error;
                     }
 
+                    let records: Secret[];
                     try {
-                        const records = await snapshot();
+                        records = await snapshot();
                         publish(records);
                     } catch {
                         const error = new Error(
@@ -202,6 +203,13 @@ export function createLocalSecretCollection({
                         fail(error);
                         throw error;
                     }
+                    const stored = records.find((record) => record.id === key);
+                    if (
+                        value
+                            ? JSON.stringify(stored) !== JSON.stringify(value)
+                            : stored !== undefined
+                    )
+                        throw new UnacknowledgedStorageWriteError();
                 };
                 queue = reload()
                     .then(async ({ receipt }) => {

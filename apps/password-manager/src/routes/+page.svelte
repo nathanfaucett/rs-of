@@ -2,32 +2,39 @@
 import { onMount } from "svelte";
 import LocalSecretEditor from "$lib/secrets/LocalSecretEditor.svelte";
 import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
-import { createVault as createVaultHandle, unlockVault as unlockVaultHandle, vaultExists, type VaultHandle } from "$lib/vault/vault";
+import {
+    createVault as createVaultHandle,
+    unlockVault as unlockVaultHandle,
+    listVaults,
+    vaultExists,
+    type VaultHandle,
+} from "$lib/vault/vault";
 
 type VaultState =
     | { status: "loading" }
-    | { status: "no-vault" }
-    | { status: "locked" }
+    | { status: "select-vault"; vaults: string[] }
+    | { status: "create-vault" }
+    | { status: "unlock-vault"; name: string }
     | { status: "unlocked"; vault: VaultHandle }
     | { status: "error"; message: string };
 
-let state = $state<VaultState>({ status: "loading" });
+let vaultState = $state<VaultState>({ status: "loading" });
 let password = $state("");
 let confirmPassword = $state("");
+let vaultName = $state("");
 let error = $state("");
 let busy = $state(false);
 
-onMount(async () => {
-    try {
-        const exists = await vaultExists();
-        state = exists ? { status: "locked" } : { status: "no-vault" };
-    } catch {
-        state = { status: "error", message: "Failed to check vault status." };
-    }
+onMount(() => {
+    void showVaultSelector();
 });
 
 async function createVault() {
     error = "";
+    if (!vaultName.trim()) {
+        error = "Vault name is required.";
+        return;
+    }
     if (!password) {
         error = "Password is required.";
         return;
@@ -40,12 +47,18 @@ async function createVault() {
         error = "Password must be at least 8 characters.";
         return;
     }
+    const exists = await vaultExists(vaultName.trim());
+    if (exists) {
+        error = "A vault with this name already exists.";
+        return;
+    }
     busy = true;
     try {
-        const vault = await createVaultHandle(password);
+        const vault = await createVaultHandle(password, vaultName.trim());
         password = "";
         confirmPassword = "";
-        state = { status: "unlocked", vault };
+        vaultName = "";
+        vaultState = { status: "unlocked", vault };
     } catch (cause) {
         error = cause instanceof Error ? cause.message : "Failed to create vault.";
     } finally {
@@ -55,15 +68,16 @@ async function createVault() {
 
 async function unlockVault() {
     error = "";
+    if (vaultState.status !== "unlock-vault") return;
     if (!password) {
         error = "Password is required.";
         return;
     }
     busy = true;
     try {
-        const vault = await unlockVaultHandle(password);
+        const vault = await unlockVaultHandle(password, vaultState.name);
         password = "";
-        state = { status: "unlocked", vault };
+        vaultState = { status: "unlocked", vault };
     } catch (cause) {
         error = cause instanceof Error ? cause.message : "Failed to unlock vault. Wrong password?";
     } finally {
@@ -71,23 +85,81 @@ async function unlockVault() {
     }
 }
 
-function lockVault() {
-    if (state.status === "unlocked") {
-        state.vault.close();
-    }
-    state = { status: "locked" };
+function selectVault(name: string) {
+    error = "";
+    password = "";
+    vaultState = { status: "unlock-vault", name };
+}
+
+function showCreateVault() {
+    error = "";
     password = "";
     confirmPassword = "";
+    vaultName = "";
+    vaultState = { status: "create-vault" };
+}
+
+async function showVaultSelector() {
+    vaultState = { status: "loading" };
     error = "";
+    password = "";
+    confirmPassword = "";
+    vaultName = "";
+    try {
+        const vaults = await listVaults();
+        vaultState = { status: "select-vault", vaults };
+    } catch {
+        vaultState = { status: "error", message: "Failed to load vaults." };
+    }
+}
+
+async function lockVault() {
+    if (vaultState.status === "unlocked") {
+        vaultState.vault.close();
+    }
+    await showVaultSelector();
 }
 </script>
 
 <div class="flex min-h-0 grow items-start justify-center overflow-auto p-6 sm:items-center">
-    {#if state.status === "loading"}
+    {#if vaultState.status === "loading"}
         <Page width="narrow">
             <p role="status">Loading…</p>
         </Page>
-    {:else if state.status === "no-vault"}
+    {:else if vaultState.status === "select-vault"}
+        <Page width="narrow">
+            <PageHeader
+                title="Password Manager"
+                description="Select a vault to unlock, or create a new one."
+            />
+            <Card>
+                <div class="flex flex-col gap-4">
+                    {#if vaultState.vaults.length > 0}
+                        <div class="flex flex-col gap-2">
+                            <p class="text-sm font-medium text-muted-foreground">Existing vaults</p>
+                            {#each vaultState.vaults as name}
+                                <button
+                                    class="btn btn-secondary btn-md text-left"
+                                    type="button"
+                                    onclick={() => selectVault(name)}
+                                >
+                                    {name}
+                                </button>
+                            {/each}
+                        </div>
+                        <hr class="my-2" />
+                    {/if}
+                    <button
+                        class="btn btn-primary btn-md"
+                        type="button"
+                        onclick={showCreateVault}
+                    >
+                        Create new vault
+                    </button>
+                </div>
+            </Card>
+        </Page>
+    {:else if vaultState.status === "create-vault"}
         <Page width="narrow">
             <PageHeader
                 title="Create your vault"
@@ -98,6 +170,17 @@ function lockVault() {
                     {#if error}
                         <Alert tone="danger">{error}</Alert>
                     {/if}
+                    <Field id="vault-name" label="Vault name" required>
+                        {#snippet children(control)}
+                            <input
+                                {...control}
+                                bind:value={vaultName}
+                                type="text"
+                                placeholder="e.g., Personal, Work, Family"
+                                disabled={busy}
+                            />
+                        {/snippet}
+                    </Field>
                     <Field id="password" label="Master password" required>
                         {#snippet children(control)}
                             <input
@@ -119,21 +202,31 @@ function lockVault() {
                             />
                         {/snippet}
                     </Field>
-                    <button
-                        class="btn btn-primary btn-md"
-                        type="button"
-                        disabled={busy}
-                        onclick={() => void createVault()}
-                    >
-                        {busy ? "Creating…" : "Create vault"}
-                    </button>
+                    <div class="flex gap-2">
+                        <button
+                            class="btn btn-secondary btn-md"
+                            type="button"
+                            disabled={busy}
+                            onclick={showVaultSelector}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            class="btn btn-primary btn-md"
+                            type="button"
+                            disabled={busy}
+                            onclick={() => void createVault()}
+                        >
+                            {busy ? "Creating…" : "Create vault"}
+                        </button>
+                    </div>
                 </div>
             </Card>
         </Page>
-    {:else if state.status === "locked"}
+    {:else if vaultState.status === "unlock-vault"}
         <Page width="narrow">
             <PageHeader
-                title="Unlock your vault"
+                title="Unlock vault: {vaultState.name}"
                 description="Enter your master password to access your passwords."
             />
             <Card>
@@ -152,18 +245,28 @@ function lockVault() {
                             />
                         {/snippet}
                     </Field>
-                    <button
-                        class="btn btn-primary btn-md"
-                        type="button"
-                        disabled={busy}
-                        onclick={() => void unlockVault()}
-                    >
-                        {busy ? "Unlocking…" : "Unlock"}
-                    </button>
+                    <div class="flex gap-2">
+                        <button
+                            class="btn btn-secondary btn-md"
+                            type="button"
+                            disabled={busy}
+                            onclick={showVaultSelector}
+                        >
+                            Back
+                        </button>
+                        <button
+                            class="btn btn-primary btn-md"
+                            type="button"
+                            disabled={busy}
+                            onclick={() => void unlockVault()}
+                        >
+                            {busy ? "Unlocking…" : "Unlock"}
+                        </button>
+                    </div>
                 </div>
             </Card>
         </Page>
-    {:else if state.status === "unlocked"}
+    {:else if vaultState.status === "unlocked"}
         <Page>
             <PageHeader
                 title="Password Manager"
@@ -177,11 +280,14 @@ function lockVault() {
                     >
                 {/snippet}
             </PageHeader>
-            <LocalSecretEditor vault={state.vault} />
+            <LocalSecretEditor vault={vaultState.vault} />
         </Page>
-    {:else if state.status === "error"}
+    {:else if vaultState.status === "error"}
         <Page width="narrow">
-            <Alert tone="danger" title="Error">{state.message}</Alert>
+            <Alert tone="danger" title="Error">{vaultState.message}</Alert>
+            <div class="mt-4">
+                <button class="btn btn-secondary btn-md" onclick={showVaultSelector}>Try again</button>
+            </div>
         </Page>
     {/if}
 </div>

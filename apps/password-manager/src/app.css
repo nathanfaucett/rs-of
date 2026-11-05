@@ -91,21 +91,19 @@
     }
 
     /* Form controls */
-    :where(
-        input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
-        select,
-        textarea
-    ) {
+    input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+    select,
+    textarea {
         @apply w-full rounded-control border border-line-strong bg-surface px-3 py-2 text-sm text-ink outline-none transition-[border-color,box-shadow] placeholder:text-ink-subtle focus:border-accent focus:ring-2 focus:ring-accent/25 disabled:cursor-not-allowed disabled:bg-surface-muted disabled:opacity-70;
     }
 
     select {
-        appearance: none;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'%3E%3Cpath d='M7 10l5 5 5-5'/%3E%3C/svg%3E");
-        background-repeat: no-repeat;
-        background-position: right 0.6rem center;
-        background-size: 1.1rem;
-        @apply pe-9;
+        appearance: auto;
+    }
+
+    select option {
+        color: var(--text);
+        background-color: var(--surface);
     }
 
     :where(input[type="checkbox"], input[type="radio"]) {

@@ -1,10 +1,13 @@
 import { Database as SqlDatabase, type Client as SqlClient, type DbValue } from "@ofsdk/sql";
 
-const VAULT_DB_NAME = "password-manager-vault";
 const META_TABLE = "vault_meta";
 const SECRETS_TABLE = "secrets";
 const PBKDF2_ITERATIONS = 600_000;
 const AES_KEY_LENGTH = 256;
+
+function vaultDbName(name: string): string {
+    return `password-manager-vault-${name.toLowerCase().replace(/[^a-z0-9]/g, "-")}`;
+}
 
 export interface VaultMeta {
     id: string;
@@ -199,13 +202,13 @@ export class VaultHandle {
     }
 }
 
-export async function createVault(password: string): Promise<VaultHandle> {
+export async function createVault(password: string, name: string): Promise<VaultHandle> {
         const salt = crypto.getRandomValues(new Uint8Array(16));
         const iv = crypto.getRandomValues(new Uint8Array(12));
         const vaultId = crypto.randomUUID();
         const key = await deriveKey(password, salt.buffer);
 
-        const db = await SqlDatabase.open(VAULT_DB_NAME);
+        const db = await SqlDatabase.open(vaultDbName(name));
         const client = db.client();
 
         try {
@@ -234,8 +237,8 @@ export async function createVault(password: string): Promise<VaultHandle> {
         }
 }
 
-export async function unlockVault(password: string): Promise<VaultHandle> {
-        const db = await SqlDatabase.open(VAULT_DB_NAME);
+export async function unlockVault(password: string, name: string): Promise<VaultHandle> {
+        const db = await SqlDatabase.open(vaultDbName(name));
         const client = db.client();
 
         try {
@@ -274,9 +277,23 @@ export async function unlockVault(password: string): Promise<VaultHandle> {
         }
 }
 
-export async function vaultExists(): Promise<boolean> {
+export async function listVaults(): Promise<string[]> {
+        const databases = await indexedDB.databases?.();
+        if (!databases) return [];
+        const prefix = "password-manager-vault-";
+        return databases
+            .filter((db) => db.name?.includes(prefix))
+            .map((db) => {
+                const name = db.name!;
+                const idx = name.indexOf(prefix);
+                return name.slice(idx + prefix.length);
+            })
+            .filter((name): name is string => !!name);
+    }
+
+    export async function vaultExists(name: string): Promise<boolean> {
         try {
-            const db = await SqlDatabase.open(VAULT_DB_NAME);
+            const db = await SqlDatabase.open(vaultDbName(name));
             const client = db.client();
             const results = await client.execute(
                 `SELECT name FROM sqlite_master WHERE type='table' AND name='${META_TABLE}'`,
@@ -288,4 +305,4 @@ export async function vaultExists(): Promise<boolean> {
         } catch {
             return false;
         }
-}
+    }

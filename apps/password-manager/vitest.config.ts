@@ -6,6 +6,11 @@ import { playwright } from "@vitest/browser-playwright";
 const source = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 export default defineConfig({
     plugins: [sveltekit()],
+    server: {
+        fs: {
+            allow: [source("../../"), source("../../../ofdb/packages/sql")],
+        },
+    },
     resolve: {
         conditions: ["browser"],
         alias: {
