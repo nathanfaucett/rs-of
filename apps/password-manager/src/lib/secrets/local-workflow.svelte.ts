@@ -2,6 +2,7 @@ import { useLiveQuery } from "@tanstack/svelte-db";
 import { SvelteDate } from "svelte/reactivity";
 import * as v from "valibot";
 import type { VaultHandle } from "$lib/vault/vault";
+import type { Folder } from "$lib/vault/folder";
 import {
     createLocalSecretCollection,
     UnacknowledgedStorageWriteError,
@@ -17,7 +18,14 @@ import {
 } from "./secret-draft";
 
 export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
-    const collection = createLocalSecretCollection({ vault });
+    let folders = $state.raw<Folder[]>([]);
+    let folderFilter = $state("all");
+    const collection = createLocalSecretCollection({
+        vault,
+        onFolders: (value) => {
+            if (active) folders = value;
+        },
+    });
     let editor = $state<{
         record: EditableSecret | null;
         draft: SecretDraft;
@@ -88,7 +96,84 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
     function canEdit() {
         return active && !busy && !loadError && query.isReady && !query.isError;
     }
+    async function folderAction(
+        action: () => Promise<unknown>,
+        success: string,
+    ) {
+        if (!canEdit()) return;
+        busy = true;
+        editor = null;
+        error = null;
+        notice = "";
+        try {
+            await action();
+            if (!active) return;
+            await collection.utils.refresh();
+            if (!active) return;
+            if (
+                folderFilter !== "all" &&
+                folderFilter !== "unfiled" &&
+                !folders.some((folder) => folder.id === folderFilter)
+            )
+                folderFilter = "unfiled";
+            notice = success;
+        } catch (cause) {
+            if (!active) return;
+            error = message(cause);
+            try {
+                await collection.utils.refresh();
+            } catch {
+                if (active)
+                    loadError =
+                        "Vault read failed. Reopen and verify before retrying.";
+            }
+        } finally {
+            if (active) busy = false;
+        }
+    }
     return {
+        get folders() {
+            return active && !loadError
+                ? [...folders].sort(
+                      (a, b) =>
+                          a.name.localeCompare(b.name) ||
+                          a.id.localeCompare(b.id),
+                  )
+                : [];
+        },
+        get folderFilter() {
+            return folderFilter;
+        },
+        setFolderFilter(value: string) {
+            if (!canEdit()) return;
+            folderFilter = value;
+            selectedId = null;
+            editor = null;
+        },
+        createFolder(name: string) {
+            return folderAction(
+                () => vault.createFolder(name),
+                "Folder created.",
+            );
+        },
+        renameFolder(id: string, name: string) {
+            return folderAction(
+                () => vault.renameFolder(id, name),
+                "Folder renamed.",
+            );
+        },
+        deleteFolder(id: string) {
+            return folderAction(
+                () => vault.deleteFolder(id),
+                "Folder deleted. Items are unfiled.",
+            );
+        },
+        moveItem(id: string, folderId: string | null) {
+            return folderAction(
+                () => vault.moveItems([id], folderId),
+                "Item moved.",
+            );
+        },
         get detail() {
             return detail;
         },
@@ -132,7 +217,13 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
         },
         get records() {
             return active && !loadError && query.isReady && !query.isError
-                ? query.data
+                ? query.data.filter(
+                      (record) =>
+                          folderFilter === "all" ||
+                          (folderFilter === "unfiled"
+                              ? record.folderId == null
+                              : record.folderId === folderFilter),
+                  )
                 : [];
         },
         get editor() {
@@ -261,6 +352,8 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
             loadError = null;
             selectedId = null;
             editor = null;
+            folders = [];
+            folderFilter = "all";
             error = null;
             notice = "";
             unsubscribe();

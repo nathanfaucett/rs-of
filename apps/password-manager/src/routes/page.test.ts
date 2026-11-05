@@ -62,6 +62,7 @@ beforeEach(async () => {
         id: crypto.randomUUID(),
         close,
         prepareItems: vi.fn(async () => {}),
+        readItems: vi.fn(async () => ({ items: [], folders: [] })),
         loadSecrets: vi.fn(async () => []),
     } as unknown as VaultHandle;
     vi.mocked(listVaults).mockResolvedValue([

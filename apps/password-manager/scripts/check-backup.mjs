@@ -107,6 +107,85 @@ export async function checkBackupRestore(browser, origin) {
                 await page.getByRole("button", { name: "Save", exact: true }).click();
                 await page.getByRole("button", { name: "Show Notes", exact: true }).waitFor();
             }
+            if (populated) {
+                await page.getByText("Saved.", { exact: true }).waitFor();
+                await page
+                    .getByRole("button", { name: "New folder", exact: true })
+                    .focus();
+                await page.keyboard.press("Enter");
+                await page
+                    .getByLabel("Folder name", { exact: true })
+                    .fill("Private/日本語");
+                await page
+                    .getByLabel("Folder name", { exact: true })
+                    .press("Enter");
+                await page
+                    .getByText("Folder created.", { exact: true })
+                    .waitFor();
+                const folderId = await page
+                    .getByLabel("Folder filter", { exact: true })
+                    .locator("option")
+                    .last()
+                    .getAttribute("value");
+                await page
+                    .getByLabel("Move to folder", { exact: true })
+                    .selectOption(folderId);
+                await page
+                    .getByRole("button", { name: "Move item", exact: true })
+                    .click();
+                await page.getByText("Item moved.", { exact: true }).waitFor();
+                await page
+                    .getByLabel("Folder filter", { exact: true })
+                    .selectOption("unfiled");
+                await page
+                    .getByText("No items in this folder view.", { exact: true })
+                    .waitFor();
+                await page
+                    .getByLabel("Folder filter", { exact: true })
+                    .selectOption(folderId);
+                await page
+                    .getByRole("button", { name: "Rename folder", exact: true })
+                    .click();
+                await page
+                    .getByLabel("Folder name", { exact: true })
+                    .fill("Renamed/日本語");
+                await page
+                    .getByRole("button", { name: "Save folder", exact: true })
+                    .click();
+                await page
+                    .getByText("Folder renamed.", { exact: true })
+                    .waitFor();
+                await page
+                    .getByRole("button", { name: "Delete folder", exact: true })
+                    .click();
+                await page
+                    .getByRole("button", { name: "Cancel folder", exact: true })
+                    .press("Enter");
+                assert.equal(
+                    await page
+                        .getByLabel("Folder filter", { exact: true })
+                        .evaluate(
+                            (element) => element === document.activeElement,
+                        ),
+                    true,
+                    "Cancel must return keyboard focus to the folder filter",
+                );
+                await page
+                    .getByRole("button", { name: "New folder", exact: true })
+                    .click();
+                await page
+                    .getByLabel("Folder name", { exact: true })
+                    .fill("Empty");
+                await page
+                    .getByRole("button", { name: "Save folder", exact: true })
+                    .click();
+                await page
+                    .getByText("Folder created.", { exact: true })
+                    .waitFor();
+                await page
+                    .getByLabel("Folder filter", { exact: true })
+                    .selectOption("all");
+            }
             const backup = await download(page);
             assert.ok(
                 !backup.includes(password) && !backup.includes(itemPassword) && !backup.includes("PRIVATE-RECOVERY-NOTE"),
@@ -188,6 +267,19 @@ export async function checkBackupRestore(browser, origin) {
                 "Clean-profile restore must retain the exact metadata, authentication proof, and encrypted record set",
             );
             if (populated) {
+                assert.equal(expected.folders.length, 2);
+                const options = page.getByLabel("Folder filter", {
+                    exact: true,
+                });
+                const folder = await options
+                    .locator("option")
+                    .filter({ hasText: "Renamed/日本語" })
+                    .getAttribute("value");
+                await options.selectOption("unfiled");
+                await page
+                    .getByText("No items in this folder view.", { exact: true })
+                    .waitFor();
+                await options.selectOption(folder);
                 await page
                     .getByRole("button", {
                         name: "Synthetic recovery Login",

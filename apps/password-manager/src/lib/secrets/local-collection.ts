@@ -5,6 +5,7 @@ import {
 } from "@tanstack/db";
 import * as v from "valibot";
 import type { VaultHandle } from "$lib/vault/vault";
+import type { Folder } from "$lib/vault/folder";
 import { type Secret, SecretSchema, SecretIdSchema } from "./secret";
 
 export class UnacknowledgedStorageWriteError extends Error {
@@ -18,8 +19,10 @@ export class UnacknowledgedStorageWriteError extends Error {
 
 export function createLocalSecretCollection({
     vault,
+    onFolders = () => {},
 }: {
     vault: VaultHandle;
+    onFolders?: (folders: Folder[]) => void;
 }): Collection<
     Secret,
     string,
@@ -38,27 +41,10 @@ export function createLocalSecretCollection({
 
     async function snapshot(): Promise<Secret[]> {
         active();
-        await vault.prepareItems();
+        const snapshot = await vault.readItems();
         active();
-        const encrypted = await vault.loadSecrets();
-        const secrets: Secret[] = [];
-        const seen = new Set<string>();
-        for (const enc of encrypted) {
-            try {
-                const plaintext = await vault.decryptSecret(enc);
-                const record = v.parse(SecretSchema, JSON.parse(plaintext));
-                if (record.id !== enc.id || seen.has(record.id))
-                    throw new Error("Identity mismatch");
-                seen.add(record.id);
-                secrets.push(record);
-            } catch {
-                throw new Error(
-                    "Malformed vault record. No partial records were loaded.",
-                );
-            }
-        }
-        active();
-        return secrets;
+        onFolders(snapshot.folders);
+        return snapshot.items;
     }
 
     function mutate(params: MutationFnParams<Secret>) {

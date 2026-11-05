@@ -59,7 +59,7 @@ it("creates a v1 migrated vault and reopens without repeating schema changes", a
     const client = db.client();
     try {
         expect(await client.migrate(vaultMigrations)).toEqual({
-            currentVersion: 3,
+            currentVersion: vaultMigrations.length,
             appliedVersions: [],
         });
     } finally {
@@ -84,7 +84,7 @@ it("rejects a newer schema before unlocking and keeps new creation isolated", as
         await client.migrate([
             ...vaultMigrations,
             {
-                version: 4,
+                version: vaultMigrations.length + 1,
                 sql: "ALTER TABLE secrets ADD COLUMN future_note TEXT",
             },
         ]);
@@ -93,7 +93,7 @@ it("rejects a newer schema before unlocking and keeps new creation isolated", as
         ).rejects.toMatchObject({
             name: "MigrationError",
             phase: "History",
-            version: 4,
+            version: vaultMigrations.length + 1,
         });
         const separate = await createVault("another-password", name);
         expect(separate.id).not.toBe(id);

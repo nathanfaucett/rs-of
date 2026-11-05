@@ -1,7 +1,7 @@
 import { flushSync, mount, tick, unmount } from "svelte";
 import { afterEach, expect, it, vi } from "vitest";
 import { prepareBackupRestore } from "$lib/vault/backup";
-import { createVault, unlockVault } from "$lib/vault/vault";
+import { createVault, unlockVault, VaultHandle } from "$lib/vault/vault";
 import type { Login } from "$lib/secrets/secret";
 import Page from "./+page.svelte";
 
@@ -231,12 +231,13 @@ it.each(["copy", "read", "write", "acknowledgement"] as const)(
             await click("Edit");
             fill("notes", "Late write");
             if (operation === "acknowledgement") {
-                const decrypt = crypto.subtle.decrypt.bind(crypto.subtle);
-                vi.spyOn(crypto.subtle, "decrypt").mockImplementationOnce(
-                    async (...args) => {
+                const store = VaultHandle.prototype.encryptAndStore;
+                vi.spyOn(VaultHandle.prototype, "encryptAndStore").mockImplementationOnce(
+                    async function (...args) {
+                        const result = await store.apply(this, args);
                         started = true;
                         await gate;
-                        return decrypt(...args);
+                        return result;
                     },
                 );
             } else {

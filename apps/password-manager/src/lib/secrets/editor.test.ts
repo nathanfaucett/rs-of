@@ -85,6 +85,11 @@ async function setup(initial: Secret[] = []) {
     const vault = {
         id: crypto.randomUUID(),
         prepareItems: vi.fn(async () => {}),
+        readItems: vi.fn(async () => {
+            const items = [];
+            for (const record of await vault.loadSecrets()) items.push(JSON.parse(await vault.decryptSecret(record)));
+            return { items, folders: [] };
+        }),
         loadSecrets: vi.fn(async () => [...records.values()].map(encrypted)),
         decryptSecret: vi.fn(
             async (record: EncryptedSecret) => record.ciphertext,
@@ -103,6 +108,7 @@ async function setup(initial: Secret[] = []) {
         VaultHandle,
         | "id"
         | "prepareItems"
+        | "readItems"
         | "loadSecrets"
         | "decryptSecret"
         | "encryptAndStore"

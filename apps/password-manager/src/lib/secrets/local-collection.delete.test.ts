@@ -38,6 +38,11 @@ async function setup(remove: boolean) {
     const vault = {
         id: "deletion-test",
         prepareItems: vi.fn(async () => {}),
+        readItems: vi.fn(async () => {
+            const items = [];
+            for (const record of await vault.loadSecrets()) items.push(JSON.parse(await vault.decryptSecret(record)));
+            return { items, folders: [] };
+        }),
         loadSecrets: vi.fn(async () =>
             [...records.values()].map(
                 (record): EncryptedSecret => ({
