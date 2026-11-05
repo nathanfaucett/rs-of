@@ -136,12 +136,38 @@ try {
         .fill("synthetic-user-19");
     await page.getByLabel(/^Password/).fill("synthetic-secret-19");
     await page.getByLabel(/^Confirm password/).fill("synthetic-secret-19");
+    await page
+        .getByLabel("Authenticator key (TOTP)", { exact: true })
+        .fill("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ");
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await page.getByText("Saved.", { exact: true }).waitFor();
     await checkSearch(page);
     await page
         .getByRole("button", { name: "Synthetic offline Login", exact: true })
         .click();
+    await page.clock.setFixedTime(new Date(59000));
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await page
+        .getByLabel("TOTP code", { exact: true })
+        .filter({ hasText: "287082" })
+        .waitFor();
+    assert.equal(
+        await page.getByRole("timer").textContent(),
+        "1 second remaining",
+    );
+    await page.clock.setFixedTime(new Date(60000));
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await page
+        .getByLabel("TOTP code", { exact: true })
+        .filter({ hasText: "359152" })
+        .waitFor();
+    assert.equal(
+        await page.getByRole("timer").textContent(),
+        "30 seconds remaining",
+    );
+    assert.ok(
+        !(await page.content()).includes("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"),
+    );
     assert.equal(await page.locator("form").count(), 0);
     assert.equal(
         await page.getByText("synthetic-secret-19", { exact: true }).count(),
@@ -183,6 +209,7 @@ try {
     await page.reload();
     await page.close();
     const reopened = await context.newPage();
+    await reopened.clock.setFixedTime(new Date(59000));
     await reopened.goto(origin);
     await reopened
         .getByRole("button", { name: `offline-test ${vaultId}`, exact: true })
@@ -199,6 +226,15 @@ try {
             .last()
             .textContent(),
         "edited-user-19",
+    );
+    await reopened
+        .getByLabel("TOTP code", { exact: true })
+        .filter({ hasText: "287082" })
+        .waitFor();
+    assert.ok(
+        !(await reopened.content()).includes(
+            "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+        ),
     );
     assert.equal(await reopened.locator("form").count(), 0);
     assert.equal(
@@ -226,7 +262,7 @@ try {
         "Offline flow must not reach the server",
     );
     console.log(
-        "PASS: built app offline reload, create, read-only detail, keyboard edit/reveal, protected dated history, lock, cold start, unlock and persisted Login; zero server requests",
+        "PASS: built app offline reload, create, read-only detail, keyboard edit/reveal, protected dated history, local TOTP boundary/countdown and reopen, lock, cold start, unlock and persisted Login; zero server requests",
     );
     await reopened.getByRole("button", { name: "Synthetic offline Note", exact: true }).press("Enter");
     assert.equal(await reopened.getByText(/PRIVATE-NOTE/).count(), 0);

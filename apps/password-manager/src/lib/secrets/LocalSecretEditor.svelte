@@ -267,7 +267,7 @@ function navigate(action: () => void) {
                             {/snippet}
                         </Field>
                     {/if}
-                    <Field id="totp" label="Authenticator key (TOTP)" description="Store a key or otpauth URI. Code generation is not available.">
+                    <Field id="totp" label="Authenticator key (TOTP)" description="Store a Base32 key or otpauth TOTP URI. View local codes in item details.">
                         {#snippet children(control)}
                             <input {...control} bind:value={draft.totp} type="password" autocomplete="off" disabled={!workflow.canEdit} />
                         {/snippet}

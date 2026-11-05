@@ -2,6 +2,7 @@
 import { Card } from "$lib/ui";
 import type { Secret } from "./secret";
 import ProtectedValue from "./ProtectedValue.svelte";
+import TotpCode from "./TotpCode.svelte";
 
 let { record, canEdit, onedit, onclose }: {
     record: Secret;
@@ -26,6 +27,7 @@ let { record, canEdit, onedit, onclose }: {
             <ProtectedValue label="Username" value={record.username} protected={false} />
             <ProtectedValue label="Password" value={record.secret} />
             <ProtectedValue label="Authenticator key (TOTP)" value={record.totp} />
+            {#if record.totp}<TotpCode value={record.totp} />{/if}
             <h3>Websites</h3>
             {#each record.uris as uri, i (uri)}
                 <ProtectedValue label={`Website ${i + 1}`} value={uri.uri} protected={false} />
