@@ -39,7 +39,7 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
     let query: ReturnType<typeof liveQuery>;
     const detail = $derived(
         active && !loadError && query.isReady && !query.isError
-            ? (query.data.find((record) => record.id === selectedId) ?? null)
+            ? (query.data.find((record) => record.id === selectedId && !record.deletedAt) ?? null)
             : null,
     );
     function liveQuery() {
@@ -67,7 +67,7 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
     });
     function edit(value: Secret | null = null) {
         if (!canEdit()) return;
-        if (value && value.kind !== "login") return;
+        if (value && (value.kind !== "login" || value.deletedAt)) return;
         const record = value
             ? v.parse(v.object(LoginSchema.entries), value)
             : null;
@@ -83,6 +83,35 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
     }
     function canEdit() {
         return active && !busy && !loadError && query.isReady && !query.isError;
+    }
+    async function changeTrash(value: Secret, action: "trash" | "restore" | "purge") {
+        if (!canEdit()) return;
+        const current = collection.get(value.id);
+        if (!current || (action === "trash" ? !!current.deletedAt : !current.deletedAt)) return;
+        error = null;
+        notice = "";
+        busy = true;
+        editor = null;
+        selectedId = null;
+        try {
+            const tx = action === "purge"
+                ? collection.delete(current.id)
+                : collection.update(current.id, (record) => {
+                      if (action === "trash") record.deletedAt = new SvelteDate().toISOString();
+                      else {
+                          delete record.deletedAt;
+                          // This item format has no folder catalog; non-null memberships are unresolved.
+                          if (record.folderId != null) record.folderId = null;
+                      }
+                  });
+            await tx.isPersisted.promise;
+            if (!active) return;
+            notice = action === "trash" ? "Moved to Trash." : action === "restore" ? "Restored." : "Permanently deleted.";
+        } catch (cause) {
+            if (active) error = message(cause);
+        } finally {
+            if (active) busy = false;
+        }
     }
     return {
         get detail() {
@@ -128,7 +157,12 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
         },
         get records() {
             return active && !loadError && query.isReady && !query.isError
-                ? query.data
+                ? query.data.filter((record) => !record.deletedAt)
+                : [];
+        },
+        get trashRecords() {
+            return active && !loadError && query.isReady && !query.isError
+                ? query.data.filter((record) => !!record.deletedAt)
                 : [];
         },
         get editor() {
@@ -223,29 +257,9 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
                 }
             }
         },
-        async delete(value: Secret) {
-            if (!canEdit()) return;
-            error = null;
-            notice = "";
-            busy = true;
-            try {
-                await collection.delete(value.id).isPersisted.promise;
-                if (!active) return;
-                if (editor?.record?.id === value.id) editor = null;
-                notice = "Deleted.";
-            } catch (cause) {
-                if (active) {
-                    error = message(cause);
-                    if (
-                        cause instanceof UnacknowledgedStorageWriteError &&
-                        editor?.record?.id === value.id
-                    )
-                        editor = null;
-                }
-            } finally {
-                if (active) busy = false;
-            }
-        },
+        delete: (value: Secret) => changeTrash(value, "trash"),
+        restore: (value: Secret) => changeTrash(value, "restore"),
+        deletePermanently: (value: Secret) => changeTrash(value, "purge"),
         dispose() {
             if (!active) return;
             active = false;

@@ -52,6 +52,16 @@ The transition retains the original database and an authenticated pre-transition
 backup. It never publishes an unverified or partial record set. Close old app tabs
 before upgrade; retained source/staging data is not automatically removed.
 
+## Trash
+
+**Delete** moves an item to encrypted local Trash. Normal item results exclude
+Trash. Select **Trash**, then **Restore** to recover it, or **Delete permanently**
+and confirm the separate dialog. Cancel or Escape changes nothing. No automatic
+purge occurs. Restore retains item data and history; unresolved folder membership
+becomes unfiled. Lock clears the decrypted view. Backups include Trash, and older
+backups can retain permanently deleted items. Deletion is not secure erasure.
+See [Trash behavior and integration limits](../../docs/password-manager-items.md#trash-and-recovery).
+
 ## Encrypted backup and recovery
 
 Unlock a vault and select **Download encrypted backup**. To recover, select

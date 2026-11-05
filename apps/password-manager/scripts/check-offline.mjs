@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { extname, join, resolve } from "node:path";
 import { chromium } from "playwright";
 import { checkBackupRestore } from "./check-backup.mjs";
+import { checkTrash } from "./check-trash.mjs";
 
 // Only synthetic data in a new test browser. Never connect to a live browser.
 const root = resolve("build");
@@ -207,6 +208,8 @@ try {
     await reopened
         .getByRole("button", { name: "Close details", exact: true })
         .click();
+    await checkTrash(reopened, { vaultName: "offline-test", vaultId, password: "synthetic-master-19" });
+    assert.equal(serverRequests, before, "Trash must make no server requests");
     await reopened
         .getByRole("button", { name: "Lock vault", exact: true })
         .click();

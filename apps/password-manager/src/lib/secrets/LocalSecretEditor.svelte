@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onDestroy, untrack } from "svelte";
+import { onDestroy, tick, untrack } from "svelte";
 import SecretDetail from "./SecretDetail.svelte";
 import { Alert, Card, Field } from "$lib/ui";
 import type { VaultHandle } from "$lib/vault/vault";
@@ -12,10 +12,23 @@ onDestroy(workflow.dispose);
 
 
 let pendingDelete = $state<Secret | null>(null);
-const newSecretId = $props.id();
+let trash = $state(false);
+let deleteTrigger: HTMLButtonElement | null = null;
+const records = $derived(trash ? workflow.trashRecords : workflow.records);
+const uid = $props.id();
+const confirmationId = `${uid}-confirmation`;
+const navigationId = `${uid}-navigation`;
+async function cancelDelete() {
+    const trigger = deleteTrigger;
+    pendingDelete = null;
+    deleteTrigger = null;
+    await tick();
+    trigger?.focus();
+}
+const newSecretId = `${uid}-new`;
 
 export function hasUnsavedChanges() { return workflow.dirty || workflow.busy; }
-export function retire() { pendingDelete = null; workflow.dispose(); }
+export function retire() { pendingDelete = null; deleteTrigger = null; trash = false; workflow.dispose(); }
 
 function navigate(action: () => void) {
     if (workflow.dirty && !window.confirm("Discard unsaved changes?")) return;
@@ -30,12 +43,18 @@ function navigate(action: () => void) {
 }} />
 
 <div class="flex flex-col gap-4">
-    <Card title="Secrets" description="Stored locally in your encrypted vault.">
+    <nav aria-label="Item views" class="flex gap-2">
+        <button id={navigationId} class="btn btn-secondary btn-md" type="button" aria-pressed={!trash} disabled={!workflow.canEdit}
+            onclick={() => navigate(() => { workflow.open(null); trash = false; })}>All items</button>
+        <button class="btn btn-secondary btn-md" type="button" aria-pressed={trash} disabled={!workflow.canEdit}
+            onclick={() => navigate(() => { workflow.open(null); trash = true; })}>Trash</button>
+    </nav>
+    <Card title={trash ? "Trash" : "Secrets"} description={trash ? "Items stay here until you restore or permanently delete them. No automatic deletion." : "Stored locally in your encrypted vault."}>
         {#snippet actions()}
             <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canRefresh}
                 onclick={() => navigate(() => void workflow.refresh())}>Refresh</button>
             <button id={newSecretId} class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
-                onclick={() => navigate(() => workflow.edit())}>New secret</button>
+                onclick={() => navigate(() => { trash = false; workflow.edit(); })}>New secret</button>
         {/snippet}
 
         {#if workflow.refreshing}
@@ -55,28 +74,38 @@ function navigate(action: () => void) {
                 <Alert tone="success">{workflow.notice}</Alert>
             {/if}
             {#if pendingDelete}
-                <div class="flex flex-col gap-2 rounded-control border border-line p-3">
-                    <p>Delete {pendingDelete.name}? This cannot be undone.</p>
+                <dialog role="alertdialog" aria-labelledby={confirmationId} oncancel={(event) => { event.preventDefault(); cancelDelete(); }}
+                    {@attach (element) => { element.showModal(); element.querySelector<HTMLButtonElement>('[data-cancel]')?.focus(); }}
+                    class="rounded-control border border-line bg-surface p-4 text-ink">
+                    <p id={confirmationId}>{pendingDelete.deletedAt ? `Permanently delete ${pendingDelete.name}? This cannot be undone. Existing backups can still contain this item.` : `Move ${pendingDelete.name} to Trash? You can restore it later.`}</p>
                     <div class="flex gap-2">
                         <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
-                            {@attach (element) => { element.focus(); }}
-                            onclick={() => {
+                            onclick={async () => {
                                 const value = pendingDelete;
                                 pendingDelete = null;
-                                if (value) void workflow.delete(value);
-                            }}>Confirm delete</button>
-                        <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canEdit}
-                            onclick={() => pendingDelete = null}>Cancel delete</button>
+                                deleteTrigger = null;
+                                if (value) {
+                                    if (value.deletedAt) await workflow.deletePermanently(value);
+                                    else await workflow.delete(value);
+                                }
+                                document.getElementById(navigationId)?.focus();
+                            }}>{pendingDelete.deletedAt ? "Confirm permanent delete" : "Confirm delete"}</button>
+                        <button data-cancel class="btn btn-secondary btn-md" type="button" disabled={!workflow.canEdit}
+                            onclick={cancelDelete}>Cancel delete</button>
                     </div>
-                </div>
+                </dialog>
             {/if}
-            {#if workflow.records.length === 0}
-                <p class="mb-0">No secrets yet.</p>
+            {#if records.length === 0}
+                <p class="mb-0">{trash ? "Trash is empty." : "No secrets yet."}</p>
             {:else}
                 <ul class="flex list-none flex-col gap-2 p-0">
-                    {#each workflow.records as value (value.id)}
+                    {#each records as value (value.id)}
                         <li class="flex items-center justify-between gap-3 rounded-control border border-line bg-surface-muted/40 px-3 py-2">
                             <div class="flex min-w-0 flex-col">
+                                {#if trash}
+                                    <span class="font-medium">{value.name}</span>
+                                    <span class="text-sm text-ink-subtle">Deleted: <time datetime={value.deletedAt}>{value.deletedAt}</time></span>
+                                {:else}
                                 <button class="btn btn-ghost btn-md w-full justify-start truncate px-0 text-left font-medium"
                                     type="button" disabled={!workflow.canEdit} onclick={() => navigate(() => workflow.open(value.id))}>
                                     {value.favorite ? "★ " : ""}{value.name}
@@ -85,9 +114,14 @@ function navigate(action: () => void) {
                                 {#each value.kind === "login" ? value.uris : [] as uri (uri)}
                                     <p class="truncate text-xs text-ink-subtle">{uri.uri}</p>
                                 {/each}
+                                {/if}
                             </div>
+                            {#if trash}
+                                <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canEdit}
+                                    onclick={async () => { await workflow.restore(value); document.getElementById(navigationId)?.focus(); }}>Restore</button>
+                            {/if}
                             <button class="btn btn-ghost btn-md shrink-0 text-danger-text hover:bg-danger-soft"
-                                type="button" disabled={!workflow.canEdit} onclick={() => navigate(() => { workflow.cancel(); pendingDelete = value; })}>Delete</button>
+                                type="button" disabled={!workflow.canEdit} onclick={(event) => navigate(() => { workflow.open(null); deleteTrigger = event.currentTarget; pendingDelete = value; })}>{trash ? "Delete permanently" : "Delete"}</button>
                         </li>
                     {/each}
                 </ul>

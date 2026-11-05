@@ -51,6 +51,25 @@ The page guards route/document navigation with unsaved/pending work. Manual Lock
 - `src/routes/page.test.ts`: pending backup can be locked; late result cannot initiate a download or success message.
 - `scripts/check-offline.mjs` and `check-backup.mjs`: built application with network disabled, normal pointer/keyboard actions, read-only details, keyboard edit/reveal, protected history across lock/reload, new browser process with server stopped, and clean-profile encrypted backup restore. Synthetic data only; no live browser session.
 
+## Trash and recovery
+
+Ticket 13 changes normal **Delete** to an encrypted, persisted `deletedAt` update. **All items** and read-only details exclude deleted records. **Trash** is a separate, keyboard-accessible view with item names and deletion dates; it does not expose credential fields. No retention timer or automatic purge exists.
+
+**Restore** removes only `deletedAt` and returns the same item ID, contents, creation/update dates, favorite state, fields, history, and import provenance. If folder membership cannot be resolved, restore makes the item unfiled (`folderId: null`). This branch has no folder catalog, so any non-null membership is unresolved. Omitted/null memberships remain unchanged. Ticket 12 integration must retain a membership when its folder exists and clear it only when missing. Its atomic folder deletion must unfile both active and trashed members; do not make a loop of independent item writes appear atomic.
+
+**Delete permanently** is available only in Trash and requires a separate modal confirmation. Cancel or Escape changes nothing and returns focus to the invoking control; initial focus is on Cancel. Permanent deletion affects only the selected trashed item. It is not secure erasure: SQL history, retained transition sources, browser storage, and earlier backups can still contain ciphertext or earlier item data.
+
+Trash changes use the existing collection acknowledgement and complete authoritative snapshot reload. An unconfirmed write never produces success feedback. On failure or uncertain outcome, refresh and verify before retrying. Lock retires the workflow and removes decrypted Trash/confirmation state; an already-sent write can still persist, but its late result cannot restore the view or success feedback. Encrypted backups include Trash, with no backup format change.
+
+### Ticket 13 evidence and integration
+
+- `src/routes/trash.test.ts`: real page, workflow, collection, Chromium SQL/WASM, IndexedDB, and Web Crypto. All five types cover cancel, Trash navigation, encrypted persisted deletion, lock/reopen, clean-storage encrypted backup restore, exact restore, selected permanent deletion, and unresolved-folder fallback. Fault cases cover encryption failure, actual IndexedDB quota/write rejection, uncertain post-delete readback, and lock during each pending operation. Old deletion dates survive load/refresh/reopen.
+- `src/lib/secrets/editor.test.ts`: cancellation/focus, isolated selected mutations, and successful-but-unacknowledged trash/restore/permanent deletion through the real workflow/collection with controlled storage.
+- `scripts/check-trash.mjs`, called by `check-offline.mjs`: built app with the server stopped and network disabled; keyboard confirmation/cancel/focus, lock/reload, restore with history, and selected permanent deletion. Only synthetic vaults in isolated test profiles are used.
+- Ticket 11 integration must keep the `!deletedAt` guard before normal search/filter/sort and retain the separate unfiltered Trash view. Ticket 12 integration must replace the no-catalog restore fallback with catalog-aware membership validation and test deleting a folder while an item is in Trash, restoring to a retained folder, and clean-storage backup restoration of both folders and Trash. These cross-ticket combinations are not established by the ticket 13 baseline alone.
+
+Serialize browser validation with `flock /home/nathan/code/rust/aicacia/of/.scratch/password-manager-validation.lock <command>`; run Vitest with `--maxWorkers=1 --no-file-parallelism`.
+
 ## Versioned transition and recovery
 
 SQL migration 3 appends `item_format` (default `1`) and `transition_backup`; migrations 1 and 2 are unchanged. New vaults start at item format `2`. Authentication/identity transitions remain separate. Unlock alone does not rewrite records. The collection prepares the format before exposing any records or enabling editing.
