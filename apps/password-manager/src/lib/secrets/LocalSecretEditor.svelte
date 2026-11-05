@@ -5,17 +5,41 @@ import { Alert, Card, Field } from "$lib/ui";
 import type { VaultHandle } from "$lib/vault/vault";
 import { createLocalSecretWorkflow } from "./local-workflow.svelte";
 import type { Secret } from "./secret";
+import { searchItems, type ItemTypeFilter, type ItemSort } from "./search";
 
 let { vault }: { vault: VaultHandle } = $props();
 const workflow = untrack(() => createLocalSecretWorkflow({ vault }));
-onDestroy(workflow.dispose);
+onDestroy(retire);
+
+let retired = $state(false);
+let searchText = $state("");
+let itemType = $state<ItemTypeFilter>("all");
+let favoritesOnly = $state(false);
+let sort = $state<ItemSort>("favorites");
+let results = $derived(retired ? [] : searchItems(workflow.records, {
+    text: searchText, kind: itemType, favoritesOnly, sort,
+}));
+
+function clearFilters() {
+    searchText = "";
+    itemType = "all";
+    favoritesOnly = false;
+}
 
 
 let pendingDelete = $state<Secret | null>(null);
 const newSecretId = $props.id();
+const searchId = `${newSecretId}-search`;
 
 export function hasUnsavedChanges() { return workflow.dirty || workflow.busy; }
-export function retire() { pendingDelete = null; workflow.dispose(); }
+export function retire() {
+    retired = true;
+    clearFilters();
+    sort = "favorites";
+    results = [];
+    pendingDelete = null;
+    workflow.dispose();
+}
 
 function navigate(action: () => void) {
     if (workflow.dirty && !window.confirm("Discard unsaved changes?")) return;
@@ -38,6 +62,44 @@ function navigate(action: () => void) {
                 onclick={() => navigate(() => workflow.edit())}>New secret</button>
         {/snippet}
 
+        {#if !retired}
+            <fieldset class="mb-4 flex flex-wrap items-end gap-3" disabled={workflow.loading || !!workflow.loadError}>
+                <legend class="text-sm font-medium">Find items</legend>
+                <Field id={`${searchId}-text`} label="Search items" description="Search names, usernames, websites, notes, and custom-field names.">
+                    {#snippet children(control)}
+                        <input {...control} type="search" autocomplete="off" spellcheck="false"
+                            bind:value={() => searchText, (value) => { if (!retired) searchText = value; }} />
+                    {/snippet}
+                </Field>
+                <Field id={`${searchId}-type`} label="Item type">
+                    {#snippet children(control)}
+                        <select {...control} bind:value={itemType}>
+                            <option value="all">All types</option>
+                            <option value="login">Login</option>
+                            <option value="secureNote">Secure Note</option>
+                            <option value="card">Card</option>
+                            <option value="identity">Identity</option>
+                            <option value="sshKey">SSH Key</option>
+                        </select>
+                    {/snippet}
+                </Field>
+                <label class="flex items-center gap-2 text-sm text-ink">
+                    <input type="checkbox" bind:checked={favoritesOnly} /> Favorites only
+                </label>
+                <Field id={`${searchId}-sort`} label="Sort items">
+                    {#snippet children(control)}
+                        <select {...control} bind:value={sort}>
+                            <option value="favorites">Favorites first, then name</option>
+                            <option value="nameAsc">Name (A–Z)</option>
+                            <option value="nameDesc">Name (Z–A)</option>
+                            <option value="updatedDesc">Recently updated</option>
+                            <option value="createdDesc">Recently created</option>
+                        </select>
+                    {/snippet}
+                </Field>
+                <button class="btn btn-secondary btn-md" type="button" onclick={clearFilters}>Clear filters</button>
+            </fieldset>
+        {/if}
         {#if workflow.refreshing}
             <p role="status">Refreshing secrets…</p>
         {/if}
@@ -70,11 +132,12 @@ function navigate(action: () => void) {
                     </div>
                 </div>
             {/if}
-            {#if workflow.records.length === 0}
-                <p class="mb-0">No secrets yet.</p>
+            {#if results.length === 0}
+                <p class="mb-0" role="status">{searchText.trim() || itemType !== "all" || favoritesOnly ? "No items match. Clear filters to show all items." : "No secrets yet."}</p>
             {:else}
-                <ul class="flex list-none flex-col gap-2 p-0">
-                    {#each workflow.records as value (value.id)}
+                <p aria-live="polite" aria-atomic="true">{results.length} {results.length === 1 ? "item" : "items"} found.</p>
+                <ul aria-label="Search results" class="flex list-none flex-col gap-2 p-0">
+                    {#each results as value (value.id)}
                         <li class="flex items-center justify-between gap-3 rounded-control border border-line bg-surface-muted/40 px-3 py-2">
                             <div class="flex min-w-0 flex-col">
                                 <button class="btn btn-ghost btn-md w-full justify-start truncate px-0 text-left font-medium"

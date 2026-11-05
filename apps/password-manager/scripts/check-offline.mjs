@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { extname, join, resolve } from "node:path";
 import { chromium } from "playwright";
 import { checkBackupRestore } from "./check-backup.mjs";
+import { checkSearch } from "./check-search.mjs";
 
 // Only synthetic data in a new test browser. Never connect to a live browser.
 const root = resolve("build");
@@ -131,6 +132,8 @@ try {
     await page.getByLabel(/^Password/).fill("synthetic-secret-19");
     await page.getByLabel(/^Confirm password/).fill("synthetic-secret-19");
     await page.getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByText("Saved.", { exact: true }).waitFor();
+    await checkSearch(page);
     await page
         .getByRole("button", { name: "Synthetic offline Login", exact: true })
         .click();
@@ -152,6 +155,8 @@ try {
         .press("Enter");
     await page.getByText("synthetic-secret-19", { exact: true }).waitFor();
     await page.getByRole("button", { name: "Lock vault", exact: true }).click();
+    assert.equal(await page.getByRole("searchbox", { name: "Search items" }).count(), 0);
+    assert.equal(await page.getByRole("list", { name: "Search results" }).count(), 0);
     const vaultId = await page
         .getByRole("button", { name: /^offline-test ID: / })
         .locator("span")
