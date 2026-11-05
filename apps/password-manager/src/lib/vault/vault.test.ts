@@ -1,16 +1,17 @@
-import { Database, MigrationError } from "@ofsdk/sql";
+import { Database } from "@ofsdk/sql";
 import { expect, it } from "vitest";
 import { vaultMigrations } from "./migrations";
-import { createVault, unlockVault, vaultExists } from "./vault";
+import { createVault, listVaults, unlockVault } from "./vault";
 
 it("authenticates an empty vault after close and reopen", async () => {
     const name = `test-empty-${crypto.randomUUID()}`;
     const vault = await createVault("original-password", name);
+    const id = vault.id;
     vault.close();
-    await expect(unlockVault("wrong-password", name)).rejects.toThrow(
+    await expect(unlockVault("wrong-password", id)).rejects.toThrow(
         "Wrong password",
     );
-    const reopened = await unlockVault("original-password", name);
+    const reopened = await unlockVault("original-password", id);
     try {
         expect(await reopened.loadSecrets()).toEqual([]);
     } finally {
@@ -26,31 +27,37 @@ it("rejects an old development schema without migration history", async () => {
         await client.execute(
             "CREATE TABLE vault_meta (id TEXT PRIMARY KEY, salt TEXT NOT NULL, iv TEXT NOT NULL, created_at TEXT NOT NULL); CREATE TABLE secrets (id TEXT PRIMARY KEY, ciphertext TEXT NOT NULL, nonce TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
         );
-        await expect(
-            createVault("test-only-master-password", name),
-        ).rejects.toBeInstanceOf(MigrationError);
-        await expect(
-            unlockVault("test-only-master-password", name),
-        ).rejects.toBeInstanceOf(MigrationError);
+        const vault = await createVault("test-only-master-password", name);
+        vault.close();
+        await expect(listVaults()).rejects.toThrow("source vault is unchanged");
+        expect(
+            (await client.execute("SELECT salt FROM vault_meta"))[0].rows,
+        ).toEqual([]);
     } finally {
         client.close();
         db.close();
+        await new Promise<void>((resolve, reject) => {
+            const request = indexedDB.deleteDatabase(
+                `ofdb:sql:password-manager-vault-${name}`,
+            );
+            request.onsuccess = () => resolve();
+            request.onerror = () => reject(request.error);
+        });
     }
 }, 15000);
 
-it("creates a vault in a migrated empty database without repeating schema changes", async () => {
-    const name = `test-prepared-${crypto.randomUUID()}`;
-    const db = await Database.open(`password-manager-vault-${name}`);
+it("creates a v1 migrated vault and reopens without repeating schema changes", async () => {
+    const vault = await createVault(
+        "test-only-master-password",
+        `test-prepared-${crypto.randomUUID()}`,
+    );
+    const id = vault.id;
+    vault.close();
+    const entry = (await listVaults()).find((v) => v.id === id);
+    if (!entry) throw new Error("Missing persisted vault identity");
+    const db = await Database.open(entry.databaseName);
     const client = db.client();
     try {
-        expect(await client.migrate(vaultMigrations)).toEqual({
-            currentVersion: 2,
-            appliedVersions: [1, 2],
-        });
-        expect(await vaultExists(name)).toBe(false);
-        const vault = await createVault("test-only-master-password", name);
-        vault.close();
-        expect(await vaultExists(name)).toBe(true);
         expect(await client.migrate(vaultMigrations)).toEqual({
             currentVersion: 2,
             appliedVersions: [],
@@ -59,41 +66,19 @@ it("creates a vault in a migrated empty database without repeating schema change
         client.close();
         db.close();
     }
+    const reopened = await unlockVault("test-only-master-password", id);
+    expect(reopened.id).toBe(id);
+    reopened.close();
 }, 15000);
 
-it("rejects duplicate creation without changing the original vault", async () => {
-    const name = `test-duplicate-${crypto.randomUUID()}`;
-    const vault = await createVault("original-password", name);
-    const vaultId = vault.id;
-    let secretId: string;
-    try {
-        secretId = (await vault.encryptAndStore("original encrypted content"))
-            .id;
-        await expect(
-            createVault("replacement-password", name),
-        ).rejects.toThrow();
-        expect(await vault.loadSecrets()).toHaveLength(1);
-    } finally {
-        vault.close();
-    }
-    const reopened = await unlockVault("original-password", name);
-    try {
-        expect(reopened.id).toBe(vaultId);
-        const [secret] = await reopened.loadSecrets();
-        expect(secret.id).toBe(secretId);
-        expect(await reopened.decryptSecret(secret)).toBe(
-            "original encrypted content",
-        );
-    } finally {
-        reopened.close();
-    }
-}, 15000);
-
-it("rejects a newer schema before creating or unlocking a vault", async () => {
+it("rejects a newer schema before unlocking and keeps new creation isolated", async () => {
     const name = `test-newer-${crypto.randomUUID()}`;
     const vault = await createVault("test-only-master-password", name);
+    const id = vault.id;
     vault.close();
-    const db = await Database.open(`password-manager-vault-${name}`);
+    const entry = (await listVaults()).find((v) => v.id === id);
+    if (!entry) throw new Error("Missing persisted vault identity");
+    const db = await Database.open(entry.databaseName);
     const client = db.client();
     try {
         await client.migrate([
@@ -103,15 +88,16 @@ it("rejects a newer schema before creating or unlocking a vault", async () => {
                 sql: "ALTER TABLE secrets ADD COLUMN future_note TEXT",
             },
         ]);
-        for (const open of [createVault, unlockVault]) {
-            await expect(
-                open("test-only-master-password", name),
-            ).rejects.toMatchObject({
-                name: "MigrationError",
-                phase: "History",
-                version: 3,
-            });
-        }
+        await expect(
+            unlockVault("test-only-master-password", id),
+        ).rejects.toMatchObject({
+            name: "MigrationError",
+            phase: "History",
+            version: 3,
+        });
+        const separate = await createVault("another-password", name);
+        expect(separate.id).not.toBe(id);
+        separate.close();
     } finally {
         client.close();
         db.close();
@@ -131,6 +117,7 @@ it("persists encrypted logins across lock/unlock and permanently removes a delet
         ],
     });
     const vault = await createVault(password, name);
+    const vaultId = vault.id;
     let id: string;
     try {
         const stored = await vault.encryptAndStore(plaintext);
@@ -142,7 +129,7 @@ it("persists encrypted logins across lock/unlock and permanently removes a delet
     } finally {
         vault.close();
     }
-    const unlocked = await unlockVault(password, name);
+    const unlocked = await unlockVault(password, vaultId);
     try {
         expect(
             await unlocked.decryptSecret((await unlocked.loadSecrets())[0]),
@@ -152,7 +139,7 @@ it("persists encrypted logins across lock/unlock and permanently removes a delet
     } finally {
         unlocked.close();
     }
-    const reopened = await unlockVault(password, name);
+    const reopened = await unlockVault(password, vaultId);
     try {
         expect(await reopened.loadSecrets()).toEqual([]);
     } finally {

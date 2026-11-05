@@ -5,7 +5,6 @@ import {
     listVaults,
     unlockVault,
     type VaultHandle,
-    vaultExists,
 } from "$lib/vault/vault";
 import Page from "./+page.svelte";
 
@@ -13,7 +12,6 @@ vi.mock("$lib/vault/vault", () => ({
     createVault: vi.fn(),
     unlockVault: vi.fn(),
     listVaults: vi.fn(),
-    vaultExists: vi.fn(),
 }));
 
 let target: HTMLDivElement;
@@ -22,7 +20,9 @@ let close: ReturnType<typeof vi.fn>;
 
 function button(name: string) {
     const value = [...target.querySelectorAll("button")].find(
-        (element) => element.textContent?.trim() === name,
+        (element) =>
+            element.querySelector(".vault-name")?.textContent === name ||
+            element.textContent?.trim() === name,
     );
     if (!value) throw new Error(`Missing button: ${name}`);
     return value;
@@ -62,8 +62,20 @@ beforeEach(async () => {
         close,
         loadSecrets: vi.fn(async () => []),
     } as unknown as VaultHandle;
-    vi.mocked(listVaults).mockResolvedValue(["personal", "work"]);
-    vi.mocked(vaultExists).mockResolvedValue(false);
+    vi.mocked(listVaults).mockResolvedValue([
+        {
+            id: "personal-id",
+            name: "personal",
+            databaseName: "personal-db",
+            status: "ready",
+        },
+        {
+            id: "work-id",
+            name: "work",
+            databaseName: "work-db",
+            status: "ready",
+        },
+    ]);
     vi.mocked(unlockVault).mockResolvedValue(vault);
     vi.mocked(createVault).mockResolvedValue(vault);
     target = document.createElement("div");
@@ -79,6 +91,71 @@ afterEach(async () => {
 });
 
 describe("vault page navigation", () => {
+    it("shows actionable registry errors and permits a selector retry", async () => {
+        await click("personal");
+        vi.mocked(listVaults).mockRejectedValueOnce(
+            new Error(
+                "Allow browser storage and reload. Do not clear browser data.",
+            ),
+        );
+        await click("Back");
+        await expect
+            .poll(() => target.textContent)
+            .toContain("Do not clear browser data");
+        await click("Try again");
+        await selector();
+    });
+    it("selects duplicate names by their visible stable identity", async () => {
+        vi.mocked(listVaults).mockResolvedValue([
+            {
+                id: "first-id",
+                name: "Same",
+                databaseName: "first-db",
+                status: "ready",
+            },
+            {
+                id: "second-id",
+                name: "Same",
+                databaseName: "second-db",
+                status: "pending",
+            },
+        ]);
+        await click("personal");
+        await click("Back");
+        await expect.poll(() => target.textContent).toContain("second-id");
+        const choice = [...target.querySelectorAll("button")].find((b) =>
+            b.textContent?.includes("second-id"),
+        );
+        expect(choice?.textContent).toContain("Registration interrupted");
+        if (!choice) throw new Error("Missing vault identity choice");
+        choice.click();
+        flushSync();
+        input("password", "second-password");
+        await click("Unlock");
+        await expect.poll(() => target.textContent).toContain("Lock vault");
+        expect(unlockVault).toHaveBeenCalledExactlyOnceWith(
+            "second-password",
+            "second-id",
+        );
+    });
+
+    it("shows storage errors without claiming successful creation", async () => {
+        vi.mocked(createVault).mockRejectedValueOnce(
+            new Error(
+                "Cannot access the local vault registry. Allow browser storage.",
+            ),
+        );
+        await click("Create new vault");
+        input("vault-name", "personal");
+        input("password", "master-password");
+        input("confirm", "master-password");
+        await click("Create vault");
+        await expect
+            .poll(() => target.textContent)
+            .toContain("Allow browser storage");
+        expect(target.textContent).not.toContain("Lock vault");
+        expect(button("Cancel").disabled).toBe(false);
+    });
     it("locks an unlocked vault and reloads the selector", async () => {
         await click("personal");
         input("password", "master-password");
@@ -86,10 +163,29 @@ describe("vault page navigation", () => {
         await expect.poll(() => target.textContent).toContain("Lock vault");
         expect(unlockVault).toHaveBeenCalledExactlyOnceWith(
             "master-password",
-            "personal",
+            "personal-id",
         );
 
-        vi.mocked(listVaults).mockResolvedValue(["personal", "work", "family"]);
+        vi.mocked(listVaults).mockResolvedValue([
+            {
+                id: "personal-id",
+                name: "personal",
+                databaseName: "personal-db",
+                status: "ready",
+            },
+            {
+                id: "work-id",
+                name: "work",
+                databaseName: "work-db",
+                status: "ready",
+            },
+            {
+                id: "family-id",
+                name: "family",
+                databaseName: "family-db",
+                status: "ready",
+            },
+        ]);
         await click("Lock vault");
         await selector();
         expect(button("family")).toBeDefined();
