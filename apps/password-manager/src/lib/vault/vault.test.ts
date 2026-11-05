@@ -3,6 +3,21 @@ import { expect, it } from "vitest";
 import { vaultMigrations } from "./migrations";
 import { createVault, unlockVault, vaultExists } from "./vault";
 
+it("authenticates an empty vault after close and reopen", async () => {
+    const name = `test-empty-${crypto.randomUUID()}`;
+    const vault = await createVault("original-password", name);
+    vault.close();
+    await expect(unlockVault("wrong-password", name)).rejects.toThrow(
+        "Wrong password",
+    );
+    const reopened = await unlockVault("original-password", name);
+    try {
+        expect(await reopened.loadSecrets()).toEqual([]);
+    } finally {
+        reopened.close();
+    }
+}, 15000);
+
 it("rejects an old development schema without migration history", async () => {
     const name = `test-old-${crypto.randomUUID()}`;
     const db = await Database.open(`password-manager-vault-${name}`);
@@ -29,15 +44,15 @@ it("creates a vault in a migrated empty database without repeating schema change
     const client = db.client();
     try {
         expect(await client.migrate(vaultMigrations)).toEqual({
-            currentVersion: 1,
-            appliedVersions: [1],
+            currentVersion: 2,
+            appliedVersions: [1, 2],
         });
         expect(await vaultExists(name)).toBe(false);
         const vault = await createVault("test-only-master-password", name);
         vault.close();
         expect(await vaultExists(name)).toBe(true);
         expect(await client.migrate(vaultMigrations)).toEqual({
-            currentVersion: 1,
+            currentVersion: 2,
             appliedVersions: [],
         });
     } finally {
@@ -84,7 +99,7 @@ it("rejects a newer schema before creating or unlocking a vault", async () => {
         await client.migrate([
             ...vaultMigrations,
             {
-                version: 2,
+                version: 3,
                 sql: "ALTER TABLE secrets ADD COLUMN future_note TEXT",
             },
         ]);
@@ -94,7 +109,7 @@ it("rejects a newer schema before creating or unlocking a vault", async () => {
             ).rejects.toMatchObject({
                 name: "MigrationError",
                 phase: "History",
-                version: 2,
+                version: 3,
             });
         }
     } finally {

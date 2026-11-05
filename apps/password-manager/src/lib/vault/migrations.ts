@@ -18,4 +18,8 @@ CREATE TABLE secrets (
     updated_at TEXT NOT NULL
 )`,
     },
+    {
+        version: 2,
+        sql: "ALTER TABLE vault_meta ADD COLUMN authentication TEXT",
+    },
 ];

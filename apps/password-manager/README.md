@@ -33,6 +33,39 @@ Version 1 creates:
 - `secrets`: record ID, ciphertext, per-record nonce, and timestamps. Secret
   contents remain encrypted; no plaintext secret index is added.
 
+Version 2 adds nullable `vault_meta.authentication`. The v1 migration is unchanged.
+New vaults store metadata and a versioned AES-GCM password proof in one insert.
+Unlock verifies that proof before returning a handle, including after the last
+item is deleted.
+
+### Authentication and existing vaults
+
+The proof uses the existing non-exportable derived key and a fresh random
+96-bit nonce. Its encrypted payload contains a purpose label, proof version,
+vault ID, salt, original metadata IV, and creation time. Unlock checks both the
+GCM tag and the exact payload. This binds the proof to the vault metadata; it
+stores neither the password nor the key. The original metadata IV remains for
+format continuity; it is not reused as the proof nonce.
+
+A migrated v1 vault has a null proof. A populated v1 vault must decrypt **every**
+record before unlock can write a proof. This is a one-way transition, not a
+second writer: new vaults always have a proof. Wrong passwords or damaged records
+do not establish one. The upgrade changes only the proof field, then reads and
+verifies it before returning a handle. Failed writes leave unlock blocked and
+report that the user must check local storage and reopen before retrying. A
+rejected write can have an uncertain durable outcome; no rollback is assumed.
+
+A legacy empty vault has no original-password evidence. It stays locked for
+**every** attempted password. No attempt establishes a new password. Keep the
+source unchanged and create a separate new vault. This rule does not affect new
+empty vaults or upgraded vaults whose last item was removed. Malformed or unknown
+proof formats fail closed; they are never treated as missing legacy proofs.
+
+This mechanism authenticates key possession and metadata, not the completeness
+or freshness of the record set. It does not prevent storage rollback, deletion,
+a compromised browser, or offline password guessing. It is not an independent
+security audit. Error messages contain no passwords, keys, or decrypted records.
+
 The SQL runner owns `_ofdb_migrations`. Each migration and its history record
 commit atomically. Reopening validates history and skips completed migrations.
 Changed migration contents, unknown applied versions, and malformed history fail
@@ -68,8 +101,7 @@ Existing development limits remain:
 
 - Display names determine database names after normalization; distinct display
   names can collide. Duplicate creation now fails instead of adding metadata.
-- An empty vault does not authenticate its master password against an independent
-  verifier. Populated vaults check a stored record. This needs separate work.
+
 - The current encrypted export is not a self-contained backup or restore format.
 - Deletion is not secure erasure. SQL history, browser storage, and backups can
   retain prior ciphertext. No JavaScript memory-zeroization guarantee is made.
@@ -86,6 +118,11 @@ pnpm --filter @ofsdk/password-manager check
 
 Vault tests use real browser SQL, migrations, IndexedDB, and Web Crypto. They cover
 fresh/prepared databases, repeated startup, old/newer schema rejection, duplicate
-creation, encrypted CRUD, and lock/unlock persistence. Collection and editor tests
+creation, encrypted CRUD, and lock/unlock persistence. Authentication tests also
+cover empty and populated vaults, last-item removal, v1 upgrades, unprovable legacy
+empty vaults, damaged proofs, metadata binding, and actual IndexedDB write failures.
+Mounted page tests use the real vault, workflow, collection, and persistence to
+check visible create/lock/reopen, rejected passwords, and legacy-empty guidance.
+Collection and editor tests
 cover the existing local workflow. These checks do not qualify production vault
 security, secure erasure, backup recovery, or large-vault performance.

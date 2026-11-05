@@ -8,7 +8,10 @@ export default defineConfig({
     plugins: [sveltekit()],
     server: {
         fs: {
-            allow: [source("../../"), source("../../../ofdb/packages/sql")],
+            allow: [
+                source("../../"),
+                fileURLToPath(new URL("../", import.meta.resolve("@ofsdk/sql"))),
+            ],
         },
     },
     resolve: {
