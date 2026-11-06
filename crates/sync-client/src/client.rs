@@ -283,7 +283,7 @@ pub async fn connect_browser(
     .await
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "native"))]
 mod tests {
     use super::*;
     use crate::transport::test::create_transport_pair;

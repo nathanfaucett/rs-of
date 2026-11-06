@@ -434,11 +434,14 @@ export function parsePersonalJson(
                 "uris",
                 "fido2Credentials",
             ]);
-            empty(
-                login.fido2Credentials,
-                `${payloadPath}/fido2Credentials`,
-                true,
-            );
+            const passkeys = login.fido2Credentials;
+            if (
+                passkeys != null &&
+                !(Array.isArray(passkeys) && passkeys.length === 0)
+            )
+                result.warnings.push(
+                    `${payloadPath}/fido2Credentials: passkeys are not supported; skipped, never stored or shown.`,
+                );
             details = {
                 username: textValue(login.username, `${payloadPath}/username`),
                 secret: textValue(login.password, `${payloadPath}/password`),

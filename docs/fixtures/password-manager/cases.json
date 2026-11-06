@@ -1,37 +1,318 @@
 [
-  { "name": "all-five-types-and-fields", "patch": [], "expect": "accept", "counts": { "items": 5, "folders": 2 } },
-  { "name": "minimal-login-no-password", "patch": [{ "op": "replace", "path": "/items", "value": [{ "type": 1, "name": "Minimal login", "login": {} }] }], "expect": "accept" },
-  { "name": "minimal-note-card-identity", "patch": [{ "op": "replace", "path": "/items", "value": [{ "type": 2, "name": "Note", "secureNote": {} }, { "type": 3, "name": "Card", "card": {} }, { "type": 4, "name": "Identity", "identity": {} }] }], "expect": "accept" },
-  { "name": "custom-file-envelope", "patch": [{ "op": "remove", "path": "/encrypted" }, { "op": "remove", "path": "/folders" }, { "op": "replace", "path": "/items", "value": [] }], "expect": "accept" },
-  { "name": "inherited-rule-omitted", "patch": [{ "op": "remove", "path": "/items/0/login/uris/0/match" }], "expect": "accept", "assertion": "Export first URI match as null, not 0." },
-  { "name": "explicit-rule-not-inherited", "patch": [{ "op": "replace", "path": "/items/0/login/uris/0/match", "value": 0 }], "expect": "accept", "assertion": "Export first URI match as 0, not null." },
-  { "name": "unknown-uri-rule", "patch": [{ "op": "replace", "path": "/items/0/login/uris/0/match", "value": 6 }], "expect": "block", "path": "/items/0/login/uris/0/match" },
-  { "name": "linked-field", "patch": [{ "op": "replace", "path": "/items/0/fields/0/type", "value": 3 }, { "op": "add", "path": "/items/0/fields/0/linkedId", "value": 100 }], "expect": "block", "path": "/items/0/fields/0" },
-  { "name": "unknown-field-variant", "patch": [{ "op": "replace", "path": "/items/0/fields/0/type", "value": 99 }], "expect": "block", "path": "/items/0/fields/0/type" },
-  { "name": "boolean-not-wire-string", "patch": [{ "op": "replace", "path": "/items/0/fields/2/value", "value": false }], "expect": "block", "path": "/items/0/fields/2/value" },
-  { "name": "boolean-false-string", "patch": [{ "op": "replace", "path": "/items/0/fields/2/value", "value": "false" }], "expect": "accept", "assertion": "Checkbox is false; do not use string truthiness." },
-  { "name": "missing-history-date", "patch": [{ "op": "remove", "path": "/items/0/passwordHistory/0/lastUsedDate" }], "expect": "block", "path": "/items/0/passwordHistory/0/lastUsedDate" },
-  { "name": "invalid-item-date", "patch": [{ "op": "replace", "path": "/items/0/creationDate", "value": "2025-02-30T00:00:00Z" }], "expect": "block", "path": "/items/0/creationDate" },
-  { "name": "unknown-item-type", "patch": [{ "op": "replace", "path": "/items/0/type", "value": 6 }], "expect": "block", "path": "/items/0/type" },
-  { "name": "encrypted-envelope", "patch": [{ "op": "replace", "path": "/encrypted", "value": true }], "expect": "block", "path": "/encrypted" },
-  { "name": "organization-ownership", "patch": [{ "op": "replace", "path": "/items/0/organizationId", "value": "synthetic-organization" }], "expect": "block", "path": "/items/0/organizationId" },
-  { "name": "collection-access", "patch": [{ "op": "replace", "path": "/items/0/collectionIds", "value": ["synthetic-collection"] }], "expect": "block", "path": "/items/0/collectionIds" },
-  { "name": "passkeys-present", "patch": [{ "op": "replace", "path": "/items/0/login/fido2Credentials", "value": [{ "credentialId": "SYNTHETIC-NOT-A-PASSKEY" }] }], "expect": "block", "path": "/items/0/login/fido2Credentials" },
-  { "name": "attachment-metadata", "patch": [{ "op": "add", "path": "/items/0/attachments", "value": [{ "fileName": "synthetic.txt" }] }], "expect": "block", "path": "/items/0/attachments" },
-  { "name": "reprompt-not-enforced", "patch": [{ "op": "replace", "path": "/items/0/reprompt", "value": 1 }], "expect": "block", "path": "/items/0/reprompt" },
-  { "name": "trash-not-revived", "patch": [{ "op": "replace", "path": "/items/0/deletedDate", "value": "2025-04-01T00:00:00Z" }], "expect": "block", "path": "/items/0/deletedDate" },
-  { "name": "archive-not-revived", "patch": [{ "op": "replace", "path": "/items/0/archivedDate", "value": "2025-04-01T00:00:00Z" }], "expect": "block", "path": "/items/0/archivedDate" },
-  { "name": "unknown-item-key", "patch": [{ "op": "add", "path": "/items/0/futureData", "value": "SYNTHETIC" }], "expect": "block", "path": "/items/0/futureData" },
-  { "name": "unknown-root-key", "patch": [{ "op": "add", "path": "/futureVersion", "value": 2 }], "expect": "block", "path": "/futureVersion" },
-  { "name": "dangling-folder", "patch": [{ "op": "replace", "path": "/items/0/folderId", "value": "missing-folder" }], "expect": "block", "path": "/items/0/folderId" },
-  { "name": "duplicate-source-id", "patch": [{ "op": "replace", "path": "/items/1/id", "value": "20000000-0000-4000-8000-000000000001" }], "expect": "block", "path": "/items/1/id" },
-  { "name": "duplicate-folder-id", "patch": [{ "op": "replace", "path": "/folders/1/id", "value": "10000000-0000-4000-8000-000000000001" }], "expect": "block", "path": "/folders/1/id" },
-  { "name": "duplicate-name-not-identity", "patch": [{ "op": "replace", "path": "/items/1/name", "value": "SYNTHETIC Login café 日本語 🔐" }], "expect": "accept", "assertion": "Keep two records; never overwrite by name." },
-  { "name": "ssh-empty-private-key", "patch": [{ "op": "replace", "path": "/items/4/sshKey/privateKey", "value": " \n" }], "expect": "block", "path": "/items/4/sshKey/privateKey" },
-  { "name": "unknown-note-subtype", "patch": [{ "op": "replace", "path": "/items/1/secureNote/type", "value": 1 }], "expect": "block", "path": "/items/1/secureNote/type" },
-  { "name": "mismatched-type-payload", "patch": [{ "op": "add", "path": "/items/0/card", "value": {} }], "expect": "block", "path": "/items/0/card" },
-  { "name": "repeat-import", "patch": [], "destination": "A prior import of supported.json with encrypted provenance", "expect": "confirm-import-as-new-or-cancel", "assertion": "Cancel leaves destination unchanged; confirm adds all five as fresh identities." },
-  { "name": "logical-round-trip", "patch": [], "expect": "round-trip", "assertion": "Export/import in clean storage preserves all supported logical fields, ordered arrays, folder links and date instants through an ID map; missing dates use disclosed import time." },
-  { "name": "truncated-json", "raw": "{\"items\":[", "expect": "block", "path": "/" },
-  { "name": "duplicate-json-member", "raw": "{\"items\":[],\"items\":[]}", "expect": "block", "path": "/items" }
+  {
+    "name": "all-five-types-and-fields",
+    "patch": [],
+    "expect": "accept",
+    "counts": { "items": 5, "folders": 2 }
+  },
+  {
+    "name": "minimal-login-no-password",
+    "patch": [
+      {
+        "op": "replace",
+        "path": "/items",
+        "value": [{ "type": 1, "name": "Minimal login", "login": {} }]
+      }
+    ],
+    "expect": "accept"
+  },
+  {
+    "name": "minimal-note-card-identity",
+    "patch": [
+      {
+        "op": "replace",
+        "path": "/items",
+        "value": [
+          { "type": 2, "name": "Note", "secureNote": {} },
+          { "type": 3, "name": "Card", "card": {} },
+          { "type": 4, "name": "Identity", "identity": {} }
+        ]
+      }
+    ],
+    "expect": "accept"
+  },
+  {
+    "name": "custom-file-envelope",
+    "patch": [
+      { "op": "remove", "path": "/encrypted" },
+      { "op": "remove", "path": "/folders" },
+      { "op": "replace", "path": "/items", "value": [] }
+    ],
+    "expect": "accept"
+  },
+  {
+    "name": "inherited-rule-omitted",
+    "patch": [{ "op": "remove", "path": "/items/0/login/uris/0/match" }],
+    "expect": "accept",
+    "assertion": "Export first URI match as null, not 0."
+  },
+  {
+    "name": "explicit-rule-not-inherited",
+    "patch": [
+      { "op": "replace", "path": "/items/0/login/uris/0/match", "value": 0 }
+    ],
+    "expect": "accept",
+    "assertion": "Export first URI match as 0, not null."
+  },
+  {
+    "name": "unknown-uri-rule",
+    "patch": [
+      { "op": "replace", "path": "/items/0/login/uris/0/match", "value": 6 }
+    ],
+    "expect": "block",
+    "path": "/items/0/login/uris/0/match"
+  },
+  {
+    "name": "linked-field",
+    "patch": [
+      { "op": "replace", "path": "/items/0/fields/0/type", "value": 3 },
+      { "op": "add", "path": "/items/0/fields/0/linkedId", "value": 100 }
+    ],
+    "expect": "block",
+    "path": "/items/0/fields/0"
+  },
+  {
+    "name": "unknown-field-variant",
+    "patch": [
+      { "op": "replace", "path": "/items/0/fields/0/type", "value": 99 }
+    ],
+    "expect": "block",
+    "path": "/items/0/fields/0/type"
+  },
+  {
+    "name": "boolean-not-wire-string",
+    "patch": [
+      { "op": "replace", "path": "/items/0/fields/2/value", "value": false }
+    ],
+    "expect": "block",
+    "path": "/items/0/fields/2/value"
+  },
+  {
+    "name": "boolean-false-string",
+    "patch": [
+      { "op": "replace", "path": "/items/0/fields/2/value", "value": "false" }
+    ],
+    "expect": "accept",
+    "assertion": "Checkbox is false; do not use string truthiness."
+  },
+  {
+    "name": "missing-history-date",
+    "patch": [
+      { "op": "remove", "path": "/items/0/passwordHistory/0/lastUsedDate" }
+    ],
+    "expect": "block",
+    "path": "/items/0/passwordHistory/0/lastUsedDate"
+  },
+  {
+    "name": "invalid-item-date",
+    "patch": [
+      {
+        "op": "replace",
+        "path": "/items/0/creationDate",
+        "value": "2025-02-30T00:00:00Z"
+      }
+    ],
+    "expect": "block",
+    "path": "/items/0/creationDate"
+  },
+  {
+    "name": "unknown-item-type",
+    "patch": [{ "op": "replace", "path": "/items/0/type", "value": 6 }],
+    "expect": "block",
+    "path": "/items/0/type"
+  },
+  {
+    "name": "encrypted-envelope",
+    "patch": [{ "op": "replace", "path": "/encrypted", "value": true }],
+    "expect": "block",
+    "path": "/encrypted"
+  },
+  {
+    "name": "organization-ownership",
+    "patch": [
+      {
+        "op": "replace",
+        "path": "/items/0/organizationId",
+        "value": "synthetic-organization"
+      }
+    ],
+    "expect": "block",
+    "path": "/items/0/organizationId"
+  },
+  {
+    "name": "collection-access",
+    "patch": [
+      {
+        "op": "replace",
+        "path": "/items/0/collectionIds",
+        "value": ["synthetic-collection"]
+      }
+    ],
+    "expect": "block",
+    "path": "/items/0/collectionIds"
+  },
+  {
+    "name": "passkeys-present",
+    "patch": [
+      {
+        "op": "replace",
+        "path": "/items/0/login/fido2Credentials",
+        "value": [{ "credentialId": "SYNTHETIC-NOT-A-PASSKEY" }]
+      }
+    ],
+    "expect": "accept",
+    "warning": "/items/0/login/fido2Credentials",
+    "assertion": "Passkeys are skipped with a warning; the Login imports without them and exports fido2Credentials as []."
+  },
+  {
+    "name": "attachment-metadata",
+    "patch": [
+      {
+        "op": "add",
+        "path": "/items/0/attachments",
+        "value": [{ "fileName": "synthetic.txt" }]
+      }
+    ],
+    "expect": "block",
+    "path": "/items/0/attachments"
+  },
+  {
+    "name": "reprompt-not-enforced",
+    "patch": [{ "op": "replace", "path": "/items/0/reprompt", "value": 1 }],
+    "expect": "block",
+    "path": "/items/0/reprompt"
+  },
+  {
+    "name": "trash-not-revived",
+    "patch": [
+      {
+        "op": "replace",
+        "path": "/items/0/deletedDate",
+        "value": "2025-04-01T00:00:00Z"
+      }
+    ],
+    "expect": "block",
+    "path": "/items/0/deletedDate"
+  },
+  {
+    "name": "archive-not-revived",
+    "patch": [
+      {
+        "op": "replace",
+        "path": "/items/0/archivedDate",
+        "value": "2025-04-01T00:00:00Z"
+      }
+    ],
+    "expect": "block",
+    "path": "/items/0/archivedDate"
+  },
+  {
+    "name": "unknown-item-key",
+    "patch": [
+      { "op": "add", "path": "/items/0/futureData", "value": "SYNTHETIC" }
+    ],
+    "expect": "block",
+    "path": "/items/0/futureData"
+  },
+  {
+    "name": "unknown-root-key",
+    "patch": [{ "op": "add", "path": "/futureVersion", "value": 2 }],
+    "expect": "block",
+    "path": "/futureVersion"
+  },
+  {
+    "name": "dangling-folder",
+    "patch": [
+      {
+        "op": "replace",
+        "path": "/items/0/folderId",
+        "value": "missing-folder"
+      }
+    ],
+    "expect": "block",
+    "path": "/items/0/folderId"
+  },
+  {
+    "name": "duplicate-source-id",
+    "patch": [
+      {
+        "op": "replace",
+        "path": "/items/1/id",
+        "value": "20000000-0000-4000-8000-000000000001"
+      }
+    ],
+    "expect": "block",
+    "path": "/items/1/id"
+  },
+  {
+    "name": "duplicate-folder-id",
+    "patch": [
+      {
+        "op": "replace",
+        "path": "/folders/1/id",
+        "value": "10000000-0000-4000-8000-000000000001"
+      }
+    ],
+    "expect": "block",
+    "path": "/folders/1/id"
+  },
+  {
+    "name": "duplicate-name-not-identity",
+    "patch": [
+      {
+        "op": "replace",
+        "path": "/items/1/name",
+        "value": "SYNTHETIC Login café 日本語 🔐"
+      }
+    ],
+    "expect": "accept",
+    "assertion": "Keep two records; never overwrite by name."
+  },
+  {
+    "name": "ssh-empty-private-key",
+    "patch": [
+      { "op": "replace", "path": "/items/4/sshKey/privateKey", "value": " \n" }
+    ],
+    "expect": "block",
+    "path": "/items/4/sshKey/privateKey"
+  },
+  {
+    "name": "unknown-note-subtype",
+    "patch": [
+      { "op": "replace", "path": "/items/1/secureNote/type", "value": 1 }
+    ],
+    "expect": "block",
+    "path": "/items/1/secureNote/type"
+  },
+  {
+    "name": "mismatched-type-payload",
+    "patch": [{ "op": "add", "path": "/items/0/card", "value": {} }],
+    "expect": "block",
+    "path": "/items/0/card"
+  },
+  {
+    "name": "repeat-import",
+    "patch": [],
+    "destination": "A prior import of supported.json with encrypted provenance",
+    "expect": "confirm-import-as-new-or-cancel",
+    "assertion": "Cancel leaves destination unchanged; confirm adds all five as fresh identities."
+  },
+  {
+    "name": "logical-round-trip",
+    "patch": [],
+    "expect": "round-trip",
+    "assertion": "Export/import in clean storage preserves all supported logical fields, ordered arrays, folder links and date instants through an ID map; missing dates use disclosed import time."
+  },
+  {
+    "name": "truncated-json",
+    "raw": "{\"items\":[",
+    "expect": "block",
+    "path": "/"
+  },
+  {
+    "name": "duplicate-json-member",
+    "raw": "{\"items\":[],\"items\":[]}",
+    "expect": "block",
+    "path": "/items"
+  }
 ]

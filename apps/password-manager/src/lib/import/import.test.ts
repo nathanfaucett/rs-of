@@ -22,8 +22,15 @@ for (const entry of cases.filter((entry) =>
             else parent[key] = patch.value;
         }
         const result = parsePersonalJson(entry.raw ?? JSON.stringify(document));
-        if (entry.expect === "accept") expect(result.issues).toEqual([]);
-        else {
+        if (entry.expect === "accept") {
+            expect(result.issues).toEqual([]);
+            if (entry.warning)
+                expect(
+                    result.warnings.some((warning) =>
+                        warning.includes(entry.warning as string),
+                    ),
+                ).toBe(true);
+        } else {
             expect(result.issues.map((issue) => issue.path)).toContain(
                 entry.path,
             );
@@ -103,6 +110,36 @@ it("requires confirmation for no-ID logical repeats and does not infer duplicate
     repeat.retire();
     await expect(repeat.commit("import-as-new")).rejects.toThrow("closed");
     expect((await vault.readItems()).items).toHaveLength(2);
+    vault.close();
+});
+
+it("skips passkeys with a path warning and imports the rest of the batch", async () => {
+    const vault = await createVault(
+        "synthetic",
+        `Passkeys ${crypto.randomUUID()}`,
+    );
+    const source: any = structuredClone(supported);
+    source.items[0].login.fido2Credentials = [
+        { credentialId: "SYNTHETIC-NOT-A-PASSKEY" },
+    ];
+    const preview = await preparePersonalJsonImport(
+        vault,
+        JSON.stringify(source),
+    );
+    expect(preview.issues).toEqual([]);
+    expect(preview.counts.login).toBe(1);
+    expect(
+        preview.warnings.some((warning) =>
+            warning.includes("/items/0/login/fido2Credentials"),
+        ),
+    ).toBe(true);
+    expect(JSON.stringify(preview.warnings)).not.toContain(
+        "SYNTHETIC-NOT-A-PASSKEY",
+    );
+    await preview.commit();
+    const stored = await vault.readItems();
+    expect(stored.items).toHaveLength(5);
+    expect(JSON.stringify(stored)).not.toContain("SYNTHETIC-NOT-A-PASSKEY");
     vault.close();
 });
 
