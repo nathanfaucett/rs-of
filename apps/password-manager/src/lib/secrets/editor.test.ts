@@ -2,9 +2,11 @@ import { flushSync, mount, tick, unmount } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EncryptedSecret, VaultHandle } from "../vault/vault";
 import LocalSecretEditor from "./LocalSecretEditor.svelte";
-import type { Secret } from "./secret";
+import { serializeJsonExport } from "../json-export/export";
+import type { Login as Secret } from "./secret";
 
 const original: Secret = {
+    kind: "login",
     id: "12345678-1234-4234-8234-123456789abc",
     name: "Personal login",
     secret: "old-password",
@@ -83,6 +85,13 @@ async function setup(initial: Secret[] = []) {
     }
     const vault = {
         id: crypto.randomUUID(),
+        prepareItems: vi.fn(async () => {}),
+        readItems: vi.fn(async () => {
+            const items = [];
+            for (const record of await vault.loadSecrets())
+                items.push(JSON.parse(await vault.decryptSecret(record)));
+            return { items, folders: [] };
+        }),
         loadSecrets: vi.fn(async () => [...records.values()].map(encrypted)),
         decryptSecret: vi.fn(
             async (record: EncryptedSecret) => record.ciphertext,
@@ -100,6 +109,8 @@ async function setup(initial: Secret[] = []) {
     } satisfies Pick<
         VaultHandle,
         | "id"
+        | "prepareItems"
+        | "readItems"
         | "loadSecrets"
         | "decryptSecret"
         | "encryptAndStore"
@@ -122,13 +133,382 @@ async function saved() {
     expect(target.querySelector("form")).toBeNull();
 }
 
+async function edit(name: string) {
+    await click(name);
+    await click("Edit");
+}
+
 afterEach(async () => {
+    vi.restoreAllMocks();
     if (component) await unmount(component);
     component = undefined;
     target?.remove();
 });
 
 describe("local secret editor with the real workflow and collection", () => {
+    it("requires a new Boolean value, then saves an exportable item after correction", async () => {
+        const { records, vault } = await setup();
+        await click("New secure note");
+        await fill("name", "Boolean note");
+        await click("Add custom field");
+        await fill("field-name-0", "Enabled");
+        await fill("field-type-0", "boolean");
+        await click("Save");
+        expect(records.size).toBe(0);
+        expect(vault.encryptAndStore).not.toHaveBeenCalled();
+        expect(target.textContent).toContain("Select True or False");
+        expect(control("field-value-0").getAttribute("aria-invalid")).toBe(
+            "true",
+        );
+        await fill("field-value-0", "false");
+        await click("Save");
+        await saved();
+        const exported = JSON.parse(
+            serializeJsonExport({ items: [...records.values()], folders: [] }),
+        );
+        expect(exported.items[0].fields).toEqual([
+            { name: "Enabled", type: 2, value: "false" },
+        ]);
+    });
+
+    it.each([null, ""])(
+        "preserves unchanged legacy Boolean %s and offers an explicit export fix",
+        async (value) => {
+            const legacy = {
+                ...original,
+                fields: [{ name: "Legacy", type: "boolean" as const, value }],
+            };
+            const { records } = await setup([legacy]);
+            await edit(legacy.name);
+            await fill("name", "Renamed legacy");
+            await click("Save");
+            await saved();
+            expect(records.get(legacy.id)?.fields).toEqual(legacy.fields);
+            expect(() =>
+                serializeJsonExport({
+                    items: [...records.values()],
+                    folders: [],
+                }),
+            ).toThrow("Cannot represent Boolean");
+            await click("Edit");
+            await fill("field-value-0", "true");
+            await click("Save");
+            await saved();
+            expect(
+                JSON.parse(
+                    serializeJsonExport({
+                        items: [...records.values()],
+                        folders: [],
+                    }),
+                ).items[0].fields[0].value,
+            ).toBe("true");
+        },
+    );
+
+    it.each([null, ""])(
+        "preserves an unchanged legacy Boolean %s after removing a preceding Text field",
+        async (value) => {
+            const legacy = {
+                ...original,
+                fields: [
+                    { name: "Text", type: "text" as const, value: "Unrelated" },
+                    { name: "Legacy", type: "boolean" as const, value },
+                ],
+            };
+            const { records } = await setup([legacy]);
+            await edit(legacy.name);
+            const remove = target.querySelector<HTMLButtonElement>(
+                '[aria-label="Remove custom field 1"]',
+            );
+            if (!remove) throw new Error("Missing Text field removal control");
+            remove.click();
+            flushSync();
+            await tick();
+            await click("Save");
+            await saved();
+            const stored = records.get(legacy.id)!;
+            expect(stored.fields).toEqual([legacy.fields[1]]);
+            expect(Reflect.ownKeys(stored.fields[0]).sort()).toEqual([
+                "name",
+                "type",
+                "value",
+            ]);
+            expect(() =>
+                serializeJsonExport({ items: [stored], folders: [] }),
+            ).toThrow("Cannot represent Boolean at /items/0/fields/0/value");
+            await click("Edit");
+            await click("Add custom field");
+            await fill("field-name-1", "Legacy");
+            await fill("field-type-1", "boolean");
+            await click("Save");
+            expect(control("field-value-1").getAttribute("aria-invalid")).toBe(
+                "true",
+            );
+            expect(records.get(legacy.id)).toEqual(stored);
+            target
+                .querySelector<HTMLButtonElement>(
+                    '[aria-label="Remove custom field 2"]',
+                )!
+                .click();
+            flushSync();
+            await tick();
+            await fill("field-name-0", "Altered legacy");
+            await click("Save");
+            expect(target.textContent).toContain("Select True or False");
+            expect(records.get(legacy.id)).toEqual(stored);
+        },
+    );
+
+    it("rejects changing a Text field to an unset Boolean until corrected", async () => {
+        const { records } = await setup([
+            {
+                ...original,
+                fields: [{ name: "Empty", type: "text", value: "" }],
+            },
+        ]);
+        await edit(original.name);
+        await fill("field-type-0", "boolean");
+        await click("Save");
+        expect(target.textContent).toContain("Select True or False");
+        expect(records.get(original.id)?.fields[0].type).toBe("text");
+        await fill("field-value-0", "false");
+        await click("Save");
+        await saved();
+        expect(records.get(original.id)?.fields[0]).toEqual({
+            name: "Empty",
+            type: "boolean",
+            value: "false",
+        });
+    });
+    it("creates a private multiline Secure Note without Login controls and cancels isolated edits", async () => {
+        const { records } = await setup([original]);
+        await click("New secure note");
+        expect(target.querySelector("#secret")).toBeNull();
+        expect(target.querySelector("#username")).toBeNull();
+        expect(target.querySelector("#totp")).toBeNull();
+        await click("Password generator");
+        await click("Generate");
+        expect(target.textContent).not.toContain("Use in Login draft");
+        await click("Password generator");
+        await fill("name", "Private note");
+        await fill("notes", "秘密 📝\nSecond line <script>plain text</script>");
+        await click("Add custom field");
+        await fill("field-name-0", "PIN");
+        await fill("field-type-0", "hidden");
+        await fill("field-value-0", "PRIVATE-NOTE-FIELD");
+        await click("Save");
+        await saved();
+        const note = [...records.values()].find(
+            (record) => record.name === "Private note",
+        );
+        expect(note).toMatchObject({
+            kind: "secureNote",
+            type: 0,
+            notes: "秘密 📝\nSecond line <script>plain text</script>",
+            history: [],
+        });
+        expect(note).not.toHaveProperty("secret");
+        expect(target.innerHTML).not.toContain("秘密");
+        expect(target.innerHTML).not.toContain("PRIVATE-NOTE-FIELD");
+        await click("Show Notes");
+        expect(target.textContent).toContain(
+            "秘密 📝\nSecond line <script>plain text</script>",
+        );
+        expect(target.querySelector("script")).toBeNull();
+        await click("Edit");
+        await fill("notes", "abandoned");
+        await fill("field-value-0", "abandoned");
+        await click("Cancel");
+        expect(target.innerHTML).not.toContain("秘密");
+        expect(records.get(note!.id)).toEqual(note);
+        expect(records.get(original.id)).toEqual(original);
+    });
+
+    it("generates without writes, inserts only on request with confirmation, and preserves history through cancel/save", async () => {
+        const { records, vault } = await setup([original, other]);
+        await click("Password generator");
+        await click("Generate");
+        expect(target.textContent).not.toContain("Use in Login draft");
+        expect(vault.encryptAndStore).not.toHaveBeenCalled();
+        await click(original.name);
+        await click("Edit");
+        await click("Password generator");
+        await click("Generate");
+        await click("Show Generated value");
+        const generated = button("Hide Generated value")
+            .closest("fieldset")
+            ?.querySelector("p")?.textContent;
+        expect(generated).toHaveLength(20);
+        expect(control("secret").value).toBe(original.secret);
+        await click("Use in Login draft");
+        expect(control("secret").value).toBe(generated);
+        expect(control("confirm-secret").value).toBe(generated);
+        expect(control("secret").type).toBe("password");
+        expect(vault.encryptAndStore).not.toHaveBeenCalled();
+        await click("Cancel");
+        expect(records.get(original.id)).toEqual(original);
+        await click("Edit");
+        await click("Password generator");
+        await click("Generate");
+        await click("Use in Login draft");
+        const savedPassword = control("secret").value;
+        await click("Save");
+        await saved();
+        const changed = records.get(original.id)!;
+        expect(changed.secret).toBe(savedPassword);
+        expect(changed.history).toEqual([
+            { secret: original.secret, changedAt: changed.updatedAt },
+        ]);
+        expect(records.get(other.id)).toEqual(other);
+        await click("Edit");
+        expect(control("secret").value).toBe(savedPassword);
+    });
+
+    it("discards generated state and pending clipboard feedback on navigation and retirement", async () => {
+        await setup([original, other]);
+        let finish!: () => void;
+        const write = vi
+            .spyOn(navigator.clipboard, "writeText")
+            .mockImplementation(
+                () =>
+                    new Promise<void>((resolve) => {
+                        finish = resolve;
+                    }),
+            );
+        await click("Password generator");
+        await click("Generate");
+        await click("Copy Generated value");
+        expect(write).toHaveBeenCalledOnce();
+        await click(other.name);
+        finish();
+        await tick();
+        expect(target.textContent).not.toContain("Copied.");
+        await click("Password generator");
+        expect(button("Copy Generated value").disabled).toBe(true);
+        await click("Generate");
+        (component as { retire: () => void }).retire();
+        flushSync();
+        expect(target.textContent).not.toContain("Generated value");
+    });
+    it("opens read-only details without writes and reveals only on an explicit action", async () => {
+        const { vault, records } = await setup([original, other]);
+        await click(original.name);
+        expect(target.querySelector("form")).toBeNull();
+        expect(target.textContent).toContain("Original notes");
+        expect(target.innerHTML).not.toContain("old-password");
+        expect(button("Edit")).toBeDefined();
+        await click("Show Password");
+        expect(target.textContent).toContain("old-password");
+        await click(other.name);
+        expect(target.innerHTML).not.toContain("old-password");
+        await click(original.name);
+        expect(target.innerHTML).not.toContain("old-password");
+        expect(vault.encryptAndStore).not.toHaveBeenCalled();
+        expect(records.get(original.id)).toEqual(original);
+    });
+    it("reports clipboard success, denied and unavailable access without exposing the value in feedback", async () => {
+        await setup([original]);
+        const write = vi.fn().mockResolvedValue(undefined);
+        vi.spyOn(navigator, "clipboard", "get").mockReturnValue({
+            writeText: write,
+        } as unknown as Clipboard);
+        await click(original.name);
+        await click("Copy Password");
+        await expect
+            .poll(() => target.querySelector('[role="status"]')?.textContent)
+            .toContain("Copied.");
+        expect(write).toHaveBeenCalledWith("old-password");
+        expect(target.innerHTML).not.toContain("old-password");
+        write.mockRejectedValueOnce(new Error("old-password"));
+        await click("Copy Password");
+        await expect
+            .poll(() => target.querySelector('[role="alert"]')?.textContent)
+            .toContain("Copy failed.");
+        expect(target.innerHTML).not.toContain("old-password");
+        vi.spyOn(navigator, "clipboard", "get").mockReturnValue(
+            undefined as unknown as Clipboard,
+        );
+        await click("Copy Password");
+        await expect
+            .poll(() => target.querySelector('[role="alert"]')?.textContent)
+            .toContain("unavailable or denied");
+    });
+    it("protects hidden fields and ignores clipboard completion after item navigation", async () => {
+        await setup([
+            {
+                ...original,
+                fields: [{ name: "PIN", type: "hidden", value: "PRIVATE-PIN" }],
+            },
+            other,
+        ]);
+        let finish!: () => void;
+        const write = vi
+            .spyOn(navigator.clipboard, "writeText")
+            .mockImplementationOnce(
+                () =>
+                    new Promise<void>((resolve) => {
+                        finish = resolve;
+                    }),
+            );
+        await click(original.name);
+        expect(target.innerHTML).not.toContain("PRIVATE-PIN");
+        await click("Show Custom field 1: PIN");
+        expect(target.textContent).toContain("PRIVATE-PIN");
+        await click("Copy Custom field 1: PIN");
+        expect(write).toHaveBeenCalledWith("PRIVATE-PIN");
+        await click(other.name);
+        finish();
+        await tick();
+        expect(target.textContent).not.toContain("Copied.");
+        expect(target.innerHTML).not.toContain("PRIVATE-PIN");
+        await click(original.name);
+        expect(target.innerHTML).not.toContain("PRIVATE-PIN");
+    });
+    it("keeps dirty nested edits when navigation is rejected and discards them only on approval", async () => {
+        const { records, vault } = await setup([original, other]);
+        const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+        await edit(original.name);
+        await fill("uri-0", "discarded");
+        await fill("field-value-0", "discarded");
+        await click(other.name);
+        expect(confirm).toHaveBeenCalledWith("Discard unsaved changes?");
+        expect(control("uri-0").value).toBe("discarded");
+        await click("Refresh");
+        expect(control("field-value-0").value).toBe("discarded");
+        const leave = new Event("beforeunload", { cancelable: true });
+        window.dispatchEvent(leave);
+        expect(leave.defaultPrevented).toBe(true);
+        confirm.mockReturnValue(true);
+        await click(other.name);
+        expect(target.querySelector("form")).toBeNull();
+        expect(target.querySelector("[data-detail-heading]")?.textContent).toBe(
+            other.name,
+        );
+        expect(document.activeElement).toBe(
+            target.querySelector("[data-detail-heading]"),
+        );
+        await edit(original.name);
+        expect(control("uri-0").value).toBe(original.uris[0].uri);
+        expect(records.get(original.id)).toEqual(original);
+        expect(vault.encryptAndStore).not.toHaveBeenCalled();
+    });
+    it("saves and reopens a username-only Login without password confirmation", async () => {
+        const { records } = await setup();
+        await click("New secret");
+        await fill("name", "Passwordless login");
+        await fill("username", "alice");
+        expect((control("secret") as HTMLInputElement).required).toBe(false);
+        expect(target.querySelector("#confirm-secret")).toBeNull();
+        await click("Save");
+        await saved();
+        expect([...records.values()][0]).toMatchObject({
+            kind: "login",
+            username: "alice",
+        });
+        await edit("Passwordless login");
+        expect(control("secret").value).toBe("");
+        expect(control("username").value).toBe("alice");
+    });
     it("adds and saves two websites, match rules, username, and custom field types", async () => {
         const { records, vault } = await setup();
         await click("New secret");
@@ -182,10 +562,11 @@ describe("local secret editor with the real workflow and collection", () => {
         expect(vault.encryptAndStore).toHaveBeenCalledExactlyOnceWith(
             JSON.stringify(record),
             record.id,
+            null,
         );
         await click("Refresh");
         await expect.poll(() => target.textContent).toContain("Refreshed.");
-        await click("New login");
+        await edit("New login");
         expect(control("username").value).toBe("alice");
         expect(control("uri-1").value).toBe(record.uris[1]?.uri);
         expect(control("match-1").value).toBe("startsWith");
@@ -194,7 +575,7 @@ describe("local secret editor with the real workflow and collection", () => {
 
     it("edits both websites and match rules and saves the same record", async () => {
         const { records, vault } = await setup([original, other]);
-        await click(original.name);
+        await edit(original.name);
         expect(control("username").value).toBe("old-user");
         await fill("username", "new-user");
         await fill("secret", "changed-password");
@@ -255,9 +636,11 @@ describe("local secret editor with the real workflow and collection", () => {
         expect(target.querySelector("#confirm-secret")).toBeNull();
         expect(target.textContent).toContain("Confirmed login");
         // Get the new record's ID
-        const newRecord = [...records.values()].find((r) => r.name === "Confirmed login");
+        const newRecord = [...records.values()].find(
+            (r) => r.name === "Confirmed login",
+        );
         if (!newRecord) throw new Error("Expected Confirmed login record");
-        await click("Confirmed login");
+        await edit("Confirmed login");
         await expect.poll(() => target.querySelector("form")).not.toBeNull();
         expect((control("secret") as HTMLInputElement).type).toBe("password");
         expect(target.querySelector("#confirm-secret")).toBeNull();
@@ -266,7 +649,7 @@ describe("local secret editor with the real workflow and collection", () => {
         await saved();
         expect(records.get(newRecord.id)?.notes).toBe("Notes only");
         expect(target.textContent).toContain("Confirmed login");
-        await click("Confirmed login");
+        await edit("Confirmed login");
         await expect.poll(() => target.querySelector("form")).not.toBeNull();
         await fill("secret", "second-password");
         await fill("confirm-secret", "wrong-password");
@@ -277,7 +660,7 @@ describe("local secret editor with the real workflow and collection", () => {
         await saved();
         expect(records.get(newRecord.id)?.secret).toBe("second-password");
         expect(target.textContent).toContain("Confirmed login");
-        await click("Confirmed login");
+        await edit("Confirmed login");
         await expect.poll(() => target.querySelector("form")).not.toBeNull();
         await fill("secret", "third-password");
         expect(control("confirm-secret").value).toBe("");
@@ -294,7 +677,7 @@ describe("local secret editor with the real workflow and collection", () => {
 
     it("Cancel discards nested edits without changing the collection or persisted record", async () => {
         const { records, vault } = await setup([original]);
-        await click(original.name);
+        await edit(original.name);
         await fill("name", "Discarded login");
         await fill("username", "discarded-user");
         await fill("uri-0", "https://discarded.example.com");
@@ -309,7 +692,7 @@ describe("local secret editor with the real workflow and collection", () => {
         expect(vault.encryptAndStore).not.toHaveBeenCalled();
         expect(vault.deleteSecret).not.toHaveBeenCalled();
 
-        await click(original.name);
+        await edit(original.name);
         expect(control("username").value).toBe(original.username);
         expect(control("uri-0").value).toBe(original.uris[0]?.uri);
         expect(control("match-0").value).toBe("domain");
@@ -325,24 +708,73 @@ describe("local secret editor with the real workflow and collection", () => {
         expect(vault.encryptAndStore).not.toHaveBeenCalled();
     });
 
-    it("requires delete confirmation, supports cancellation, and removes only the selected record", async () => {
+    it.each(["trash", "restore", "purge"] as const)(
+        "does not claim success for an unacknowledged %s",
+        async (operation) => {
+            const initial =
+                operation === "trash"
+                    ? original
+                    : { ...original, deletedAt: "2026-01-01T00:00:00.000Z" };
+            const { vault, records } = await setup([initial, other]);
+            if (operation !== "trash") await click("Trash");
+            if (operation === "purge") {
+                vault.deleteSecret.mockImplementationOnce(async () => {});
+                await click("Delete permanently");
+                await click("Confirm permanent delete");
+            } else {
+                vault.encryptAndStore.mockImplementationOnce(async () => ({
+                    id: initial.id,
+                    ciphertext: JSON.stringify(initial),
+                    nonce: "test",
+                    createdAt: initial.createdAt,
+                    updatedAt: initial.updatedAt,
+                }));
+                if (operation === "trash") {
+                    await click("Delete");
+                    await click("Confirm delete");
+                } else await click("Restore");
+            }
+            await expect
+                .poll(() => target.textContent)
+                .toContain(
+                    "Storage write was not acknowledged; authoritative records reloaded. Verify the outcome before retrying.",
+                );
+            expect(records.get(original.id)).toEqual(initial);
+            expect(records.get(other.id)).toEqual(other);
+            expect(target.textContent).not.toContain(
+                operation === "trash"
+                    ? "Moved to Trash."
+                    : operation === "restore"
+                      ? "Restored."
+                      : "Permanently deleted.",
+            );
+            if (operation === "trash")
+                expect(button(original.name)).toBeDefined();
+            else expect(button("Restore")).toBeDefined();
+        },
+    );
+
+    it("moves only the selected item to Trash, restores it intact, and separately confirms permanent deletion", async () => {
         const { records, vault } = await setup([original, other]);
-        await click(original.name);
+        await edit(original.name);
         await click("Delete");
-        expect(target.textContent).toContain(
-            `Delete ${original.name}? This cannot be undone.`,
-        );
+        expect(target.textContent).toContain(`Move ${original.name} to Trash?`);
         expect(records.get(original.id)).toEqual(original);
         expect(vault.deleteSecret).not.toHaveBeenCalled();
         await click("Cancel delete");
         expect(target.textContent).not.toContain("This cannot be undone.");
-        expect(target.querySelector("form")).not.toBeNull();
+        expect(target.querySelector("form")).toBeNull();
         expect(vault.deleteSecret).not.toHaveBeenCalled();
         await click("Delete");
         await click("Confirm delete");
-        await expect.poll(() => target.textContent).toContain("Deleted.");
-        expect(vault.deleteSecret).toHaveBeenCalledExactlyOnceWith(original.id);
-        expect(records.has(original.id)).toBe(false);
+        await expect
+            .poll(() => target.textContent)
+            .toContain("Moved to Trash.");
+        expect(vault.deleteSecret).not.toHaveBeenCalled();
+        expect(records.get(original.id)).toEqual({
+            ...original,
+            deletedAt: expect.any(String),
+        });
         expect(records.get(other.id)).toEqual(other);
         expect(target.querySelector("form")).toBeNull();
         expect(target.textContent).not.toContain(original.name);
@@ -351,6 +783,43 @@ describe("local secret editor with the real workflow and collection", () => {
         await expect.poll(() => target.textContent).toContain("Refreshed.");
         expect(target.textContent).not.toContain(original.name);
         expect(button(other.name)).toBeDefined();
-        expect(vault.encryptAndStore).not.toHaveBeenCalled();
+        await click("Trash");
+        expect(button("Trash").getAttribute("aria-pressed")).toBe("true");
+        expect(target.textContent).toContain(original.name);
+        expect(target.textContent).not.toContain(other.name);
+        expect(target.querySelector("form")).toBeNull();
+        await click("Restore");
+        await expect.poll(() => target.textContent).toContain("Restored.");
+        expect(records.get(original.id)).toEqual(original);
+        expect(target.textContent).toContain("Trash is empty.");
+        await click("All items");
+        await click("Delete");
+        await click("Confirm delete");
+        await expect
+            .poll(() => target.textContent)
+            .toContain("Moved to Trash.");
+        await click("Trash");
+        await click("Delete permanently");
+        expect(target.querySelector('[role="alertdialog"]')).not.toBeNull();
+        expect(document.activeElement).toBe(button("Cancel delete"));
+        expect(vault.deleteSecret).not.toHaveBeenCalled();
+        await click("Cancel delete");
+        expect(document.activeElement).toBe(button("Delete permanently"));
+        expect(records.has(original.id)).toBe(true);
+        await click("Delete permanently");
+        await click("Confirm permanent delete");
+        await expect
+            .poll(() => target.textContent)
+            .toContain("Permanently deleted.");
+        expect(vault.deleteSecret).toHaveBeenCalledExactlyOnceWith(
+            original.id,
+            expect.objectContaining({
+                ...original,
+                deletedAt: expect.any(String),
+            }),
+        );
+        expect(records.has(original.id)).toBe(false);
+        expect(records.get(other.id)).toEqual(other);
+        expect(target.textContent).toContain("Trash is empty.");
     });
 });

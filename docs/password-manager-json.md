@@ -1,0 +1,128 @@
+# Password manager JSON portability
+
+Contract: **personal-json-v1**, defined by ticket 01 on 2026-11-05. This names this product's supported subset; it is not a Bitwarden format version. This is a design requirement for typed-item/import tickets, not implemented behavior. See [reference evidence and dispositions](password-manager-reference.md).
+
+## Supported envelope
+
+Accept UTF-8 plaintext JSON with an object root and required `items` array. Accept `encrypted: false` or its omission (official custom-file examples omit it); reject any other value. `folders` can be omitted (means empty) or an array. Export always emits `encrypted: false`, `folders`, and `items`. Keys are case-sensitive. Reject malformed JSON, duplicate object member names, wrong shapes, and trailing content. Do not guess a vendor or coerce numeric strings to enum values.
+
+Only personal ownership is supported: `organizationId` absent/null, `collectionIds` absent/null/empty array, root `collections` absent/empty array. Reject nonempty organization/collection data. Empty sentinels carry no access rights and may normalize away. No organization permissions are recreated.
+
+Allowed root keys: `encrypted`, `folders`, `items`, `collections` (empty only). Unknown root/item/nested keys must be listed by JSON path as unsupported and block commit. Do not silently strip them. Do not show values, including unknown values, in diagnostics. This strict rule is intentionally narrower than Bitwarden's importer.
+
+All input is validated before writes. Preview supported counts by type, folders, errors, and unsupported paths. A blocking issue prevents **all** writes; do not import only the supported records. Cancellation and any validation failure leave the destination unchanged. A later relaxation needs explicit review, not a lossy fallback.
+
+## Common item mapping
+
+The `local` names below specify logical data, not a new physical schema. The typed model ticket owns final internal layout. Every property in the type tables is allowed only in its matching object. Require exactly one matching type object; reject other type payloads even if empty.
+
+| JSON property | Logical local data | Validation and defaults |
+| --- | --- | --- |
+| `type` | Item kind | Required integer: Login 1, Secure Note 2, Card 3, Identity 4, SSH Key 5. No coercion. Reject 6/7/8 and all unknown values. |
+| `name` | Display name | Required string; reject empty/whitespace-only name; preserve accepted bytes (no trim on import). This stricter local rule is a product decision. |
+| `id` | Import source identity | Optional nonempty string; Bitwarden IDs are normally UUIDs. Assign a fresh local UUID, retain source-to-local mapping for this import/repeat detection. Do not trust external IDs as destination overwrite authority. |
+| `folderId` | Folder membership | Missing/null means unfiled; otherwise a string referring to exactly one folder in this file. Dangling/ambiguous reference blocks commit. Remap to fresh destination folder ID. |
+| `notes` | Private plain text notes | Missing/null/string accepted for every kind. Preserve empty string, Unicode and line breaks. No rich-text interpretation. |
+| `favorite` | Favorite flag | Optional boolean, default false. No string/integer coercion. |
+| `fields` | Ordered custom fields | Missing/null means empty; otherwise validated array (below). Preserve order and duplicate names. |
+| `passwordHistory` | Ordered dated prior values | Missing/null means empty; otherwise validated array (below). Preserve for all types; only Login password changes add entries in core. |
+| `creationDate` | `createdAt` | Optional/null or valid RFC 3339 timestamp with explicit timezone. If absent/null, use import time and disclose that date was unavailable. |
+| `revisionDate` | `updatedAt` | Same date rules; absent/null uses import time. Preserve supplied instants; do not replace dates on import with current time. |
+| `deletedDate` | Trash state/date | Missing/null accepted as active. Non-null is **unsupported** in personal JSON v1; block, do not revive or drop trashed items. Local encrypted backup, not this subset, must retain Trash. |
+| `archivedDate` | Archive state | Missing/null accepted; non-null blocks import. No silent unarchive. |
+| `reprompt` | Reference reauthentication policy | Missing/null/0 accepted as none. `1` unsupported and blocks import. A stored flag without enforced reauthentication is not support. |
+| `organizationId`, `collectionIds` | Ownership guards | Only empty personal sentinels above. |
+
+Other known reference data (`attachments`, `key`, `data`, `permissions`, `object`, alternate type objects, and all unknown keys) is outside this allowlist, even if apparently empty. Report rather than silently discard. In particular do not import per-item crypto keys or encrypted blobs as content.
+
+For optional strings in all tables, missing/null means no value. Empty string is a distinct valid string. Preserve these logical states; export absent optional values as null. Arrays absent/null normalize to empty. Array order is significant. No numeric conversion of card numbers, postal codes, identifiers, passwords, or field values. Preserve leading zeroes. Imported values never appear in logs/errors/telemetry. Dates normalize by instant, not by original timezone spelling; IDs are compared through the import mapping, not byte-for-byte export identity.
+
+## Five-type field mapping and validation
+
+All kinds also have the common fields above. Name is required for all; no Login password is required for any kind. Official custom-file help permits empty Login/Note/Card/Identity objects. The stricter SSH requirement below follows first-party `SshKeyExport.toView`, not a live form observation.
+
+| Kind / object | Complete supported keys → logical local field | Validation and semantics |
+| --- | --- | --- |
+| Login / `login` | `username` → username; `password` → password (existing Secret `secret`); `totp` → authenticator seed; `uris` → ordered URI rules | Object required, can be `{}`. Credentials and TOTP optional strings. Passwordless/username-only Login valid. TOTP storage does not imply that its parameters are supported for generation. |
+| Card / `card` | `cardholderName` → cardholder; `brand` → brand; `number` → number; `expMonth` → expiration month; `expYear` → expiration year; `code` → security code | Object required, can be `{}`. All six optional strings. Keep brand text, expired dates, leading zeroes and original formatting. Do not reject imported cards using Luhn, a current-date check, a closed brand list, or numeric coercion. UI may warn about nonnumeric/month-out-of-range values without rewriting them. This preservation-first rule is a local decision, not proven reference form validation. |
+| Identity / `identity` | `title`, `firstName`, `middleName`, `lastName`, `address1`, `address2`, `address3`, `city`, `state`, `postalCode`, `country`, `company`, `email`, `phone`, `ssn`, `username`, `passportNumber`, `licenseNumber` → same-named identity fields | Object required, can be `{}`. All eighteen optional strings. Country/title may contain unrecognized or localized strings. No country-dependent postal/phone/SSN/email validation that rejects preserved reference data. Mask sensitive identifiers by default. |
+| Secure Note / `secureNote` | `type` → note subtype; common `notes` → actual body | Object required. Empty object defaults subtype to 0 (Generic). Only absent or integer 0 supported; reject other/null subtypes. Body is optional plain text; no password, Markdown/rich-text engine, or additional body property. |
+| SSH Key / `sshKey` | `privateKey` → private key text; `publicKey` → public key text; `keyFingerprint` → stored fingerprint | Object required. `privateKey` required nonblank string; preserve accepted whitespace/newlines. Other two optional strings. Store material as text; do not parse/reformat private keys, derive/replace fingerprints, demand an unencrypted key, or assert key-pair validity. Any future algorithm/format/agent validation requires separate scope. |
+
+Card and Identity validation here deliberately permits incomplete records. UI entry can provide warnings but must not silently normalize imported values or impose a login-password constraint. Secure Note body and custom fields are private data, not less-sensitive metadata.
+
+### URI settings
+
+Each `login.uris` entry has only `uri` and `match`. `uri` must be a nonblank string; preserve its bytes. Do not enforce an HTTP-only URL parser: mobile package URIs, scheme-less addresses, IPs and regular expressions are documented. Missing/null `uris` means empty.
+
+| Bitwarden `match` | Logical stored rule | Reference meaning (not implemented autofill) |
+| --- | --- | --- |
+| Missing or null | Inherit default | Keep distinct from explicit base domain; do not pass through the old schema's default. Destination effective default is base domain; preview warns that source account defaults/equivalent domains are not in the file. Export as null. |
+| 0 | `domain` | Base/registrable domain; not arbitrary last-two-label splitting. Local/single-label hostnames have documented limitations. |
+| 1 | `host` | Hostname plus specified port. |
+| 2 | `startsWith` | Resource begins with stored text; potentially unsafe. |
+| 3 | `exact` | Full exact URI, including scheme/path/query. |
+| 4 | `regex` | Browser regex, case-insensitive in reference. Preserve text without executing it on import. Invalid syntax can be flagged; storage alone is not matching support. |
+| 5 | `never` | Excluded from autofill matching. |
+
+Reject any other numeric/string strategy. Preserve URI order. Account default, equivalent-domain lists and client matching execution are not imported. `uriChecksum` is not supported by the plaintext subset; report if present, do not treat encrypted checksum material as user URI text.
+
+### Custom fields
+
+Allowed keys: `name`, `value`, `type`, `linkedId` (empty sentinel only for supported variants). Require nonblank string name and integer type. Preserve name case, duplicates, ordering and all text bytes.
+
+| `type` | Local variant | Value and disposition |
+| --- | --- | --- |
+| 0 | Text | Missing/null/string accepted; preserve multiline/Unicode and empty string. |
+| 1 | Hidden | Same string rules; masked by default, encrypted at rest like all content. |
+| 2 | Boolean | Require exact string `"true"` or `"false"`; retain wire text or losslessly map to boolean, export lowercase string. No JS truthiness or boolean/numeric coercion. |
+| 3 | Linked | Unsupported; report `linkedId`/field path and block. Never freeze a username/password link into text. |
+| Other | Unknown | Unsupported; block, never default to Text. |
+
+For types 0–2, `linkedId` can be missing/null only. A non-null value blocks import. Official docs state a post-encryption size ceiling for reference custom fields; do not invent equivalent local plaintext limits. Import file-size/count limits need an explicit tested implementation bound and actionable error before real-data use; none is claimed by this research contract.
+
+### Password history
+
+Each entry allows only `password` (required string, may be empty) and `lastUsedDate` (required valid RFC 3339 timestamp with timezone). Map to local prior value/`changedAt`. Missing dates block rather than invent history chronology. Do not truncate to an assumed five-entry limit, deduplicate repeated passwords, reverse order, or expose history automatically. UI history display and mutation triggers remain implementation tests. These are historical values, not proof of service login activity.
+
+### Folders
+
+Each folder allows `id` (required nonempty string, unique in file) and `name` (required nonblank string). Map IDs to new local UUIDs. Duplicate names may remain separate identities; never merge folders/items by display name. Preserve slash-delimited names literally; parent IDs, tree rewrites, automatic ancestor creation, descendant rename, and inherited access are not part of JSON v1. Folder removal in the application keeps items, clearing only direct membership. Reference parent search excludes children; core promises only exact folder membership filters.
+
+## Unsupported data and duplicate policy
+
+Reject encrypted/account-restricted/password-protected Bitwarden JSON, ZIP/binary attachments, CSV, other vendors, organization exports, collection permissions, nonempty passkeys (`login.fido2Credentials`), deleted/archived items, linked fields, nonzero reprompt, newer item types, and unknown keys/variants before writes. `login.fido2Credentials` is the one additional allowed Login key: missing/null/empty array means no passkeys and normalizes to `[]` on export. A non-array/nonempty value blocks. Never claim attachments, Trash, Sends, or passkeys round-trip through this subset. H6 says Bitwarden exports exclude Trash and Sends, so this is not a complete local backup format.
+
+Reject duplicate nonempty item IDs within input. IDs may be absent in custom files; identical records without IDs are not inferred as the same item. Preview identifies source-ID matches from prior imports and exact logical duplicates in the destination (ignoring remapped IDs/import-time defaults); do not expose secret values in duplicate messages. Core policy is **cancel by default, or explicit import-as-new for the whole batch**. No implicit skip/merge/overwrite, including name matches. Repeated import of no-ID files requires the same confirmation. Later tickets must persist encrypted import provenance sufficient for source-ID checks; no plaintext secret hash index.
+
+Validate and prepare the complete batch in memory, then use one atomic persistence boundary (or separately specified recovery protocol). The current one-secret collection loop is not that boundary. Failed commit must leave the destination unchanged, not show partial success. The typed-model ticket must resolve durable provenance and the import ticket must prove the commit boundary before using real data.
+
+## Export and round-trip contract
+
+Export only on an explicit action with a plaintext warning. Emit active personal supported items only; preview counts of excluded Trash and any other unsupported local content. If an active item's contents are not representable, block export rather than omit part of the item. Emit UUIDs for current local item/folder identities, matching remapped `folderId`; source account IDs are not authority. Emit numeric type/rule/custom-field enums, optional scalars as null, empty arrays as arrays, `reprompt: 0`, personal null ownership sentinels, the matching type payload and UTC ISO dates. Export Secure Note subtype 0 and Boolean values as strings.
+
+The lossless claim is **logical values within this subset**: Unicode/text/newlines, leading zeroes, array order, folder relationships, dates by instant, inherited versus explicit URI rule, custom variants and history. It is not byte-identical JSON, original external IDs, source account defaults, entire-account backup, or proven acceptance by the selected web vault. Import → export → import into clean storage must compare logical contents with an ID map. Target-client acceptance requires a separate synthetic-only reference check.
+
+## Synthetic evidence and later acceptance
+
+[Fixtures](fixtures/password-manager/README.md) contain no real credentials. `supported.json` covers all five kinds and every named field. `cases.json` gives independent expected outcomes using JSON-pointer mutations, including optional/minimal items, Unicode, multiline text, all URI rules, unknown variants, ownership, repeats and corruption. These are inputs and expectations for later importer tests, not an importer implementation or proof of round-trip behavior. SSH text is deliberately nonfunctional; it tests storage, not key use.
+
+Later tests must exercise the approved user-visible preview/import/export and public real-persistence boundaries. Check all fixture expectations, no write on rejection/cancel, full logical round-trip, repeat-import confirmation, storage failure/atomicity, and plaintext warnings. No new application test seam is introduced by this research-only ticket.
+
+## First-party field sources
+
+Official help: [custom JSON](https://bitwarden.com/help/condition-bitwarden-import/), [export limits](https://bitwarden.com/help/export-your-data/), [custom fields](https://bitwarden.com/help/custom-fields/), [URI semantics](https://bitwarden.com/help/uri-match-detection/), [folders](https://bitwarden.com/help/folders/).
+
+Source pin: `bitwarden/clients@ab8ea7db118f6f0b4878014594c5d822a658dbe0`. Files below were retrieved at that pin; hashes are in `fixtures/password-manager/sources.json`. Source gives serialization shapes; preservation/validation rules explicitly chosen above are local decisions, not copied form-validation claims.
+
+- [Common item payload and dates](https://github.com/bitwarden/clients/blob/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/models/export/cipher.export.ts)
+- [Login](https://github.com/bitwarden/clients/blob/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/models/export/login.export.ts)
+- [Card](https://github.com/bitwarden/clients/blob/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/models/export/card.export.ts)
+- [Identity](https://github.com/bitwarden/clients/blob/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/models/export/identity.export.ts)
+- [Secure Note](https://github.com/bitwarden/clients/blob/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/models/export/secure-note.export.ts)
+- [SSH Key, including nonblank private-key requirement](https://github.com/bitwarden/clients/blob/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/models/export/ssh-key.export.ts)
+- [Custom field keys](https://github.com/bitwarden/clients/blob/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/models/export/field.export.ts), [numeric variants](https://github.com/bitwarden/clients/blob/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/vault/enums/field-type.enum.ts)
+- [URI keys](https://github.com/bitwarden/clients/blob/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/models/export/login-uri.export.ts), [numeric rules](https://github.com/bitwarden/clients/blob/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/models/domain/domain-service.ts)
+- [History keys](https://github.com/bitwarden/clients/blob/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/models/export/password-history.export.ts)
+- [Note subtype](https://github.com/bitwarden/clients/blob/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/vault/enums/secure-note-type.enum.ts), [item type numbers including newer 6–8](https://github.com/bitwarden/clients/blob/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/common/src/vault/enums/cipher-type.ts)
+- [Personal/organization/encrypted envelopes](https://github.com/bitwarden/clients/blob/ab8ea7db118f6f0b4878014594c5d822a658dbe0/libs/tools/export-vault-core/src/types/bitwarden-json-export-types.ts)

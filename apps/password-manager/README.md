@@ -17,7 +17,214 @@ pnpm --filter @ofsdk/password-manager dev
 ```
 
 The current dependency uses the sibling `ofdb` checkout. The browser must allow
-IndexedDB and Web Crypto. Local development must use a secure browser context.
+IndexedDB, Web Crypto, and Web Locks. Local development must use a secure browser context.
+
+## Local vault identities
+
+Display names are labels, not storage keys. New vaults use a random stable ID and
+an independent SQL database. Case, punctuation, whitespace, and duplicate names
+cannot merge vaults. Names are trimmed; the selector shows the full ID to make
+identical names distinct. `unlockVault(password, id)` accepts that ID, not a name.
+
+The IndexedDB registry reserves each ID and database name with unique constraints
+before creation writes vault data. It marks registration complete only after the
+vault metadata is saved. Interrupted registrations stay visible. Unlock recovers
+a saved vault only when its metadata ID matches the reservation. If metadata was
+not saved, create a new vault with a new ID. Retrying creation never adopts the
+interrupted vault. Storage errors are not success; reload the selector and check
+browser permissions and free space. Do not clear browser data as a repair step.
+
+Existing v1 named databases are registered in place with their stored vault ID.
+No secret, salt, migration history, or source database is copied or deleted. The
+old normalized name is the only available display label. Failed registration
+leaves the source unchanged and can be retried. A duplicate stored ID in different
+databases fails explicitly instead of selecting one silently. Unsupported old
+development schemas still need separate recovery; this transition does not
+repair them. There is no remaining name-based creation or unlock path.
+
+## Typed items
+
+Login supports optional credentials, ordered websites and match settings, notes,
+favorites, custom fields, and dated password history. All five item types have
+create/view/edit/cancel/save/reopen, validated encrypted storage and backup support. See
+[typed fields, safe transition, and later-ticket interfaces](../../docs/password-manager-items.md).
+The transition retains the original database and an authenticated pre-transition
+backup. It never publishes an unverified or partial record set. Close old app tabs
+before upgrade; retained source/staging data is not automatically removed.
+
+## Trash
+
+**Delete** moves an item to encrypted local Trash. Normal item results exclude
+Trash. Select **Trash**, then **Restore** to recover it, or **Delete permanently**
+and confirm the separate dialog. Cancel or Escape changes nothing. No automatic
+purge occurs. Restore retains item data and history; unresolved folder membership
+becomes unfiled. Lock clears the decrypted view. Backups include Trash, and older
+backups can retain permanently deleted items. Deletion is not secure erasure.
+See [Trash behavior and integration limits](../../docs/password-manager-items.md#trash-and-recovery).
+
+## Password and passphrase generator
+
+Select **Password generator** in an unlocked vault. It works without an editor.
+Open a Login draft to enable **Use in Login draft**. This explicit action replaces
+only that draft's password and confirmation, masks the password, and does not
+save. Save uses the existing confirmation and dated-history rules. Cancel does
+not change the stored item. No schema, backup format, or shared workflow changed.
+
+Supported settings:
+
+- Password: integer length 8–128 (default 20), lowercase, uppercase, digits, and
+  symbols `!@#$%&*?+-=_.`. At least one class must be enabled. Every selected
+  class occurs at least once. Optional ambiguity exclusion removes `I l 1 O 0 o`.
+- Passphrase: integer word count 4–20 (default 6), hyphen/space/period/underscore
+  separator, optional initial capitalization of each word, and optional random
+  trailing digit. Words are independent selections with replacement; repeats
+  are allowed. More words are recommended when a long password is accepted.
+
+`crypto.getRandomValues` is the only randomness source. Integer sampling rejects
+values in the uneven uint32 tail before modulo reduction. Password generation
+rejects whole candidates that lack an enabled class. It does not force class
+positions or replace characters after sampling. Invalid settings block generation;
+randomness and clipboard failures use fixed errors, not exception text or secrets.
+No measured-entropy or security-audit claim is made.
+
+The complete 2,048-word BIP-39 English list is bundled from
+[trezor/python-mnemonic](https://github.com/trezor/python-mnemonic/blob/b57a5ad77a981e743f4167ab2f7927a55c1e82a8/src/mnemonic/wordlist/english.txt),
+revision `b57a5ad77a981e743f4167ab2f7927a55c1e82a8`.
+SHA-256: `2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda`.
+It is unmodified. The upstream MIT license, copyright Pavol Rusnak (2013–2016),
+is retained in `src/lib/generator/WORDLIST-LICENSE` and shown in the component.
+This uses the word list only: it does not generate BIP-39 wallet mnemonics.
+The list and license are Vite imports, included in the precached app bundle.
+No runtime download or new dependency is required.
+
+Generated values are masked by `ProtectedValue`. Generation never writes to the
+vault or a persistent generated-history store. Settings changes, clear, internal
+item navigation, route navigation, page hide, disposal, and lock release generated
+state. Insertion transfers the value into the existing isolated Login draft.
+Copy is explicit and may fail. Copied values can remain in the clipboard; no
+unsafe automatic clearing is attempted. JavaScript memory zeroization is not
+guaranteed.
+
+Checks: `src/lib/generator/generator.test.ts` uses deterministic vectors for
+sampling and constraints, including a checksum/uniqueness check for the complete
+word list. `component.test.ts` checks visible validation, settings changes,
+clipboard/RNG failure, and clear. Editor and mounted page tests check explicit
+insertion, confirmation, cancel/save/reopen, history, navigation, late copy,
+lock, and exact encrypted-backup recovery in clean storage. The offline script
+also runs the generator with the server stopped and checks saved passphrase
+reopen and absence of generated values from the application cache.
+
+## Manual and automatic lock
+
+Each vault has an encrypted inactivity timeout: 1, 5, 15, or 30 minutes (default 5).
+Save it under **Automatic lock**. Unlock starts a new deadline; reload requires
+master-password authentication. Expired activity and tab resume lock before
+extending a session. Manual lock also works during pending work. A write already
+sent may have committed; reopen and verify before retrying. Copied values can
+remain on the clipboard. Browser code cannot reliably detect OS lock or erase
+JavaScript memory. See [lock behavior, API, limits, and tests](../../docs/password-manager-lock.md).
+
+## Encrypted backup and recovery
+
+Unlock a vault and select **Download encrypted backup**. To recover, select
+**Restore encrypted backup** in a clean browser profile. Validate the file with
+its original master password, check the full vault ID and count, then confirm.
+Existing vault IDs are never overwritten. Keep the file outside browser storage
+and verify the recovered data before discarding it.
+
+See [the backup format and recovery contract](../../docs/password-manager-backup.md)
+for authenticated contents, API use, limits, atomic publication, uncertain outcomes,
+and the real-persistence/clean-profile test evidence. Old record-only exports are
+not complete backups. No raw key or plaintext item is exported.
+
+## Offline delivery
+
+Run `pnpm --filter @ofsdk/password-manager test:offline` to build and qualify the
+static application. The test needs the installed Playwright Chromium browser.
+It starts a temporary loopback static server, uses only synthetic vaults in an
+isolated temporary browser profile, and closes browsers/server in `finally`.
+It does not connect to the live comparison browser or use Playwriter.
+
+In a worktree with symlinked dependencies, pnpm can reject its task-state path.
+Run the same tools directly from `apps/password-manager`:
+
+```sh
+node node_modules/vite/bin/vite.js build
+node scripts/check-offline.mjs
+node scripts/check-json-export.mjs
+node node_modules/vitest/vitest.mjs run --maxWorkers=1 --no-file-parallelism
+node node_modules/@sveltejs/kit/svelte-kit.js sync
+node node_modules/svelte-check/bin/svelte-check --tsconfig ./tsconfig.json
+```
+
+### Asset convention
+
+`src/service-worker.ts` uses SvelteKit's production `build`/`files` manifest.
+Every generated chunk, stylesheet, and database WASM asset is precached, even
+when a feature has not yet been opened. New features must import their assets
+through Vite or put public, non-sensitive assets in `static`. Do not fetch
+required local feature assets from a CDN or add private data to `static`.
+The worker caches only these public assets and the static root application
+shell. It never caches API responses, decrypted items, keys, drafts, or exports.
+It handles only same-origin GET requests for the allowlist; other requests are
+not cached. No runtime response cache is used.
+
+Serve the complete static `build` directory on HTTPS (loopback is sufficient for
+tests), with correct JavaScript and `application/wasm` MIME types. Do not serve
+an HTML fallback for missing JS/WASM files. Publish each deployment atomically;
+keep old hashed assets available while old tabs remain open. Use a unique
+SvelteKit deployment version for each build. Service workers are not installed
+by the development server. A first-ever offline visit is not supported.
+
+### Readiness, updates, and recovery
+
+Wait for **Offline ready** before disconnecting. The layout checks local storage
+and the active worker's complete asset set. It shows storage denial, quota,
+unsupported-browser, failed-install, missing-asset, and waiting-update guidance.
+The check does not promise future free space or prevent eviction. Browser storage
+can be evicted; private browsing can discard it on close. Local storage is not a
+backup. Keep an external encrypted backup and test clean-profile recovery.
+
+An install checks the deployment version before and after fetching assets. It
+caches one complete version or removes only its failed application cache. It does not activate early. Existing tabs keep the old complete version
+until all controlled tabs close. Lock the vault, close all app tabs, and reopen
+when an update is ready. Activation deletes only this application's old asset
+caches at its base path, never IndexedDB vaults or other applications' caches.
+A missing cached asset returns a clear 503 instead of mixing files from another
+deployment. Reconnect for a complete new deployment. If the installed version's
+cache was evicted and no new deployment exists, use browser developer tools to
+unregister only this app's service worker and delete only its
+`password-manager-app-…` Cache Storage entries, then reload online. **Do not
+clear site data or IndexedDB**: that deletes source vaults. A fully evicted shell
+cannot show an in-app warning while offline; reconnect to load it.
+
+### Qualification and extension
+
+`test:offline` checks the built root-path app in Chromium with real SQL/WASM,
+IndexedDB, and Web Crypto. It checks offline create/edit/lock/select/unlock,
+reload, tab restart, and a new browser process using the same test-only profile.
+The static server is stopped during the first offline flow and the cold browser
+start; those flows complete with zero server requests. The existing JSON browser
+entry point also checks complete offline UI export/preview/import and clean-context
+recovery. Serialize all commands with the shared lock; use the exact commands in
+[qualification and operations](../../docs/password-manager-qualification.md). It also checks:
+
+- WASM precaching and absence of recognizable synthetic passwords/item values
+  from the application cache;
+- failed WASM installs/updates, deployment changes during install, retained old
+  shell, waiting update, complete-version
+  activation, unrelated-cache retention, and source vault preservation;
+- evicted WASM and a first-ever uncached offline visit;
+- actionable storage-denial/quota/browser-support states through injected browser
+  API faults (not real disk exhaustion or browser policy testing).
+
+Later feature tickets should extend this script's visible workflows using only
+synthetic items. Retain the real storage, stopped-server, update, and cold-process
+checks. The complete five-type synthetic release subset, historical version-1
+recovery/upgrade fixture, independent supported JSON portability, faults and
+remaining limits are recorded in [qualification and operations](../../docs/password-manager-qualification.md).
+This is not Bitwarden parity or a security audit. Other browser engines, private
+modes, mobile browsers, eviction policies and non-root deployments remain unverified.
 
 ## Schema migrations
 
@@ -32,6 +239,39 @@ Version 1 creates:
   of adding another metadata row or replacing the original salt.
 - `secrets`: record ID, ciphertext, per-record nonce, and timestamps. Secret
   contents remain encrypted; no plaintext secret index is added.
+
+Version 2 adds nullable `vault_meta.authentication`. The v1 migration is unchanged.
+New vaults store metadata and a versioned AES-GCM password proof in one insert.
+Unlock verifies that proof before returning a handle, including after the last
+item is deleted.
+
+### Authentication and existing vaults
+
+The proof uses the existing non-exportable derived key and a fresh random
+96-bit nonce. Its encrypted payload contains a purpose label, proof version,
+vault ID, salt, original metadata IV, and creation time. Unlock checks both the
+GCM tag and the exact payload. This binds the proof to the vault metadata; it
+stores neither the password nor the key. The original metadata IV remains for
+format continuity; it is not reused as the proof nonce.
+
+A migrated v1 vault has a null proof. A populated v1 vault must decrypt **every**
+record before unlock can write a proof. This is a one-way transition, not a
+second writer: new vaults always have a proof. Wrong passwords or damaged records
+do not establish one. The upgrade changes only the proof field, then reads and
+verifies it before returning a handle. Failed writes leave unlock blocked and
+report that the user must check local storage and reopen before retrying. A
+rejected write can have an uncertain durable outcome; no rollback is assumed.
+
+A legacy empty vault has no original-password evidence. It stays locked for
+**every** attempted password. No attempt establishes a new password. Keep the
+source unchanged and create a separate new vault. This rule does not affect new
+empty vaults or upgraded vaults whose last item was removed. Malformed or unknown
+proof formats fail closed; they are never treated as missing legacy proofs.
+
+This mechanism authenticates key possession and metadata, not the completeness
+or freshness of the record set. It does not prevent storage rollback, deletion,
+a compromised browser, or offline password guessing. It is not an independent
+security audit. Error messages contain no passwords, keys, or decrypted records.
 
 The SQL runner owns `_ofdb_migrations`. Each migration and its history record
 commit atomically. Reopening validates history and skips completed migrations.
@@ -66,11 +306,8 @@ migration are separate concerns; the SQL runner does not decrypt records.
 
 Existing development limits remain:
 
-- Display names determine database names after normalization; distinct display
-  names can collide. Duplicate creation now fails instead of adding metadata.
-- An empty vault does not authenticate its master password against an independent
-  verifier. Populated vaults check a stored record. This needs separate work.
-- The current encrypted export is not a self-contained backup or restore format.
+- The current encrypted backup is self-contained and has tested clean-profile
+  recovery. Historical record-only exports remain incomplete and are rejected.
 - Deletion is not secure erasure. SQL history, browser storage, and backups can
   retain prior ciphertext. No JavaScript memory-zeroization guarantee is made.
 
@@ -85,7 +322,14 @@ pnpm --filter @ofsdk/password-manager check
 ```
 
 Vault tests use real browser SQL, migrations, IndexedDB, and Web Crypto. They cover
-fresh/prepared databases, repeated startup, old/newer schema rejection, duplicate
-creation, encrypted CRUD, and lock/unlock persistence. Collection and editor tests
-cover the existing local workflow. These checks do not qualify production vault
-security, secure erasure, backup recovery, or large-vault performance.
+migration history, repeated startup, old/newer schema rejection, colliding and
+duplicate names, concurrent creation, interrupted registration, storage failure,
+existing-vault registration, encrypted CRUD, and lock/unlock persistence.
+Authentication tests cover empty and populated vaults, last-item removal, v1
+upgrades, unprovable legacy empty vaults, damaged proofs, metadata binding, and
+actual IndexedDB write failures. Mounted page tests use the real vault, workflow,
+collection, and persistence to create, select by ID, lock, and reopen isolated
+records, reject wrong passwords, and show legacy-empty guidance. Collection and
+editor tests cover the existing local workflow. These checks do not qualify
+production vault security, secure erasure, backup recovery, or large-vault
+performance.

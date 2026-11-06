@@ -1,20 +1,27 @@
 <script lang="ts">
-import { onMount } from "svelte";
+import { onMount, tick } from "svelte";
+import { beforeNavigate } from "$app/navigation";
+import RestoreBackup from "$lib/vault/RestoreBackup.svelte";
+import JsonExport from "$lib/json-export/JsonExport.svelte";
+import LockSettingsControl from "$lib/vault/LockSettings.svelte";
+import { createInactivityLock, DEFAULT_LOCK_SETTINGS, type LockSettings } from "$lib/vault/lock";
 import LocalSecretEditor from "$lib/secrets/LocalSecretEditor.svelte";
+import ImportJson from "$lib/import/ImportJson.svelte";
 import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 import {
     createVault as createVaultHandle,
-    unlockVault as unlockVaultHandle,
     listVaults,
-    vaultExists,
+    unlockVault as unlockVaultHandle,
     type VaultHandle,
+    type VaultIdentity,
 } from "$lib/vault/vault";
 
 type VaultState =
     | { status: "loading" }
-    | { status: "select-vault"; vaults: string[] }
+    | { status: "select-vault"; vaults: VaultIdentity[] }
     | { status: "create-vault" }
-    | { status: "unlock-vault"; name: string }
+    | { status: "restore-vault" }
+    | { status: "unlock-vault"; identity: VaultIdentity }
     | { status: "unlocked"; vault: VaultHandle }
     | { status: "error"; message: string };
 
@@ -24,9 +31,112 @@ let confirmPassword = $state("");
 let vaultName = $state("");
 let error = $state("");
 let busy = $state(false);
+let notice = $state("");
+let itemEditor = $state<ReturnType<typeof LocalSecretEditor>>();
+let importControl = $state<ReturnType<typeof ImportJson>>();
+let importing = $state(false);
+function showImport() {
+    if (inactivity.check() || busy || vaultState.status !== "unlocked") return;
+    if (itemEditor?.hasUnsavedChanges() && !window.confirm("Discard unsaved changes?")) return;
+    itemEditor?.retire();
+    importing = true;
+    notice = "";
+}
+function finishImport(success = false) {
+    if (inactivity.check() || vaultState.status !== "unlocked") return;
+    importing = false;
+    notice = success ? "Import verified. All accepted items and folders were added. Check the data and keep an encrypted backup." : "";
+    const request = session;
+    void tick().then(() => {
+        if (request === session && !inactivity.check()) document.getElementById("import-json-action")?.focus();
+    });
+}
+let jsonExport = $state<ReturnType<typeof JsonExport>>();
+let session = 0;
+let lockSettings = $state<LockSettings>({ ...DEFAULT_LOCK_SETTINGS });
+const inactivity = createInactivityLock(() => { void lockVault(); });
+
+function settingsSaved(settings: LockSettings) {
+    if (inactivity.check() || vaultState.status !== "unlocked") return;
+    lockSettings = settings;
+    inactivity.start(settings);
+}
+
+async function enterVault(vault: VaultHandle, request: number) {
+    try {
+        const settings = await vault.loadLockSettings();
+        if (request !== session) { vault.close(); return; }
+        lockSettings = settings;
+        inactivity.start(settings);
+        vaultState = { status: "unlocked", vault };
+    } catch (cause) {
+        vault.close();
+        throw cause;
+    }
+}
+
+beforeNavigate((navigation) => {
+    if (!busy && !importing && !itemEditor?.hasUnsavedChanges()) return;
+    if (navigation.willUnload || !window.confirm("Leave with unsaved or pending changes?")) navigation.cancel();
+});
+
+async function downloadBackup(recovery = false) {
+    if (busy || vaultState.status !== "unlocked") return;
+    busy = true;
+    error = "";
+    notice = "";
+    const vault = vaultState.vault;
+    const request = session;
+    try {
+        const backup = await (recovery ? vault.exportTransitionBackup() : vault.exportBackup());
+        if (inactivity.check() || request !== session) return;
+        const url = URL.createObjectURL(new Blob([backup], { type: "application/json" }));
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `vault-${vault.id}-${recovery ? "pre-transition" : "encrypted"}-backup.json`;
+        document.body.append(link);
+        try { link.click(); } finally {
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+        notice = recovery ? "Pre-transition download requested. This contains the records before conversion, not later edits. Keep the current vault. Restore in a clean profile and verify it before discarding any source data." : "Download requested. Check that the file was saved. Keep it outside browser storage and test restore in a clean profile. It uses this vault's master password and contains the last committed records.";
+    } catch (cause) {
+        if (request === session) error = cause instanceof Error ? cause.message : "Backup download failed. Keep the source vault and retry.";
+    } finally {
+        if (request === session) busy = false;
+    }
+}
+
+async function restored(identity: VaultIdentity) {
+    await showVaultSelector();
+    notice = `Restore verified: ${identity.name}. ID: ${identity.id}. Unlock it and check the data before discarding the backup.`;
+}
 
 onMount(() => {
     void showVaultSelector();
+    const activity = (event: Event) => {
+        if (inactivity.check()) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            return;
+        }
+        inactivity.activity();
+    };
+    const events = ["pointerdown", "pointermove", "keydown", "input", "click", "wheel"];
+    for (const event of events) window.addEventListener(event, activity, { capture: true });
+    const timer = setInterval(() => inactivity.check(), 1000);
+    return () => {
+        clearInterval(timer);
+        for (const event of events) window.removeEventListener(event, activity, { capture: true });
+        inactivity.stop();
+        session++;
+        password = "";
+        confirmPassword = "";
+        itemEditor?.retire();
+        importControl?.retire();
+        jsonExport?.retire();
+        if (vaultState.status === "unlocked") vaultState.vault.close();
+    };
 });
 
 async function createVault() {
@@ -47,48 +157,49 @@ async function createVault() {
         error = "Password must be at least 8 characters.";
         return;
     }
-    const exists = await vaultExists(vaultName.trim());
-    if (exists) {
-        error = "A vault with this name already exists.";
-        return;
-    }
+    if (busy) return;
     busy = true;
+    const request = session;
     try {
         const vault = await createVaultHandle(password, vaultName.trim());
+        if (request !== session) { vault.close(); return; }
         password = "";
         confirmPassword = "";
         vaultName = "";
-        vaultState = { status: "unlocked", vault };
+        await enterVault(vault, request);
     } catch (cause) {
-        error = cause instanceof Error ? cause.message : "Failed to create vault.";
+        if (request === session) error = `${cause instanceof Error ? cause.message : "Failed to create vault."} Check browser storage and free space. Return to the selector to recover an interrupted registration before retrying. Do not clear browser data.`;
     } finally {
-        busy = false;
+        if (request === session) busy = false;
     }
 }
 
 async function unlockVault() {
     error = "";
-    if (vaultState.status !== "unlock-vault") return;
+    if (busy || vaultState.status !== "unlock-vault") return;
     if (!password) {
         error = "Password is required.";
         return;
     }
     busy = true;
+    const request = session;
     try {
-        const vault = await unlockVaultHandle(password, vaultState.name);
+        const vault = await unlockVaultHandle(password, vaultState.identity.id);
+        if (request !== session) { vault.close(); return; }
         password = "";
-        vaultState = { status: "unlocked", vault };
+        await enterVault(vault, request);
     } catch (cause) {
-        error = cause instanceof Error ? cause.message : "Failed to unlock vault. Wrong password?";
+        if (request === session) error = cause instanceof Error ? cause.message : "Failed to unlock vault. Wrong password?";
     } finally {
-        busy = false;
+        if (request === session) busy = false;
     }
 }
 
-function selectVault(name: string) {
+function selectVault(identity: VaultIdentity) {
+    notice = "";
     error = "";
     password = "";
-    vaultState = { status: "unlock-vault", name };
+    vaultState = { status: "unlock-vault", identity };
 }
 
 function showCreateVault() {
@@ -100,28 +211,47 @@ function showCreateVault() {
 }
 
 async function showVaultSelector() {
+    notice = "";
     vaultState = { status: "loading" };
     error = "";
     password = "";
     confirmPassword = "";
     vaultName = "";
+    const request = session;
     try {
         const vaults = await listVaults();
-        vaultState = { status: "select-vault", vaults };
-    } catch {
-        vaultState = { status: "error", message: "Failed to load vaults." };
+        if (request === session) vaultState = { status: "select-vault", vaults };
+    } catch (cause) {
+        if (request === session) vaultState = { status: "error", message: cause instanceof Error ? cause.message : "Cannot load local vaults. Allow browser storage and reload. Do not clear browser data." };
     }
 }
 
 async function lockVault() {
-    if (vaultState.status === "unlocked") {
-        vaultState.vault.close();
-    }
+    inactivity.stop();
+    session++;
+    lockSettings = { ...DEFAULT_LOCK_SETTINGS };
+    password = "";
+    confirmPassword = "";
+    notice = "";
+    error = "";
+    busy = false;
+    itemEditor?.retire();
+    importControl?.retire();
+    importing = false;
+    jsonExport?.retire();
+    if (vaultState.status === "unlocked") vaultState.vault.close();
+    itemEditor = undefined;
+    const request = session;
     await showVaultSelector();
+    if (request !== session) return;
+    notice = "Vault locked. Unsaved edits were discarded. A write already sent may have persisted; unlock and verify before retrying. Copied values can remain on the clipboard.";
 }
 </script>
 
-<div class="flex min-h-0 grow items-start justify-center overflow-auto p-6 sm:items-center">
+<svelte:window onfocus={() => inactivity.check()} onpageshow={() => inactivity.check()} />
+<svelte:document onvisibilitychange={() => inactivity.check()} />
+
+<div class="flex min-h-0 grow items-start justify-center overflow-auto p-6">
     {#if vaultState.status === "loading"}
         <Page width="narrow">
             <p role="status">Loading…</p>
@@ -132,18 +262,24 @@ async function lockVault() {
                 title="Password Manager"
                 description="Select a vault to unlock, or create a new one."
             />
+            {#if notice}<p role="status">{notice}</p>{/if}
             <Card>
                 <div class="flex flex-col gap-4">
+                    <button class="btn btn-secondary btn-md" type="button" onclick={() => { notice = ""; vaultState = { status: "restore-vault" }; }}>Restore encrypted backup</button>
                     {#if vaultState.vaults.length > 0}
                         <div class="flex flex-col gap-2">
                             <p class="text-sm font-medium text-muted-foreground">Existing vaults</p>
-                            {#each vaultState.vaults as name}
+                            {#each vaultState.vaults as identity (identity.id)}
                                 <button
                                     class="btn btn-secondary btn-md text-left"
                                     type="button"
-                                    onclick={() => selectVault(name)}
+                                    onclick={() => selectVault(identity)}
                                 >
-                                    {name}
+                                    <span class="vault-name">{identity.name}</span>
+                                    <span class="block break-all text-xs">ID: {identity.id}</span>
+                                    {#if identity.status === "pending"}
+                                        <span class="block text-xs">Registration interrupted. Unlock to recover. If no data was saved, create a new vault.</span>
+                                    {/if}
                                 </button>
                             {/each}
                         </div>
@@ -158,6 +294,10 @@ async function lockVault() {
                     </button>
                 </div>
             </Card>
+        </Page>
+    {:else if vaultState.status === "restore-vault"}
+        <Page width="narrow">
+            <RestoreBackup onrestored={restored} oncancel={() => void showVaultSelector()} />
         </Page>
     {:else if vaultState.status === "create-vault"}
         <Page width="narrow">
@@ -226,8 +366,8 @@ async function lockVault() {
     {:else if vaultState.status === "unlock-vault"}
         <Page width="narrow">
             <PageHeader
-                title="Unlock vault: {vaultState.name}"
-                description="Enter your master password to access your passwords."
+                title="Unlock vault: {vaultState.identity.name}"
+                description="Vault ID: {vaultState.identity.id}. Enter your master password to access your passwords."
             />
             <Card>
                 <div class="flex flex-col gap-4">
@@ -273,6 +413,9 @@ async function lockVault() {
                 description="Your vault is stored locally and encrypted. This is a local-first app — no server required."
             >
                 {#snippet actions()}
+                    <button id="import-json-action" class="btn btn-secondary btn-md" type="button" disabled={busy || importing} onclick={showImport}>Import Bitwarden JSON</button>
+                    <button class="btn btn-secondary btn-md" type="button" disabled={busy || importing} onclick={() => void downloadBackup()}>{busy ? "Preparing backup…" : "Download encrypted backup"}</button>
+                    <button class="btn btn-secondary btn-md" type="button" disabled={busy || importing} onclick={() => void downloadBackup(true)}>Download pre-transition backup</button>
                     <button
                         class="btn btn-secondary btn-md"
                         type="button"
@@ -280,13 +423,25 @@ async function lockVault() {
                     >
                 {/snippet}
             </PageHeader>
-            <LocalSecretEditor vault={vaultState.vault} />
+            {#if error}<Alert tone="danger">{error}</Alert>{/if}
+            {#if notice}<p role="status">{notice}</p>{/if}
+            {#key vaultState.vault}
+                <JsonExport bind:this={jsonExport} vault={vaultState.vault} isActive={() => !inactivity.check() && vaultState.status === "unlocked"} />
+            {/key}
+            <LockSettingsControl vault={vaultState.vault} settings={lockSettings} onsaved={settingsSaved} />
+            {#if importing}
+                <ImportJson bind:this={importControl} vault={vaultState.vault}
+                    active={() => !inactivity.check() && vaultState.status === "unlocked"}
+                    oncancel={() => finishImport()} onimported={() => finishImport(true)} />
+            {:else}
+                <LocalSecretEditor bind:this={itemEditor} vault={vaultState.vault} />
+            {/if}
         </Page>
     {:else if vaultState.status === "error"}
         <Page width="narrow">
             <Alert tone="danger" title="Error">{vaultState.message}</Alert>
             <div class="mt-4">
-                <button class="btn btn-secondary btn-md" onclick={showVaultSelector}>Try again</button>
+                <button type="button" class="btn btn-secondary btn-md" onclick={showVaultSelector}>Try again</button>
             </div>
         </Page>
     {/if}

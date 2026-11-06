@@ -5,7 +5,8 @@ import {
 } from "@tanstack/db";
 import * as v from "valibot";
 import type { VaultHandle } from "$lib/vault/vault";
-import { type Secret, SecretSchema } from "./secret";
+import { type Folder, StaleItemMutationError } from "$lib/vault/folder";
+import { type Secret, SecretSchema, SecretIdSchema } from "./secret";
 
 export class UnacknowledgedStorageWriteError extends Error {
     constructor() {
@@ -18,8 +19,10 @@ export class UnacknowledgedStorageWriteError extends Error {
 
 export function createLocalSecretCollection({
     vault,
+    onFolders = () => {},
 }: {
     vault: VaultHandle;
+    onFolders?: (folders: Folder[]) => void;
 }): Collection<
     Secret,
     string,
@@ -38,25 +41,10 @@ export function createLocalSecretCollection({
 
     async function snapshot(): Promise<Secret[]> {
         active();
-        const encrypted = await vault.loadSecrets();
-        const secrets: Secret[] = [];
-        const seen = new Set<string>();
-        for (const enc of encrypted) {
-            try {
-                const plaintext = await vault.decryptSecret(enc);
-                const record = v.parse(SecretSchema, JSON.parse(plaintext));
-                if (record.id !== enc.id || seen.has(record.id))
-                    throw new Error("Identity mismatch");
-                seen.add(record.id);
-                secrets.push(record);
-            } catch {
-                throw new Error(
-                    "Malformed vault record. No partial records were loaded.",
-                );
-            }
-        }
+        const snapshot = await vault.readItems();
         active();
-        return secrets;
+        onFolders(snapshot.folders);
+        return snapshot.items;
     }
 
     function mutate(params: MutationFnParams<Secret>) {
@@ -160,7 +148,7 @@ export function createLocalSecretCollection({
                             "Only single-secret mutations are supported",
                         );
                     const key = String(mutation.key);
-                    if (!v.safeParse(SecretSchema.entries.id, key).success)
+                    if (!v.safeParse(SecretIdSchema, key).success)
                         throw new Error("Invalid secret identity");
                     const value =
                         mutation.type === "delete"
@@ -174,15 +162,25 @@ export function createLocalSecretCollection({
 
                     try {
                         if (mutation.type === "delete") {
-                            await vault.deleteSecret(key);
+                            await vault.deleteSecret(
+                                key,
+                                v.parse(SecretSchema, mutation.original),
+                            );
                         } else if (value) {
                             await vault.encryptAndStore(
                                 JSON.stringify(value),
                                 key,
+                                mutation.type === "insert"
+                                    ? null
+                                    : v.parse(SecretSchema, mutation.original),
                             );
                         }
                     } catch (cause) {
                         active();
+                        if (cause instanceof StaleItemMutationError) {
+                            await reload();
+                            throw cause;
+                        }
                         const error = new Error(
                             cause instanceof Error
                                 ? cause.message
