@@ -190,8 +190,9 @@ export async function rejectPendingNodeJoin(offerId: string): Promise<void> {
     return;
 }
 
-export function listDevices(): Promise<DeviceInfo[]> {
-    return deviceApi.listDevices();
+export function listDevices(signal?: AbortSignal): Promise<DeviceInfo[]> {
+    signal?.throwIfAborted();
+    return deviceApi.listDevices(signal ? { signal } : undefined);
 }
 
 export function renameDevice(id: string, name: string): Promise<DeviceInfo> {

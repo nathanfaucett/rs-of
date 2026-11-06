@@ -1,6 +1,7 @@
 <script lang="ts">
     import { toDataURL } from "qrcode";
     import { onMount } from "svelte";
+    import SyncPanel from "$lib/common/components/SyncPanel.svelte";
     import DevicePolicy from "$lib/common/components/DevicePolicy.svelte";
     import SourceApproval from "$lib/common/components/SourceApproval.svelte";
     import { deviceApi, getDeviceApiUrl } from "$lib/common/state/deviceClient.svelte";
@@ -128,8 +129,11 @@
         {/snippet}
     </PageHeader>
 
+    <SyncPanel />
+
     <DevicePolicy {devices} />
 
+    <div id="device-pairing"></div>
     <SourceApproval
         endpoint={deviceEndpointId}
         qr={publicIdQr}

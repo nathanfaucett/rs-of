@@ -149,9 +149,9 @@ changed. Runtime dependencies: none. App integration remains ticket 02.
    audience through the approved IdP flow. Token exchange uses `resource` as
    the requested audience in `crates/idp-service/src/oauth2/service.rs`; verify
    the app OAuth Client allows exchange. Resolve the server hard-coded `local`
-   endpoint against real Device selections. The current WS pre-apply callback
-   always returns success, unlike the iroh authorization wrappers; changing
-   admission/revocation checks needs server work. Attach succeeds before opening
+   endpoint against real Device selections. The WS path now rechecks current token and exact Device policy before reads,
+   outbound owner messages, and SQL apply. Its hard-coded endpoint lookup is
+   still unresolved; these checks do not qualify a real Device session. Attach succeeds before opening
    the database, and its replica UUID is generated per attach, not read from the
    database owner. Use real owner completion and identity for data status.
 
@@ -159,3 +159,22 @@ Suggested next test: open two real owner databases, write known data in one,
 attach through the real router, run the owner protocol through this session,
 and read the committed data from the other after reopen. Add KV and filesystem
 content cases before the UI reports that all selected resources were backed up.
+
+## Ticket 02 partial integration
+
+The app Devices page has a safe sync check/setup panel. It saves an HTTPS
+service override, probes capability without credentials, and uses the existing
+`StorageClient` to list source resources in the signed-in Application namespace.
+It filters pending/revoked Devices and rechecks trust before saving local target
+preferences. Saved per-Device results say **blocked**, never backed up.
+Preferences/results are scoped to issuer, User, source API, and destination API.
+No WS attach, owner exchange, or native sync command is invoked by this panel.
+
+WS authorization now requires the exact endpoint/owner/Application/database
+selection, administrative permission, no pending cleanup, and a current access
+token. It rechecks policy before owner reads/sends and SQL apply, and rejects
+non-SQL owner envelopes. This does not resolve the hard-coded `local` endpoint,
+random attach replica identity, direction contract, or SQL-only transport.
+The app therefore does not request a `storage:sync` token yet. See ticket 02's
+Answer for the remaining owner, native-driver, policy-directory, and transfer
+qualification work. Ticket 02 is open.

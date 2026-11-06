@@ -129,9 +129,27 @@ fixtures in `packages/sync-client`, not the harness as proof of compatibility.
 
 The WS server checks audience `storage:sync` and selections for endpoint
 `local`, grants Bidirectional, opens only SQL, and starts default unscoped
-sync. Its pre-apply callback does not recheck admission. The owner rejects
+sync. Ticket 02 now rechecks exact current token/Device policy before owner reads,
+sends and SQL apply, but the real endpoint binding is still unresolved. The owner rejects
 non-Bidirectional unscoped sessions; Push/Pull needs a coordinated scoped
 owner/server implementation. KV and filesystem content do not travel through
 this endpoint. Attach acceptance precedes database open and is not backup
 completion. Ticket 02 must preserve this distinction until real owner data
 transfer is tested. See `packages/sync-client/README.md` for the integration path.
+
+## Ticket 02 partial integration
+
+The Devices page now provides safe configuration, capability/resource checks,
+approved Device preferences, and persisted blocked results. It does not attach
+or transfer data and does not label any check as backup success. Discovery uses
+the existing `StorageClient` and current Application namespace; it is not an
+all-Applications resource directory or local owner. The old guessed per-Device
+capability badge was removed in favor of probing the configured Storage API.
+
+No authorized User-readable selection directory currently exists. Internal
+selected-resource APIs require service authority, not browser credentials.
+Policy-prechecked pickers and the Applications resource/Device view remain open.
+The native runtime already owns iroh background workers, but no authenticated
+manual-run driver/completion contract is exposed to the app. See ticket 02's
+Answer for the exact remaining owner, direction, content, identity, driver and
+transfer qualification work. The feature is not complete.
