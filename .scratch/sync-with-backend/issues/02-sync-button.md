@@ -28,6 +28,38 @@ Devices page, and the sync target configuration persists across restarts.
 
 - Claimed by agent on `implement/sync-app`; base `dce98e290`. Investigating real owner/driver and authorization gaps before UI integration.
 
+## Current Implementation Summary
+
+**Safe setup & checks (complete)**:
+- Devices-page Sync panel with saved HTTPS target, capability check, current-Application resource discovery
+- Approved Device preferences with trust recheck, User/target-scoped blocked results
+- Persisted check results say "blocked", never "backed up"
+- 25 mounted UI tests including persistence, User isolation, session changes, revocation
+
+**WS authorization (complete)**:
+- Exact resource policy required (endpoint, owner, Application, database kind/ID, admin, no cleanup)
+- Rechecks before reads, sends, and SQL apply
+- Rejects non-SQL owner envelopes
+- 4 focused Rust sync tests pass
+
+**Native engine & driver (complete)**:
+- StorageReplicationRuntime exposes `sync_driver` with authenticated one-run SQL+KV Bidirectional sync
+- Serialized concurrent sessions, per-frame/per-apply authorization rechecks
+- Tauri command `synchronize_native_database` takes User token, Device target URL, validates Device identity over HTTPS
+- Engine test passes: SQL rows + KV entries present after destination reopen
+
+**Composed test blocker (open)**:
+- IdP Create/Join reopen: login Client not found in reopened `clients` table
+- Investigation needed: migration run order, client persistence, or table location in test
+- Without this, composed Create→Join→native sync qualification cannot complete
+
+**Remaining spec items not delivered**:
+- Push/Pull/Bidirectional direction contract and scoped SQL owners
+- KV/filesystem content transfer (filesystem uses StorageProtocol, not this endpoint)
+- Authorized User-readable selection directory and generated client
+- Applications resource-to-Device view
+- Device-to-device mesh sync via native host driver
+
 ## Answer
 
 **Partial implementation only. Ticket remains open.** No resource data has
@@ -148,3 +180,5 @@ Not passed / incomplete:
 
 Integration tip is checked/merged on `implement/sync-app` before handoff. No
 integration worktree files are changed by this task.
+
+- Continuing ticket 02: implementing native composed DATA transport and authenticated database SQL+KV manual sync; reopened-owner integration is the primary test seam.

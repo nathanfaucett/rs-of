@@ -143,6 +143,30 @@ The Devices page now provides safe configuration, capability/resource checks,
 approved Device preferences, and persisted blocked results. It does not attach
 or transfer data and does not label any check as backup success. Discovery uses
 the existing `StorageClient` and current Application namespace; it is not an
+all-Applications resource directory or local owner.
+
+WS authorization now checks exact current resource policy and rechecks before
+owner reads/sends and SQL apply. The native `StorageSyncDriver` and Tauri
+command exist and pass the engine test: SQL rows and KV entries are present
+after the destination reopens.
+
+Composed Create/Join/native sync qualification is blocked because the IdP
+public login Client is not found in the reopened IdP `clients` table. This
+appears to be a migration or persistence issue in the test harness.
+
+No authorized User-readable selection directory currently exists. Internal
+selected-resource APIs require service authority, not browser credentials.
+Policy-prechecked pickers and the Applications resource/Device view remain open.
+The native runtime already owns iroh background workers, but no authenticated
+manual-run driver/completion contract is exposed to the app. See ticket 02's
+Answer for the exact remaining owner, direction, content, identity, driver and
+transfer qualification work. The feature is not complete.
+
+
+The Devices page now provides safe configuration, capability/resource checks,
+approved Device preferences, and persisted blocked results. It does not attach
+or transfer data and does not label any check as backup success. Discovery uses
+the existing `StorageClient` and current Application namespace; it is not an
 all-Applications resource directory or local owner. The old guessed per-Device
 capability badge was removed in favor of probing the configured Storage API.
 

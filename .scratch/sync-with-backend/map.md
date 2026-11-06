@@ -23,7 +23,17 @@
   exact current resource policy before owner reads/sends and SQL apply.
   See the ticket Answer for investigation and qualification limits.
 
+- [02: Sync button](issues/02-sync-button.md): **open; partial implementation**.
+  Safe Devices-page setup/capability checks, current-Application resource
+  discovery, approved Device preferences, and User/target-scoped persisted
+  **blocked** results. No attach or transfer is presented as success. WS checks
+  exact current resource policy before owner reads/sends and SQL apply.
+  Native `StorageSyncDriver` exists and passes engine test (SQL + KV at reopen).
+  Composed Create/Join/native sync qualification blocked by IdP login Client
+  persistence in reopened database.
+
 ## Fog
+
 
 - [02: Sync button](issues/02-sync-button.md) needs a real owner binding or
   native host driver before it can report backup success. WS currently runs
@@ -34,5 +44,7 @@
 - Add an authorized User-readable selection directory and generated client.
   Local preferences are not policy; the Applications resource/Device view,
   full picker, and authenticated native manual-run driver remain open.
+- Fix IdP login Client persistence across Create/Join reopen for composed
+  native sync qualification.
 - Live-server transfer, browser owner binding, KV, filesystem content, and
   mesh sync are not qualified by ticket 01 protocol tests.
