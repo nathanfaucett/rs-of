@@ -216,7 +216,7 @@ pub async fn authorize_sync(
 
     let claims = &introspection.claims;
     let now = unix_time_seconds();
-    if claims.exp <= now {
+    if claims.exp <= now || claims.nbf > now || claims.r#use != model::contract::TokenUse::Access {
         return Err(SyncAuthError::Unauthorized);
     }
     if claims.aud != "storage:sync" {
@@ -228,12 +228,22 @@ pub async fn authorize_sync(
         .await
         .map_err(|_| SyncAuthError::BackendUnavailable)?;
 
+    if selected.endpoint_id != endpoint_id
+        || selected.owner_subject != claims.sub
+        || !selected.admin_allowed
+        || selected.pending_cleanup.is_some()
+    {
+        return Err(SyncAuthError::Unauthorized);
+    }
+
     let store_id_str = store_identity.store_id.to_string();
     let app_id = introspection.application_id.clone();
-    let authorized = selected
-        .resources
-        .iter()
-        .any(|resource| resource.resource_id == store_id_str && resource.application_id == app_id);
+    let authorized = selected.resources.iter().any(|resource| {
+        resource.resource_id == store_id_str
+            && resource.application_id == app_id
+            && resource.owner_subject == claims.sub
+            && resource.kind == "database"
+    });
     if !authorized {
         return Err(SyncAuthError::Unauthorized);
     }
@@ -289,16 +299,49 @@ impl StorageNamespace for WsNamespace {
     }
 }
 
-struct WebSocketTransport {
-    socket: WebSocket,
+struct SessionAuthorization<'a> {
+    idp: &'a IdpClient,
+    device: &'a DeviceClient,
+    token: &'a str,
+    identity: &'a StoreIdentity,
+    endpoint_id: &'a str,
+    expected: &'a SyncAuth,
 }
 
-impl ofdb_sql::SyncTransport for WebSocketTransport {
+impl SessionAuthorization<'_> {
+    async fn check(&self) -> io::Result<()> {
+        match authorize_sync(
+            self.idp,
+            self.device,
+            self.token,
+            self.identity,
+            self.endpoint_id,
+        )
+        .await
+        {
+            Ok(current) if &current == self.expected => Ok(()),
+            _ => Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "sync authorization unavailable or revoked",
+            )),
+        }
+    }
+}
+
+struct WebSocketTransport<'a> {
+    socket: WebSocket,
+    authorization: &'a SessionAuthorization<'a>,
+}
+
+impl ofdb_sql::SyncTransport for WebSocketTransport<'_> {
     type Error = io::Error;
 
     async fn receive(&mut self) -> io::Result<Vec<u8>> {
         loop {
-            match self.socket.recv().await {
+            self.authorization.check().await?;
+            let message = self.socket.recv().await;
+            self.authorization.check().await?;
+            match message {
                 Some(Ok(Message::Binary(data))) => {
                     let frame = FrameCodec::decode(&data).map_err(|e| {
                         io::Error::new(io::ErrorKind::InvalidData, format!("{e:?}"))
@@ -306,7 +349,10 @@ impl ofdb_sql::SyncTransport for WebSocketTransport {
                     let msg = SyncMessage::decode(&frame.payload)
                         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{e}")))?;
                     match msg {
-                        SyncMessage::OwnerMessage { payload, .. } => return Ok(payload),
+                        SyncMessage::OwnerMessage {
+                            protocol_id: ProtocolId::OfdbSqlV7,
+                            payload,
+                        } => return Ok(payload),
                         SyncMessage::Ping => {
                             let _ = send_message(&mut self.socket, &SyncMessage::Pong).await;
                         }
@@ -331,6 +377,7 @@ impl ofdb_sql::SyncTransport for WebSocketTransport {
     }
 
     async fn send(&mut self, frame: Vec<u8>) -> io::Result<()> {
+        self.authorization.check().await?;
         let msg = SyncMessage::OwnerMessage {
             protocol_id: ProtocolId::OfdbSqlV7,
             payload: frame,
@@ -406,8 +453,22 @@ async fn handle_socket(socket: WebSocket, state: Arc<SyncState>) {
                                 {
                                     break;
                                 }
-                                run_sync_session(socket, &state, &request.store_identity, &auth)
-                                    .await;
+                                let authorization = SessionAuthorization {
+                                    idp,
+                                    device,
+                                    token: &token,
+                                    identity: &request.store_identity,
+                                    endpoint_id,
+                                    expected: &auth,
+                                };
+                                run_sync_session(
+                                    socket,
+                                    &state,
+                                    &request.store_identity,
+                                    &auth,
+                                    &authorization,
+                                )
+                                .await;
                                 break;
                             }
                             Err(SyncAuthError::Unauthorized) => {
@@ -439,7 +500,11 @@ async fn run_sync_session(
     state: &SyncState,
     store_identity: &StoreIdentity,
     auth: &SyncAuth,
+    authorization: &SessionAuthorization<'_>,
 ) {
+    if authorization.check().await.is_err() {
+        return;
+    }
     let application_id = match auth.application_id.parse::<idp_model::model::Id>() {
         Ok(id) => id,
         Err(_) => return,
@@ -456,7 +521,10 @@ async fn run_sync_session(
         Ok(Some(db)) => db,
         _ => return,
     };
-    let mut transport = WebSocketTransport { socket };
+    let mut transport = WebSocketTransport {
+        socket,
+        authorization,
+    };
     let config = ofdb_sql::SessionConfig::default();
     let _ = database
         .synchronize_with_stage_directory_checked(
@@ -464,7 +532,12 @@ async fn run_sync_session(
             &config,
             ofdb_sql::SyncRole::Responder,
             &state.staging_dir,
-            || async { Ok(()) },
+            || async {
+                authorization
+                    .check()
+                    .await
+                    .map_err(|_| "sync authorization denied before apply".to_owned())
+            },
         )
         .await;
 }
@@ -537,3 +610,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&data_dir);
     }
 }
+
+#[cfg(test)]
+#[path = "sync_authorization_tests.rs"]
+mod authorization_tests;

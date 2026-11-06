@@ -103,12 +103,16 @@ export async function validateDeviceApiUrl(basePath: string): Promise<boolean> {
 
 export async function checkStorageSyncCapability(
   storageBaseUrl: string,
+  signal?: AbortSignal,
 ): Promise<boolean> {
   try {
     const response = await fetch(
       `${storageBaseUrl.replace(/\/+$/, "")}/version`,
       {
         method: "GET",
+        signal,
+        redirect: "error",
+        credentials: "omit",
         headers: { Accept: "application/json" },
       },
     );
