@@ -12,7 +12,7 @@
     "apps:dev": "pnpm --filter \"./apps/*\" run dev",
     "apps:build": "pnpm --filter \"./apps/*\" run build",
     "apps:desktop": "pnpm --filter \"./apps/*\" run desktop",
-    "sdk:build": "pnpm --filter @ofsdk/idp-client --filter @ofsdk/management-client --filter @ofsdk/device-client --filter @ofsdk/storage-client run build:esm",
+    "sdk:build": "pnpm --filter @ofsdk/idp-client --filter @ofsdk/management-client --filter @ofsdk/device-client --filter @ofsdk/storage-client run build:esm && pnpm --filter @ofsdk/sync-client run build",
     "packages:build": "pnpm --filter \"./packages/*\" --filter \"./crates/*\" run build",
     "openapi:idp": "pnpm --filter \"./packages/idp-client\" run openapi",
     "openapi:device": "node scripts/generate-openapi-client.mjs device",

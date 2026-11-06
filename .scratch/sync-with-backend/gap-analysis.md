@@ -49,8 +49,10 @@ device/user/app/client management service.
 
 ### Sync button side
 
-1. No sync action in any frontend. No WebSocket/sync code in
-   `apps/app`, `apps/password-manager`, or `packages/*`. The Rust
+1. No sync action in any frontend. Ticket 01 adds the verified
+   `packages/sync-client` transport. An older, unused
+   `storage-db-collection/src/adapters/sync.ts` is a placeholder, not a
+   working engine: it uses JSON instead of Postcard and the wrong CRC. The Rust
    `sync-client` is not built to WASM (no wasm target in workspace) and
    has no Tauri commands (`apps/app/src-tauri/src` has none).
 2. No "sync service" configuration. Config only has the four API URLs;
@@ -63,9 +65,10 @@ device/user/app/client management service.
    direction choice, no progress/last-result/last-error state.
 4. Target devices exist only as policy (Resource Selection), not tied to
    a sync run: no per-run device picker, no per-device last-sync status.
-5. No TS sync package (`packages/` has no `@ofsdk/sync-client`);
-   `packages/storage-db-collection` is a plain KV adapter with no sync
-   hook.
+5. Ticket 01 supplies `@ofsdk/sync-client` attach plus opaque SQL owner
+   transport, not a data engine. Browser owner bindings and KV/filesystem
+   transport support are still missing. See its README for verified entry
+   points and blockers.
 
 ### Management side
 
@@ -116,3 +119,19 @@ device/user/app/client management service.
    Devices (server side exists; add client driver in `of`/Tauri).
 6. Management side: sync status column on `/devices`; link
    Application → resources → selections.
+
+## Ticket 01 findings
+
+The server is the wire reference. The existing Rust client/harness differ:
+AttachRequest has an extra reconnect field, control message tags differ, and
+their owner bridge does not match the server envelope. Use the Rust-server
+fixtures in `packages/sync-client`, not the harness as proof of compatibility.
+
+The WS server checks audience `storage:sync` and selections for endpoint
+`local`, grants Bidirectional, opens only SQL, and starts default unscoped
+sync. Its pre-apply callback does not recheck admission. The owner rejects
+non-Bidirectional unscoped sessions; Push/Pull needs a coordinated scoped
+owner/server implementation. KV and filesystem content do not travel through
+this endpoint. Attach acceptance precedes database open and is not backup
+completion. Ticket 02 must preserve this distinction until real owner data
+transfer is tested. See `packages/sync-client/README.md` for the integration path.
