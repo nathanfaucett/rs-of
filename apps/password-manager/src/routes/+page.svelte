@@ -6,6 +6,7 @@ import JsonExport from "$lib/json-export/JsonExport.svelte";
 import LockSettingsControl from "$lib/vault/LockSettings.svelte";
 import { createInactivityLock, DEFAULT_LOCK_SETTINGS, type LockSettings } from "$lib/vault/lock";
 import LocalSecretEditor from "$lib/secrets/LocalSecretEditor.svelte";
+import PasswordGenerator from "$lib/generator/PasswordGenerator.svelte";
 import ImportJson from "$lib/import/ImportJson.svelte";
 import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 import {
@@ -33,6 +34,7 @@ let error = $state("");
 let busy = $state(false);
 let notice = $state("");
 let itemEditor = $state<ReturnType<typeof LocalSecretEditor>>();
+let activeTab = $state<'vault' | 'generator' | 'settings' | 'trash'>('vault');
 let importControl = $state<ReturnType<typeof ImportJson>>();
 let importing = $state(false);
 function showImport() {
@@ -413,29 +415,42 @@ async function lockVault() {
                 description="Your vault is stored locally and encrypted. This is a local-first app — no server required."
             >
                 {#snippet actions()}
-                    <button id="import-json-action" class="btn btn-secondary btn-md" type="button" disabled={busy || importing} onclick={showImport}>Import Bitwarden JSON</button>
-                    <button class="btn btn-secondary btn-md" type="button" disabled={busy || importing} onclick={() => void downloadBackup()}>{busy ? "Preparing backup…" : "Download encrypted backup"}</button>
-                    <button class="btn btn-secondary btn-md" type="button" disabled={busy || importing} onclick={() => void downloadBackup(true)}>Download pre-transition backup</button>
                     <button
                         class="btn btn-secondary btn-md"
                         type="button"
-                        onclick={lockVault}>Lock vault</button
-                    >
+                        onclick={lockVault}
+                    >Lock vault</button>
                 {/snippet}
             </PageHeader>
             {#if error}<Alert tone="danger">{error}</Alert>{/if}
             {#if notice}<p role="status">{notice}</p>{/if}
-            {#key vaultState.vault}
-                <JsonExport bind:this={jsonExport} vault={vaultState.vault} isActive={() => !inactivity.check() && vaultState.status === "unlocked"} />
-            {/key}
-            <LockSettingsControl vault={vaultState.vault} settings={lockSettings} onsaved={settingsSaved} />
-            {#if importing}
-                <ImportJson bind:this={importControl} vault={vaultState.vault}
-                    active={() => !inactivity.check() && vaultState.status === "unlocked"}
-                    oncancel={() => finishImport()} onimported={() => finishImport(true)} />
-            {:else}
-                <LocalSecretEditor bind:this={itemEditor} vault={vaultState.vault} />
-            {/if}
+            <div class="flex flex-col gap-4">
+                <div role="tablist" class="flex gap-1 p-1 bg-muted rounded-lg" aria-label="Main navigation">
+                    <button role="tab" aria-selected={activeTab === 'vault'} class="btn btn-sm px-3 py-1.5" onclick={() => activeTab = 'vault'}>Vault</button>
+                    <button role="tab" aria-selected={activeTab === 'generator'} class="btn btn-sm px-3 py-1.5" onclick={() => activeTab = 'generator'}>Generator</button>
+                    <button role="tab" aria-selected={activeTab === 'settings'} class="btn btn-sm px-3 py-1.5" onclick={() => activeTab = 'settings'}>Settings</button>
+                    <button role="tab" aria-selected={activeTab === 'trash'} class="btn btn-sm px-3 py-1.5" onclick={() => activeTab = 'trash'}>Trash</button>
+                </div>
+                <div class="flex-1 min-h-0 overflow-auto">
+                    {#if activeTab === 'vault'}
+                        <LocalSecretEditor bind:this={itemEditor} vault={vaultState.vault} />
+                    {:else if activeTab === 'generator'}
+                        <PasswordGenerator />
+                    {:else if activeTab === 'settings'}
+                        <div class="space-y-6">
+                            <LockSettingsControl vault={vaultState.vault} settings={lockSettings} onsaved={settingsSaved} />
+                            <JsonExport vault={vaultState.vault} isActive={() => !inactivity.check() && vaultState.status === "unlocked"} />
+                            <ImportJson vault={vaultState.vault} active={() => !inactivity.check() && vaultState.status === "unlocked"} oncancel={() => finishImport()} onimported={() => finishImport(true)} />
+                            <div class="flex gap-2">
+                                <button class="btn btn-secondary btn-md" type="button" disabled={busy || importing} onclick={() => void downloadBackup()}>{busy ? "Preparing backup…" : "Download encrypted backup"}</button>
+                                <button class="btn btn-secondary btn-md" type="button" disabled={busy || importing} onclick={() => void downloadBackup(true)}>Download pre-transition backup</button>
+                            </div>
+                        </div>
+                    {:else if activeTab === 'trash'}
+                        <LocalSecretEditor vault={vaultState.vault} initialTrash={true} hideTrashToggle={true} />
+                    {/if}
+                </div>
+            </div>
         </Page>
     {:else if vaultState.status === "error"}
         <Page width="narrow">

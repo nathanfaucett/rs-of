@@ -55,6 +55,7 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
     let busy = $state(false);
     let refreshing = $state(false);
     let active = $state(true);
+    let trash = $state(false);
     let query: ReturnType<typeof liveQuery>;
     const detail = $derived(
         active && !loadError && query.isReady && !query.isError
@@ -297,6 +298,9 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
                 ? query.data.filter((record) => !!record.deletedAt)
                 : [];
         },
+        get trash() {
+            return trash;
+        },
         get editor() {
             return editor;
         },
@@ -412,6 +416,12 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
                     refreshing = false;
                 }
             }
+        },
+        setTrashMode(value: boolean) {
+            if (!canEdit()) return;
+            trash = value;
+            selectedId = null;
+            editor = null;
         },
         delete: (value: Secret) => changeTrash(value, "trash"),
         restore: (value: Secret) => changeTrash(value, "restore"),

@@ -13,8 +13,11 @@ import type { Secret } from "./secret";
 import { customFieldIssue, type SshKeyDraft } from "./secret-draft";
 import { searchItems, type ItemTypeFilter, type ItemSort } from "./search";
 
-let { vault }: { vault: VaultHandle } = $props();
+interface Props { vault: VaultHandle; initialTrash?: boolean; hideTrashToggle?: boolean; }
+let { vault, initialTrash = false, hideTrashToggle = false }: Props = $props();
 const workflow = untrack(() => createLocalSecretWorkflow({ vault }));
+
+$effect(() => { workflow.setTrashMode?.(initialTrash); });
 onDestroy(retire);
 
 let retired = $state(false);
@@ -35,7 +38,6 @@ function clearFilters() {
 
 
 let pendingDelete = $state<Secret | null>(null);
-let trash = $state(false);
 let deleteTrigger: HTMLButtonElement | null = null;
 const uid = $props.id();
 const confirmationId = `${uid}-confirmation`;
@@ -49,7 +51,7 @@ async function cancelDelete() {
 }
 let showGenerator = $state(false);
 const newSecretId = `${uid}-new`;
-const records = $derived(trash ? workflow.trashRecords : results);
+const records = $derived(workflow.trash ? workflow.trashRecords : results);
 const searchId = `${newSecretId}-search`;
 let folderControls = $state<ReturnType<typeof FolderControls>>();
 
@@ -62,7 +64,7 @@ export function retire() {
     results = [];
     pendingDelete = null;
     deleteTrigger = null;
-    trash = false;
+    workflow.setTrashMode(false);
     folderControls?.retire();
     workflow.dispose();
 }
@@ -82,31 +84,32 @@ function navigate(action: () => void) {
 }} />
 
 <div class="flex flex-col gap-4">
+    {#if !hideTrashToggle}
     <nav aria-label="Item views" class="flex gap-2">
-        <button id={navigationId} class="btn btn-secondary btn-md" type="button" aria-pressed={!trash} disabled={!workflow.canEdit}
-            onclick={() => navigate(() => { workflow.open(null); trash = false; })}>All items</button>
-        <button class="btn btn-secondary btn-md" type="button" aria-pressed={trash} disabled={!workflow.canEdit}
-            onclick={() => navigate(() => { workflow.open(null); trash = true; })}>Trash</button>
+        <button id={navigationId} class="btn btn-secondary btn-md" type="button" aria-pressed={!workflow.trash} disabled={!workflow.canEdit}
+            onclick={() => navigate(() => { workflow.open(null); workflow.setTrashMode(false); })}>All items</button>
+        <button class="btn btn-secondary btn-md" type="button" aria-pressed={workflow.trash} disabled={!workflow.canEdit}
+            onclick={() => navigate(() => { workflow.open(null); workflow.setTrashMode(true); })}>Trash</button>
     </nav>
-    <Card title={trash ? "Trash" : "Secrets"} description={trash ? "Items stay here until you restore or permanently delete them. No automatic deletion." : "Stored locally in your encrypted vault."}>
+    {/if}
+    <Card title={workflow.trash ? "Trash" : "Secrets"} description={workflow.trash ? "Items stay here until you restore or permanently delete them. No automatic deletion." : "Stored locally in your encrypted vault."}>
         {#snippet actions()}
             <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canEdit}
                 aria-expanded={showGenerator} onclick={() => showGenerator = !showGenerator}>Password generator</button>
             <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canRefresh}
                 onclick={() => navigate(() => void workflow.refresh())}>Refresh</button>
             <button id={newSecretId} class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
-                onclick={() => navigate(() => { trash = false; workflow.edit(); })}>New secret</button>
-            <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
-                onclick={() => navigate(() => { trash = false; workflow.edit(null, "secureNote"); })}>New secure note</button>
-            <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
-                onclick={() => navigate(() => { trash = false; workflow.edit(null, "card"); })}>New card</button>
-            <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
-                onclick={() => navigate(() => { trash = false; workflow.edit(null, "identity"); })}>New identity</button>
-            <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
-                onclick={() => navigate(() => { trash = false; workflow.edit(null, "sshKey"); })}>New SSH key</button>
-        {/snippet}
-
-        {#if !retired && !trash}
+                onclick={() => navigate(() => { workflow.setTrashMode(false); workflow.edit(); })}>New secret</button>
+                <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
+                onclick={() => navigate(() => { workflow.setTrashMode(false); workflow.edit(null, "secureNote"); })}>New secure note</button>
+                <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
+                onclick={() => navigate(() => { workflow.setTrashMode(false); workflow.edit(null, "card"); })}>New card</button>
+                <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
+                onclick={() => navigate(() => { workflow.setTrashMode(false); workflow.edit(null, "identity"); })}>New identity</button>
+                <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
+                onclick={() => navigate(() => { workflow.setTrashMode(false); workflow.edit(null, "sshKey"); })}>New SSH key</button>
+            {/snippet}
+        {#if !retired && !workflow.trash}
             <fieldset class="mb-4 flex flex-wrap items-end gap-3" disabled={workflow.loading || !!workflow.loadError}>
                 <legend class="text-sm font-medium">Find items</legend>
                 <Field id={`${searchId}-text`} label="Search items" description="Search names, usernames, websites, notes, and custom-field names.">
@@ -160,7 +163,7 @@ function navigate(action: () => void) {
             {:else if workflow.notice}
                 <Alert tone="success">{workflow.notice}</Alert>
             {/if}
-            {#if !trash}<FolderControls bind:this={folderControls} {workflow} {navigate} />{/if}
+            {#if !workflow.trash}<FolderControls bind:this={folderControls} {workflow} {navigate} />{/if}
             {#if pendingDelete}
                 <dialog role="alertdialog" aria-labelledby={confirmationId} oncancel={(event) => { event.preventDefault(); cancelDelete(); }}
                     {@attach (element) => { element.showModal(); element.querySelector<HTMLButtonElement>('[data-cancel]')?.focus(); }}
@@ -184,14 +187,14 @@ function navigate(action: () => void) {
                 </dialog>
             {/if}
             {#if records.length === 0}
-                <p class="mb-0" role="status">{trash ? "Trash is empty." : searchText.trim() || itemType !== "all" || favoritesOnly ? "No items match. Clear filters to show all items." : workflow.folderFilter === "all" ? "No secrets yet." : "No items in this folder view."}</p>
+                <p class="mb-0" role="status">{workflow.trash ? "Trash is empty." : searchText.trim() || itemType !== "all" || favoritesOnly ? "No items match. Clear filters to show all items." : workflow.folderFilter === "all" ? "No secrets yet." : "No items in this folder view."}</p>
             {:else}
                 <p aria-live="polite" aria-atomic="true">{records.length} {records.length === 1 ? "item" : "items"} found.</p>
                 <ul aria-label="Search results" class="flex list-none flex-col gap-2 p-0">
                     {#each records as value (value.id)}
                         <li class="flex items-center justify-between gap-3 rounded-control border border-line bg-surface-muted/40 px-3 py-2">
                             <div class="flex min-w-0 flex-col">
-                                {#if trash}
+                                {#if workflow.trash}
                                     <span class="font-medium">{value.name}</span>
                                     <span class="text-sm text-ink-subtle">Deleted: <time datetime={value.deletedAt}>{value.deletedAt}</time></span>
                                 {:else}
@@ -205,12 +208,12 @@ function navigate(action: () => void) {
                                 {/each}
                                 {/if}
                             </div>
-                            {#if trash}
+                            {#if workflow.trash}
                                 <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canEdit}
                                     onclick={async () => { await workflow.restore(value); document.getElementById(navigationId)?.focus(); }}>Restore</button>
                             {/if}
                             <button class="btn btn-ghost btn-md shrink-0 text-danger-text hover:bg-danger-soft"
-                                type="button" disabled={!workflow.canEdit} onclick={(event) => navigate(() => { workflow.open(null); deleteTrigger = event.currentTarget; pendingDelete = value; })}>{trash ? "Delete permanently" : "Delete"}</button>
+                                type="button" disabled={!workflow.canEdit} onclick={(event) => navigate(() => { workflow.open(null); deleteTrigger = event.currentTarget; pendingDelete = value; })}>{workflow.trash ? "Delete permanently" : "Delete"}</button>
                         </li>
                     {/each}
                 </ul>
