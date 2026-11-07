@@ -100,11 +100,8 @@ describe("local secret writes", () => {
     it("removes only the selected secret and stays deleted after refresh", async () => {
         const { collection, vault, records } = await setup(true);
 
-        await collection.delete(secret.id).isPersisted.promise;
-        expect(vault.deleteSecret).toHaveBeenCalledExactlyOnceWith(
-            secret.id,
-            secret,
-        );
+        		await collection.delete(secret.id).isPersisted.promise;
+        		expect(vault.deleteSecret).toHaveBeenCalledExactlyOnceWith(secret.id);
         expect(records.has(secret.id)).toBe(false);
         expect(collection.has(secret.id)).toBe(false);
         expect(collection.get(other.id)).toMatchObject(other);

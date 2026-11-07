@@ -1,12 +1,20 @@
 import { Database } from "@ofsdk/sql";
 import { vaultMigrations } from "./migrations";
-import { add } from "./registry";
+import { VaultRegistry, createVaultRegistry } from "./VaultRegistry";
+import { SharedDb } from "./SharedDb";
 
 export const fixturePassword = "synthetic-master-password";
 export const fixturePlaintext = JSON.stringify({
+	kind: "login",
 	id: "12345678-1234-4234-8234-123456789abc",
 	name: "Synthetic legacy login",
+	username: "synthetic-user",
 	secret: "synthetic legacy encrypted content",
+	uris: [],
+	notes: "",
+	favorite: false,
+	fields: [],
+	history: [],
 	createdAt: "2026-01-01T00:00:00.000Z",
 	updatedAt: "2026-01-01T00:00:00.000Z",
 });
@@ -46,7 +54,7 @@ export async function legacyVault(
 	const client = db.client();
 	try {
 		await client.migrate(vaultMigrations);
-		await client.execute(
+		await client.executeRaw(
 			"INSERT INTO vault_meta (id, vault_id, salt, iv, created_at) VALUES (1, $1, $2, $3, $4)",
 			[
 				{ type: "text", value: id },
@@ -62,7 +70,7 @@ export async function legacyVault(
 				key,
 				new TextEncoder().encode(fixturePlaintext),
 			);
-			await client.execute(
+			await client.executeRaw(
 				"INSERT INTO secrets (id, ciphertext, nonce, created_at, updated_at) VALUES ('12345678-1234-4234-8234-123456789abc', $1, $2, $3, $3)",
 				[
 					{ type: "text", value: base64(new Uint8Array(ciphertext)) },
@@ -73,14 +81,18 @@ export async function legacyVault(
 		}
 	} finally {
 		client.close();
-		db.close();
+		db.close()
 	}
-	// Register the vault in the registry so it appears in the vault list
-	await add({
-		id,
-		name,
-		status: "ready",
-		migrated: false,
+	// Register the vault in the new vaults table so it appears in the vault list
+	const sharedDb = SharedDb.getInstance();
+	const sharedClient = await sharedDb.getClient();
+	const registry = createVaultRegistry(sharedClient);
+	const iv = crypto.getRandomValues(new Uint8Array(12));
+	const authentication = JSON.stringify({
+		version: 1,
+		ciphertext: base64(new Uint8Array(32)),
+		nonce: base64(iv),
 	});
+	await registry.reserveVault(name, base64(salt), base64(iv), authentication);
 	return id;
 }

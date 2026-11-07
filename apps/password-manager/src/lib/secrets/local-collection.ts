@@ -162,18 +162,9 @@ export function createLocalSecretCollection({
 
                     try {
                         if (mutation.type === "delete") {
-                            await vault.deleteSecret(
-                                key,
-                                v.parse(SecretSchema, mutation.original),
-                            );
+                            await vault.deleteSecret(key);
                         } else if (value) {
-                            await vault.encryptAndStore(
-                                JSON.stringify(value),
-                                key,
-                                mutation.type === "insert"
-                                    ? null
-                                    : v.parse(SecretSchema, mutation.original),
-                            );
+                            await vault.encryptAndStore(JSON.stringify(value));
                         }
                     } catch (cause) {
                         active();

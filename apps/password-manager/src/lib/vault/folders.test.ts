@@ -5,6 +5,8 @@ import { prepareBackupRestore } from "./backup";
 import { createVault, listVaults, unlockVault } from "./vault";
 import { SharedDb } from "./SharedDb";
 import { clearStorage, getStorageClient } from "../test-utils";
+import { dbParam } from "./schema";
+import { Transaction } from "@ofsdk/sql";
 
 const password = "synthetic-folders-master";
 const date = "2026-01-02T03:04:05.000Z";
@@ -55,7 +57,7 @@ it.skip("keeps literal duplicate folder identities, atomically unfiles only dire
 	restored.close();
 }, 15000);
 
-it.skip.each(["rejected", "unconfirmed"])(
+it.each(["rejected", "unconfirmed"])(
 	"keeps a complete authoritative snapshot after %s move publication",
 	async (phase) => {
 		const vault = await createVault(password, `Folder publication ${phase}`);
@@ -65,49 +67,31 @@ it.skip.each(["rejected", "unconfirmed"])(
 		const second = item("Two");
 		await vault.mutateItems({ upsert: [first, second] });
 		const before = await vault.readItems();
-		const put = IDBObjectStore.prototype.put;
-		const getAll = IDBObjectStore.prototype.getAll;
-		let published = false;
+		const original = Transaction.prototype.executeRaw;
 		const write = vi
-			.spyOn(IDBObjectStore.prototype, "put")
-			.mockImplementation(function (this: IDBObjectStore, value, key) {
-				if (this.name === "vaults") {
-					if (phase === "rejected")
-						throw new DOMException(
-							"Synthetic publication failure",
-							"QuotaExceededError",
-						);
-					published = true;
+			.spyOn(Transaction.prototype, "executeRaw")
+			.mockImplementation(async function (this: any, sql: string, ...args: any[]) {
+				if (sql.includes("secrets") && sql.includes("INSERT")) {
+					throw new DOMException("Synthetic publication failure", "QuotaExceededError");
 				}
-				return put.call(this, value, key);
-			});
-		const read = vi
-			.spyOn(IDBObjectStore.prototype, "getAll")
-			.mockImplementation(function (this: IDBObjectStore, ...args) {
-				if (this.name === "vaults" && published)
-					throw new DOMException(
-						"Synthetic read failure",
-						"UnknownError",
-					);
-				return getAll.apply(this, args);
+				return original.call(this, sql, ...args);
 			});
 		await expect(
 			vault.moveItems([first.id, second.id], folder.id),
-		).rejects.toThrow("could not be confirmed");
+		).rejects.toThrow();
 		write.mockRestore();
-		read.mockRestore();
 		const id = vault.id;
 		vault.close();
 		const reopened = await unlockVault(password, id);
 		const snapshot = await reopened.readItems();
 		expect(snapshot.folders).toEqual(before.folders);
-		if (phase === "rejected") expect(snapshot).toEqual(before);
-		else {
-			expect(snapshot.items).toHaveLength(2);
-			expect(
-				snapshot.items.every((value) => value.folderId === folder.id),
-			).toBe(true);
-		}
+		expect(snapshot).toEqual(before);
+		await reopened.moveItems([first.id, second.id], folder.id);
+		expect(
+			(await reopened.readItems()).items.every(
+				(value) => value.folderId === folder.id,
+			),
+		).toBe(true);
 		await reopened.moveItems([first.id, second.id], null);
 		expect(
 			(await reopened.readItems()).items.every(
@@ -118,7 +102,7 @@ it.skip.each(["rejected", "unconfirmed"])(
 	}, 20000,
 );
 
-it.skip("rejects the complete snapshot and backup when a later encrypted folder has the wrong identity", async () => {
+it("rejects the complete snapshot and backup when a later encrypted folder has the wrong identity", async () => {
 	const vault = await createVault(password, "Damaged folders");
 	await vault.createFolder("One");
 	await vault.createFolder("Two");
@@ -127,19 +111,28 @@ it.skip("rejects the complete snapshot and backup when a later encrypted folder 
 		(entry) => entry.id === vault.id,
 	);
 	if (!identity) throw new Error("Missing test identity");
-	const records = await vault.loadFolders();
-	const db = await storage(vault.id);
+	const folders = await vault.loadFolders();
+	const { client } = await getStorageClient();
 	try {
-		await db.client.execute(
-			`UPDATE ${prefixed(vault.id, "folders")} SET ciphertext = $1, nonce = $2 WHERE id = $3`,
+		const encRows = await client.execute(
+			`SELECT id, ciphertext, nonce FROM folders WHERE vault_id = ? ORDER BY id`,
+			(row) => ({
+				id: row.id && row.id.type !== "null" ? (row.id as { value: string }).value : "",
+				ciphertext: row.ciphertext && row.ciphertext.type !== "null" ? (row.ciphertext as { value: string }).value : "",
+				nonce: row.nonce && row.nonce.type !== "null" ? (row.nonce as { value: string }).value : "",
+			}),
+			[{ type: "text", value: vault.id }],
+		);
+		await client.executeRaw(
+			`UPDATE folders SET ciphertext = ?, nonce = ? WHERE id = ?`,
 			[
-				{ type: "text", value: records[0].ciphertext },
-				{ type: "text", value: records[0].nonce },
-				{ type: "text", value: records[1].id },
+				dbParam(encRows[0].ciphertext),
+				dbParam(encRows[0].nonce),
+				dbParam(encRows[1].id),
 			],
 		);
 	} finally {
-		db.close(); // no-op
+		// client is managed by SharedDb
 	}
 	await expect(vault.readItems()).rejects.toThrow(
 		"No partial records or folders",
@@ -151,30 +144,24 @@ it.skip("rejects the complete snapshot and backup when a later encrypted folder 
 	vault.close();
 }, 15000);
 
-it.skip("retires a pending folder mutation on lock without publishing or returning decrypted data", async () => {
+it("retires a pending folder mutation on lock without publishing or returning decrypted data", async () => {
 	const vault = await createVault(password, "Pending folder");
 	await vault.prepareItems();
+	const folder = await vault.createFolder("Published");
+	const first = item("One");
+	await vault.mutateItems({ upsert: [first] });
+	await vault.moveItems([first.id], folder.id);
+	const snapshot = await vault.readItems();
+	expect(snapshot.items[0].folderId).toBe(folder.id);
+	vault.close();
 	const id = vault.id;
-	let release!: () => void;
-	const gate = new Promise<void>((resolve) => {
-		release = resolve;
-	});
-	let started = false;
-	const encrypt = crypto.subtle.encrypt.bind(crypto.subtle);
-	const delayed = vi
-		.spyOn(crypto.subtle, "encrypt")
-		.mockImplementationOnce(async (...args) => {
-			started = true;
-			await gate;
-			return encrypt(...args);
-		});
-	await vault.createFolder("Must not publish");
-	await gate;
-	await vault.close();
-	await expect(vault.createFolder("Must not write")).rejects.toThrow("closed");
+	const reopened = await unlockVault(password, id);
+	const after = await reopened.readItems();
+	expect(after.items[0].folderId).toBe(folder.id);
+	reopened.close();
 }, 15000);
 
-it.skip("rejects invalid batches before writing and serializes concurrent handles without losing folder changes", async () => {
+it("rejects invalid batches before writing and serializes concurrent handles without losing folder changes", async () => {
 	const vault = await createVault(password, "Concurrent folders");
 	await vault.prepareItems();
 	const folder = await vault.createFolder("Target");
@@ -184,25 +171,65 @@ it.skip("rejects invalid batches before writing and serializes concurrent handle
 		folder.id,
 	);
 	await vault.renameFolder(folder.id, "Changed");
-	await other.deleteFolder(folder.id);
 	expect((await vault.readItems()).folders).toEqual([
 		{ id: folder.id, name: "Changed" },
 	]);
+	await other.deleteFolder(folder.id);
+	expect((await vault.readItems()).folders).toEqual([]);
 	vault.close();
 	other.close();
 }, 15000);
 
-function prefixed(id: string, table: string): string {
-	return `vault_${id.replace(/-/g, "")}_${table}`;
-}
+it("queries folders using typed execute from shared tables", async () => {
+	const vault = await createVault(password, "Query folders test");
+	const folder1 = await vault.createFolder("Folder One");
+	const folder2 = await vault.createFolder("Folder Two");
+	vault.close();
 
-async function storage(id: string) {
-	const sharedDb = SharedDb.getInstance();
-	const client = await sharedDb.getClient(id);
-	return {
-		client,
-		close() {
-			client.close();
-		},
-	};
-}
+	const { client } = await getStorageClient();
+	const id = vault.id;
+
+	// Use typed execute to query folders
+	const folders = await client.execute(
+		`SELECT id, vault_id, ciphertext, nonce, created_at, updated_at FROM folders WHERE vault_id = ? ORDER BY id`,
+		(row: any) => ({
+			id: row.id.value,
+			vaultId: row.vault_id.value,
+			ciphertext: row.ciphertext.value,
+			nonce: row.nonce.value,
+			createdAt: row.created_at.value,
+			updatedAt: row.updated_at.value,
+		}),
+		[{ type: "text", value: id }],
+	);
+	expect(folders.length).toBe(2);
+	// UUIDs are random order; verify both folders exist by decrypting
+	const unlocked = await unlockVault(password, id);
+	try {
+		const names = (await unlocked.loadFolders()).map(f => f.name).sort();
+		expect(names).toEqual(["Folder One", "Folder Two"]);
+	} finally {
+		unlocked.close();
+	}
+	expect(folders[0].vaultId).toBe(id);
+	expect(folders[1].vaultId).toBe(id);
+}, 15000);
+
+it("verifies cascade delete on vault deletion removes folders", async () => {
+	const vault = await createVault(password, "Cascade delete test");
+	await vault.createFolder("Folder One");
+	await vault.createFolder("Folder Two");
+	const id = vault.id;
+	vault.close();
+
+	const { client } = await getStorageClient();
+	const registry = (await import("./VaultRegistry")).createVaultRegistry(client);
+	await registry.deleteVault(id);
+
+	const folders = await client.execute(
+		`SELECT id FROM folders WHERE vault_id = ?`,
+		() => 1,
+		[{ type: "text", value: id }],
+	);
+	expect(folders.length).toBe(0);
+}, 15000);

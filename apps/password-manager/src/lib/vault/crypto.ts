@@ -2,8 +2,8 @@ import type { VaultMeta } from "./vault";
 
 export const PBKDF2_ITERATIONS = 600_000;
 
-export function toBase64(buffer: ArrayBuffer): string {
-    const bytes = new Uint8Array(buffer);
+export function toBase64(buffer: ArrayBuffer | Uint8Array): string {
+    const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
     let binary = "";
     for (let i = 0; i < bytes.byteLength; i++)
         binary += String.fromCharCode(bytes[i]);

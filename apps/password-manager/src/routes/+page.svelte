@@ -224,9 +224,6 @@ async function lockVault() {
                                 >
                                     <span class="vault-name">{identity.name}</span>
                                     <span class="block break-all text-xs">ID: {identity.id}</span>
-                                    {#if identity.status === "pending"}
-                                        <span class="block text-xs">Registration interrupted. Unlock to recover. If no data was saved, create a new vault.</span>
-                                    {/if}
                                 </button>
                             {/each}
                         </div>
