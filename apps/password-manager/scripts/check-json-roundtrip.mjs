@@ -5,7 +5,7 @@ import { download, logicalPayload, payload } from "./check-backup.mjs";
 const button = (page, name) => page.getByRole("button", { name, exact: true });
 const password = "synthetic-qualification-20";
 const fixtureRoot = new URL(
-    "../../../docs/fixtures/password-manager/",
+    "../src/test/fixtures/password-manager/",
     import.meta.url,
 );
 const expected = JSON.parse(

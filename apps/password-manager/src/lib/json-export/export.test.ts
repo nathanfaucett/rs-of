@@ -1,8 +1,8 @@
 // @vitest-environment playwright
 import * as v from "valibot";
 import { expect, it } from "vitest";
-import expected from "../../../../../docs/fixtures/password-manager/export-expected.json";
-import local from "../../../../../docs/fixtures/password-manager/export-local.json";
+import expected from "$fixtures/password-manager/export-expected.json";
+import local from "$fixtures/password-manager/export-local.json";
 import { SecretSchema } from "../secrets/secret";
 import { parsePersonalJson } from "../import/personal-json";
 import type { ItemSnapshot } from "../vault/folder";

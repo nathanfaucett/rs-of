@@ -24,6 +24,7 @@ export default defineConfig({
         conditions: ["browser"],
         alias: {
             $lib: source("./src/lib"),
+            $fixtures: source("./src/test/fixtures"),
         },
     },
     test: {
