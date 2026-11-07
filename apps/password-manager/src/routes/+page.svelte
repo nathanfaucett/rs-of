@@ -1,7 +1,7 @@
 <script lang="ts">
 import { onMount, tick } from "svelte";
 import { beforeNavigate } from "$app/navigation";
-import { redirect } from "@sveltejs/kit";
+import { redirect, isRedirect } from "@sveltejs/kit";
 import RestoreBackup from "$lib/vault/RestoreBackup.svelte";
 import { createInactivityLock, DEFAULT_LOCK_SETTINGS, type LockSettings } from "$lib/vault/lock";
 import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
@@ -42,17 +42,12 @@ function settingsSaved(settings: LockSettings) {
 }
 
 async function enterVault(vault: VaultHandle, request: number) {
-    try {
-        const settings = await vault.loadLockSettings();
-        if (request !== session) { vault.close(); return; }
-        lockSettings = settings;
-        inactivity.start(settings);
-        // Redirect to vault page instead of setting unlocked state
-        redirect(302, "/vault");
-    } catch (cause) {
-        vault.close();
-        throw cause;
-    }
+    const settings = await vault.loadLockSettings();
+    if (request !== session) { vault.close(); return; }
+    lockSettings = settings;
+    inactivity.start(settings);
+    // Redirect to vault page instead of setting unlocked state
+    redirect(302, "/vault");
 }
 
 beforeNavigate((navigation) => {
@@ -121,6 +116,7 @@ async function createVault() {
         vaultName = "";
         await enterVault(vault, request);
     } catch (cause) {
+        if (isRedirect(cause)) throw cause;
         if (request === session) error = `${cause instanceof Error ? cause.message : "Failed to create vault."} Check browser storage and free space. Return to the selector to recover an interrupted registration before retrying. Do not clear browser data.`;
     } finally {
         if (request === session) busy = false;
@@ -142,6 +138,7 @@ async function unlockVault() {
         password = "";
         await enterVault(vault, request);
     } catch (cause) {
+        if (isRedirect(cause)) throw cause;
         if (request === session) error = cause instanceof Error ? cause.message : "Failed to unlock vault. Wrong password?";
     } finally {
         if (request === session) busy = false;
