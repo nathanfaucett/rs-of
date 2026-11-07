@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { SecretSchema, type Secret } from "../secrets/secret";
+import { SecretSchema, type Secret } from "./secrets/secret";
 
 export const FolderSchema = v.strictObject({
     id: v.pipe(v.string(), v.uuid()),

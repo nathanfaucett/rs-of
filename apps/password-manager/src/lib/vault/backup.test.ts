@@ -6,10 +6,10 @@ import {
 	fixturePlaintext,
 } from "./authentication-fixtures";
 import { createVault, listVaults, unlockVault } from "./vault";
-import { SharedDb } from "./SharedDb";
-import { clearStorage, getStorageClient } from "../test-utils";
+import { SharedDb } from "./storage/SharedDb";
+import { clearStorage, getStorageClient } from "../../test/utils";
 import { prepareBackupRestore } from "./backup";
-import { encrypt, fromBase64 } from "./crypto";
+import { encrypt, fromBase64 } from "./storage/crypto";
 
 afterEach(async () => {
 	await clearStorage();
@@ -93,16 +93,16 @@ it("preserves every supported logical field, Trash, record IDs, ciphertext, meta
 it("rejects wrong passwords, missing metadata, tampering, truncation and unsupported derivation/version before any storage write", async () => {
 	const { value: backup } = await populatedBackup();
 	const envelope = JSON.parse(backup);
-	const mutations: Array<[string, (e: any) => any]> = [
-		["version", (e: any) => ({ ...e, version: 99 })],
-		["format", (e: any) => ({ ...e, format: "unknown" })],
-		["kdf.name", (e: any) => ({ ...e, kdf: { ...e.kdf, name: "scrypt" } })],
-		["kdf.iterations", (e: any) => ({ ...e, kdf: { ...e.kdf, iterations: 1 } })],
-		["kdf.hash", (e: any) => ({ ...e, kdf: { ...e.kdf, hash: "SHA-256" } })],
-		["kdf.salt", (e: any) => ({ ...e, kdf: { ...e.kdf, salt: "wrong" } })],
-		["nonce", (e: any) => ({ ...e, nonce: "AA==" })],
-		["ciphertext", (e: any) => ({ ...e, ciphertext: "AA==" })],
-		["extra field", (e: any) => ({ ...e, extra: "field" })],
+	const mutations = [
+        ["version", (e: any) => Object.assign({}, e, { version: 99 })],
+        ["format", (e: any) => Object.assign({}, e, { format: "unknown" })],
+        ["kdf.name", (e: any) => Object.assign({}, e, { kdf: Object.assign({}, e.kdf, { name: "scrypt" }) })],
+        ["kdf.iterations", (e: any) => Object.assign({}, e, { kdf: Object.assign({}, e.kdf, { iterations: 1 }) })],
+        ["kdf.hash", (e: any) => Object.assign({}, e, { kdf: Object.assign({}, e.kdf, { hash: "SHA-256" }) })],
+        ["kdf.salt", (e: any) => Object.assign({}, e, { kdf: Object.assign({}, e.kdf, { salt: "wrong" }) })],
+        ["nonce", (e: any) => Object.assign({}, e, { nonce: "AA==" })],
+        ["ciphertext", (e: any) => Object.assign({}, e, { ciphertext: "AA==" })],
+        ["extra field", (e: any) => Object.assign({}, e, { extra: "field" })],
 	];
 	for (const [, mutation] of mutations) {
 		const damaged = JSON.stringify(mutation(envelope));

@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { decrypt, encrypt } from "./crypto";
+import { decrypt, encrypt } from "./storage/crypto";
 
 export const LockSettingsSchema = v.strictObject({
     timeoutMinutes: v.picklist([1, 5, 15, 30]),

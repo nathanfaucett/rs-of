@@ -1,11 +1,11 @@
 // @vitest-environment playwright
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { Secret } from "../secrets/secret";
+import type { Secret } from "./secrets/secret";
 import { prepareBackupRestore } from "./backup";
 import { createVault, listVaults, unlockVault } from "./vault";
-import { SharedDb } from "./SharedDb";
-import { clearStorage, getStorageClient } from "../test-utils";
-import { dbParam } from "./schema";
+import { SharedDb } from "./storage/SharedDb";
+import { clearStorage, getStorageClient } from "../../test/utils";
+import { dbParam } from "./storage/schema";
 import { Transaction } from "@ofsdk/sql";
 
 const password = "synthetic-folders-master";
@@ -223,7 +223,7 @@ it("verifies cascade delete on vault deletion removes folders", async () => {
 	vault.close();
 
 	const { client } = await getStorageClient();
-	const registry = (await import("./VaultRegistry")).createVaultRegistry(client);
+	const registry = (await import("./storage/VaultRegistry")).createVaultRegistry(client);
 	await registry.deleteVault(id);
 
 	const folders = await client.execute(

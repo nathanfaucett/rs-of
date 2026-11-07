@@ -1,46 +1,47 @@
 <script lang="ts">
 import { page } from "$app/state";
+import { goto } from "$app/navigation";
+import { onMount } from "svelte";
 import NavSidebar from "./layout/NavSidebar.svelte";
-import FilterSidebar from "./layout/FilterSidebar.svelte";
-import type { Snippet } from "svelte";
+import type { LayoutProps } from "./$types";
+import { vaultStateModule } from "$lib/shared/state/vault.svelte";
 
-interface Props {
-	children: Snippet;
-}
+let { children }: LayoutProps = $props();
+let vaultData = $derived(vaultStateModule.vaultData);
+let vaultStatus = $derived(vaultStateModule.state.status);
 
-let { children }: Props = $props();
+// Initialize vault state if not already initialized
+onMount(() => {
+    if (vaultStatus === "loading") {
+        void vaultStateModule.init();
+    }
+});
 
-// Determine if we're in vault view for filter sidebar
-const isVault = $derived(page.url.pathname.startsWith("/vault"));
-
-function setActiveView(view: string) {
-	location.href = `/${view}`;
-}
-
-function setActiveFilter(filter: string) {
-	// Filter is handled via URL search params or component state
-	console.log("Filter:", filter);
-}
-</script>
+// Redirect to root if vault is locked and accessing protected route
+$effect(() => {
+    if (page.url.pathname.startsWith("/vault") ||
+        page.url.pathname.startsWith("/settings") ||
+        page.url.pathname.startsWith("/trash") ||
+        page.url.pathname.startsWith("/generator")) {
+        // Don't redirect while loading - wait for vault to initialize
+        if (vaultStatus === "loading") return;
+        // Redirect if vault is not unlocked (select-vault, locked, create-vault, etc.)
+        if (!vaultData) {
+            goto("/");
+        }
+    }
+});</script>
 
 <div class="flex min-h-screen bg-canvas">
-	<NavSidebar onNavigate={setActiveView} />
+    <NavSidebar onNavigate={(view) => goto(`/${view}`)} />
 
-	<main class="flex-1 min-h-0 flex flex-col lg:ml-64">
-		<div class="flex-1 flex flex-col min-h-0">
-			{#if isVault}
-				<div class="lg:hidden">
-					<FilterSidebar onFilterChange={setActiveFilter} />
-				</div>
-			{/if}
-			<div class="flex-1 min-h-0 overflow-auto flex">
-				{#if isVault}
-					<FilterSidebar onFilterChange={setActiveFilter} />
-				{/if}
-				<div class="flex-1 min-h-0 overflow-auto">
-					{@render children()}
-				</div>
-			</div>
-		</div>
-	</main>
+    <main class="flex-1 min-h-0 flex flex-col lg:ml-64">
+        <div class="flex-1 flex flex-col min-h-0">
+            <div class="flex-1 min-h-0 overflow-auto flex">
+                <div class="flex-1 min-h-0 overflow-auto">
+                    {@render children()}
+                </div>
+            </div>
+        </div>
+    </main>
 </div>

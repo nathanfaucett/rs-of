@@ -5,9 +5,9 @@ import {
 	fixturePlaintext,
 } from "./authentication-fixtures";
 import { createVault, listVaults, unlockVault } from "./vault";
-import { clearStorage, getStorageClient } from "../test-utils";
+import { clearStorage, getStorageClient } from "../../test/utils";
 import { SharedDb } from "./SharedDb";
-import { dbParam } from "./schema";
+import { dbParam } from "./storage/schema";
 
 afterEach(async () => {
 	await clearStorage();

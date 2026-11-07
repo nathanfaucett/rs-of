@@ -1,9 +1,9 @@
 import { Client, type Row, Transaction } from "@ofsdk/sql";
-import { SharedDb } from "./SharedDb";
-import { VaultRegistry, createVaultRegistry, type VaultIdentity } from "./VaultRegistry";
+import { SharedDb } from "./storage/SharedDb";
+import { VaultRegistry, createVaultRegistry, type VaultIdentity } from "./storage/VaultRegistry";
 import * as v from "valibot";
-import { transitionLogin } from "../secrets/legacy-login";
-import { type Secret, SecretSchema } from "../secrets/secret";
+import { transitionLogin } from "./secrets/legacy-login";
+import { type Secret, SecretSchema } from "./secrets/secret";
 import {
   decrypt,
   deriveKey,
@@ -12,7 +12,7 @@ import {
   PBKDF2_ITERATIONS,
   toBase64,
   verifyAuthentication,
-} from "./crypto";
+} from "./storage/crypto";
 import { type Folder, FolderSchema, validateItemSnapshot } from "./folder";
 import { decryptLockSettings, encryptLockSettings, type LockSettings } from "./lock";
 import {
@@ -22,7 +22,7 @@ import {
   parseLockSettingsRow,
   dbParams,
   dbParam,
-} from "./schema";
+} from "./storage/schema";
 
 export const BACKUP_MAX_BYTES = 16 * 1024 * 1024;
 const MAX_RECORDS = 10_000;

@@ -1,8 +1,8 @@
 import { Client, Transaction, type Row } from "@ofsdk/sql";
-import { migrateToSharedTables, needsMigration } from "./migrate-to-shared";
+import { migrateToSharedTables, needsMigration } from "./storage/migrate-to-shared";
 import * as v from "valibot";
-import { SharedDb } from "./SharedDb";
-import { VaultRegistry, createVaultRegistry } from "./VaultRegistry";
+import { SharedDb } from "./storage/SharedDb";
+import { VaultRegistry, createVaultRegistry } from "./storage/VaultRegistry";
 import {
   parseSecretRow,
   parseFolderRow,
@@ -12,7 +12,7 @@ import {
   parseText,
   dbParams,
   dbParam,
-} from "./schema";
+} from "./storage/schema";
 import {
   deriveKey,
   encrypt,
@@ -21,9 +21,9 @@ import {
   fromBase64,
   createAuthentication,
   verifyAuthentication,
-} from "./crypto";
+} from "./storage/crypto";
 import { type LockSettings, LockSettingsSchema, DEFAULT_LOCK_SETTINGS, encryptLockSettings, decryptLockSettings } from "./lock";
-import { type Secret, SecretSchema } from "../secrets/secret";
+import { type Secret, SecretSchema } from "./secrets/secret";
 import { type Folder, FolderSchema } from "./folder";
 import { type ItemMutation, validateItemSnapshot, type ItemSnapshot } from "./folder";
 

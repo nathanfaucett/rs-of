@@ -1,42 +1,34 @@
 <script lang="ts">
 import LockSettingsControl from "$lib/vault/LockSettings.svelte";
-import JsonExport from "$lib/json-export/JsonExport.svelte";
-import ImportJson from "$lib/import/ImportJson.svelte";
+import JsonExport from "$lib/vault/export/JsonExport.svelte";
+import ImportJson from "$lib/vault/import/ImportJson.svelte";
 import { Alert, Card } from "$lib/ui";
-import { notifications } from "$lib/common/state/notifications.svelte";
-
-interface Props {
-	data: {
-		vault: any;
-		inactivity: any;
-		lockSettings: any;
-	};
-}
-
-let { data }: Props = $props();
+import { notifications } from "$lib/shared/state/notifications.svelte";
+import { vaultStateModule } from "$lib/shared/state/vault.svelte";
 
 let error = $state("");
 let notice = $state("");
 let busy = $state(false);
 let importing = $state(false);
-let jsonExport = $state<any>();
 let session = 0;
 
+let vaultData = $derived(vaultStateModule.vaultData);
+
 function settingsSaved(settings: any) {
-	if (data.inactivity.check()) return;
-	data.lockSettings = settings;
+	if (!vaultData || vaultData.inactivity.check()) return;
+	vaultData.lockSettings = settings;
 }
 
 async function downloadBackup(recovery = false) {
-	if (busy || importing) return;
+	if (!vaultData || busy || importing) return;
 	busy = true;
 	error = "";
 	notice = "";
-	const vault = data.vault;
+	const vault = vaultData.vault;
 	const request = session;
 	try {
 		const backup = await (recovery ? vault.exportTransitionBackup() : vault.exportBackup());
-		if (data.inactivity.check() || request !== session) return;
+		if (vaultData.inactivity.check() || request !== session) return;
 		const url = URL.createObjectURL(new Blob([backup], { type: "application/json" }));
 		const link = document.createElement("a");
 		link.href = url;
@@ -55,17 +47,17 @@ async function downloadBackup(recovery = false) {
 }
 
 function finishImport(success = false) {
-	if (data.inactivity.check()) return;
+	if (!vaultData || vaultData.inactivity.check()) return;
 	importing = false;
 	notice = success ? "Import verified. All accepted items and folders were added." : "";
 	const request = session;
 	setTimeout(() => {
-		if (request === session && !data.inactivity.check()) document.getElementById("import-json-action")?.focus();
+		if (request === session && !vaultData?.inactivity.check()) document.getElementById("import-json-action")?.focus();
 	}, 0);
 }
 
 function showImport() {
-	if (data.inactivity.check() || busy) return;
+	if (!vaultData || vaultData.inactivity.check() || busy) return;
 	importing = true;
 	notice = "";
 }
@@ -75,12 +67,14 @@ function showImport() {
 	<div class="space-y-6 max-w-3xl">
 		{#if error}<Alert tone="danger">{error}</Alert>{/if}
 		{#if notice}<p role="status">{notice}</p>{/if}
-		<LockSettingsControl vault={data.vault} settings={data.lockSettings} onsaved={settingsSaved} />
-		<JsonExport vault={data.vault} isActive={() => !data.inactivity.check()} />
-		<ImportJson vault={data.vault} active={() => !data.inactivity.check()} oncancel={() => finishImport()} onimported={() => finishImport(true)} />
-		<div class="flex gap-2">
-			<button class="btn btn-secondary btn-md" type="button" disabled={busy || importing} onclick={() => void downloadBackup()}>{busy ? "Preparing backup…" : "Download encrypted backup"}</button>
-			<button class="btn btn-secondary btn-md" type="button" disabled={busy || importing} onclick={() => void downloadBackup(true)}>Download pre-transition backup</button>
-		</div>
+		{#if vaultData}
+			<LockSettingsControl vault={vaultData.vault} settings={vaultData.lockSettings} onsaved={settingsSaved} />
+			<JsonExport vault={vaultData.vault} isActive={() => !vaultData.inactivity.check()} />
+			<ImportJson vault={vaultData.vault} active={() => !vaultData.inactivity.check()} oncancel={() => finishImport()} onimported={() => finishImport(true)} />
+			<div class="flex gap-2">
+				<button class="btn btn-secondary btn-md" type="button" disabled={busy || importing} onclick={() => void downloadBackup()}>{busy ? "Preparing backup…" : "Download encrypted backup"}</button>
+				<button class="btn btn-secondary btn-md" type="button" disabled={busy || importing} onclick={() => void downloadBackup(true)}>Download pre-transition backup</button>
+			</div>
+		{/if}
 	</div>
 </div>

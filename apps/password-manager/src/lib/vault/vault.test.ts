@@ -1,8 +1,8 @@
 // @vitest-environment playwright
 import { afterEach, expect, it } from "vitest";
 import { createVault, listVaults, unlockVault } from "./vault";
-import { clearStorage, getStorageClient } from "../test-utils";
-import { SharedDb } from "./SharedDb";
+import { clearStorage, getStorageClient } from "../../test/utils";
+import { SharedDb } from "./storage/SharedDb";
 
 afterEach(async () => {
 	await clearStorage();
@@ -180,7 +180,7 @@ it("deletes vault and cascades to secrets, folders, lock_settings", async () => 
 	expect(beforeFolders[0]?.rows.length).toBeGreaterThan(0);
 	expect(beforeLock[0]?.rows.length).toBeGreaterThan(0);
 
-	const registry = (await import("./VaultRegistry")).createVaultRegistry(client);
+	const registry = (await import("./storage/VaultRegistry")).createVaultRegistry(client);
 	await registry.deleteVault(id);
 
 	const afterSecrets = await client.executeRaw(

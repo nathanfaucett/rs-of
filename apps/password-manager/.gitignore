@@ -18,10 +18,11 @@ Thumbs.db
 !/.env.example
 
 # Vite
-/vite.config.js.timestamp-*
-/vite.config.ts.timestamp-*
+/vite.config.js.timestamp-
+/vite.config.ts.timestamp-
 /.vitest-attachments
 /**/__screenshots__/**
+/src/test/screenshots/
 
 # Paraglide
 /src/lib/paraglide
