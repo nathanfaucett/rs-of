@@ -1,14 +1,11 @@
 <script lang="ts">
 import { onMount, tick } from "svelte";
 import { beforeNavigate } from "$app/navigation";
+import { redirect } from "@sveltejs/kit";
 import RestoreBackup from "$lib/vault/RestoreBackup.svelte";
-import JsonExport from "$lib/json-export/JsonExport.svelte";
-import LockSettingsControl from "$lib/vault/LockSettings.svelte";
 import { createInactivityLock, DEFAULT_LOCK_SETTINGS, type LockSettings } from "$lib/vault/lock";
-import LocalSecretEditor from "$lib/secrets/LocalSecretEditor.svelte";
-import PasswordGenerator from "$lib/generator/PasswordGenerator.svelte";
-import ImportJson from "$lib/import/ImportJson.svelte";
 import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
+import { Eye, EyeOff } from "@lucide/svelte";
 import {
     createVault as createVaultHandle,
     listVaults,
@@ -29,37 +26,17 @@ type VaultState =
 let vaultState = $state<VaultState>({ status: "loading" });
 let password = $state("");
 let confirmPassword = $state("");
+let showPassword = $state(false);
 let vaultName = $state("");
 let error = $state("");
 let busy = $state(false);
 let notice = $state("");
-let itemEditor = $state<ReturnType<typeof LocalSecretEditor>>();
-let activeTab = $state<'vault' | 'generator' | 'settings' | 'trash'>('vault');
-let importControl = $state<ReturnType<typeof ImportJson>>();
-let importing = $state(false);
-function showImport() {
-    if (inactivity.check() || busy || vaultState.status !== "unlocked") return;
-    if (itemEditor?.hasUnsavedChanges() && !window.confirm("Discard unsaved changes?")) return;
-    itemEditor?.retire();
-    importing = true;
-    notice = "";
-}
-function finishImport(success = false) {
-    if (inactivity.check() || vaultState.status !== "unlocked") return;
-    importing = false;
-    notice = success ? "Import verified. All accepted items and folders were added. Check the data and keep an encrypted backup." : "";
-    const request = session;
-    void tick().then(() => {
-        if (request === session && !inactivity.check()) document.getElementById("import-json-action")?.focus();
-    });
-}
-let jsonExport = $state<ReturnType<typeof JsonExport>>();
 let session = 0;
 let lockSettings = $state<LockSettings>({ ...DEFAULT_LOCK_SETTINGS });
 const inactivity = createInactivityLock(() => { void lockVault(); });
 
 function settingsSaved(settings: LockSettings) {
-    if (inactivity.check() || vaultState.status !== "unlocked") return;
+    if (inactivity.check()) return;
     lockSettings = settings;
     inactivity.start(settings);
 }
@@ -70,7 +47,8 @@ async function enterVault(vault: VaultHandle, request: number) {
         if (request !== session) { vault.close(); return; }
         lockSettings = settings;
         inactivity.start(settings);
-        vaultState = { status: "unlocked", vault };
+        // Redirect to vault page instead of setting unlocked state
+        redirect(302, "/vault");
     } catch (cause) {
         vault.close();
         throw cause;
@@ -78,41 +56,16 @@ async function enterVault(vault: VaultHandle, request: number) {
 }
 
 beforeNavigate((navigation) => {
-    if (!busy && !importing && !itemEditor?.hasUnsavedChanges()) return;
+    if (!busy && !itemEditor?.hasUnsavedChanges()) return;
     if (navigation.willUnload || !window.confirm("Leave with unsaved or pending changes?")) navigation.cancel();
 });
-
-async function downloadBackup(recovery = false) {
-    if (busy || vaultState.status !== "unlocked") return;
-    busy = true;
-    error = "";
-    notice = "";
-    const vault = vaultState.vault;
-    const request = session;
-    try {
-        const backup = await (recovery ? vault.exportTransitionBackup() : vault.exportBackup());
-        if (inactivity.check() || request !== session) return;
-        const url = URL.createObjectURL(new Blob([backup], { type: "application/json" }));
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = `vault-${vault.id}-${recovery ? "pre-transition" : "encrypted"}-backup.json`;
-        document.body.append(link);
-        try { link.click(); } finally {
-            link.remove();
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
-        }
-        notice = recovery ? "Pre-transition download requested. This contains the records before conversion, not later edits. Keep the current vault. Restore in a clean profile and verify it before discarding any source data." : "Download requested. Check that the file was saved. Keep it outside browser storage and test restore in a clean profile. It uses this vault's master password and contains the last committed records.";
-    } catch (cause) {
-        if (request === session) error = cause instanceof Error ? cause.message : "Backup download failed. Keep the source vault and retry.";
-    } finally {
-        if (request === session) busy = false;
-    }
-}
 
 async function restored(identity: VaultIdentity) {
     await showVaultSelector();
     notice = `Restore verified: ${identity.name}. ID: ${identity.id}. Unlock it and check the data before discarding the backup.`;
 }
+
+let itemEditor: { hasUnsavedChanges: () => boolean; retire: () => void } | undefined;
 
 onMount(() => {
     void showVaultSelector();
@@ -135,8 +88,6 @@ onMount(() => {
         password = "";
         confirmPassword = "";
         itemEditor?.retire();
-        importControl?.retire();
-        jsonExport?.retire();
         if (vaultState.status === "unlocked") vaultState.vault.close();
     };
 });
@@ -238,9 +189,6 @@ async function lockVault() {
     error = "";
     busy = false;
     itemEditor?.retire();
-    importControl?.retire();
-    importing = false;
-    jsonExport?.retire();
     if (vaultState.status === "unlocked") vaultState.vault.close();
     itemEditor = undefined;
     const request = session;
@@ -378,13 +326,28 @@ async function lockVault() {
                     {/if}
                     <Field id="password" label="Master password" required>
                         {#snippet children(control)}
-                            <input
-                                {...control}
-                                bind:value={password}
-                                type="password"
-                                disabled={busy}
-                                onkeydown={(e) => e.key === "Enter" && void unlockVault()}
-                            />
+                            <div class="flex gap-2">
+                                <input
+                                    {...control}
+                                    bind:value={password}
+                                    type={showPassword ? "text" : "password"}
+                                    disabled={busy}
+                                    onkeydown={(e) => e.key === "Enter" && void unlockVault()}
+                                    class="flex-1"
+                                />
+                                <button
+                                    type="button"
+                                    class="btn btn-ghost btn-md self-end"
+                                    onclick={() => showPassword = !showPassword}
+                                    aria-label={showPassword ? "Hide password" : "Show password"}
+                                >
+                                    {#if showPassword}
+                                        <EyeOff class="w-5 h-5" />
+                                    {:else}
+                                        <Eye class="w-5 h-5" />
+                                    {/if}
+                                </button>
+                            </div>
                         {/snippet}
                     </Field>
                     <div class="flex gap-2">
@@ -407,50 +370,6 @@ async function lockVault() {
                     </div>
                 </div>
             </Card>
-        </Page>
-    {:else if vaultState.status === "unlocked"}
-        <Page>
-            <PageHeader
-                title="Password Manager"
-                description="Your vault is stored locally and encrypted. This is a local-first app — no server required."
-            >
-                {#snippet actions()}
-                    <button
-                        class="btn btn-secondary btn-md"
-                        type="button"
-                        onclick={lockVault}
-                    >Lock vault</button>
-                {/snippet}
-            </PageHeader>
-            {#if error}<Alert tone="danger">{error}</Alert>{/if}
-            {#if notice}<p role="status">{notice}</p>{/if}
-            <div class="flex flex-col gap-4">
-                <div role="tablist" class="flex gap-1 p-1 bg-muted rounded-lg" aria-label="Main navigation">
-                    <button role="tab" aria-selected={activeTab === 'vault'} class="btn btn-sm px-3 py-1.5" onclick={() => activeTab = 'vault'}>Vault</button>
-                    <button role="tab" aria-selected={activeTab === 'generator'} class="btn btn-sm px-3 py-1.5" onclick={() => activeTab = 'generator'}>Generator</button>
-                    <button role="tab" aria-selected={activeTab === 'settings'} class="btn btn-sm px-3 py-1.5" onclick={() => activeTab = 'settings'}>Settings</button>
-                    <button role="tab" aria-selected={activeTab === 'trash'} class="btn btn-sm px-3 py-1.5" onclick={() => activeTab = 'trash'}>Trash</button>
-                </div>
-                <div class="flex-1 min-h-0 overflow-auto">
-                    {#if activeTab === 'vault'}
-                        <LocalSecretEditor bind:this={itemEditor} vault={vaultState.vault} />
-                    {:else if activeTab === 'generator'}
-                        <PasswordGenerator />
-                    {:else if activeTab === 'settings'}
-                        <div class="space-y-6">
-                            <LockSettingsControl vault={vaultState.vault} settings={lockSettings} onsaved={settingsSaved} />
-                            <JsonExport vault={vaultState.vault} isActive={() => !inactivity.check() && vaultState.status === "unlocked"} />
-                            <ImportJson vault={vaultState.vault} active={() => !inactivity.check() && vaultState.status === "unlocked"} oncancel={() => finishImport()} onimported={() => finishImport(true)} />
-                            <div class="flex gap-2">
-                                <button class="btn btn-secondary btn-md" type="button" disabled={busy || importing} onclick={() => void downloadBackup()}>{busy ? "Preparing backup…" : "Download encrypted backup"}</button>
-                                <button class="btn btn-secondary btn-md" type="button" disabled={busy || importing} onclick={() => void downloadBackup(true)}>Download pre-transition backup</button>
-                            </div>
-                        </div>
-                    {:else if activeTab === 'trash'}
-                        <LocalSecretEditor vault={vaultState.vault} initialTrash={true} hideTrashToggle={true} />
-                    {/if}
-                </div>
-            </div>
         </Page>
     {:else if vaultState.status === "error"}
         <Page width="narrow">

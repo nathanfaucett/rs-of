@@ -13,51 +13,6 @@ export function offlineError(cause: unknown): string {
     return "Offline setup failed. Connect, allow site storage, free storage space if needed, and retry. Close all app tabs to finish an update. The previous cached version and vault storage are not reset.";
 }
 
-export async function checkLocalStorage(): Promise<void> {
-    if (
-        !globalThis.isSecureContext ||
-        !crypto.subtle ||
-        !globalThis.WebAssembly ||
-        !globalThis.indexedDB ||
-        !indexedDB.databases
-    ) {
-        throw new Error(
-            "Use a current browser with HTTPS, Web Crypto, WebAssembly and IndexedDB support.",
-        );
-    }
-    await indexedDB.databases();
-    await new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open("password-manager-offline-probe", 1);
-        request.onupgradeneeded = () =>
-            request.result.createObjectStore("probe");
-        request.onerror = () => reject(request.error);
-        request.onblocked = () =>
-            reject(
-                new Error(
-                    "Close other app tabs, then retry local storage setup.",
-                ),
-            );
-        request.onsuccess = () => {
-            const db = request.result;
-            try {
-                const transaction = db.transaction("probe", "readwrite");
-                transaction.objectStore("probe").put(true, "available");
-                transaction.oncomplete = () => {
-                    db.close();
-                    resolve();
-                };
-                transaction.onabort = () => {
-                    db.close();
-                    reject(transaction.error);
-                };
-            } catch (cause) {
-                db.close();
-                reject(cause);
-            }
-        };
-    });
-}
-
 export async function prepareOffline(): Promise<string> {
     if (!("serviceWorker" in navigator)) {
         return "Offline startup is unavailable. Use a current browser with service workers and HTTPS. Private browsing can restrict storage.";

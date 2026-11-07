@@ -1,3 +1,4 @@
+// @vitest-environment playwright
 import { expect, it } from "vitest";
 import { generateTotp, parseTotp } from "./totp";
 

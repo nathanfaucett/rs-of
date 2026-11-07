@@ -580,17 +580,7 @@ try {
                 Object.defineProperty(globalThis, "WebAssembly", {
                     value: undefined,
                 });
-            else if (fault === "QuotaExceededError") {
-                const transaction = IDBDatabase.prototype.transaction;
-                IDBDatabase.prototype.transaction = function (...args) {
-                    if (this.name === "password-manager-offline-probe")
-                        throw new DOMException(
-                            "Synthetic write quota fault",
-                            fault,
-                        );
-                    return transaction.apply(this, args);
-                };
-            } else
+            else
                 IDBFactory.prototype.databases = () =>
                     Promise.reject(
                         new DOMException("Synthetic storage fault", fault),

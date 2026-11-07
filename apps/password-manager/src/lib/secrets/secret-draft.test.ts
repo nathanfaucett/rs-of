@@ -1,3 +1,4 @@
+// @vitest-environment playwright
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import { LoginSchema } from "./secret";

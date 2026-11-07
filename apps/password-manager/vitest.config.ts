@@ -17,6 +17,9 @@ export default defineConfig({
             ],
         },
     },
+    deps: {
+        inline: ["$lib/vault/vault"],
+    },
     resolve: {
         conditions: ["browser"],
         alias: {
@@ -26,6 +29,16 @@ export default defineConfig({
     test: {
         environment: "jsdom",
         include: ["src/**/*.test.ts"],
+        pool: "forks",
+        poolOptions: {
+            forks: {
+                singleFork: true,
+            },
+        },
+        deps: {
+            inline: ["$lib/vault/vault"],
+        },
+        setupFiles: ["./src/test-setup.ts"],
         browser: {
             enabled: true,
             provider: playwright(),

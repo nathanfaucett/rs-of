@@ -24,6 +24,14 @@ export default defineConfig({
             strategy: ["localStorage", "baseLocale"],
         }),
     ],
+    ssr: {
+        external: ["lucide-svelte"],
+    },
+    build: {
+        rolldownOptions: {
+            external: ["lucide-svelte"],
+        },
+    },
     server: {
         port: parseInteger(process.env.PORT, 5173),
         strictPort: true,

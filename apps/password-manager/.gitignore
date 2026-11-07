@@ -21,6 +21,7 @@ Thumbs.db
 /vite.config.js.timestamp-*
 /vite.config.ts.timestamp-*
 /.vitest-attachments
+/**/__screenshots__/**
 
 # Paraglide
 /src/lib/paraglide

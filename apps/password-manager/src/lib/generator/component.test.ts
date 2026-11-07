@@ -1,3 +1,4 @@
+// @vitest-environment playwright
 import { flushSync, mount, tick, unmount } from "svelte";
 import { afterEach, expect, it, vi } from "vitest";
 import PasswordGenerator from "./PasswordGenerator.svelte";

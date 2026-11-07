@@ -1,3 +1,4 @@
+// @vitest-environment playwright
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EncryptedSecret, VaultHandle } from "../vault/vault";
 import {

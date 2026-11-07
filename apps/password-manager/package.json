@@ -19,9 +19,9 @@
         "test:offline": "vite build && node scripts/check-offline.mjs && node scripts/check-json-export.mjs"
     },
     "devDependencies": {
-        "@ofsdk/native-fetch": "workspace:*",
         "@biomejs/biome": "^2.5.3",
         "@inlang/paraglide-js": "^2.21.0",
+        "@ofsdk/native-fetch": "workspace:*",
         "@playwright/test": "^1.64.1",
         "@standard-schema/spec": "^1.1.0",
         "@sveltejs/adapter-static": "^3.0.10",
@@ -31,6 +31,7 @@
         "@tailwindcss/typography": "^0.5.20",
         "@tailwindcss/vite": "^4.3.2",
         "@types/node": "^26.1.1",
+        "fake-indexeddb": "^6.2.7",
         "globals": "^17.7.0",
         "jsdom": "~27.4.0",
         "playwright": "^1.64.1",
@@ -45,12 +46,12 @@
     },
     "dependencies": {
         "@aicacia/svelte-forms": "^0.1.1",
-        "@ofsdk/svelte-headless": "workspace:*",
         "@lucide/svelte": "^1.24.0",
+        "@ofsdk/sql": "link:/home/nathan/code/rust/aicacia/ofdb/packages/sql",
+        "@ofsdk/svelte-headless": "workspace:*",
         "@tanstack/db": "~0.15.2",
         "@tanstack/svelte-db": "0.5.12",
         "jose": "5.9.6",
-        "@ofsdk/sql": "link:/home/nathan/code/rust/aicacia/ofdb/packages/sql",
         "valibot": "^1.4.2"
     }
 }

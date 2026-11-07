@@ -1,3 +1,4 @@
+// @vitest-environment playwright
 import * as v from "valibot";
 import { expect, it } from "vitest";
 import expected from "../../../../../docs/fixtures/password-manager/export-expected.json";

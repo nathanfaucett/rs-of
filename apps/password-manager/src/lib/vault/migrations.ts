@@ -1,37 +1,42 @@
 import type { Migration } from "@ofsdk/sql";
 
 export const vaultMigrations: readonly Migration[] = [
-    {
-        version: 1,
-        sql: `CREATE TABLE vault_meta (
-    id INTEGER PRIMARY KEY,
-    vault_id TEXT NOT NULL,
-    salt TEXT NOT NULL,
-    iv TEXT NOT NULL,
-    created_at TEXT NOT NULL
+	{
+		version: 1,
+		description: "Create vault_meta and secrets tables",
+		sql: `CREATE TABLE vault_meta (
+	id INTEGER PRIMARY KEY,
+	vault_id TEXT NOT NULL,
+	salt TEXT NOT NULL,
+	iv TEXT NOT NULL,
+	created_at TEXT NOT NULL
 );
 CREATE TABLE secrets (
-    id TEXT PRIMARY KEY,
-    ciphertext TEXT NOT NULL,
-    nonce TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+	id TEXT PRIMARY KEY,
+	ciphertext TEXT NOT NULL,
+	nonce TEXT NOT NULL,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
 )`,
-    },
-    {
-        version: 2,
-        sql: "ALTER TABLE vault_meta ADD COLUMN authentication TEXT",
-    },
-    {
-        version: 3,
-        sql: "ALTER TABLE vault_meta ADD COLUMN item_format INTEGER NOT NULL DEFAULT 1; ALTER TABLE vault_meta ADD COLUMN transition_backup TEXT",
-    },
-    {
-        version: 4,
-        sql: "CREATE TABLE folders (id TEXT PRIMARY KEY, ciphertext TEXT NOT NULL, nonce TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
-    },
-    {
-        version: 5,
-        sql: "ALTER TABLE vault_meta ADD COLUMN lock_settings TEXT",
-    },
+	},
+	{
+		version: 2,
+		description: "Add authentication column to vault_meta",
+		sql: "ALTER TABLE vault_meta ADD COLUMN authentication TEXT",
+	},
+	{
+		version: 3,
+		description: "Add item_format and transition_backup columns to vault_meta",
+		sql: "ALTER TABLE vault_meta ADD COLUMN item_format INTEGER NOT NULL DEFAULT 1; ALTER TABLE vault_meta ADD COLUMN transition_backup TEXT",
+	},
+	{
+		version: 4,
+		description: "Create folders table",
+		sql: "CREATE TABLE folders (id TEXT PRIMARY KEY, ciphertext TEXT NOT NULL, nonce TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+	},
+	{
+		version: 5,
+		description: "Add lock_settings column to vault_meta",
+		sql: "ALTER TABLE vault_meta ADD COLUMN lock_settings TEXT",
+	},
 ];

@@ -1,4 +1,5 @@
 import { Database, type DbValue } from "@ofsdk/sql";
+import { SharedDb } from "./SharedDb";
 import * as v from "valibot";
 import { transitionLogin } from "../secrets/legacy-login";
 import { type Secret, SecretSchema } from "../secrets/secret";
@@ -293,10 +294,10 @@ export async function prepareBackupRestore(
                 const identity: VaultIdentity = {
                     id: payload.meta.id,
                     name: payload.name,
-                    databaseName: `password-manager-restore-${crypto.randomUUID()}`,
+                    migrated: true,
                     status: "ready",
                 };
-                await stageVault(identity.databaseName, key, payload);
+                await stageVault(identity.id, key, payload);
                 await publishRestoredVault(identity);
                 return identity;
             } finally {
@@ -309,171 +310,166 @@ export async function prepareBackupRestore(
 const params = (values: string[]): DbValue[] =>
     values.map((value) => ({ type: "text", value }));
 
-export async function stageVault(
-    name: string,
-    key: CryptoKey,
-    payload: BackupPayload,
+
+function tablePrefix(vaultId: string): string {
+	return `vault_${vaultId.replace(/-/g, "")}_`;
+}
+
+async function verifySharedDb(
+	vaultId: string,
+	key: CryptoKey,
+	payload: BackupPayload,
 ): Promise<void> {
-    try {
-        const db = await Database.open(name);
-        const client = db.client();
-        try {
-            await client.migrate(vaultMigrations);
-            const tx = await client.transaction();
-            try {
-                await tx.execute(
-                    "INSERT INTO vault_meta (id, vault_id, salt, iv, created_at, authentication, item_format, transition_backup, lock_settings) VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8)",
-                    [
-                        ...params([
-                            payload.meta.id,
-                            payload.meta.salt,
-                            payload.meta.iv,
-                            payload.meta.createdAt,
-                            payload.authentication,
-                        ]),
-                        {
-                            type: "integer",
-                            value: String(payload.itemFormat ?? 1),
-                        },
-                        payload.transitionBackup
-                            ? { type: "text", value: payload.transitionBackup }
-                            : { type: "null" },
-                        payload.lockSettings
-                            ? { type: "text", value: payload.lockSettings }
-                            : { type: "null" },
-                    ],
-                );
-                for (const record of payload.secrets) {
-                    await tx.execute(
-                        "INSERT INTO secrets (id, ciphertext, nonce, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)",
-                        params([
-                            record.id,
-                            record.ciphertext,
-                            record.nonce,
-                            record.createdAt,
-                            record.updatedAt,
-                        ]),
-                    );
-                }
-                for (const record of payload.folders ?? []) {
-                    await tx.execute(
-                        "INSERT INTO folders (id, ciphertext, nonce, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)",
-                        params([
-                            record.id,
-                            record.ciphertext,
-                            record.nonce,
-                            record.createdAt,
-                            record.updatedAt,
-                        ]),
-                    );
-                }
-                await tx.commit();
-            } finally {
-                tx.close();
-            }
-        } finally {
-            client.close();
-            db.close();
-        }
-        // Only a verified reopened database can become visible in the registry.
-        const reopened = await Database.open(name);
-        const reader = reopened.client();
-        try {
-            const results = await reader.execute(
-                "SELECT vault_id, salt, iv, created_at, authentication FROM vault_meta WHERE id = 1; SELECT id, ciphertext, nonce, created_at, updated_at FROM secrets ORDER BY id",
-            );
-            const strings = (row: DbValue[]) =>
-                row.map((cell) => {
-                    if (cell.type !== "text" && cell.type !== "uuid")
-                        throw invalid();
-                    return cell.value;
-                });
-            const meta = results[0]?.rows.map(strings);
-            const records = results[1]?.rows.map(strings);
-            const expectedMeta = [
-                [
-                    payload.meta.id,
-                    payload.meta.salt,
-                    payload.meta.iv,
-                    payload.meta.createdAt,
-                    payload.authentication,
-                ],
-            ];
-            const expectedRecords = [...payload.secrets]
-                .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-                .map((record) => [
-                    record.id,
-                    record.ciphertext,
-                    record.nonce,
-                    record.createdAt,
-                    record.updatedAt,
-                ]);
-            if (
-                JSON.stringify(meta) !== JSON.stringify(expectedMeta) ||
-                JSON.stringify(records) !== JSON.stringify(expectedRecords)
-            )
-                throw invalid();
-            const savedFolders = await reader.execute(
-                "SELECT id, ciphertext, nonce, created_at, updated_at FROM folders ORDER BY id",
-            );
-            const expectedFolders = [...(payload.folders ?? [])]
-                .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-                .map((record) => [
-                    record.id,
-                    record.ciphertext,
-                    record.nonce,
-                    record.createdAt,
-                    record.updatedAt,
-                ]);
-            if (
-                JSON.stringify(savedFolders[0].rows.map(strings)) !==
-                JSON.stringify(expectedFolders)
-            )
-                throw invalid();
-            const format = await reader.execute(
-                "SELECT item_format, transition_backup, lock_settings FROM vault_meta WHERE id = 1",
-            );
-            if (
-                JSON.stringify(format[0].rows[0][0]) !==
-                    JSON.stringify({
-                        type: "integer",
-                        value: String(payload.itemFormat ?? 1),
-                    }) ||
-                JSON.stringify(format[0].rows[0][1]) !==
-                    JSON.stringify(
-                        payload.transitionBackup
-                            ? { type: "text", value: payload.transitionBackup }
-                            : { type: "null" },
-                    )
-            )
-                throw invalid();
-            const storedSettings = format[0].rows[0][2];
-            if (
-                JSON.stringify(storedSettings) !==
-                JSON.stringify(
-                    payload.lockSettings
-                        ? { type: "text", value: payload.lockSettings }
-                        : { type: "null" },
-                )
-            )
-                throw invalid();
-            await decryptLockSettings(
-                key,
-                payload.meta.id,
-                payload.lockSettings ?? null,
-            );
-            await verifyAuthentication(
-                key,
-                payload.meta,
-                payload.authentication,
-            );
-        } finally {
-            reader.close();
-            reopened.close();
-        }
-    } catch {
-        throw new Error(
-            "Restore storage write could not be verified. No destination was published. Check browser storage and free space, then retry with the backup. Do not clear source data.",
-        );
-    }
+	const sharedDb = SharedDb.getInstance();
+	const client = await sharedDb.getClient(vaultId);
+	const prefix = tablePrefix(vaultId);
+
+	const results = await client.execute(
+		`SELECT vault_id, salt, iv, created_at, authentication FROM ${prefix}meta WHERE id = 1; SELECT id, ciphertext, nonce, created_at, updated_at FROM ${prefix}secrets ORDER BY id`,
+	);
+	const strings = (row: DbValue[]) =>
+		row.map((cell) => {
+			if (cell.type !== "text" && cell.type !== "uuid")
+				throw invalid();
+			return cell.value;
+		});
+	const meta = results[0]?.rows.map(strings);
+	const records = results[1]?.rows.map(strings);
+	const expectedMeta = [
+		[
+			payload.meta.id,
+			payload.meta.salt,
+			payload.meta.iv,
+			payload.meta.createdAt,
+			payload.authentication,
+		],
+	];
+	const expectedRecords = [...payload.secrets]
+		.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+		.map((record) => [
+			record.id,
+			record.ciphertext,
+			record.nonce,
+			record.createdAt,
+			record.updatedAt,
+		]);
+	if (
+		JSON.stringify(meta) !== JSON.stringify(expectedMeta) ||
+		JSON.stringify(records) !== JSON.stringify(expectedRecords)
+	)
+		throw invalid();
+
+	const savedFolders = await client.execute(
+		`SELECT id, ciphertext, nonce, created_at, updated_at FROM ${prefix}folders ORDER BY id`,
+	);
+	const expectedFolders = [...(payload.folders ?? [])]
+		.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+		.map((record) => [
+			record.id,
+			record.ciphertext,
+			record.nonce,
+			record.createdAt,
+			record.updatedAt,
+		]);
+	if (
+		JSON.stringify(savedFolders[0].rows.map(strings)) !==
+		JSON.stringify(expectedFolders)
+	)
+		throw invalid();
+
+	const format = await client.execute(
+		`SELECT item_format, transition_backup, lock_settings FROM ${prefix}meta WHERE id = 1`,
+	);
+	if (
+		JSON.stringify(format[0].rows[0][0]) !==
+			JSON.stringify({
+				type: "integer",
+				value: String(payload.itemFormat ?? 1),
+			}) ||
+		JSON.stringify(format[0].rows[0][1]) !==
+			JSON.stringify(
+				payload.transitionBackup
+					? { type: "text", value: payload.transitionBackup }
+					: { type: "null" },
+			)
+	)
+		throw invalid();
+
+	const storedSettings = format[0].rows[0][2];
+	if (
+		JSON.stringify(storedSettings) !==
+		JSON.stringify(
+			payload.lockSettings
+				? { type: "text", value: payload.lockSettings }
+				: { type: "null" },
+		)
+	)
+		throw invalid();
+
+	await decryptLockSettings(key, payload.meta.id, payload.lockSettings ?? null);
+	await verifyAuthentication(key, payload.meta, payload.authentication);
+}
+
+export async function stageVault(
+	vaultId: string,
+	key: CryptoKey,
+	payload: BackupPayload,
+): Promise<void> {
+	try {
+		const sharedDb = SharedDb.getInstance();
+		const client = await sharedDb.getClient(vaultId);
+		const prefix = tablePrefix(vaultId);
+
+		await client.execute(
+			`INSERT INTO ${prefix}meta (id, vault_id, salt, iv, created_at, authentication, item_format, transition_backup, lock_settings) VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8)`,
+			[
+				...params([
+					payload.meta.id,
+					payload.meta.salt,
+					payload.meta.iv,
+					payload.meta.createdAt,
+					payload.authentication,
+				]),
+				{
+					type: "integer",
+					value: String(payload.itemFormat ?? 1),
+				},
+				payload.transitionBackup
+					? { type: "text", value: payload.transitionBackup }
+					: { type: "null" },
+				payload.lockSettings
+					? { type: "text", value: payload.lockSettings }
+					: { type: "null" },
+			],
+		);
+		for (const record of payload.secrets) {
+			await client.execute(
+				`INSERT INTO ${prefix}secrets (id, ciphertext, nonce, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)`,
+				params([
+					record.id,
+					record.ciphertext,
+					record.nonce,
+					record.createdAt,
+					record.updatedAt,
+				]),
+			);
+		}
+		for (const record of payload.folders ?? []) {
+			await client.execute(
+				`INSERT INTO ${prefix}folders (id, ciphertext, nonce, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)`,
+				params([
+					record.id,
+					record.ciphertext,
+					record.nonce,
+					record.createdAt,
+					record.updatedAt,
+				]),
+			);
+		}
+		await verifySharedDb(vaultId, key, payload);
+	} catch {
+		throw new Error(
+			"Restore storage write could not be verified. No destination was published. Check browser storage and free space, then retry with the backup. Do not clear source data.",
+		);
+	}
 }

@@ -1,3 +1,4 @@
+// @vitest-environment playwright
 import { afterEach, expect, it, vi } from "vitest";
 import {
     generatePassword,
