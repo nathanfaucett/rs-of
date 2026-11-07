@@ -34,16 +34,16 @@ The password manager currently uses **per-vault prefixed tables** in a shared SQ
 
 ## Architecture
 
-| Aspect                | Decision                                                                                                              |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| **Shared DB name**    | `password-manager-v1` (same as current shared DB)                                                                     |
-| **Table strategy**    | Shared tables with `vault_id` FK columns                                                                              |
-| **Registry**          | Merged into `vaults` table in shared DB                                                                               |
-| **Migration trigger** | One-time on first unlock after upgrade                                                                                |
-| **Vault creation**    | Single transaction: `vaults` + empty tables                                                                           |
-| **Vault deletion**    | `DELETE FROM ... WHERE vault_id = ?`                                                                                  |
-| **Crypto isolation**  | Per-vault key derived from `vaults.salt`/`iv` — same as today                                                         |
-| **Query API**         | **Typed `Client.select()` / `Transaction.select()`** with Valibot parsers (replaces manual `execute` + index parsing) |
+| Aspect                | Decision                                                                                                                   |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| **Shared DB name**    | `password-manager-v1` (same as current shared DB)                                                                          |
+| **Table strategy**    | Shared tables with `vault_id` FK columns                                                                                   |
+| **Registry**          | Merged into `vaults` table in shared DB                                                                                    |
+| **Migration trigger** | One-time on first unlock after upgrade                                                                                     |
+| **Vault creation**    | Single transaction: `vaults` + empty tables                                                                                |
+| **Vault deletion**    | `DELETE FROM ... WHERE vault_id = ?`                                                                                       |
+| **Crypto isolation**  | Per-vault key derived from `vaults.salt`/`iv` — same as today                                                              |
+| **Query API**         | **Typed `Client.execute()` / `Transaction.execute()`** with Valibot parsers (replaces manual `executeRaw` + index parsing) |
 
 ## Components to Create
 
@@ -114,10 +114,10 @@ CREATE INDEX idx_folders_vault ON folders(vault_id);
 
 ## Typed SQL API Usage
 
-The migration replaces all manual `execute()` + index-based parsing with **typed `select()`** from `@ofsdk/sql`:
+The migration replaces all manual `executeRaw()` + index-based parsing with **typed `execute()`** from `@ofsdk/sql`:
 
 ```typescript
-import { Client, Transaction, Row } from "@ofsdk/sql";
+import { Client, Transaction, Row, ExecuteError } from "@ofsdk/sql";
 import * as v from "valibot";
 
 // Valibot schema for a secret row
@@ -131,7 +131,7 @@ const SecretRowSchema = v.object({
 
 // In VaultHandle.loadSecrets():
 async loadSecrets(): Promise<Secret[]> {
-  return this.client.select(
+  return this.client.execute(
     `SELECT id, ciphertext, nonce, created_at, updated_at FROM secrets WHERE vault_id = ?`,
     (row: Row) => SecretRowSchema.parse({
       id: row.id.value,
@@ -146,7 +146,7 @@ async loadSecrets(): Promise<Secret[]> {
 
 // In VaultRegistry.listVaultIdentities():
 async listVaultIdentities(): Promise<VaultIdentity[]> {
-  return this.client.select(
+  return this.client.execute(
     `SELECT id, name, status, migrated FROM vaults`,
     (row: Row) => ({
       id: row.id.value,
@@ -161,7 +161,7 @@ async listVaultIdentities(): Promise<VaultIdentity[]> {
 **Benefits:**
 
 - Parser runs **after** execution, receives null-prototype `Row` with tagged `DbValue` cells
-- `SelectError` includes `reason: "parser"` and `rowIndex` on failure
+- `ExecuteError` includes `reason: "parser"` and `rowIndex` on failure
 - Sync parser — async rejected at runtime with structured error
 - Empty result → empty array (parser never invoked)
 - Duplicate columns / multiple statements rejected automatically

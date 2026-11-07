@@ -2,7 +2,7 @@ Status: open
 
 ## Task
 
-Update tests for new shared-table architecture with **typed `select()`** usage.
+Update tests for new shared-table architecture with **typed `execute()`** usage.
 
 ## Details
 
@@ -10,24 +10,24 @@ Update tests for new shared-table architecture with **typed `select()`** usage.
 
 1. **`vault.test.ts`** — `VaultHandle` tests
    - Mock `SharedDb.getClient()` returns shared client
-   - Verify queries use typed `select()` with Valibot parsers
+   - Verify queries use typed `execute()` with Valibot parsers
    - Test `createVault` single transaction
-   - Test `unlockVault` reads from `vaults` table with typed `select()`
+   - Test `unlockVault` reads from `vaults` table with typed `execute()`
 
 2. **`VaultRegistry.test.ts`** (replaces `registry.test.ts`)
    - Test against shared DB (not IndexedDB)
-   - Verify `listVaultIdentities` uses typed `select()` on `vaults` table
+   - Verify `listVaultIdentities` uses typed `execute()` on `vaults` table
    - Verify `reserveVault` inserts into `vaults` atomically
    - Verify `deleteVault` cascades
 
 3. **`SharedDb.test.ts`** — Simplify
    - Remove prefixed table tests
    - Test single shared client
-   - Test migration script uses typed `select()` (separate)
+   - Test migration script uses typed `execute()` (separate)
 
-4. **Typed `select()` parser tests**
+4. **Typed `execute()` parser tests**
    - Test parser success with valid rows
-   - Test `SelectError` with `reason: "parser"` and `rowIndex` on invalid data
+   - Test `ExecuteError` with `reason: "parser"` and `rowIndex` on invalid data
    - Test empty result returns empty array
    - Test duplicate column rejection
    - Test sync parser requirement (async throws)
@@ -49,9 +49,9 @@ Update tests for new shared-table architecture with **typed `select()`** usage.
    - Independent encryption keys
    - Delete one → cascades correctly
 
-4. **Typed `select()` integration**
+4. **Typed `execute()` integration**
    - Full query path: SQL → parser → typed result
-   - Error handling: malformed row → `SelectError` with row index
+   - Error handling: malformed row → `ExecuteError` with row index
 
 ### Test Helpers
 
@@ -66,8 +66,8 @@ Update tests for new shared-table architecture with **typed `select()`** usage.
 - [ ] Migration test covers success + failure cases
 - [ ] No IndexedDB mocks needed for vault tests
 - [ ] Test setup uses shared DB transactions
-- [ ] Typed `select()` parser tests cover error cases
-- [ ] `SelectError.rowIndex` verified on parser failures
+- [ ] Typed `execute()` parser tests cover error cases
+- [ ] `ExecuteError.rowIndex` verified on parser failures
 
 ## Dependencies
 

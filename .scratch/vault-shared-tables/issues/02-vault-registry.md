@@ -6,10 +6,10 @@ Create `VaultRegistry.ts` to replace `registry.ts` — queries `vaults` table in
 
 ## Details
 
-Replace IndexedDB registry with SQL queries using `@ofsdk/sql` typed `select()`:
+Replace IndexedDB registry with SQL queries using `@ofsdk/sql` typed `execute()`:
 
 ```typescript
-import { Client, Row } from "@ofsdk/sql";
+import { Client, Row, ExecuteError } from "@ofsdk/sql";
 import * as v from "valibot";
 import { VaultRowSchema } from "./schema";
 
@@ -28,7 +28,7 @@ export class VaultRegistry {
   }
 
   async listVaultIdentities(): Promise<VaultIdentity[]> {
-    return this.client.select(
+    return this.client.execute(
       `SELECT id, name, status, migrated FROM vaults`,
       (row: Row) =>
         VaultRowSchema.parse({
@@ -41,7 +41,7 @@ export class VaultRegistry {
   }
 
   async findVault(id: string): Promise<VaultIdentity> {
-    const results = await this.client.select(
+    const results = await this.client.execute(
       `SELECT id, name, status, migrated FROM vaults WHERE id = ?`,
       (row: Row) =>
         VaultRowSchema.parse({

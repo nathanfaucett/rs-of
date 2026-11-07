@@ -2,14 +2,14 @@ Status: open
 
 ## Task
 
-Create one-time migration script to move from per-vault tables + registry IndexedDB to shared tables using **typed `select()`** for reading legacy data.
+Create one-time migration script to move from per-vault tables + registry IndexedDB to shared tables using **typed `execute()`** for reading legacy data.
 
 ## Details
 
 Run on first unlock after upgrade. Located in `src/lib/vault/migrate-to-shared.ts`.
 
 ```typescript
-import { Client, Row, Transaction } from "@ofsdk/sql";
+import { Client, Row, Transaction, ExecuteError } from "@ofsdk/sql";
 import * as v from "valibot";
 import { SecretRowSchema, FolderRowSchema } from "./schema";
 
@@ -21,7 +21,7 @@ export async function migrateToSharedTables(): Promise<void> {
   await client.migrate(MIGRATIONS);
 
   // 2. Check if migration already done
-  const existing = await client.select(
+  const existing = await client.execute(
     `SELECT COUNT(*) as count FROM vaults`,
     (row: Row) => ({ count: parseInt(row.count.value, 10) }),
   );
@@ -38,8 +38,8 @@ export async function migrateToSharedTables(): Promise<void> {
       const oldDb = await SqlDatabase.open(oldDbName);
       const oldClient = oldDb.client();
 
-      // Read old per-vault tables using typed select
-      const metaResults = await oldClient.select(
+      // Read old per-vault tables using typed execute
+      const metaResults = await oldClient.execute(
         `SELECT vault_id, salt, iv, created_at, authentication, lock_settings FROM vault_meta WHERE id = 1`,
         (row: Row) => ({
           vaultId: row.vault_id.value,
@@ -51,7 +51,7 @@ export async function migrateToSharedTables(): Promise<void> {
         }),
       );
 
-      const secretsResults = await oldClient.select(
+      const secretsResults = await oldClient.execute(
         `SELECT id, ciphertext, nonce, created_at, updated_at FROM secrets`,
         (row: Row) =>
           SecretRowSchema.parse({
@@ -63,7 +63,7 @@ export async function migrateToSharedTables(): Promise<void> {
           }),
       );
 
-      const foldersResults = await oldClient.select(
+      const foldersResults = await oldClient.execute(
         `SELECT id, ciphertext, nonce, created_at, updated_at FROM folders`,
         (row: Row) =>
           FolderRowSchema.parse({

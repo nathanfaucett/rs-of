@@ -16,7 +16,7 @@ Refactor `VaultHandle` in `vault.ts` to use static table names with `vault_id` p
 **Change:**
 
 - Constructor: `new VaultHandle(key, client, meta, vaultId)` — client is shared
-- **All queries use `Client.select()` / `Transaction.select()` with Valibot parsers**
+- **All queries use `Client.execute()` / `Transaction.execute()` with Valibot parsers**
 - Static table names + `WHERE vault_id = ?` parameters
 
 **Import schemas from `schema.ts`:**
@@ -30,14 +30,14 @@ import {
 import { Client, Transaction, Row } from "@ofsdk/sql";
 ```
 
-**Update methods to use typed `select()`:**
+**Update methods to use typed `execute()`:**
 
 ```typescript
 // loadSecrets()
 async loadSecrets(): Promise<Secret[]> {
   return navigator.locks.request(`password-manager-items-${this.id}`, async () => {
     await this.verifyVaultExists();
-    return this.client.select(
+    return this.client.execute(
       `SELECT id, ciphertext, nonce, created_at, updated_at FROM secrets WHERE vault_id = ?`,
       (row: Row) => SecretRowSchema.parse({
         id: row.id.value,
@@ -55,7 +55,7 @@ async loadSecrets(): Promise<Secret[]> {
 async loadFolders(): Promise<Folder[]> {
   return navigator.locks.request(`password-manager-items-${this.id}`, async () => {
     await this.verifyVaultExists();
-    return this.client.select(
+    return this.client.execute(
       `SELECT id, ciphertext, nonce, created_at, updated_at FROM folders WHERE vault_id = ?`,
       (row: Row) => FolderRowSchema.parse({
         id: row.id.value,
@@ -88,7 +88,7 @@ async encryptAndStore(item: SecretItem): Promise<void> {
 async loadLockSettings(): Promise<LockSettings> {
   return navigator.locks.request(`password-manager-items-${this.id}`, async () => {
     await this.verifyVaultExists();
-    const results = await this.client.select(
+    const results = await this.client.execute(
       `SELECT ciphertext, nonce, updated_at FROM lock_settings WHERE vault_id = ?`,
       (row: Row) => LockSettingsRowSchema.parse({
         ciphertext: row.ciphertext.value,
@@ -159,8 +159,8 @@ export async function unlockVault(
 ): Promise<VaultHandle> {
   const client = SharedDb.getInstance().getClient();
 
-  // Read from vaults table using typed select
-  const results = await client.select(
+  // Read from vaults table using typed execute
+  const results = await client.execute(
     `SELECT id, salt, iv, created_at, authentication FROM vaults WHERE id = ?`,
     (row: Row) => ({
       id: row.id.value,

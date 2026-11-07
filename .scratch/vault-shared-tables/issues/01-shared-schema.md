@@ -35,4 +35,4 @@ All tables in single shared DB (`password-manager-v1`).
 ## Notes
 
 Reference: Bitwarden `ciphers` table with `user_uuid`/`organization_uuid` ownership.
-Typed `select()` API: `client.select(sql, parser, params)` from `@ofsdk/sql`.
+Typed `execute()` API: `client.execute(sql, parser, params)` from `@ofsdk/sql`.
