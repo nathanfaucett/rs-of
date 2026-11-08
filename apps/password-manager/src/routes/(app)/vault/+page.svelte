@@ -54,18 +54,19 @@ $effect(() => {
 			</div>
 			<div class="flex-1 min-w-0">
 				<LocalSecretEditor
-					bind:this={itemEditor}
-					vault={vaultData.vault}
-					searchText={filters.searchText}
-					itemType={filters.itemType}
-					favoritesOnly={filters.favoritesOnly}
-					sort={filters.sort}
-					onSearchTextChange={(v) => filters.searchText = v}
-					onItemTypeChange={(v) => filters.itemType = v}
-					onFavoritesOnlyChange={(v) => filters.favoritesOnly = v}
-					onSortChange={(v) => filters.sort = v}
-					onClearFilters={filters.clearFilters}
-				/>
+				                    bind:this={itemEditor}
+				                    vault={vaultData.vault}
+				                    searchText={filters.searchText}
+				                    itemType={filters.itemType}
+				                    favoritesOnly={filters.favoritesOnly}
+				                    sort={filters.sort}
+				                    onSearchTextChange={(v) => filters.searchText = v}
+				                    onItemTypeChange={(v) => filters.itemType = v}
+				                    onFavoritesOnlyChange={(v) => filters.favoritesOnly = v}
+				                    onSortChange={(v) => filters.sort = v}
+				                    onFolderFilterChange={(v) => itemEditor?.setFolderFilter?.(v)}
+				                    onClearFilters={filters.clearFilters}
+				                />
 			</div>
 		</div>
 	{/if}

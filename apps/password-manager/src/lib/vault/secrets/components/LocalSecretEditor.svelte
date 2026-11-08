@@ -27,6 +27,7 @@ interface Props {
     onFavoritesOnlyChange?: (value: boolean) => void;
     onSortChange?: (value: ItemSort) => void;
     onClearFilters?: () => void;
+    onFolderFilterChange?: (value: string) => void;
 }
 
 let {
@@ -40,7 +41,8 @@ let {
     onItemTypeChange,
     onFavoritesOnlyChange,
     onSortChange,
-    onClearFilters
+    onClearFilters,
+    onFolderFilterChange
 }: Props = $props();
 
 const workflow = untrack(() => createLocalSecretWorkflow({ vault }));
@@ -141,6 +143,16 @@ function navigate(action: () => void) {
                         <input {...control} type="search" autocomplete="off" spellcheck="false"
                             value={searchText}
                             oninput={(e) => { if (!retired) { searchText = e.currentTarget.value; onSearchTextChange?.(searchText); } }} />
+                    {/snippet}
+                </Field>
+                <Field id={`${searchId}-folder`} label="Folder">
+                    {#snippet children(control)}
+                        <select {...control} value={workflow.folderFilter} onchange={(e) => { const value = e.currentTarget.value; onFolderFilterChange?.(value); }}>                            <option value="all">All folders</option>
+                            <option value="unfiled">Unfiled</option>
+                            {#each workflow.folders as folder (folder.id)}
+                                <option value={folder.id}>{folder.name}</option>
+                            {/each}
+                        </select>
                     {/snippet}
                 </Field>
                 <Field id={`${searchId}-type`} label="Item type">

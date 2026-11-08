@@ -70,7 +70,7 @@ function generate() {
         {#if error}<Alert tone="danger">{error}</Alert>{/if}
         <button class="btn btn-secondary btn-md self-start" type="button" disabled={!!validation} onclick={generate}>Generate</button>
         {#key value}
-            <ProtectedValue label="Generated value" {value} />
+            <ProtectedValue label="Generated value" {value} protected={false} />
         {/key}
         {#if onuse}
             <p>Use replaces the current Login draft password and confirmation. It does not save the item.</p>

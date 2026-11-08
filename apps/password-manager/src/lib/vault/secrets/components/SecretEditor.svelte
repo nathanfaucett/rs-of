@@ -4,6 +4,7 @@ import CardFields from "./CardFields.svelte";
 import IdentityFields from "./IdentityFields.svelte";
 import SshKeyFields from "./SshKeyFields.svelte";
 import GeneratorDialog from "../generator/GeneratorDialog.svelte";
+import PasswordInput from "./PasswordInput.svelte";
 import { Alert, Card, Field } from "$lib/ui";
 import type { VaultHandle } from "../../vault";
 import { createLocalSecretWorkflow } from "../workflow.svelte";
@@ -37,7 +38,7 @@ interface Props {
 
 let { vault, kind = "login", record, recordId, onSave, onCancel }: Props = $props();
 
-const workflow = createLocalSecretWorkflow({ vault });
+const workflow = $derived.by(() => createLocalSecretWorkflow({ vault }));
 
 let error = $state("");
 let notice = $state("");
@@ -128,24 +129,21 @@ function customFieldIssue(editorRecord: EditableSecret | null, fields: SecretDra
                 <Field id="secret" label="Password">
                     {#snippet children(control)}
                         <div class="flex gap-2">
-                            <input {...control} bind:value={loginDraft.secret} type={editor?.showPassword ? "text" : "password"} autocomplete="new-password" disabled={!workflow.canEdit} class="flex-1" />
+                            <PasswordInput {...control} bind:value={loginDraft.secret} autocomplete="new-password" disabled={!workflow.canEdit} />
                             <GeneratorDialog onuse={(value) => { if (editor && editor.draft.kind === "login") { editor.draft.secret = value; editor.confirmPassword = value; } }} />
                         </div>
                     {/snippet}
                 </Field>
-                <button class="btn btn-secondary btn-md self-start" type="button" onclick={() => { if (editor) editor.showPassword = !editor.showPassword; }} disabled={!workflow.canEdit}>
-                    {editor?.showPassword ? "Hide" : "Show"} password
-                </button>
                 {#if loginDraft.secret && loginDraft.secret !== (editor.record?.kind === "login" ? editor.record.secret : undefined)}
                     <Field id="confirm-secret" label="Confirm password" required>
                         {#snippet children(control)}
-                            <input {...control} bind:value={editor.confirmPassword} type="password" autocomplete="new-password" disabled={!workflow.canEdit} />
+                            <PasswordInput {...control} bind:value={editor.confirmPassword} autocomplete="new-password" disabled={!workflow.canEdit} />
                         {/snippet}
                     </Field>
                 {/if}
                 <Field id="totp" label="Authenticator key (TOTP)" description="Store a Base32 key or otpauth TOTP URI. View local codes in item details.">
                     {#snippet children(control)}
-                        <input {...control} bind:value={draft.totp} type="password" autocomplete="off" disabled={!workflow.canEdit} />
+                        <PasswordInput {...control} bind:value={draft.totp} autocomplete="off" disabled={!workflow.canEdit} />
                     {/snippet}
                 </Field>
                 <fieldset class="flex min-w-0 flex-col gap-3" disabled={!workflow.canEdit}>
@@ -217,8 +215,10 @@ function customFieldIssue(editorRecord: EditableSecret | null, fields: SecretDra
                                     <option value="true">True</option>
                                     <option value="false">False</option>
                                 </select>
+                            {:else if field.type === "hidden"}
+                                <PasswordInput {...control} bind:value={field.value} autocomplete="off" />
                             {:else}
-                                <input {...control} bind:value={field.value} type={field.type === "hidden" ? "password" : "text"} autocomplete="off" />
+                                <input {...control} bind:value={field.value} type="text" autocomplete="off" />
                             {/if}
                         {/snippet}
                     </Field>

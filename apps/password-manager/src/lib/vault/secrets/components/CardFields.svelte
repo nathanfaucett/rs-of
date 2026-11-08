@@ -1,10 +1,9 @@
 <script lang="ts">
 import { Field } from "$lib/ui";
+import PasswordInput from "./PasswordInput.svelte";
 import type { CardDraft } from "../secret-draft";
 
 let { draft, disabled }: { draft: CardDraft; disabled: boolean } = $props();
-let showNumber = $state(false);
-let showCode = $state(false);
 </script>
 
 <fieldset class="flex min-w-0 flex-col gap-3" {disabled}>
@@ -22,11 +21,9 @@ let showCode = $state(false);
     </Field>
     <Field id="number" label="Card number">
         {#snippet children(control)}
-            <input {...control} bind:value={draft.number} type={showNumber ? "text" : "password"} autocomplete="off" spellcheck="false" />
+            <PasswordInput {...control} bind:value={draft.number} autocomplete="off" spellcheck="false" />
         {/snippet}
     </Field>
-    <button class="btn btn-secondary btn-md self-start" type="button" aria-controls="number" aria-pressed={showNumber}
-        onclick={() => showNumber = !showNumber}>{showNumber ? "Hide card number" : "Show card number"}</button>
     <Field id="expMonth" label="Expiration month">
         {#snippet children(control)}
             <input {...control} bind:value={draft.expMonth} autocomplete="off" />
@@ -39,9 +36,7 @@ let showCode = $state(false);
     </Field>
     <Field id="code" label="Security code">
         {#snippet children(control)}
-            <input {...control} bind:value={draft.code} type={showCode ? "text" : "password"} autocomplete="off" spellcheck="false" />
+            <PasswordInput {...control} bind:value={draft.code} autocomplete="off" spellcheck="false" />
         {/snippet}
     </Field>
-    <button class="btn btn-secondary btn-md self-start" type="button" aria-controls="code" aria-pressed={showCode}
-        onclick={() => showCode = !showCode}>{showCode ? "Hide security code" : "Show security code"}</button>
 </fieldset>

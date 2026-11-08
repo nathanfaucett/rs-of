@@ -4,12 +4,6 @@ import type { createLocalSecretWorkflow } from "../workflow.svelte";
 let { workflow, navigate }: { workflow: ReturnType<typeof createLocalSecretWorkflow>; navigate: (action: () => void) => void } = $props();
 let form = $state<{ action: "create" | "rename" | "delete"; id: string; name: string } | null>(null);
 let destination = $state("");
-let filter: HTMLSelectElement | undefined;
-async function closeForm() {
-    form = null;
-    await tick();
-    if (workflow.canEdit) filter?.focus();
-}
 const selected = $derived(workflow.folders.find((folder) => folder.id === workflow.folderFilter));
 export function dirty() { return form !== null; }
 export function retire() { form = null; destination = ""; }
@@ -24,20 +18,12 @@ async function save() {
     else await workflow.deleteFolder(value.id);
     if (!workflow.error) await closeForm();
 }
-</script>
+async function closeForm() {
+    form = null;
+    await tick();
+}</script>
 
 <section class="flex flex-col gap-3" aria-label="Folders">
-    <label class="flex flex-col gap-1">
-        Folder filter
-        <select {@attach (element) => { filter = element; return () => { filter = undefined; }; }} aria-label="Folder filter" value={workflow.folderFilter} disabled={!workflow.canEdit}
-            onchange={(event) => { const value = event.currentTarget.value; navigate(() => workflow.setFolderFilter(value)); event.currentTarget.value = workflow.folderFilter; }}>
-            <option value="all">All folders</option>
-            <option value="unfiled">Unfiled</option>
-            {#each workflow.folders as folder (folder.id)}
-                <option value={folder.id}>{folder.name} — {folder.id}</option>
-            {/each}
-        </select>
-    </label>
     <p>Names are literal. Slashes do not create a hierarchy. Duplicate names keep separate IDs.</p>
     <div class="flex flex-wrap gap-2">
         <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canEdit}

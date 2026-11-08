@@ -6,16 +6,15 @@
 		children: Snippet;
 		open?: boolean;
 		onclose?: () => void;
-		}
+	}
 
 	let { title, children, open = false, onclose }: Props = $props();
 	let dialog = $state<HTMLDialogElement>();
 
-	function handleClose() {
+	const handleClose = () => {
 		dialog?.close();
-		open = false;
 		onclose?.();
-	}
+	};
 
 	$effect(() => {
 		if (open && dialog) {
@@ -25,7 +24,7 @@
 		}
 	});
 
-	export { open, handleClose };
+	export { handleClose };
 </script>
 
 <dialog
