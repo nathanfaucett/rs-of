@@ -33,3 +33,13 @@ serialized records can use text. A batch succeeds completely or fails without a
 partial snapshot. Timeouts/cancellation after sending do not prove rollback.
 See the [exact server contract](../../crates/storage-service/docs/api.md#explicit-application-sql-contract)
 and [SDK SQL usage](../sdk/README.md#explicit-sql-capability).
+
+## Synchronization
+
+Database synchronization (SQL mesh sync) uses a **separate WebSocket protocol** at `wss://<storage-base>/sync/ws`, distinct from this REST/WebSocket client. It requires:
+
+- `@ofsdk/storage-sync-client` — raw byte transport for the sync WebSocket
+- `@ofsdk/sql` WASM — the owner sync engine (`Database::synchronize_checked`)
+- A `SyncTransport` adapter bridging the two (not yet implemented)
+
+See [Storage Sync Architecture](../../crates/storage-service/docs/sync-architecture.md) for the complete integration picture. The `@ofsdk/app` SyncPanel provides capability probing and device selection only; it does not perform data transfer.

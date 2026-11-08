@@ -16,12 +16,12 @@
 
 ## Contexts
 
-| Context    | Glossary                                            | Design and contracts                                                                                                                                                                                      |
-| ---------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| IdP        | [Identity Provider](crates/idp-service/GLOSSARY.md) | [Design](crates/idp-service/docs/design.md), [local security](crates/idp-service/docs/local-security.md), [owner API](docs/api.md#owner-contracts)                                                        |
-| Management | [Management](crates/management-service/GLOSSARY.md) | [Service ownership](docs/design.md#service-ownership), [owner API](docs/api.md#owner-contracts), [selection and admission](crates/storage-service/docs/design.md#device-ownership-and-resource-selection) |
-| Device     | [Device](crates/device-service/GLOSSARY.md) | [Service ownership](docs/design.md#service-ownership), [owner API](docs/api.md#owner-contracts) |
-| Storage    | [Storage](crates/storage-service/GLOSSARY.md)       | [Design](crates/storage-service/docs/design.md), [API](crates/storage-service/docs/api.md), [security](crates/storage-service/docs/security.md)                                                           |
+| Context    | Glossary                                            | Design and contracts                                                                                                                                                                                                   |
+| ---------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| IdP        | [Identity Provider](crates/idp-service/GLOSSARY.md) | [Design](crates/idp-service/docs/design.md), [local security](crates/idp-service/docs/local-security.md), [owner API](docs/api.md#owner-contracts)                                                                     |
+| Management | [Management](crates/management-service/GLOSSARY.md) | [Service ownership](docs/design.md#service-ownership), [owner API](docs/api.md#owner-contracts), [selection and admission](crates/storage-service/docs/design.md#device-ownership-and-resource-selection)              |
+| Device     | [Device](crates/device-service/GLOSSARY.md)         | [Service ownership](docs/design.md#service-ownership), [owner API](docs/api.md#owner-contracts)                                                                                                                        |
+| Storage    | [Storage](crates/storage-service/GLOSSARY.md)       | [Design](crates/storage-service/docs/design.md), [Sync Architecture](crates/storage-service/docs/sync-architecture.md), [API](crates/storage-service/docs/api.md), [security](crates/storage-service/docs/security.md) |
 
 Each context covers its related model, service, server, and client packages.
 Definitions belong in the relevant `GLOSSARY.md`. Current design, contracts, and operational guidance belong in stable topic files such as `docs/design.md`, `docs/api.md`, `docs/security.md`, or `docs/operations.md`, not numbered decision records. System-wide topics live in `docs/`; context-specific topics live in `crates/<context>-service/docs/`. Create topic files only when needed, update them in place, and link them here.

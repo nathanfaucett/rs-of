@@ -36,3 +36,33 @@ Metadata for one filesystem path, with a stable file identity, content revision,
 
 **Tombstone**:
 A synchronized deletion record that prevents a deleted File Entry or Storage Resource from returning when an offline Device reconnects.
+
+## Synchronization
+
+**Sync Transport**:
+The WebSocket-based binary protocol (wss://<storage-base>/sync/ws) carrying ofdb SQL v7 owner messages. Distinct from Storage REST API and filesystem DATA sockets. Uses custom framing (version/flags/length/CRC32/Postcard) and Hello/Attach handshake.
+
+**Sync Session**:
+A single attached WebSocket connection with negotiated direction (Push/Pull/Bidirectional), frame/session byte limits, and backend replica identity. Created via Hello -> AttachRequest -> AttachResponse exchange with a storage:sync audience token.
+
+**Store Identity**:
+The persistent identity of a local database participating in sync: storeId (database UUID), replicaId (browser/device instance UUID), creationEpoch (database creation timestamp), schemaFingerprint (32-byte hash of schema). Must be stable across sessions; do not generate new replicaId per attach.
+
+**Sync Direction**:
+Push (local -> remote), Pull (remote -> local), Bidirectional (both). The server currently always grants Bidirectional regardless of request; direction enforcement is not yet implemented in run_sync_session.
+
+**Sync Attachment**:
+The handshake phase (Hello, AttachRequest with token, AttachResponse). Succeeds before database open; a valid attach can be followed by immediate close if policy/database checks fail.
+
+**Owner Sync Engine**:
+The ofdb-sql synchronization logic (Database::synchronize_checked, synchronize_with_stage_factory_checked) that implements the SQL merge/apply/acknowledgement contract. Runs in-process; not provided by this crate. The transport (SyncClient, WebSocketTransport) only carries opaque owner messages.
+
+**Sync Transport Trait**:
+ofdb_sql::SyncTransport -- send(Vec<u8>) / receive() -> Vec<u8>. Implemented by WebSocketTransport (server) and BrowserSyncTransport (Rust WASM client). The npm @ofsdk/storage-sync-client provides a raw byte pipe (SyncSession.send/receive) but does NOT implement this trait -- an adapter is required.
+
+**Browser Sync Integration (open)**:
+The work to integrate a browser SQL owner engine with the sync transport. Requires: (1) WASM ofdb-sql binding, (2) SyncTransport adapter from SyncSession to ofdb_sql::SyncTransport, (3) storage:sync token acquisition via IdP token exchange, (4) stable StoreIdentity derivation from local database. No browser app has completed this integration.
+
+---
+
+Full sync architecture: [crates/storage-service/docs/sync-architecture.md](crates/storage-service/docs/sync-architecture.md)
