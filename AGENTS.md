@@ -1,6 +1,4 @@
-# AGENTS.md
-
-For domain information, see the [Glossary Map](GLOSSARY-MAP.md).
+# AGENTS.md (Root - Common Rules)
 
 ## Refactoring Protocol
 
@@ -37,27 +35,12 @@ For domain information, see the [Glossary Map](GLOSSARY-MAP.md).
 - Use `clippy` for linting and adhere to its recommendations.
 - Use `rustfmt` for consistent code formatting.
 
-## Testing
+## Agent Skills
 
-- Write unit tests for all public functions and critical internal logic.
-- Use integration tests for testing public API behavior and interactions between modules.
-- Use `cargo hack test --feature-powerset --all-targets` to run tests to ensure all features combinations are tested.
-
-## CRAP (Complexity, Risk, and Priority)
-
-- Assess new features and changes for complexity, risk, and priority before implementation.
-- Use `just crap` to evaluate code complexity and identify areas for refactoring.
-
-## Agent skills
-
-### Issue tracker
+### Issue Tracker
 
 Issues live as Markdown files under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
 
-### Triage labels
+### Triage Labels
 
-Use the five default triage labels. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Multi-context: shared terms plus IdP, Management, and Storage contexts. Definitions belong in `GLOSSARY.md`; current design and operations belong in stable named topic documents, not ADRs. See `GLOSSARY-MAP.md` and `docs/agents/domain.md`.
+Use the default canonical labels. See `docs/agents/triage-labels.md`.
