@@ -2,7 +2,7 @@
 import { onDestroy } from "svelte";
 import { parse } from "valibot";
 import type { VaultHandle } from "./vault";
-import { LockSettingsSchema, type LockSettings } from "./lock";
+import { LockSettingsSchema, type LockSettings, LOCK_TIMEOUT_OPTIONS } from "./lock";
 
 let { vault, settings, onsaved }: {
     vault: VaultHandle;
@@ -42,8 +42,8 @@ async function save() {
     <legend>Automatic lock</legend>
     <label for="lock-timeout">Lock after inactivity</label>
     <select id="lock-timeout" value={timeout} onchange={(event) => selected = Number(event.currentTarget.value)} disabled={busy}>
-        {#each [1, 5, 15, 30] as minutes (minutes)}
-            <option value={minutes}>{minutes} {minutes === 1 ? "minute" : "minutes"}</option>
+        {#each LOCK_TIMEOUT_OPTIONS as opt (opt.value)}
+            <option value={opt.value}>{opt.label}</option>
         {/each}
     </select>
     <p>Saved in this encrypted vault. Each unlock starts a new deadline. Reload requires your master password.</p>

@@ -2,16 +2,23 @@
 import { onMount } from "svelte";
 import { browser } from "$app/environment";
 import { page } from "$app/state";
+import { goto } from "$app/navigation";
 import NavSidebarItem from "./NavSidebarItem.svelte";
 import type { Snippet } from "svelte";
-import { Vault, Key, Settings, Trash2, ChevronLeft, ChevronRight, Menu } from "@lucide/svelte";
+import { Vault, Key, Settings, Trash2, ChevronLeft, ChevronRight, Menu, Lock } from "@lucide/svelte";
+import { vaultStateModule } from "$lib/shared/state/vault.svelte";
 
 let { onNavigate }: { onNavigate: (view: string) => void } = $props();
 
 const currentView = $derived(page.url.pathname.split("/")[1] || "vault");
+const isUnlocked = $derived(vaultStateModule.vaultData !== null);
 
 let collapsed = $state(false);
 let drawerOpen = $state(false);
+
+async function handleLockVault() {
+    await vaultStateModule.lockVault();
+}
 
 function initCollapsed() {
 	if (!browser) return;
@@ -131,49 +138,64 @@ onMount(() => {
 	</div>
 
 	<ul role="menu" class="flex-1 flex flex-col gap-1 p-3 overflow-y-auto" tabindex="0">
-		<li>
-			<NavSidebarItem
-				icon={vaultIcon}
-				label="Vault"
-				active={currentView === "vault"}
-				{collapsed}
-				onclick={() => handleNavigate("vault")}
-				onkeydown={(e) => handleKeydown(e, 0)}
-			/>
-		</li>
-		<li>
-			<NavSidebarItem
-				icon={generatorIcon}
-				label="Generator"
-				active={currentView === "generator"}
-				{collapsed}
-				onclick={() => handleNavigate("generator")}
-				onkeydown={(e) => handleKeydown(e, 1)}
-			/>
-		</li>
-		<li>
-			<NavSidebarItem
-				icon={settingsIcon}
-				label="Settings"
-				active={currentView === "settings"}
-				{collapsed}
-				onclick={() => handleNavigate("settings")}
-				onkeydown={(e) => handleKeydown(e, 2)}
-			/>
-		</li>
-		<li>
-			<NavSidebarItem
-				icon={trashIcon}
-				label="Trash"
-				active={currentView === "trash"}
-				{collapsed}
-				onclick={() => handleNavigate("trash")}
-				onkeydown={(e) => handleKeydown(e, 3)}
-			/>
-		</li>
-	</ul>
+	            <li>
+	                <NavSidebarItem
+	                    icon={vaultIcon}
+	                    label="Vault"
+	                    active={currentView === "vault"}
+	                    {collapsed}
+	                    onclick={() => handleNavigate("vault")}
+	                    onkeydown={(e) => handleKeydown(e, 0)}
+	                />
+	            </li>
+	            <li>
+	                <NavSidebarItem
+	                    icon={generatorIcon}
+	                    label="Generator"
+	                    active={currentView === "generator"}
+	                    {collapsed}
+	                    onclick={() => handleNavigate("generator")}
+	                    onkeydown={(e) => handleKeydown(e, 1)}
+	                />
+	            </li>
+	            <li>
+	                <NavSidebarItem
+	                    icon={settingsIcon}
+	                    label="Settings"
+	                    active={currentView === "settings"}
+	                    {collapsed}
+	                    onclick={() => handleNavigate("settings")}
+	                    onkeydown={(e) => handleKeydown(e, 2)}
+	                />
+	            </li>
+	            <li>
+	                <NavSidebarItem
+	                    icon={trashIcon}
+	                    label="Trash"
+	                    active={currentView === "trash"}
+	                    {collapsed}
+	                    onclick={() => handleNavigate("trash")}
+	                    onkeydown={(e) => handleKeydown(e, 3)}
+	                />
+	            </li>
+	        </ul>
 
-	<button
+	        {#if isUnlocked}
+	            <div class="px-3 pb-3 border-t border-line">
+	                <button
+	                    class="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-destructive hover:text-destructive/80 hover:bg-destructive/10 rounded-lg transition-colors"
+	                    onclick={handleLockVault}
+	                    aria-label="Lock vault"
+	                >
+	                    <Lock class="w-5 h-5 shrink-0" />
+	                    {#if !collapsed}
+	                        <span class="truncate">Lock vault</span>
+	                    {/if}
+	                </button>
+	            </div>
+	        {/if}
+
+	        <button
 		class="mx-3 mb-3 flex w-full items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-ink hover:bg-surface-hover rounded-lg transition-colors"
 		onclick={toggleCollapse}
 		aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
