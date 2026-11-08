@@ -88,7 +88,8 @@
       "!**/pkg/**",
       "!**/browser/**",
       "!**/coverage/**",
-      "!**/generated/**"
+      "!**/generated/**",
+      "!**/paraglide/**"
     ]
   }
 }

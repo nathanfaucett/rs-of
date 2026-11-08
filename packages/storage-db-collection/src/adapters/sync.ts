@@ -29,8 +29,8 @@ export interface SyncClient {
 export interface SyncClientInstance {
   sync(
     direction: SyncDirection,
-    database: any,
-    namespace: any,
+    database: unknown,
+    namespace: unknown,
     stagingDir: string,
   ): Promise<SyncResult>;
 }
@@ -72,7 +72,7 @@ export function createSyncBackend(
 ): ConnectBackend {
   let clientInstance: SyncClientInstance | null = null;
 
-  return async (signal?: AbortSignal) => {
+  return async (_signal?: AbortSignal) => {
     if (!clientInstance) {
       clientInstance = await connect(
         url,
@@ -83,7 +83,7 @@ export function createSyncBackend(
     }
 
     const backend: StorageBackend = {
-      async read(key: string): Promise<Uint8Array | undefined> {
+      async read(_key: string): Promise<Uint8Array | undefined> {
         // For sync backend, reads come from local database after sync
         // This is a placeholder - actual implementation would use the synced local DB
         throw new Error(
@@ -91,7 +91,7 @@ export function createSyncBackend(
         );
       },
 
-      async write(key: string, bytes: Uint8Array): Promise<void> {
+      async write(_key: string, _bytes: Uint8Array): Promise<void> {
         // For sync backend, writes go to local database then sync
         // This is a placeholder - actual implementation would use the synced local DB
         throw new Error(
@@ -99,13 +99,13 @@ export function createSyncBackend(
         );
       },
 
-      async delete(key: string): Promise<void> {
+      async delete(_key: string): Promise<void> {
         throw new Error(
           "Sync backend delete not implemented - use local DB after sync",
         );
       },
 
-      async list(prefix: string): Promise<string[]> {
+      async list(_prefix: string): Promise<string[]> {
         throw new Error(
           "Sync backend list not implemented - use local DB after sync",
         );
@@ -115,7 +115,7 @@ export function createSyncBackend(
         clientInstance = null;
       },
 
-      onDisconnect(handler: () => void): void {
+      onDisconnect(_handler: () => void): void {
         // The sync client handles disconnection internally
       },
     };
@@ -240,10 +240,10 @@ function encodeFrame(
 
   const crc = crc32c(payload);
   const crcBytes = new Uint8Array(4);
-  crcBytes[0]! = crc & 0xff;
-  crcBytes[1]! = (crc >>> 8) & 0xff;
-  crcBytes[2]! = (crc >>> 16) & 0xff;
-  crcBytes[3]! = (crc >>> 24) & 0xff;
+  crcBytes[0] = crc & 0xff;
+  crcBytes[1] = (crc >>> 8) & 0xff;
+  crcBytes[2] = (crc >>> 16) & 0xff;
+  crcBytes[3] = (crc >>> 24) & 0xff;
 
   const frame = new Uint8Array(6 + length + 4);
   frame.set(header, 0);
@@ -263,9 +263,9 @@ function decodeFrame(
     throw new Error(`Invalid frame version: ${version}`);
   }
 
-  const flags = buffer[1];
+  const _flags = buffer[1];
   const length =
-    buffer[2]! | (buffer[3]! << 8) | (buffer[4]! << 16) | (buffer[5]! << 24);
+    buffer[2] | (buffer[3] << 8) | (buffer[4] << 16) | (buffer[5] << 24);
 
   if (length > MAX_FRAME_PAYLOAD) {
     throw new Error(`Frame too large: ${length}`);
@@ -277,10 +277,10 @@ function decodeFrame(
   const payload = buffer.slice(6, 6 + length);
   const crcBytes = buffer.slice(6 + length, 6 + length + 4);
   const expectedCrc =
-    crcBytes[0]! |
-    (crcBytes[1]! << 8) |
-    (crcBytes[2]! << 16) |
-    (crcBytes[3]! << 24);
+    crcBytes[0] |
+    (crcBytes[1] << 8) |
+    (crcBytes[2] << 16) |
+    (crcBytes[3] << 24);
 
   const actualCrc = crc32c(payload);
   if (actualCrc !== expectedCrc) {
@@ -292,7 +292,7 @@ function decodeFrame(
 }
 
 // Postcard encoding/decoding (simplified - in practice use a proper postcard WASM build)
-function postcardEncode(value: any): Uint8Array {
+function postcardEncode(value: unknown): Uint8Array {
   // This is a placeholder - real implementation would use postcard WASM
   return new TextEncoder().encode(JSON.stringify(value));
 }
@@ -310,14 +310,7 @@ export class NativeSyncClient {
   private url: string;
   private tokenProvider: () => Promise<string>;
   private store_identity: StoreIdentity;
-  private replica_id: string;
   private frameBuffer: Uint8Array = new Uint8Array();
-  private pendingRequests: Map<
-    number,
-    { resolve: (value: SyncMessage) => void; reject: (error: Error) => void }
-  > = new Map();
-  private requestId = 0;
-  private connected = false;
 
   constructor(
     url: string,
@@ -352,7 +345,7 @@ export class NativeSyncClient {
         resolve();
       };
 
-      this.ws.onerror = (event) => {
+      this.ws.onerror = () => {
         reject(new Error("WebSocket connection failed"));
       };
 
@@ -399,17 +392,17 @@ export class NativeSyncClient {
     }
   }
 
-  private handleMessage(message: SyncMessage) {
+  private handleMessage(_message: SyncMessage) {
     // Handle incoming sync messages
     // This would be expanded to handle the full sync protocol
-    console.log("Received sync message:", message);
+    // console.log("Received sync message:", message);
   }
 
   async sync(
-    direction: SyncDirection,
-    database: any,
-    namespace: any,
-    stagingDir: string,
+    _direction: SyncDirection,
+    _database: unknown,
+    _namespace: unknown,
+    _stagingDir: string,
   ): Promise<SyncResult> {
     // This is a placeholder - actual implementation would run the sync protocol
     throw new Error("Sync not fully implemented in TypeScript yet");
