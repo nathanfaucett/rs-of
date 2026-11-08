@@ -19,10 +19,6 @@ name = "idp-unified"
 path = "src/main.rs"
 required-features = ["cli"]
 
-[[example]]
-name = "system-test-service"
-required-features = ["cli"]
-
 [features]
 default = ["cli", "completions", "swagger-ui"]
 cli = ["unified-server/cli"]
@@ -60,7 +56,8 @@ members = [
     "crates/storage-model",
     "crates/storage-server",
     "crates/storage-service",
-    "crates/sync-client",
+    "crates/storage-sync-client",
+    "crates/storage-sync-test-harness",
     "crates/unified-server",
     "crates/tauri-plugin-fetch-api",
     "apps/app/src-tauri",

@@ -1,0 +1,25 @@
+{
+  "name": "@ofsdk/storage-sync-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./esm/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "biome lint .",
+    "format": "biome format .",
+    "fixtures": "python3 scripts/generate-fixtures.py",
+    "fixtures:check": "python3 scripts/generate-fixtures.py --check"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.3",
+    "typescript": "^5.9.3",
+    "vitest": "4.1.10"
+  }
+}

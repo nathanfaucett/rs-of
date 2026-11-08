@@ -1,6 +1,6 @@
 [package]
-name = "of-sync-test-harness"
-description = "Test harness for app-owned data sync protocol"
+name = "of-storage-sync-test-harness"
+description = "Test harness for storage sync protocol"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

@@ -84,8 +84,8 @@ export declare class StorageSocket {
     close(): void;
 }
 export declare class StorageClient {
-    private readonly options;
     static validateServiceBase(value: URL | string): void;
+    private readonly options;
     constructor(options: StorageClientOptions);
     ensureDatabase(request: EnsureDatabaseRequest, signal?: AbortSignal): Promise<DatabaseResource>;
     createDatabase(name?: string, signal?: AbortSignal): Promise<DatabaseResource>;
