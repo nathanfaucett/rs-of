@@ -3,5 +3,12 @@
     "compilerOptions": {
         "skipLibCheck": true,
         "rewriteRelativeImportExtensions": true
-    }
+    },
+    "exclude": [
+        "src/test/**",
+        "src/**/*.test.ts",
+        "src/**/*.test.js",
+        "src/**/*.test.svelte",
+        "test/**"
+    ]
 }

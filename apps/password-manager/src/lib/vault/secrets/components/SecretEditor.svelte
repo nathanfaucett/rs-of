@@ -119,15 +119,16 @@ function customFieldIssue(editorRecord: EditableSecret | null, fields: SecretDra
                 {/snippet}
             </Field>
             {#if draft.kind === "login"}
+                {@const loginDraft = draft as import("../secret-draft").LoginDraft}
                 <Field id="username" label="Username">
                     {#snippet children(control)}
-                        <input {...control} bind:value={draft.username} autocomplete="off" disabled={!workflow.canEdit} />
+                        <input {...control} bind:value={loginDraft.username} autocomplete="off" disabled={!workflow.canEdit} />
                     {/snippet}
                 </Field>
                 <Field id="secret" label="Password">
                     {#snippet children(control)}
                         <div class="flex gap-2">
-                            <input {...control} bind:value={draft.secret} type={editor?.showPassword ? "text" : "password"} autocomplete="new-password" disabled={!workflow.canEdit} class="flex-1" />
+                            <input {...control} bind:value={loginDraft.secret} type={editor?.showPassword ? "text" : "password"} autocomplete="new-password" disabled={!workflow.canEdit} class="flex-1" />
                             <GeneratorDialog onuse={(value) => { if (editor && editor.draft.kind === "login") { editor.draft.secret = value; editor.confirmPassword = value; } }} />
                         </div>
                     {/snippet}
@@ -135,7 +136,7 @@ function customFieldIssue(editorRecord: EditableSecret | null, fields: SecretDra
                 <button class="btn btn-secondary btn-md self-start" type="button" onclick={() => { if (editor) editor.showPassword = !editor.showPassword; }} disabled={!workflow.canEdit}>
                     {editor?.showPassword ? "Hide" : "Show"} password
                 </button>
-                {#if draft.secret && draft.secret !== (editor.record?.kind === "login" ? editor.record.secret : undefined)}
+                {#if loginDraft.secret && loginDraft.secret !== (editor.record?.kind === "login" ? editor.record.secret : undefined)}
                     <Field id="confirm-secret" label="Confirm password" required>
                         {#snippet children(control)}
                             <input {...control} bind:value={editor.confirmPassword} type="password" autocomplete="new-password" disabled={!workflow.canEdit} />

@@ -5,14 +5,16 @@
 		title: string;
 		children: Snippet;
 		open?: boolean;
-	}
+		onclose?: () => void;
+		}
 
-	let { title, children, open = false }: Props = $props();
+	let { title, children, open = false, onclose }: Props = $props();
 	let dialog = $state<HTMLDialogElement>();
 
 	function handleClose() {
 		dialog?.close();
 		open = false;
+		onclose?.();
 	}
 
 	$effect(() => {
