@@ -11,10 +11,10 @@
 	let { title, children, open = false, onclose }: Props = $props();
 	let dialog = $state<HTMLDialogElement>();
 
-	const handleClose = () => {
+	let handleClose = $state(() => {
 		dialog?.close();
 		onclose?.();
-	};
+	});
 
 	$effect(() => {
 		if (open && dialog) {

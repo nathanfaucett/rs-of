@@ -9,7 +9,7 @@ let { value, disabled = false, autocomplete = "current-password", ariaLabel = "T
     copyAriaLabel?: string;
 } = $props();
 
-let revealed = $state(false);
+let revealed = $state(true);
 let copying = $state(false);
 let copied = $state(false);
 let active = true;

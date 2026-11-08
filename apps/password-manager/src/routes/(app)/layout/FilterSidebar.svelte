@@ -1,5 +1,5 @@
 <script lang="ts">
-import { ChevronDown, FolderKanban, Grid, Star, X, Funnel, Key, IdCard, CreditCard, HardDrive } from "@lucide/svelte";
+import { FolderKanban, Grid, Star, X, Funnel, Key, IdCard, CreditCard, HardDrive } from "@lucide/svelte";
 import type { Folder } from "$lib/vault/folder";
 import type { ItemTypeFilter, ItemSort } from "$lib/vault/secrets/search";
 
@@ -30,10 +30,6 @@ let {
 	onSortChange,
 	onClearFilters
 }: Props = $props();
-
-let foldersOpen = $state(true);
-let typesOpen = $state(true);
-let sortOpen = $state(true);
 
 const typeFilters = $derived<{ value: ItemTypeFilter; label: string; icon: typeof Grid }[]>([
 	{ value: "all", label: "All types", icon: Grid },
@@ -74,102 +70,79 @@ function getFolderCount(folderId: string): number {
 	<div class="flex-1 overflow-y-auto p-2 space-y-3">
 		<!-- Folders -->
 		<div class="border border-line rounded-lg bg-surface-muted/30">
-			<button
-				class="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium text-ink hover:bg-surface-hover"
-				onclick={() => (foldersOpen = !foldersOpen)}
-				aria-expanded={foldersOpen}
-			>
-				<span style:transform="rotate({foldersOpen ? 180 : 0}deg)"><ChevronDown class="w-4 h-4 text-muted-foreground" /></span>
-				<span class="truncate">Folders</span>
-				{#if folders.length > 0}
-					<span class="ml-auto flex h-5 min-w-5 items-center justify-center px-1.5 text-xs font-medium text-muted-foreground bg-surface-muted rounded-full">
-						{folders.length}
+			<div class="px-3 py-2 text-sm font-medium text-ink">Folders</div>
+			<div class="p-2 space-y-1 max-h-48 overflow-y-auto">
+				<button
+					class="flex w-full items-center gap-2 px-2 py-1.5 text-sm text-ink rounded transition-colors hover:bg-surface-hover"
+					onclick={() => onFolderFilterChange("all")}
+					aria-pressed={folderFilter === "all"}
+				>
+					<span class="flex w-5 h-5 items-center justify-center">
+						<FolderKanban class="w-4 h-4" />
 					</span>
-				{/if}
-			</button>
-			{#if foldersOpen}
-				<div class="p-2 space-y-1 max-h-48 overflow-y-auto">
+					<span class="truncate">All items</span>
+					{#if folderFilter === "all"}
+						<span class="ml-auto w-4 h-4 text-primary">✓</span>
+					{/if}
+				</button>
+				<button
+					class="flex w-full items-center gap-2 px-2 py-1.5 text-sm text-ink rounded transition-colors hover:bg-surface-hover"
+					onclick={() => onFolderFilterChange("unfiled")}
+					aria-pressed={folderFilter === "unfiled"}
+				>
+					<span class="flex w-5 h-5 items-center justify-center text-muted-foreground">
+						<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+							<circle cx="12" cy="7" r="4" />
+						</svg>
+					</span>
+					<span class="truncate">Unfiled</span>
+					{#if folderFilter === "unfiled"}
+						<span class="ml-auto w-4 h-4 text-primary">✓</span>
+					{/if}
+				</button>
+				{#each folders as folder (folder.id)}
 					<button
 						class="flex w-full items-center gap-2 px-2 py-1.5 text-sm text-ink rounded transition-colors hover:bg-surface-hover"
-						onclick={() => onFolderFilterChange("all")}
-						aria-pressed={folderFilter === "all"}
+						onclick={() => onFolderFilterChange(folder.id)}
+						aria-pressed={folderFilter === folder.id}
 					>
 						<span class="flex w-5 h-5 items-center justify-center">
 							<FolderKanban class="w-4 h-4" />
 						</span>
-						<span class="truncate">All items</span>
-						{#if folderFilter === "all"}
+						<span class="truncate">{folder.name}</span>
+						{#if folderFilter === folder.id}
 							<span class="ml-auto w-4 h-4 text-primary">✓</span>
 						{/if}
 					</button>
-					<button
-						class="flex w-full items-center gap-2 px-2 py-1.5 text-sm text-ink rounded transition-colors hover:bg-surface-hover"
-						onclick={() => onFolderFilterChange("unfiled")}
-						aria-pressed={folderFilter === "unfiled"}
-					>
-						<span class="flex w-5 h-5 items-center justify-center text-muted-foreground">
-							<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-								<circle cx="12" cy="7" r="4" />
-							</svg>
-						</span>
-						<span class="truncate">Unfiled</span>
-						{#if folderFilter === "unfiled"}
-							<span class="ml-auto w-4 h-4 text-primary">✓</span>
-						{/if}
-					</button>
-					{#each folders as folder (folder.id)}
-						<button
-							class="flex w-full items-center gap-2 px-2 py-1.5 text-sm text-ink rounded transition-colors hover:bg-surface-hover"
-							onclick={() => onFolderFilterChange(folder.id)}
-							aria-pressed={folderFilter === folder.id}
-						>
-							<span class="flex w-5 h-5 items-center justify-center">
-								<FolderKanban class="w-4 h-4" />
-							</span>
-							<span class="truncate">{folder.name}</span>
-							{#if folderFilter === folder.id}
-								<span class="ml-auto w-4 h-4 text-primary">✓</span>
-							{/if}
-						</button>
-					{/each}
-					{#if folders.length === 0}
-						<p class="px-2 py-2 text-xs text-muted-foreground text-center">No folders yet</p>
-					{/if}
-				</div>
-			{/if}
+				{/each}
+				{#if folders.length === 0}
+					<p class="px-2 py-2 text-xs text-muted-foreground text-center">No folders yet</p>
+				{/if}
+			</div>
 		</div>
 
 		<!-- Item Types -->
 		<div class="border border-line rounded-lg bg-surface-muted/30">
-			<button
-				class="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium text-ink hover:bg-surface-hover"
-				onclick={() => (typesOpen = !typesOpen)}
-				aria-expanded={typesOpen}
-			>
-				<span style:transform="rotate({typesOpen ? 180 : 0}deg)"><ChevronDown class="w-4 h-4 text-muted-foreground" /></span>
-				<span class="truncate">Item types</span>
-			</button>
-			{#if typesOpen}
-				<div class="p-2 space-y-1">
-					{#each typeFilters as filter (filter.value)}
-						<label class="flex w-full items-center gap-2 px-2 py-1.5 text-sm text-ink rounded transition-colors hover:bg-surface-hover cursor-pointer">
-							<input
-								type="radio"
-								name="item-type"
-								value={filter.value}
-								checked={itemType === filter.value}
-								onchange={() => onItemTypeChange(filter.value)}
-								class="sr-only"
-							/>
-							<span class="flex w-5 h-5 items-center justify-center">
-								<filter.icon class="w-4 h-4" />
-							</span>
-							<span class="truncate">{filter.label}</span>
-						</label>
-					{/each}
-				</div>
-			{/if}
+			<div class="px-3 py-2 text-sm font-medium text-ink">Item types</div>
+			<div class="p-2 space-y-1">
+				{#each typeFilters as filter (filter.value)}
+					<label class="flex w-full items-center gap-2 px-2 py-1.5 text-sm text-ink rounded transition-colors hover:bg-surface-hover cursor-pointer">
+						<input
+							type="radio"
+							name="item-type"
+							value={filter.value}
+							checked={itemType === filter.value}
+							onchange={() => onItemTypeChange(filter.value)}
+							class="sr-only"
+						/>
+						<span class="flex w-5 h-5 items-center justify-center">
+							<filter.icon class="w-4 h-4" />
+						</span>
+						<span class="truncate">{filter.label}</span>
+					</label>
+				{/each}
+			</div>
 		</div>
 
 		<!-- Favorites Only -->
@@ -190,30 +163,20 @@ function getFolderCount(folderId: string): number {
 
 		<!-- Sort -->
 		<div class="border border-line rounded-lg bg-surface-muted/30">
-			<button
-				class="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium text-ink hover:bg-surface-hover"
-				onclick={() => (sortOpen = !sortOpen)}
-				aria-expanded={sortOpen}
-			>
-				<span style:transform="rotate({sortOpen ? 180 : 0}deg)"><ChevronDown class="w-4 h-4 text-muted-foreground" /></span>
-				<span class="truncate">Sort</span>
-			</button>
-			{#if sortOpen}
-				<div class="p-3">
-					<label class="flex w-full flex-col gap-1.5">
-						<span class="text-xs font-medium text-muted-foreground">Order by</span>
-						<select
-							value={sort}
-							onchange={(e) => onSortChange(e.currentTarget.value as ItemSort)}
-							class="w-full px-3 py-2 text-sm text-ink bg-surface border border-line rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-						>
-							{#each sortOptions as option (option.value)}
-								<option value={option.value}>{option.label}</option>
-							{/each}
-						</select>
-					</label>
-				</div>
-			{/if}
+			<div class="p-3">
+				<label class="flex w-full flex-col gap-1.5">
+					<span class="text-xs font-medium text-muted-foreground">Order by</span>
+					<select
+						value={sort}
+						onchange={(e) => onSortChange(e.currentTarget.value as ItemSort)}
+						class="w-full px-3 py-2 text-sm text-ink bg-surface border border-line rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+					>
+						{#each sortOptions as option (option.value)}
+							<option value={option.value}>{option.label}</option>
+						{/each}
+					</select>
+				</label>
+			</div>
 		</div>
 	</div>
 </nav>
