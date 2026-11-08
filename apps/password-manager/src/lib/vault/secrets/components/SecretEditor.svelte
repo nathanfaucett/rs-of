@@ -38,7 +38,7 @@ interface Props {
 
 let { vault, kind = "login", record, recordId, onSave, onCancel }: Props = $props();
 
-const workflow = $derived.by(() => createLocalSecretWorkflow({ vault }));
+const workflow = $state.raw(createLocalSecretWorkflow({ vault }));
 
 let error = $state("");
 let notice = $state("");
@@ -85,11 +85,10 @@ $effect(() => {
     }
 });
 
-function handleSave() {
+async function handleSave() {
     if (!workflow.editor) return;
-    workflow.save(workflow.editor.draft);
-    // The workflow will set notice/error, we need to check for success
-    if (workflow.notice && !workflow.error) {
+    const saved = await workflow.save(workflow.editor.draft);
+    if (saved) {
         onSave();
     }
 }
@@ -134,7 +133,7 @@ function customFieldIssue(editorRecord: EditableSecret | null, fields: SecretDra
                         </div>
                     {/snippet}
                 </Field>
-                {#if loginDraft.secret && loginDraft.secret !== (editor.record?.kind === "login" ? editor.record.secret : undefined)}
+                {#if loginDraft.secret}
                     <Field id="confirm-secret" label="Confirm password" required>
                         {#snippet children(control)}
                             <PasswordInput {...control} bind:value={editor.confirmPassword} autocomplete="new-password" disabled={!workflow.canEdit} />

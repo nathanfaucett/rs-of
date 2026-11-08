@@ -1,18 +1,19 @@
 <script lang="ts">
 import { onDestroy, tick, untrack } from "svelte";
 import { goto } from "$app/navigation";
-import SecretDetail from "./SecretDetail.svelte";
 import CardFields from "./CardFields.svelte";
 import IdentityFields from "./IdentityFields.svelte";
 import SshKeyFields from "./SshKeyFields.svelte";
 import FolderControls from "./FolderControls.svelte";
 import GeneratorDialog from "../generator/GeneratorDialog.svelte";
 import { Alert, Card, Field } from "$lib/ui";
+import Dialog from "$lib/shared/components/Dialog.svelte";
 import type { VaultHandle } from "../../vault";
 import { createLocalSecretWorkflow } from "../workflow.svelte";
 import type { Secret } from "../secret";
 import { customFieldIssue, type SshKeyDraft } from "../secret-draft";
 import { searchItems, type ItemTypeFilter, type ItemSort } from "../search";
+import { Pencil, Trash2, MoreHorizontal } from "@lucide/svelte";
 
 interface Props {
     vault: VaultHandle;
@@ -200,11 +201,11 @@ function navigate(action: () => void) {
             {/if}
             {#if !workflow.trash}<FolderControls bind:this={folderControls} {workflow} {navigate} />{/if}
             {#if pendingDelete}
-                <dialog role="alertdialog" aria-labelledby={confirmationId} oncancel={(event) => { event.preventDefault(); cancelDelete(); }}
-                    {@attach (element) => { element.showModal(); element.querySelector<HTMLButtonElement>('[data-cancel]')?.focus(); }}
-                    class="rounded-control border border-line bg-surface p-4 text-ink">
-                    <p id={confirmationId}>{pendingDelete.deletedAt ? `Permanently delete ${pendingDelete.name}? This cannot be undone. Existing backups can still contain this item.` : `Move ${pendingDelete.name} to Trash? You can restore it later.`}</p>
-                    <div class="flex gap-2">
+                <Dialog title={pendingDelete.deletedAt ? "Permanently delete?" : "Move to Trash?"} open onclose={cancelDelete}>
+                    <p class="text-ink">{pendingDelete.deletedAt ? `Permanently delete ${pendingDelete.name}? This cannot be undone. Existing backups can still contain this item.` : `Move ${pendingDelete.name} to Trash? You can restore it later.`}</p>
+                    <div class="flex gap-2 justify-end">
+                        <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canEdit}
+                            onclick={cancelDelete}>Cancel</button>
                         <button class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
                             onclick={async () => {
                                 const value = pendingDelete;
@@ -216,10 +217,8 @@ function navigate(action: () => void) {
                                 }
                                 document.getElementById(navigationId)?.focus();
                             }}>{pendingDelete.deletedAt ? "Confirm permanent delete" : "Confirm delete"}</button>
-                        <button data-cancel class="btn btn-secondary btn-md" type="button" disabled={!workflow.canEdit}
-                            onclick={cancelDelete}>Cancel delete</button>
                     </div>
-                </dialog>
+                </Dialog>
             {/if}
             {#if records.length === 0}
                 <p class="mb-0" role="status">{workflow.trash ? "Trash is empty." : searchText.trim() || itemType !== "all" || favoritesOnly ? "No items match. Clear filters to show all items." : workflow.folderFilter === "all" ? "No secrets yet." : "No items in this folder view."}</p>
@@ -227,14 +226,14 @@ function navigate(action: () => void) {
                 <p aria-live="polite" aria-atomic="true">{records.length} {records.length === 1 ? "item" : "items"} found.</p>
                 <ul aria-label="Search results" class="flex list-none flex-col gap-2 p-0">
                     {#each records as value (value.id)}
-                        <li class="flex items-center justify-between gap-3 rounded-control border border-line bg-surface-muted/40 px-3 py-2">
-                            <div class="flex min-w-0 flex-col">
+                        <li class="item-row rounded-control border border-line bg-surface-muted/40 px-3 py-2">
+                            <div class="item-content">
                                 {#if workflow.trash}
                                     <span class="font-medium">{value.name}</span>
                                     <span class="text-sm text-ink-subtle">Deleted: <time datetime={value.deletedAt}>{value.deletedAt}</time></span>
                                 {:else}
                                 <button class="btn btn-ghost btn-md w-full justify-start truncate px-0 text-left font-medium"
-                                    type="button" disabled={!workflow.canEdit} onclick={() => navigate(() => workflow.open(value.id))}>
+                                    type="button" disabled={!workflow.canEdit} onclick={() => navigate(() => goto(`/vault/edit/${value.id}`))}>
                                     {value.favorite ? "★ " : ""}{value.name}
                                 </button>
                                 {#if (value.kind === "login" || value.kind === "identity") && value.username}<p class="truncate text-sm text-ink-subtle">{value.username}</p>{/if}
@@ -243,12 +242,23 @@ function navigate(action: () => void) {
                                 {/each}
                                 {/if}
                             </div>
-                            {#if workflow.trash}
-                                <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canEdit}
-                                    onclick={async () => { await workflow.restore(value); document.getElementById(navigationId)?.focus(); }}>Restore</button>
-                            {/if}
-                            <button class="btn btn-ghost btn-md shrink-0 text-danger-text hover:bg-danger-soft"
-                                type="button" disabled={!workflow.canEdit} onclick={(event) => navigate(() => { workflow.open(null); deleteTrigger = event.currentTarget; pendingDelete = value; })}>{workflow.trash ? "Delete permanently" : "Delete"}</button>
+                            <div class="item-actions">
+                                {#if workflow.trash}
+                                    <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canEdit}
+                                        onclick={async () => { await workflow.restore(value); document.getElementById(navigationId)?.focus(); }}>Restore</button>
+                                {:else}
+                                    <button class="btn btn-ghost btn-sm p-1.5 text-muted-foreground hover:text-ink hover:bg-surface-hover rounded"
+                                        type="button" disabled={!workflow.canEdit} aria-label="Edit"
+                                        onclick={() => navigate(() => goto(`/vault/edit/${value.id}`))}>
+                                        <Pencil class="w-4 h-4" />
+                                    </button>
+                                    <button class="btn btn-ghost btn-sm p-1.5 text-muted-foreground hover:text-danger-text hover:bg-danger-soft rounded"
+                                        type="button" disabled={!workflow.canEdit} aria-label="Delete"
+                                        onclick={(event) => navigate(() => { workflow.open(null); deleteTrigger = event.currentTarget; pendingDelete = value; })}>
+                                        <Trash2 class="w-4 h-4" />
+                                    </button>
+                                {/if}
+                            </div>
                         </li>
                     {/each}
                 </ul>
@@ -263,4 +273,23 @@ function navigate(action: () => void) {
                 onclose={() => navigate(() => { workflow.open(null); document.getElementById(newSecretId)?.focus(); })} />
         {/key}
     {/if}
+
+<style>
+    .item-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+    }
+    .item-content {
+        flex: 1;
+        min-width: 0;
+    }
+    .item-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        flex-shrink: 0;
+    }
+</style>
 </div>

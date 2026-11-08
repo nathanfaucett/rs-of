@@ -102,10 +102,13 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
                       : v.parse(v.object(SecureNoteSchema.entries), value)
             : null;
         selectedId = record?.id ?? null;
+        const draft = createSecretDraft(record, kind);
+        // Pre-fill confirm password when editing an existing login
+        const confirmPassword = record?.kind === "login" ? record.secret : "";
         editor = {
             record,
-            draft: createSecretDraft(record, kind),
-            confirmPassword: "",
+            draft,
+            confirmPassword,
             showPassword: false,
         };
         error = null;
@@ -319,7 +322,7 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
         },
         async save(draft: SecretDraft) {
             if (!canEdit() || !editor || draft.kind !== editor.draft.kind)
-                return;
+                return false;
             error = null;
             notice = "";
             const previous = editor.record;
@@ -335,7 +338,7 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
             ) {
                 error =
                     "Passwords do not match. Confirm the password before saving.";
-                return;
+                return false;
             }
             const result = constructSecret(
                 previous,
@@ -349,7 +352,7 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
                 );
                 if (fieldIssue) {
                     error = fieldIssue.message;
-                    return;
+                    return false;
                 }
                 error =
                     draft.kind === "login"
@@ -361,7 +364,7 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
                             : draft.kind === "sshKey"
                               ? "Invalid SSH Key: A name and nonblank private key are required; check the fields."
                               : "Invalid Secure Note: A name is required; check the fields.";
-                return;
+                return false;
             }
             busy = true;
             try {
@@ -372,11 +375,12 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
                       })
                     : collection.insert(value);
                 await tx.isPersisted.promise;
-                if (!active) return;
+                if (!active) return false;
                 busy = false;
                 editor = null;
                 selectedId = value.id;
                 notice = "Saved.";
+                return true;
             } catch (cause) {
                 if (active) {
                     error = message(cause);
@@ -386,6 +390,7 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
                     )
                         editor = null;
                 }
+                return false;
             } finally {
                 if (active) busy = false;
             }

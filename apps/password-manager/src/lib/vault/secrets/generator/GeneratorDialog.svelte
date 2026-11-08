@@ -1,10 +1,12 @@
 <script lang="ts">
+	import { onMount } from "svelte";
 	import PasswordGenerator from "./PasswordGenerator.svelte";
 	import Dialog from "$lib/shared/components/Dialog.svelte";
 
 	let { onuse }: { onuse?: (value: string) => void } = $props();
 
 	let dialogOpen = $state(false);
+	let generator: PasswordGenerator;
 
 	function open() {
 		dialogOpen = true;
@@ -18,10 +20,16 @@
 		onuse?.(value);
 		close();
 	}
+
+	$effect(() => {
+		if (dialogOpen && generator) {
+			generator.generate();
+		}
+	});
 </script>
 
 <Dialog title="Password Generator" open={dialogOpen} onclose={close}>
-	<PasswordGenerator onuse={handleUse} />
+	<PasswordGenerator bind:this={generator} onuse={handleUse} />
 </Dialog>
 
 <div>

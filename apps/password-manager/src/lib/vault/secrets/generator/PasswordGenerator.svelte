@@ -18,15 +18,14 @@ const validation = $derived(mode === "password" ? validatePasswordSettings(passw
 function clear() { value = null; error = ""; }
 onDestroy(clear);
 beforeNavigate(clear);
-function generate() {
+export function generate() {
     clear();
     try {
         value = mode === "password" ? generatePassword(password) : generatePassphrase(passphrase);
     } catch {
         error = "Generation failed. Check settings and use a browser with secure random generation.";
     }
-}
-</script>
+}</script>
 
 <svelte:window onpagehide={clear} />
 

@@ -19,14 +19,17 @@ onMount(() => {
 
 // Redirect to root if vault is locked and accessing protected route
 $effect(() => {
-    if (page.url.pathname.startsWith("/vault") ||
+    const isProtected = page.url.pathname.startsWith("/vault") ||
         page.url.pathname.startsWith("/settings") ||
         page.url.pathname.startsWith("/trash") ||
-        page.url.pathname.startsWith("/generator")) {
-        // Don't redirect while loading - wait for vault to initialize
-        if (vaultStatus === "loading") return;
-        // Redirect if vault is not unlocked (select-vault, locked, create-vault, etc.)
-        if (!vaultData) {
+        page.url.pathname.startsWith("/generator");
+    if (!isProtected) return;
+    // Don't redirect while loading - wait for vault to initialize
+    if (vaultStatus === "loading") return;
+    // Redirect if vault is not unlocked (select-vault, locked, create-vault, etc.)
+    if (!vaultData) {
+        // Only redirect if we're not already on the root
+        if (page.url.pathname !== "/") {
             goto("/");
         }
     }

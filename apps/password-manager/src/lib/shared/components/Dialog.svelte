@@ -29,7 +29,7 @@
 
 <dialog
 	bind:this={dialog}
-	class="m-auto w-full max-w-lg rounded-control border border-line bg-surface p-5 text-ink shadow-lg backdrop:bg-surface-inverse/60"
+	class="m-auto w-full max-w-lg rounded-control border border-line bg-surface p-5 text-ink shadow-lg backdrop:bg-black/50"
 	aria-labelledby="dialog-title"
 	onclose={handleClose}
 >
