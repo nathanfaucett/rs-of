@@ -19,71 +19,61 @@ import { mapValues } from "../runtime.js";
  * @interface EnsureDatabaseRequest
  */
 export interface EnsureDatabaseRequest {
-    /**
-     * Case-sensitive application-chosen identity; 1–128 UTF-8 bytes.
-     */
-    creationKey: string;
-    /**
-     *
-     */
-    name?: string | null;
+  /**
+   * Case-sensitive application-chosen identity; 1–128 UTF-8 bytes.
+   */
+  creationKey: string;
+  /**
+   *
+   */
+  name?: string | null;
 }
 
 /**
  * Check if a given object implements the EnsureDatabaseRequest interface.
  */
-export function instanceOfEnsureDatabaseRequest(
-    value: object,
-): value is EnsureDatabaseRequest {
-    if (!("creationKey" in value) || value["creationKey"] === undefined)
-        return false;
-    return true;
+export function instanceOfEnsureDatabaseRequest(value: object): value is EnsureDatabaseRequest {
+  if (!("creationKey" in value) || value["creationKey"] === undefined) return false;
+  return true;
 }
 
-export function EnsureDatabaseRequestFromJSON(
-    json: any,
-): EnsureDatabaseRequest {
-    return EnsureDatabaseRequestFromJSONTyped(json, false);
+export function EnsureDatabaseRequestFromJSON(json: any): EnsureDatabaseRequest {
+  return EnsureDatabaseRequestFromJSONTyped(json, false);
 }
 
 export function EnsureDatabaseRequestFromJSONTyped(
-    json: any,
-    ignoreDiscriminator: boolean,
+  json: any,
+  ignoreDiscriminator: boolean
 ): EnsureDatabaseRequest {
-    if (
-        json &&
-        typeof json === "object" &&
-        Object.keys(json).some((key) => !["creationKey", "name"].includes(key))
-    )
-        throw new Error("Unexpected EnsureDatabaseRequest field");
-    if (json == null) {
-        return json;
-    }
-    return {
-        creationKey: json["creationKey"],
-        name:
-            json["name"] === undefined
-                ? undefined
-                : json["name"] === null
-                  ? null
-                  : json["name"],
-    };
+  if (
+    json &&
+    typeof json === "object" &&
+    Object.keys(json).some((key) => !["creationKey", "name"].includes(key))
+  )
+    throw new Error("Unexpected EnsureDatabaseRequest field");
+  if (json == null) {
+    return json;
+  }
+  return {
+    creationKey: json["creationKey"],
+    name: json["name"] === undefined ? undefined : json["name"] === null ? null : json["name"],
+  };
 }
 
 export function EnsureDatabaseRequestToJSON(json: any): EnsureDatabaseRequest {
-    return EnsureDatabaseRequestToJSONTyped(json, false);
+  return EnsureDatabaseRequestToJSONTyped(json, false);
 }
 
 export function EnsureDatabaseRequestToJSONTyped(
-    value?: EnsureDatabaseRequest | null,
-    ignoreDiscriminator: boolean = false,
+  value?: EnsureDatabaseRequest | null,
+  ignoreDiscriminator: boolean = false
 ): any {
-    if (value == null) {
-        return value;
-    }
+  if (value == null) {
+    return value;
+  }
 
-    return {
-        creationKey: value["creationKey"],
-        name: value["name"],
-    };
+  return {
+    creationKey: value["creationKey"],
+    name: value["name"],
+  };
 }

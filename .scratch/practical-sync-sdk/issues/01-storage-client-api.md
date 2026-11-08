@@ -1,6 +1,6 @@
 # 01 - Storage Client: add create_sql_db / open_sql_db / sync_to_device
 
-**Status: needs-triage**
+**Status: in-progress**
 
 ## Problem
 
@@ -8,45 +8,29 @@ Apps cannot get a database handle with built-in sync transport. Current `@ofsdk/
 
 ## Solution
 
-Extend Storage Client (Rust crate + npm package) with:
+Extended Storage Client (Rust crate + npm package) with:
 
-```rust
-// of/crates/storage-client/src/lib.rs
-pub struct StorageClient { ... }
+### Rust crate (of/crates/storage-client)
 
-impl StorageClient {
-    // SQL
-    pub async fn create_sql_db(&self, name: &str) -> Result<SqlDatabaseHandle>;
-    pub async fn open_sql_db(&self, id: DatabaseId) -> Result<SqlDatabaseHandle>;
-    pub async fn list_sql_dbs(&self) -> Result<Vec<DatabaseInfo>>;
+- Added `SqlDatabaseHandle`, `KvStoreHandle`, `FilesystemHandle` with built-in transport
+- Added `StorageClient::create_sql_db()`, `open_sql_db()`, `list_sql_dbs()`
+- Added `StorageClient::create_kv_store()`, `open_kv_store()`, `list_kv_stores()`
+- Added `StorageClient::create_filesystem()`, `open_filesystem()`, `list_filesystems()`
+- Added `StorageClient::sync_to_device()`
+- Native (Rust) and browser (WASM) implementations
 
-    // KV
-    pub async fn create_kv_store(&self, name: &str) -> Result<KvStoreHandle>;
-    pub async fn open_kv_store(&self, id: KvStoreId) -> Result<KvStoreHandle>;
-    pub async fn list_kv_stores(&self) -> Result<Vec<KvStoreInfo>>;
+### TypeScript package (of/packages/storage-client)
 
-    // Filesystem
-    pub async fn create_filesystem(&self, name: &str) -> Result<FilesystemHandle>;
-    pub async fn open_filesystem(&self, id: FilesystemId) -> Result<FilesystemHandle>;
-    pub async fn list_filesystems(&self) -> Result<Vec<FilesystemInfo>>;
+- Added `SqlDatabaseHandle`, `KvStoreHandle`, `FilesystemHandle` classes
+- Added `createSqlDatabase()`, `openSqlDatabase()`, `listSqlDatabases()`
+- Added `createKvStore()`, `openKvStore()`, `listKvStores()`
+- Added `createFilesystem()`, `openFilesystem()`, `listFileSystems()`
+- Added `syncToDevice()`
 
-    // Sync
-    pub async fn sync_to_device(&self, resource_id: ResourceId, target_device: DeviceId) -> Result<SyncSession>;
-}
-```
+### Transport
 
-### Handle Requirements
-
-Each handle (`SqlDatabaseHandle`, `KvStoreHandle`, `FilesystemHandle`) must:
-- Contain local engine instance (ofdb-sql WASM / ofdb-kv WASM / offs WASM)
-- Contain transport implementation (WebSocket for browser, Iroh for native)
-- Implement `ofdb_sql::SyncTransport` (for SQL) / equivalent for KV/offs
-- Expose engine methods directly (`execute()`, `synchronize_checked()`, etc.)
-
-### Transport Selection
-
-- Browser: WebSocket to Storage Service sync endpoint (`wss://<base>/sync/ws`)
-- Native: Iroh via Device Service (reuse `IrohTransport` from ofdb-sql-sync)
+- Browser: WebSocket via `@ofsdk/storage-sync-client` + `@ofsdk/sql` WASM
+- Native: Iroh via Device Service (reuses `IrohTransport` from ofdb-sql-sync)
 - Server: WebSocket (same as browser)
 
 ## Implementation Notes
@@ -55,17 +39,20 @@ Each handle (`SqlDatabaseHandle`, `KvStoreHandle`, `FilesystemHandle`) must:
 - Native: Link `ofdb-sql` natively, use `IrohTransport`
 - Storage Service must support `sync_to_device` endpoint (POST /sync/connect)
 
-## Dependencies
-
-- `ofdb/crates/wasm` must publish `@ofsdk/sql` (Ticket 04)
-- `offs/crates/file-system-wasm` must publish `@ofsdk/fs` (Ticket 05)
-- `of/crates/storage-sync-client` provides `BrowserSyncTransport` (exists)
-
 ## Acceptance Criteria
 
-1. Browser app can call `storage.create_sql_db("vault")` → gets `SqlDatabaseHandle`
-2. Handle implements `SyncTransport` → `db.synchronize_checked()` works
-3. `storage.sync_to_device(vault_id, device_id)` starts sync session
-4. Same API works in Rust native (different transport)
+1. ✅ Browser app can call `storage.create_sql_db("vault")` → gets `SqlDatabaseHandle`
+2. ⏳ Handle implements `SyncTransport` → `db.synchronize_checked()` works
+3. ✅ `storage.sync_to_device(vault_id, device_id)` starts sync session
+4. ✅ Same API works in Rust native (different transport)
+
+## Dependencies
+
+- ✅ `@ofsdk/sql` published (Ticket 04)
+- ✅ `@ofsdk/fs` published (Ticket 05)
+- ✅ `@ofsdk/storage-sync-client` provides `BrowserSyncTransport` (exists)
 
 ## Comments
+
+- KV/offs sync over WebSocket deferred to Phase 2 (SQL only for v1)
+- WASM packages built and published to of/packages/sql-wasm and of/packages/fs-wasm

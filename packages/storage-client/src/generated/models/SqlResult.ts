@@ -15,10 +15,10 @@
 import { mapValues } from "../runtime.js";
 import type { SqlValue } from "./SqlValue.js";
 import {
-    SqlValueFromJSON,
-    SqlValueFromJSONTyped,
-    SqlValueToJSON,
-    SqlValueToJSONTyped,
+  SqlValueFromJSON,
+  SqlValueFromJSONTyped,
+  SqlValueToJSON,
+  SqlValueToJSONTyped,
 } from "./SqlValue.js";
 
 /**
@@ -27,56 +27,53 @@ import {
  * @interface SqlResult
  */
 export interface SqlResult {
-    /**
-     *
-     */
-    columns: Array<string>;
-    /**
-     *
-     */
-    rows: Array<Array<SqlValue>>;
+  /**
+   *
+   */
+  columns: Array<string>;
+  /**
+   *
+   */
+  rows: Array<Array<SqlValue>>;
 }
 
 /**
  * Check if a given object implements the SqlResult interface.
  */
 export function instanceOfSqlResult(value: object): value is SqlResult {
-    if (!("columns" in value) || value["columns"] === undefined) return false;
-    if (!("rows" in value) || value["rows"] === undefined) return false;
-    return true;
+  if (!("columns" in value) || value["columns"] === undefined) return false;
+  if (!("rows" in value) || value["rows"] === undefined) return false;
+  return true;
 }
 
 export function SqlResultFromJSON(json: any): SqlResult {
-    return SqlResultFromJSONTyped(json, false);
+  return SqlResultFromJSONTyped(json, false);
 }
 
-export function SqlResultFromJSONTyped(
-    json: any,
-    ignoreDiscriminator: boolean,
-): SqlResult {
-    if (json == null) {
-        return json;
-    }
-    return {
-        columns: json["columns"],
-        rows: json["rows"],
-    };
+export function SqlResultFromJSONTyped(json: any, ignoreDiscriminator: boolean): SqlResult {
+  if (json == null) {
+    return json;
+  }
+  return {
+    columns: json["columns"],
+    rows: json["rows"],
+  };
 }
 
 export function SqlResultToJSON(json: any): SqlResult {
-    return SqlResultToJSONTyped(json, false);
+  return SqlResultToJSONTyped(json, false);
 }
 
 export function SqlResultToJSONTyped(
-    value?: SqlResult | null,
-    ignoreDiscriminator: boolean = false,
+  value?: SqlResult | null,
+  ignoreDiscriminator: boolean = false
 ): any {
-    if (value == null) {
-        return value;
-    }
+  if (value == null) {
+    return value;
+  }
 
-    return {
-        columns: value["columns"],
-        rows: value["rows"],
-    };
+  return {
+    columns: value["columns"],
+    rows: value["rows"],
+  };
 }

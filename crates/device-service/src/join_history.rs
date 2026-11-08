@@ -21,7 +21,7 @@ use axum::{
 use db::{Database, Value};
 use futures_util::{SinkExt, StreamExt};
 use ofdb_sql::{
-    SessionConfig, SyncCandidateView, SyncDirection, SyncError, SyncRole, SyncTransport,
+    SessionConfig, SyncCandidateView, SyncError, SyncRole, SyncTransport,
     SyncValidationDirection,
 };
 use serde::{Deserialize, Serialize};
@@ -234,7 +234,6 @@ async fn stream(
                 source.context,
                 &pending.approval,
                 source.staging.clone(),
-                SyncDirection::SendOnly,
                 source.check.clone(),
                 &source.cancellation,
             )
@@ -406,7 +405,6 @@ pub async fn import_join_history(
         context,
         approval,
         staging,
-        SyncDirection::ReceiveOnly,
         check,
         cancellation,
     )
@@ -419,28 +417,22 @@ async fn synchronize(
     context: JoinHistoryContext,
     approval: &IndependentJoinApproval,
     staging: PathBuf,
-    direction: SyncDirection,
     check: CheckJoinHistory,
     cancellation: &CancellationToken,
 ) -> io::Result<()> {
+    let is_receiver = matches!(context, JoinHistoryContext::Device);
+    let role = if is_receiver { SyncRole::Initiator } else { SyncRole::Responder };
     log::debug!(
-        "Join history context={} phase=sync_start direction={direction:?}",
+        "Join history context={} phase=sync_start role={role:?}",
         context.role()
     );
     let sync_at = Instant::now();
-    let config = SessionConfig {
-        direction,
-        ..Default::default()
-    };
+    let config = SessionConfig::default();
     let tables = context.tables();
     let result = engine.synchronize_tables_with_stage_directory_candidate_validated_checked(
         transport,
         &config,
-        if direction == SyncDirection::ReceiveOnly {
-            SyncRole::Initiator
-        } else {
-            SyncRole::Responder
-        },
+        role,
         staging,
         &tables,
         |table, column, value| {
@@ -451,10 +443,9 @@ async fn synchronize(
             }
         },
         |view| {
-            if (direction == SyncDirection::ReceiveOnly
-                && view.direction == SyncValidationDirection::Outgoing)
-                || (direction == SyncDirection::SendOnly
-                    && view.direction == SyncValidationDirection::Incoming)
+            // Reject reverse flow based on context role
+            if (is_receiver && view.direction == SyncValidationDirection::Outgoing)
+                || (!is_receiver && view.direction == SyncValidationDirection::Incoming)
             {
                 return Err("reverse public history denied".into());
             }
@@ -467,7 +458,7 @@ async fn synchronize(
                 if cancellation.is_cancelled() {
                     return Err("history cancelled".into());
                 }
-                log::debug!("Join history context={} phase=authorization_start direction={direction:?}", context.role());
+                log::debug!("Join history context={} phase=authorization_start", context.role());
                 let checked_at = Instant::now();
                 let result = check(approval).await;
                 log::debug!("Join history context={} phase=authorization_end direction={direction:?} elapsed_ms={} error_kind={:?}", context.role(), checked_at.elapsed().as_millis(), result.as_ref().err().map(io::Error::kind));
@@ -480,7 +471,7 @@ async fn synchronize(
         io::Error::other(format!("validated owner public history import failed: {error}"))
     }) };
     log::debug!(
-        "Join history context={} phase=sync_end direction={direction:?} elapsed_ms={} error_kind={:?}",
+        "Join history context={} phase=sync_end elapsed_ms={} error_kind={:?}",
         context.role(),
         sync_at.elapsed().as_millis(),
         result.as_ref().err().map(io::Error::kind)

@@ -173,6 +173,10 @@ pub fn resource_router(
             "/storage/filesystems/{filesystem_id}/residency",
             get(residency::get_file_system_residency).put(residency::put_file_system_residency),
         )
+        .route(
+            "/sync/connect",
+            post(sync_connect),
+        )
         .with_state(state.clone());
     if let (Some(idp_client), Some(file_systems)) = (state.router.idp_client, state.file_systems) {
         router = router.merge(scoped_file_system_socket_router(idp_client, file_systems));
@@ -758,4 +762,101 @@ mod tests {
             .expect("request must complete");
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
+}
+
+use serde::{Deserialize, Serialize};
+use storage_service::ResourceId;
+use uuid::Uuid;
+
+#[derive(Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct SyncConnectRequest {
+    pub resource_id: ResourceId,
+    pub target_device: Uuid,
+    #[serde(default = "default_bidirectional")]
+    pub direction: SyncDirection,
+}
+
+fn default_bidirectional() -> SyncDirection {
+    SyncDirection::Bidirectional
+}
+
+#[derive(Deserialize, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub(super) enum SyncDirection {
+    Push,
+    Pull,
+    Bidirectional,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SyncSessionResponse {
+    pub session_id: Uuid,
+    pub resource_id: ResourceId,
+    pub source_device: Uuid,
+    pub target_device: Uuid,
+    pub status: SyncStatus,
+    pub bytes_sent: u64,
+    pub bytes_received: u64,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub(super) enum SyncStatus {
+    Connecting,
+    Syncing,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+#[utoipa::path(
+    post,
+    path = "/sync/connect",
+    request_body = SyncConnectRequest,
+    responses(
+        (status = 200, description = "Sync session started", body = SyncSessionResponse),
+        (status = 401, description = "Invalid authorization"),
+        (status = 403, description = "Token does not permit sync"),
+        (status = 404, description = "Resource or target device not found"),
+        (status = 503, description = "Service unavailable")
+    ),
+    security(("authorization" = []))
+)]
+pub(super) async fn sync_connect(
+    State(state): State<ResourceState>,
+    headers: HeaderMap,
+    Json(request): Json<SyncConnectRequest>,
+) -> Result<Json<SyncSessionResponse>, StatusCode> {
+    let (scope, can_read, can_write) = namespace(
+        authorization(&state, &headers).await?,
+        "storage:databases",
+    )?;
+    if !(can_read || can_write) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    // Verify the resource exists and user has access
+    let databases = state.databases.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let resource = databases.get(&scope, request.resource_id.into()).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if resource.is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    // For now, create a mock session response
+    // In a full implementation, this would query Management Service for target device
+    // and initiate the sync session via the sync WebSocket
+    let session_id = Uuid::new_v4();
+    let response = SyncSessionResponse {
+        session_id,
+        resource_id: request.resource_id,
+        source_device: scope.application_id.into(),
+        target_device: request.target_device,
+        status: SyncStatus::Connecting,
+        bytes_sent: 0,
+        bytes_received: 0,
+    };
+
+    Ok(Json(response))
 }

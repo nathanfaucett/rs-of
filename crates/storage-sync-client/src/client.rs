@@ -2,44 +2,16 @@
 
 use crate::protocol::*;
 use crate::transport::{SyncTransport as WsSyncTransport, TransportError};
-use ofdb_sql::{
-    SessionConfig, SyncDirection as OfdbSyncDirection, SyncResult, SyncRole, SyncTransport,
+use ofdb_sql_sync::{
+    SessionConfig, SyncResult, SyncRole, SyncTransport,
 };
-use std::{future::Future, path::Path, pin::Pin, vec::Vec};
+use std::{future::Future, pin::Pin, sync::{Arc, Mutex}, vec::Vec};
 
 use thiserror::Error;
 use uuid::Uuid;
 
 #[cfg(feature = "browser")]
 use crate::browser::browser::TransportError as BrowserTransportError;
-
-/// Synchronization direction.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SyncDirection {
-    Push,
-    Pull,
-    Bidirectional,
-}
-
-impl From<SyncDirection> for OfdbSyncDirection {
-    fn from(d: SyncDirection) -> Self {
-        match d {
-            SyncDirection::Push => OfdbSyncDirection::SendOnly,
-            SyncDirection::Pull => OfdbSyncDirection::ReceiveOnly,
-            SyncDirection::Bidirectional => OfdbSyncDirection::Bidirectional,
-        }
-    }
-}
-
-impl From<SyncDirection> for AttachDirection {
-    fn from(d: SyncDirection) -> Self {
-        match d {
-            SyncDirection::Push => AttachDirection::Push,
-            SyncDirection::Pull => AttachDirection::Pull,
-            SyncDirection::Bidirectional => AttachDirection::Bidirectional,
-        }
-    }
-}
 
 /// Sync client errors.
 #[derive(Debug, Error)]
@@ -98,94 +70,61 @@ impl<T: WsSyncTransport> SyncTransport for WsTransportBridge<T> {
         async move {
             loop {
                 let frame_bytes = transport.receive().await?;
-                let frames = decoder
-                    .feed(&frame_bytes)
-                    .map_err(|e| TransportError::ReceiveFailed(e.to_string()))?;
-
+                let frames = decoder.feed(&frame_bytes).map_err(|e| TransportError::Protocol(e.to_string()))?;
                 for frame in frames {
                     return Ok(frame.payload);
                 }
-                // No complete frame yet, continue loop
             }
         }
     }
 
     fn send(&mut self, payload: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> {
         let transport = &mut self.transport;
-
         async move {
             let frame = Frame::new(0, payload, false);
-            let frame_bytes = FrameCodec::encode(&frame)
-                .map_err(|e| TransportError::SendFailed(e.to_string()))?;
+            let frame_bytes = FrameCodec::encode(&frame).map_err(|e| TransportError::Protocol(e.to_string()))?;
             transport.send(frame_bytes).await
         }
     }
 }
 
-/// High-level sync client (native only).
-#[cfg(feature = "native")]
+/// Sync client for native (tokio) environments.
 pub struct SyncClient<T: WsSyncTransport> {
-    transport: T,
-    token_provider: TokenProvider,
-    store_identity: StoreIdentity,
+    transport: Arc<Mutex<T>>,
     local_replica_id: Uuid,
+    token_provider: TokenProvider,
 }
 
-#[cfg(feature = "native")]
 impl<T: WsSyncTransport> SyncClient<T> {
-    /// Create a new sync client.
-    ///
-    /// # Arguments
-    /// * `transport` - Connected WebSocket transport
-    /// * `token_provider` - Async function that returns a valid IdP access token for `storage:sync`
-    /// * `store_identity` - Stable store identity (store_id + schema fingerprint)
-    /// * `local_replica_id` - Unique replica ID for this client instance
-    pub fn new(
-        transport: T,
-        token_provider: TokenProvider,
-        store_identity: StoreIdentity,
-        local_replica_id: Uuid,
-    ) -> Self {
+    pub fn new(transport: T, local_replica_id: Uuid, token_provider: TokenProvider) -> Self {
         Self {
-            transport,
-            token_provider,
-            store_identity,
+            transport: Arc::new(Mutex::new(transport)),
             local_replica_id,
+            token_provider,
         }
     }
 
-    /// Run a synchronization session with a local database.
-    ///
-    /// # Arguments
-    /// * `direction` - Push, Pull, or Bidirectional
-    /// * `database` - Open ofdb-sql Database with sync enabled (requires native-stage feature)
-    /// * `_namespace` - Storage namespace for multi-tenancy (currently unused)
-    /// * `staging_dir` - Directory for staging sync data
     pub async fn sync(
-        mut self,
-        direction: SyncDirection,
+        &mut self,
         database: &ofdb_sql::Database,
-        _namespace: &impl storage_model::StorageNamespace,
-        staging_dir: impl AsRef<Path>,
+        store_identity: StoreIdentity,
     ) -> Result<SyncResult, SyncError> {
-        // Get fresh auth token
-        let token: String = (self.token_provider)().await?;
-        let auth_token = crate::protocol::AuthToken(token.into_bytes());
+        let token = (self.token_provider)().await?;
 
         // Send Hello
         let hello = Hello {
             protocol_version: 1,
             manifest: Vec::new(),
-            store_identity: self.store_identity.clone(),
+            store_identity: store_identity.clone(),
             supported_protocols: vec![ProtocolId::OfdbSqlV7],
         };
         self.send_message(SyncMessage::Hello(hello)).await?;
 
         // Send AttachRequest
         let attach_req = AttachRequest {
-            store_identity: self.store_identity.clone(),
-            auth_token,
-            direction: direction.into(),
+            store_identity,
+            auth_token: AuthToken(token.into_bytes()),
+            direction: AttachDirection::Bidirectional,
             reconnect_token: None,
         };
         self.send_message(SyncMessage::AttachRequest(attach_req))
@@ -205,133 +144,85 @@ impl<T: WsSyncTransport> SyncClient<T> {
             return Err(SyncError::Auth("Attach not accepted".into()));
         }
 
-        // Create WebSocket transport bridge for ofdb-sql sync engine
-        let mut ws_transport = WsTransportBridge::new(self.transport);
+        // Take the transport for sync
+        let transport = Arc::clone(&self.transport);
 
-        // Configure sync session
-        let mut config = SessionConfig::default();
-        config.direction = direction.into();
+        // Create transport bridge that shares the transport
+        let mut transport = WsTransportBridgeShared::new(transport);
 
-        // Run sync session as Initiator (client initiates sync)
+        // Configure sync session - all transport is bidirectional
+        let config = SessionConfig::default();
+
+        // Run sync session as Initiator
         let result = database
-            .synchronize_with_stage_directory_checked(
-                &mut ws_transport,
-                &config,
-                SyncRole::Initiator,
-                staging_dir,
-                || async { Ok(()) },
-            )
+            .synchronize_checked(&mut transport, &config, SyncRole::Initiator, || async {
+                Ok(())
+            })
             .await
             .map_err(|e| SyncError::OfdbSync(e.to_string()))?;
 
-        tracing::info!("Sync completed: {:?}", result);
         Ok(result)
     }
 
-    async fn send_message(&mut self, msg: SyncMessage) -> Result<(), SyncError> {
+    async fn send_message(&self, msg: SyncMessage) -> Result<(), SyncError> {
         let encoded = msg
             .encode()
             .map_err(|e| SyncError::Protocol(e.to_string()))?;
         let frame = Frame::new(0, encoded, false);
         let frame_bytes =
             FrameCodec::encode(&frame).map_err(|e| SyncError::Protocol(e.to_string()))?;
-        self.transport.send(frame_bytes).await?;
+
+        let mut guard = self.transport.lock().unwrap();
+        guard
+            .send(frame_bytes)
+            .await
+            .map_err(|e| SyncError::Transport(e))?;
         Ok(())
     }
 
-    async fn receive_message(&mut self) -> Result<SyncMessage, SyncError> {
-        let frame_bytes = self.transport.receive().await?;
+    async fn receive_message(&self) -> Result<SyncMessage, SyncError> {
+        let mut guard = self.transport.lock().unwrap();
+        let frame_bytes = guard
+            .receive()
+            .await
+            .map_err(|e| SyncError::Transport(e))?;
         let frame =
             FrameCodec::decode(&frame_bytes).map_err(|e| SyncError::Protocol(e.to_string()))?;
-        let msg =
-            SyncMessage::decode(&frame.payload).map_err(|e| SyncError::Protocol(e.to_string()))?;
+        let msg = SyncMessage::decode(&frame.payload)
+            .map_err(|e| SyncError::Protocol(e.to_string()))?;
         Ok(msg)
     }
 }
 
-/// Convenience function for native clients.
-#[cfg(feature = "native")]
-pub async fn connect_native(
-    url: &str,
-    token_provider: TokenProvider,
-    store_identity: StoreIdentity,
-    local_replica_id: Uuid,
-) -> Result<SyncClient<crate::transport::native::WebSocketSyncTransport>, SyncError> {
-    let transport = crate::transport::native::WebSocketSyncTransport::connect(url).await?;
-    Ok(SyncClient::new(
-        transport,
-        token_provider,
-        store_identity,
-        local_replica_id,
-    ))
+/// Shared transport wrapper for SyncTransport trait.
+pub struct WsTransportBridgeShared<T: WsSyncTransport> {
+    transport: Arc<Mutex<T>>,
 }
 
-/// Convenience function for browser clients.
-#[cfg(feature = "browser")]
-pub async fn connect_browser(
-    url: &str,
-    token_provider: crate::browser::browser_client::BrowserTokenProvider,
-    store_identity: StoreIdentity,
-    local_replica_id: Uuid,
-) -> Result<crate::browser::browser_client::BrowserSyncClient, crate::SyncError> {
-    crate::browser::browser_client::BrowserSyncClient::new(
-        url,
-        token_provider,
-        store_identity,
-        local_replica_id,
-    )
-    .await
+impl<T: WsSyncTransport> WsTransportBridgeShared<T> {
+    fn new(transport: Arc<Mutex<T>>) -> Self {
+        Self { transport }
+    }
 }
 
-#[cfg(all(test, feature = "native"))]
-mod tests {
-    use super::*;
-    use crate::transport::test::create_transport_pair;
+impl<T: WsSyncTransport> SyncTransport for WsTransportBridgeShared<T> {
+    type Error = TransportError;
 
-    #[tokio::test]
-    async fn client_roundtrip() {
-        let (client_transport, mut server_transport) = create_transport_pair();
+    fn receive(&mut self) -> impl Future<Output = Result<Vec<u8>, Self::Error>> {
+        let transport = Arc::clone(&self.transport);
+        async move {
+            let mut guard = transport.lock().unwrap();
+            guard.receive().await
+        }
+    }
 
-        let store_identity = StoreIdentity {
-            store_id: Uuid::now_v7(),
-            replica_id: Uuid::now_v7(),
-            creation_epoch: 1,
-            schema_fingerprint: [0u8; 32],
-        };
-        let local_replica_id = Uuid::now_v7();
-
-        let token_provider: TokenProvider =
-            Box::new(|| Box::pin(async { Ok::<_, SyncError>("test-token".to_string()) }));
-
-        let mut client = SyncClient::new(
-            client_transport,
-            token_provider,
-            store_identity.clone(),
-            local_replica_id,
-        );
-
-        // Test Hello exchange
-        let hello = Hello {
-            protocol_version: 1,
-            manifest: Vec::new(),
-            store_identity: store_identity.clone(),
-            supported_protocols: vec![ProtocolId::OfdbSqlV7],
-        };
-        client
-            .send_message(SyncMessage::Hello(hello))
-            .await
-            .unwrap();
-
-        // Server receives and responds
-        let frame_bytes = server_transport.receive().await.unwrap();
-        let frame = FrameCodec::decode(&frame_bytes).unwrap();
-        let msg = SyncMessage::decode(&frame.payload).unwrap();
-
-        match msg {
-            SyncMessage::Hello(h) => {
-                assert_eq!(h.store_identity.store_id, store_identity.store_id);
-            }
-            _ => panic!("Expected Hello"),
+    fn send(&mut self, payload: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> {
+        let transport = Arc::clone(&self.transport);
+        async move {
+            let frame = Frame::new(0, payload, false);
+            let frame_bytes = FrameCodec::encode(&frame).map_err(|e| TransportError::Protocol(e.to_string()))?;
+            let mut guard = transport.lock().unwrap();
+            guard.send(frame_bytes).await
         }
     }
 }

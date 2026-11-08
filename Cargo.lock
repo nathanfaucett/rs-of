@@ -520,7 +520,7 @@ dependencies = [
  "bytes",
  "form_urlencoded",
  "futures-util",
- "http 1.5.0",
+ "http",
  "http-body",
  "http-body-util",
  "hyper",
@@ -553,7 +553,7 @@ checksum = "08c78f31d7b1291f7ee735c1c6780ccde7785daae9a9206026862dab7d8792d1"
 dependencies = [
  "bytes",
  "futures-core",
- "http 1.5.0",
+ "http",
  "http-body",
  "http-body-util",
  "mime",
@@ -1665,7 +1665,7 @@ dependencies = [
  "device-service",
  "dotenvy",
  "env_logger",
- "http 1.5.0",
+ "http",
  "idp-db",
  "idp-model",
  "idp-service",
@@ -2174,13 +2174,18 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-util",
+ "js-sys",
  "ofdb-kv",
  "ofdb-platform",
  "postcard",
  "serde",
+ "serde-wasm-bindgen",
  "serde_json",
  "tokio",
  "uuid",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
@@ -2657,30 +2662,9 @@ dependencies = [
  "futures-channel",
  "futures-core",
  "futures-sink",
- "gloo-utils 0.1.7",
+ "gloo-utils",
  "js-sys",
  "pin-project",
- "thiserror 1.0.69",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
-name = "gloo-net"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ac9e8288ae2c632fa9f8657ac70bfe38a1530f345282d7ba66a1f70b72b7dc4"
-dependencies = [
- "futures-channel",
- "futures-core",
- "futures-sink",
- "gloo-utils 0.2.0",
- "http 0.2.12",
- "js-sys",
- "pin-project",
- "serde",
- "serde_json",
  "thiserror 1.0.69",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -2704,19 +2688,6 @@ name = "gloo-utils"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "037fcb07216cb3a30f7292bd0176b050b7b9a052ba830ef7d5d65f6dc64ba58e"
-dependencies = [
- "js-sys",
- "serde",
- "serde_json",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
-name = "gloo-utils"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b5555354113b18c547c1d3a98fbf7fb32a9ff4f6fa112ce823a21641a0ba3aa"
 dependencies = [
  "js-sys",
  "serde",
@@ -2810,7 +2781,7 @@ dependencies = [
  "fnv",
  "futures-core",
  "futures-sink",
- "http 1.5.0",
+ "http",
  "indexmap 2.14.2",
  "slab",
  "tokio",
@@ -2965,17 +2936,6 @@ dependencies = [
 
 [[package]]
 name = "http"
-version = "0.2.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "601cbb57e577e2f5ef5be8e7b83f0f63994f25aa94d673e54a92d5c516d101f1"
-dependencies = [
- "bytes",
- "fnv",
- "itoa",
-]
-
-[[package]]
-name = "http"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "918d3568bebf352712bc2ef3d46a8bcf1a75b373be6539de198e9105cbbf9ce0"
@@ -2991,7 +2951,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca2a8f2913ee65f60facd6a5905613afaa448497a0230cc41ce022d93290bc2c"
 dependencies = [
  "bytes",
- "http 1.5.0",
+ "http",
 ]
 
 [[package]]
@@ -3002,7 +2962,7 @@ checksum = "23169fe34a5fbcdd3f3862e78fb9b6fccd5f02a6dc6f732547005d45631ce71c"
 dependencies = [
  "bytes",
  "futures-core",
- "http 1.5.0",
+ "http",
  "http-body",
  "pin-project-lite",
 ]
@@ -3039,7 +2999,7 @@ dependencies = [
  "futures-channel",
  "futures-core",
  "h2",
- "http 1.5.0",
+ "http",
  "http-body",
  "httparse",
  "httpdate",
@@ -3056,7 +3016,7 @@ version = "0.27.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33ca68d021ef39cf6463ab54c1d0f5daf03377b70561305bb89a8f83aab66e0f"
 dependencies = [
- "http 1.5.0",
+ "http",
  "hyper",
  "hyper-util",
  "rustls",
@@ -3090,7 +3050,7 @@ dependencies = [
  "bytes",
  "futures-channel",
  "futures-util",
- "http 1.5.0",
+ "http",
  "http-body",
  "hyper",
  "ipnet",
@@ -3301,7 +3261,7 @@ dependencies = [
  "device-service",
  "dotenvy",
  "env_logger",
- "http 1.5.0",
+ "http",
  "idp-db",
  "idp-model",
  "idp-service",
@@ -3366,7 +3326,7 @@ dependencies = [
  "device-service",
  "file-system",
  "futures-util",
- "http 1.5.0",
+ "http",
  "idp-db",
  "idp-model",
  "idp-server",
@@ -3495,7 +3455,7 @@ dependencies = [
  "ed25519-dalek",
  "futures-util",
  "getrandom 0.4.3",
- "http 1.5.0",
+ "http",
  "ipnet",
  "iroh-base",
  "iroh-dns",
@@ -3625,7 +3585,7 @@ dependencies = [
  "data-encoding",
  "derive_more",
  "getrandom 0.4.3",
- "http 1.5.0",
+ "http",
  "http-body-util",
  "hyper",
  "hyper-util",
@@ -4123,7 +4083,7 @@ dependencies = [
  "config",
  "device-service",
  "dotenvy",
- "http 1.5.0",
+ "http",
  "idp-db",
  "idp-model",
  "log",
@@ -5092,13 +5052,50 @@ dependencies = [
 name = "of-storage-client"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "async-trait",
+ "file-system",
+ "futures-util",
+ "of-management-client",
+ "ofdb-kv",
+ "ofdb-platform",
+ "ofdb-sql",
+ "ofdb-sql-sync",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
  "serde_repr",
  "serde_with",
+ "storage-model",
+ "storage-service",
+ "storage-sync-client",
+ "thiserror 2.0.20",
+ "tokio",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "of-storage-sdk"
+version = "0.1.0"
+dependencies = [
+ "file-system",
+ "iroh",
+ "log",
+ "of-storage-client",
+ "ofdb-kv",
+ "ofdb-sql",
+ "ofdb-value",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "storage-sync-client",
+ "thiserror 2.0.20",
+ "tokio",
+ "url",
+ "uuid",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]
@@ -5109,7 +5106,7 @@ dependencies = [
  "crc32fast",
  "futures",
  "futures-channel",
- "gloo-net 0.1.0",
+ "gloo-net",
  "js-sys",
  "ofdb-platform",
  "ofdb-sql-engine",
@@ -6348,7 +6345,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-util",
- "http 1.5.0",
+ "http",
  "http-body",
  "http-body-util",
  "hyper",
@@ -6389,7 +6386,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-util",
- "http 1.5.0",
+ "http",
  "http-body",
  "http-body-util",
  "hyper",
@@ -7347,7 +7344,7 @@ dependencies = [
  "env_logger",
  "file-system",
  "futures-util",
- "http 1.5.0",
+ "http",
  "idp-db",
  "idp-model",
  "idp-service",
@@ -7402,18 +7399,15 @@ dependencies = [
  "crc32fast",
  "futures-channel",
  "futures-util",
- "getrandom 0.2.17",
- "gloo-net 0.4.0",
  "js-sys",
+ "log",
  "ofdb-sql",
+ "ofdb-sql-sync",
  "postcard",
  "serde",
- "storage-model",
  "thiserror 2.0.20",
  "tokio",
- "tokio-tungstenite 0.24.0",
- "tracing",
- "tungstenite 0.24.0",
+ "tokio-tungstenite 0.29.0",
  "uuid",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -7658,7 +7652,7 @@ dependencies = [
  "glob",
  "gtk",
  "heck 0.5.0",
- "http 1.5.0",
+ "http",
  "jni 0.21.1",
  "libc",
  "log",
@@ -7876,7 +7870,7 @@ dependencies = [
  "cookie",
  "dpi",
  "gtk",
- "http 1.5.0",
+ "http",
  "jni 0.21.1",
  "objc2",
  "objc2-ui-kit",
@@ -7899,7 +7893,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e6fac707727b7a2f48e4ded90976324267371073edbb415ffb73bb0458d203f"
 dependencies = [
  "gtk",
- "http 1.5.0",
+ "http",
  "jni 0.21.1",
  "log",
  "objc2",
@@ -7931,7 +7925,7 @@ dependencies = [
  "dom_query",
  "dunce",
  "glob",
- "http 1.5.0",
+ "http",
  "infer",
  "json-patch",
  "log",
@@ -8157,22 +8151,6 @@ dependencies = [
 
 [[package]]
 name = "tokio-tungstenite"
-version = "0.24.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edc5f74e248dc973e0dbb7b74c7e0d6fcc301c694ff50049504004ef4d0cdcd9"
-dependencies = [
- "futures-util",
- "log",
- "rustls",
- "rustls-native-certs",
- "rustls-pki-types",
- "tokio",
- "tokio-rustls",
- "tungstenite 0.24.0",
-]
-
-[[package]]
-name = "tokio-tungstenite"
 version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c28562dd8aea311048ed1ab9372a6b9a59977e1b308afb87c985c1f2b3206938"
@@ -8230,7 +8208,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "getrandom 0.4.3",
- "http 1.5.0",
+ "http",
  "httparse",
  "rand 0.10.3",
  "ring",
@@ -8373,7 +8351,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "h2",
- "http 1.5.0",
+ "http",
  "http-body",
  "http-body-util",
  "hyper",
@@ -8459,7 +8437,7 @@ dependencies = [
  "bitflags 2.13.2",
  "bytes",
  "futures-util",
- "http 1.5.0",
+ "http",
  "http-body",
  "pin-project-lite",
  "tower",
@@ -8478,7 +8456,7 @@ dependencies = [
  "bitflags 2.13.2",
  "bytes",
  "futures-core",
- "http 1.5.0",
+ "http",
  "http-body",
  "percent-encoding",
  "pin-project-lite",
@@ -8617,26 +8595,6 @@ dependencies = [
 
 [[package]]
 name = "tungstenite"
-version = "0.24.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18e5b8366ee7a95b16d32197d0b2604b43a0be89dc5fac9f8e96ccafbaedda8a"
-dependencies = [
- "byteorder",
- "bytes",
- "data-encoding",
- "http 1.5.0",
- "httparse",
- "log",
- "rand 0.8.8",
- "rustls",
- "rustls-pki-types",
- "sha1",
- "thiserror 1.0.69",
- "utf-8",
-]
-
-[[package]]
-name = "tungstenite"
 version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "326eb16466ed89221beef69dbc94f517ee888bae959895472133924a25f7070e"
@@ -8644,7 +8602,7 @@ dependencies = [
  "byteorder",
  "bytes",
  "data-encoding",
- "http 1.5.0",
+ "http",
  "httparse",
  "log",
  "native-tls",
@@ -8664,7 +8622,7 @@ checksum = "6c01152af293afb9c7c2a57e4b559c5620b421f6d133261c60dd2d0cdb38e6b8"
 dependencies = [
  "bytes",
  "data-encoding",
- "http 1.5.0",
+ "http",
  "httparse",
  "log",
  "rand 0.9.5",
@@ -9795,7 +9753,7 @@ dependencies = [
  "dunce",
  "gdkx11",
  "gtk",
- "http 1.5.0",
+ "http",
  "javascriptcore-rs",
  "jni 0.21.1",
  "libc",

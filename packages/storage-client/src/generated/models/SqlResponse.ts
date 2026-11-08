@@ -15,10 +15,10 @@
 import { mapValues } from "../runtime.js";
 import type { SqlResult } from "./SqlResult.js";
 import {
-    SqlResultFromJSON,
-    SqlResultFromJSONTyped,
-    SqlResultToJSON,
-    SqlResultToJSONTyped,
+  SqlResultFromJSON,
+  SqlResultFromJSONTyped,
+  SqlResultToJSON,
+  SqlResultToJSONTyped,
 } from "./SqlResult.js";
 
 /**
@@ -27,49 +27,46 @@ import {
  * @interface SqlResponse
  */
 export interface SqlResponse {
-    /**
-     *
-     */
-    results: Array<SqlResult>;
+  /**
+   *
+   */
+  results: Array<SqlResult>;
 }
 
 /**
  * Check if a given object implements the SqlResponse interface.
  */
 export function instanceOfSqlResponse(value: object): value is SqlResponse {
-    if (!("results" in value) || value["results"] === undefined) return false;
-    return true;
+  if (!("results" in value) || value["results"] === undefined) return false;
+  return true;
 }
 
 export function SqlResponseFromJSON(json: any): SqlResponse {
-    return SqlResponseFromJSONTyped(json, false);
+  return SqlResponseFromJSONTyped(json, false);
 }
 
-export function SqlResponseFromJSONTyped(
-    json: any,
-    ignoreDiscriminator: boolean,
-): SqlResponse {
-    if (json == null) {
-        return json;
-    }
-    return {
-        results: (json["results"] as Array<any>).map(SqlResultFromJSON),
-    };
+export function SqlResponseFromJSONTyped(json: any, ignoreDiscriminator: boolean): SqlResponse {
+  if (json == null) {
+    return json;
+  }
+  return {
+    results: (json["results"] as Array<any>).map(SqlResultFromJSON),
+  };
 }
 
 export function SqlResponseToJSON(json: any): SqlResponse {
-    return SqlResponseToJSONTyped(json, false);
+  return SqlResponseToJSONTyped(json, false);
 }
 
 export function SqlResponseToJSONTyped(
-    value?: SqlResponse | null,
-    ignoreDiscriminator: boolean = false,
+  value?: SqlResponse | null,
+  ignoreDiscriminator: boolean = false
 ): any {
-    if (value == null) {
-        return value;
-    }
+  if (value == null) {
+    return value;
+  }
 
-    return {
-        results: (value["results"] as Array<any>).map(SqlResultToJSON),
-    };
+  return {
+    results: (value["results"] as Array<any>).map(SqlResultToJSON),
+  };
 }

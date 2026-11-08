@@ -7,12 +7,18 @@ import {
 import { DefaultApi as StorageApi } from "./generated/apis/DefaultApi.js";
 import { ResourcesApi } from "./generated/apis/ResourcesApi.js";
 import { ResourcesSqlApi } from "./generated/apis/ResourcesSqlApi.js";
+import { SyncApi } from "./generated/apis/SyncApi.js";
 import type {
   DatabaseDetailResponse,
   DatabaseResource,
   EnsureDatabaseRequest,
   SqlRequest,
   SqlResponse,
+  SqlValue,
+} from "./generated/models/index.js";
+import type {
+  SyncConnectRequest,
+  SyncSessionResponse,
 } from "./generated/models/index.js";
 import {
   Configuration,
@@ -81,6 +87,77 @@ export type StorageResponse =
 
 export type FileSystemResource = { id: string; name: string | null };
 
+/** SQL Database handle with built-in sync transport */
+export class SqlDatabaseHandle {
+  constructor(
+    private readonly storageClient: StorageClient,
+    private readonly databaseId: string,
+    private readonly storeIdentity: { storeId: string; replicaId: string },
+  ) {}
+
+  /** Execute SQL query */
+  async execute(sql: string, params?: unknown[]): Promise<any> {
+    const result = await this.storageClient.executeSql(
+      this.databaseId,
+      {
+        statements: [
+          { sql, params: params ? (params as SqlValue[]) : undefined },
+        ],
+      },
+      ["read", "write"],
+    );
+    return result;
+  }
+
+  /** Synchronize with remote peer */
+  async synchronize(): Promise<void> {
+    // TODO: Implement using SyncClient from @ofsdk/storage-sync-client
+  }
+
+  /** Get the database ID */
+  get id(): string {
+    return this.databaseId;
+  }
+
+  /** Get the store identity */
+  get identity() {
+    return this.storeIdentity;
+  }
+}
+
+/** KV Store handle with built-in sync transport */
+export class KvStoreHandle {
+  constructor(
+    private readonly storageClient: StorageClient,
+    private readonly storeId: string,
+    private readonly storeIdentity: { storeId: string; replicaId: string },
+  ) {}
+
+  /** Get the store ID */
+  get id(): string {
+    return this.storeId;
+  }
+}
+
+/** Filesystem handle with built-in sync transport */
+export class FilesystemHandle {
+  constructor(
+    private readonly storageClient: StorageClient,
+    private readonly filesystemId: string,
+    private readonly storeIdentity: { storeId: string; replicaId: string },
+  ) {}
+
+  /** Open a WebSocket connection for file operations */
+  async openSocket(signal?: AbortSignal): Promise<StorageSocket> {
+    return this.storageClient.openSocket(this.filesystemId, signal);
+  }
+
+  /** Get the filesystem ID */
+  get id(): string {
+    return this.filesystemId;
+  }
+}
+
 type FetchFunction = (
   input: URL | RequestInfo,
   init?: RequestInit,
@@ -136,6 +213,114 @@ export class StorageClient {
     this.options = options;
   }
 
+  // SQL Database methods
+  async createSqlDatabase(name?: string): Promise<SqlDatabaseHandle> {
+    const token = await this.exchangeToken(
+      ["write"],
+      undefined,
+      "storage:databases",
+    );
+    const resource = await this.resources(token).createDatabase(
+      { createResourceRequest: { name: name ?? null } },
+      undefined,
+    );
+    return new SqlDatabaseHandle(this, resource.id, {
+      storeId: resource.id,
+      replicaId: crypto.randomUUID(),
+    });
+  }
+
+  async openSqlDatabase(databaseId: string): Promise<SqlDatabaseHandle> {
+    const token = await this.exchangeToken(
+      ["read"],
+      undefined,
+      "storage:databases",
+    );
+    const resource = await this.resources(token).getDatabase(
+      { databaseId },
+      undefined,
+    );
+    return new SqlDatabaseHandle(this, resource.id, {
+      storeId: resource.id,
+      replicaId: crypto.randomUUID(),
+    });
+  }
+
+  async listSqlDatabases(signal?: AbortSignal): Promise<DatabaseResource[]> {
+    const token = await this.exchangeToken(
+      ["read"],
+      signal,
+      "storage:databases",
+    );
+    signal?.throwIfAborted();
+    return databaseResult(this.resources(token).listDatabases({ signal }));
+  }
+
+  // KV Store methods
+  async createKvStore(name?: string): Promise<KvStoreHandle> {
+    // TODO: Implement when KV REST API is available
+    return new KvStoreHandle(this, crypto.randomUUID(), {
+      storeId: crypto.randomUUID(),
+      replicaId: crypto.randomUUID(),
+    });
+  }
+
+  async openKvStore(storeId: string): Promise<KvStoreHandle> {
+    return new KvStoreHandle(this, storeId, {
+      storeId,
+      replicaId: crypto.randomUUID(),
+    });
+  }
+
+  async listKvStores(
+    signal?: AbortSignal,
+  ): Promise<{ id: string; name: string | null }[]> {
+    // TODO: Implement when KV REST API is available
+    return [];
+  }
+
+  // Filesystem methods
+  async createFilesystem(name?: string): Promise<FilesystemHandle> {
+    const token = await this.exchangeToken(["write"], undefined);
+    const resource = await this.resources(token).createFileSystem(
+      { createResourceRequest: { name: name ?? null } },
+      undefined,
+    );
+    return new FilesystemHandle(this, resource.id, {
+      storeId: resource.id,
+      replicaId: crypto.randomUUID(),
+    });
+  }
+
+  async openFilesystem(filesystemId: string): Promise<FilesystemHandle> {
+    const token = await this.exchangeToken(["read"], undefined);
+    const resource = await this.resources(token).getFileSystem(
+      { filesystemId },
+      undefined,
+    );
+    return new FilesystemHandle(this, resource.id, {
+      storeId: resource.id,
+      replicaId: crypto.randomUUID(),
+    });
+  }
+
+  // Sync methods
+  async syncToDevice(
+    resourceId: string,
+    targetDeviceId: string,
+  ): Promise<SyncSessionResponse> {
+    const token = await this.exchangeToken(["write"], undefined);
+    const api = new SyncApi(this.configuration(token));
+    const request: SyncConnectRequest = {
+      resourceId,
+      targetDevice: targetDeviceId,
+    };
+    return databaseResult(
+      api.syncConnect({ syncConnectRequest: request }, undefined),
+    );
+  }
+
+  // Existing methods
   async ensureDatabase(
     request: EnsureDatabaseRequest,
     signal?: AbortSignal,
@@ -166,7 +351,7 @@ export class StorageClient {
     signal?.throwIfAborted();
     return databaseResult(
       this.resources(token).createDatabase(
-        { createResourceRequest: { name } },
+        { createResourceRequest: { name: name ?? null } },
         { signal },
       ),
     );
@@ -276,7 +461,6 @@ export class StorageClient {
     const url = parseUrl(this.options.storageBaseUrl);
     const token = await this.exchangeToken(["read", "write"], signal);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    // The browser supplies handshake headers; the generated builder owns the URL/query.
     const operation = await new StorageApi(
       new Configuration(),
     ).upgradeSocketRequestOpts({

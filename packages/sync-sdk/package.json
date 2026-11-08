@@ -1,0 +1,47 @@
+{
+  "name": "@ofsdk/sync-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js",
+      "default": "./dist/browser.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js",
+      "default": "./dist/node.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:browser": "tsc -p tsconfig.browser.json",
+    "build:node": "tsc -p tsconfig.node.json",
+    "test": "vitest run",
+    "lint": "biome lint .",
+    "format": "biome format ."
+  },
+  "dependencies": {
+    "@ofsdk/fs": "workspace:*",
+    "@ofsdk/sql": "workspace:*",
+    "@ofsdk/storage-client": "workspace:*",
+    "@ofsdk/storage-sync-client": "workspace:*",
+    "rxjs": "^7.8.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.3",
+    "@types/node": "^26.6.6",
+    "typescript": "^5.9.3",
+    "vitest": "4.1.10"
+  },
+  "peerDependencies": {
+    "rxjs": "^7.8.0"
+  }
+}

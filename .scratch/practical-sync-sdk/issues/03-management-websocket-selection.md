@@ -1,6 +1,6 @@
 # 03 - Management Service: WebSocket sync selection API
 
-**Status: needs-triage**
+**Status: in-progress**
 
 ## Problem
 
@@ -8,7 +8,7 @@ Management Service only handles resource selection for Iroh mesh sync. WebSocket
 
 ## Solution
 
-Extend Management Service with WebSocket sync selection:
+Extended Management Service with WebSocket sync selection:
 
 ### API (of/crates/management-service)
 
@@ -27,7 +27,7 @@ GET    /management/resources/{resource_id}/sync-targets
 
 ### Storage
 
-- Add `sync_selections` table (device_id, resource_id, selected_at)
+- Added `sync_selections` table (device_id, resource_id, selected_at)
 - Separate from `iroh_selections` but same admin restrictions apply
 - Single source of truth: a Device either has selection or not (shared)
 
@@ -44,16 +44,28 @@ GET    /management/resources/{resource_id}/sync-targets
   - Target Device has selection for resource
   - Both Devices approved + not revoked
 
+### Implementation
+
+- Added `sync_selection.rs` module in `management-service`
+- Added `SyncSelectionRepo` trait to `permission_repo`
+- Added `ManagementSyncSelection` trait implemented by `ManagementService`
+- Added HTTP routes in `management-server/src/router/routes/sync_selection.rs`
+- Added routes to OpenAPI router
+
 ## Acceptance Criteria
 
-1. Admin can select resource for WebSocket sync on a Device via API
-2. Selection persists and survives restart
-3. Sync Server can query selection state for WebSocket sync
-4. Admin restrictions apply to WebSocket sync selections
-5. Revoked Device loses WebSocket sync selections
+1. ✅ Admin can select resource for WebSocket sync on a Device via API
+2. ✅ Selection persists and survives restart
+3. ✅ Sync Server can query selection state for WebSocket sync
+4. ✅ Admin restrictions apply to WebSocket sync selections
+5. ✅ Revoked Device loses WebSocket sync selections
 
 ## Dependencies
 
-- Ticket 02 (Sync Server needs this API)
+- ✅ Ticket 02 (Sync Server needs this API)
 
 ## Comments
+
+- Implementation uses existing PermissionRepo pattern
+- Selection state is separate from Iroh but shares admin controls
+- Sync Server queries Management via service-to-service auth

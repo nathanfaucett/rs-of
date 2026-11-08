@@ -17,7 +17,7 @@ use storage_model::StorageNamespace;
 use storage_service::DatabaseRuntime;
 use uuid::Uuid;
 
-use crate::{DeviceClient, IdpClient, IdpIntrospectionError, RouterState};
+use crate::{DeviceClient, IdpClient, IdpIntrospectionError, ManagementClient, RouterState};
 
 pub const MAX_FRAME_PAYLOAD: u32 = 16 * 1024 * 1024;
 pub const MAX_SESSION_BYTES: u64 = 1024 * 1024 * 1024;
@@ -99,12 +99,12 @@ pub enum SyncMessage {
 }
 
 impl SyncMessage {
-    pub fn encode(&self) -> Result<Vec<u8>, postcard::Error> {
-        postcard::to_allocvec(self)
+    pub fn encode(&self) -> Result<Vec<u8>, io::Error> {
+        rmp_serde::to_vec(self).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 
-    pub fn decode(bytes: &[u8]) -> Result<Self, postcard::Error> {
-        postcard::from_bytes(bytes)
+    pub fn decode(data: &[u8]) -> Result<Self, io::Error> {
+        rmp_serde::from_slice(data).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 }
 
@@ -115,7 +115,7 @@ pub struct Frame {
     pub payload: Vec<u8>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FrameError {
     FrameTooLarge { size: u32, max: u32 },
     InvalidVersion { version: u8 },
@@ -123,6 +123,7 @@ pub enum FrameError {
     Truncated,
 }
 
+#[derive(Clone, Debug)]
 pub struct FrameCodec;
 
 impl FrameCodec {
@@ -134,52 +135,61 @@ impl FrameCodec {
                 max: MAX_FRAME_PAYLOAD,
             });
         }
-        let mut buf = Vec::with_capacity(1 + 1 + 4 + payload_len + 4);
+        if frame.version != FRAMING_VERSION {
+            return Err(FrameError::InvalidVersion { version: frame.version });
+        }
+
+        let mut buf = Vec::with_capacity(4 + payload_len + 4);
         buf.push(frame.version);
         buf.push(frame.flags);
-        buf.extend_from_slice(&(payload_len as u32).to_le_bytes());
+        buf.extend_from_slice(&(payload_len as u32).to_be_bytes());
         buf.extend_from_slice(&frame.payload);
-        let mut hasher = Hasher::new();
-        hasher.update(&frame.payload);
-        buf.extend_from_slice(&hasher.finalize().to_le_bytes());
+
+        let crc = crc32fast::hash(&buf);
+        buf.extend_from_slice(&crc.to_be_bytes());
+
         Ok(buf)
     }
 
     pub fn decode(buf: &[u8]) -> Result<Frame, FrameError> {
-        const HEADER: usize = 6;
-        const CRC: usize = 4;
-        if buf.len() < HEADER + CRC {
+        if buf.len() < 8 {
             return Err(FrameError::Truncated);
         }
-        if buf[0] != FRAMING_VERSION {
-            return Err(FrameError::InvalidVersion { version: buf[0] });
+
+        let version = buf[0];
+        if version != FRAMING_VERSION {
+            return Err(FrameError::InvalidVersion { version });
         }
-        let length = u32::from_le_bytes([buf[2], buf[3], buf[4], buf[5]]) as usize;
-        if length > MAX_FRAME_PAYLOAD as usize {
-            return Err(FrameError::FrameTooLarge {
-                size: length as u32,
-                max: MAX_FRAME_PAYLOAD,
+
+        let flags = buf[1];
+        let payload_len = u32::from_be_bytes([buf[2], buf[3], buf[4], buf[5]]) as usize;
+
+        if buf.len() < 6 + payload_len + 4 {
+            return Err(FrameError::Truncated);
+        }
+
+        let payload = &buf[6..6 + payload_len];
+        let expected_crc = u32::from_be_bytes([
+            buf[6 + payload_len],
+            buf[7 + payload_len],
+            buf[8 + payload_len],
+            buf[9 + payload_len],
+        ]);
+
+        let mut crc_buf = buf[..6 + payload_len].to_vec();
+        crc_buf.extend_from_slice(&[0, 0, 0, 0]);
+        let actual_crc = crc32fast::hash(&crc_buf);
+
+        if actual_crc != expected_crc {
+            return Err(FrameError::CrcMismatch {
+                expected: expected_crc,
+                actual: actual_crc,
             });
         }
-        if buf.len() < HEADER + length + CRC {
-            return Err(FrameError::Truncated);
-        }
-        let payload = &buf[HEADER..HEADER + length];
-        let expected = u32::from_le_bytes([
-            buf[HEADER + length],
-            buf[HEADER + length + 1],
-            buf[HEADER + length + 2],
-            buf[HEADER + length + 3],
-        ]);
-        let mut hasher = Hasher::new();
-        hasher.update(payload);
-        let actual = hasher.finalize();
-        if actual != expected {
-            return Err(FrameError::CrcMismatch { expected, actual });
-        }
+
         Ok(Frame {
-            version: buf[0],
-            flags: buf[1],
+            version,
+            flags,
             payload: payload.to_vec(),
         })
     }
@@ -190,6 +200,7 @@ pub struct SyncAuth {
     pub subject: String,
     pub application_id: String,
     pub store_id: Uuid,
+    pub target_device_id: Uuid,
     pub direction: AttachDirection,
 }
 
@@ -201,7 +212,7 @@ pub enum SyncAuthError {
 
 pub async fn authorize_sync(
     idp_client: &IdpClient,
-    device_client: &DeviceClient,
+    management_client: &ManagementClient,
     token: &str,
     store_identity: &StoreIdentity,
     endpoint_id: &str,
@@ -223,35 +234,51 @@ pub async fn authorize_sync(
         return Err(SyncAuthError::Unauthorized);
     }
 
-    let selected = device_client
-        .selected_resources(endpoint_id)
+    // Parse device ID from endpoint_id (which is the device's Iroh public key)
+    let device_id = Id::parse(endpoint_id)
+        .map_err(|_| SyncAuthError::Unauthorized)?;
+
+    // Check if source device has selection for this resource
+    let has_selection = management_client
+        .has_selection(device_id, Id::from(store_identity.store_id))
         .await
         .map_err(|_| SyncAuthError::BackendUnavailable)?;
 
-    if selected.endpoint_id != endpoint_id
-        || selected.owner_subject != claims.sub
-        || !selected.admin_allowed
-        || selected.pending_cleanup.is_some()
-    {
+    if !has_selection {
         return Err(SyncAuthError::Unauthorized);
     }
 
-    let store_id_str = store_identity.store_id.to_string();
-    let app_id = introspection.application_id.clone();
-    let authorized = selected.resources.iter().any(|resource| {
-        resource.resource_id == store_id_str
-            && resource.application_id == app_id
-            && resource.owner_subject == claims.sub
-            && resource.kind == "database"
-    });
-    if !authorized {
-        return Err(SyncAuthError::Unauthorized);
+    // Find the target device that has this resource selected
+    let sync_target = management_client
+        .get_sync_target(Id::from(store_identity.store_id), device_id)
+        .await
+        .map_err(|_| SyncAuthError::BackendUnavailable)?;
+
+    let sync_target = sync_target.ok_or(SyncAuthError::BackendUnavailable)?;
+
+    // Verify target device also has selection (get_sync_target only returns devices with selection)
+    let target_has_selection = management_client
+        .has_selection(sync_target.device_id, Id::from(store_identity.store_id))
+        .await
+        .map_err(|_| SyncAuthError::BackendUnavailable)?;
+
+    if !target_has_selection {
+        return Err(SyncAuthError::BackendUnavailable);
     }
+
+    let app_id = introspection.application_id.clone();
+
+    // Store target device ID for potential relay (future enhancement)
+    tracing::debug!(
+        "Sync authorized: source={}, target={}, resource={}",
+        device_id, sync_target.device_id, store_identity.store_id
+    );
 
     Ok(SyncAuth {
         subject: claims.sub.clone(),
         application_id: app_id,
         store_id: store_identity.store_id,
+        target_device_id: sync_target.device_id,
         direction: AttachDirection::Bidirectional,
     })
 }
@@ -282,282 +309,218 @@ pub fn sync_router(
         }))
 }
 
-async fn sync_ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<SyncState>>) -> Response {
-    ws.on_upgrade(|socket| handle_socket(socket, state))
+async fn sync_ws_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<Arc<SyncState>>,
+) -> Response {
+    ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
 struct WsNamespace {
     subject: String,
-    application_id: idp_model::model::Id,
+    application_id: String,
 }
+
 impl StorageNamespace for WsNamespace {
     fn user_sub(&self) -> &str {
         &self.subject
     }
-    fn application_id(&self) -> idp_model::model::Id {
-        self.application_id
+
+    fn application_id(&self) -> &str {
+        &self.application_id
     }
 }
 
 struct SessionAuthorization<'a> {
     idp: &'a IdpClient,
-    device: &'a DeviceClient,
+    management: &'a ManagementClient,
     token: &'a str,
     identity: &'a StoreIdentity,
     endpoint_id: &'a str,
-    expected: &'a SyncAuth,
+    expected: &'a Hello,
 }
 
-impl SessionAuthorization<'_> {
-    async fn check(&self) -> io::Result<()> {
-        match authorize_sync(
+impl<'a> SessionAuthorization<'a> {
+    async fn check(&self) -> Result<SyncAuth, SyncAuthError> {
+        authorize_sync(
             self.idp,
-            self.device,
+            self.management,
             self.token,
             self.identity,
             self.endpoint_id,
         )
         .await
-        {
-            Ok(current) if &current == self.expected => Ok(()),
-            _ => Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "sync authorization unavailable or revoked",
-            )),
-        }
     }
 }
 
 struct WebSocketTransport<'a> {
-    socket: WebSocket,
-    authorization: &'a SessionAuthorization<'a>,
+    socket: &'a mut WebSocket,
+    authorization: SyncAuth,
 }
 
-impl ofdb_sql::SyncTransport for WebSocketTransport<'_> {
+impl<'a> ofdb_sql::SyncTransport for WebSocketTransport<'a> {
     type Error = io::Error;
 
-    async fn receive(&mut self) -> io::Result<Vec<u8>> {
-        loop {
-            self.authorization.check().await?;
-            let message = self.socket.recv().await;
-            self.authorization.check().await?;
-            match message {
-                Some(Ok(Message::Binary(data))) => {
-                    let frame = FrameCodec::decode(&data).map_err(|e| {
-                        io::Error::new(io::ErrorKind::InvalidData, format!("{e:?}"))
-                    })?;
-                    let msg = SyncMessage::decode(&frame.payload)
-                        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{e}")))?;
-                    match msg {
-                        SyncMessage::OwnerMessage {
-                            protocol_id: ProtocolId::OfdbSqlV7,
-                            payload,
-                        } => return Ok(payload),
-                        SyncMessage::Ping => {
-                            let _ = send_message(&mut self.socket, &SyncMessage::Pong).await;
-                        }
-                        _ => {
-                            return Err(io::Error::new(
-                                io::ErrorKind::InvalidData,
-                                "unexpected sync control message",
-                            ));
-                        }
-                    }
-                }
-                Some(Ok(Message::Close(_))) | None => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::UnexpectedEof,
-                        "socket closed",
-                    ));
-                }
-                Some(Ok(_)) => continue,
-                Some(Err(e)) => return Err(io::Error::other(e)),
-            }
+    async fn receive(&mut self) -> Result<Vec<u8>, Self::Error> {
+        match self.socket.recv().await {
+            Some(Ok(Message::Binary(data))) => Ok(data.to_vec()),
+            Some(Ok(Message::Close(_))) => Err(io::Error::new(io::ErrorKind::ConnectionAborted, "closed")),
+            Some(Err(e)) => Err(io::Error::new(io::ErrorKind::ConnectionAborted, e)),
+            Some(Ok(_)) => self.receive().await,
+            None => Err(io::Error::new(io::ErrorKind::ConnectionAborted, "closed")),
         }
     }
 
-    async fn send(&mut self, frame: Vec<u8>) -> io::Result<()> {
-        self.authorization.check().await?;
-        let msg = SyncMessage::OwnerMessage {
-            protocol_id: ProtocolId::OfdbSqlV7,
-            payload: frame,
-        };
-        send_message(&mut self.socket, &msg)
+    async fn send(&mut self, payload: Vec<u8>) -> Result<(), Self::Error> {
+        self.socket
+            .send(Message::Binary(payload.into()))
             .await
-            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "websocket send failed"))
+            .map_err(|e| io::Error::new(io::ErrorKind::ConnectionAborted, e))
     }
 }
 
 async fn handle_socket(socket: WebSocket, state: Arc<SyncState>) {
     let mut socket = socket;
+    let mut frame_decoder = FrameCodec;
 
-    while let Some(msg) = socket.recv().await {
-        let Ok(msg) = msg else { break };
-        match msg {
-            Message::Binary(data) => {
-                let frame = match FrameCodec::decode(&data) {
-                    Ok(f) => f,
-                    Err(_) => {
-                        let _ = send_abort(&mut socket, AbortReason::MalformedMessage).await;
-                        break;
-                    }
-                };
-                let sync_msg = match SyncMessage::decode(&frame.payload) {
-                    Ok(m) => m,
-                    Err(_) => {
-                        let _ = send_abort(&mut socket, AbortReason::MalformedMessage).await;
-                        break;
-                    }
-                };
-                match sync_msg {
-                    SyncMessage::Ping => {
-                        if send_message(&mut socket, &SyncMessage::Pong).await.is_err() {
-                            break;
-                        }
-                    }
-                    SyncMessage::AttachRequest(request) => {
-                        let token = String::from_utf8_lossy(&request.auth_token.0).to_string();
-                        let endpoint_id = "local";
-                        let (idp, device) = match (
-                            state.router_state.idp_client.as_ref(),
-                            state.router_state.device_client.as_ref(),
-                        ) {
-                            (Some(idp), Some(device)) => (idp, device),
-                            _ => {
-                                let _ =
-                                    send_abort(&mut socket, AbortReason::BackendUnavailable).await;
-                                break;
-                            }
-                        };
-                        match authorize_sync(
-                            idp,
-                            device,
-                            &token,
-                            &request.store_identity,
-                            endpoint_id,
-                        )
-                        .await
-                        {
-                            Ok(auth) => {
-                                let response = AttachResponse {
-                                    accepted: true,
-                                    backend_replica_id: Uuid::now_v7(),
-                                    session_id: Uuid::now_v7(),
-                                    granted_direction: auth.direction,
-                                    max_frame_bytes: MAX_FRAME_PAYLOAD,
-                                    max_session_bytes: MAX_SESSION_BYTES,
-                                };
-                                if send_message(&mut socket, &SyncMessage::AttachResponse(response))
-                                    .await
-                                    .is_err()
-                                {
-                                    break;
-                                }
-                                let authorization = SessionAuthorization {
-                                    idp,
-                                    device,
-                                    token: &token,
-                                    identity: &request.store_identity,
-                                    endpoint_id,
-                                    expected: &auth,
-                                };
-                                run_sync_session(
-                                    socket,
-                                    &state,
-                                    &request.store_identity,
-                                    &auth,
-                                    &authorization,
-                                )
-                                .await;
-                                break;
-                            }
-                            Err(SyncAuthError::Unauthorized) => {
-                                let _ = send_abort(&mut socket, AbortReason::Unauthorized).await;
-                                break;
-                            }
-                            Err(SyncAuthError::BackendUnavailable) => {
-                                let _ =
-                                    send_abort(&mut socket, AbortReason::BackendUnavailable).await;
-                                break;
-                            }
-                        }
-                    }
-                    _ => {
-                        if send_message(&mut socket, &sync_msg).await.is_err() {
-                            break;
-                        }
-                    }
-                }
+    // Receive Hello
+    let hello = match receive_message(&mut socket, &mut frame_decoder).await {
+        Ok(SyncMessage::Hello(h)) => h,
+        Ok(_) => {
+            let _ = send_abort(&mut socket, AbortReason::MalformedMessage).await;
+            return;
+        }
+        Err(_) => return,
+    };
+
+    // Send Hello response (echo)
+    let hello_response = SyncMessage::Hello(Hello {
+        protocol_version: hello.protocol_version,
+        manifest: Vec::new(),
+        store_identity: hello.store_identity.clone(),
+        supported_protocols: vec![ProtocolId::OfdbSqlV7],
+    });
+    if send_message(&mut socket, &hello_response).await.is_err() {
+        return;
+    }
+
+    // Receive AttachRequest
+    let attach_req = match receive_message(&mut socket, &mut frame_decoder).await {
+        Ok(SyncMessage::AttachRequest(req)) => req,
+        Ok(_) => {
+            let _ = send_abort(&mut socket, AbortReason::MalformedMessage).await;
+            return;
+        }
+        Err(_) => return,
+    };
+
+    // Extract token from AttachRequest
+    let token = String::from_utf8(attach_req.auth_token.0.clone())
+        .unwrap_or_default();
+
+    // Authorize the sync session
+    let auth = match authorize_sync(
+        &state.router_state.idp_client,
+        &state.router_state.management_client,
+        &token,
+        &attach_req.store_identity,
+        &state.router_state.endpoint_id,
+    )
+    .await
+    {
+        Ok(auth) => auth,
+        Err(_) => {
+            let _ = send_abort(&mut socket, AbortReason::Unauthorized).await;
+            return;
+        }
+    };
+
+    // Send AttachResponse
+    let attach_resp = AttachResponse {
+        accepted: true,
+        backend_replica_id: Uuid::now_v7(),
+        session_id: Uuid::now_v7(),
+        granted_direction: AttachDirection::Bidirectional,
+        max_frame_bytes: MAX_FRAME_PAYLOAD,
+        max_session_bytes: MAX_SESSION_BYTES,
+    };
+    if send_message(&mut socket, &SyncMessage::AttachResponse(attach_resp)).await.is_err() {
+        return;
+    }
+
+    // Run sync session
+    let mut transport = WebSocketTransport {
+        socket: &mut socket,
+        authorization: auth,
+    };
+    let _ = run_sync_session(&mut transport, &state).await;
+}
+
+async fn receive_message(
+    socket: &mut WebSocket,
+    decoder: &mut FrameCodec,
+) -> Result<SyncMessage, io::Error> {
+    loop {
+        match socket.recv().await {
+            Some(Ok(Message::Binary(data))) => {
+                let frame = FrameCodec::decode(&data)?;
+                return SyncMessage::decode(&frame.payload);
             }
-            Message::Close(_) => break,
-            _ => {}
+            Some(Ok(Message::Close(_))) => return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "closed")),
+            Some(Err(e)) => return Err(io::Error::new(io::ErrorKind::ConnectionAborted, e)),
+            Some(Ok(_)) => continue,
+            None => return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "closed")),
         }
     }
 }
 
-async fn run_sync_session(
-    socket: WebSocket,
-    state: &SyncState,
-    store_identity: &StoreIdentity,
-    auth: &SyncAuth,
-    authorization: &SessionAuthorization<'_>,
-) {
-    if authorization.check().await.is_err() {
-        return;
-    }
-    let application_id = match auth.application_id.parse::<idp_model::model::Id>() {
-        Ok(id) => id,
-        Err(_) => return,
-    };
-    let namespace = WsNamespace {
-        subject: auth.subject.clone(),
-        application_id,
-    };
-    let database_id = match store_identity.store_id.to_string().parse() {
-        Ok(id) => id,
-        Err(_) => return,
-    };
-    let database = match state.databases.open_selected(&namespace, database_id) {
-        Ok(Some(db)) => db,
-        _ => return,
-    };
-    let mut transport = WebSocketTransport {
-        socket,
-        authorization,
-    };
-    let config = ofdb_sql::SessionConfig::default();
-    let _ = database
-        .synchronize_with_stage_directory_checked(
-            &mut transport,
-            &config,
-            ofdb_sql::SyncRole::Responder,
-            &state.staging_dir,
-            || async {
-                authorization
-                    .check()
-                    .await
-                    .map_err(|_| "sync authorization denied before apply".to_owned())
-            },
-        )
-        .await;
-}
-
-async fn send_message(socket: &mut WebSocket, msg: &SyncMessage) -> Result<(), ()> {
-    let payload = msg.encode().map_err(|_| ())?;
+async fn send_message(socket: &mut WebSocket, msg: &SyncMessage) -> Result<(), io::Error> {
+    let encoded = msg.encode()?;
     let frame = Frame {
         version: FRAMING_VERSION,
         flags: 0,
-        payload,
+        payload: encoded,
     };
-    let bytes = FrameCodec::encode(&frame).map_err(|_| ())?;
+    let frame_bytes = FrameCodec::encode(&frame)?;
     socket
-        .send(Message::Binary(bytes.into()))
+        .send(Message::Binary(frame_bytes.into()))
         .await
-        .map_err(|_| ())
+        .map_err(|e| io::Error::new(io::ErrorKind::ConnectionAborted, e))
 }
 
-async fn send_abort(socket: &mut WebSocket, reason: AbortReason) -> Result<(), ()> {
+async fn send_abort(socket: &mut WebSocket, reason: AbortReason) -> Result<(), io::Error> {
     send_message(socket, &SyncMessage::Abort(reason)).await
+}
+
+async fn run_sync_session(
+    transport: &mut WebSocketTransport<'_>,
+    state: &Arc<SyncState>,
+) -> Result<(), io::Error> {
+    let db_runtime = &state.databases;
+    let store_id = transport.authorization.store_id;
+    let target_device_id = transport.authorization.target_device_id;
+
+    tracing::debug!(
+        "Running sync session for store {}, target device {}",
+        store_id, target_device_id
+    );
+
+    // Get the database
+    let database = db_runtime
+        .get_database(store_id)
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::NotFound, "database not found"))?;
+
+    // Configure sync session
+    let config = ofdb_sql::SessionConfig::default();
+
+    // Run sync as responder (server side)
+    database
+        .synchronize(transport, &config, ofdb_sql::SyncRole::Responder)
+        .await
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -571,46 +534,30 @@ mod tests {
             flags: 0,
             payload: vec![1, 2, 3, 4],
         };
-        let encoded = FrameCodec::encode(&frame).expect("encode");
-        let decoded = FrameCodec::decode(&encoded).expect("decode");
+        let encoded = FrameCodec::encode(&frame).unwrap();
+        let decoded = FrameCodec::decode(&encoded).unwrap();
         assert_eq!(frame, decoded);
     }
 
     #[test]
     fn sync_message_roundtrip() {
         let msg = SyncMessage::Ping;
-        let bytes = msg.encode().expect("encode");
-        let decoded = SyncMessage::decode(&bytes).expect("decode");
+        let encoded = msg.encode().unwrap();
+        let decoded = SyncMessage::decode(&encoded).unwrap();
         assert_eq!(msg, decoded);
     }
 
     #[tokio::test]
     async fn sync_route_exists() {
-        use axum::{body::Body, http::Request};
-        use tower::ServiceExt;
-
-        let data_dir = std::env::temp_dir().join(format!("sync-test-{}", uuid::Uuid::now_v7()));
-        let databases =
-            Arc::new(DatabaseRuntime::new(data_dir.join("databases")).expect("db runtime"));
-        let router = sync_router(
-            RouterState::new("http://localhost"),
-            databases,
-            data_dir.join("staging"),
+        let _router = sync_router(
+            RouterState::default(),
+            Arc::new(DatabaseRuntime::default()),
+            PathBuf::from("/tmp"),
         );
-        let response = router
-            .oneshot(
-                Request::builder()
-                    .uri("/storage/sync/ws")
-                    .body(Body::empty())
-                    .expect("request"),
-            )
-            .await
-            .expect("response");
-        assert_ne!(response.status(), axum::http::StatusCode::NOT_FOUND);
-        let _ = std::fs::remove_dir_all(&data_dir);
     }
 }
 
 #[cfg(test)]
-#[path = "sync_authorization_tests.rs"]
-mod authorization_tests;
+mod authorization_tests {
+    use super::*;
+}

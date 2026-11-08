@@ -38,4 +38,6 @@ export * from "./SqlValueOneOf3.js";
 export * from "./SqlValueOneOf4.js";
 export * from "./SqlValueOneOf5.js";
 export * from "./SqlValueOneOf6.js";
+export * from "./SyncConnectRequest.js";
+export * from "./SyncSessionResponse.js";
 export * from "./VersionResponse.js";

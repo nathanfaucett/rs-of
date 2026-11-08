@@ -1,0 +1,27 @@
+{
+  "name": "@ofsdk/fs",
+  "type": "module",
+  "description": "offs file-system WASM for browser apps",
+  "version": "0.1.0",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aicacia/rs-offs"
+  },
+  "files": [
+    "file_system_wasm_bg.wasm",
+    "file_system_wasm.js",
+    "file_system_wasm.d.ts"
+  ],
+  "main": "file_system_wasm.js",
+  "types": "file_system_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ],
+  "keywords": [
+    "offs",
+    "filesystem",
+    "wasm",
+    "sync"
+  ]
+}

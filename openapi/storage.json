@@ -87,7 +87,7 @@
         "additionalProperties": false,
         "properties": {
           "creationKey": {
-            "description": "Case-sensitive application-chosen identity; 1–128 UTF-8 bytes.",
+            "description": "Case-sensitive application-chosen identity; 1\u2013128 UTF-8 bytes.",
             "maxLength": 128,
             "minLength": 1,
             "type": "string"
@@ -762,6 +762,73 @@
           "name",
           "version",
           "build"
+        ],
+        "type": "object"
+      },
+      "SyncConnectRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "resourceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "targetDevice": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "resourceId",
+          "targetDevice"
+        ],
+        "type": "object"
+      },
+      "SyncSessionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "resourceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceDevice": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "targetDevice": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "connecting",
+              "syncing",
+              "completed",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "bytesSent": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "bytesReceived": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "sessionId",
+          "resourceId",
+          "sourceDevice",
+          "targetDevice",
+          "status",
+          "bytesSent",
+          "bytesReceived"
         ],
         "type": "object"
       }
@@ -2021,6 +2088,53 @@
             "description": "Version"
           }
         }
+      }
+    },
+    "/sync/connect": {
+      "post": {
+        "operationId": "sync_connect",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncConnectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncSessionResponse"
+                }
+              }
+            },
+            "description": "Sync session started"
+          },
+          "401": {
+            "description": "Invalid authorization"
+          },
+          "403": {
+            "description": "Token does not permit sync"
+          },
+          "404": {
+            "description": "Resource or target device not found"
+          },
+          "503": {
+            "description": "Service unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": [
+          "sync"
+        ]
       }
     }
   },

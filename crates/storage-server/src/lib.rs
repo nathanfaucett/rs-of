@@ -26,8 +26,10 @@ mod execution_test_support;
 #[cfg(feature = "network")]
 mod filesystem_transport;
 mod idp_client;
+mod management_client;
 #[cfg(feature = "network")]
 mod local_replication_authorizer;
+#[cfg(feature = "network")]
 mod provisioning;
 #[cfg(feature = "network")]
 mod replication_admission;
@@ -52,6 +54,7 @@ pub use data_protocol::DataProtocolHandler;
 pub use db::DatabaseTransport;
 pub use device_client::DeviceClient;
 pub use idp_client::{IdpClient, IdpIntrospectionError};
+pub use management_client::ManagementClient;
 #[cfg(feature = "network")]
 pub use local_replication_authorizer::{DeviceReplicationPolicy, LocalReplicationAuthorizer};
 #[cfg(feature = "network")]

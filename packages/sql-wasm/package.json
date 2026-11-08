@@ -1,0 +1,28 @@
+{
+  "name": "@ofsdk/sql",
+  "type": "module",
+  "description": "ofdb-sql WASM with sync support for browser apps",
+  "version": "0.1.0",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aicacia/rs-ofdb"
+  },
+  "files": [
+    "ofdb_wasm_bg.wasm",
+    "ofdb_wasm.js",
+    "ofdb_wasm.d.ts"
+  ],
+  "main": "ofdb_wasm.js",
+  "types": "ofdb_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ],
+  "keywords": [
+    "ofdb",
+    "sql",
+    "wasm",
+    "sync",
+    "indexeddb"
+  ]
+}

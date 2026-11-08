@@ -58,6 +58,7 @@ members = [
     "crates/storage-service",
     "crates/storage-sync-client",
     "crates/storage-sync-test-harness",
+    "crates/storage-sdk",
     "crates/unified-server",
     "crates/tauri-plugin-fetch-api",
     "apps/app/src-tauri",

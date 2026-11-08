@@ -8,11 +8,12 @@ use idp_model::{
     replica::{SecurityRow, SecurityTable, allows_authorization},
 };
 
-use crate::{ManagementError, ManagementResult, PermissionRepo};
+use crate::{ManagementError, ManagementResult, PermissionRepo, SyncSelection};
 
 const PERMISSIONS: &str = "permissions";
 const ROLES: &str = "roles";
 const ROLE_PERMISSIONS: &str = "role_permissions";
+const SYNC_SELECTIONS: &str = "sync_selections";
 const PERMISSION_COLUMNS: [&str; 7] = [
     "id",
     "application_id",
@@ -24,6 +25,15 @@ const PERMISSION_COLUMNS: [&str; 7] = [
 ];
 const ROLE_COLUMNS: [&str; 3] = ["id", "application_id", "revoked_at"];
 const ROLE_PERMISSION_COLUMNS: [&str; 4] = ["id", "role_id", "permission_id", "revoked_at"];
+const SYNC_SELECTION_COLUMNS: [&str; 7] = [
+    "id",
+    "device_id",
+    "resource_id",
+    "application_id",
+    "owner_subject",
+    "selected_at",
+    "revoked_at",
+];
 
 pub struct DbPermissionRepo {
     engine: db::Client,
@@ -314,6 +324,108 @@ impl PermissionRepo for DbPermissionRepo {
         result.sort_by(|left, right| left.name.cmp(&right.name));
         Ok(result)
     }
+
+    fn select_resource(
+        &self,
+        device_id: Id,
+        resource_id: Id,
+        application_id: Id,
+        owner_subject: &str,
+    ) -> impl Future<Output = ManagementResult<()>> {
+        let now = now().timestamp();
+        let id = Id::now_v7();
+        let query = format!(
+            "INSERT INTO {SYNC_SELECTIONS} (id, device_id, resource_id, application_id, owner_subject, selected_at, revoked_at) VALUES ('{id}', '{device_id}', '{resource_id}', '{application_id}', '{owner_subject}', {now}, NULL) ON CONFLICT (device_id, resource_id) DO UPDATE SET revoked_at = NULL, selected_at = {now}, application_id = '{application_id}', owner_subject = '{owner_subject}'"
+        );
+        async move {
+            self.engine
+                .execute(vec![Statement::Update(query)])
+                .await
+                .map_err(db_error)?;
+            Ok(())
+        }
+    }
+
+    fn deselect_resource(
+        &self,
+        device_id: Id,
+        resource_id: Id,
+    ) -> impl Future<Output = ManagementResult<()>> {
+        let now = now().timestamp();
+        let query = format!(
+            "UPDATE {SYNC_SELECTIONS} SET revoked_at = {now} WHERE device_id = '{device_id}' AND resource_id = '{resource_id}' AND revoked_at IS NULL"
+        );
+        async move {
+            self.engine
+                .execute(vec![Statement::Update(query)])
+                .await
+                .map_err(db_error)?;
+            Ok(())
+        }
+    }
+
+    fn list_device_selections(
+        &self,
+        device_id: Id,
+    ) -> impl Future<Output = ManagementResult<Vec<SyncSelection>>> {
+        let query = format!(
+            "SELECT {} FROM {SYNC_SELECTIONS} WHERE device_id = '{device_id}' AND revoked_at IS NULL",
+            SYNC_SELECTION_COLUMNS.join(", ")
+        );
+        async move {
+            let rows = self.rows::<SyncSelectionRow>(Statement::Query(query)).await?;
+            Ok(rows.into_iter().map(|r| r.into()).collect())
+        }
+    }
+
+    fn list_resource_sync_targets(
+        &self,
+        resource_id: Id,
+    ) -> impl Future<Output = ManagementResult<Vec<SyncSelection>>> {
+        let query = format!(
+            "SELECT {} FROM {SYNC_SELECTIONS} WHERE resource_id = '{resource_id}' AND revoked_at IS NULL",
+            SYNC_SELECTION_COLUMNS.join(", ")
+        );
+        async move {
+            let rows = self.rows::<SyncSelectionRow>(Statement::Query(query)).await?;
+            Ok(rows.into_iter().map(|r| r.into()).collect())
+        }
+    }
+
+    fn has_selection(
+        &self,
+        device_id: Id,
+        resource_id: Id,
+    ) -> impl Future<Output = ManagementResult<bool>> {
+        let query = format!(
+            "SELECT 1 FROM {SYNC_SELECTIONS} WHERE device_id = '{device_id}' AND resource_id = '{resource_id}' AND revoked_at IS NULL LIMIT 1"
+        );
+        async move {
+            let results = self
+                .engine
+                .execute(vec![Statement::Query(query)])
+                .await
+                .map_err(db_error)?;
+            Ok(!results[0].rows.is_empty())
+        }
+    }
+
+    fn clear_device_selections(
+        &self,
+        device_id: Id,
+    ) -> impl Future<Output = ManagementResult<()>> {
+        let now = now().timestamp();
+        let query = format!(
+            "UPDATE {SYNC_SELECTIONS} SET revoked_at = {now} WHERE device_id = '{device_id}' AND revoked_at IS NULL"
+        );
+        async move {
+            self.engine
+                .execute(vec![Statement::Update(query)])
+                .await
+                .map_err(db_error)?;
+            Ok(())
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -432,6 +544,43 @@ impl From<RolePermissionRow> for Row {
             Value::Integer(row.created_at),
             Value::Integer(row.updated_at),
         ])
+    }
+}
+
+#[derive(Clone, Debug)]
+struct SyncSelectionRow {
+    id: Id,
+    device_id: Id,
+    resource_id: Id,
+    application_id: Id,
+    owner_subject: String,
+    selected_at: i64,
+    revoked_at: Option<i64>,
+}
+
+impl FromRow for SyncSelectionRow {
+    fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
+        Ok(Self {
+            id: db::decode(db::value(row, columns, "id")?, "id")?,
+            device_id: db::decode(db::value(row, columns, "device_id")?, "device_id")?,
+            resource_id: db::decode(db::value(row, columns, "resource_id")?, "resource_id")?,
+            application_id: db::decode(db::value(row, columns, "application_id")?, "application_id")?,
+            owner_subject: db::decode(db::value(row, columns, "owner_subject")?, "owner_subject")?,
+            selected_at: db::decode(db::value(row, columns, "selected_at")?, "selected_at")?,
+            revoked_at: db::decode(db::value(row, columns, "revoked_at")?, "revoked_at")?,
+        })
+    }
+}
+
+impl From<SyncSelectionRow> for SyncSelection {
+    fn from(row: SyncSelectionRow) -> Self {
+        SyncSelection {
+            device_id: row.device_id,
+            resource_id: row.resource_id,
+            application_id: row.application_id,
+            owner_subject: row.owner_subject,
+            selected_at: row.selected_at,
+        }
     }
 }
 

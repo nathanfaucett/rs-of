@@ -19,60 +19,57 @@ import { mapValues } from "../runtime.js";
  * @interface SqlValueOneOf
  */
 export interface SqlValueOneOf {
-    /**
-     *
-     */
-    type: SqlValueOneOfTypeEnum;
+  /**
+   *
+   */
+  type: SqlValueOneOfTypeEnum;
 }
 
 /**
  * @export
  */
 export const SqlValueOneOfTypeEnum = {
-    Null: "null",
+  Null: "null",
 } as const;
 export type SqlValueOneOfTypeEnum =
-    (typeof SqlValueOneOfTypeEnum)[keyof typeof SqlValueOneOfTypeEnum];
+  (typeof SqlValueOneOfTypeEnum)[keyof typeof SqlValueOneOfTypeEnum];
 
 /**
  * Check if a given object implements the SqlValueOneOf interface.
  */
 export function instanceOfSqlValueOneOf(value: object): value is SqlValueOneOf {
-    if (!("type" in value) || value["type"] === undefined) return false;
-    if (value["type"] !== "null") return false;
+  if (!("type" in value) || value["type"] === undefined) return false;
+  if (value["type"] !== "null") return false;
 
-    return true;
+  return true;
 }
 
 export function SqlValueOneOfFromJSON(json: any): SqlValueOneOf {
-    return SqlValueOneOfFromJSONTyped(json, false);
+  return SqlValueOneOfFromJSONTyped(json, false);
 }
 
-export function SqlValueOneOfFromJSONTyped(
-    json: any,
-    ignoreDiscriminator: boolean,
-): SqlValueOneOf {
-    if (json == null) {
-        return json;
-    }
-    return {
-        type: json["type"],
-    };
+export function SqlValueOneOfFromJSONTyped(json: any, ignoreDiscriminator: boolean): SqlValueOneOf {
+  if (json == null) {
+    return json;
+  }
+  return {
+    type: json["type"],
+  };
 }
 
 export function SqlValueOneOfToJSON(json: any): SqlValueOneOf {
-    return SqlValueOneOfToJSONTyped(json, false);
+  return SqlValueOneOfToJSONTyped(json, false);
 }
 
 export function SqlValueOneOfToJSONTyped(
-    value?: SqlValueOneOf | null,
-    ignoreDiscriminator: boolean = false,
+  value?: SqlValueOneOf | null,
+  ignoreDiscriminator: boolean = false
 ): any {
-    if (value == null) {
-        return value;
-    }
+  if (value == null) {
+    return value;
+  }
 
-    return {
-        type: value["type"],
-    };
+  return {
+    type: value["type"],
+  };
 }

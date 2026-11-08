@@ -19,51 +19,49 @@ import { mapValues } from "../runtime.js";
  * @interface DatabaseFailure
  */
 export interface DatabaseFailure {
-    /**
-     *
-     */
-    code: string;
+  /**
+   *
+   */
+  code: string;
 }
 
 /**
  * Check if a given object implements the DatabaseFailure interface.
  */
-export function instanceOfDatabaseFailure(
-    value: object,
-): value is DatabaseFailure {
-    if (!("code" in value) || value["code"] === undefined) return false;
-    return true;
+export function instanceOfDatabaseFailure(value: object): value is DatabaseFailure {
+  if (!("code" in value) || value["code"] === undefined) return false;
+  return true;
 }
 
 export function DatabaseFailureFromJSON(json: any): DatabaseFailure {
-    return DatabaseFailureFromJSONTyped(json, false);
+  return DatabaseFailureFromJSONTyped(json, false);
 }
 
 export function DatabaseFailureFromJSONTyped(
-    json: any,
-    ignoreDiscriminator: boolean,
+  json: any,
+  ignoreDiscriminator: boolean
 ): DatabaseFailure {
-    if (json == null) {
-        return json;
-    }
-    return {
-        code: json["code"],
-    };
+  if (json == null) {
+    return json;
+  }
+  return {
+    code: json["code"],
+  };
 }
 
 export function DatabaseFailureToJSON(json: any): DatabaseFailure {
-    return DatabaseFailureToJSONTyped(json, false);
+  return DatabaseFailureToJSONTyped(json, false);
 }
 
 export function DatabaseFailureToJSONTyped(
-    value?: DatabaseFailure | null,
-    ignoreDiscriminator: boolean = false,
+  value?: DatabaseFailure | null,
+  ignoreDiscriminator: boolean = false
 ): any {
-    if (value == null) {
-        return value;
-    }
+  if (value == null) {
+    return value;
+  }
 
-    return {
-        code: value["code"],
-    };
+  return {
+    code: value["code"],
+  };
 }

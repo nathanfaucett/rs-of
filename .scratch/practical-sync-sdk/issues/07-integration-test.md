@@ -1,6 +1,6 @@
 # 07 - Integration test: browser ↔ native sync via Management
 
-**Status: needs-triage**
+**Status: pending**
 
 ## Problem
 
@@ -49,15 +49,19 @@ Build minimal test app (or extend password-manager) that:
 
 ## Acceptance Criteria
 
-1. Browser creates DB, inserts data
-2. Native opens same DB (by ID)
-3. Management selection on both devices
-4. Data replicates bidirectionally
-5. Reconnect after disconnect works
-6. Runs in CI
+1. ⏳ Browser creates DB, inserts data
+2. ⏳ Native opens same DB (by ID)
+3. ⏳ Management selection on both devices
+4. ⏳ Data replicates bidirectionally
+5. ⏳ Reconnect after disconnect works
+6. ⏳ Runs in CI
 
 ## Dependencies
 
-- Tickets 01-06 (all pieces implemented)
+- ⏳ Tickets 01-06 (all pieces implemented)
 
 ## Comments
+
+- This is the final validation that the practical sync SDK works end-to-end
+- Test should run in CI with all services containerized
+- Can reuse password-manager as test app if it has the right features

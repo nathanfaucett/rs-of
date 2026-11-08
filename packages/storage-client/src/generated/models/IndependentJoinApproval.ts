@@ -15,10 +15,10 @@
 import { mapValues } from "../runtime.js";
 import type { IndependentJoinRequest } from "./IndependentJoinRequest.js";
 import {
-    IndependentJoinRequestFromJSON,
-    IndependentJoinRequestFromJSONTyped,
-    IndependentJoinRequestToJSON,
-    IndependentJoinRequestToJSONTyped,
+  IndependentJoinRequestFromJSON,
+  IndependentJoinRequestFromJSONTyped,
+  IndependentJoinRequestToJSON,
+  IndependentJoinRequestToJSONTyped,
 } from "./IndependentJoinRequest.js";
 
 /**
@@ -27,84 +27,75 @@ import {
  * @interface IndependentJoinApproval
  */
 export interface IndependentJoinApproval {
-    /**
-     *
-     */
-    ownerSubject: string;
-    /**
-     *
-     */
-    request: IndependentJoinRequest;
-    /**
-     *
-     */
-    signature: string;
+  /**
+   *
+   */
+  ownerSubject: string;
+  /**
+   *
+   */
+  request: IndependentJoinRequest;
+  /**
+   *
+   */
+  signature: string;
 }
 
 /**
  * Check if a given object implements the IndependentJoinApproval interface.
  */
-export function instanceOfIndependentJoinApproval(
-    value: object,
-): value is IndependentJoinApproval {
-    if (
-        (!("ownerSubject" in (value as Record<string, any>)) &&
-            !("owner_subject" in (value as Record<string, any>))) ||
-        ((value as Record<string, any>)["ownerSubject"] === undefined &&
-            (value as Record<string, any>)["owner_subject"] === undefined)
-    )
-        return false;
-    if (!("request" in value) || value["request"] === undefined) return false;
-    if (!("signature" in value) || value["signature"] === undefined)
-        return false;
-    return true;
+export function instanceOfIndependentJoinApproval(value: object): value is IndependentJoinApproval {
+  if (
+    (!("ownerSubject" in (value as Record<string, any>)) &&
+      !("owner_subject" in (value as Record<string, any>))) ||
+    ((value as Record<string, any>)["ownerSubject"] === undefined &&
+      (value as Record<string, any>)["owner_subject"] === undefined)
+  )
+    return false;
+  if (!("request" in value) || value["request"] === undefined) return false;
+  if (!("signature" in value) || value["signature"] === undefined) return false;
+  return true;
 }
 
-export function IndependentJoinApprovalFromJSON(
-    json: any,
-): IndependentJoinApproval {
-    return IndependentJoinApprovalFromJSONTyped(json, false);
+export function IndependentJoinApprovalFromJSON(json: any): IndependentJoinApproval {
+  return IndependentJoinApprovalFromJSONTyped(json, false);
 }
 
 export function IndependentJoinApprovalFromJSONTyped(
-    json: any,
-    ignoreDiscriminator: boolean,
+  json: any,
+  ignoreDiscriminator: boolean
 ): IndependentJoinApproval {
-    if (
-        json &&
-        typeof json === "object" &&
-        Object.keys(json).some(
-            (key) => !["owner_subject", "request", "signature"].includes(key),
-        )
-    )
-        throw new Error("Unexpected IndependentJoinApproval field");
-    if (json == null) {
-        return json;
-    }
-    return {
-        ownerSubject: json["owner_subject"],
-        request: IndependentJoinRequestFromJSON(json["request"]),
-        signature: json["signature"],
-    };
+  if (
+    json &&
+    typeof json === "object" &&
+    Object.keys(json).some((key) => !["owner_subject", "request", "signature"].includes(key))
+  )
+    throw new Error("Unexpected IndependentJoinApproval field");
+  if (json == null) {
+    return json;
+  }
+  return {
+    ownerSubject: json["owner_subject"],
+    request: IndependentJoinRequestFromJSON(json["request"]),
+    signature: json["signature"],
+  };
 }
 
-export function IndependentJoinApprovalToJSON(
-    json: any,
-): IndependentJoinApproval {
-    return IndependentJoinApprovalToJSONTyped(json, false);
+export function IndependentJoinApprovalToJSON(json: any): IndependentJoinApproval {
+  return IndependentJoinApprovalToJSONTyped(json, false);
 }
 
 export function IndependentJoinApprovalToJSONTyped(
-    value?: IndependentJoinApproval | null,
-    ignoreDiscriminator: boolean = false,
+  value?: IndependentJoinApproval | null,
+  ignoreDiscriminator: boolean = false
 ): any {
-    if (value == null) {
-        return value;
-    }
+  if (value == null) {
+    return value;
+  }
 
-    return {
-        owner_subject: value["ownerSubject"],
-        request: IndependentJoinRequestToJSON(value["request"]),
-        signature: value["signature"],
-    };
+  return {
+    owner_subject: value["ownerSubject"],
+    request: IndependentJoinRequestToJSON(value["request"]),
+    signature: value["signature"],
+  };
 }

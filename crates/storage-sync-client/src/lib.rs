@@ -12,13 +12,14 @@ pub mod client;
 pub mod protocol;
 pub mod transport;
 
-// SyncError and SyncDirection are available regardless of feature
-pub use client::{SyncDirection, SyncError};
+// SyncError is available regardless of feature
+pub use client::{SyncError, WsTransportBridge, WsTransportBridgeShared};
 
 #[cfg(feature = "native")]
 pub use client::{SyncClient, TokenProvider};
 
 #[cfg(feature = "browser")]
-pub use browser::browser_client::{BrowserSyncClient, BrowserTokenProvider};
+pub use browser::browser_client::{BrowserSyncClient, BrowserTokenProvider as TokenProvider};
 
 pub use protocol::*;
+pub use transport::*;

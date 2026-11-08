@@ -14,27 +14,27 @@
 
 import * as runtime from "../runtime.js";
 import {
-    type ResourceResidency,
-    ResourceResidencyFromJSON,
-    ResourceResidencyToJSON,
+  type ResourceResidency,
+  ResourceResidencyFromJSON,
+  ResourceResidencyToJSON,
 } from "../models/ResourceResidency.js";
 
 export interface GetFileSystemResidencyRequest {
-    /**
-     * Filesystem resource ID
-     */
-    filesystemId: string;
+  /**
+   * Filesystem resource ID
+   */
+  filesystemId: string;
 }
 
 export interface PutFileSystemResidencyRequest {
-    /**
-     * Filesystem resource ID
-     */
-    filesystemId: string;
-    /**
-     *
-     */
-    resourceResidency: ResourceResidency;
+  /**
+   * Filesystem resource ID
+   */
+  filesystemId: string;
+  /**
+   *
+   */
+  resourceResidency: ResourceResidency;
 }
 
 /**
@@ -44,213 +44,206 @@ export interface PutFileSystemResidencyRequest {
  * @interface ResourcesResidencyApiInterface
  */
 export interface ResourcesResidencyApiInterface {
-    /**
-     * Creates request options for getFileSystemResidency without sending the request
-     * @param {string} filesystemId Filesystem resource ID
-     * @throws {RequiredError}
-     * @memberof ResourcesResidencyApiInterface
-     */
-    getFileSystemResidencyRequestOpts(
-        requestParameters: GetFileSystemResidencyRequest,
-    ): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for getFileSystemResidency without sending the request
+   * @param {string} filesystemId Filesystem resource ID
+   * @throws {RequiredError}
+   * @memberof ResourcesResidencyApiInterface
+   */
+  getFileSystemResidencyRequestOpts(
+    requestParameters: GetFileSystemResidencyRequest
+  ): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {string} filesystemId Filesystem resource ID
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof ResourcesResidencyApiInterface
-     */
-    getFileSystemResidencyRaw(
-        requestParameters: GetFileSystemResidencyRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<ResourceResidency>>;
+  /**
+   *
+   * @param {string} filesystemId Filesystem resource ID
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof ResourcesResidencyApiInterface
+   */
+  getFileSystemResidencyRaw(
+    requestParameters: GetFileSystemResidencyRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<ResourceResidency>>;
 
-    /**
-     */
-    getFileSystemResidency(
-        requestParameters: GetFileSystemResidencyRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<ResourceResidency>;
+  /**
+   */
+  getFileSystemResidency(
+    requestParameters: GetFileSystemResidencyRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<ResourceResidency>;
 
-    /**
-     * Creates request options for putFileSystemResidency without sending the request
-     * @param {string} filesystemId Filesystem resource ID
-     * @param {ResourceResidency} resourceResidency
-     * @throws {RequiredError}
-     * @memberof ResourcesResidencyApiInterface
-     */
-    putFileSystemResidencyRequestOpts(
-        requestParameters: PutFileSystemResidencyRequest,
-    ): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for putFileSystemResidency without sending the request
+   * @param {string} filesystemId Filesystem resource ID
+   * @param {ResourceResidency} resourceResidency
+   * @throws {RequiredError}
+   * @memberof ResourcesResidencyApiInterface
+   */
+  putFileSystemResidencyRequestOpts(
+    requestParameters: PutFileSystemResidencyRequest
+  ): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {string} filesystemId Filesystem resource ID
-     * @param {ResourceResidency} resourceResidency
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof ResourcesResidencyApiInterface
-     */
-    putFileSystemResidencyRaw(
-        requestParameters: PutFileSystemResidencyRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<void>>;
+  /**
+   *
+   * @param {string} filesystemId Filesystem resource ID
+   * @param {ResourceResidency} resourceResidency
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof ResourcesResidencyApiInterface
+   */
+  putFileSystemResidencyRaw(
+    requestParameters: PutFileSystemResidencyRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>>;
 
-    /**
-     */
-    putFileSystemResidency(
-        requestParameters: PutFileSystemResidencyRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<void>;
+  /**
+   */
+  putFileSystemResidency(
+    requestParameters: PutFileSystemResidencyRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<void>;
 }
 
 /**
  *
  */
 export class ResourcesResidencyApi
-    extends runtime.BaseAPI
-    implements ResourcesResidencyApiInterface
+  extends runtime.BaseAPI
+  implements ResourcesResidencyApiInterface
 {
-    /**
-     * Creates request options for getFileSystemResidency without sending the request
-     */
-    async getFileSystemResidencyRequestOpts(
-        requestParameters: GetFileSystemResidencyRequest,
-    ): Promise<runtime.RequestOpts> {
-        if (requestParameters["filesystemId"] == null) {
-            throw new runtime.RequiredError(
-                "filesystemId",
-                'Required parameter "filesystemId" was null or undefined when calling getFileSystemResidency().',
-            );
-        }
-
-        const queryParameters: any = {};
-
-        const headerParameters: runtime.HTTPHeaders = {};
-
-        if (this.configuration && this.configuration.accessToken) {
-            const token = this.configuration.accessToken;
-            const tokenString = await token("authorization", []);
-
-            if (tokenString) {
-                headerParameters["Authorization"] = `Bearer ${tokenString}`;
-            }
-        }
-
-        let urlPath = `/filesystems/{filesystem_id}/residency`;
-        urlPath = urlPath.replace(
-            "{filesystem_id}",
-            encodeURIComponent(String(requestParameters["filesystemId"])),
-        );
-
-        return {
-            path: urlPath,
-            method: "GET",
-            headers: headerParameters,
-            query: queryParameters,
-        };
+  /**
+   * Creates request options for getFileSystemResidency without sending the request
+   */
+  async getFileSystemResidencyRequestOpts(
+    requestParameters: GetFileSystemResidencyRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["filesystemId"] == null) {
+      throw new runtime.RequiredError(
+        "filesystemId",
+        'Required parameter "filesystemId" was null or undefined when calling getFileSystemResidency().'
+      );
     }
 
-    /**
-     */
-    async getFileSystemResidencyRaw(
-        requestParameters: GetFileSystemResidencyRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<ResourceResidency>> {
-        const requestOptions =
-            await this.getFileSystemResidencyRequestOpts(requestParameters);
-        const response = await this.request(requestOptions, initOverrides);
+    const queryParameters: any = {};
 
-        return new runtime.JSONApiResponse(response, (jsonValue) =>
-            ResourceResidencyFromJSON(jsonValue),
-        );
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
     }
 
-    /**
-     */
-    async getFileSystemResidency(
-        requestParameters: GetFileSystemResidencyRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<ResourceResidency> {
-        const response = await this.getFileSystemResidencyRaw(
-            requestParameters,
-            initOverrides,
-        );
-        return await response.value();
+    let urlPath = `/filesystems/{filesystem_id}/residency`;
+    urlPath = urlPath.replace(
+      "{filesystem_id}",
+      encodeURIComponent(String(requestParameters["filesystemId"]))
+    );
+
+    return {
+      path: urlPath,
+      method: "GET",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
+
+  /**
+   */
+  async getFileSystemResidencyRaw(
+    requestParameters: GetFileSystemResidencyRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<ResourceResidency>> {
+    const requestOptions = await this.getFileSystemResidencyRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      ResourceResidencyFromJSON(jsonValue)
+    );
+  }
+
+  /**
+   */
+  async getFileSystemResidency(
+    requestParameters: GetFileSystemResidencyRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<ResourceResidency> {
+    const response = await this.getFileSystemResidencyRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
+
+  /**
+   * Creates request options for putFileSystemResidency without sending the request
+   */
+  async putFileSystemResidencyRequestOpts(
+    requestParameters: PutFileSystemResidencyRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["filesystemId"] == null) {
+      throw new runtime.RequiredError(
+        "filesystemId",
+        'Required parameter "filesystemId" was null or undefined when calling putFileSystemResidency().'
+      );
     }
 
-    /**
-     * Creates request options for putFileSystemResidency without sending the request
-     */
-    async putFileSystemResidencyRequestOpts(
-        requestParameters: PutFileSystemResidencyRequest,
-    ): Promise<runtime.RequestOpts> {
-        if (requestParameters["filesystemId"] == null) {
-            throw new runtime.RequiredError(
-                "filesystemId",
-                'Required parameter "filesystemId" was null or undefined when calling putFileSystemResidency().',
-            );
-        }
-
-        if (requestParameters["resourceResidency"] == null) {
-            throw new runtime.RequiredError(
-                "resourceResidency",
-                'Required parameter "resourceResidency" was null or undefined when calling putFileSystemResidency().',
-            );
-        }
-
-        const queryParameters: any = {};
-
-        const headerParameters: runtime.HTTPHeaders = {};
-
-        headerParameters["Content-Type"] = "application/json";
-
-        if (this.configuration && this.configuration.accessToken) {
-            const token = this.configuration.accessToken;
-            const tokenString = await token("authorization", []);
-
-            if (tokenString) {
-                headerParameters["Authorization"] = `Bearer ${tokenString}`;
-            }
-        }
-
-        let urlPath = `/filesystems/{filesystem_id}/residency`;
-        urlPath = urlPath.replace(
-            "{filesystem_id}",
-            encodeURIComponent(String(requestParameters["filesystemId"])),
-        );
-
-        return {
-            path: urlPath,
-            method: "PUT",
-            headers: headerParameters,
-            query: queryParameters,
-            body: ResourceResidencyToJSON(
-                requestParameters["resourceResidency"],
-            ),
-        };
+    if (requestParameters["resourceResidency"] == null) {
+      throw new runtime.RequiredError(
+        "resourceResidency",
+        'Required parameter "resourceResidency" was null or undefined when calling putFileSystemResidency().'
+      );
     }
 
-    /**
-     */
-    async putFileSystemResidencyRaw(
-        requestParameters: PutFileSystemResidencyRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<void>> {
-        const requestOptions =
-            await this.putFileSystemResidencyRequestOpts(requestParameters);
-        const response = await this.request(requestOptions, initOverrides);
+    const queryParameters: any = {};
 
-        return new runtime.VoidApiResponse(response);
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    headerParameters["Content-Type"] = "application/json";
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
     }
 
-    /**
-     */
-    async putFileSystemResidency(
-        requestParameters: PutFileSystemResidencyRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<void> {
-        await this.putFileSystemResidencyRaw(requestParameters, initOverrides);
-    }
+    let urlPath = `/filesystems/{filesystem_id}/residency`;
+    urlPath = urlPath.replace(
+      "{filesystem_id}",
+      encodeURIComponent(String(requestParameters["filesystemId"]))
+    );
+
+    return {
+      path: urlPath,
+      method: "PUT",
+      headers: headerParameters,
+      query: queryParameters,
+      body: ResourceResidencyToJSON(requestParameters["resourceResidency"]),
+    };
+  }
+
+  /**
+   */
+  async putFileSystemResidencyRaw(
+    requestParameters: PutFileSystemResidencyRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>> {
+    const requestOptions = await this.putFileSystemResidencyRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.VoidApiResponse(response);
+  }
+
+  /**
+   */
+  async putFileSystemResidency(
+    requestParameters: PutFileSystemResidencyRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<void> {
+    await this.putFileSystemResidencyRaw(requestParameters, initOverrides);
+  }
 }

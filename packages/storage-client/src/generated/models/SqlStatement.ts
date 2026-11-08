@@ -15,10 +15,10 @@
 import { mapValues } from "../runtime.js";
 import type { SqlValue } from "./SqlValue.js";
 import {
-    SqlValueFromJSON,
-    SqlValueFromJSONTyped,
-    SqlValueToJSON,
-    SqlValueToJSONTyped,
+  SqlValueFromJSON,
+  SqlValueFromJSONTyped,
+  SqlValueToJSON,
+  SqlValueToJSONTyped,
 } from "./SqlValue.js";
 
 /**
@@ -27,67 +27,60 @@ import {
  * @interface SqlStatement
  */
 export interface SqlStatement {
-    /**
-     *
-     */
-    params?: Array<SqlValue>;
-    /**
-     * SQL text, at most 16 KiB UTF-8; positional parameters only.
-     */
-    sql: string;
+  /**
+   *
+   */
+  params?: Array<SqlValue>;
+  /**
+   * SQL text, at most 16 KiB UTF-8; positional parameters only.
+   */
+  sql: string;
 }
 
 /**
  * Check if a given object implements the SqlStatement interface.
  */
 export function instanceOfSqlStatement(value: object): value is SqlStatement {
-    if (!("sql" in value) || value["sql"] === undefined) return false;
-    return true;
+  if (!("sql" in value) || value["sql"] === undefined) return false;
+  return true;
 }
 
 export function SqlStatementFromJSON(json: any): SqlStatement {
-    return SqlStatementFromJSONTyped(json, false);
+  return SqlStatementFromJSONTyped(json, false);
 }
 
-export function SqlStatementFromJSONTyped(
-    json: any,
-    ignoreDiscriminator: boolean,
-): SqlStatement {
-    if (
-        json &&
-        typeof json === "object" &&
-        Object.keys(json).some((key) => !["params", "sql"].includes(key))
-    )
-        throw new Error("Unexpected SqlStatement field");
-    if (json == null) {
-        return json;
-    }
-    return {
-        params:
-            json["params"] == null
-                ? undefined
-                : (json["params"] as Array<any>).map(SqlValueFromJSON),
-        sql: json["sql"],
-    };
+export function SqlStatementFromJSONTyped(json: any, ignoreDiscriminator: boolean): SqlStatement {
+  if (
+    json &&
+    typeof json === "object" &&
+    Object.keys(json).some((key) => !["params", "sql"].includes(key))
+  )
+    throw new Error("Unexpected SqlStatement field");
+  if (json == null) {
+    return json;
+  }
+  return {
+    params:
+      json["params"] == null ? undefined : (json["params"] as Array<any>).map(SqlValueFromJSON),
+    sql: json["sql"],
+  };
 }
 
 export function SqlStatementToJSON(json: any): SqlStatement {
-    return SqlStatementToJSONTyped(json, false);
+  return SqlStatementToJSONTyped(json, false);
 }
 
 export function SqlStatementToJSONTyped(
-    value?: SqlStatement | null,
-    ignoreDiscriminator: boolean = false,
+  value?: SqlStatement | null,
+  ignoreDiscriminator: boolean = false
 ): any {
-    if (value == null) {
-        return value;
-    }
+  if (value == null) {
+    return value;
+  }
 
-    return {
-        params:
-            value["params"] == null
-                ? undefined
-                : (value["params"] as Array<any>).map(SqlValueToJSON),
-        sql: value["sql"],
-    };
+  return {
+    params:
+      value["params"] == null ? undefined : (value["params"] as Array<any>).map(SqlValueToJSON),
+    sql: value["sql"],
+  };
 }

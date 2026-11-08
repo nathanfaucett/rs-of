@@ -19,72 +19,70 @@ import { mapValues } from "../runtime.js";
  * @interface OwnerSetupStatus
  */
 export interface OwnerSetupStatus {
-    /**
-     *
-     */
-    owners: Array<string>;
-    /**
-     *
-     */
-    ready: boolean;
-    /**
-     *
-     */
-    stage: string;
-    /**
-     *
-     */
-    state: string;
+  /**
+   *
+   */
+  owners: Array<string>;
+  /**
+   *
+   */
+  ready: boolean;
+  /**
+   *
+   */
+  stage: string;
+  /**
+   *
+   */
+  state: string;
 }
 
 /**
  * Check if a given object implements the OwnerSetupStatus interface.
  */
-export function instanceOfOwnerSetupStatus(
-    value: object,
-): value is OwnerSetupStatus {
-    if (!("owners" in value) || value["owners"] === undefined) return false;
-    if (!("ready" in value) || value["ready"] === undefined) return false;
-    if (!("stage" in value) || value["stage"] === undefined) return false;
-    if (!("state" in value) || value["state"] === undefined) return false;
-    return true;
+export function instanceOfOwnerSetupStatus(value: object): value is OwnerSetupStatus {
+  if (!("owners" in value) || value["owners"] === undefined) return false;
+  if (!("ready" in value) || value["ready"] === undefined) return false;
+  if (!("stage" in value) || value["stage"] === undefined) return false;
+  if (!("state" in value) || value["state"] === undefined) return false;
+  return true;
 }
 
 export function OwnerSetupStatusFromJSON(json: any): OwnerSetupStatus {
-    return OwnerSetupStatusFromJSONTyped(json, false);
+  return OwnerSetupStatusFromJSONTyped(json, false);
 }
 
 export function OwnerSetupStatusFromJSONTyped(
-    json: any,
-    ignoreDiscriminator: boolean,
+  json: any,
+  ignoreDiscriminator: boolean
 ): OwnerSetupStatus {
-    if (json == null) {
-        return json;
-    }
-    return {
-        owners: json["owners"],
-        ready: json["ready"],
-        stage: json["stage"],
-        state: json["state"],
-    };
+  if (json == null) {
+    return json;
+  }
+  return {
+    owners: json["owners"],
+    ready: json["ready"],
+    stage: json["stage"],
+    state: json["state"],
+  };
 }
 
 export function OwnerSetupStatusToJSON(json: any): OwnerSetupStatus {
-    return OwnerSetupStatusToJSONTyped(json, false);
+  return OwnerSetupStatusToJSONTyped(json, false);
 }
 
 export function OwnerSetupStatusToJSONTyped(
-    value?: OwnerSetupStatus | null,
-    ignoreDiscriminator: boolean = false,
+  value?: OwnerSetupStatus | null,
+  ignoreDiscriminator: boolean = false
 ): any {
-    if (value == null) {
-        return value;
-    }
+  if (value == null) {
+    return value;
+  }
 
-    return {
-        owners: value["owners"],
-        ready: value["ready"],
-        stage: value["stage"],
-        state: value["state"],
-    };
+  return {
+    owners: value["owners"],
+    ready: value["ready"],
+    stage: value["stage"],
+    state: value["state"],
+  };
 }

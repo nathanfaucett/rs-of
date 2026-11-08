@@ -19,69 +19,67 @@ import { mapValues } from "../runtime.js";
  * @interface SqlValueOneOf1
  */
 export interface SqlValueOneOf1 {
-    /**
-     *
-     */
-    type: SqlValueOneOf1TypeEnum;
-    /**
-     *
-     */
-    value: boolean;
+  /**
+   *
+   */
+  type: SqlValueOneOf1TypeEnum;
+  /**
+   *
+   */
+  value: boolean;
 }
 
 /**
  * @export
  */
 export const SqlValueOneOf1TypeEnum = {
-    Boolean: "boolean",
+  Boolean: "boolean",
 } as const;
 export type SqlValueOneOf1TypeEnum =
-    (typeof SqlValueOneOf1TypeEnum)[keyof typeof SqlValueOneOf1TypeEnum];
+  (typeof SqlValueOneOf1TypeEnum)[keyof typeof SqlValueOneOf1TypeEnum];
 
 /**
  * Check if a given object implements the SqlValueOneOf1 interface.
  */
-export function instanceOfSqlValueOneOf1(
-    value: object,
-): value is SqlValueOneOf1 {
-    if (!("type" in value) || value["type"] === undefined) return false;
-    if (value["type"] !== "boolean") return false;
+export function instanceOfSqlValueOneOf1(value: object): value is SqlValueOneOf1 {
+  if (!("type" in value) || value["type"] === undefined) return false;
+  if (value["type"] !== "boolean") return false;
 
-    if (!("value" in value) || value["value"] === undefined) return false;
-    return true;
+  if (!("value" in value) || value["value"] === undefined) return false;
+  return true;
 }
 
 export function SqlValueOneOf1FromJSON(json: any): SqlValueOneOf1 {
-    return SqlValueOneOf1FromJSONTyped(json, false);
+  return SqlValueOneOf1FromJSONTyped(json, false);
 }
 
 export function SqlValueOneOf1FromJSONTyped(
-    json: any,
-    ignoreDiscriminator: boolean,
+  json: any,
+  ignoreDiscriminator: boolean
 ): SqlValueOneOf1 {
-    if (json == null) {
-        return json;
-    }
-    return {
-        type: json["type"],
-        value: json["value"],
-    };
+  if (json == null) {
+    return json;
+  }
+  return {
+    type: json["type"],
+    value: json["value"],
+  };
 }
 
 export function SqlValueOneOf1ToJSON(json: any): SqlValueOneOf1 {
-    return SqlValueOneOf1ToJSONTyped(json, false);
+  return SqlValueOneOf1ToJSONTyped(json, false);
 }
 
 export function SqlValueOneOf1ToJSONTyped(
-    value?: SqlValueOneOf1 | null,
-    ignoreDiscriminator: boolean = false,
+  value?: SqlValueOneOf1 | null,
+  ignoreDiscriminator: boolean = false
 ): any {
-    if (value == null) {
-        return value;
-    }
+  if (value == null) {
+    return value;
+  }
 
-    return {
-        type: value["type"],
-        value: value["value"],
-    };
+  return {
+    type: value["type"],
+    value: value["value"],
+  };
 }

@@ -20,6 +20,10 @@ pub struct AppConfig {
     pub device_oauth_client_secret: Option<String>,
     pub device_service_audience: Option<String>,
     pub device_endpoint_id: Option<String>,
+    pub management_api_base_uri: String,
+    pub management_oauth_client_id: Option<String>,
+    pub management_oauth_client_secret: Option<String>,
+    pub management_service_audience: Option<String>,
     pub env: Environment,
 }
 
@@ -39,6 +43,10 @@ impl Default for AppConfig {
             device_oauth_client_secret: None,
             device_service_audience: None,
             device_endpoint_id: None,
+            management_api_base_uri: String::new(),
+            management_oauth_client_id: None,
+            management_oauth_client_secret: None,
+            management_service_audience: None,
             log_level: "info".to_string(),
             env: Environment::default(),
         }

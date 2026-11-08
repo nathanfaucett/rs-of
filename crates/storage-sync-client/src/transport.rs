@@ -21,6 +21,8 @@ pub enum TransportError {
     TlsError(String),
     #[error("websocket error: {0}")]
     WebSocketError(String),
+    #[error("protocol error: {0}")]
+    Protocol(String),
 }
 
 /// Async transport trait for sync protocol.
@@ -48,7 +50,7 @@ pub mod native {
     use futures_util::{SinkExt, StreamExt};
     use tokio::net::TcpStream;
     use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
-    use tungstenite::protocol::Message;
+    use tokio_tungstenite::tungstenite::protocol::Message;
 
     /// Native WebSocket transport using tokio-tungstenite.
     pub struct WebSocketSyncTransport {
@@ -82,7 +84,7 @@ pub mod native {
         async fn receive(&mut self) -> Result<Vec<u8>, TransportError> {
             let ws = self.ws.as_mut().ok_or(TransportError::Closed)?;
             match ws.next().await {
-                Some(Ok(Message::Binary(data))) => Ok(data.as_slice().to_vec()),
+                Some(Ok(Message::Binary(data))) => Ok(data.to_vec()),
                 Some(Ok(Message::Close(_))) => {
                     self.connected = false;
                     Err(TransportError::Closed)
@@ -124,10 +126,12 @@ pub mod native {
 #[cfg(feature = "native")]
 pub use native::WebSocketSyncTransport;
 
-/// In-memory transport for testing.
+#[cfg(test)]
+///s*In-memory transport for testing.
 pub mod test {
     use super::*;
     use futures_channel::mpsc;
+use futures_channel::mpsc::TryRecvError;
     use std::sync::{Arc, Mutex};
 
     /// Pair of connected in-memory transports for testing.
@@ -165,12 +169,12 @@ pub mod test {
                 };
                 match item {
                     Ok(data) => return Ok(data),
-                    Err(futures_channel::mpsc::TryRecvError::Empty) => {
+                    Err(TryRecvError::Empty) => {
                         // Channel empty, yield and retry
                         std::thread::yield_now();
                         std::future::ready(()).await;
                     }
-                    Err(futures_channel::mpsc::TryRecvError::Closed) => {
+                    Err(TryRecvError::Closed) => {
                         self.connected = false;
                         return Err(TransportError::Closed);
                     }
@@ -194,5 +198,25 @@ pub mod test {
         fn is_connected(&self) -> bool {
             self.connected
         }
+    }
+}
+
+
+#[async_trait]
+impl<T: SyncTransport + ?Sized> SyncTransport for Box<T> {
+    async fn receive(&mut self) -> Result<Vec<u8>, TransportError> {
+        (**self).receive().await
+    }
+
+    async fn send(&mut self, payload: Vec<u8>) -> Result<(), TransportError> {
+        (**self).send(payload).await
+    }
+
+    async fn close(&mut self) -> Result<(), TransportError> {
+        (**self).close().await
+    }
+
+    fn is_connected(&self) -> bool {
+        (**self).is_connected()
     }
 }

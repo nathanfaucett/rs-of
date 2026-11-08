@@ -14,30 +14,22 @@
 
 import * as runtime from "../runtime.js";
 import {
-    type DatabaseFailure,
-    DatabaseFailureFromJSON,
-    DatabaseFailureToJSON,
+  type DatabaseFailure,
+  DatabaseFailureFromJSON,
+  DatabaseFailureToJSON,
 } from "../models/DatabaseFailure.js";
-import {
-    type SqlRequest,
-    SqlRequestFromJSON,
-    SqlRequestToJSON,
-} from "../models/SqlRequest.js";
-import {
-    type SqlResponse,
-    SqlResponseFromJSON,
-    SqlResponseToJSON,
-} from "../models/SqlResponse.js";
+import { type SqlRequest, SqlRequestFromJSON, SqlRequestToJSON } from "../models/SqlRequest.js";
+import { type SqlResponse, SqlResponseFromJSON, SqlResponseToJSON } from "../models/SqlResponse.js";
 
 export interface ExecuteSqlRequest {
-    /**
-     * Database resource ID
-     */
-    databaseId: string;
-    /**
-     *
-     */
-    sqlRequest: SqlRequest;
+  /**
+   * Database resource ID
+   */
+  databaseId: string;
+  /**
+   *
+   */
+  sqlRequest: SqlRequest;
 }
 
 /**
@@ -47,120 +39,107 @@ export interface ExecuteSqlRequest {
  * @interface ResourcesSqlApiInterface
  */
 export interface ResourcesSqlApiInterface {
-    /**
-     * Creates request options for executeSql without sending the request
-     * @param {string} databaseId Database resource ID
-     * @param {SqlRequest} sqlRequest
-     * @throws {RequiredError}
-     * @memberof ResourcesSqlApiInterface
-     */
-    executeSqlRequestOpts(
-        requestParameters: ExecuteSqlRequest,
-    ): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for executeSql without sending the request
+   * @param {string} databaseId Database resource ID
+   * @param {SqlRequest} sqlRequest
+   * @throws {RequiredError}
+   * @memberof ResourcesSqlApiInterface
+   */
+  executeSqlRequestOpts(requestParameters: ExecuteSqlRequest): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {string} databaseId Database resource ID
-     * @param {SqlRequest} sqlRequest
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof ResourcesSqlApiInterface
-     */
-    executeSqlRaw(
-        requestParameters: ExecuteSqlRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<SqlResponse>>;
+  /**
+   *
+   * @param {string} databaseId Database resource ID
+   * @param {SqlRequest} sqlRequest
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof ResourcesSqlApiInterface
+   */
+  executeSqlRaw(
+    requestParameters: ExecuteSqlRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<SqlResponse>>;
 
-    /**
-     */
-    executeSql(
-        requestParameters: ExecuteSqlRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<SqlResponse>;
+  /**
+   */
+  executeSql(
+    requestParameters: ExecuteSqlRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<SqlResponse>;
 }
 
 /**
  *
  */
-export class ResourcesSqlApi
-    extends runtime.BaseAPI
-    implements ResourcesSqlApiInterface
-{
-    /**
-     * Creates request options for executeSql without sending the request
-     */
-    async executeSqlRequestOpts(
-        requestParameters: ExecuteSqlRequest,
-    ): Promise<runtime.RequestOpts> {
-        if (requestParameters["databaseId"] == null) {
-            throw new runtime.RequiredError(
-                "databaseId",
-                'Required parameter "databaseId" was null or undefined when calling executeSql().',
-            );
-        }
-
-        if (requestParameters["sqlRequest"] == null) {
-            throw new runtime.RequiredError(
-                "sqlRequest",
-                'Required parameter "sqlRequest" was null or undefined when calling executeSql().',
-            );
-        }
-
-        const queryParameters: any = {};
-
-        const headerParameters: runtime.HTTPHeaders = {};
-
-        headerParameters["Content-Type"] = "application/json";
-
-        if (this.configuration && this.configuration.accessToken) {
-            const token = this.configuration.accessToken;
-            const tokenString = await token("authorization", []);
-
-            if (tokenString) {
-                headerParameters["Authorization"] = `Bearer ${tokenString}`;
-            }
-        }
-
-        let urlPath = `/databases/{database_id}/sql`;
-        urlPath = urlPath.replace(
-            "{database_id}",
-            encodeURIComponent(String(requestParameters["databaseId"])),
-        );
-
-        return {
-            path: urlPath,
-            method: "POST",
-            headers: headerParameters,
-            query: queryParameters,
-            body: SqlRequestToJSON(requestParameters["sqlRequest"]),
-        };
+export class ResourcesSqlApi extends runtime.BaseAPI implements ResourcesSqlApiInterface {
+  /**
+   * Creates request options for executeSql without sending the request
+   */
+  async executeSqlRequestOpts(requestParameters: ExecuteSqlRequest): Promise<runtime.RequestOpts> {
+    if (requestParameters["databaseId"] == null) {
+      throw new runtime.RequiredError(
+        "databaseId",
+        'Required parameter "databaseId" was null or undefined when calling executeSql().'
+      );
     }
 
-    /**
-     */
-    async executeSqlRaw(
-        requestParameters: ExecuteSqlRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<SqlResponse>> {
-        const requestOptions =
-            await this.executeSqlRequestOpts(requestParameters);
-        const response = await this.request(requestOptions, initOverrides);
-
-        return new runtime.JSONApiResponse(response, (jsonValue) =>
-            SqlResponseFromJSON(jsonValue),
-        );
+    if (requestParameters["sqlRequest"] == null) {
+      throw new runtime.RequiredError(
+        "sqlRequest",
+        'Required parameter "sqlRequest" was null or undefined when calling executeSql().'
+      );
     }
 
-    /**
-     */
-    async executeSql(
-        requestParameters: ExecuteSqlRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<SqlResponse> {
-        const response = await this.executeSqlRaw(
-            requestParameters,
-            initOverrides,
-        );
-        return await response.value();
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    headerParameters["Content-Type"] = "application/json";
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
     }
+
+    let urlPath = `/databases/{database_id}/sql`;
+    urlPath = urlPath.replace(
+      "{database_id}",
+      encodeURIComponent(String(requestParameters["databaseId"]))
+    );
+
+    return {
+      path: urlPath,
+      method: "POST",
+      headers: headerParameters,
+      query: queryParameters,
+      body: SqlRequestToJSON(requestParameters["sqlRequest"]),
+    };
+  }
+
+  /**
+   */
+  async executeSqlRaw(
+    requestParameters: ExecuteSqlRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<SqlResponse>> {
+    const requestOptions = await this.executeSqlRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.JSONApiResponse(response, (jsonValue) => SqlResponseFromJSON(jsonValue));
+  }
+
+  /**
+   */
+  async executeSql(
+    requestParameters: ExecuteSqlRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<SqlResponse> {
+    const response = await this.executeSqlRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
 }

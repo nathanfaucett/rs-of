@@ -5,7 +5,7 @@ use idp_model::model::Id;
 use idp_service::replica::LocalIdentity;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use ofdb_sql::{
-    SessionConfig, SyncDirection, SyncError, SyncResult, SyncRole, SyncTransport,
+    SessionConfig, SyncError, SyncResult, SyncRole, SyncTransport,
     SyncValidationDirection,
 };
 use serde::{Deserialize, Serialize};
@@ -286,7 +286,6 @@ impl SecurityProtocol {
             self.node_bootstrap_session(
                 &request.approval,
                 request.context,
-                SyncDirection::SendOnly,
                 &mut transport,
                 || async {
                     self.authorize_bootstrap_source(&connection, &request.approval, request.context)
@@ -451,7 +450,6 @@ impl SecurityProtocol {
         self.node_bootstrap_session(
             approval,
             context,
-            SyncDirection::ReceiveOnly,
             &mut transport,
             || {
                 let additional = check();
@@ -470,7 +468,6 @@ impl SecurityProtocol {
         &self,
         approval: &NodeJoinApproval,
         context: SecurityContext,
-        direction: SyncDirection,
         transport: &mut T,
         mut check: Q,
     ) -> io::Result<SyncResult>
@@ -492,28 +489,23 @@ impl SecurityProtocol {
             let directory = self
                 .staging_directory
                 .join(format!("bootstrap-{}", history.name()));
+            // Receiver (Idp context) initiates, sender (Device context) responds
+            let is_receiver = matches!(context, SecurityContext::Idp);
+            let role = if is_receiver { SyncRole::Initiator } else { SyncRole::Responder };
             let result = database
                 .synchronize_tables_with_stage_directory_candidate_validated_checked(
                     transport,
-                    &SessionConfig {
-                        direction,
-                        ..SessionConfig::default()
-                    },
-                    if direction == SyncDirection::ReceiveOnly {
-                        SyncRole::Initiator
-                    } else {
-                        SyncRole::Responder
-                    },
+                    &SessionConfig::default(),
+                    role,
                     directory,
                     &tables,
                     |table, column, value| {
                         history.validate_value(table, column, value, &self.installation)
                     },
                     |view| {
-                        if (direction == SyncDirection::ReceiveOnly
-                            && view.direction == SyncValidationDirection::Outgoing)
-                            || (direction == SyncDirection::SendOnly
-                                && view.direction == SyncValidationDirection::Incoming)
+                        // Reject reverse flow based on context role
+                        if (is_receiver && view.direction == SyncValidationDirection::Outgoing)
+                            || (!is_receiver && view.direction == SyncValidationDirection::Incoming)
                         {
                             return Err(
                                 "bootstrap reverse application history is prohibited".into()

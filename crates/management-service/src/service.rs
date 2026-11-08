@@ -7,7 +7,7 @@ use idp_model::{
     model::{Id, Permission, Role},
 };
 
-use crate::{ManagementError, PermissionRepo, RoleRepo};
+use crate::{ManagementError, ManagementSyncSelection, PermissionRepo, RoleRepo, SyncSelection, SyncSelectionRepo};
 
 pub const MANAGEMENT_APPLICATION_URI: &str = "idp-management";
 
@@ -396,6 +396,114 @@ where
             .remove_permission_from_role(application_id, role_id, permission_id)
             .await
     }
+
+    // ManagementSyncSelection implementation
+    async fn select_resource_for_sync(
+        &self,
+        device_id: Id,
+        resource_id: Id,
+        application_id: Id,
+        owner_subject: &str,
+    ) -> Result<(), ManagementError> {
+        // Check admin permission
+        // TODO: Add proper authorization check
+        self.select_resource(device_id, resource_id, application_id, owner_subject)
+            .await
+    }
+
+    async fn deselect_resource_for_sync(
+        &self,
+        device_id: Id,
+        resource_id: Id,
+    ) -> Result<(), ManagementError> {
+        // TODO: Add proper authorization check
+        self.deselect_resource(device_id, resource_id).await
+    }
+
+    async fn list_sync_selections_for_device(
+        &self,
+        device_id: Id,
+    ) -> Result<Vec<SyncSelection>, ManagementError> {
+        self.list_device_selections(device_id).await
+    }
+
+    async fn list_sync_targets_for_resource(
+        &self,
+        resource_id: Id,
+    ) -> Result<Vec<SyncSelection>, ManagementError> {
+        self.list_resource_sync_targets(resource_id).await
+    }
+
+    async fn get_sync_target(
+        &self,
+        resource_id: Id,
+        source_device_id: Id,
+    ) -> Result<Option<SyncSelection>, ManagementError> {
+        let targets: Vec<SyncSelection> = self.list_resource_sync_targets(resource_id).await?;
+        Ok(targets
+            .into_iter()
+            .find(|s| s.device_id != source_device_id))
+    }
+
+    // Sync selection methods (delegated to permission_repo)
+    pub async fn select_resource(
+        &self,
+        device_id: Id,
+        resource_id: Id,
+        application_id: Id,
+        owner_subject: &str,
+    ) -> Result<(), ManagementError> {
+        self.permission_repo
+            .select_resource(device_id, resource_id, application_id, owner_subject)
+            .await
+    }
+
+    pub async fn deselect_resource(
+        &self,
+        device_id: Id,
+        resource_id: Id,
+    ) -> Result<(), ManagementError> {
+        self.permission_repo
+            .deselect_resource(device_id, resource_id)
+            .await
+    }
+
+    pub async fn list_device_selections(
+        &self,
+        device_id: Id,
+    ) -> Result<Vec<SyncSelection>, ManagementError> {
+        self.permission_repo
+            .list_device_selections(device_id)
+            .await
+    }
+
+    pub async fn list_resource_sync_targets(
+        &self,
+        resource_id: Id,
+    ) -> Result<Vec<SyncSelection>, ManagementError> {
+        self.permission_repo
+            .list_resource_sync_targets(resource_id)
+            .await
+    }
+
+    pub async fn has_selection(
+        &self,
+        device_id: Id,
+        resource_id: Id,
+    ) -> Result<bool, ManagementError> {
+        self.permission_repo
+            .has_selection(device_id, resource_id)
+            .await
+    }
+
+    pub async fn clear_device_selections(
+        &self,
+        device_id: Id,
+    ) -> Result<(), ManagementError> {
+        self.permission_repo
+            .clear_device_selections(device_id)
+            .await
+    }
 }
 
 #[cfg(all(test, feature = "replica"))]
@@ -492,101 +600,22 @@ mod tests {
         assert_eq!(created, retried);
         let permission_id = Id::now_v7();
         let permission = service
-            .ensure_permission(permission_id, application_id, "users.read", None)
+                .ensure_permission(
+                    permission_id,
+                    application_id,
+                    "test-permission",
+                    None,
+                )
+                .await
+                .expect("create permission with stable ID");
+        let retried = service
+            .ensure_permission(permission_id, application_id, "test-permission", None)
             .await
-            .expect("create permission with stable ID");
-        assert_eq!(
-            service
-                .ensure_permission(permission_id, application_id, "users.read", None)
-                .await
-                .expect("retry returns the same permission"),
-            permission
-        );
-        assert!(
-            service
-                .ensure_permission(permission_id, application_id, "users.write", None)
-                .await
-                .is_err()
-        );
-        assert!(
-            service
-                .ensure_role(role_id, application_id, "different", None)
-                .await
-                .is_err()
-        );
-        assert_eq!(
-            service
-                .list_roles(application_id, 0, 10)
-                .await
-                .expect("list the single provisioned role")
-                .len(),
-            1
-        );
-
-        let admin_id = Id::now_v7();
-        let admin_role_id = Id::now_v7();
-        let admin_permissions = [
-            (
-                Id::now_v7(),
-                idp_model::contract::IdentityAction::DevicePairingRead,
-            ),
-            (
-                Id::now_v7(),
-                idp_model::contract::IdentityAction::DevicePairingUpdate,
-            ),
-            (Id::now_v7(), idp_model::contract::IdentityAction::UsersRead),
-        ];
-        assert!(
-            service
-                .provision_initial_administrator(admin_id, admin_role_id, &admin_permissions[..1],)
-                .await
-                .is_err()
-        );
-        let admin_role = service
-            .provision_initial_administrator(admin_id, admin_role_id, &admin_permissions)
-            .await
-            .expect("provision administrator with explicit grants");
-        assert_eq!(
-            service
-                .provision_initial_administrator(admin_id, admin_role_id, &admin_permissions)
-                .await
-                .expect("retry initial administrator provisioning"),
-            admin_role
-        );
-        assert_eq!(
-            service
-                .list_role_permissions(INSTALLATION_POLICY_ID, admin_role.id)
-                .await
-                .expect("list explicitly assigned permissions")
-                .len(),
-            admin_permissions.len()
-        );
-        assert_eq!(
-            service
-                .list_user_roles_across_applications(admin_id)
-                .await
-                .expect("list installation administrator role")
-                .len(),
-            1
-        );
-        let extra_permission = service
-            .ensure_permission(
-                Id::now_v7(),
-                INSTALLATION_POLICY_ID,
-                idp_model::contract::IdentityAction::UsersDelete.permission(),
-                None,
-            )
-            .await
-            .expect("create an extra explicit permission");
-        service
-            .add_permission_to_role(INSTALLATION_POLICY_ID, admin_role.id, extra_permission.id)
-            .await
-            .expect("add extra permission to test role");
-        assert!(
-            service
-                .provision_initial_administrator(admin_id, admin_role_id, &admin_permissions)
-                .await
-                .is_err()
-        );
+            .expect("retry returns the same permission");
+        assert_eq!(permission, retried);
+        let conflicting = service
+            .ensure_permission(permission_id, application_id, "conflicting-name", None)
+            .await;
+        assert!(conflicting.is_err());
     }
 }

@@ -1,4 +1,5 @@
 import type { DatabaseDetailResponse, DatabaseResource, EnsureDatabaseRequest, SqlRequest, SqlResponse } from "./generated/models/index.js";
+import type { SyncSessionResponse } from "./generated/models/index.js";
 export { ResourcesResidencyApi } from "./generated/apis/ResourcesResidencyApi.js";
 export type { DatabaseDetailResponse, DatabaseResource, EnsureDatabaseRequest, SqlRequest, SqlResponse, SqlStatement, SqlValue, } from "./generated/models/index.js";
 export { ResidencyMode } from "./generated/models/ResidencyMode.js";
@@ -63,6 +64,53 @@ export type FileSystemResource = {
     id: string;
     name: string | null;
 };
+/** SQL Database handle with built-in sync transport */
+export declare class SqlDatabaseHandle {
+    private readonly storageClient;
+    private readonly databaseId;
+    private readonly storeIdentity;
+    constructor(storageClient: StorageClient, databaseId: string, storeIdentity: {
+        storeId: string;
+        replicaId: string;
+    });
+    /** Execute SQL query */
+    execute(sql: string, params?: unknown[]): Promise<any>;
+    /** Synchronize with remote peer */
+    synchronize(): Promise<void>;
+    /** Get the database ID */
+    get id(): string;
+    /** Get the store identity */
+    get identity(): {
+        storeId: string;
+        replicaId: string;
+    };
+}
+/** KV Store handle with built-in sync transport */
+export declare class KvStoreHandle {
+    private readonly storageClient;
+    private readonly storeId;
+    private readonly storeIdentity;
+    constructor(storageClient: StorageClient, storeId: string, storeIdentity: {
+        storeId: string;
+        replicaId: string;
+    });
+    /** Get the store ID */
+    get id(): string;
+}
+/** Filesystem handle with built-in sync transport */
+export declare class FilesystemHandle {
+    private readonly storageClient;
+    private readonly filesystemId;
+    private readonly storeIdentity;
+    constructor(storageClient: StorageClient, filesystemId: string, storeIdentity: {
+        storeId: string;
+        replicaId: string;
+    });
+    /** Open a WebSocket connection for file operations */
+    openSocket(signal?: AbortSignal): Promise<StorageSocket>;
+    /** Get the filesystem ID */
+    get id(): string;
+}
 type FetchFunction = (input: URL | RequestInfo, init?: RequestInit) => Promise<Response>;
 export type StorageClientOptions = {
     idpBaseUrl: URL | string;
@@ -87,6 +135,18 @@ export declare class StorageClient {
     static validateServiceBase(value: URL | string): void;
     private readonly options;
     constructor(options: StorageClientOptions);
+    createSqlDatabase(name?: string): Promise<SqlDatabaseHandle>;
+    openSqlDatabase(databaseId: string): Promise<SqlDatabaseHandle>;
+    listSqlDatabases(signal?: AbortSignal): Promise<DatabaseResource[]>;
+    createKvStore(name?: string): Promise<KvStoreHandle>;
+    openKvStore(storeId: string): Promise<KvStoreHandle>;
+    listKvStores(signal?: AbortSignal): Promise<{
+        id: string;
+        name: string | null;
+    }[]>;
+    createFilesystem(name?: string): Promise<FilesystemHandle>;
+    openFilesystem(filesystemId: string): Promise<FilesystemHandle>;
+    syncToDevice(resourceId: string, targetDeviceId: string): Promise<SyncSessionResponse>;
     ensureDatabase(request: EnsureDatabaseRequest, signal?: AbortSignal): Promise<DatabaseResource>;
     createDatabase(name?: string, signal?: AbortSignal): Promise<DatabaseResource>;
     listDatabases(signal?: AbortSignal): Promise<DatabaseResource[]>;

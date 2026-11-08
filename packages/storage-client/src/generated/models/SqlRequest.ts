@@ -15,10 +15,10 @@
 import { mapValues } from "../runtime.js";
 import type { SqlStatement } from "./SqlStatement.js";
 import {
-    SqlStatementFromJSON,
-    SqlStatementFromJSONTyped,
-    SqlStatementToJSON,
-    SqlStatementToJSONTyped,
+  SqlStatementFromJSON,
+  SqlStatementFromJSONTyped,
+  SqlStatementToJSON,
+  SqlStatementToJSONTyped,
 } from "./SqlStatement.js";
 
 /**
@@ -27,58 +27,52 @@ import {
  * @interface SqlRequest
  */
 export interface SqlRequest {
-    /**
-     *
-     */
-    statements: Array<SqlStatement>;
+  /**
+   *
+   */
+  statements: Array<SqlStatement>;
 }
 
 /**
  * Check if a given object implements the SqlRequest interface.
  */
 export function instanceOfSqlRequest(value: object): value is SqlRequest {
-    if (!("statements" in value) || value["statements"] === undefined)
-        return false;
-    return true;
+  if (!("statements" in value) || value["statements"] === undefined) return false;
+  return true;
 }
 
 export function SqlRequestFromJSON(json: any): SqlRequest {
-    return SqlRequestFromJSONTyped(json, false);
+  return SqlRequestFromJSONTyped(json, false);
 }
 
-export function SqlRequestFromJSONTyped(
-    json: any,
-    ignoreDiscriminator: boolean,
-): SqlRequest {
-    if (
-        json &&
-        typeof json === "object" &&
-        Object.keys(json).some((key) => !["statements"].includes(key))
-    )
-        throw new Error("Unexpected SqlRequest field");
-    if (json == null) {
-        return json;
-    }
-    return {
-        statements: (json["statements"] as Array<any>).map(
-            SqlStatementFromJSON,
-        ),
-    };
+export function SqlRequestFromJSONTyped(json: any, ignoreDiscriminator: boolean): SqlRequest {
+  if (
+    json &&
+    typeof json === "object" &&
+    Object.keys(json).some((key) => !["statements"].includes(key))
+  )
+    throw new Error("Unexpected SqlRequest field");
+  if (json == null) {
+    return json;
+  }
+  return {
+    statements: (json["statements"] as Array<any>).map(SqlStatementFromJSON),
+  };
 }
 
 export function SqlRequestToJSON(json: any): SqlRequest {
-    return SqlRequestToJSONTyped(json, false);
+  return SqlRequestToJSONTyped(json, false);
 }
 
 export function SqlRequestToJSONTyped(
-    value?: SqlRequest | null,
-    ignoreDiscriminator: boolean = false,
+  value?: SqlRequest | null,
+  ignoreDiscriminator: boolean = false
 ): any {
-    if (value == null) {
-        return value;
-    }
+  if (value == null) {
+    return value;
+  }
 
-    return {
-        statements: (value["statements"] as Array<any>).map(SqlStatementToJSON),
-    };
+  return {
+    statements: (value["statements"] as Array<any>).map(SqlStatementToJSON),
+  };
 }

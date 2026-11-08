@@ -9,9 +9,14 @@ mod permission_repo;
 pub mod replica;
 mod role_repo;
 mod service;
+mod sync_selection;
 pub use error::{ManagementError, ManagementResult};
 #[cfg(feature = "replica")]
 pub use local_permissions::LocalPermissions;
 pub use permission_repo::PermissionRepo;
 pub use role_repo::RoleRepo;
 pub use service::{INITIAL_ADMINISTRATOR_ACTIONS, MANAGEMENT_APPLICATION_URI, ManagementService};
+pub use sync_selection::{
+    ManagementSyncSelection, SyncSelection, SyncSelectionRepo, SyncSelectionRequest,
+    SyncSelectionResponse,
+};

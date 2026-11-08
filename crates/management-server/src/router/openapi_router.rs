@@ -20,6 +20,10 @@ use super::routes::roles::{
     __path_list_user_roles, __path_revoke_role_from_user, assign_role_to_user, create_role,
     delete_role, list_roles, list_user_roles, revoke_role_from_user,
 };
+use super::routes::sync_selection::{
+    __path_list_sync_selections, __path_list_sync_targets, __path_set_sync_selection,
+    list_sync_selections, list_sync_targets, set_sync_selection,
+};
 use super::routes::users::{
     __path_list_user_roles_across_applications, list_user_roles_across_applications,
 };
@@ -50,6 +54,9 @@ fn routes() -> OpenApiRouter<RouterState> {
         .routes(routes!(list_role_permissions))
         .routes(routes!(assign_permission_to_role))
         .routes(routes!(revoke_permission_from_role))
+        .routes(routes!(set_sync_selection))
+        .routes(routes!(list_sync_selections))
+        .routes(routes!(list_sync_targets))
 }
 
 /// Builds the complete production API document without provisioning runtime state.
@@ -154,10 +161,10 @@ mod tests {
                 .collect::<Vec<_>>();
             assert_eq!(
                 operations.len(),
-                17,
+                20,
                 "complete Management operation inventory"
             );
-            assert_eq!(operations.iter().collect::<BTreeSet<_>>().len(), 17);
+            assert_eq!(operations.iter().collect::<BTreeSet<_>>().len(), 20);
             assert!(document["paths"]["/openapi.json"]["get"]["operationId"].is_string());
             let mut registered_paths = paths.clone();
             registered_paths.remove("/openapi.json");
