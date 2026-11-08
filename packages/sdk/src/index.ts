@@ -1,354 +1,341 @@
 import {
-    OidcClient,
-    type OidcClientConfig,
-    OidcClientError,
-    type OidcClientOptions,
-    type RegistrationOptions,
-    type SigninOptions,
+  OidcClient,
+  type OidcClientConfig,
+  OidcClientError,
+  type OidcClientOptions,
+  type RegistrationOptions,
+  type SigninOptions,
 } from "@ofsdk/oidc-client";
 
 import {
-    type EnsureDatabaseRequest,
-    type SqlRequest,
-    type StorageAction,
-    StorageClient,
-    type StorageConnection,
+  type EnsureDatabaseRequest,
+  type SqlRequest,
+  type StorageAction,
+  StorageClient,
+  type StorageConnection,
 } from "@ofsdk/storage-client";
 
 import { ContextSocket } from "./storage.js";
 
 export type StorageAccess = Readonly<
-    Pick<
-        StorageClient,
-        | "listFileSystems"
-        | "createFileSystem"
-        | "ensureDatabase"
-        | "createDatabase"
-        | "listDatabases"
-        | "getDatabase"
-        | "deleteDatabase"
-        | "executeSql"
-    > & {
-        openSocket(
-            filesystemId: string,
-            signal?: AbortSignal,
-        ): Promise<StorageConnection>;
-    }
+  Pick<
+    StorageClient,
+    | "listFileSystems"
+    | "createFileSystem"
+    | "ensureDatabase"
+    | "createDatabase"
+    | "listDatabases"
+    | "getDatabase"
+    | "deleteDatabase"
+    | "executeSql"
+  > & {
+    openSocket(
+      filesystemId: string,
+      signal?: AbortSignal,
+    ): Promise<StorageConnection>;
+  }
 >;
 
 export type SdkOptions = {
-    idpBaseUrl: string;
-    storageBaseUrl: string;
-    client: Omit<OidcClientConfig, "authority" | "registration"> & {
-        registration: OidcClientConfig["registration"] & {
-            application: { uri: string; name?: string };
-        };
+  idpBaseUrl: string;
+  storageBaseUrl: string;
+  client: Omit<OidcClientConfig, "authority" | "registration"> & {
+    registration: OidcClientConfig["registration"] & {
+      application: { uri: string; name?: string };
     };
-    fetch?: OidcClientOptions["fetch"];
-    disableNativeRequests?: boolean;
-    projectOwned?: boolean;
+  };
+  fetch?: OidcClientOptions["fetch"];
+  disableNativeRequests?: boolean;
+  projectOwned?: boolean;
 };
 export type Identity = Readonly<{
-    issuer: string;
-    subject: string;
-    application: string;
-    clientId: string;
+  issuer: string;
+  subject: string;
+  application: string;
+  clientId: string;
 }>;
 export type Session = Readonly<{
-    status:
-        | "initializing"
-        | "unauthenticated"
-        | "authenticated"
-        | "ended"
-        | "disposed";
-    identity?: Identity;
-    generation: number;
+  status:
+    "initializing" | "unauthenticated" | "authenticated" | "ended" | "disposed";
+  identity?: Identity;
+  generation: number;
 }>;
 
 export class ApplicationSdk {
-    readonly #oidc: OidcClient;
-    readonly #options: SdkOptions;
-    readonly #fetch: SdkOptions["fetch"];
-    #session: Session = Object.freeze({
-        status: "initializing",
-        generation: 0,
+  readonly #oidc: OidcClient;
+  readonly #options: SdkOptions;
+  readonly #fetch: SdkOptions["fetch"];
+  #session: Session = Object.freeze({
+    status: "initializing",
+    generation: 0,
+  });
+  #listeners = new Set<(session: Session) => void>();
+  #epoch = 0;
+  #controller = new AbortController();
+  #restore: Promise<void> | undefined;
+  constructor(options: SdkOptions) {
+    this.#options = structuredClone({ ...options, fetch: undefined });
+    this.#fetch = options.fetch;
+    if (!options.client.registration?.application?.uri?.trim())
+      throw new Error("Application URI is required");
+    StorageClient.validateServiceBase(options.storageBaseUrl);
+    this.#oidc = new OidcClient({
+      projectOwned: options.projectOwned ?? true,
+      clientConfig: {
+        ...this.#options.client,
+        authority: options.idpBaseUrl,
+      },
+      storage: "local",
+      ...(options.fetch ? { fetch: options.fetch } : {}),
+      disableNativeRequests: options.disableNativeRequests ?? false,
     });
-    #listeners = new Set<(session: Session) => void>();
-    #epoch = 0;
-    #controller = new AbortController();
-    #restore: Promise<void> | undefined;
-    constructor(options: SdkOptions) {
-        this.#options = structuredClone({ ...options, fetch: undefined });
-        this.#fetch = options.fetch;
-        if (!options.client.registration?.application?.uri?.trim())
-            throw new Error("Application URI is required");
-        StorageClient.validateServiceBase(options.storageBaseUrl);
-        this.#oidc = new OidcClient({
-            projectOwned: options.projectOwned ?? true,
-            clientConfig: {
-                ...this.#options.client,
-                authority: options.idpBaseUrl,
-            },
-            storage: "local",
-            fetch: options.fetch,
-            disableNativeRequests: options.disableNativeRequests,
-        });
-    }
-    get session(): Session {
-        return this.#session;
-    }
-    subscribe(listener: (session: Session) => void): () => void {
-        if (this.#session.status === "disposed") return () => {};
-        this.#listeners.add(listener);
-        listener(this.#session);
-        return () => {
-            this.#listeners.delete(listener);
-        };
-    }
-    #publish(status: Session["status"], identity?: Identity) {
-        this.#session = Object.freeze({
-            status,
-            identity,
-            generation: this.#epoch,
-        });
-        for (const listener of this.#listeners) listener(this.#session);
-    }
-    #active(epoch = this.#epoch) {
-        if (
-            epoch !== this.#epoch ||
-            this.#session.status === "disposed" ||
-            this.#session.status === "ended"
-        )
-            throw new Error("Authentication context has ended");
-    }
-    #terminal(error: unknown): boolean {
-        if (error instanceof OidcClientError)
-            return (
-                [
-                    "NO_ACCESS_TOKEN",
-                    "NO_REFRESH_TOKEN",
-                    "INVALID_USERINFO_RESPONSE",
-                    "INVALID_CLIENT_METADATA",
-                ].includes(error.code) || error.details?.status === 401
-            );
-        const response = (error as { response?: Response } | null)?.response;
-        return response?.status === 401 || response?.status === 400;
-    }
-    async #identity(epoch: number) {
-        try {
-            const verified = await this.#oidc.getVerifiedIdentity();
-            this.#active(epoch);
-            const clientId = this.#oidc.registeredClientId;
-            if (!clientId) throw new Error("Missing issued OAuth Client ID");
-            const identity = Object.freeze({
-                issuer: verified.issuer,
-                subject: verified.subject,
-                application: this.#options.client.registration.application.uri,
-                clientId,
-            });
-            const old = this.#session.identity;
-            if (
-                old &&
-                (old.subject !== identity.subject ||
-                    old.issuer !== identity.issuer ||
-                    old.clientId !== identity.clientId)
-            ) {
-                this.#end("ended");
-                throw new Error("Identity changed; sign in again");
-            }
-            if (!old) this.#publish("authenticated", identity);
-            this.#active(epoch);
-            return verified.accessToken;
-        } catch (error) {
-            if (epoch === this.#epoch && this.#terminal(error))
-                this.#end("ended");
-            throw new Error("Unable to establish authenticated identity");
-        }
-    }
-    restore(): Promise<void> {
-        this.#active();
-        if (!this.#restore) {
-            const epoch = this.#epoch;
-            this.#restore = (async () => {
-                if (!this.#oidc.getStoredTokenResponse()) {
-                    if (this.#session.status === "authenticated")
-                        this.#end("ended");
-                    else this.#publish("unauthenticated");
-                    return;
-                }
-                await this.#identity(epoch);
-            })().finally(() => {
-                this.#restore = undefined;
-            });
-        }
-        return this.#restore;
-    }
-    async handleSigninCallback(url: URL): Promise<void> {
-        this.#active();
-        const epoch = ++this.#epoch;
-        this.#controller.abort();
-        this.#controller = new AbortController();
-        this.#publish("initializing");
-        try {
-            if (!(await this.#oidc.handleSigninCallback(url)))
-                throw new Error("Missing authorization code");
-            this.#active(epoch);
-            await this.#identity(epoch);
-        } catch {
-            if (
-                epoch === this.#epoch &&
-                this.#session.status !== "authenticated"
-            ) {
-                this.#oidc.clearStoredTokenResponse();
-                this.#publish("unauthenticated");
-            }
-            throw new Error("Sign-in callback could not be completed");
-        }
-    }
-    async getAuthorizationUrl(options?: SigninOptions): Promise<URL> {
-        this.#active();
-        const epoch = this.#epoch;
-        try {
-            const url = await this.#oidc.getAuthorizationUrl(options);
-            this.#active(epoch);
-            return url;
-        } catch {
-            throw new Error("Unable to start sign-in");
-        }
-    }
-    async signin(options?: SigninOptions): Promise<void> {
-        this.#active();
-        try {
-            await this.#oidc.signin(options);
-        } catch {
-            throw new Error("Unable to start sign-in");
-        }
-    }
-    async startRegistration(options?: RegistrationOptions): Promise<void> {
-        this.#active();
-        try {
-            await this.#oidc.startRegistration(options);
-        } catch {
-            throw new Error("Unable to start registration");
-        }
-    }
-    storage(): StorageAccess {
-        this.#active();
-        if (this.#session.status !== "authenticated" || !this.#session.identity)
-            throw new Error("Sign in before using Storage");
-        const epoch = this.#epoch;
-        const active = () => this.#active(epoch);
-        const contextSignal = this.#controller.signal;
-        const combined = (signal?: AbortSignal) =>
-            signal ? AbortSignal.any([contextSignal, signal]) : contextSignal;
-        const client = new StorageClient({
-            idpBaseUrl: this.#options.idpBaseUrl,
-            storageBaseUrl: this.#options.storageBaseUrl,
-            clientId: this.#session.identity.clientId,
-            bearerToken: this.#tokenProvider(),
-            fetch: this.#fetch,
-        });
-        async function result<T>(pending: () => Promise<T>): Promise<T> {
-            active();
-            try {
-                const value = await pending();
-                active();
-                return value;
-            } catch (error) {
-                active();
-                throw error;
-            }
-        }
-        return Object.freeze({
-            ensureDatabase: (
-                request: EnsureDatabaseRequest,
-                signal?: AbortSignal,
-            ) => result(() => client.ensureDatabase(request, combined(signal))),
-            createDatabase: (name?: string, signal?: AbortSignal) =>
-                result(() => client.createDatabase(name, combined(signal))),
-            listDatabases: (signal?: AbortSignal) =>
-                result(() => client.listDatabases(combined(signal))),
-            getDatabase: (id: string, signal?: AbortSignal) =>
-                result(() => client.getDatabase(id, combined(signal))),
-            deleteDatabase: (id: string, signal?: AbortSignal) =>
-                result(() => client.deleteDatabase(id, combined(signal))),
-            executeSql: (
-                id: string,
-                request: SqlRequest,
-                actions: StorageAction[],
-                signal?: AbortSignal,
-            ) =>
-                result(() =>
-                    client.executeSql(id, request, actions, combined(signal)),
-                ),
-            listFileSystems: (signal?: AbortSignal) =>
-                result(() => client.listFileSystems(combined(signal))),
-            createFileSystem: (name?: string, signal?: AbortSignal) =>
-                result(() => client.createFileSystem(name, combined(signal))),
-            openSocket: async (id: string, signal?: AbortSignal) => {
-                active();
-                const opened = await client
-                    .openSocket(id, combined(signal))
-                    .catch((error) => {
-                        active();
-                        throw error;
-                    });
-                try {
-                    active();
-                    signal?.throwIfAborted();
-                    return new ContextSocket(opened, active);
-                } catch (error) {
-                    opened.close();
-                    throw error;
-                }
-            },
-        });
-    }
-    #tokenProvider(): () => Promise<string> {
-        this.#active();
-        if (this.#session.status !== "authenticated")
-            throw new Error("Sign in before using Storage");
-        const epoch = this.#epoch;
-        return async () => {
-            this.#active(epoch);
-            const token = await this.#identity(epoch);
-            this.#active(epoch);
-            return token;
-        };
-    }
-    #end(status: "ended" | "disposed") {
-        ++this.#epoch;
-        this.#controller.abort();
-        try {
-            this.#oidc.clearStoredTokenResponse();
-        } catch {
-            throw new Error(
-                "Unable to remove persisted credentials; clear browser site data",
-            );
-        } finally {
-            this.#publish(status);
-        }
-    }
-    async signout(
-        options: { provider?: boolean; redirectUri?: string } = {},
-    ): Promise<{ providerLogout: "not-requested" | "initiated" | "failed" }> {
-        if (this.#session.status === "disposed")
-            return { providerLogout: "not-requested" };
+  }
+  get session(): Session {
+    return this.#session;
+  }
+  subscribe(listener: (session: Session) => void): () => void {
+    if (this.#session.status === "disposed") return () => {};
+    this.#listeners.add(listener);
+    listener(this.#session);
+    return () => {
+      this.#listeners.delete(listener);
+    };
+  }
+  #publish(status: Session["status"], identity?: Identity) {
+    this.#session = Object.freeze({
+      status,
+      identity: identity ?? undefined,
+      generation: this.#epoch,
+    } as Session);
+    for (const listener of this.#listeners) listener(this.#session);
+  }
+  #active(epoch = this.#epoch) {
+    if (
+      epoch !== this.#epoch ||
+      this.#session.status === "disposed" ||
+      this.#session.status === "ended"
+    )
+      throw new Error("Authentication context has ended");
+  }
+  #terminal(error: unknown): boolean {
+    if (error instanceof OidcClientError)
+      return (
+        [
+          "NO_ACCESS_TOKEN",
+          "NO_REFRESH_TOKEN",
+          "INVALID_USERINFO_RESPONSE",
+          "INVALID_CLIENT_METADATA",
+        ].includes(error.code) || error.details?.status === 401
+      );
+    const response = (error as { response?: Response } | null)?.response;
+    return response?.status === 401 || response?.status === 400;
+  }
+  async #identity(epoch: number) {
+    try {
+      const verified = await this.#oidc.getVerifiedIdentity();
+      this.#active(epoch);
+      const clientId = this.#oidc.registeredClientId;
+      if (!clientId) throw new Error("Missing issued OAuth Client ID");
+      const identity = Object.freeze({
+        issuer: verified.issuer,
+        subject: verified.subject,
+        application: this.#options.client.registration.application.uri,
+        clientId,
+      });
+      const old = this.#session.identity;
+      if (
+        old &&
+        (old.subject !== identity.subject ||
+          old.issuer !== identity.issuer ||
+          old.clientId !== identity.clientId)
+      ) {
         this.#end("ended");
-        if (!options.provider) return { providerLogout: "not-requested" };
-        try {
-            await this.#oidc.signout({ redirectUri: options.redirectUri });
-            return { providerLogout: "initiated" };
-        } catch {
-            return { providerLogout: "failed" };
-        }
+        throw new Error("Identity changed; sign in again");
+      }
+      if (!old) this.#publish("authenticated", identity);
+      this.#active(epoch);
+      return verified.accessToken;
+    } catch (error) {
+      if (epoch === this.#epoch && this.#terminal(error)) this.#end("ended");
+      throw new Error("Unable to establish authenticated identity");
     }
-    dispose(): void {
-        if (this.#session.status === "disposed") return;
-        try {
-            this.#end("disposed");
-        } finally {
-            this.#listeners.clear();
+  }
+  restore(): Promise<void> {
+    this.#active();
+    if (!this.#restore) {
+      const epoch = this.#epoch;
+      this.#restore = (async () => {
+        if (!this.#oidc.getStoredTokenResponse()) {
+          if (this.#session.status === "authenticated") this.#end("ended");
+          else this.#publish("unauthenticated");
+          return;
         }
+        await this.#identity(epoch);
+      })().finally(() => {
+        this.#restore = undefined;
+      });
     }
+    return this.#restore;
+  }
+  async handleSigninCallback(url: URL): Promise<void> {
+    this.#active();
+    const epoch = ++this.#epoch;
+    this.#controller.abort();
+    this.#controller = new AbortController();
+    this.#publish("initializing");
+    try {
+      if (!(await this.#oidc.handleSigninCallback(url)))
+        throw new Error("Missing authorization code");
+      this.#active(epoch);
+      await this.#identity(epoch);
+    } catch {
+      if (epoch === this.#epoch && this.#session.status !== "authenticated") {
+        this.#oidc.clearStoredTokenResponse();
+        this.#publish("unauthenticated");
+      }
+      throw new Error("Sign-in callback could not be completed");
+    }
+  }
+  async getAuthorizationUrl(options?: SigninOptions): Promise<URL> {
+    this.#active();
+    const epoch = this.#epoch;
+    try {
+      const url = await this.#oidc.getAuthorizationUrl(options);
+      this.#active(epoch);
+      return url;
+    } catch {
+      throw new Error("Unable to start sign-in");
+    }
+  }
+  async signin(options?: SigninOptions): Promise<void> {
+    this.#active();
+    try {
+      await this.#oidc.signin(options);
+    } catch {
+      throw new Error("Unable to start sign-in");
+    }
+  }
+  async startRegistration(options?: RegistrationOptions): Promise<void> {
+    this.#active();
+    try {
+      await this.#oidc.startRegistration(options);
+    } catch {
+      throw new Error("Unable to start registration");
+    }
+  }
+  storage(): StorageAccess {
+    this.#active();
+    if (this.#session.status !== "authenticated" || !this.#session.identity)
+      throw new Error("Sign in before using Storage");
+    const epoch = this.#epoch;
+    const active = () => this.#active(epoch);
+    const contextSignal = this.#controller.signal;
+    const combined = (signal?: AbortSignal) =>
+      signal ? AbortSignal.any([contextSignal, signal]) : contextSignal;
+    const client = new StorageClient({
+      idpBaseUrl: this.#options.idpBaseUrl,
+      storageBaseUrl: this.#options.storageBaseUrl,
+      clientId: this.#session.identity.clientId,
+      bearerToken: this.#tokenProvider(),
+      ...(this.#fetch ? { fetch: this.#fetch } : {}),
+    });
+    async function result<T>(pending: () => Promise<T>): Promise<T> {
+      active();
+      try {
+        const value = await pending();
+        active();
+        return value;
+      } catch (error) {
+        active();
+        throw error;
+      }
+    }
+    return Object.freeze({
+      ensureDatabase: (request: EnsureDatabaseRequest, signal?: AbortSignal) =>
+        result(() => client.ensureDatabase(request, combined(signal))),
+      createDatabase: (name?: string, signal?: AbortSignal) =>
+        result(() => client.createDatabase(name, combined(signal))),
+      listDatabases: (signal?: AbortSignal) =>
+        result(() => client.listDatabases(combined(signal))),
+      getDatabase: (id: string, signal?: AbortSignal) =>
+        result(() => client.getDatabase(id, combined(signal))),
+      deleteDatabase: (id: string, signal?: AbortSignal) =>
+        result(() => client.deleteDatabase(id, combined(signal))),
+      executeSql: (
+        id: string,
+        request: SqlRequest,
+        actions: StorageAction[],
+        signal?: AbortSignal,
+      ) =>
+        result(() => client.executeSql(id, request, actions, combined(signal))),
+      listFileSystems: (signal?: AbortSignal) =>
+        result(() => client.listFileSystems(combined(signal))),
+      createFileSystem: (name?: string, signal?: AbortSignal) =>
+        result(() => client.createFileSystem(name, combined(signal))),
+      openSocket: async (id: string, signal?: AbortSignal) => {
+        active();
+        const opened = await client
+          .openSocket(id, combined(signal))
+          .catch((error) => {
+            active();
+            throw error;
+          });
+        try {
+          active();
+          signal?.throwIfAborted();
+          return new ContextSocket(opened, active);
+        } catch (error) {
+          opened.close();
+          throw error;
+        }
+      },
+    });
+  }
+  #tokenProvider(): () => Promise<string> {
+    this.#active();
+    if (this.#session.status !== "authenticated")
+      throw new Error("Sign in before using Storage");
+    const epoch = this.#epoch;
+    return async () => {
+      this.#active(epoch);
+      const token = await this.#identity(epoch);
+      this.#active(epoch);
+      return token;
+    };
+  }
+  #end(status: "ended" | "disposed") {
+    ++this.#epoch;
+    this.#controller.abort();
+    try {
+      this.#oidc.clearStoredTokenResponse();
+    } catch {
+      throw new Error(
+        "Unable to remove persisted credentials; clear browser site data",
+      );
+    } finally {
+      this.#publish(status);
+    }
+  }
+  async signout(
+    options: { provider?: boolean; redirectUri?: string } = {},
+  ): Promise<{ providerLogout: "not-requested" | "initiated" | "failed" }> {
+    if (this.#session.status === "disposed")
+      return { providerLogout: "not-requested" };
+    this.#end("ended");
+    if (!options.provider) return { providerLogout: "not-requested" };
+    try {
+      await this.#oidc.signout({ redirectUri: options.redirectUri ?? "" });
+      return { providerLogout: "initiated" };
+    } catch {
+      return { providerLogout: "failed" };
+    }
+  }
+  dispose(): void {
+    if (this.#session.status === "disposed") return;
+    try {
+      this.#end("disposed");
+    } finally {
+      this.#listeners.clear();
+    }
+  }
 }

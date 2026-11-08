@@ -87,7 +87,8 @@
       "!**/types/**",
       "!**/pkg/**",
       "!**/browser/**",
-      "!**/coverage/**"
+      "!**/coverage/**",
+      "!**/generated/**"
     ]
   }
 }
