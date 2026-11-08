@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onDestroy, tick, untrack } from "svelte";
+import { goto } from "$app/navigation";
 import SecretDetail from "./SecretDetail.svelte";
 import CardFields from "./CardFields.svelte";
 import IdentityFields from "./IdentityFields.svelte";
@@ -16,7 +17,6 @@ import { searchItems, type ItemTypeFilter, type ItemSort } from "../search";
 interface Props {
     vault: VaultHandle;
     initialTrash?: boolean;
-    hideTrashToggle?: boolean;
     // Filter state (controlled by parent)
     searchText?: string;
     itemType?: ItemTypeFilter;
@@ -32,7 +32,6 @@ interface Props {
 let {
     vault,
     initialTrash = false,
-    hideTrashToggle = false,
     searchText = "",
     itemType = "all",
     favoritesOnly = false,
@@ -46,7 +45,7 @@ let {
 
 const workflow = untrack(() => createLocalSecretWorkflow({ vault }));
 
-$effect(() => { workflow.setTrashMode?.(initialTrash); });
+$effect(() => { if (initialTrash) workflow.setTrashMode(true); });
 onDestroy(retire);
 
 let retired = $state(false);
@@ -87,8 +86,9 @@ const searchId = `${newSecretId}-search`;
 let folderControls = $state<ReturnType<typeof FolderControls>>();
 
 export function hasUnsavedChanges() { return workflow.dirty || workflow.busy || !!folderControls?.dirty(); }
-export function get folders() { return workflow.folders; }
-export function get folderFilter() { return workflow.folderFilter; }
+export function folders() { return workflow.folders; }
+export function folderFilter() { return workflow.folderFilter; }
+export function setFolderFilter(id: string) { workflow.setFolderFilter(id); }
 export function retire() {
     retired = true;
     clearFilters();
@@ -115,14 +115,6 @@ function navigate(action: () => void) {
 }} />
 
 <div class="flex flex-col gap-4">
-    {#if !hideTrashToggle}
-    <nav aria-label="Item views" class="flex gap-2">
-        <button id={navigationId} class="btn btn-secondary btn-md" type="button" aria-pressed={!workflow.trash} disabled={!workflow.canEdit}
-            onclick={() => navigate(() => { workflow.open(null); workflow.setTrashMode(false); })}>All items</button>
-        <button class="btn btn-secondary btn-md" type="button" aria-pressed={workflow.trash} disabled={!workflow.canEdit}
-            onclick={() => navigate(() => { workflow.open(null); workflow.setTrashMode(true); })}>Trash</button>
-    </nav>
-    {/if}
     <Card title={workflow.trash ? "Trash" : "Secrets"} description={workflow.trash ? "Items stay here until you restore or permanently delete them. No automatic deletion." : "Stored locally in your encrypted vault."}>
         {#snippet actions()}
             <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canRefresh}
@@ -132,17 +124,17 @@ function navigate(action: () => void) {
                     onclick={() => { showNewSecretMenu = !showNewSecretMenu; }} aria-expanded={showNewSecretMenu}>New secret</button>
                 {#if showNewSecretMenu}
                 <div class="absolute top-full left-0 mt-1 z-10 min-w-[160px] bg-surface border border-line rounded-lg shadow-lg py-1" role="menu" aria-labelledby={newSecretId}>
-                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => { workflow.setTrashMode(false); workflow.edit(); })}>New login</button>
-                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => { workflow.setTrashMode(false); workflow.edit(null, "secureNote"); })}>New secure note</button>
-                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => { workflow.setTrashMode(false); workflow.edit(null, "card"); })}>New card</button>
-                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => { workflow.setTrashMode(false); workflow.edit(null, "identity"); })}>New identity</button>
-                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => { workflow.setTrashMode(false); workflow.edit(null, "sshKey"); })}>New SSH key</button>
+                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => goto("/vault/new?kind=login"))}>New login</button>
+                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => goto("/vault/new?kind=secureNote"))}>New secure note</button>
+                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => goto("/vault/new?kind=card"))}>New card</button>
+                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => goto("/vault/new?kind=identity"))}>New identity</button>
+                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => goto("/vault/new?kind=sshKey"))}>New SSH key</button>
                 </div>
                 {/if}
             </div>
             {/snippet}
         {#if !retired && !workflow.trash}
-            <fieldset class="mb-4 flex flex-wrap items-end gap-3" disabled={workflow.loading || !!workflow.loadError}>
+            <fieldset class="mb-4 flex flex-wrap items-end gap-3 lg:hidden" disabled={workflow.loading || !!workflow.loadError}>
                 <legend class="text-sm font-medium">Find items</legend>
                 <Field id={`${searchId}-text`} label="Search items" description="Search names, usernames, websites, notes, and custom-field names.">
                     {#snippet children(control)}
@@ -255,160 +247,8 @@ function navigate(action: () => void) {
     {#if workflow.detail && !workflow.editor}
         {#key workflow.detail}
             <SecretDetail record={workflow.detail} canEdit={workflow.canEdit}
-                onedit={() => navigate(() => workflow.edit(workflow.detail))}
+                onedit={() => navigate(() => goto(`/vault/edit/${workflow.detail.id}`))}
                 onclose={() => navigate(() => { workflow.open(null); document.getElementById(newSecretId)?.focus(); })} />
         {/key}
-    {/if}
-
-    {#if workflow.editor}
-        {@const editor = workflow.editor}
-        {@const draft = editor.draft}
-        <Card title={editor.record ? "Edit secret" : "New secret"}
-            description="Changes are encrypted and stored when you save.">
-            <form class="flex flex-col gap-4" onsubmit={(event) => {
-                event.preventDefault();
-                if (draft) void workflow.save(draft);
-            }}>
-                <Field id="name" label="Name" required>
-                    {#snippet children(control)}
-                        <input {...control} {@attach (element) => { element.focus(); }} bind:value={draft.name} disabled={!workflow.canEdit} />
-                    {/snippet}
-                </Field>
-                {#if draft.kind === "login"}
-                    <Field id="username" label="Username">
-                        {#snippet children(control)}
-                            <input {...control} bind:value={draft.username} autocomplete="off" disabled={!workflow.canEdit} />
-                        {/snippet}
-                    </Field>
-                    <Field id="secret" label="Password">
-                        {#snippet children(control)}
-                            <div class="flex gap-2">
-                                <input {...control} bind:value={draft.secret} type={editor?.showPassword ? "text" : "password"} autocomplete="new-password" disabled={!workflow.canEdit} class="flex-1" />
-                                <GeneratorDialog onuse={(value) => {
-                                    if (editor) {
-                                        editor.draft.secret = value;
-                                        editor.confirmPassword = value;
-                                        editor.showPassword = false;
-                                    }
-                                }} />
-                            </div>
-                        {/snippet}
-                    </Field>
-                    <button class="btn btn-secondary btn-md self-start" type="button"
-                        aria-controls="secret" aria-pressed={editor.showPassword}
-                        onclick={() => {
-                            if (editor) editor.showPassword = !editor.showPassword;
-                        }}>{editor.showPassword ? "Hide password" : "Show password"}</button>
-                    {#if draft.secret && draft.secret !== (editor.record?.kind === "login" ? editor.record.secret : undefined)}
-                        <Field id="confirm-secret" label="Confirm password" required>
-                            {#snippet children(control)}
-                                <input {...control} bind:value={editor.confirmPassword} type="password" autocomplete="new-password" disabled={!workflow.canEdit} />
-                            {/snippet}
-                        </Field>
-                    {/if}
-                    <Field id="totp" label="Authenticator key (TOTP)" description="Store a Base32 key or otpauth TOTP URI. View local codes in item details.">
-                        {#snippet children(control)}
-                            <input {...control} bind:value={draft.totp} type="password" autocomplete="off" disabled={!workflow.canEdit} />
-                        {/snippet}
-                    </Field>
-
-                    <fieldset class="flex min-w-0 flex-col gap-3" disabled={!workflow.canEdit}>
-                        <legend class="text-sm font-medium">Websites</legend>
-                        {#each draft.uris as uri, i (uri)}
-                            <div class="flex flex-wrap items-end gap-2">
-                                <Field id={`uri-${i}`} label={`Website ${i + 1}`}>
-                                    {#snippet children(control)}
-                                        <input {...control} bind:value={uri.uri} placeholder="https://example.com" />
-                                    {/snippet}
-                                </Field>
-                                <Field id={`match-${i}`} label={`Match rule ${i + 1}`}>
-                                    {#snippet children(control)}
-                                        <select {...control} bind:value={uri.match}>
-                                            <option value={null}>Default (inherited)</option>
-                                            <option value="domain">Domain</option>
-                                            <option value="host">Host</option>
-                                            <option value="startsWith">Starts with</option>
-                                            <option value="exact">Exact</option>
-                                            <option value="regex">Regular expression</option>
-                                            <option value="never">Never</option>
-                                        </select>
-                                    {/snippet}
-                                </Field>
-                                <button class="btn btn-ghost btn-md text-danger-text" type="button" aria-label={`Remove website ${i + 1}`}
-                                    onclick={() => draft?.uris.splice(i, 1)}>Remove</button>
-                            </div>
-                        {/each}
-                        <button class="btn btn-secondary btn-md self-start" type="button"
-                            onclick={() => draft?.uris.push({ uri: "", match: "domain" })}>Add website</button>
-                    </fieldset>
-                {:else if draft.kind === "card"}
-                    {#key draft}<CardFields {draft} disabled={!workflow.canEdit} />{/key}
-                {:else if draft.kind === "identity"}
-                    <IdentityFields {draft} disabled={!workflow.canEdit} />
-                {:else if draft.kind === "sshKey"}
-                    {#key editor}
-                        <SshKeyFields bind:draft={editor.draft as SshKeyDraft} disabled={!workflow.canEdit} />
-                    {/key}
-                {/if}
-
-                <fieldset class="flex min-w-0 flex-col gap-3" disabled={!workflow.canEdit}>
-                    <legend class="text-sm font-medium">Custom fields</legend>
-                    {#each draft.fields as field, i (field)}
-                        {@const issue = customFieldIssue(editor.record, draft.fields, i)}
-                        <div class="flex flex-wrap items-end gap-2">
-                            <Field id={`field-name-${i}`} label={`Field name ${i + 1}`} required>
-                                {#snippet children(control)}<input {...control} bind:value={field.name} />{/snippet}
-                            </Field>
-                            <Field id={`field-type-${i}`} label={`Field type ${i + 1}`}>
-                                {#snippet children(control)}
-                                    <select {...control} bind:value={field.type}>
-                                        <option value="text">Text</option>
-                                        <option value="hidden">Hidden</option>
-                                        <option value="boolean">Boolean</option>
-                                    </select>
-                                {/snippet}
-                            </Field>
-                            <Field id={`field-value-${i}`} label={`Field value ${i + 1}`}
-                                issues={issue ? [{ message: issue }] : []}
-                                description={field.type === "boolean" && field.value !== "true" && field.value !== "false" ? "Select True or False to enable JSON export. An unchanged legacy value is preserved." : undefined}>
-                                {#snippet children(control)}
-                                    {#if field.type === "boolean"}
-                                        <select {...control} bind:value={field.value}>
-                                            {#if field.value !== "true" && field.value !== "false"}
-                                                <option value={field.value} disabled>Not set — select True or False</option>
-                                            {/if}
-                                            <option value="true">True</option>
-                                            <option value="false">False</option>
-                                        </select>
-                                    {:else}
-                                        <input {...control} bind:value={field.value} type={field.type === "hidden" ? "password" : "text"} autocomplete="off" />
-                                    {/if}
-                                {/snippet}
-                            </Field>
-                            <button class="btn btn-ghost btn-md text-danger-text" type="button" aria-label={`Remove custom field ${i + 1}`}
-                                onclick={() => draft?.fields.splice(i, 1)}>Remove</button>
-                        </div>
-                    {/each}
-                    <button class="btn btn-secondary btn-md self-start" type="button"
-                        onclick={() => draft?.fields.push({ name: "", value: "", type: "text" })}>Add custom field</button>
-                </fieldset>
-
-                <Field id="notes" label="Notes">
-                    {#snippet children(control)}
-                        <textarea {...control} bind:value={draft.notes} rows="3" disabled={!workflow.canEdit}></textarea>
-                    {/snippet}
-                </Field>
-                <label class="flex items-center gap-2 text-sm text-ink" for="favorite">
-                    <input id="favorite" bind:checked={draft.favorite} type="checkbox" disabled={!workflow.canEdit} />
-                    Favorite
-                </label>
-
-                <div class="flex gap-2">
-                    <button class="btn btn-primary btn-md" type="submit" disabled={!workflow.canEdit}>Save</button>
-                    <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canEdit}
-                        onclick={() => { workflow.cancel(); if (!workflow.detail) document.getElementById(newSecretId)?.focus(); }}>Cancel</button>
-                </div>
-            </form>
-        </Card>
     {/if}
 </div>

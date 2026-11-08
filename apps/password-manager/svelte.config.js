@@ -1,5 +1,6 @@
 import adapter from "@sveltejs/adapter-static";
 import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
+import { fileURLToPath } from "node:url";
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -17,6 +18,9 @@ const config = {
         paths: {
             base: process.env.VITE_BASE_PATH,
             relative: false,
+        },
+        alias: {
+            $fixtures: fileURLToPath(new URL("./src/test/fixtures", import.meta.url)),
         },
     },
 };

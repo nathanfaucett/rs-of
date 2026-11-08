@@ -7,6 +7,6 @@ let vaultData = $derived(vaultStateModule.vaultData);
 
 <div class="flex min-h-0 grow items-start justify-center overflow-auto p-6">
 	{#if vaultData}
-		<LocalSecretEditor vault={vaultData.vault} initialTrash={true} hideTrashToggle={true} />
+		<LocalSecretEditor vault={vaultData.vault} initialTrash={true} />
 	{/if}
 </div>

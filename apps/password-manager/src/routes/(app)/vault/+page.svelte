@@ -52,18 +52,17 @@ $effect(() => {
 		<div class="flex gap-6 w-full max-w-[1400px] mx-auto">
 			<div class="lg:w-64 flex-shrink-0">
 				<FilterSidebar
-					folders={itemEditor?.folders ?? []}
-					folderFilter={itemEditor?.folderFilter ?? "all"}
+					folders={itemEditor?.folders?.() ?? []}
+					folderFilter={itemEditor?.folderFilter?.() ?? "all"}
 					searchText={searchText}
 					itemType={itemType}
 					favoritesOnly={favoritesOnly}
 					sort={sort}
-					onFolderFilterChange={(id) => itemEditor?.workflow?.setFolderFilter(id)}
+					onFolderFilterChange={(id) => itemEditor?.setFolderFilter?.(id)}
 					onItemTypeChange={(v) => itemType = v}
 					onFavoritesOnlyChange={(v) => favoritesOnly = v}
 					onSortChange={(v) => sort = v}
 					onClearFilters={clearFilters}
-					inline={true}
 				/>
 			</div>
 			<div class="flex-1 min-w-0">
