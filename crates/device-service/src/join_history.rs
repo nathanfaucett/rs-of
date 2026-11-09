@@ -422,6 +422,7 @@ async fn synchronize(
 ) -> io::Result<()> {
     let is_receiver = matches!(context, JoinHistoryContext::Device);
     let role = if is_receiver { SyncRole::Initiator } else { SyncRole::Responder };
+    let direction = if is_receiver { SyncValidationDirection::Incoming } else { SyncValidationDirection::Outgoing };
     log::debug!(
         "Join history context={} phase=sync_start role={role:?}",
         context.role()

@@ -1,7 +1,6 @@
-use alloc::boxed::Box;
 /// Resource handles with built-in sync transport.
 
-use alloc::string::ToString;
+use alloc::{boxed::Box, string::ToString};
 use core::fmt::{Debug, Formatter, Result as FmtResult};
 use core::future::Future;
 use uuid::Uuid;
@@ -58,8 +57,8 @@ impl SqlDatabaseHandle {
 
     /// Execute SQL directly on the database.
     pub async fn execute(&self, sql: &str) -> Result<QueryResult> {
-        let results = self.database
-            .client()
+        let mut client = self.database.client();
+        let results = client
             .execute_sql(sql, None)
             .await
             .map_err(|e| StorageClientError::Database(e.to_string()))?;
@@ -72,8 +71,8 @@ impl SqlDatabaseHandle {
         sql: &str,
         params: QueryParams,
     ) -> Result<QueryResult> {
-        let results = self.database
-            .client()
+        let mut client = self.database.client();
+        let results = client
             .execute_sql(sql, Some(&params))
             .await
             .map_err(|e| StorageClientError::Database(e.to_string()))?;
@@ -151,14 +150,14 @@ impl SqlDatabaseHandle {
         #[cfg(feature = "native")]
         {
             let transport = NativeWsTransport::connect(&self.transport_config.sync_ws_url).await?;
-            let bridge = WsTransportBridge::new(Box::new(transport));
+            let bridge = WsTransportBridge::new(Box::new(transport) as Box<dyn WsSyncTransport + Send>);
             Ok(bridge)
         }
 
         #[cfg(feature = "browser")]
         {
             let transport = BrowserWsTransport::connect(&self.transport_config.sync_ws_url, &self.transport_config.auth_token).await?;
-            let bridge = WsTransportBridge::new(Box::new(transport));
+            let bridge = WsTransportBridge::new(Box::new(transport) as Box<dyn WsSyncTransport + Send>);
             Ok(bridge)
         }
 

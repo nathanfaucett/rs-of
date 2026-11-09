@@ -1,6 +1,6 @@
 //! Native (Rust) storage client implementation.
 
-use alloc::{string::String, vec::Vec};
+use alloc::{string::String, sync::Arc, vec::Vec};
 use core::future::Future;
 use core::pin::Pin;
 
@@ -15,12 +15,11 @@ use storage_sync_client::transport::native::WebSocketSyncTransport;
 use uuid::Uuid;
 
 use crate::error::{Result, StorageClientError};
-use crate::handle::{SqlDatabaseHandle, KvStoreHandle, FilesystemHandle, CreateDatabaseRequest, OpenDatabaseRequest, CreateKvStoreRequest, OpenKvStoreRequest, CreateFilesystemRequest, OpenFilesystemRequest, SyncToDeviceRequest, SyncToDeviceResponse, SyncSession, SyncStatus};
-use crate::transport::{SyncTransport, NativeWsTransport, TransportConfig};
-use crate::{ResourceId, DatabaseId, KvStoreId, FilesystemId, DeviceId, ApplicationId, Subject};
+use crate::handle::{SqlDatabaseHandle, KvStoreHandle, FilesystemHandle};
+use crate::transport::{WsSyncTransport, NativeWsTransport, TransportConfig};
+use crate::{ResourceId, DatabaseId, KvStoreId, FilesystemId, DeviceId, ApplicationId, Subject, CreateDatabaseRequest, OpenDatabaseRequest, CreateKvStoreRequest, OpenKvStoreRequest, CreateFilesystemRequest, OpenFilesystemRequest, SyncToDeviceRequest, SyncToDeviceResponse, SyncSession, SyncStatus, DatabaseInfo, KvStoreInfo, FilesystemInfo};
 
 use ofdb_sql::{Database, SessionConfig, SyncResult as OfdbSyncResult, SyncRole, SyncTransport as OfdbSyncTransport};
-use ofdb_sql_sync::WsTransportBridge;
 
 /// Native storage client for Rust applications.
 pub struct StorageClient {
@@ -28,7 +27,7 @@ pub struct StorageClient {
     base_url: String,
     idp_base_url: String,
     client_id: String,
-    token_provider: Box<dyn Fn(&str, &[&str]) -> Pin<Box<dyn Future<Output = Result<String, StorageClientError>> + Send>> + Send + Sync>,
+    token_provider: Arc<dyn Fn(&str, &[&str]) -> Pin<Box<dyn Future<Output = core::result::Result<String, StorageClientError>> + Send>> + Send + Sync>,
     sync_ws_url: String,
     local_replica_id: Uuid,
 }
@@ -39,8 +38,9 @@ impl StorageClient {
         storage_base_url: &str,
         idp_base_url: &str,
         client_id: &str,
-        token_provider: impl Fn(&str, &[&str]) -> Pin<Box<dyn Future<Output = Result<String, StorageClientError>> + Send>> + Send + Sync + 'static,
+        token_provider: impl Fn(&str, &[&str]) -> Pin<Box<dyn Future<Output = core::result::Result<String, StorageClientError>> + Send>> + Send + Sync + 'static,
     ) -> Self {
+        let token_provider = Arc::new(token_provider);
         let mut sync_ws_url = storage_base_url.to_string();
         if sync_ws_url.starts_with("https://") {
             sync_ws_url = sync_ws_url.replace("https://", "wss://");
@@ -54,7 +54,7 @@ impl StorageClient {
             base_url: storage_base_url.trim_end_matches('/').to_string(),
             idp_base_url: idp_base_url.trim_end_matches('/').to_string(),
             client_id: client_id.to_string(),
-            token_provider: Box::new(token_provider),
+            token_provider,
             sync_ws_url,
             local_replica_id: Uuid::now_v7(),
         }
@@ -95,20 +95,20 @@ impl StorageClient {
             ));
         }
 
-        let db_resource: DatabaseResource = response.json().await.map_err(StorageClientError::Json)?;
+        let db_resource: DatabaseResource = response.json().await.map_err(|e| StorageClientError::Http(e))?;
 
         let store_identity = StoreIdentity {
             store_id: db_resource.id.0,
             replica_id: self.local_replica_id,
             creation_epoch: 0,
-            schema_fingerprint: Vec::new(),
+            schema_fingerprint: [0u8; 32],
         };
 
         let transport_config = TransportConfig::new(self.sync_ws_url.clone(), token);
         let token_provider = self.create_sync_token_provider();
 
         Ok(SqlDatabaseHandle::new(
-            Database::open_redb(&db_resource.id.0.to_string()).await
+            Database::open_existing(&db_resource.id.0.to_string())
                 .map_err(|e| StorageClientError::Database(e.to_string()))?,
             store_identity,
             transport_config,
@@ -139,20 +139,20 @@ impl StorageClient {
             ));
         }
 
-        let db_resource: DatabaseResource = response.json().await.map_err(StorageClientError::Json)?;
+        let db_resource: DatabaseResource = response.json().await.map_err(|e| StorageClientError::Http(e))?;
 
         let store_identity = StoreIdentity {
             store_id: db_resource.id.0,
             replica_id: self.local_replica_id,
             creation_epoch: 0,
-            schema_fingerprint: Vec::new(),
+            schema_fingerprint: [0u8; 32],
         };
 
         let transport_config = TransportConfig::new(self.sync_ws_url.clone(), token);
         let token_provider = self.create_sync_token_provider();
 
         Ok(SqlDatabaseHandle::new(
-            Database::open_redb(&db_resource.id.0.to_string()).await
+            Database::open_existing(&db_resource.id.0.to_string())
                 .map_err(|e| StorageClientError::Database(e.to_string()))?,
             store_identity,
             transport_config,
@@ -180,7 +180,7 @@ impl StorageClient {
             ));
         }
 
-        let dbs: Vec<DatabaseResource> = response.json().await.map_err(StorageClientError::Json)?;
+        let dbs: Vec<DatabaseResource> = response.json().await.map_err(|e| StorageClientError::Http(e))?;
 
         Ok(dbs
             .into_iter()
@@ -200,7 +200,7 @@ impl StorageClient {
             store_id: Uuid::now_v7(),
             replica_id: self.local_replica_id,
             creation_epoch: 0,
-            schema_fingerprint: Vec::new(),
+            schema_fingerprint: [0u8; 32],
         };
 
         let transport_config = TransportConfig::new(self.sync_ws_url.clone(), token);
@@ -225,7 +225,7 @@ impl StorageClient {
                 store_id: id.0,
                 replica_id: self.local_replica_id,
                 creation_epoch: 0,
-                schema_fingerprint: Vec::new(),
+                schema_fingerprint: [0u8; 32],
             },
             transport_config,
             token_provider,
@@ -264,7 +264,7 @@ impl StorageClient {
             ));
         }
 
-        let fs_resource: FilesystemResource = response.json().await.map_err(StorageClientError::Json)?;
+        let fs_resource: FilesystemResource = response.json().await.map_err(|e| StorageClientError::Http(e))?;
 
         let transport_config = TransportConfig::new(self.sync_ws_url.clone(), token);
         let token_provider = self.create_sync_token_provider();
@@ -274,7 +274,7 @@ impl StorageClient {
                 store_id: fs_resource.id.0,
                 replica_id: self.local_replica_id,
                 creation_epoch: 0,
-                schema_fingerprint: Vec::new(),
+                schema_fingerprint: [0u8; 32],
             },
             transport_config,
             token_provider,
@@ -304,7 +304,7 @@ impl StorageClient {
             ));
         }
 
-        let fs_resource: FilesystemResource = response.json().await.map_err(StorageClientError::Json)?;
+        let fs_resource: FilesystemResource = response.json().await.map_err(|e| StorageClientError::Http(e))?;
 
         let transport_config = TransportConfig::new(self.sync_ws_url.clone(), token);
         let token_provider = self.create_sync_token_provider();
@@ -314,7 +314,7 @@ impl StorageClient {
                 store_id: fs_resource.id.0,
                 replica_id: self.local_replica_id,
                 creation_epoch: 0,
-                schema_fingerprint: Vec::new(),
+                schema_fingerprint: [0u8; 32],
             },
             transport_config,
             token_provider,
@@ -341,7 +341,7 @@ impl StorageClient {
             ));
         }
 
-        let fss: Vec<FilesystemResource> = response.json().await.map_err(StorageClientError::Json)?;
+        let fss: Vec<FilesystemResource> = response.json().await.map_err(|e| StorageClientError::Http(e))?;
 
         Ok(fss
             .into_iter()
@@ -380,7 +380,7 @@ impl StorageClient {
             ));
         }
 
-        let sync_response: SyncToDeviceResponse = response.json().await.map_err(StorageClientError::Json)?;
+        let sync_response: SyncToDeviceResponse = response.json().await.map_err(|e| StorageClientError::Http(e))?;
         Ok(sync_response.session)
     }
 
@@ -415,7 +415,7 @@ impl StorageClient {
             ));
         }
 
-        let token_response: TokenExchangeResponse = response.json().await.map_err(StorageClientError::Json)?;
+        let token_response: TokenExchangeResponse = response.json().await.map_err(|e| StorageClientError::Http(e))?;
 
         token_response
             .access_token
@@ -500,30 +500,4 @@ struct TokenExchangeResponse {
     token_type: Option<String>,
     #[serde(rename = "expiresIn")]
     expires_in: Option<u64>,
-}
-
-/// Sync session.
-#[derive(Debug, Clone, serde::Deserialize)]
-struct SyncToDeviceResponse {
-    session: SyncSession,
-}
-
-/// Sync session.
-#[derive(Debug, Clone, serde::Deserialize)]
-struct SyncSession {
-    session_id: String,
-    resource_id: ResourceId,
-    target_device: DeviceId,
-    status: SyncStatus,
-}
-
-/// Sync status.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum SyncStatus {
-    Connecting,
-    Synchronizing,
-    Synced,
-    Disconnected,
-    Error,
 }

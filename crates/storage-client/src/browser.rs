@@ -30,12 +30,12 @@ use crate::handle::{SqlDatabaseHandle, KvStoreHandle, FilesystemHandle};
 #[cfg(feature = "browser")]
 use crate::transport::{BrowserWsTransport, TransportConfig};
 #[cfg(feature = "browser")]
-use crate::{ResourceId, DatabaseId, KvStoreId, FilesystemId, DeviceId};
+use crate::{ResourceId, DatabaseId, KvStoreId, FilesystemId, DeviceId, CreateDatabaseRequest, OpenDatabaseRequest, CreateKvStoreRequest, OpenKvStoreRequest, CreateFilesystemRequest, OpenFilesystemRequest, SyncToDeviceRequest, SyncToDeviceResponse, SyncSession, SyncStatus, DatabaseInfo, KvStoreInfo, FilesystemInfo};
 
 #[cfg(feature = "browser")]
 use ofdb_sql::{Database, SessionConfig, SyncResult as OfdbSyncResult, SyncRole, SyncTransport as OfdbSyncTransport};
 #[cfg(feature = "browser")]
-use ofdb_sql_sync::WsTransportBridge;
+use storage_sync_client::client::WsTransportBridge;
 
 #[cfg(feature = "browser")]
 #[wasm_bindgen]
@@ -117,7 +117,7 @@ impl StorageClient {
             store_id: db_resource.id.0,
             replica_id: self.local_replica_id,
             creation_epoch: 0,
-            schema_fingerprint: Vec::new(),
+            schema_fingerprint: [0u8; 32],
         };
 
         let transport_config = TransportConfig::new(self.sync_ws_url.clone(), token);
@@ -148,7 +148,7 @@ impl StorageClient {
             store_id: db_resource.id.0,
             replica_id: self.local_replica_id,
             creation_epoch: 0,
-            schema_fingerprint: Vec::new(),
+            schema_fingerprint: [0u8; 32],
         };
 
         let transport_config = TransportConfig::new(self.sync_ws_url.clone(), token);
@@ -192,7 +192,7 @@ impl StorageClient {
             store_id: uuid::Uuid::now_v7(),
             replica_id: self.local_replica_id,
             creation_epoch: 0,
-            schema_fingerprint: Vec::new(),
+            schema_fingerprint: [0u8; 32],
         };
 
         let transport_config = TransportConfig::new(self.sync_ws_url.clone(), token);
@@ -217,7 +217,7 @@ impl StorageClient {
                 store_id: id.0,
                 replica_id: self.local_replica_id,
                 creation_epoch: 0,
-                schema_fingerprint: Vec::new(),
+                schema_fingerprint: [0u8; 32],
             },
             transport_config,
             token_provider,
@@ -254,7 +254,7 @@ impl StorageClient {
                 store_id: fs_resource.id.0,
                 replica_id: self.local_replica_id,
                 creation_epoch: 0,
-                schema_fingerprint: Vec::new(),
+                schema_fingerprint: [0u8; 32],
             },
             transport_config,
             token_provider,
@@ -281,7 +281,7 @@ impl StorageClient {
                 store_id: fs_resource.id.0,
                 replica_id: self.local_replica_id,
                 creation_epoch: 0,
-                schema_fingerprint: Vec::new(),
+                schema_fingerprint: [0u8; 32],
             },
             transport_config,
             token_provider,
@@ -471,33 +471,4 @@ struct TokenExchangeResponse {
     token_type: Option<String>,
     #[serde(rename = "expiresIn")]
     expires_in: Option<u64>,
-}
-
-/// Sync session.
-#[cfg(feature = "browser")]
-#[derive(Debug, Clone, serde::Deserialize)]
-struct SyncToDeviceResponse {
-    session: SyncSession,
-}
-
-/// Sync session.
-#[cfg(feature = "browser")]
-#[derive(Debug, Clone, serde::Deserialize)]
-struct SyncSession {
-    session_id: String,
-    resource_id: ResourceId,
-    target_device: DeviceId,
-    status: SyncStatus,
-}
-
-/// Sync status.
-#[cfg(feature = "browser")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum SyncStatus {
-    Connecting,
-    Synchronizing,
-    Synced,
-    Disconnected,
-    Error,
 }

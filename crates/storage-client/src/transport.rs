@@ -45,13 +45,6 @@ impl From<WsTransportError> for TransportError {
     }
 }
 
-#[cfg(feature = "native")]
-impl From<storage_sync_client::transport::native::TransportError> for TransportError {
-    fn from(e: storage_sync_client::transport::native::TransportError) -> Self {
-        WsTransportError::from(e).into()
-    }
-}
-
 #[cfg(feature = "browser")]
 impl From<storage_sync_client::browser::browser::TransportError> for TransportError {
     fn from(e: storage_sync_client::browser::browser::TransportError) -> Self {
@@ -82,6 +75,7 @@ impl NativeWsTransport {
 }
 
 #[cfg(feature = "native")]
+#[async_trait::async_trait]
 impl storage_sync_client::transport::SyncTransport for NativeWsTransport {
     async fn receive(&mut self) -> Result<Vec<u8>, WsTransportError> {
         self.inner.receive().await
@@ -116,6 +110,7 @@ impl BrowserWsTransport {
 }
 
 #[cfg(feature = "browser")]
+#[async_trait::async_trait]
 impl storage_sync_client::transport::SyncTransport for BrowserWsTransport {
     async fn receive(&mut self) -> Result<Vec<u8>, WsTransportError> {
         self.inner.receive().await.map_err(Into::into)

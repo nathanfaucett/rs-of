@@ -55,3 +55,9 @@ impl From<StorageClientError> for String {
         e.to_string()
     }
 }
+
+impl From<crate::transport::TransportError> for StorageClientError {
+    fn from(e: crate::transport::TransportError) -> Self {
+        StorageClientError::Transport(e.to_string())
+    }
+}
