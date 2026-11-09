@@ -13,36 +13,32 @@
  */
 
 import * as runtime from "../runtime.js";
+import { type Acceptance, AcceptanceFromJSON, AcceptanceToJSON } from "../models/Acceptance.js";
 import {
-    type Acceptance,
-    AcceptanceFromJSON,
-    AcceptanceToJSON,
-} from "../models/Acceptance.js";
-import {
-    type NodeJoinApproval,
-    NodeJoinApprovalFromJSON,
-    NodeJoinApprovalToJSON,
+  type NodeJoinApproval,
+  NodeJoinApprovalFromJSON,
+  NodeJoinApprovalToJSON,
 } from "../models/NodeJoinApproval.js";
 
 export interface NodeJoinApproveRequest {
-    /**
-     * Pending offer UUID
-     */
-    id: string;
+  /**
+   * Pending offer UUID
+   */
+  id: string;
 }
 
 export interface NodeJoinRejectRequest {
-    /**
-     * Pending offer UUID
-     */
-    id: string;
+  /**
+   * Pending offer UUID
+   */
+  id: string;
 }
 
 export interface NodeJoinSetAcceptanceRequest {
-    /**
-     *
-     */
-    acceptance: Acceptance;
+  /**
+   *
+   */
+  acceptance: Acceptance;
 }
 
 /**
@@ -52,441 +48,413 @@ export interface NodeJoinSetAcceptanceRequest {
  * @interface NodeJoinApiInterface
  */
 export interface NodeJoinApiInterface {
-    /**
-     * Creates request options for nodeJoinAcceptance without sending the request
-     * @throws {RequiredError}
-     * @memberof NodeJoinApiInterface
-     */
-    nodeJoinAcceptanceRequestOpts(): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for nodeJoinAcceptance without sending the request
+   * @throws {RequiredError}
+   * @memberof NodeJoinApiInterface
+   */
+  nodeJoinAcceptanceRequestOpts(): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof NodeJoinApiInterface
-     */
-    nodeJoinAcceptanceRaw(
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<Acceptance>>;
+  /**
+   *
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof NodeJoinApiInterface
+   */
+  nodeJoinAcceptanceRaw(
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<Acceptance>>;
 
-    /**
-     */
-    nodeJoinAcceptance(
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<Acceptance>;
+  /**
+   */
+  nodeJoinAcceptance(
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<Acceptance>;
 
-    /**
-     * Creates request options for nodeJoinApprove without sending the request
-     * @param {string} id Pending offer UUID
-     * @throws {RequiredError}
-     * @memberof NodeJoinApiInterface
-     */
-    nodeJoinApproveRequestOpts(
-        requestParameters: NodeJoinApproveRequest,
-    ): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for nodeJoinApprove without sending the request
+   * @param {string} id Pending offer UUID
+   * @throws {RequiredError}
+   * @memberof NodeJoinApiInterface
+   */
+  nodeJoinApproveRequestOpts(
+    requestParameters: NodeJoinApproveRequest
+  ): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {string} id Pending offer UUID
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof NodeJoinApiInterface
-     */
-    nodeJoinApproveRaw(
-        requestParameters: NodeJoinApproveRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<NodeJoinApproval>>;
+  /**
+   *
+   * @param {string} id Pending offer UUID
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof NodeJoinApiInterface
+   */
+  nodeJoinApproveRaw(
+    requestParameters: NodeJoinApproveRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<NodeJoinApproval>>;
 
-    /**
-     */
-    nodeJoinApprove(
-        requestParameters: NodeJoinApproveRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<NodeJoinApproval>;
+  /**
+   */
+  nodeJoinApprove(
+    requestParameters: NodeJoinApproveRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<NodeJoinApproval>;
 
-    /**
-     * Creates request options for nodeJoinPending without sending the request
-     * @throws {RequiredError}
-     * @memberof NodeJoinApiInterface
-     */
-    nodeJoinPendingRequestOpts(): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for nodeJoinPending without sending the request
+   * @throws {RequiredError}
+   * @memberof NodeJoinApiInterface
+   */
+  nodeJoinPendingRequestOpts(): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof NodeJoinApiInterface
-     */
-    nodeJoinPendingRaw(
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<any>>;
+  /**
+   *
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof NodeJoinApiInterface
+   */
+  nodeJoinPendingRaw(
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<any>>;
 
-    /**
-     */
-    nodeJoinPending(
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<any>;
+  /**
+   */
+  nodeJoinPending(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<any>;
 
-    /**
-     * Creates request options for nodeJoinReject without sending the request
-     * @param {string} id Pending offer UUID
-     * @throws {RequiredError}
-     * @memberof NodeJoinApiInterface
-     */
-    nodeJoinRejectRequestOpts(
-        requestParameters: NodeJoinRejectRequest,
-    ): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for nodeJoinReject without sending the request
+   * @param {string} id Pending offer UUID
+   * @throws {RequiredError}
+   * @memberof NodeJoinApiInterface
+   */
+  nodeJoinRejectRequestOpts(requestParameters: NodeJoinRejectRequest): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {string} id Pending offer UUID
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof NodeJoinApiInterface
-     */
-    nodeJoinRejectRaw(
-        requestParameters: NodeJoinRejectRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<void>>;
+  /**
+   *
+   * @param {string} id Pending offer UUID
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof NodeJoinApiInterface
+   */
+  nodeJoinRejectRaw(
+    requestParameters: NodeJoinRejectRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>>;
 
-    /**
-     */
-    nodeJoinReject(
-        requestParameters: NodeJoinRejectRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<void>;
+  /**
+   */
+  nodeJoinReject(
+    requestParameters: NodeJoinRejectRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<void>;
 
-    /**
-     * Creates request options for nodeJoinSetAcceptance without sending the request
-     * @param {Acceptance} acceptance
-     * @throws {RequiredError}
-     * @memberof NodeJoinApiInterface
-     */
-    nodeJoinSetAcceptanceRequestOpts(
-        requestParameters: NodeJoinSetAcceptanceRequest,
-    ): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for nodeJoinSetAcceptance without sending the request
+   * @param {Acceptance} acceptance
+   * @throws {RequiredError}
+   * @memberof NodeJoinApiInterface
+   */
+  nodeJoinSetAcceptanceRequestOpts(
+    requestParameters: NodeJoinSetAcceptanceRequest
+  ): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {Acceptance} acceptance
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof NodeJoinApiInterface
-     */
-    nodeJoinSetAcceptanceRaw(
-        requestParameters: NodeJoinSetAcceptanceRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<Acceptance>>;
+  /**
+   *
+   * @param {Acceptance} acceptance
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof NodeJoinApiInterface
+   */
+  nodeJoinSetAcceptanceRaw(
+    requestParameters: NodeJoinSetAcceptanceRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<Acceptance>>;
 
-    /**
-     */
-    nodeJoinSetAcceptance(
-        requestParameters: NodeJoinSetAcceptanceRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<Acceptance>;
+  /**
+   */
+  nodeJoinSetAcceptance(
+    requestParameters: NodeJoinSetAcceptanceRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<Acceptance>;
 }
 
 /**
  *
  */
-export class NodeJoinApi
-    extends runtime.BaseAPI
-    implements NodeJoinApiInterface
-{
-    /**
-     * Creates request options for nodeJoinAcceptance without sending the request
-     */
-    async nodeJoinAcceptanceRequestOpts(): Promise<runtime.RequestOpts> {
-        const queryParameters: any = {};
+export class NodeJoinApi extends runtime.BaseAPI implements NodeJoinApiInterface {
+  /**
+   * Creates request options for nodeJoinAcceptance without sending the request
+   */
+  async nodeJoinAcceptanceRequestOpts(): Promise<runtime.RequestOpts> {
+    const queryParameters: any = {};
 
-        const headerParameters: runtime.HTTPHeaders = {};
+    const headerParameters: runtime.HTTPHeaders = {};
 
-        if (this.configuration && this.configuration.accessToken) {
-            const token = this.configuration.accessToken;
-            const tokenString = await token("authorization", []);
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
 
-            if (tokenString) {
-                headerParameters["Authorization"] = `Bearer ${tokenString}`;
-            }
-        }
-
-        let urlPath = `/node-joins/acceptance`;
-
-        return {
-            path: urlPath,
-            method: "GET",
-            headers: headerParameters,
-            query: queryParameters,
-        };
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
     }
 
-    /**
-     */
-    async nodeJoinAcceptanceRaw(
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<Acceptance>> {
-        const requestOptions = await this.nodeJoinAcceptanceRequestOpts();
-        const response = await this.request(requestOptions, initOverrides);
+    let urlPath = `/node-joins/acceptance`;
 
-        return new runtime.JSONApiResponse(response, (jsonValue) =>
-            AcceptanceFromJSON(jsonValue),
-        );
+    return {
+      path: urlPath,
+      method: "GET",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
+
+  /**
+   */
+  async nodeJoinAcceptanceRaw(
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<Acceptance>> {
+    const requestOptions = await this.nodeJoinAcceptanceRequestOpts();
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.JSONApiResponse(response, (jsonValue) => AcceptanceFromJSON(jsonValue));
+  }
+
+  /**
+   */
+  async nodeJoinAcceptance(
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<Acceptance> {
+    const response = await this.nodeJoinAcceptanceRaw(initOverrides);
+    return await response.value();
+  }
+
+  /**
+   * Creates request options for nodeJoinApprove without sending the request
+   */
+  async nodeJoinApproveRequestOpts(
+    requestParameters: NodeJoinApproveRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["id"] == null) {
+      throw new runtime.RequiredError(
+        "id",
+        'Required parameter "id" was null or undefined when calling nodeJoinApprove().'
+      );
     }
 
-    /**
-     */
-    async nodeJoinAcceptance(
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<Acceptance> {
-        const response = await this.nodeJoinAcceptanceRaw(initOverrides);
-        return await response.value();
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
     }
 
-    /**
-     * Creates request options for nodeJoinApprove without sending the request
-     */
-    async nodeJoinApproveRequestOpts(
-        requestParameters: NodeJoinApproveRequest,
-    ): Promise<runtime.RequestOpts> {
-        if (requestParameters["id"] == null) {
-            throw new runtime.RequiredError(
-                "id",
-                'Required parameter "id" was null or undefined when calling nodeJoinApprove().',
-            );
-        }
+    let urlPath = `/node-joins/{id}/approve`;
+    urlPath = urlPath.replace("{id}", encodeURIComponent(String(requestParameters["id"])));
 
-        const queryParameters: any = {};
+    return {
+      path: urlPath,
+      method: "POST",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
 
-        const headerParameters: runtime.HTTPHeaders = {};
+  /**
+   */
+  async nodeJoinApproveRaw(
+    requestParameters: NodeJoinApproveRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<NodeJoinApproval>> {
+    const requestOptions = await this.nodeJoinApproveRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
 
-        if (this.configuration && this.configuration.accessToken) {
-            const token = this.configuration.accessToken;
-            const tokenString = await token("authorization", []);
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      NodeJoinApprovalFromJSON(jsonValue)
+    );
+  }
 
-            if (tokenString) {
-                headerParameters["Authorization"] = `Bearer ${tokenString}`;
-            }
-        }
+  /**
+   */
+  async nodeJoinApprove(
+    requestParameters: NodeJoinApproveRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<NodeJoinApproval> {
+    const response = await this.nodeJoinApproveRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
 
-        let urlPath = `/node-joins/{id}/approve`;
-        urlPath = urlPath.replace(
-            "{id}",
-            encodeURIComponent(String(requestParameters["id"])),
-        );
+  /**
+   * Creates request options for nodeJoinPending without sending the request
+   */
+  async nodeJoinPendingRequestOpts(): Promise<runtime.RequestOpts> {
+    const queryParameters: any = {};
 
-        return {
-            path: urlPath,
-            method: "POST",
-            headers: headerParameters,
-            query: queryParameters,
-        };
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
     }
 
-    /**
-     */
-    async nodeJoinApproveRaw(
-        requestParameters: NodeJoinApproveRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<NodeJoinApproval>> {
-        const requestOptions =
-            await this.nodeJoinApproveRequestOpts(requestParameters);
-        const response = await this.request(requestOptions, initOverrides);
+    let urlPath = `/node-joins/pending`;
 
-        return new runtime.JSONApiResponse(response, (jsonValue) =>
-            NodeJoinApprovalFromJSON(jsonValue),
-        );
+    return {
+      path: urlPath,
+      method: "GET",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
+
+  /**
+   */
+  async nodeJoinPendingRaw(
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<any>> {
+    const requestOptions = await this.nodeJoinPendingRequestOpts();
+    const response = await this.request(requestOptions, initOverrides);
+
+    if (this.isJsonMime(response.headers.get("content-type"))) {
+      return new runtime.JSONApiResponse<any>(response);
+    } else {
+      return new runtime.TextApiResponse(response) as any;
+    }
+  }
+
+  /**
+   */
+  async nodeJoinPending(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<any> {
+    const response = await this.nodeJoinPendingRaw(initOverrides);
+    return await response.value();
+  }
+
+  /**
+   * Creates request options for nodeJoinReject without sending the request
+   */
+  async nodeJoinRejectRequestOpts(
+    requestParameters: NodeJoinRejectRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["id"] == null) {
+      throw new runtime.RequiredError(
+        "id",
+        'Required parameter "id" was null or undefined when calling nodeJoinReject().'
+      );
     }
 
-    /**
-     */
-    async nodeJoinApprove(
-        requestParameters: NodeJoinApproveRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<NodeJoinApproval> {
-        const response = await this.nodeJoinApproveRaw(
-            requestParameters,
-            initOverrides,
-        );
-        return await response.value();
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
     }
 
-    /**
-     * Creates request options for nodeJoinPending without sending the request
-     */
-    async nodeJoinPendingRequestOpts(): Promise<runtime.RequestOpts> {
-        const queryParameters: any = {};
+    let urlPath = `/node-joins/{id}/reject`;
+    urlPath = urlPath.replace("{id}", encodeURIComponent(String(requestParameters["id"])));
 
-        const headerParameters: runtime.HTTPHeaders = {};
+    return {
+      path: urlPath,
+      method: "POST",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
 
-        if (this.configuration && this.configuration.accessToken) {
-            const token = this.configuration.accessToken;
-            const tokenString = await token("authorization", []);
+  /**
+   */
+  async nodeJoinRejectRaw(
+    requestParameters: NodeJoinRejectRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>> {
+    const requestOptions = await this.nodeJoinRejectRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
 
-            if (tokenString) {
-                headerParameters["Authorization"] = `Bearer ${tokenString}`;
-            }
-        }
+    return new runtime.VoidApiResponse(response);
+  }
 
-        let urlPath = `/node-joins/pending`;
+  /**
+   */
+  async nodeJoinReject(
+    requestParameters: NodeJoinRejectRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<void> {
+    await this.nodeJoinRejectRaw(requestParameters, initOverrides);
+  }
 
-        return {
-            path: urlPath,
-            method: "GET",
-            headers: headerParameters,
-            query: queryParameters,
-        };
+  /**
+   * Creates request options for nodeJoinSetAcceptance without sending the request
+   */
+  async nodeJoinSetAcceptanceRequestOpts(
+    requestParameters: NodeJoinSetAcceptanceRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["acceptance"] == null) {
+      throw new runtime.RequiredError(
+        "acceptance",
+        'Required parameter "acceptance" was null or undefined when calling nodeJoinSetAcceptance().'
+      );
     }
 
-    /**
-     */
-    async nodeJoinPendingRaw(
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<any>> {
-        const requestOptions = await this.nodeJoinPendingRequestOpts();
-        const response = await this.request(requestOptions, initOverrides);
+    const queryParameters: any = {};
 
-        if (this.isJsonMime(response.headers.get("content-type"))) {
-            return new runtime.JSONApiResponse<any>(response);
-        } else {
-            return new runtime.TextApiResponse(response) as any;
-        }
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    headerParameters["Content-Type"] = "application/json";
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
     }
 
-    /**
-     */
-    async nodeJoinPending(
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<any> {
-        const response = await this.nodeJoinPendingRaw(initOverrides);
-        return await response.value();
-    }
+    let urlPath = `/node-joins/acceptance`;
 
-    /**
-     * Creates request options for nodeJoinReject without sending the request
-     */
-    async nodeJoinRejectRequestOpts(
-        requestParameters: NodeJoinRejectRequest,
-    ): Promise<runtime.RequestOpts> {
-        if (requestParameters["id"] == null) {
-            throw new runtime.RequiredError(
-                "id",
-                'Required parameter "id" was null or undefined when calling nodeJoinReject().',
-            );
-        }
+    return {
+      path: urlPath,
+      method: "PUT",
+      headers: headerParameters,
+      query: queryParameters,
+      body: AcceptanceToJSON(requestParameters["acceptance"]),
+    };
+  }
 
-        const queryParameters: any = {};
+  /**
+   */
+  async nodeJoinSetAcceptanceRaw(
+    requestParameters: NodeJoinSetAcceptanceRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<Acceptance>> {
+    const requestOptions = await this.nodeJoinSetAcceptanceRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
 
-        const headerParameters: runtime.HTTPHeaders = {};
+    return new runtime.JSONApiResponse(response, (jsonValue) => AcceptanceFromJSON(jsonValue));
+  }
 
-        if (this.configuration && this.configuration.accessToken) {
-            const token = this.configuration.accessToken;
-            const tokenString = await token("authorization", []);
-
-            if (tokenString) {
-                headerParameters["Authorization"] = `Bearer ${tokenString}`;
-            }
-        }
-
-        let urlPath = `/node-joins/{id}/reject`;
-        urlPath = urlPath.replace(
-            "{id}",
-            encodeURIComponent(String(requestParameters["id"])),
-        );
-
-        return {
-            path: urlPath,
-            method: "POST",
-            headers: headerParameters,
-            query: queryParameters,
-        };
-    }
-
-    /**
-     */
-    async nodeJoinRejectRaw(
-        requestParameters: NodeJoinRejectRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<void>> {
-        const requestOptions =
-            await this.nodeJoinRejectRequestOpts(requestParameters);
-        const response = await this.request(requestOptions, initOverrides);
-
-        return new runtime.VoidApiResponse(response);
-    }
-
-    /**
-     */
-    async nodeJoinReject(
-        requestParameters: NodeJoinRejectRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<void> {
-        await this.nodeJoinRejectRaw(requestParameters, initOverrides);
-    }
-
-    /**
-     * Creates request options for nodeJoinSetAcceptance without sending the request
-     */
-    async nodeJoinSetAcceptanceRequestOpts(
-        requestParameters: NodeJoinSetAcceptanceRequest,
-    ): Promise<runtime.RequestOpts> {
-        if (requestParameters["acceptance"] == null) {
-            throw new runtime.RequiredError(
-                "acceptance",
-                'Required parameter "acceptance" was null or undefined when calling nodeJoinSetAcceptance().',
-            );
-        }
-
-        const queryParameters: any = {};
-
-        const headerParameters: runtime.HTTPHeaders = {};
-
-        headerParameters["Content-Type"] = "application/json";
-
-        if (this.configuration && this.configuration.accessToken) {
-            const token = this.configuration.accessToken;
-            const tokenString = await token("authorization", []);
-
-            if (tokenString) {
-                headerParameters["Authorization"] = `Bearer ${tokenString}`;
-            }
-        }
-
-        let urlPath = `/node-joins/acceptance`;
-
-        return {
-            path: urlPath,
-            method: "PUT",
-            headers: headerParameters,
-            query: queryParameters,
-            body: AcceptanceToJSON(requestParameters["acceptance"]),
-        };
-    }
-
-    /**
-     */
-    async nodeJoinSetAcceptanceRaw(
-        requestParameters: NodeJoinSetAcceptanceRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<Acceptance>> {
-        const requestOptions =
-            await this.nodeJoinSetAcceptanceRequestOpts(requestParameters);
-        const response = await this.request(requestOptions, initOverrides);
-
-        return new runtime.JSONApiResponse(response, (jsonValue) =>
-            AcceptanceFromJSON(jsonValue),
-        );
-    }
-
-    /**
-     */
-    async nodeJoinSetAcceptance(
-        requestParameters: NodeJoinSetAcceptanceRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<Acceptance> {
-        const response = await this.nodeJoinSetAcceptanceRaw(
-            requestParameters,
-            initOverrides,
-        );
-        return await response.value();
-    }
+  /**
+   */
+  async nodeJoinSetAcceptance(
+    requestParameters: NodeJoinSetAcceptanceRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<Acceptance> {
+    const response = await this.nodeJoinSetAcceptanceRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
 }

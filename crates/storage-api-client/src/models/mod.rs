@@ -77,6 +77,6 @@ pub use self::sql_value_one_of_6::SqlValueOneOf6;
 pub mod sync_connect_request;
 pub use self::sync_connect_request::SyncConnectRequest;
 pub mod sync_session_response;
-pub use self::sync_session_response::{SyncSessionResponse, Status};
+pub use self::sync_session_response::SyncSessionResponse;
 pub mod version_response;
 pub use self::version_response::VersionResponse;

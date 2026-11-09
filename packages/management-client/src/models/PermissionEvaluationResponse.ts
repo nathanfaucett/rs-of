@@ -15,17 +15,17 @@
 import { mapValues } from "../runtime.js";
 import type { PermissionEvaluationRequest } from "./PermissionEvaluationRequest.js";
 import {
-    PermissionEvaluationRequestFromJSON,
-    PermissionEvaluationRequestFromJSONTyped,
-    PermissionEvaluationRequestToJSON,
-    PermissionEvaluationRequestToJSONTyped,
+  PermissionEvaluationRequestFromJSON,
+  PermissionEvaluationRequestFromJSONTyped,
+  PermissionEvaluationRequestToJSON,
+  PermissionEvaluationRequestToJSONTyped,
 } from "./PermissionEvaluationRequest.js";
 import type { PermissionAuditIdentity } from "./PermissionAuditIdentity.js";
 import {
-    PermissionAuditIdentityFromJSON,
-    PermissionAuditIdentityFromJSONTyped,
-    PermissionAuditIdentityToJSON,
-    PermissionAuditIdentityToJSONTyped,
+  PermissionAuditIdentityFromJSON,
+  PermissionAuditIdentityFromJSONTyped,
+  PermissionAuditIdentityToJSON,
+  PermissionAuditIdentityToJSONTyped,
 } from "./PermissionAuditIdentity.js";
 
 /**
@@ -34,77 +34,71 @@ import {
  * @interface PermissionEvaluationResponse
  */
 export interface PermissionEvaluationResponse {
-    /**
-     *
-     */
-    allowed: boolean;
-    /**
-     *
-     */
-    audit: PermissionAuditIdentity;
-    /**
-     *
-     */
-    request: PermissionEvaluationRequest;
+  /**
+   *
+   */
+  allowed: boolean;
+  /**
+   *
+   */
+  audit: PermissionAuditIdentity;
+  /**
+   *
+   */
+  request: PermissionEvaluationRequest;
 }
 
 /**
  * Check if a given object implements the PermissionEvaluationResponse interface.
  */
 export function instanceOfPermissionEvaluationResponse(
-    value: object,
+  value: object
 ): value is PermissionEvaluationResponse {
-    if (!("allowed" in value) || value["allowed"] === undefined) return false;
-    if (!("audit" in value) || value["audit"] === undefined) return false;
-    if (!("request" in value) || value["request"] === undefined) return false;
-    return true;
+  if (!("allowed" in value) || value["allowed"] === undefined) return false;
+  if (!("audit" in value) || value["audit"] === undefined) return false;
+  if (!("request" in value) || value["request"] === undefined) return false;
+  return true;
 }
 
-export function PermissionEvaluationResponseFromJSON(
-    json: any,
-): PermissionEvaluationResponse {
-    return PermissionEvaluationResponseFromJSONTyped(json, false);
+export function PermissionEvaluationResponseFromJSON(json: any): PermissionEvaluationResponse {
+  return PermissionEvaluationResponseFromJSONTyped(json, false);
 }
 
 export function PermissionEvaluationResponseFromJSONTyped(
-    json: any,
-    ignoreDiscriminator: boolean,
+  json: any,
+  ignoreDiscriminator: boolean
 ): PermissionEvaluationResponse {
-    if (
-        json &&
-        typeof json === "object" &&
-        Object.keys(json).some(
-            (key) => !["allowed", "audit", "request"].includes(key),
-        )
-    )
-        throw new Error("Unexpected PermissionEvaluationResponse field");
-    if (json == null) {
-        return json;
-    }
-    return {
-        allowed: json["allowed"],
-        audit: PermissionAuditIdentityFromJSON(json["audit"]),
-        request: PermissionEvaluationRequestFromJSON(json["request"]),
-    };
+  if (
+    json &&
+    typeof json === "object" &&
+    Object.keys(json).some((key) => !["allowed", "audit", "request"].includes(key))
+  )
+    throw new Error("Unexpected PermissionEvaluationResponse field");
+  if (json == null) {
+    return json;
+  }
+  return {
+    allowed: json["allowed"],
+    audit: PermissionAuditIdentityFromJSON(json["audit"]),
+    request: PermissionEvaluationRequestFromJSON(json["request"]),
+  };
 }
 
-export function PermissionEvaluationResponseToJSON(
-    json: any,
-): PermissionEvaluationResponse {
-    return PermissionEvaluationResponseToJSONTyped(json, false);
+export function PermissionEvaluationResponseToJSON(json: any): PermissionEvaluationResponse {
+  return PermissionEvaluationResponseToJSONTyped(json, false);
 }
 
 export function PermissionEvaluationResponseToJSONTyped(
-    value?: PermissionEvaluationResponse | null,
-    ignoreDiscriminator: boolean = false,
+  value?: PermissionEvaluationResponse | null,
+  ignoreDiscriminator: boolean = false
 ): any {
-    if (value == null) {
-        return value;
-    }
+  if (value == null) {
+    return value;
+  }
 
-    return {
-        allowed: value["allowed"],
-        audit: PermissionAuditIdentityToJSON(value["audit"]),
-        request: PermissionEvaluationRequestToJSON(value["request"]),
-    };
+  return {
+    allowed: value["allowed"],
+    audit: PermissionAuditIdentityToJSON(value["audit"]),
+    request: PermissionEvaluationRequestToJSON(value["request"]),
+  };
 }

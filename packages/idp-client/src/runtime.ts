@@ -21,8 +21,7 @@ export interface ConfigurationParameters {
   queryParamsStringify?: (params: HTTPQuery) => string; // stringify function for query strings
   username?: string; // parameter for basic security
   password?: string; // parameter for basic security
-  apiKey?:
-    string | Promise<string> | ((name: string) => string | Promise<string>); // parameter for apiKey security
+  apiKey?: string | Promise<string> | ((name: string) => string | Promise<string>); // parameter for apiKey security
   accessToken?:
     | string
     | Promise<string>
@@ -32,19 +31,14 @@ export interface ConfigurationParameters {
 }
 
 export class Configuration {
-  private configuration: ConfigurationParameters;
-  constructor(configuration: ConfigurationParameters = {}) {
-    this.configuration = configuration;
-  }
+  constructor(private configuration: ConfigurationParameters = {}) {}
 
   set config(configuration: Configuration) {
     this.configuration = configuration;
   }
 
   get basePath(): string {
-    return this.configuration.basePath != null
-      ? this.configuration.basePath
-      : BASE_PATH;
+    return this.configuration.basePath != null ? this.configuration.basePath : BASE_PATH;
   }
 
   get fetchApi(): FetchAPI | undefined {
@@ -75,14 +69,10 @@ export class Configuration {
     return undefined;
   }
 
-  get accessToken():
-    | ((name?: string, scopes?: string[]) => string | Promise<string>)
-    | undefined {
+  get accessToken(): ((name?: string, scopes?: string[]) => string | Promise<string>) | undefined {
     const accessToken = this.configuration.accessToken;
     if (accessToken) {
-      return typeof accessToken === "function"
-        ? accessToken
-        : async () => accessToken;
+      return typeof accessToken === "function" ? accessToken : async () => accessToken;
     }
     return undefined;
   }
@@ -105,10 +95,8 @@ export class BaseAPI {
   private static readonly jsonRegex =
     /^(:?application\/json|[^;/ \t]+\/[^;/ \t]+[+]json)[ \t]*(:?;.*)?$/i;
   private middleware: Middleware[];
-  protected configuration: Configuration;
 
-  constructor(configuration = DefaultConfig) {
-    this.configuration = configuration;
+  constructor(protected configuration = DefaultConfig) {
     this.middleware = configuration.middleware;
   }
 
@@ -118,18 +106,12 @@ export class BaseAPI {
     return next;
   }
 
-  withPreMiddleware<T extends BaseAPI>(
-    this: T,
-    ...preMiddlewares: Array<Middleware["pre"]>
-  ) {
+  withPreMiddleware<T extends BaseAPI>(this: T, ...preMiddlewares: Array<Middleware["pre"]>) {
     const middlewares = preMiddlewares.map((pre) => ({ pre }));
     return this.withMiddleware<T>(...middlewares);
   }
 
-  withPostMiddleware<T extends BaseAPI>(
-    this: T,
-    ...postMiddlewares: Array<Middleware["post"]>
-  ) {
+  withPostMiddleware<T extends BaseAPI>(this: T, ...postMiddlewares: Array<Middleware["post"]>) {
     const middlewares = postMiddlewares.map((post) => ({ post }));
     return this.withMiddleware<T>(...middlewares);
   }
@@ -153,7 +135,7 @@ export class BaseAPI {
 
   protected async request(
     context: RequestOpts,
-    initOverrides?: RequestInit | InitOverrideFunction,
+    initOverrides?: RequestInit | InitOverrideFunction
   ): Promise<Response> {
     const { url, init } = await this.createFetchParams(context, initOverrides);
     const response = await this.fetchApi(url, init);
@@ -165,34 +147,21 @@ export class BaseAPI {
 
   private async createFetchParams(
     context: RequestOpts,
-    initOverrides?: RequestInit | InitOverrideFunction,
+    initOverrides?: RequestInit | InitOverrideFunction
   ) {
     let url = this.configuration.basePath + context.path;
-    if (
-      context.query !== undefined &&
-      Object.keys(context.query).length !== 0
-    ) {
+    if (context.query !== undefined && Object.keys(context.query).length !== 0) {
       // only add the querystring to the URL if there are query parameters.
       // this is done to avoid urls ending with a "?" character which buggy webservers
       // do not handle correctly sometimes.
-      url += `?${this.configuration.queryParamsStringify(context.query)}`;
+      url += "?" + this.configuration.queryParamsStringify(context.query);
     }
 
-    const headers = Object.assign(
-      {},
-      this.configuration.headers,
-      context.headers,
-    );
-    for (const key of Object.keys(headers)) {
-      if (headers[key] === undefined) {
-        delete headers[key];
-      }
-    }
+    const headers = Object.assign({}, this.configuration.headers, context.headers);
+    Object.keys(headers).forEach((key) => (headers[key] === undefined ? delete headers[key] : {}));
 
     const initOverrideFn =
-      typeof initOverrides === "function"
-        ? initOverrides
-        : async () => initOverrides;
+      typeof initOverrides === "function" ? initOverrides : async () => initOverrides;
 
     const initParams = {
       method: context.method,
@@ -209,7 +178,7 @@ export class BaseAPI {
       })),
     };
 
-    let body: unknown;
+    let body: any;
     if (
       isFormData(overriddenInit.body) ||
       overriddenInit.body instanceof URLSearchParams ||
@@ -241,12 +210,9 @@ export class BaseAPI {
           })) || fetchParams;
       }
     }
-    let response: Response | undefined;
+    let response: Response | undefined = undefined;
     try {
-      response = await (this.configuration.fetchApi || fetch)(
-        fetchParams.url,
-        fetchParams.init,
-      );
+      response = await (this.configuration.fetchApi || fetch)(fetchParams.url, fetchParams.init);
     } catch (e) {
       for (const middleware of this.middleware) {
         if (middleware.onError) {
@@ -264,7 +230,7 @@ export class BaseAPI {
         if (e instanceof Error) {
           throw new FetchError(
             e,
-            "The request failed and the interceptors did not return an alternative response",
+            "The request failed and the interceptors did not return an alternative response"
           );
         } else {
           throw e;
@@ -290,27 +256,28 @@ export class BaseAPI {
    * and then shallow cloning data members.
    */
   private clone<T extends BaseAPI>(this: T): T {
-    const Ctor = this.constructor as new (configuration: Configuration) => T;
-    const next = new Ctor(this.configuration);
+    const constructor = this.constructor as any;
+    const next = new constructor(this.configuration);
     next.middleware = this.middleware.slice();
     return next;
   }
 }
 
-function isBlob(value: unknown): value is Blob {
+function isBlob(value: any): value is Blob {
   return typeof Blob !== "undefined" && value instanceof Blob;
 }
 
-function isFormData(value: unknown): value is FormData {
+function isFormData(value: any): value is FormData {
   return typeof FormData !== "undefined" && value instanceof FormData;
 }
 
 export class ResponseError extends Error {
-  override readonly name = "ResponseError" as const;
-  readonly response: Response;
-  constructor(response: Response, msg?: string) {
+  override name: "ResponseError" = "ResponseError";
+  constructor(
+    public response: Response,
+    msg?: string
+  ) {
     super(msg);
-    this.response = response;
 
     // restore prototype chain
     const actualProto = new.target.prototype;
@@ -321,11 +288,12 @@ export class ResponseError extends Error {
 }
 
 export class FetchError extends Error {
-  override readonly name = "FetchError" as const;
-  readonly cause: Error;
-  constructor(cause: Error, msg?: string) {
+  override name: "FetchError" = "FetchError";
+  constructor(
+    public cause: Error,
+    msg?: string
+  ) {
     super(msg);
-    this.cause = cause;
 
     // restore prototype chain
     const actualProto = new.target.prototype;
@@ -336,11 +304,12 @@ export class FetchError extends Error {
 }
 
 export class RequiredError extends Error {
-  override readonly name = "RequiredError" as const;
-  readonly field: string;
-  constructor(field: string, msg?: string) {
+  override name: "RequiredError" = "RequiredError";
+  constructor(
+    public field: string,
+    msg?: string
+  ) {
     super(msg);
-    this.field = field;
 
     // restore prototype chain
     const actualProto = new.target.prototype;
@@ -359,9 +328,8 @@ export const COLLECTION_FORMATS = {
 
 export type FetchAPI = WindowOrWorkerGlobalScope["fetch"];
 
-export type Json = unknown;
-export type HTTPMethod =
-  "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
+export type Json = any;
+export type HTTPMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
 export type HTTPHeaders = { [key: string]: string };
 export type HTTPQuery = {
   [key: string]:
@@ -380,8 +348,7 @@ export type HTTPRequestInit = {
   credentials?: RequestCredentials;
   body?: HTTPBody;
 };
-export type ModelPropertyNaming =
-  "camelCase" | "snake_case" | "PascalCase" | "original";
+export type ModelPropertyNaming = "camelCase" | "snake_case" | "PascalCase" | "original";
 
 export type InitOverrideFunction = (requestContext: {
   init: HTTPRequestInit;
@@ -419,10 +386,10 @@ function querystringSingleKey(
     | Array<string | number | null | boolean>
     | Set<string | number | null | boolean>
     | HTTPQuery,
-  keyPrefix: string = "",
+  keyPrefix: string = ""
 ): string {
   const fullKey = keyPrefix + (keyPrefix.length ? `[${key}]` : key);
-  if (Array.isArray(value)) {
+  if (value instanceof Array) {
     const multiValue = value
       .map((singleValue) => encodeURIComponent(String(singleValue)))
       .join(`&${encodeURIComponent(fullKey)}=`);
@@ -441,8 +408,8 @@ function querystringSingleKey(
   return `${encodeURIComponent(fullKey)}=${encodeURIComponent(String(value))}`;
 }
 
-export function exists(json: unknown, key: string): boolean {
-  const value = (json as Record<string, unknown>)[key];
+export function exists(json: any, key: string) {
+  const value = json[key];
   return value !== null && value !== undefined;
 }
 
@@ -458,12 +425,12 @@ export function serializeDateTime(value: Date): string {
 }
 
 export function serializeDate(value: Date): string {
-  if (Number.isNaN(value.getTime())) {
+  if (isNaN(value.getTime())) {
     throw new RangeError("Invalid time value");
   }
-  const year = `000${value.getFullYear()}`.slice(-4);
-  const month = `0${value.getMonth() + 1}`.slice(-2);
-  const day = `0${value.getDate()}`.slice(-2);
+  const year = ("000" + value.getFullYear()).slice(-4);
+  const month = ("0" + (value.getMonth() + 1)).slice(-2);
+  const day = ("0" + value.getDate()).slice(-2);
   return `${year}-${month}-${day}`;
 }
 
@@ -484,11 +451,7 @@ export function parseDate(value: Date | string): Date {
     date.setHours(0, 0, 0, 0);
     // Out-of-range components (or a day the local zone skipped) silently roll over,
     // which would hand back a date the server never sent.
-    if (
-      date.getFullYear() !== year ||
-      date.getMonth() !== month ||
-      date.getDate() !== day
-    ) {
+    if (date.getFullYear() !== year || date.getMonth() !== month || date.getDate() !== day) {
       return new Date(NaN);
     }
     return date;
@@ -496,29 +459,26 @@ export function parseDate(value: Date | string): Date {
   return new Date(value);
 }
 
-export function parseDateTime(value: unknown): Date {
-  return new Date(value as string | number | Date);
+export function parseDateTime(value: any): Date {
+  return new Date(value);
 }
 
-export function mapValues(
-  data: unknown,
-  fn: (item: unknown) => unknown,
-): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  for (const key of Object.keys(data as Record<string, unknown>)) {
-    result[key] = fn((data as Record<string, unknown>)[key]);
+export function mapValues(data: any, fn: (item: any) => any) {
+  const result: { [key: string]: any } = {};
+  for (const key of Object.keys(data)) {
+    result[key] = fn(data[key]);
   }
   return result;
 }
 
-// Pass-through serializer for `unknown`-typed properties in form data. See #1877.
-export function anyToJSON(value: unknown): unknown {
+// Pass-through serializer for `any`-typed properties in form data. See #1877.
+export function anyToJSON(value: any): any {
   return value;
 }
 
 export function canConsumeForm(consumes: Consume[]): boolean {
   for (const consume of consumes) {
-    if (consume.contentType?.startsWith("multipart/form-data") === true) {
+    if (consume.contentType?.startsWith("multipart/form-data") == true) {
       return true;
     }
   }
@@ -530,98 +490,72 @@ export interface Consume {
 }
 
 export interface RequestContext {
-  path: string;
-  method: HTTPMethod;
-  query: HTTPQuery;
-  headers: HTTPHeaders;
-  body: HTTPBody;
-}
-
-export interface ResponseContext {
-  response: Response;
-  body: HTTPBody;
-  headers: HTTPHeaders;
-}
-
-export interface ErrorContext {
-  error: Error;
-  response: Response | undefined;
+  fetch: FetchAPI;
+  url: string;
   init: RequestInit;
 }
 
-export interface Middleware {
-  pre?: (context: {
-    fetch: FetchAPI;
-    url: string;
-    init: RequestInit;
-  }) => Promise<{ url: string; init: RequestInit } | undefined>;
-  post?: (context: {
-    fetch: FetchAPI;
-    url: string;
-    init: RequestInit;
-    response: Response;
-  }) => Promise<Response | undefined>;
-  onError?: (context: {
-    fetch: FetchAPI;
-    url: string;
-    init: RequestInit;
-    error: unknown;
-    response: Response | undefined;
-  }) => Promise<Response | undefined>;
-}
-
-export interface ApiResponse<T = unknown> {
-  value: T;
+export interface ResponseContext {
+  fetch: FetchAPI;
+  url: string;
+  init: RequestInit;
   response: Response;
 }
 
-export type ResponseTransformer<T = unknown> = (
-  context: ResponseContext,
-) => Promise<ApiResponse<T>>;
+export interface ErrorContext {
+  fetch: FetchAPI;
+  url: string;
+  init: RequestInit;
+  error: unknown;
+  response?: Response;
+}
 
-export class JSONApiResponse<T = unknown> implements ApiResponse<T> {
-  readonly value: T;
-  readonly response: Response;
-  constructor(response: Response, value: T) {
-    this.response = response;
-    this.value = value;
-  }
-  async valueOf(): Promise<T> {
-    return this.value;
+export interface Middleware {
+  pre?(context: RequestContext): Promise<FetchParams | void>;
+  post?(context: ResponseContext): Promise<Response | void>;
+  onError?(context: ErrorContext): Promise<Response | void>;
+}
+
+export interface ApiResponse<T> {
+  raw: Response;
+  value(): Promise<T>;
+}
+
+export interface ResponseTransformer<T> {
+  (json: any): T;
+}
+
+export class JSONApiResponse<T> {
+  constructor(
+    public raw: Response,
+    private transformer: ResponseTransformer<T> = (jsonValue: any) => jsonValue
+  ) {}
+
+  async value(): Promise<T> {
+    return this.transformer(await this.raw.json());
   }
 }
 
-export class VoidApiResponse implements ApiResponse<void> {
-  readonly value = undefined;
-  readonly response: Response;
-  constructor(response: Response) {
-    this.response = response;
-  }
-  async valueOf(): Promise<void> {
-    return;
+export class VoidApiResponse {
+  constructor(public raw: Response) {}
+
+  async value(): Promise<void> {
+    return undefined;
   }
 }
 
-export class BlobApiResponse implements ApiResponse<Blob> {
-  readonly value: Blob;
-  readonly response: Response;
-  constructor(response: Response, value: Blob) {
-    this.response = response;
-    this.value = value;
-  }
-  async valueOf(): Promise<Blob> {
-    return this.value;
+export class BlobApiResponse {
+  constructor(public raw: Response) {}
+
+  async value(): Promise<Blob> {
+    return await this.raw.blob();
   }
 }
 
-export class TextApiResponse implements ApiResponse<string> {
-  readonly value: string;
-  readonly response: Response;
-  constructor(response: Response, value: string) {
-    this.response = response;
-    this.value = value;
-  }
-  async valueOf(): Promise<string> {
-    return this.value;
+export class TextApiResponse {
+  constructor(public raw: Response) {}
+
+  async value(): Promise<string> {
+    return await this.raw.text();
   }
 }

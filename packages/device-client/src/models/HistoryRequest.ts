@@ -15,10 +15,10 @@
 import { mapValues } from "../runtime.js";
 import type { IndependentJoinApproval } from "./IndependentJoinApproval.js";
 import {
-    IndependentJoinApprovalFromJSON,
-    IndependentJoinApprovalFromJSONTyped,
-    IndependentJoinApprovalToJSON,
-    IndependentJoinApprovalToJSONTyped,
+  IndependentJoinApprovalFromJSON,
+  IndependentJoinApprovalFromJSONTyped,
+  IndependentJoinApprovalToJSON,
+  IndependentJoinApprovalToJSONTyped,
 } from "./IndependentJoinApproval.js";
 
 /**
@@ -27,80 +27,75 @@ import {
  * @interface HistoryRequest
  */
 export interface HistoryRequest {
-    /**
-     *
-     */
-    approval: IndependentJoinApproval;
-    /**
-     *
-     */
-    recipient: string;
-    /**
-     *
-     */
-    returnNonce: string;
+  /**
+   *
+   */
+  approval: IndependentJoinApproval;
+  /**
+   *
+   */
+  recipient: string;
+  /**
+   *
+   */
+  returnNonce: string;
 }
 
 /**
  * Check if a given object implements the HistoryRequest interface.
  */
-export function instanceOfHistoryRequest(
-    value: object,
-): value is HistoryRequest {
-    if (!("approval" in value) || value["approval"] === undefined) return false;
-    if (!("recipient" in value) || value["recipient"] === undefined)
-        return false;
-    if (
-        (!("returnNonce" in (value as Record<string, any>)) &&
-            !("return_nonce" in (value as Record<string, any>))) ||
-        ((value as Record<string, any>)["returnNonce"] === undefined &&
-            (value as Record<string, any>)["return_nonce"] === undefined)
-    )
-        return false;
-    return true;
+export function instanceOfHistoryRequest(value: object): value is HistoryRequest {
+  if (!("approval" in value) || value["approval"] === undefined) return false;
+  if (!("recipient" in value) || value["recipient"] === undefined) return false;
+  if (
+    (!("returnNonce" in (value as Record<string, any>)) &&
+      !("return_nonce" in (value as Record<string, any>))) ||
+    ((value as Record<string, any>)["returnNonce"] === undefined &&
+      (value as Record<string, any>)["return_nonce"] === undefined)
+  )
+    return false;
+  return true;
 }
 
 export function HistoryRequestFromJSON(json: any): HistoryRequest {
-    return HistoryRequestFromJSONTyped(json, false);
+  return HistoryRequestFromJSONTyped(json, false);
 }
 
 export function HistoryRequestFromJSONTyped(
-    json: any,
-    ignoreDiscriminator: boolean,
+  json: any,
+  ignoreDiscriminator: boolean
 ): HistoryRequest {
-    if (
-        json &&
-        typeof json === "object" &&
-        Object.keys(json).some(
-            (key) => !["approval", "recipient", "return_nonce"].includes(key),
-        )
-    )
-        throw new Error("Unexpected HistoryRequest field");
-    if (json == null) {
-        return json;
-    }
-    return {
-        approval: IndependentJoinApprovalFromJSON(json["approval"]),
-        recipient: json["recipient"],
-        returnNonce: json["return_nonce"],
-    };
+  if (
+    json &&
+    typeof json === "object" &&
+    Object.keys(json).some((key) => !["approval", "recipient", "return_nonce"].includes(key))
+  )
+    throw new Error("Unexpected HistoryRequest field");
+  if (json == null) {
+    return json;
+  }
+  return {
+    approval: IndependentJoinApprovalFromJSON(json["approval"]),
+    recipient: json["recipient"],
+    returnNonce: json["return_nonce"],
+  };
 }
 
 export function HistoryRequestToJSON(json: any): HistoryRequest {
-    return HistoryRequestToJSONTyped(json, false);
+  return HistoryRequestToJSONTyped(json, false);
 }
 
 export function HistoryRequestToJSONTyped(
-    value?: HistoryRequest | null,
-    ignoreDiscriminator: boolean = false,
+  value?: HistoryRequest | null,
+  ignoreDiscriminator: boolean = false
 ): any {
-    if (value == null) {
-        return value;
-    }
+  if (value == null) {
+    return value;
+  }
 
-    return {
-        approval: IndependentJoinApprovalToJSON(value["approval"]),
-        recipient: value["recipient"],
-        return_nonce: value["returnNonce"],
-    };
+  return {
+    approval: IndependentJoinApprovalToJSON(value["approval"]),
+    recipient: value["recipient"],
+    return_nonce: value["returnNonce"],
+  };
 }

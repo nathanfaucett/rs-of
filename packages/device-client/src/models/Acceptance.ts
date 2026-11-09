@@ -19,56 +19,52 @@ import { mapValues } from "../runtime.js";
  * @interface Acceptance
  */
 export interface Acceptance {
-    /**
-     *
-     */
-    accepting: boolean;
+  /**
+   *
+   */
+  accepting: boolean;
 }
 
 /**
  * Check if a given object implements the Acceptance interface.
  */
 export function instanceOfAcceptance(value: object): value is Acceptance {
-    if (!("accepting" in value) || value["accepting"] === undefined)
-        return false;
-    return true;
+  if (!("accepting" in value) || value["accepting"] === undefined) return false;
+  return true;
 }
 
 export function AcceptanceFromJSON(json: any): Acceptance {
-    return AcceptanceFromJSONTyped(json, false);
+  return AcceptanceFromJSONTyped(json, false);
 }
 
-export function AcceptanceFromJSONTyped(
-    json: any,
-    ignoreDiscriminator: boolean,
-): Acceptance {
-    if (
-        json &&
-        typeof json === "object" &&
-        Object.keys(json).some((key) => !["accepting"].includes(key))
-    )
-        throw new Error("Unexpected Acceptance field");
-    if (json == null) {
-        return json;
-    }
-    return {
-        accepting: json["accepting"],
-    };
+export function AcceptanceFromJSONTyped(json: any, ignoreDiscriminator: boolean): Acceptance {
+  if (
+    json &&
+    typeof json === "object" &&
+    Object.keys(json).some((key) => !["accepting"].includes(key))
+  )
+    throw new Error("Unexpected Acceptance field");
+  if (json == null) {
+    return json;
+  }
+  return {
+    accepting: json["accepting"],
+  };
 }
 
 export function AcceptanceToJSON(json: any): Acceptance {
-    return AcceptanceToJSONTyped(json, false);
+  return AcceptanceToJSONTyped(json, false);
 }
 
 export function AcceptanceToJSONTyped(
-    value?: Acceptance | null,
-    ignoreDiscriminator: boolean = false,
+  value?: Acceptance | null,
+  ignoreDiscriminator: boolean = false
 ): any {
-    if (value == null) {
-        return value;
-    }
+  if (value == null) {
+    return value;
+  }
 
-    return {
-        accepting: value["accepting"],
-    };
+  return {
+    accepting: value["accepting"],
+  };
 }

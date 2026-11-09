@@ -19,98 +19,86 @@ import { mapValues } from "../runtime.js";
  * @interface OwnerCopyCleanup
  */
 export interface OwnerCopyCleanup {
-    /**
-     *
-     */
-    cleanupId: string;
-    /**
-     *
-     */
-    deviceId: string;
-    /**
-     *
-     */
-    endpointId: string;
-    /**
-     *
-     */
-    newOwnerSubject: string;
-    /**
-     *
-     */
-    oldOwnerSubject: string;
+  /**
+   *
+   */
+  cleanupId: string;
+  /**
+   *
+   */
+  deviceId: string;
+  /**
+   *
+   */
+  endpointId: string;
+  /**
+   *
+   */
+  newOwnerSubject: string;
+  /**
+   *
+   */
+  oldOwnerSubject: string;
 }
 
 /**
  * Check if a given object implements the OwnerCopyCleanup interface.
  */
-export function instanceOfOwnerCopyCleanup(
-    value: object,
-): value is OwnerCopyCleanup {
-    if (!("cleanupId" in value) || value["cleanupId"] === undefined)
-        return false;
-    if (!("deviceId" in value) || value["deviceId"] === undefined) return false;
-    if (!("endpointId" in value) || value["endpointId"] === undefined)
-        return false;
-    if (!("newOwnerSubject" in value) || value["newOwnerSubject"] === undefined)
-        return false;
-    if (!("oldOwnerSubject" in value) || value["oldOwnerSubject"] === undefined)
-        return false;
-    return true;
+export function instanceOfOwnerCopyCleanup(value: object): value is OwnerCopyCleanup {
+  if (!("cleanupId" in value) || value["cleanupId"] === undefined) return false;
+  if (!("deviceId" in value) || value["deviceId"] === undefined) return false;
+  if (!("endpointId" in value) || value["endpointId"] === undefined) return false;
+  if (!("newOwnerSubject" in value) || value["newOwnerSubject"] === undefined) return false;
+  if (!("oldOwnerSubject" in value) || value["oldOwnerSubject"] === undefined) return false;
+  return true;
 }
 
 export function OwnerCopyCleanupFromJSON(json: any): OwnerCopyCleanup {
-    return OwnerCopyCleanupFromJSONTyped(json, false);
+  return OwnerCopyCleanupFromJSONTyped(json, false);
 }
 
 export function OwnerCopyCleanupFromJSONTyped(
-    json: any,
-    ignoreDiscriminator: boolean,
+  json: any,
+  ignoreDiscriminator: boolean
 ): OwnerCopyCleanup {
-    if (
-        json &&
-        typeof json === "object" &&
-        Object.keys(json).some(
-            (key) =>
-                ![
-                    "cleanupId",
-                    "deviceId",
-                    "endpointId",
-                    "newOwnerSubject",
-                    "oldOwnerSubject",
-                ].includes(key),
-        )
+  if (
+    json &&
+    typeof json === "object" &&
+    Object.keys(json).some(
+      (key) =>
+        !["cleanupId", "deviceId", "endpointId", "newOwnerSubject", "oldOwnerSubject"].includes(key)
     )
-        throw new Error("Unexpected OwnerCopyCleanup field");
-    if (json == null) {
-        return json;
-    }
-    return {
-        cleanupId: json["cleanupId"],
-        deviceId: json["deviceId"],
-        endpointId: json["endpointId"],
-        newOwnerSubject: json["newOwnerSubject"],
-        oldOwnerSubject: json["oldOwnerSubject"],
-    };
+  )
+    throw new Error("Unexpected OwnerCopyCleanup field");
+  if (json == null) {
+    return json;
+  }
+  return {
+    cleanupId: json["cleanupId"],
+    deviceId: json["deviceId"],
+    endpointId: json["endpointId"],
+    newOwnerSubject: json["newOwnerSubject"],
+    oldOwnerSubject: json["oldOwnerSubject"],
+  };
 }
 
 export function OwnerCopyCleanupToJSON(json: any): OwnerCopyCleanup {
-    return OwnerCopyCleanupToJSONTyped(json, false);
+  return OwnerCopyCleanupToJSONTyped(json, false);
 }
 
 export function OwnerCopyCleanupToJSONTyped(
-    value?: OwnerCopyCleanup | null,
-    ignoreDiscriminator: boolean = false,
+  value?: OwnerCopyCleanup | null,
+  ignoreDiscriminator: boolean = false
 ): any {
-    if (value == null) {
-        return value;
-    }
+  if (value == null) {
+    return value;
+  }
 
-    return {
-        cleanupId: value["cleanupId"],
-        deviceId: value["deviceId"],
-        endpointId: value["endpointId"],
-        newOwnerSubject: value["newOwnerSubject"],
-        oldOwnerSubject: value["oldOwnerSubject"],
-    };
+  return {
+    cleanupId: value["cleanupId"],
+    deviceId: value["deviceId"],
+    endpointId: value["endpointId"],
+    newOwnerSubject: value["newOwnerSubject"],
+    oldOwnerSubject: value["oldOwnerSubject"],
+  };
 }

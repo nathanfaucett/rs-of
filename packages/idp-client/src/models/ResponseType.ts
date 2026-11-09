@@ -18,39 +18,33 @@
  * @export
  */
 export const ResponseType = {
-    Code: "code",
+  Code: "code",
 } as const;
 export type ResponseType = (typeof ResponseType)[keyof typeof ResponseType];
 
 export function instanceOfResponseType(value: any): boolean {
-    for (const key in ResponseType) {
-        if (Object.prototype.hasOwnProperty.call(ResponseType, key)) {
-            if (ResponseType[key as keyof typeof ResponseType] === value) {
-                return true;
-            }
-        }
+  for (const key in ResponseType) {
+    if (Object.prototype.hasOwnProperty.call(ResponseType, key)) {
+      if (ResponseType[key as keyof typeof ResponseType] === value) {
+        return true;
+      }
     }
-    return false;
+  }
+  return false;
 }
 
 export function ResponseTypeFromJSON(json: any): ResponseType {
-    return ResponseTypeFromJSONTyped(json, false);
+  return ResponseTypeFromJSONTyped(json, false);
 }
 
-export function ResponseTypeFromJSONTyped(
-    json: any,
-    ignoreDiscriminator: boolean,
-): ResponseType {
-    return json as ResponseType;
+export function ResponseTypeFromJSONTyped(json: any, ignoreDiscriminator: boolean): ResponseType {
+  return json as ResponseType;
 }
 
 export function ResponseTypeToJSON(value?: ResponseType | null): any {
-    return value as any;
+  return value as any;
 }
 
-export function ResponseTypeToJSONTyped(
-    value: any,
-    ignoreDiscriminator: boolean,
-): ResponseType {
-    return value as ResponseType;
+export function ResponseTypeToJSONTyped(value: any, ignoreDiscriminator: boolean): ResponseType {
+  return value as ResponseType;
 }

@@ -15,10 +15,10 @@
 import { mapValues } from "../runtime.js";
 import type { IndependentCreateIntent } from "./IndependentCreateIntent.js";
 import {
-    IndependentCreateIntentFromJSON,
-    IndependentCreateIntentFromJSONTyped,
-    IndependentCreateIntentToJSON,
-    IndependentCreateIntentToJSONTyped,
+  IndependentCreateIntentFromJSON,
+  IndependentCreateIntentFromJSONTyped,
+  IndependentCreateIntentToJSON,
+  IndependentCreateIntentToJSONTyped,
 } from "./IndependentCreateIntent.js";
 
 /**
@@ -27,88 +27,75 @@ import {
  * @interface Registration
  */
 export interface Registration {
-    /**
-     *
-     */
-    challenge: string;
-    /**
-     *
-     */
-    operation: IndependentCreateIntent;
-    /**
-     *
-     */
-    recipient: string;
-    /**
-     *
-     */
-    registration: any | null;
+  /**
+   *
+   */
+  challenge: string;
+  /**
+   *
+   */
+  operation: IndependentCreateIntent;
+  /**
+   *
+   */
+  recipient: string;
+  /**
+   *
+   */
+  registration: any | null;
 }
 
 /**
  * Check if a given object implements the Registration interface.
  */
 export function instanceOfRegistration(value: object): value is Registration {
-    if (!("challenge" in value) || value["challenge"] === undefined)
-        return false;
-    if (!("operation" in value) || value["operation"] === undefined)
-        return false;
-    if (!("recipient" in value) || value["recipient"] === undefined)
-        return false;
-    if (!("registration" in value) || value["registration"] === undefined)
-        return false;
-    return true;
+  if (!("challenge" in value) || value["challenge"] === undefined) return false;
+  if (!("operation" in value) || value["operation"] === undefined) return false;
+  if (!("recipient" in value) || value["recipient"] === undefined) return false;
+  if (!("registration" in value) || value["registration"] === undefined) return false;
+  return true;
 }
 
 export function RegistrationFromJSON(json: any): Registration {
-    return RegistrationFromJSONTyped(json, false);
+  return RegistrationFromJSONTyped(json, false);
 }
 
-export function RegistrationFromJSONTyped(
-    json: any,
-    ignoreDiscriminator: boolean,
-): Registration {
-    if (
-        json &&
-        typeof json === "object" &&
-        Object.keys(json).some(
-            (key) =>
-                ![
-                    "challenge",
-                    "operation",
-                    "recipient",
-                    "registration",
-                ].includes(key),
-        )
+export function RegistrationFromJSONTyped(json: any, ignoreDiscriminator: boolean): Registration {
+  if (
+    json &&
+    typeof json === "object" &&
+    Object.keys(json).some(
+      (key) => !["challenge", "operation", "recipient", "registration"].includes(key)
     )
-        throw new Error("Unexpected Registration field");
-    if (json == null) {
-        return json;
-    }
-    return {
-        challenge: json["challenge"],
-        operation: IndependentCreateIntentFromJSON(json["operation"]),
-        recipient: json["recipient"],
-        registration: json["registration"],
-    };
+  )
+    throw new Error("Unexpected Registration field");
+  if (json == null) {
+    return json;
+  }
+  return {
+    challenge: json["challenge"],
+    operation: IndependentCreateIntentFromJSON(json["operation"]),
+    recipient: json["recipient"],
+    registration: json["registration"],
+  };
 }
 
 export function RegistrationToJSON(json: any): Registration {
-    return RegistrationToJSONTyped(json, false);
+  return RegistrationToJSONTyped(json, false);
 }
 
 export function RegistrationToJSONTyped(
-    value?: Registration | null,
-    ignoreDiscriminator: boolean = false,
+  value?: Registration | null,
+  ignoreDiscriminator: boolean = false
 ): any {
-    if (value == null) {
-        return value;
-    }
+  if (value == null) {
+    return value;
+  }
 
-    return {
-        challenge: value["challenge"],
-        operation: IndependentCreateIntentToJSON(value["operation"]),
-        recipient: value["recipient"],
-        registration: value["registration"],
-    };
+  return {
+    challenge: value["challenge"],
+    operation: IndependentCreateIntentToJSON(value["operation"]),
+    recipient: value["recipient"],
+    registration: value["registration"],
+  };
 }

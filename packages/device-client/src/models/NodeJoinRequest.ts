@@ -15,10 +15,10 @@
 import { mapValues } from "../runtime.js";
 import type { JwkPublic } from "./JwkPublic.js";
 import {
-    JwkPublicFromJSON,
-    JwkPublicFromJSONTyped,
-    JwkPublicToJSON,
-    JwkPublicToJSONTyped,
+  JwkPublicFromJSON,
+  JwkPublicFromJSONTyped,
+  JwkPublicToJSON,
+  JwkPublicToJSONTyped,
 } from "./JwkPublic.js";
 
 /**
@@ -27,135 +27,132 @@ import {
  * @interface NodeJoinRequest
  */
 export interface NodeJoinRequest {
-    /**
-     *
-     */
-    approvingPeer: string;
-    /**
-     *
-     */
-    endpointId: string;
-    /**
-     *
-     */
-    installation: string;
-    /**
-     *
-     */
-    memberId: string;
-    /**
-     *
-     */
-    name: string;
-    /**
-     *
-     */
-    publicSigner: JwkPublic;
-    /**
-     *
-     */
-    purpose: string;
+  /**
+   *
+   */
+  approvingPeer: string;
+  /**
+   *
+   */
+  endpointId: string;
+  /**
+   *
+   */
+  installation: string;
+  /**
+   *
+   */
+  memberId: string;
+  /**
+   *
+   */
+  name: string;
+  /**
+   *
+   */
+  publicSigner: JwkPublic;
+  /**
+   *
+   */
+  purpose: string;
 }
 
 /**
  * Check if a given object implements the NodeJoinRequest interface.
  */
-export function instanceOfNodeJoinRequest(
-    value: object,
-): value is NodeJoinRequest {
-    if (
-        (!("approvingPeer" in (value as Record<string, any>)) &&
-            !("approving_peer" in (value as Record<string, any>))) ||
-        ((value as Record<string, any>)["approvingPeer"] === undefined &&
-            (value as Record<string, any>)["approving_peer"] === undefined)
-    )
-        return false;
-    if (
-        (!("endpointId" in (value as Record<string, any>)) &&
-            !("endpoint_id" in (value as Record<string, any>))) ||
-        ((value as Record<string, any>)["endpointId"] === undefined &&
-            (value as Record<string, any>)["endpoint_id"] === undefined)
-    )
-        return false;
-    if (!("installation" in value) || value["installation"] === undefined)
-        return false;
-    if (
-        (!("memberId" in (value as Record<string, any>)) &&
-            !("member_id" in (value as Record<string, any>))) ||
-        ((value as Record<string, any>)["memberId"] === undefined &&
-            (value as Record<string, any>)["member_id"] === undefined)
-    )
-        return false;
-    if (!("name" in value) || value["name"] === undefined) return false;
-    if (
-        (!("publicSigner" in (value as Record<string, any>)) &&
-            !("public_signer" in (value as Record<string, any>))) ||
-        ((value as Record<string, any>)["publicSigner"] === undefined &&
-            (value as Record<string, any>)["public_signer"] === undefined)
-    )
-        return false;
-    if (!("purpose" in value) || value["purpose"] === undefined) return false;
-    return true;
+export function instanceOfNodeJoinRequest(value: object): value is NodeJoinRequest {
+  if (
+    (!("approvingPeer" in (value as Record<string, any>)) &&
+      !("approving_peer" in (value as Record<string, any>))) ||
+    ((value as Record<string, any>)["approvingPeer"] === undefined &&
+      (value as Record<string, any>)["approving_peer"] === undefined)
+  )
+    return false;
+  if (
+    (!("endpointId" in (value as Record<string, any>)) &&
+      !("endpoint_id" in (value as Record<string, any>))) ||
+    ((value as Record<string, any>)["endpointId"] === undefined &&
+      (value as Record<string, any>)["endpoint_id"] === undefined)
+  )
+    return false;
+  if (!("installation" in value) || value["installation"] === undefined) return false;
+  if (
+    (!("memberId" in (value as Record<string, any>)) &&
+      !("member_id" in (value as Record<string, any>))) ||
+    ((value as Record<string, any>)["memberId"] === undefined &&
+      (value as Record<string, any>)["member_id"] === undefined)
+  )
+    return false;
+  if (!("name" in value) || value["name"] === undefined) return false;
+  if (
+    (!("publicSigner" in (value as Record<string, any>)) &&
+      !("public_signer" in (value as Record<string, any>))) ||
+    ((value as Record<string, any>)["publicSigner"] === undefined &&
+      (value as Record<string, any>)["public_signer"] === undefined)
+  )
+    return false;
+  if (!("purpose" in value) || value["purpose"] === undefined) return false;
+  return true;
 }
 
 export function NodeJoinRequestFromJSON(json: any): NodeJoinRequest {
-    return NodeJoinRequestFromJSONTyped(json, false);
+  return NodeJoinRequestFromJSONTyped(json, false);
 }
 
 export function NodeJoinRequestFromJSONTyped(
-    json: any,
-    ignoreDiscriminator: boolean,
+  json: any,
+  ignoreDiscriminator: boolean
 ): NodeJoinRequest {
-    if (
-        json &&
-        typeof json === "object" &&
-        Object.keys(json).some(
-            (key) =>
-                ![
-                    "approving_peer",
-                    "endpoint_id",
-                    "installation",
-                    "member_id",
-                    "name",
-                    "public_signer",
-                    "purpose",
-                ].includes(key),
-        )
+  if (
+    json &&
+    typeof json === "object" &&
+    Object.keys(json).some(
+      (key) =>
+        ![
+          "approving_peer",
+          "endpoint_id",
+          "installation",
+          "member_id",
+          "name",
+          "public_signer",
+          "purpose",
+        ].includes(key)
     )
-        throw new Error("Unexpected NodeJoinRequest field");
-    if (json == null) {
-        return json;
-    }
-    return {
-        approvingPeer: json["approving_peer"],
-        endpointId: json["endpoint_id"],
-        installation: json["installation"],
-        memberId: json["member_id"],
-        name: json["name"],
-        publicSigner: JwkPublicFromJSON(json["public_signer"]),
-        purpose: json["purpose"],
-    };
+  )
+    throw new Error("Unexpected NodeJoinRequest field");
+  if (json == null) {
+    return json;
+  }
+  return {
+    approvingPeer: json["approving_peer"],
+    endpointId: json["endpoint_id"],
+    installation: json["installation"],
+    memberId: json["member_id"],
+    name: json["name"],
+    publicSigner: JwkPublicFromJSON(json["public_signer"]),
+    purpose: json["purpose"],
+  };
 }
 
 export function NodeJoinRequestToJSON(json: any): NodeJoinRequest {
-    return NodeJoinRequestToJSONTyped(json, false);
+  return NodeJoinRequestToJSONTyped(json, false);
 }
 
 export function NodeJoinRequestToJSONTyped(
-    value?: NodeJoinRequest | null,
-    ignoreDiscriminator: boolean = false,
+  value?: NodeJoinRequest | null,
+  ignoreDiscriminator: boolean = false
 ): any {
-    if (value == null) {
-        return value;
-    }
+  if (value == null) {
+    return value;
+  }
 
-    return {
-        approving_peer: value["approvingPeer"],
-        endpoint_id: value["endpointId"],
-        installation: value["installation"],
-        member_id: value["memberId"],
-        name: value["name"],
-        public_signer: JwkPublicToJSON(value["publicSigner"]),
-        purpose: value["purpose"],
-    };
+  return {
+    approving_peer: value["approvingPeer"],
+    endpoint_id: value["endpointId"],
+    installation: value["installation"],
+    member_id: value["memberId"],
+    name: value["name"],
+    public_signer: JwkPublicToJSON(value["publicSigner"]),
+    purpose: value["purpose"],
+  };
 }

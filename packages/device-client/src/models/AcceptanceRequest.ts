@@ -19,52 +19,49 @@ import { mapValues } from "../runtime.js";
  * @interface AcceptanceRequest
  */
 export interface AcceptanceRequest {
-    /**
-     *
-     */
-    accepting: boolean;
+  /**
+   *
+   */
+  accepting: boolean;
 }
 
 /**
  * Check if a given object implements the AcceptanceRequest interface.
  */
-export function instanceOfAcceptanceRequest(
-    value: object,
-): value is AcceptanceRequest {
-    if (!("accepting" in value) || value["accepting"] === undefined)
-        return false;
-    return true;
+export function instanceOfAcceptanceRequest(value: object): value is AcceptanceRequest {
+  if (!("accepting" in value) || value["accepting"] === undefined) return false;
+  return true;
 }
 
 export function AcceptanceRequestFromJSON(json: any): AcceptanceRequest {
-    return AcceptanceRequestFromJSONTyped(json, false);
+  return AcceptanceRequestFromJSONTyped(json, false);
 }
 
 export function AcceptanceRequestFromJSONTyped(
-    json: any,
-    ignoreDiscriminator: boolean,
+  json: any,
+  ignoreDiscriminator: boolean
 ): AcceptanceRequest {
-    if (json == null) {
-        return json;
-    }
-    return {
-        accepting: json["accepting"],
-    };
+  if (json == null) {
+    return json;
+  }
+  return {
+    accepting: json["accepting"],
+  };
 }
 
 export function AcceptanceRequestToJSON(json: any): AcceptanceRequest {
-    return AcceptanceRequestToJSONTyped(json, false);
+  return AcceptanceRequestToJSONTyped(json, false);
 }
 
 export function AcceptanceRequestToJSONTyped(
-    value?: AcceptanceRequest | null,
-    ignoreDiscriminator: boolean = false,
+  value?: AcceptanceRequest | null,
+  ignoreDiscriminator: boolean = false
 ): any {
-    if (value == null) {
-        return value;
-    }
+  if (value == null) {
+    return value;
+  }
 
-    return {
-        accepting: value["accepting"],
-    };
+  return {
+    accepting: value["accepting"],
+  };
 }

@@ -15,10 +15,10 @@
 import { mapValues } from "../runtime.js";
 import type { IndependentJoinApproval } from "./IndependentJoinApproval.js";
 import {
-    IndependentJoinApprovalFromJSON,
-    IndependentJoinApprovalFromJSONTyped,
-    IndependentJoinApprovalToJSON,
-    IndependentJoinApprovalToJSONTyped,
+  IndependentJoinApprovalFromJSON,
+  IndependentJoinApprovalFromJSONTyped,
+  IndependentJoinApprovalToJSON,
+  IndependentJoinApprovalToJSONTyped,
 } from "./IndependentJoinApproval.js";
 
 /**
@@ -27,58 +27,56 @@ import {
  * @interface VerificationRequest
  */
 export interface VerificationRequest {
-    /**
-     *
-     */
-    approval: IndependentJoinApproval;
-    /**
-     *
-     */
-    context: string;
+  /**
+   *
+   */
+  approval: IndependentJoinApproval;
+  /**
+   *
+   */
+  context: string;
 }
 
 /**
  * Check if a given object implements the VerificationRequest interface.
  */
-export function instanceOfVerificationRequest(
-    value: object,
-): value is VerificationRequest {
-    if (!("approval" in value) || value["approval"] === undefined) return false;
-    if (!("context" in value) || value["context"] === undefined) return false;
-    return true;
+export function instanceOfVerificationRequest(value: object): value is VerificationRequest {
+  if (!("approval" in value) || value["approval"] === undefined) return false;
+  if (!("context" in value) || value["context"] === undefined) return false;
+  return true;
 }
 
 export function VerificationRequestFromJSON(json: any): VerificationRequest {
-    return VerificationRequestFromJSONTyped(json, false);
+  return VerificationRequestFromJSONTyped(json, false);
 }
 
 export function VerificationRequestFromJSONTyped(
-    json: any,
-    ignoreDiscriminator: boolean,
+  json: any,
+  ignoreDiscriminator: boolean
 ): VerificationRequest {
-    if (json == null) {
-        return json;
-    }
-    return {
-        approval: IndependentJoinApprovalFromJSON(json["approval"]),
-        context: json["context"],
-    };
+  if (json == null) {
+    return json;
+  }
+  return {
+    approval: IndependentJoinApprovalFromJSON(json["approval"]),
+    context: json["context"],
+  };
 }
 
 export function VerificationRequestToJSON(json: any): VerificationRequest {
-    return VerificationRequestToJSONTyped(json, false);
+  return VerificationRequestToJSONTyped(json, false);
 }
 
 export function VerificationRequestToJSONTyped(
-    value?: VerificationRequest | null,
-    ignoreDiscriminator: boolean = false,
+  value?: VerificationRequest | null,
+  ignoreDiscriminator: boolean = false
 ): any {
-    if (value == null) {
-        return value;
-    }
+  if (value == null) {
+    return value;
+  }
 
-    return {
-        approval: IndependentJoinApprovalToJSON(value["approval"]),
-        context: value["context"],
-    };
+  return {
+    approval: IndependentJoinApprovalToJSON(value["approval"]),
+    context: value["context"],
+  };
 }

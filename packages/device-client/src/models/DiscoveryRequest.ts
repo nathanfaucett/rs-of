@@ -19,51 +19,49 @@ import { mapValues } from "../runtime.js";
  * @interface DiscoveryRequest
  */
 export interface DiscoveryRequest {
-    /**
-     *
-     */
-    nonce: string;
+  /**
+   *
+   */
+  nonce: string;
 }
 
 /**
  * Check if a given object implements the DiscoveryRequest interface.
  */
-export function instanceOfDiscoveryRequest(
-    value: object,
-): value is DiscoveryRequest {
-    if (!("nonce" in value) || value["nonce"] === undefined) return false;
-    return true;
+export function instanceOfDiscoveryRequest(value: object): value is DiscoveryRequest {
+  if (!("nonce" in value) || value["nonce"] === undefined) return false;
+  return true;
 }
 
 export function DiscoveryRequestFromJSON(json: any): DiscoveryRequest {
-    return DiscoveryRequestFromJSONTyped(json, false);
+  return DiscoveryRequestFromJSONTyped(json, false);
 }
 
 export function DiscoveryRequestFromJSONTyped(
-    json: any,
-    ignoreDiscriminator: boolean,
+  json: any,
+  ignoreDiscriminator: boolean
 ): DiscoveryRequest {
-    if (json == null) {
-        return json;
-    }
-    return {
-        nonce: json["nonce"],
-    };
+  if (json == null) {
+    return json;
+  }
+  return {
+    nonce: json["nonce"],
+  };
 }
 
 export function DiscoveryRequestToJSON(json: any): DiscoveryRequest {
-    return DiscoveryRequestToJSONTyped(json, false);
+  return DiscoveryRequestToJSONTyped(json, false);
 }
 
 export function DiscoveryRequestToJSONTyped(
-    value?: DiscoveryRequest | null,
-    ignoreDiscriminator: boolean = false,
+  value?: DiscoveryRequest | null,
+  ignoreDiscriminator: boolean = false
 ): any {
-    if (value == null) {
-        return value;
-    }
+  if (value == null) {
+    return value;
+  }
 
-    return {
-        nonce: value["nonce"],
-    };
+  return {
+    nonce: value["nonce"],
+  };
 }

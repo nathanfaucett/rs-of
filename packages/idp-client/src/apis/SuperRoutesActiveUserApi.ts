@@ -15,10 +15,10 @@
 import * as runtime from "../runtime.js";
 
 export interface ActiveUserRequest {
-    /**
-     *
-     */
-    userId: string;
+  /**
+   *
+   */
+  userId: string;
 }
 
 /**
@@ -28,102 +28,94 @@ export interface ActiveUserRequest {
  * @interface SuperRoutesActiveUserApiInterface
  */
 export interface SuperRoutesActiveUserApiInterface {
-    /**
-     * Creates request options for activeUser without sending the request
-     * @param {string} userId
-     * @throws {RequiredError}
-     * @memberof SuperRoutesActiveUserApiInterface
-     */
-    activeUserRequestOpts(
-        requestParameters: ActiveUserRequest,
-    ): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for activeUser without sending the request
+   * @param {string} userId
+   * @throws {RequiredError}
+   * @memberof SuperRoutesActiveUserApiInterface
+   */
+  activeUserRequestOpts(requestParameters: ActiveUserRequest): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {string} userId
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof SuperRoutesActiveUserApiInterface
-     */
-    activeUserRaw(
-        requestParameters: ActiveUserRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<void>>;
+  /**
+   *
+   * @param {string} userId
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof SuperRoutesActiveUserApiInterface
+   */
+  activeUserRaw(
+    requestParameters: ActiveUserRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>>;
 
-    /**
-     */
-    activeUser(
-        requestParameters: ActiveUserRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<void>;
+  /**
+   */
+  activeUser(
+    requestParameters: ActiveUserRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<void>;
 }
 
 /**
  *
  */
 export class SuperRoutesActiveUserApi
-    extends runtime.BaseAPI
-    implements SuperRoutesActiveUserApiInterface
+  extends runtime.BaseAPI
+  implements SuperRoutesActiveUserApiInterface
 {
-    /**
-     * Creates request options for activeUser without sending the request
-     */
-    async activeUserRequestOpts(
-        requestParameters: ActiveUserRequest,
-    ): Promise<runtime.RequestOpts> {
-        if (requestParameters["userId"] == null) {
-            throw new runtime.RequiredError(
-                "userId",
-                'Required parameter "userId" was null or undefined when calling activeUser().',
-            );
-        }
-
-        const queryParameters: any = {};
-
-        const headerParameters: runtime.HTTPHeaders = {};
-
-        if (this.configuration && this.configuration.accessToken) {
-            const token = this.configuration.accessToken;
-            const tokenString = await token("authorization", []);
-
-            if (tokenString) {
-                headerParameters["Authorization"] = `Bearer ${tokenString}`;
-            }
-        }
-
-        let urlPath = `/users/{user_id}/active`;
-        urlPath = urlPath.replace(
-            "{user_id}",
-            encodeURIComponent(String(requestParameters["userId"])),
-        );
-
-        return {
-            path: urlPath,
-            method: "GET",
-            headers: headerParameters,
-            query: queryParameters,
-        };
+  /**
+   * Creates request options for activeUser without sending the request
+   */
+  async activeUserRequestOpts(requestParameters: ActiveUserRequest): Promise<runtime.RequestOpts> {
+    if (requestParameters["userId"] == null) {
+      throw new runtime.RequiredError(
+        "userId",
+        'Required parameter "userId" was null or undefined when calling activeUser().'
+      );
     }
 
-    /**
-     */
-    async activeUserRaw(
-        requestParameters: ActiveUserRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<void>> {
-        const requestOptions =
-            await this.activeUserRequestOpts(requestParameters);
-        const response = await this.request(requestOptions, initOverrides);
+    const queryParameters: any = {};
 
-        return new runtime.VoidApiResponse(response);
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
     }
 
-    /**
-     */
-    async activeUser(
-        requestParameters: ActiveUserRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<void> {
-        await this.activeUserRaw(requestParameters, initOverrides);
-    }
+    let urlPath = `/users/{user_id}/active`;
+    urlPath = urlPath.replace("{user_id}", encodeURIComponent(String(requestParameters["userId"])));
+
+    return {
+      path: urlPath,
+      method: "GET",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
+
+  /**
+   */
+  async activeUserRaw(
+    requestParameters: ActiveUserRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>> {
+    const requestOptions = await this.activeUserRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.VoidApiResponse(response);
+  }
+
+  /**
+   */
+  async activeUser(
+    requestParameters: ActiveUserRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<void> {
+    await this.activeUserRaw(requestParameters, initOverrides);
+  }
 }

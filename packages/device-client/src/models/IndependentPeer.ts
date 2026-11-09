@@ -19,111 +19,100 @@ import { mapValues } from "../runtime.js";
  * @interface IndependentPeer
  */
 export interface IndependentPeer {
-    /**
-     *
-     */
-    address: any | null;
-    /**
-     *
-     */
-    device: string;
-    /**
-     *
-     */
-    endpoint: string;
-    /**
-     *
-     */
-    idp: string;
-    /**
-     *
-     */
-    issuer: string;
-    /**
-     *
-     */
-    nonce: string;
-    /**
-     *
-     */
-    signature: string;
+  /**
+   *
+   */
+  address: any | null;
+  /**
+   *
+   */
+  device: string;
+  /**
+   *
+   */
+  endpoint: string;
+  /**
+   *
+   */
+  idp: string;
+  /**
+   *
+   */
+  issuer: string;
+  /**
+   *
+   */
+  nonce: string;
+  /**
+   *
+   */
+  signature: string;
 }
 
 /**
  * Check if a given object implements the IndependentPeer interface.
  */
-export function instanceOfIndependentPeer(
-    value: object,
-): value is IndependentPeer {
-    if (!("address" in value) || value["address"] === undefined) return false;
-    if (!("device" in value) || value["device"] === undefined) return false;
-    if (!("endpoint" in value) || value["endpoint"] === undefined) return false;
-    if (!("idp" in value) || value["idp"] === undefined) return false;
-    if (!("issuer" in value) || value["issuer"] === undefined) return false;
-    if (!("nonce" in value) || value["nonce"] === undefined) return false;
-    if (!("signature" in value) || value["signature"] === undefined)
-        return false;
-    return true;
+export function instanceOfIndependentPeer(value: object): value is IndependentPeer {
+  if (!("address" in value) || value["address"] === undefined) return false;
+  if (!("device" in value) || value["device"] === undefined) return false;
+  if (!("endpoint" in value) || value["endpoint"] === undefined) return false;
+  if (!("idp" in value) || value["idp"] === undefined) return false;
+  if (!("issuer" in value) || value["issuer"] === undefined) return false;
+  if (!("nonce" in value) || value["nonce"] === undefined) return false;
+  if (!("signature" in value) || value["signature"] === undefined) return false;
+  return true;
 }
 
 export function IndependentPeerFromJSON(json: any): IndependentPeer {
-    return IndependentPeerFromJSONTyped(json, false);
+  return IndependentPeerFromJSONTyped(json, false);
 }
 
 export function IndependentPeerFromJSONTyped(
-    json: any,
-    ignoreDiscriminator: boolean,
+  json: any,
+  ignoreDiscriminator: boolean
 ): IndependentPeer {
-    if (
-        json &&
-        typeof json === "object" &&
-        Object.keys(json).some(
-            (key) =>
-                ![
-                    "address",
-                    "device",
-                    "endpoint",
-                    "idp",
-                    "issuer",
-                    "nonce",
-                    "signature",
-                ].includes(key),
-        )
+  if (
+    json &&
+    typeof json === "object" &&
+    Object.keys(json).some(
+      (key) =>
+        !["address", "device", "endpoint", "idp", "issuer", "nonce", "signature"].includes(key)
     )
-        throw new Error("Unexpected IndependentPeer field");
-    if (json == null) {
-        return json;
-    }
-    return {
-        address: json["address"],
-        device: json["device"],
-        endpoint: json["endpoint"],
-        idp: json["idp"],
-        issuer: json["issuer"],
-        nonce: json["nonce"],
-        signature: json["signature"],
-    };
+  )
+    throw new Error("Unexpected IndependentPeer field");
+  if (json == null) {
+    return json;
+  }
+  return {
+    address: json["address"],
+    device: json["device"],
+    endpoint: json["endpoint"],
+    idp: json["idp"],
+    issuer: json["issuer"],
+    nonce: json["nonce"],
+    signature: json["signature"],
+  };
 }
 
 export function IndependentPeerToJSON(json: any): IndependentPeer {
-    return IndependentPeerToJSONTyped(json, false);
+  return IndependentPeerToJSONTyped(json, false);
 }
 
 export function IndependentPeerToJSONTyped(
-    value?: IndependentPeer | null,
-    ignoreDiscriminator: boolean = false,
+  value?: IndependentPeer | null,
+  ignoreDiscriminator: boolean = false
 ): any {
-    if (value == null) {
-        return value;
-    }
+  if (value == null) {
+    return value;
+  }
 
-    return {
-        address: value["address"],
-        device: value["device"],
-        endpoint: value["endpoint"],
-        idp: value["idp"],
-        issuer: value["issuer"],
-        nonce: value["nonce"],
-        signature: value["signature"],
-    };
+  return {
+    address: value["address"],
+    device: value["device"],
+    endpoint: value["endpoint"],
+    idp: value["idp"],
+    issuer: value["issuer"],
+    nonce: value["nonce"],
+    signature: value["signature"],
+  };
 }

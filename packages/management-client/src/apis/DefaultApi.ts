@@ -14,219 +14,219 @@
 
 import * as runtime from "../runtime.js";
 import {
-    type CreatePermissionRequest,
-    CreatePermissionRequestFromJSON,
-    CreatePermissionRequestToJSON,
+  type CreatePermissionRequest,
+  CreatePermissionRequestFromJSON,
+  CreatePermissionRequestToJSON,
 } from "../models/CreatePermissionRequest.js";
 import {
-    type CreateRoleRequest,
-    CreateRoleRequestFromJSON,
-    CreateRoleRequestToJSON,
+  type CreateRoleRequest,
+  CreateRoleRequestFromJSON,
+  CreateRoleRequestToJSON,
 } from "../models/CreateRoleRequest.js";
 import {
-    type HealthResponse,
-    HealthResponseFromJSON,
-    HealthResponseToJSON,
+  type HealthResponse,
+  HealthResponseFromJSON,
+  HealthResponseToJSON,
 } from "../models/HealthResponse.js";
 import {
-    type PermissionEvaluationRequest,
-    PermissionEvaluationRequestFromJSON,
-    PermissionEvaluationRequestToJSON,
+  type PermissionEvaluationRequest,
+  PermissionEvaluationRequestFromJSON,
+  PermissionEvaluationRequestToJSON,
 } from "../models/PermissionEvaluationRequest.js";
 import {
-    type PermissionEvaluationResponse,
-    PermissionEvaluationResponseFromJSON,
-    PermissionEvaluationResponseToJSON,
+  type PermissionEvaluationResponse,
+  PermissionEvaluationResponseFromJSON,
+  PermissionEvaluationResponseToJSON,
 } from "../models/PermissionEvaluationResponse.js";
 import {
-    type PermissionResponse,
-    PermissionResponseFromJSON,
-    PermissionResponseToJSON,
+  type PermissionResponse,
+  PermissionResponseFromJSON,
+  PermissionResponseToJSON,
 } from "../models/PermissionResponse.js";
 import {
-    type RoleResponse,
-    RoleResponseFromJSON,
-    RoleResponseToJSON,
+  type RoleResponse,
+  RoleResponseFromJSON,
+  RoleResponseToJSON,
 } from "../models/RoleResponse.js";
 import {
-    type UserApplicationRoleResponse,
-    UserApplicationRoleResponseFromJSON,
-    UserApplicationRoleResponseToJSON,
+  type UserApplicationRoleResponse,
+  UserApplicationRoleResponseFromJSON,
+  UserApplicationRoleResponseToJSON,
 } from "../models/UserApplicationRoleResponse.js";
 import {
-    type VersionResponse,
-    VersionResponseFromJSON,
-    VersionResponseToJSON,
+  type VersionResponse,
+  VersionResponseFromJSON,
+  VersionResponseToJSON,
 } from "../models/VersionResponse.js";
 
 export interface AssignPermissionToRoleRequest {
-    /**
-     * Application ID
-     */
-    applicationId: string;
-    /**
-     * Role ID
-     */
-    roleId: string;
-    /**
-     * Permission ID
-     */
-    permissionId: string;
+  /**
+   * Application ID
+   */
+  applicationId: string;
+  /**
+   * Role ID
+   */
+  roleId: string;
+  /**
+   * Permission ID
+   */
+  permissionId: string;
 }
 
 export interface AssignRoleToUserRequest {
-    /**
-     * Application ID
-     */
-    applicationId: string;
-    /**
-     * User ID
-     */
-    userId: string;
-    /**
-     * Role ID
-     */
-    roleId: string;
+  /**
+   * Application ID
+   */
+  applicationId: string;
+  /**
+   * User ID
+   */
+  userId: string;
+  /**
+   * Role ID
+   */
+  roleId: string;
 }
 
 export interface CreatePermissionOperationRequest {
-    /**
-     * Application ID
-     */
-    applicationId: string;
-    /**
-     *
-     */
-    createPermissionRequest: CreatePermissionRequest;
+  /**
+   * Application ID
+   */
+  applicationId: string;
+  /**
+   *
+   */
+  createPermissionRequest: CreatePermissionRequest;
 }
 
 export interface CreateRoleOperationRequest {
-    /**
-     * Application ID
-     */
-    applicationId: string;
-    /**
-     *
-     */
-    createRoleRequest: CreateRoleRequest;
+  /**
+   * Application ID
+   */
+  applicationId: string;
+  /**
+   *
+   */
+  createRoleRequest: CreateRoleRequest;
 }
 
 export interface DeletePermissionRequest {
-    /**
-     * Application ID
-     */
-    applicationId: string;
-    /**
-     * Permission ID
-     */
-    permissionId: string;
+  /**
+   * Application ID
+   */
+  applicationId: string;
+  /**
+   * Permission ID
+   */
+  permissionId: string;
 }
 
 export interface DeleteRoleRequest {
-    /**
-     * Application ID
-     */
-    applicationId: string;
-    /**
-     * Role ID
-     */
-    roleId: string;
+  /**
+   * Application ID
+   */
+  applicationId: string;
+  /**
+   * Role ID
+   */
+  roleId: string;
 }
 
 export interface EvaluatePermissionRequest {
-    /**
-     *
-     */
-    permissionEvaluationRequest: PermissionEvaluationRequest;
+  /**
+   *
+   */
+  permissionEvaluationRequest: PermissionEvaluationRequest;
 }
 
 export interface ListPermissionsRequest {
-    /**
-     * Application ID
-     */
-    applicationId: string;
-    /**
-     *
-     */
-    offset?: number;
-    /**
-     *
-     */
-    limit?: number;
+  /**
+   * Application ID
+   */
+  applicationId: string;
+  /**
+   *
+   */
+  offset?: number;
+  /**
+   *
+   */
+  limit?: number;
 }
 
 export interface ListRolePermissionsRequest {
-    /**
-     * Application ID
-     */
-    applicationId: string;
-    /**
-     * Role ID
-     */
-    roleId: string;
+  /**
+   * Application ID
+   */
+  applicationId: string;
+  /**
+   * Role ID
+   */
+  roleId: string;
 }
 
 export interface ListRolesRequest {
-    /**
-     * Application ID
-     */
-    applicationId: string;
-    /**
-     *
-     */
-    offset?: number;
-    /**
-     *
-     */
-    limit?: number;
+  /**
+   * Application ID
+   */
+  applicationId: string;
+  /**
+   *
+   */
+  offset?: number;
+  /**
+   *
+   */
+  limit?: number;
 }
 
 export interface ListUserRolesRequest {
-    /**
-     * Application ID
-     */
-    applicationId: string;
-    /**
-     * User ID
-     */
-    userId: string;
+  /**
+   * Application ID
+   */
+  applicationId: string;
+  /**
+   * User ID
+   */
+  userId: string;
 }
 
 export interface ListUserRolesAcrossApplicationsRequest {
-    /**
-     * User ID
-     */
-    userId: string;
+  /**
+   * User ID
+   */
+  userId: string;
 }
 
 export interface RevokePermissionFromRoleRequest {
-    /**
-     * Application ID
-     */
-    applicationId: string;
-    /**
-     * Role ID
-     */
-    roleId: string;
-    /**
-     * Permission ID
-     */
-    permissionId: string;
+  /**
+   * Application ID
+   */
+  applicationId: string;
+  /**
+   * Role ID
+   */
+  roleId: string;
+  /**
+   * Permission ID
+   */
+  permissionId: string;
 }
 
 export interface RevokeRoleFromUserRequest {
-    /**
-     * Application ID
-     */
-    applicationId: string;
-    /**
-     * User ID
-     */
-    userId: string;
-    /**
-     * Role ID
-     */
-    roleId: string;
+  /**
+   * Application ID
+   */
+  applicationId: string;
+  /**
+   * User ID
+   */
+  userId: string;
+  /**
+   * Role ID
+   */
+  roleId: string;
 }
 
 /**
@@ -236,1730 +236,1630 @@ export interface RevokeRoleFromUserRequest {
  * @interface DefaultApiInterface
  */
 export interface DefaultApiInterface {
-    /**
-     * Creates request options for assignPermissionToRole without sending the request
-     * @param {string} applicationId Application ID
-     * @param {string} roleId Role ID
-     * @param {string} permissionId Permission ID
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    assignPermissionToRoleRequestOpts(
-        requestParameters: AssignPermissionToRoleRequest,
-    ): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for assignPermissionToRole without sending the request
+   * @param {string} applicationId Application ID
+   * @param {string} roleId Role ID
+   * @param {string} permissionId Permission ID
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  assignPermissionToRoleRequestOpts(
+    requestParameters: AssignPermissionToRoleRequest
+  ): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {string} applicationId Application ID
-     * @param {string} roleId Role ID
-     * @param {string} permissionId Permission ID
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    assignPermissionToRoleRaw(
-        requestParameters: AssignPermissionToRoleRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<void>>;
+  /**
+   *
+   * @param {string} applicationId Application ID
+   * @param {string} roleId Role ID
+   * @param {string} permissionId Permission ID
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  assignPermissionToRoleRaw(
+    requestParameters: AssignPermissionToRoleRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>>;
 
-    /**
-     */
-    assignPermissionToRole(
-        requestParameters: AssignPermissionToRoleRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<void>;
+  /**
+   */
+  assignPermissionToRole(
+    requestParameters: AssignPermissionToRoleRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<void>;
 
-    /**
-     * Creates request options for assignRoleToUser without sending the request
-     * @param {string} applicationId Application ID
-     * @param {string} userId User ID
-     * @param {string} roleId Role ID
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    assignRoleToUserRequestOpts(
-        requestParameters: AssignRoleToUserRequest,
-    ): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for assignRoleToUser without sending the request
+   * @param {string} applicationId Application ID
+   * @param {string} userId User ID
+   * @param {string} roleId Role ID
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  assignRoleToUserRequestOpts(
+    requestParameters: AssignRoleToUserRequest
+  ): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {string} applicationId Application ID
-     * @param {string} userId User ID
-     * @param {string} roleId Role ID
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    assignRoleToUserRaw(
-        requestParameters: AssignRoleToUserRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<void>>;
+  /**
+   *
+   * @param {string} applicationId Application ID
+   * @param {string} userId User ID
+   * @param {string} roleId Role ID
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  assignRoleToUserRaw(
+    requestParameters: AssignRoleToUserRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>>;
 
-    /**
-     */
-    assignRoleToUser(
-        requestParameters: AssignRoleToUserRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<void>;
+  /**
+   */
+  assignRoleToUser(
+    requestParameters: AssignRoleToUserRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<void>;
 
-    /**
-     * Creates request options for createPermission without sending the request
-     * @param {string} applicationId Application ID
-     * @param {CreatePermissionRequest} createPermissionRequest
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    createPermissionRequestOpts(
-        requestParameters: CreatePermissionOperationRequest,
-    ): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for createPermission without sending the request
+   * @param {string} applicationId Application ID
+   * @param {CreatePermissionRequest} createPermissionRequest
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  createPermissionRequestOpts(
+    requestParameters: CreatePermissionOperationRequest
+  ): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {string} applicationId Application ID
-     * @param {CreatePermissionRequest} createPermissionRequest
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    createPermissionRaw(
-        requestParameters: CreatePermissionOperationRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<PermissionResponse>>;
+  /**
+   *
+   * @param {string} applicationId Application ID
+   * @param {CreatePermissionRequest} createPermissionRequest
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  createPermissionRaw(
+    requestParameters: CreatePermissionOperationRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<PermissionResponse>>;
 
-    /**
-     */
-    createPermission(
-        requestParameters: CreatePermissionOperationRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<PermissionResponse>;
+  /**
+   */
+  createPermission(
+    requestParameters: CreatePermissionOperationRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<PermissionResponse>;
 
-    /**
-     * Creates request options for createRole without sending the request
-     * @param {string} applicationId Application ID
-     * @param {CreateRoleRequest} createRoleRequest
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    createRoleRequestOpts(
-        requestParameters: CreateRoleOperationRequest,
-    ): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for createRole without sending the request
+   * @param {string} applicationId Application ID
+   * @param {CreateRoleRequest} createRoleRequest
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  createRoleRequestOpts(
+    requestParameters: CreateRoleOperationRequest
+  ): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {string} applicationId Application ID
-     * @param {CreateRoleRequest} createRoleRequest
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    createRoleRaw(
-        requestParameters: CreateRoleOperationRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<RoleResponse>>;
+  /**
+   *
+   * @param {string} applicationId Application ID
+   * @param {CreateRoleRequest} createRoleRequest
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  createRoleRaw(
+    requestParameters: CreateRoleOperationRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<RoleResponse>>;
 
-    /**
-     */
-    createRole(
-        requestParameters: CreateRoleOperationRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<RoleResponse>;
+  /**
+   */
+  createRole(
+    requestParameters: CreateRoleOperationRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<RoleResponse>;
 
-    /**
-     * Creates request options for deletePermission without sending the request
-     * @param {string} applicationId Application ID
-     * @param {string} permissionId Permission ID
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    deletePermissionRequestOpts(
-        requestParameters: DeletePermissionRequest,
-    ): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for deletePermission without sending the request
+   * @param {string} applicationId Application ID
+   * @param {string} permissionId Permission ID
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  deletePermissionRequestOpts(
+    requestParameters: DeletePermissionRequest
+  ): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {string} applicationId Application ID
-     * @param {string} permissionId Permission ID
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    deletePermissionRaw(
-        requestParameters: DeletePermissionRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<void>>;
+  /**
+   *
+   * @param {string} applicationId Application ID
+   * @param {string} permissionId Permission ID
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  deletePermissionRaw(
+    requestParameters: DeletePermissionRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>>;
 
-    /**
-     */
-    deletePermission(
-        requestParameters: DeletePermissionRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<void>;
+  /**
+   */
+  deletePermission(
+    requestParameters: DeletePermissionRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<void>;
 
-    /**
-     * Creates request options for deleteRole without sending the request
-     * @param {string} applicationId Application ID
-     * @param {string} roleId Role ID
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    deleteRoleRequestOpts(
-        requestParameters: DeleteRoleRequest,
-    ): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for deleteRole without sending the request
+   * @param {string} applicationId Application ID
+   * @param {string} roleId Role ID
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  deleteRoleRequestOpts(requestParameters: DeleteRoleRequest): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {string} applicationId Application ID
-     * @param {string} roleId Role ID
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    deleteRoleRaw(
-        requestParameters: DeleteRoleRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<void>>;
+  /**
+   *
+   * @param {string} applicationId Application ID
+   * @param {string} roleId Role ID
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  deleteRoleRaw(
+    requestParameters: DeleteRoleRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>>;
 
-    /**
-     */
-    deleteRole(
-        requestParameters: DeleteRoleRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<void>;
+  /**
+   */
+  deleteRole(
+    requestParameters: DeleteRoleRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<void>;
 
-    /**
-     * Creates request options for evaluatePermission without sending the request
-     * @param {PermissionEvaluationRequest} permissionEvaluationRequest
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    evaluatePermissionRequestOpts(
-        requestParameters: EvaluatePermissionRequest,
-    ): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for evaluatePermission without sending the request
+   * @param {PermissionEvaluationRequest} permissionEvaluationRequest
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  evaluatePermissionRequestOpts(
+    requestParameters: EvaluatePermissionRequest
+  ): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {PermissionEvaluationRequest} permissionEvaluationRequest
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    evaluatePermissionRaw(
-        requestParameters: EvaluatePermissionRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<PermissionEvaluationResponse>>;
+  /**
+   *
+   * @param {PermissionEvaluationRequest} permissionEvaluationRequest
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  evaluatePermissionRaw(
+    requestParameters: EvaluatePermissionRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<PermissionEvaluationResponse>>;
 
-    /**
-     */
-    evaluatePermission(
-        requestParameters: EvaluatePermissionRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<PermissionEvaluationResponse>;
+  /**
+   */
+  evaluatePermission(
+    requestParameters: EvaluatePermissionRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<PermissionEvaluationResponse>;
 
-    /**
-     * Creates request options for health without sending the request
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    healthRequestOpts(): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for health without sending the request
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  healthRequestOpts(): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    healthRaw(
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<HealthResponse>>;
+  /**
+   *
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  healthRaw(
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<HealthResponse>>;
 
-    /**
-     */
-    health(
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<HealthResponse>;
+  /**
+   */
+  health(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<HealthResponse>;
 
-    /**
-     * Creates request options for listPermissions without sending the request
-     * @param {string} applicationId Application ID
-     * @param {number} [offset]
-     * @param {number} [limit]
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    listPermissionsRequestOpts(
-        requestParameters: ListPermissionsRequest,
-    ): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for listPermissions without sending the request
+   * @param {string} applicationId Application ID
+   * @param {number} [offset]
+   * @param {number} [limit]
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  listPermissionsRequestOpts(
+    requestParameters: ListPermissionsRequest
+  ): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {string} applicationId Application ID
-     * @param {number} [offset]
-     * @param {number} [limit]
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    listPermissionsRaw(
-        requestParameters: ListPermissionsRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<Array<PermissionResponse>>>;
+  /**
+   *
+   * @param {string} applicationId Application ID
+   * @param {number} [offset]
+   * @param {number} [limit]
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  listPermissionsRaw(
+    requestParameters: ListPermissionsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<Array<PermissionResponse>>>;
 
-    /**
-     */
-    listPermissions(
-        requestParameters: ListPermissionsRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<Array<PermissionResponse>>;
+  /**
+   */
+  listPermissions(
+    requestParameters: ListPermissionsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<Array<PermissionResponse>>;
 
-    /**
-     * Creates request options for listRolePermissions without sending the request
-     * @param {string} applicationId Application ID
-     * @param {string} roleId Role ID
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    listRolePermissionsRequestOpts(
-        requestParameters: ListRolePermissionsRequest,
-    ): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for listRolePermissions without sending the request
+   * @param {string} applicationId Application ID
+   * @param {string} roleId Role ID
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  listRolePermissionsRequestOpts(
+    requestParameters: ListRolePermissionsRequest
+  ): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {string} applicationId Application ID
-     * @param {string} roleId Role ID
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    listRolePermissionsRaw(
-        requestParameters: ListRolePermissionsRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<Array<PermissionResponse>>>;
+  /**
+   *
+   * @param {string} applicationId Application ID
+   * @param {string} roleId Role ID
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  listRolePermissionsRaw(
+    requestParameters: ListRolePermissionsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<Array<PermissionResponse>>>;
 
-    /**
-     */
-    listRolePermissions(
-        requestParameters: ListRolePermissionsRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<Array<PermissionResponse>>;
+  /**
+   */
+  listRolePermissions(
+    requestParameters: ListRolePermissionsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<Array<PermissionResponse>>;
 
-    /**
-     * Creates request options for listRoles without sending the request
-     * @param {string} applicationId Application ID
-     * @param {number} [offset]
-     * @param {number} [limit]
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    listRolesRequestOpts(
-        requestParameters: ListRolesRequest,
-    ): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for listRoles without sending the request
+   * @param {string} applicationId Application ID
+   * @param {number} [offset]
+   * @param {number} [limit]
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  listRolesRequestOpts(requestParameters: ListRolesRequest): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {string} applicationId Application ID
-     * @param {number} [offset]
-     * @param {number} [limit]
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    listRolesRaw(
-        requestParameters: ListRolesRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<Array<RoleResponse>>>;
+  /**
+   *
+   * @param {string} applicationId Application ID
+   * @param {number} [offset]
+   * @param {number} [limit]
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  listRolesRaw(
+    requestParameters: ListRolesRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<Array<RoleResponse>>>;
 
-    /**
-     */
-    listRoles(
-        requestParameters: ListRolesRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<Array<RoleResponse>>;
+  /**
+   */
+  listRoles(
+    requestParameters: ListRolesRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<Array<RoleResponse>>;
 
-    /**
-     * Creates request options for listUserRoles without sending the request
-     * @param {string} applicationId Application ID
-     * @param {string} userId User ID
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    listUserRolesRequestOpts(
-        requestParameters: ListUserRolesRequest,
-    ): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for listUserRoles without sending the request
+   * @param {string} applicationId Application ID
+   * @param {string} userId User ID
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  listUserRolesRequestOpts(requestParameters: ListUserRolesRequest): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {string} applicationId Application ID
-     * @param {string} userId User ID
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    listUserRolesRaw(
-        requestParameters: ListUserRolesRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<Array<RoleResponse>>>;
+  /**
+   *
+   * @param {string} applicationId Application ID
+   * @param {string} userId User ID
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  listUserRolesRaw(
+    requestParameters: ListUserRolesRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<Array<RoleResponse>>>;
 
-    /**
-     */
-    listUserRoles(
-        requestParameters: ListUserRolesRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<Array<RoleResponse>>;
+  /**
+   */
+  listUserRoles(
+    requestParameters: ListUserRolesRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<Array<RoleResponse>>;
 
-    /**
-     * Creates request options for listUserRolesAcrossApplications without sending the request
-     * @param {string} userId User ID
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    listUserRolesAcrossApplicationsRequestOpts(
-        requestParameters: ListUserRolesAcrossApplicationsRequest,
-    ): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for listUserRolesAcrossApplications without sending the request
+   * @param {string} userId User ID
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  listUserRolesAcrossApplicationsRequestOpts(
+    requestParameters: ListUserRolesAcrossApplicationsRequest
+  ): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {string} userId User ID
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    listUserRolesAcrossApplicationsRaw(
-        requestParameters: ListUserRolesAcrossApplicationsRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<Array<UserApplicationRoleResponse>>>;
+  /**
+   *
+   * @param {string} userId User ID
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  listUserRolesAcrossApplicationsRaw(
+    requestParameters: ListUserRolesAcrossApplicationsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<Array<UserApplicationRoleResponse>>>;
 
-    /**
-     */
-    listUserRolesAcrossApplications(
-        requestParameters: ListUserRolesAcrossApplicationsRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<Array<UserApplicationRoleResponse>>;
+  /**
+   */
+  listUserRolesAcrossApplications(
+    requestParameters: ListUserRolesAcrossApplicationsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<Array<UserApplicationRoleResponse>>;
 
-    /**
-     * Creates request options for openapiJson without sending the request
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    openapiJsonRequestOpts(): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for openapiJson without sending the request
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  openapiJsonRequestOpts(): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    openapiJsonRaw(
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<void>>;
+  /**
+   *
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  openapiJsonRaw(
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>>;
 
-    /**
-     */
-    openapiJson(
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<void>;
+  /**
+   */
+  openapiJson(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<void>;
 
-    /**
-     * Creates request options for revokePermissionFromRole without sending the request
-     * @param {string} applicationId Application ID
-     * @param {string} roleId Role ID
-     * @param {string} permissionId Permission ID
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    revokePermissionFromRoleRequestOpts(
-        requestParameters: RevokePermissionFromRoleRequest,
-    ): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for revokePermissionFromRole without sending the request
+   * @param {string} applicationId Application ID
+   * @param {string} roleId Role ID
+   * @param {string} permissionId Permission ID
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  revokePermissionFromRoleRequestOpts(
+    requestParameters: RevokePermissionFromRoleRequest
+  ): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {string} applicationId Application ID
-     * @param {string} roleId Role ID
-     * @param {string} permissionId Permission ID
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    revokePermissionFromRoleRaw(
-        requestParameters: RevokePermissionFromRoleRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<void>>;
+  /**
+   *
+   * @param {string} applicationId Application ID
+   * @param {string} roleId Role ID
+   * @param {string} permissionId Permission ID
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  revokePermissionFromRoleRaw(
+    requestParameters: RevokePermissionFromRoleRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>>;
 
-    /**
-     */
-    revokePermissionFromRole(
-        requestParameters: RevokePermissionFromRoleRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<void>;
+  /**
+   */
+  revokePermissionFromRole(
+    requestParameters: RevokePermissionFromRoleRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<void>;
 
-    /**
-     * Creates request options for revokeRoleFromUser without sending the request
-     * @param {string} applicationId Application ID
-     * @param {string} userId User ID
-     * @param {string} roleId Role ID
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    revokeRoleFromUserRequestOpts(
-        requestParameters: RevokeRoleFromUserRequest,
-    ): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for revokeRoleFromUser without sending the request
+   * @param {string} applicationId Application ID
+   * @param {string} userId User ID
+   * @param {string} roleId Role ID
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  revokeRoleFromUserRequestOpts(
+    requestParameters: RevokeRoleFromUserRequest
+  ): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {string} applicationId Application ID
-     * @param {string} userId User ID
-     * @param {string} roleId Role ID
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    revokeRoleFromUserRaw(
-        requestParameters: RevokeRoleFromUserRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<void>>;
+  /**
+   *
+   * @param {string} applicationId Application ID
+   * @param {string} userId User ID
+   * @param {string} roleId Role ID
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  revokeRoleFromUserRaw(
+    requestParameters: RevokeRoleFromUserRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>>;
 
-    /**
-     */
-    revokeRoleFromUser(
-        requestParameters: RevokeRoleFromUserRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<void>;
+  /**
+   */
+  revokeRoleFromUser(
+    requestParameters: RevokeRoleFromUserRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<void>;
 
-    /**
-     * Creates request options for version without sending the request
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    versionRequestOpts(): Promise<runtime.RequestOpts>;
+  /**
+   * Creates request options for version without sending the request
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  versionRequestOpts(): Promise<runtime.RequestOpts>;
 
-    /**
-     *
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     * @memberof DefaultApiInterface
-     */
-    versionRaw(
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<VersionResponse>>;
+  /**
+   *
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  versionRaw(
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<VersionResponse>>;
 
-    /**
-     */
-    version(
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<VersionResponse>;
+  /**
+   */
+  version(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<VersionResponse>;
 }
 
 /**
  *
  */
 export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
-    /**
-     * Creates request options for assignPermissionToRole without sending the request
-     */
-    async assignPermissionToRoleRequestOpts(
-        requestParameters: AssignPermissionToRoleRequest,
-    ): Promise<runtime.RequestOpts> {
-        if (requestParameters["applicationId"] == null) {
-            throw new runtime.RequiredError(
-                "applicationId",
-                'Required parameter "applicationId" was null or undefined when calling assignPermissionToRole().',
-            );
-        }
-
-        if (requestParameters["roleId"] == null) {
-            throw new runtime.RequiredError(
-                "roleId",
-                'Required parameter "roleId" was null or undefined when calling assignPermissionToRole().',
-            );
-        }
-
-        if (requestParameters["permissionId"] == null) {
-            throw new runtime.RequiredError(
-                "permissionId",
-                'Required parameter "permissionId" was null or undefined when calling assignPermissionToRole().',
-            );
-        }
-
-        const queryParameters: any = {};
-
-        const headerParameters: runtime.HTTPHeaders = {};
-
-        if (this.configuration && this.configuration.accessToken) {
-            const token = this.configuration.accessToken;
-            const tokenString = await token("authorization", []);
-
-            if (tokenString) {
-                headerParameters["Authorization"] = `Bearer ${tokenString}`;
-            }
-        }
-
-        let urlPath = `/applications/{application_id}/roles/{role_id}/permissions/{permission_id}`;
-        urlPath = urlPath.replace(
-            "{application_id}",
-            encodeURIComponent(String(requestParameters["applicationId"])),
-        );
-        urlPath = urlPath.replace(
-            "{role_id}",
-            encodeURIComponent(String(requestParameters["roleId"])),
-        );
-        urlPath = urlPath.replace(
-            "{permission_id}",
-            encodeURIComponent(String(requestParameters["permissionId"])),
-        );
-
-        return {
-            path: urlPath,
-            method: "POST",
-            headers: headerParameters,
-            query: queryParameters,
-        };
+  /**
+   * Creates request options for assignPermissionToRole without sending the request
+   */
+  async assignPermissionToRoleRequestOpts(
+    requestParameters: AssignPermissionToRoleRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["applicationId"] == null) {
+      throw new runtime.RequiredError(
+        "applicationId",
+        'Required parameter "applicationId" was null or undefined when calling assignPermissionToRole().'
+      );
     }
 
-    /**
-     */
-    async assignPermissionToRoleRaw(
-        requestParameters: AssignPermissionToRoleRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<void>> {
-        const requestOptions =
-            await this.assignPermissionToRoleRequestOpts(requestParameters);
-        const response = await this.request(requestOptions, initOverrides);
-
-        return new runtime.VoidApiResponse(response);
+    if (requestParameters["roleId"] == null) {
+      throw new runtime.RequiredError(
+        "roleId",
+        'Required parameter "roleId" was null or undefined when calling assignPermissionToRole().'
+      );
     }
 
-    /**
-     */
-    async assignPermissionToRole(
-        requestParameters: AssignPermissionToRoleRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<void> {
-        await this.assignPermissionToRoleRaw(requestParameters, initOverrides);
+    if (requestParameters["permissionId"] == null) {
+      throw new runtime.RequiredError(
+        "permissionId",
+        'Required parameter "permissionId" was null or undefined when calling assignPermissionToRole().'
+      );
     }
 
-    /**
-     * Creates request options for assignRoleToUser without sending the request
-     */
-    async assignRoleToUserRequestOpts(
-        requestParameters: AssignRoleToUserRequest,
-    ): Promise<runtime.RequestOpts> {
-        if (requestParameters["applicationId"] == null) {
-            throw new runtime.RequiredError(
-                "applicationId",
-                'Required parameter "applicationId" was null or undefined when calling assignRoleToUser().',
-            );
-        }
+    const queryParameters: any = {};
 
-        if (requestParameters["userId"] == null) {
-            throw new runtime.RequiredError(
-                "userId",
-                'Required parameter "userId" was null or undefined when calling assignRoleToUser().',
-            );
-        }
+    const headerParameters: runtime.HTTPHeaders = {};
 
-        if (requestParameters["roleId"] == null) {
-            throw new runtime.RequiredError(
-                "roleId",
-                'Required parameter "roleId" was null or undefined when calling assignRoleToUser().',
-            );
-        }
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
 
-        const queryParameters: any = {};
-
-        const headerParameters: runtime.HTTPHeaders = {};
-
-        if (this.configuration && this.configuration.accessToken) {
-            const token = this.configuration.accessToken;
-            const tokenString = await token("authorization", []);
-
-            if (tokenString) {
-                headerParameters["Authorization"] = `Bearer ${tokenString}`;
-            }
-        }
-
-        let urlPath = `/applications/{application_id}/users/{user_id}/roles/{role_id}`;
-        urlPath = urlPath.replace(
-            "{application_id}",
-            encodeURIComponent(String(requestParameters["applicationId"])),
-        );
-        urlPath = urlPath.replace(
-            "{user_id}",
-            encodeURIComponent(String(requestParameters["userId"])),
-        );
-        urlPath = urlPath.replace(
-            "{role_id}",
-            encodeURIComponent(String(requestParameters["roleId"])),
-        );
-
-        return {
-            path: urlPath,
-            method: "POST",
-            headers: headerParameters,
-            query: queryParameters,
-        };
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
     }
 
-    /**
-     */
-    async assignRoleToUserRaw(
-        requestParameters: AssignRoleToUserRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<void>> {
-        const requestOptions =
-            await this.assignRoleToUserRequestOpts(requestParameters);
-        const response = await this.request(requestOptions, initOverrides);
+    let urlPath = `/applications/{application_id}/roles/{role_id}/permissions/{permission_id}`;
+    urlPath = urlPath.replace(
+      "{application_id}",
+      encodeURIComponent(String(requestParameters["applicationId"]))
+    );
+    urlPath = urlPath.replace("{role_id}", encodeURIComponent(String(requestParameters["roleId"])));
+    urlPath = urlPath.replace(
+      "{permission_id}",
+      encodeURIComponent(String(requestParameters["permissionId"]))
+    );
 
-        return new runtime.VoidApiResponse(response);
+    return {
+      path: urlPath,
+      method: "POST",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
+
+  /**
+   */
+  async assignPermissionToRoleRaw(
+    requestParameters: AssignPermissionToRoleRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>> {
+    const requestOptions = await this.assignPermissionToRoleRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.VoidApiResponse(response);
+  }
+
+  /**
+   */
+  async assignPermissionToRole(
+    requestParameters: AssignPermissionToRoleRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<void> {
+    await this.assignPermissionToRoleRaw(requestParameters, initOverrides);
+  }
+
+  /**
+   * Creates request options for assignRoleToUser without sending the request
+   */
+  async assignRoleToUserRequestOpts(
+    requestParameters: AssignRoleToUserRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["applicationId"] == null) {
+      throw new runtime.RequiredError(
+        "applicationId",
+        'Required parameter "applicationId" was null or undefined when calling assignRoleToUser().'
+      );
     }
 
-    /**
-     */
-    async assignRoleToUser(
-        requestParameters: AssignRoleToUserRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<void> {
-        await this.assignRoleToUserRaw(requestParameters, initOverrides);
+    if (requestParameters["userId"] == null) {
+      throw new runtime.RequiredError(
+        "userId",
+        'Required parameter "userId" was null or undefined when calling assignRoleToUser().'
+      );
     }
 
-    /**
-     * Creates request options for createPermission without sending the request
-     */
-    async createPermissionRequestOpts(
-        requestParameters: CreatePermissionOperationRequest,
-    ): Promise<runtime.RequestOpts> {
-        if (requestParameters["applicationId"] == null) {
-            throw new runtime.RequiredError(
-                "applicationId",
-                'Required parameter "applicationId" was null or undefined when calling createPermission().',
-            );
-        }
-
-        if (requestParameters["createPermissionRequest"] == null) {
-            throw new runtime.RequiredError(
-                "createPermissionRequest",
-                'Required parameter "createPermissionRequest" was null or undefined when calling createPermission().',
-            );
-        }
-
-        const queryParameters: any = {};
-
-        const headerParameters: runtime.HTTPHeaders = {};
-
-        headerParameters["Content-Type"] = "application/json";
-
-        if (this.configuration && this.configuration.accessToken) {
-            const token = this.configuration.accessToken;
-            const tokenString = await token("authorization", []);
-
-            if (tokenString) {
-                headerParameters["Authorization"] = `Bearer ${tokenString}`;
-            }
-        }
-
-        let urlPath = `/applications/{application_id}/permissions`;
-        urlPath = urlPath.replace(
-            "{application_id}",
-            encodeURIComponent(String(requestParameters["applicationId"])),
-        );
-
-        return {
-            path: urlPath,
-            method: "POST",
-            headers: headerParameters,
-            query: queryParameters,
-            body: CreatePermissionRequestToJSON(
-                requestParameters["createPermissionRequest"],
-            ),
-        };
+    if (requestParameters["roleId"] == null) {
+      throw new runtime.RequiredError(
+        "roleId",
+        'Required parameter "roleId" was null or undefined when calling assignRoleToUser().'
+      );
     }
 
-    /**
-     */
-    async createPermissionRaw(
-        requestParameters: CreatePermissionOperationRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<PermissionResponse>> {
-        const requestOptions =
-            await this.createPermissionRequestOpts(requestParameters);
-        const response = await this.request(requestOptions, initOverrides);
+    const queryParameters: any = {};
 
-        return new runtime.JSONApiResponse(response, (jsonValue) =>
-            PermissionResponseFromJSON(jsonValue),
-        );
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
     }
 
-    /**
-     */
-    async createPermission(
-        requestParameters: CreatePermissionOperationRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<PermissionResponse> {
-        const response = await this.createPermissionRaw(
-            requestParameters,
-            initOverrides,
-        );
-        return await response.value();
+    let urlPath = `/applications/{application_id}/users/{user_id}/roles/{role_id}`;
+    urlPath = urlPath.replace(
+      "{application_id}",
+      encodeURIComponent(String(requestParameters["applicationId"]))
+    );
+    urlPath = urlPath.replace("{user_id}", encodeURIComponent(String(requestParameters["userId"])));
+    urlPath = urlPath.replace("{role_id}", encodeURIComponent(String(requestParameters["roleId"])));
+
+    return {
+      path: urlPath,
+      method: "POST",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
+
+  /**
+   */
+  async assignRoleToUserRaw(
+    requestParameters: AssignRoleToUserRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>> {
+    const requestOptions = await this.assignRoleToUserRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.VoidApiResponse(response);
+  }
+
+  /**
+   */
+  async assignRoleToUser(
+    requestParameters: AssignRoleToUserRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<void> {
+    await this.assignRoleToUserRaw(requestParameters, initOverrides);
+  }
+
+  /**
+   * Creates request options for createPermission without sending the request
+   */
+  async createPermissionRequestOpts(
+    requestParameters: CreatePermissionOperationRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["applicationId"] == null) {
+      throw new runtime.RequiredError(
+        "applicationId",
+        'Required parameter "applicationId" was null or undefined when calling createPermission().'
+      );
     }
 
-    /**
-     * Creates request options for createRole without sending the request
-     */
-    async createRoleRequestOpts(
-        requestParameters: CreateRoleOperationRequest,
-    ): Promise<runtime.RequestOpts> {
-        if (requestParameters["applicationId"] == null) {
-            throw new runtime.RequiredError(
-                "applicationId",
-                'Required parameter "applicationId" was null or undefined when calling createRole().',
-            );
-        }
-
-        if (requestParameters["createRoleRequest"] == null) {
-            throw new runtime.RequiredError(
-                "createRoleRequest",
-                'Required parameter "createRoleRequest" was null or undefined when calling createRole().',
-            );
-        }
-
-        const queryParameters: any = {};
-
-        const headerParameters: runtime.HTTPHeaders = {};
-
-        headerParameters["Content-Type"] = "application/json";
-
-        if (this.configuration && this.configuration.accessToken) {
-            const token = this.configuration.accessToken;
-            const tokenString = await token("authorization", []);
-
-            if (tokenString) {
-                headerParameters["Authorization"] = `Bearer ${tokenString}`;
-            }
-        }
-
-        let urlPath = `/applications/{application_id}/roles`;
-        urlPath = urlPath.replace(
-            "{application_id}",
-            encodeURIComponent(String(requestParameters["applicationId"])),
-        );
-
-        return {
-            path: urlPath,
-            method: "POST",
-            headers: headerParameters,
-            query: queryParameters,
-            body: CreateRoleRequestToJSON(
-                requestParameters["createRoleRequest"],
-            ),
-        };
+    if (requestParameters["createPermissionRequest"] == null) {
+      throw new runtime.RequiredError(
+        "createPermissionRequest",
+        'Required parameter "createPermissionRequest" was null or undefined when calling createPermission().'
+      );
     }
 
-    /**
-     */
-    async createRoleRaw(
-        requestParameters: CreateRoleOperationRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<RoleResponse>> {
-        const requestOptions =
-            await this.createRoleRequestOpts(requestParameters);
-        const response = await this.request(requestOptions, initOverrides);
+    const queryParameters: any = {};
 
-        return new runtime.JSONApiResponse(response, (jsonValue) =>
-            RoleResponseFromJSON(jsonValue),
-        );
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    headerParameters["Content-Type"] = "application/json";
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
     }
 
-    /**
-     */
-    async createRole(
-        requestParameters: CreateRoleOperationRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<RoleResponse> {
-        const response = await this.createRoleRaw(
-            requestParameters,
-            initOverrides,
-        );
-        return await response.value();
+    let urlPath = `/applications/{application_id}/permissions`;
+    urlPath = urlPath.replace(
+      "{application_id}",
+      encodeURIComponent(String(requestParameters["applicationId"]))
+    );
+
+    return {
+      path: urlPath,
+      method: "POST",
+      headers: headerParameters,
+      query: queryParameters,
+      body: CreatePermissionRequestToJSON(requestParameters["createPermissionRequest"]),
+    };
+  }
+
+  /**
+   */
+  async createPermissionRaw(
+    requestParameters: CreatePermissionOperationRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<PermissionResponse>> {
+    const requestOptions = await this.createPermissionRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      PermissionResponseFromJSON(jsonValue)
+    );
+  }
+
+  /**
+   */
+  async createPermission(
+    requestParameters: CreatePermissionOperationRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<PermissionResponse> {
+    const response = await this.createPermissionRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
+
+  /**
+   * Creates request options for createRole without sending the request
+   */
+  async createRoleRequestOpts(
+    requestParameters: CreateRoleOperationRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["applicationId"] == null) {
+      throw new runtime.RequiredError(
+        "applicationId",
+        'Required parameter "applicationId" was null or undefined when calling createRole().'
+      );
     }
 
-    /**
-     * Creates request options for deletePermission without sending the request
-     */
-    async deletePermissionRequestOpts(
-        requestParameters: DeletePermissionRequest,
-    ): Promise<runtime.RequestOpts> {
-        if (requestParameters["applicationId"] == null) {
-            throw new runtime.RequiredError(
-                "applicationId",
-                'Required parameter "applicationId" was null or undefined when calling deletePermission().',
-            );
-        }
-
-        if (requestParameters["permissionId"] == null) {
-            throw new runtime.RequiredError(
-                "permissionId",
-                'Required parameter "permissionId" was null or undefined when calling deletePermission().',
-            );
-        }
-
-        const queryParameters: any = {};
-
-        const headerParameters: runtime.HTTPHeaders = {};
-
-        if (this.configuration && this.configuration.accessToken) {
-            const token = this.configuration.accessToken;
-            const tokenString = await token("authorization", []);
-
-            if (tokenString) {
-                headerParameters["Authorization"] = `Bearer ${tokenString}`;
-            }
-        }
-
-        let urlPath = `/applications/{application_id}/permissions/{permission_id}`;
-        urlPath = urlPath.replace(
-            "{application_id}",
-            encodeURIComponent(String(requestParameters["applicationId"])),
-        );
-        urlPath = urlPath.replace(
-            "{permission_id}",
-            encodeURIComponent(String(requestParameters["permissionId"])),
-        );
-
-        return {
-            path: urlPath,
-            method: "DELETE",
-            headers: headerParameters,
-            query: queryParameters,
-        };
+    if (requestParameters["createRoleRequest"] == null) {
+      throw new runtime.RequiredError(
+        "createRoleRequest",
+        'Required parameter "createRoleRequest" was null or undefined when calling createRole().'
+      );
     }
 
-    /**
-     */
-    async deletePermissionRaw(
-        requestParameters: DeletePermissionRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<void>> {
-        const requestOptions =
-            await this.deletePermissionRequestOpts(requestParameters);
-        const response = await this.request(requestOptions, initOverrides);
+    const queryParameters: any = {};
 
-        return new runtime.VoidApiResponse(response);
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    headerParameters["Content-Type"] = "application/json";
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
     }
 
-    /**
-     */
-    async deletePermission(
-        requestParameters: DeletePermissionRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<void> {
-        await this.deletePermissionRaw(requestParameters, initOverrides);
+    let urlPath = `/applications/{application_id}/roles`;
+    urlPath = urlPath.replace(
+      "{application_id}",
+      encodeURIComponent(String(requestParameters["applicationId"]))
+    );
+
+    return {
+      path: urlPath,
+      method: "POST",
+      headers: headerParameters,
+      query: queryParameters,
+      body: CreateRoleRequestToJSON(requestParameters["createRoleRequest"]),
+    };
+  }
+
+  /**
+   */
+  async createRoleRaw(
+    requestParameters: CreateRoleOperationRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<RoleResponse>> {
+    const requestOptions = await this.createRoleRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.JSONApiResponse(response, (jsonValue) => RoleResponseFromJSON(jsonValue));
+  }
+
+  /**
+   */
+  async createRole(
+    requestParameters: CreateRoleOperationRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<RoleResponse> {
+    const response = await this.createRoleRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
+
+  /**
+   * Creates request options for deletePermission without sending the request
+   */
+  async deletePermissionRequestOpts(
+    requestParameters: DeletePermissionRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["applicationId"] == null) {
+      throw new runtime.RequiredError(
+        "applicationId",
+        'Required parameter "applicationId" was null or undefined when calling deletePermission().'
+      );
     }
 
-    /**
-     * Creates request options for deleteRole without sending the request
-     */
-    async deleteRoleRequestOpts(
-        requestParameters: DeleteRoleRequest,
-    ): Promise<runtime.RequestOpts> {
-        if (requestParameters["applicationId"] == null) {
-            throw new runtime.RequiredError(
-                "applicationId",
-                'Required parameter "applicationId" was null or undefined when calling deleteRole().',
-            );
-        }
-
-        if (requestParameters["roleId"] == null) {
-            throw new runtime.RequiredError(
-                "roleId",
-                'Required parameter "roleId" was null or undefined when calling deleteRole().',
-            );
-        }
-
-        const queryParameters: any = {};
-
-        const headerParameters: runtime.HTTPHeaders = {};
-
-        if (this.configuration && this.configuration.accessToken) {
-            const token = this.configuration.accessToken;
-            const tokenString = await token("authorization", []);
-
-            if (tokenString) {
-                headerParameters["Authorization"] = `Bearer ${tokenString}`;
-            }
-        }
-
-        let urlPath = `/applications/{application_id}/roles/{role_id}`;
-        urlPath = urlPath.replace(
-            "{application_id}",
-            encodeURIComponent(String(requestParameters["applicationId"])),
-        );
-        urlPath = urlPath.replace(
-            "{role_id}",
-            encodeURIComponent(String(requestParameters["roleId"])),
-        );
-
-        return {
-            path: urlPath,
-            method: "DELETE",
-            headers: headerParameters,
-            query: queryParameters,
-        };
+    if (requestParameters["permissionId"] == null) {
+      throw new runtime.RequiredError(
+        "permissionId",
+        'Required parameter "permissionId" was null or undefined when calling deletePermission().'
+      );
     }
 
-    /**
-     */
-    async deleteRoleRaw(
-        requestParameters: DeleteRoleRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<void>> {
-        const requestOptions =
-            await this.deleteRoleRequestOpts(requestParameters);
-        const response = await this.request(requestOptions, initOverrides);
+    const queryParameters: any = {};
 
-        return new runtime.VoidApiResponse(response);
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
     }
 
-    /**
-     */
-    async deleteRole(
-        requestParameters: DeleteRoleRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<void> {
-        await this.deleteRoleRaw(requestParameters, initOverrides);
+    let urlPath = `/applications/{application_id}/permissions/{permission_id}`;
+    urlPath = urlPath.replace(
+      "{application_id}",
+      encodeURIComponent(String(requestParameters["applicationId"]))
+    );
+    urlPath = urlPath.replace(
+      "{permission_id}",
+      encodeURIComponent(String(requestParameters["permissionId"]))
+    );
+
+    return {
+      path: urlPath,
+      method: "DELETE",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
+
+  /**
+   */
+  async deletePermissionRaw(
+    requestParameters: DeletePermissionRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>> {
+    const requestOptions = await this.deletePermissionRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.VoidApiResponse(response);
+  }
+
+  /**
+   */
+  async deletePermission(
+    requestParameters: DeletePermissionRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<void> {
+    await this.deletePermissionRaw(requestParameters, initOverrides);
+  }
+
+  /**
+   * Creates request options for deleteRole without sending the request
+   */
+  async deleteRoleRequestOpts(requestParameters: DeleteRoleRequest): Promise<runtime.RequestOpts> {
+    if (requestParameters["applicationId"] == null) {
+      throw new runtime.RequiredError(
+        "applicationId",
+        'Required parameter "applicationId" was null or undefined when calling deleteRole().'
+      );
     }
 
-    /**
-     * Creates request options for evaluatePermission without sending the request
-     */
-    async evaluatePermissionRequestOpts(
-        requestParameters: EvaluatePermissionRequest,
-    ): Promise<runtime.RequestOpts> {
-        if (requestParameters["permissionEvaluationRequest"] == null) {
-            throw new runtime.RequiredError(
-                "permissionEvaluationRequest",
-                'Required parameter "permissionEvaluationRequest" was null or undefined when calling evaluatePermission().',
-            );
-        }
-
-        const queryParameters: any = {};
-
-        const headerParameters: runtime.HTTPHeaders = {};
-
-        headerParameters["Content-Type"] = "application/json";
-
-        if (this.configuration && this.configuration.accessToken) {
-            const token = this.configuration.accessToken;
-            const tokenString = await token("authorization", []);
-
-            if (tokenString) {
-                headerParameters["Authorization"] = `Bearer ${tokenString}`;
-            }
-        }
-
-        let urlPath = `/permissions/evaluate`;
-
-        return {
-            path: urlPath,
-            method: "POST",
-            headers: headerParameters,
-            query: queryParameters,
-            body: PermissionEvaluationRequestToJSON(
-                requestParameters["permissionEvaluationRequest"],
-            ),
-        };
+    if (requestParameters["roleId"] == null) {
+      throw new runtime.RequiredError(
+        "roleId",
+        'Required parameter "roleId" was null or undefined when calling deleteRole().'
+      );
     }
 
-    /**
-     */
-    async evaluatePermissionRaw(
-        requestParameters: EvaluatePermissionRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<PermissionEvaluationResponse>> {
-        const requestOptions =
-            await this.evaluatePermissionRequestOpts(requestParameters);
-        const response = await this.request(requestOptions, initOverrides);
+    const queryParameters: any = {};
 
-        return new runtime.JSONApiResponse(response, (jsonValue) =>
-            PermissionEvaluationResponseFromJSON(jsonValue),
-        );
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
     }
 
-    /**
-     */
-    async evaluatePermission(
-        requestParameters: EvaluatePermissionRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<PermissionEvaluationResponse> {
-        const response = await this.evaluatePermissionRaw(
-            requestParameters,
-            initOverrides,
-        );
-        return await response.value();
+    let urlPath = `/applications/{application_id}/roles/{role_id}`;
+    urlPath = urlPath.replace(
+      "{application_id}",
+      encodeURIComponent(String(requestParameters["applicationId"]))
+    );
+    urlPath = urlPath.replace("{role_id}", encodeURIComponent(String(requestParameters["roleId"])));
+
+    return {
+      path: urlPath,
+      method: "DELETE",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
+
+  /**
+   */
+  async deleteRoleRaw(
+    requestParameters: DeleteRoleRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>> {
+    const requestOptions = await this.deleteRoleRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.VoidApiResponse(response);
+  }
+
+  /**
+   */
+  async deleteRole(
+    requestParameters: DeleteRoleRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<void> {
+    await this.deleteRoleRaw(requestParameters, initOverrides);
+  }
+
+  /**
+   * Creates request options for evaluatePermission without sending the request
+   */
+  async evaluatePermissionRequestOpts(
+    requestParameters: EvaluatePermissionRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["permissionEvaluationRequest"] == null) {
+      throw new runtime.RequiredError(
+        "permissionEvaluationRequest",
+        'Required parameter "permissionEvaluationRequest" was null or undefined when calling evaluatePermission().'
+      );
     }
 
-    /**
-     * Creates request options for health without sending the request
-     */
-    async healthRequestOpts(): Promise<runtime.RequestOpts> {
-        const queryParameters: any = {};
+    const queryParameters: any = {};
 
-        const headerParameters: runtime.HTTPHeaders = {};
+    const headerParameters: runtime.HTTPHeaders = {};
 
-        let urlPath = `/health`;
+    headerParameters["Content-Type"] = "application/json";
 
-        return {
-            path: urlPath,
-            method: "GET",
-            headers: headerParameters,
-            query: queryParameters,
-        };
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
     }
 
-    /**
-     */
-    async healthRaw(
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<HealthResponse>> {
-        const requestOptions = await this.healthRequestOpts();
-        const response = await this.request(requestOptions, initOverrides);
+    let urlPath = `/permissions/evaluate`;
 
-        return new runtime.JSONApiResponse(response, (jsonValue) =>
-            HealthResponseFromJSON(jsonValue),
-        );
+    return {
+      path: urlPath,
+      method: "POST",
+      headers: headerParameters,
+      query: queryParameters,
+      body: PermissionEvaluationRequestToJSON(requestParameters["permissionEvaluationRequest"]),
+    };
+  }
+
+  /**
+   */
+  async evaluatePermissionRaw(
+    requestParameters: EvaluatePermissionRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<PermissionEvaluationResponse>> {
+    const requestOptions = await this.evaluatePermissionRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      PermissionEvaluationResponseFromJSON(jsonValue)
+    );
+  }
+
+  /**
+   */
+  async evaluatePermission(
+    requestParameters: EvaluatePermissionRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<PermissionEvaluationResponse> {
+    const response = await this.evaluatePermissionRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
+
+  /**
+   * Creates request options for health without sending the request
+   */
+  async healthRequestOpts(): Promise<runtime.RequestOpts> {
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    let urlPath = `/health`;
+
+    return {
+      path: urlPath,
+      method: "GET",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
+
+  /**
+   */
+  async healthRaw(
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<HealthResponse>> {
+    const requestOptions = await this.healthRequestOpts();
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.JSONApiResponse(response, (jsonValue) => HealthResponseFromJSON(jsonValue));
+  }
+
+  /**
+   */
+  async health(
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<HealthResponse> {
+    const response = await this.healthRaw(initOverrides);
+    return await response.value();
+  }
+
+  /**
+   * Creates request options for listPermissions without sending the request
+   */
+  async listPermissionsRequestOpts(
+    requestParameters: ListPermissionsRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["applicationId"] == null) {
+      throw new runtime.RequiredError(
+        "applicationId",
+        'Required parameter "applicationId" was null or undefined when calling listPermissions().'
+      );
     }
 
-    /**
-     */
-    async health(
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<HealthResponse> {
-        const response = await this.healthRaw(initOverrides);
-        return await response.value();
+    const queryParameters: any = {};
+
+    if (requestParameters["offset"] != null) {
+      queryParameters["offset"] = requestParameters["offset"];
     }
 
-    /**
-     * Creates request options for listPermissions without sending the request
-     */
-    async listPermissionsRequestOpts(
-        requestParameters: ListPermissionsRequest,
-    ): Promise<runtime.RequestOpts> {
-        if (requestParameters["applicationId"] == null) {
-            throw new runtime.RequiredError(
-                "applicationId",
-                'Required parameter "applicationId" was null or undefined when calling listPermissions().',
-            );
-        }
-
-        const queryParameters: any = {};
-
-        if (requestParameters["offset"] != null) {
-            queryParameters["offset"] = requestParameters["offset"];
-        }
-
-        if (requestParameters["limit"] != null) {
-            queryParameters["limit"] = requestParameters["limit"];
-        }
-
-        const headerParameters: runtime.HTTPHeaders = {};
-
-        if (this.configuration && this.configuration.accessToken) {
-            const token = this.configuration.accessToken;
-            const tokenString = await token("authorization", []);
-
-            if (tokenString) {
-                headerParameters["Authorization"] = `Bearer ${tokenString}`;
-            }
-        }
-
-        let urlPath = `/applications/{application_id}/permissions`;
-        urlPath = urlPath.replace(
-            "{application_id}",
-            encodeURIComponent(String(requestParameters["applicationId"])),
-        );
-
-        return {
-            path: urlPath,
-            method: "GET",
-            headers: headerParameters,
-            query: queryParameters,
-        };
+    if (requestParameters["limit"] != null) {
+      queryParameters["limit"] = requestParameters["limit"];
     }
 
-    /**
-     */
-    async listPermissionsRaw(
-        requestParameters: ListPermissionsRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<Array<PermissionResponse>>> {
-        const requestOptions =
-            await this.listPermissionsRequestOpts(requestParameters);
-        const response = await this.request(requestOptions, initOverrides);
+    const headerParameters: runtime.HTTPHeaders = {};
 
-        return new runtime.JSONApiResponse(response, (jsonValue) =>
-            jsonValue.map(PermissionResponseFromJSON),
-        );
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
     }
 
-    /**
-     */
-    async listPermissions(
-        requestParameters: ListPermissionsRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<Array<PermissionResponse>> {
-        const response = await this.listPermissionsRaw(
-            requestParameters,
-            initOverrides,
-        );
-        return await response.value();
+    let urlPath = `/applications/{application_id}/permissions`;
+    urlPath = urlPath.replace(
+      "{application_id}",
+      encodeURIComponent(String(requestParameters["applicationId"]))
+    );
+
+    return {
+      path: urlPath,
+      method: "GET",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
+
+  /**
+   */
+  async listPermissionsRaw(
+    requestParameters: ListPermissionsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<Array<PermissionResponse>>> {
+    const requestOptions = await this.listPermissionsRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      jsonValue.map(PermissionResponseFromJSON)
+    );
+  }
+
+  /**
+   */
+  async listPermissions(
+    requestParameters: ListPermissionsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<Array<PermissionResponse>> {
+    const response = await this.listPermissionsRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
+
+  /**
+   * Creates request options for listRolePermissions without sending the request
+   */
+  async listRolePermissionsRequestOpts(
+    requestParameters: ListRolePermissionsRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["applicationId"] == null) {
+      throw new runtime.RequiredError(
+        "applicationId",
+        'Required parameter "applicationId" was null or undefined when calling listRolePermissions().'
+      );
     }
 
-    /**
-     * Creates request options for listRolePermissions without sending the request
-     */
-    async listRolePermissionsRequestOpts(
-        requestParameters: ListRolePermissionsRequest,
-    ): Promise<runtime.RequestOpts> {
-        if (requestParameters["applicationId"] == null) {
-            throw new runtime.RequiredError(
-                "applicationId",
-                'Required parameter "applicationId" was null or undefined when calling listRolePermissions().',
-            );
-        }
-
-        if (requestParameters["roleId"] == null) {
-            throw new runtime.RequiredError(
-                "roleId",
-                'Required parameter "roleId" was null or undefined when calling listRolePermissions().',
-            );
-        }
-
-        const queryParameters: any = {};
-
-        const headerParameters: runtime.HTTPHeaders = {};
-
-        if (this.configuration && this.configuration.accessToken) {
-            const token = this.configuration.accessToken;
-            const tokenString = await token("authorization", []);
-
-            if (tokenString) {
-                headerParameters["Authorization"] = `Bearer ${tokenString}`;
-            }
-        }
-
-        let urlPath = `/applications/{application_id}/roles/{role_id}/permissions`;
-        urlPath = urlPath.replace(
-            "{application_id}",
-            encodeURIComponent(String(requestParameters["applicationId"])),
-        );
-        urlPath = urlPath.replace(
-            "{role_id}",
-            encodeURIComponent(String(requestParameters["roleId"])),
-        );
-
-        return {
-            path: urlPath,
-            method: "GET",
-            headers: headerParameters,
-            query: queryParameters,
-        };
+    if (requestParameters["roleId"] == null) {
+      throw new runtime.RequiredError(
+        "roleId",
+        'Required parameter "roleId" was null or undefined when calling listRolePermissions().'
+      );
     }
 
-    /**
-     */
-    async listRolePermissionsRaw(
-        requestParameters: ListRolePermissionsRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<Array<PermissionResponse>>> {
-        const requestOptions =
-            await this.listRolePermissionsRequestOpts(requestParameters);
-        const response = await this.request(requestOptions, initOverrides);
+    const queryParameters: any = {};
 
-        return new runtime.JSONApiResponse(response, (jsonValue) =>
-            jsonValue.map(PermissionResponseFromJSON),
-        );
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
     }
 
-    /**
-     */
-    async listRolePermissions(
-        requestParameters: ListRolePermissionsRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<Array<PermissionResponse>> {
-        const response = await this.listRolePermissionsRaw(
-            requestParameters,
-            initOverrides,
-        );
-        return await response.value();
+    let urlPath = `/applications/{application_id}/roles/{role_id}/permissions`;
+    urlPath = urlPath.replace(
+      "{application_id}",
+      encodeURIComponent(String(requestParameters["applicationId"]))
+    );
+    urlPath = urlPath.replace("{role_id}", encodeURIComponent(String(requestParameters["roleId"])));
+
+    return {
+      path: urlPath,
+      method: "GET",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
+
+  /**
+   */
+  async listRolePermissionsRaw(
+    requestParameters: ListRolePermissionsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<Array<PermissionResponse>>> {
+    const requestOptions = await this.listRolePermissionsRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      jsonValue.map(PermissionResponseFromJSON)
+    );
+  }
+
+  /**
+   */
+  async listRolePermissions(
+    requestParameters: ListRolePermissionsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<Array<PermissionResponse>> {
+    const response = await this.listRolePermissionsRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
+
+  /**
+   * Creates request options for listRoles without sending the request
+   */
+  async listRolesRequestOpts(requestParameters: ListRolesRequest): Promise<runtime.RequestOpts> {
+    if (requestParameters["applicationId"] == null) {
+      throw new runtime.RequiredError(
+        "applicationId",
+        'Required parameter "applicationId" was null or undefined when calling listRoles().'
+      );
     }
 
-    /**
-     * Creates request options for listRoles without sending the request
-     */
-    async listRolesRequestOpts(
-        requestParameters: ListRolesRequest,
-    ): Promise<runtime.RequestOpts> {
-        if (requestParameters["applicationId"] == null) {
-            throw new runtime.RequiredError(
-                "applicationId",
-                'Required parameter "applicationId" was null or undefined when calling listRoles().',
-            );
-        }
+    const queryParameters: any = {};
 
-        const queryParameters: any = {};
-
-        if (requestParameters["offset"] != null) {
-            queryParameters["offset"] = requestParameters["offset"];
-        }
-
-        if (requestParameters["limit"] != null) {
-            queryParameters["limit"] = requestParameters["limit"];
-        }
-
-        const headerParameters: runtime.HTTPHeaders = {};
-
-        if (this.configuration && this.configuration.accessToken) {
-            const token = this.configuration.accessToken;
-            const tokenString = await token("authorization", []);
-
-            if (tokenString) {
-                headerParameters["Authorization"] = `Bearer ${tokenString}`;
-            }
-        }
-
-        let urlPath = `/applications/{application_id}/roles`;
-        urlPath = urlPath.replace(
-            "{application_id}",
-            encodeURIComponent(String(requestParameters["applicationId"])),
-        );
-
-        return {
-            path: urlPath,
-            method: "GET",
-            headers: headerParameters,
-            query: queryParameters,
-        };
+    if (requestParameters["offset"] != null) {
+      queryParameters["offset"] = requestParameters["offset"];
     }
 
-    /**
-     */
-    async listRolesRaw(
-        requestParameters: ListRolesRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<Array<RoleResponse>>> {
-        const requestOptions =
-            await this.listRolesRequestOpts(requestParameters);
-        const response = await this.request(requestOptions, initOverrides);
-
-        return new runtime.JSONApiResponse(response, (jsonValue) =>
-            jsonValue.map(RoleResponseFromJSON),
-        );
+    if (requestParameters["limit"] != null) {
+      queryParameters["limit"] = requestParameters["limit"];
     }
 
-    /**
-     */
-    async listRoles(
-        requestParameters: ListRolesRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<Array<RoleResponse>> {
-        const response = await this.listRolesRaw(
-            requestParameters,
-            initOverrides,
-        );
-        return await response.value();
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
     }
 
-    /**
-     * Creates request options for listUserRoles without sending the request
-     */
-    async listUserRolesRequestOpts(
-        requestParameters: ListUserRolesRequest,
-    ): Promise<runtime.RequestOpts> {
-        if (requestParameters["applicationId"] == null) {
-            throw new runtime.RequiredError(
-                "applicationId",
-                'Required parameter "applicationId" was null or undefined when calling listUserRoles().',
-            );
-        }
+    let urlPath = `/applications/{application_id}/roles`;
+    urlPath = urlPath.replace(
+      "{application_id}",
+      encodeURIComponent(String(requestParameters["applicationId"]))
+    );
 
-        if (requestParameters["userId"] == null) {
-            throw new runtime.RequiredError(
-                "userId",
-                'Required parameter "userId" was null or undefined when calling listUserRoles().',
-            );
-        }
+    return {
+      path: urlPath,
+      method: "GET",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
 
-        const queryParameters: any = {};
+  /**
+   */
+  async listRolesRaw(
+    requestParameters: ListRolesRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<Array<RoleResponse>>> {
+    const requestOptions = await this.listRolesRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
 
-        const headerParameters: runtime.HTTPHeaders = {};
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      jsonValue.map(RoleResponseFromJSON)
+    );
+  }
 
-        if (this.configuration && this.configuration.accessToken) {
-            const token = this.configuration.accessToken;
-            const tokenString = await token("authorization", []);
+  /**
+   */
+  async listRoles(
+    requestParameters: ListRolesRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<Array<RoleResponse>> {
+    const response = await this.listRolesRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
 
-            if (tokenString) {
-                headerParameters["Authorization"] = `Bearer ${tokenString}`;
-            }
-        }
-
-        let urlPath = `/applications/{application_id}/users/{user_id}/roles`;
-        urlPath = urlPath.replace(
-            "{application_id}",
-            encodeURIComponent(String(requestParameters["applicationId"])),
-        );
-        urlPath = urlPath.replace(
-            "{user_id}",
-            encodeURIComponent(String(requestParameters["userId"])),
-        );
-
-        return {
-            path: urlPath,
-            method: "GET",
-            headers: headerParameters,
-            query: queryParameters,
-        };
+  /**
+   * Creates request options for listUserRoles without sending the request
+   */
+  async listUserRolesRequestOpts(
+    requestParameters: ListUserRolesRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["applicationId"] == null) {
+      throw new runtime.RequiredError(
+        "applicationId",
+        'Required parameter "applicationId" was null or undefined when calling listUserRoles().'
+      );
     }
 
-    /**
-     */
-    async listUserRolesRaw(
-        requestParameters: ListUserRolesRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<Array<RoleResponse>>> {
-        const requestOptions =
-            await this.listUserRolesRequestOpts(requestParameters);
-        const response = await this.request(requestOptions, initOverrides);
-
-        return new runtime.JSONApiResponse(response, (jsonValue) =>
-            jsonValue.map(RoleResponseFromJSON),
-        );
+    if (requestParameters["userId"] == null) {
+      throw new runtime.RequiredError(
+        "userId",
+        'Required parameter "userId" was null or undefined when calling listUserRoles().'
+      );
     }
 
-    /**
-     */
-    async listUserRoles(
-        requestParameters: ListUserRolesRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<Array<RoleResponse>> {
-        const response = await this.listUserRolesRaw(
-            requestParameters,
-            initOverrides,
-        );
-        return await response.value();
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
     }
 
-    /**
-     * Creates request options for listUserRolesAcrossApplications without sending the request
-     */
-    async listUserRolesAcrossApplicationsRequestOpts(
-        requestParameters: ListUserRolesAcrossApplicationsRequest,
-    ): Promise<runtime.RequestOpts> {
-        if (requestParameters["userId"] == null) {
-            throw new runtime.RequiredError(
-                "userId",
-                'Required parameter "userId" was null or undefined when calling listUserRolesAcrossApplications().',
-            );
-        }
+    let urlPath = `/applications/{application_id}/users/{user_id}/roles`;
+    urlPath = urlPath.replace(
+      "{application_id}",
+      encodeURIComponent(String(requestParameters["applicationId"]))
+    );
+    urlPath = urlPath.replace("{user_id}", encodeURIComponent(String(requestParameters["userId"])));
 
-        const queryParameters: any = {};
+    return {
+      path: urlPath,
+      method: "GET",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
 
-        const headerParameters: runtime.HTTPHeaders = {};
+  /**
+   */
+  async listUserRolesRaw(
+    requestParameters: ListUserRolesRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<Array<RoleResponse>>> {
+    const requestOptions = await this.listUserRolesRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
 
-        if (this.configuration && this.configuration.accessToken) {
-            const token = this.configuration.accessToken;
-            const tokenString = await token("authorization", []);
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      jsonValue.map(RoleResponseFromJSON)
+    );
+  }
 
-            if (tokenString) {
-                headerParameters["Authorization"] = `Bearer ${tokenString}`;
-            }
-        }
+  /**
+   */
+  async listUserRoles(
+    requestParameters: ListUserRolesRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<Array<RoleResponse>> {
+    const response = await this.listUserRolesRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
 
-        let urlPath = `/users/{user_id}/roles`;
-        urlPath = urlPath.replace(
-            "{user_id}",
-            encodeURIComponent(String(requestParameters["userId"])),
-        );
-
-        return {
-            path: urlPath,
-            method: "GET",
-            headers: headerParameters,
-            query: queryParameters,
-        };
+  /**
+   * Creates request options for listUserRolesAcrossApplications without sending the request
+   */
+  async listUserRolesAcrossApplicationsRequestOpts(
+    requestParameters: ListUserRolesAcrossApplicationsRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["userId"] == null) {
+      throw new runtime.RequiredError(
+        "userId",
+        'Required parameter "userId" was null or undefined when calling listUserRolesAcrossApplications().'
+      );
     }
 
-    /**
-     */
-    async listUserRolesAcrossApplicationsRaw(
-        requestParameters: ListUserRolesAcrossApplicationsRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<Array<UserApplicationRoleResponse>>> {
-        const requestOptions =
-            await this.listUserRolesAcrossApplicationsRequestOpts(
-                requestParameters,
-            );
-        const response = await this.request(requestOptions, initOverrides);
+    const queryParameters: any = {};
 
-        return new runtime.JSONApiResponse(response, (jsonValue) =>
-            jsonValue.map(UserApplicationRoleResponseFromJSON),
-        );
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
     }
 
-    /**
-     */
-    async listUserRolesAcrossApplications(
-        requestParameters: ListUserRolesAcrossApplicationsRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<Array<UserApplicationRoleResponse>> {
-        const response = await this.listUserRolesAcrossApplicationsRaw(
-            requestParameters,
-            initOverrides,
-        );
-        return await response.value();
+    let urlPath = `/users/{user_id}/roles`;
+    urlPath = urlPath.replace("{user_id}", encodeURIComponent(String(requestParameters["userId"])));
+
+    return {
+      path: urlPath,
+      method: "GET",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
+
+  /**
+   */
+  async listUserRolesAcrossApplicationsRaw(
+    requestParameters: ListUserRolesAcrossApplicationsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<Array<UserApplicationRoleResponse>>> {
+    const requestOptions = await this.listUserRolesAcrossApplicationsRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      jsonValue.map(UserApplicationRoleResponseFromJSON)
+    );
+  }
+
+  /**
+   */
+  async listUserRolesAcrossApplications(
+    requestParameters: ListUserRolesAcrossApplicationsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<Array<UserApplicationRoleResponse>> {
+    const response = await this.listUserRolesAcrossApplicationsRaw(
+      requestParameters,
+      initOverrides
+    );
+    return await response.value();
+  }
+
+  /**
+   * Creates request options for openapiJson without sending the request
+   */
+  async openapiJsonRequestOpts(): Promise<runtime.RequestOpts> {
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    let urlPath = `/openapi.json`;
+
+    return {
+      path: urlPath,
+      method: "GET",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
+
+  /**
+   */
+  async openapiJsonRaw(
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>> {
+    const requestOptions = await this.openapiJsonRequestOpts();
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.VoidApiResponse(response);
+  }
+
+  /**
+   */
+  async openapiJson(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<void> {
+    await this.openapiJsonRaw(initOverrides);
+  }
+
+  /**
+   * Creates request options for revokePermissionFromRole without sending the request
+   */
+  async revokePermissionFromRoleRequestOpts(
+    requestParameters: RevokePermissionFromRoleRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["applicationId"] == null) {
+      throw new runtime.RequiredError(
+        "applicationId",
+        'Required parameter "applicationId" was null or undefined when calling revokePermissionFromRole().'
+      );
     }
 
-    /**
-     * Creates request options for openapiJson without sending the request
-     */
-    async openapiJsonRequestOpts(): Promise<runtime.RequestOpts> {
-        const queryParameters: any = {};
-
-        const headerParameters: runtime.HTTPHeaders = {};
-
-        let urlPath = `/openapi.json`;
-
-        return {
-            path: urlPath,
-            method: "GET",
-            headers: headerParameters,
-            query: queryParameters,
-        };
+    if (requestParameters["roleId"] == null) {
+      throw new runtime.RequiredError(
+        "roleId",
+        'Required parameter "roleId" was null or undefined when calling revokePermissionFromRole().'
+      );
     }
 
-    /**
-     */
-    async openapiJsonRaw(
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<void>> {
-        const requestOptions = await this.openapiJsonRequestOpts();
-        const response = await this.request(requestOptions, initOverrides);
-
-        return new runtime.VoidApiResponse(response);
+    if (requestParameters["permissionId"] == null) {
+      throw new runtime.RequiredError(
+        "permissionId",
+        'Required parameter "permissionId" was null or undefined when calling revokePermissionFromRole().'
+      );
     }
 
-    /**
-     */
-    async openapiJson(
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<void> {
-        await this.openapiJsonRaw(initOverrides);
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
     }
 
-    /**
-     * Creates request options for revokePermissionFromRole without sending the request
-     */
-    async revokePermissionFromRoleRequestOpts(
-        requestParameters: RevokePermissionFromRoleRequest,
-    ): Promise<runtime.RequestOpts> {
-        if (requestParameters["applicationId"] == null) {
-            throw new runtime.RequiredError(
-                "applicationId",
-                'Required parameter "applicationId" was null or undefined when calling revokePermissionFromRole().',
-            );
-        }
+    let urlPath = `/applications/{application_id}/roles/{role_id}/permissions/{permission_id}`;
+    urlPath = urlPath.replace(
+      "{application_id}",
+      encodeURIComponent(String(requestParameters["applicationId"]))
+    );
+    urlPath = urlPath.replace("{role_id}", encodeURIComponent(String(requestParameters["roleId"])));
+    urlPath = urlPath.replace(
+      "{permission_id}",
+      encodeURIComponent(String(requestParameters["permissionId"]))
+    );
 
-        if (requestParameters["roleId"] == null) {
-            throw new runtime.RequiredError(
-                "roleId",
-                'Required parameter "roleId" was null or undefined when calling revokePermissionFromRole().',
-            );
-        }
+    return {
+      path: urlPath,
+      method: "DELETE",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
 
-        if (requestParameters["permissionId"] == null) {
-            throw new runtime.RequiredError(
-                "permissionId",
-                'Required parameter "permissionId" was null or undefined when calling revokePermissionFromRole().',
-            );
-        }
+  /**
+   */
+  async revokePermissionFromRoleRaw(
+    requestParameters: RevokePermissionFromRoleRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>> {
+    const requestOptions = await this.revokePermissionFromRoleRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
 
-        const queryParameters: any = {};
+    return new runtime.VoidApiResponse(response);
+  }
 
-        const headerParameters: runtime.HTTPHeaders = {};
+  /**
+   */
+  async revokePermissionFromRole(
+    requestParameters: RevokePermissionFromRoleRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<void> {
+    await this.revokePermissionFromRoleRaw(requestParameters, initOverrides);
+  }
 
-        if (this.configuration && this.configuration.accessToken) {
-            const token = this.configuration.accessToken;
-            const tokenString = await token("authorization", []);
-
-            if (tokenString) {
-                headerParameters["Authorization"] = `Bearer ${tokenString}`;
-            }
-        }
-
-        let urlPath = `/applications/{application_id}/roles/{role_id}/permissions/{permission_id}`;
-        urlPath = urlPath.replace(
-            "{application_id}",
-            encodeURIComponent(String(requestParameters["applicationId"])),
-        );
-        urlPath = urlPath.replace(
-            "{role_id}",
-            encodeURIComponent(String(requestParameters["roleId"])),
-        );
-        urlPath = urlPath.replace(
-            "{permission_id}",
-            encodeURIComponent(String(requestParameters["permissionId"])),
-        );
-
-        return {
-            path: urlPath,
-            method: "DELETE",
-            headers: headerParameters,
-            query: queryParameters,
-        };
+  /**
+   * Creates request options for revokeRoleFromUser without sending the request
+   */
+  async revokeRoleFromUserRequestOpts(
+    requestParameters: RevokeRoleFromUserRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["applicationId"] == null) {
+      throw new runtime.RequiredError(
+        "applicationId",
+        'Required parameter "applicationId" was null or undefined when calling revokeRoleFromUser().'
+      );
     }
 
-    /**
-     */
-    async revokePermissionFromRoleRaw(
-        requestParameters: RevokePermissionFromRoleRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<void>> {
-        const requestOptions =
-            await this.revokePermissionFromRoleRequestOpts(requestParameters);
-        const response = await this.request(requestOptions, initOverrides);
-
-        return new runtime.VoidApiResponse(response);
+    if (requestParameters["userId"] == null) {
+      throw new runtime.RequiredError(
+        "userId",
+        'Required parameter "userId" was null or undefined when calling revokeRoleFromUser().'
+      );
     }
 
-    /**
-     */
-    async revokePermissionFromRole(
-        requestParameters: RevokePermissionFromRoleRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<void> {
-        await this.revokePermissionFromRoleRaw(
-            requestParameters,
-            initOverrides,
-        );
+    if (requestParameters["roleId"] == null) {
+      throw new runtime.RequiredError(
+        "roleId",
+        'Required parameter "roleId" was null or undefined when calling revokeRoleFromUser().'
+      );
     }
 
-    /**
-     * Creates request options for revokeRoleFromUser without sending the request
-     */
-    async revokeRoleFromUserRequestOpts(
-        requestParameters: RevokeRoleFromUserRequest,
-    ): Promise<runtime.RequestOpts> {
-        if (requestParameters["applicationId"] == null) {
-            throw new runtime.RequiredError(
-                "applicationId",
-                'Required parameter "applicationId" was null or undefined when calling revokeRoleFromUser().',
-            );
-        }
+    const queryParameters: any = {};
 
-        if (requestParameters["userId"] == null) {
-            throw new runtime.RequiredError(
-                "userId",
-                'Required parameter "userId" was null or undefined when calling revokeRoleFromUser().',
-            );
-        }
+    const headerParameters: runtime.HTTPHeaders = {};
 
-        if (requestParameters["roleId"] == null) {
-            throw new runtime.RequiredError(
-                "roleId",
-                'Required parameter "roleId" was null or undefined when calling revokeRoleFromUser().',
-            );
-        }
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
 
-        const queryParameters: any = {};
-
-        const headerParameters: runtime.HTTPHeaders = {};
-
-        if (this.configuration && this.configuration.accessToken) {
-            const token = this.configuration.accessToken;
-            const tokenString = await token("authorization", []);
-
-            if (tokenString) {
-                headerParameters["Authorization"] = `Bearer ${tokenString}`;
-            }
-        }
-
-        let urlPath = `/applications/{application_id}/users/{user_id}/roles/{role_id}`;
-        urlPath = urlPath.replace(
-            "{application_id}",
-            encodeURIComponent(String(requestParameters["applicationId"])),
-        );
-        urlPath = urlPath.replace(
-            "{user_id}",
-            encodeURIComponent(String(requestParameters["userId"])),
-        );
-        urlPath = urlPath.replace(
-            "{role_id}",
-            encodeURIComponent(String(requestParameters["roleId"])),
-        );
-
-        return {
-            path: urlPath,
-            method: "DELETE",
-            headers: headerParameters,
-            query: queryParameters,
-        };
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
     }
 
-    /**
-     */
-    async revokeRoleFromUserRaw(
-        requestParameters: RevokeRoleFromUserRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<void>> {
-        const requestOptions =
-            await this.revokeRoleFromUserRequestOpts(requestParameters);
-        const response = await this.request(requestOptions, initOverrides);
+    let urlPath = `/applications/{application_id}/users/{user_id}/roles/{role_id}`;
+    urlPath = urlPath.replace(
+      "{application_id}",
+      encodeURIComponent(String(requestParameters["applicationId"]))
+    );
+    urlPath = urlPath.replace("{user_id}", encodeURIComponent(String(requestParameters["userId"])));
+    urlPath = urlPath.replace("{role_id}", encodeURIComponent(String(requestParameters["roleId"])));
 
-        return new runtime.VoidApiResponse(response);
-    }
+    return {
+      path: urlPath,
+      method: "DELETE",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
 
-    /**
-     */
-    async revokeRoleFromUser(
-        requestParameters: RevokeRoleFromUserRequest,
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<void> {
-        await this.revokeRoleFromUserRaw(requestParameters, initOverrides);
-    }
+  /**
+   */
+  async revokeRoleFromUserRaw(
+    requestParameters: RevokeRoleFromUserRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>> {
+    const requestOptions = await this.revokeRoleFromUserRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
 
-    /**
-     * Creates request options for version without sending the request
-     */
-    async versionRequestOpts(): Promise<runtime.RequestOpts> {
-        const queryParameters: any = {};
+    return new runtime.VoidApiResponse(response);
+  }
 
-        const headerParameters: runtime.HTTPHeaders = {};
+  /**
+   */
+  async revokeRoleFromUser(
+    requestParameters: RevokeRoleFromUserRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<void> {
+    await this.revokeRoleFromUserRaw(requestParameters, initOverrides);
+  }
 
-        let urlPath = `/version`;
+  /**
+   * Creates request options for version without sending the request
+   */
+  async versionRequestOpts(): Promise<runtime.RequestOpts> {
+    const queryParameters: any = {};
 
-        return {
-            path: urlPath,
-            method: "GET",
-            headers: headerParameters,
-            query: queryParameters,
-        };
-    }
+    const headerParameters: runtime.HTTPHeaders = {};
 
-    /**
-     */
-    async versionRaw(
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<runtime.ApiResponse<VersionResponse>> {
-        const requestOptions = await this.versionRequestOpts();
-        const response = await this.request(requestOptions, initOverrides);
+    let urlPath = `/version`;
 
-        return new runtime.JSONApiResponse(response, (jsonValue) =>
-            VersionResponseFromJSON(jsonValue),
-        );
-    }
+    return {
+      path: urlPath,
+      method: "GET",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
 
-    /**
-     */
-    async version(
-        initOverrides?: RequestInit | runtime.InitOverrideFunction,
-    ): Promise<VersionResponse> {
-        const response = await this.versionRaw(initOverrides);
-        return await response.value();
-    }
+  /**
+   */
+  async versionRaw(
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<VersionResponse>> {
+    const requestOptions = await this.versionRequestOpts();
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.JSONApiResponse(response, (jsonValue) => VersionResponseFromJSON(jsonValue));
+  }
+
+  /**
+   */
+  async version(
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<VersionResponse> {
+    const response = await this.versionRaw(initOverrides);
+    return await response.value();
+  }
 }
