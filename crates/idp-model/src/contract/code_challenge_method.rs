@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(
     feature = "wasm",
     derive(tsify::Tsify),
-    tsify(into_wasm_abi, from_wasm_abi)
+    
 )]
 pub enum CodeChallengeMethod {
     /// PKCE S256 method (SHA-256 hash of the code verifier).

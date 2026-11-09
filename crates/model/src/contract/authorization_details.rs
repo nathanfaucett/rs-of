@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(
     feature = "wasm",
     derive(tsify::Tsify),
-    tsify(into_wasm_abi, from_wasm_abi)
+    
 )]
 #[serde(tag = "type")]
 pub enum AuthorizationDetail {
@@ -21,7 +21,7 @@ pub enum AuthorizationDetail {
 #[cfg_attr(
     feature = "wasm",
     derive(tsify::Tsify),
-    tsify(into_wasm_abi, from_wasm_abi)
+    
 )]
 pub struct StorageAuthorizationDetail {
     pub actions: Vec<StorageAuthorizationAction>,
@@ -32,7 +32,7 @@ pub struct StorageAuthorizationDetail {
 #[cfg_attr(
     feature = "wasm",
     derive(tsify::Tsify),
-    tsify(into_wasm_abi, from_wasm_abi)
+    
 )]
 #[serde(rename_all = "lowercase")]
 pub enum StorageAuthorizationAction {

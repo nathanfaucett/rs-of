@@ -52,13 +52,32 @@ pub struct StoreIdentity {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AuthToken(pub Vec<u8>);
 
-/// Synchronization direction.
+/// Synchronization direction for attach.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum AttachDirection {
     Push = 0,
     Pull = 1,
     Bidirectional = 2,
+}
+
+/// Synchronization direction for sync session.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum SyncDirection {
+    SendOnly = 0,
+    ReceiveOnly = 1,
+    Bidirectional = 2,
+}
+
+impl From<SyncDirection> for AttachDirection {
+    fn from(dir: SyncDirection) -> Self {
+        match dir {
+            SyncDirection::SendOnly => AttachDirection::Push,
+            SyncDirection::ReceiveOnly => AttachDirection::Pull,
+            SyncDirection::Bidirectional => AttachDirection::Bidirectional,
+        }
+    }
 }
 
 /// Initial hello message for version negotiation.

@@ -15,7 +15,7 @@ use crate::contract::health_status::HealthStatus;
 #[cfg_attr(
     feature = "wasm",
     derive(tsify::Tsify),
-    tsify(into_wasm_abi, from_wasm_abi)
+    
 )]
 pub struct HealthResponse {
     pub database: HealthStatus,

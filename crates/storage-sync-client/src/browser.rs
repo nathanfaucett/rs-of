@@ -75,11 +75,16 @@ pub mod browser {
             let mut tx_onerror = tx.clone();
             let mut tx_onclose = tx.clone();
 
-            async move {
+
+async move {
                 let ws_obj = WebSocket::new(&url)
                     .map_err(|e| TransportError::ConnectionFailed(format!("{:?}", e)))?;
-                ws_obj.set_binary_type(BinaryType::Arraybuffer);
-
+                // Set binary type to ArrayBuffer for receiving binary data
+                let _ = js_sys::Reflect::set(
+                    &ws_obj,
+                    &"binaryType".into(),
+                    &"arraybuffer".into(),
+                );
                 let ws_obj_clone = ws_obj.clone();
                 let onmessage_cb =
                     wasm_bindgen::closure::Closure::wrap(Box::new(move |e: MessageEvent| {
@@ -173,7 +178,7 @@ pub mod browser {
             Box::pin(async move {
                 let ws_guard = ws.borrow();
                 let ws = ws_guard.as_ref().ok_or(TransportError::Closed)?;
-                let uint8_array = Uint8Array::from(&payload[..]);
+                let _uint8_array = Uint8Array::from(&payload[..]);
                 ws.send_with_u8_array(&payload[..])
                     .map_err(|e| TransportError::SendFailed(format!("{:?}", e)))
             })
@@ -196,7 +201,7 @@ pub mod browser_client {
     use std::rc::Rc;
     use uuid::Uuid;
 
-    pub type SyncDirection = crate::SyncDirection;
+    pub type SyncDirection = crate::protocol::SyncDirection;
 
     /// Browser-specific token provider (no Send bound on the inner future).
     pub type BrowserTokenProvider =
@@ -324,8 +329,7 @@ pub mod browser_client {
             };
 
             // Configure sync session
-            let mut config = SessionConfig::default();
-            config.direction = direction.into();
+            let config = SessionConfig::default();
 
             // Run sync session as Initiator
             let result = database
@@ -382,4 +386,7 @@ pub mod browser_client {
 
 // Re-export for convenience
 #[cfg(feature = "browser")]
-pub use browser_client::{BrowserSyncClient, BrowserTokenProvider as TokenProvider, SyncDirection};
+pub use browser_client::{BrowserSyncClient, BrowserTokenProvider};
+
+#[cfg(feature = "browser")]
+pub use crate::protocol::SyncDirection;

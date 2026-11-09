@@ -540,6 +540,7 @@ impl From<RolePermissionRow> for Row {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 struct SyncSelectionRow {
     id: Id,
     device_id: Id,

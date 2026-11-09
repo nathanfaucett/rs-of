@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(
     feature = "wasm",
     derive(tsify::Tsify),
-    tsify(into_wasm_abi, from_wasm_abi)
+    
 )]
 pub enum SubjectTokenType {
     #[serde(rename = "urn:ietf:params:oauth:token-type:jwt")]

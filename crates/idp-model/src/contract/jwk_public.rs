@@ -15,7 +15,7 @@ use super::{JwkPublicParameters, JwsAlgorithm, KeyUse};
 #[cfg_attr(
     feature = "wasm",
     derive(tsify::Tsify),
-    tsify(into_wasm_abi, from_wasm_abi)
+    
 )]
 pub struct JwkPublic {
     /// Key use (sig, enc)

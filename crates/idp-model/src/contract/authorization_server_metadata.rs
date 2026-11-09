@@ -15,7 +15,7 @@ use super::{CodeChallengeMethod, GrantType, ResponseMode, ResponseType, TokenEnd
 #[cfg_attr(
     feature = "wasm",
     derive(tsify::Tsify),
-    tsify(into_wasm_abi, from_wasm_abi)
+    
 )]
 pub struct AuthorizationServerMetadata {
     /// REQUIRED. The authorization server's issuer identifier.

@@ -1,14 +1,30 @@
 //! High-level sync client for connecting to the sync server.
 
+#[cfg(feature = "native")]
+macro_rules! lock_mutex {
+    ($mutex:expr) => {
+        $mutex.lock().await
+    };
+}
+
 use crate::protocol::*;
 use crate::transport::{SyncTransport as WsSyncTransport, TransportError};
-use ofdb_sql_sync::{
-    SessionConfig, SyncResult, SyncRole, SyncTransport,
-};
-use std::{future::Future, pin::Pin, sync::{Arc, Mutex}, vec::Vec};
+use ofdb_sql_sync::SyncTransport;
+use std::{future::Future, pin::Pin, vec::Vec};
+
+#[cfg(feature = "native")]
+use ofdb_sql_sync::{SessionConfig, SyncResult, SyncRole};
+#[cfg(feature = "native")]
+use std::sync::Arc;
+#[cfg(feature = "native")]
+use tokio::sync::Mutex;
+#[cfg(feature = "native")]
+use uuid::Uuid;
+
+#[cfg(not(feature = "native"))]
+use std::sync::Mutex;
 
 use thiserror::Error;
-use uuid::Uuid;
 
 #[cfg(feature = "browser")]
 use crate::browser::browser::TransportError as BrowserTransportError;
@@ -71,7 +87,7 @@ impl<T: WsSyncTransport> SyncTransport for WsTransportBridge<T> {
             loop {
                 let frame_bytes = transport.receive().await?;
                 let frames = decoder.feed(&frame_bytes).map_err(|e| TransportError::Protocol(e.to_string()))?;
-                for frame in frames {
+                if let Some(frame) = frames.into_iter().next() {
                     return Ok(frame.payload);
                 }
             }
@@ -88,13 +104,16 @@ impl<T: WsSyncTransport> SyncTransport for WsTransportBridge<T> {
     }
 }
 
+#[cfg(feature = "native")]
 /// Sync client for native (tokio) environments.
 pub struct SyncClient<T: WsSyncTransport> {
     transport: Arc<Mutex<T>>,
+    #[allow(dead_code)]
     local_replica_id: Uuid,
     token_provider: TokenProvider,
 }
 
+#[cfg(feature = "native")]
 impl<T: WsSyncTransport> SyncClient<T> {
     pub fn new(transport: T, local_replica_id: Uuid, token_provider: TokenProvider) -> Self {
         Self {
@@ -172,20 +191,17 @@ impl<T: WsSyncTransport> SyncClient<T> {
         let frame_bytes =
             FrameCodec::encode(&frame).map_err(|e| SyncError::Protocol(e.to_string()))?;
 
-        let mut guard = self.transport.lock().unwrap();
+        let mut guard = lock_mutex!(self.transport);
         guard
             .send(frame_bytes)
             .await
-            .map_err(|e| SyncError::Transport(e))?;
+            .map_err(SyncError::Transport)?;
         Ok(())
     }
 
     async fn receive_message(&self) -> Result<SyncMessage, SyncError> {
-        let mut guard = self.transport.lock().unwrap();
-        let frame_bytes = guard
-            .receive()
-            .await
-            .map_err(|e| SyncError::Transport(e))?;
+        let mut guard = lock_mutex!(self.transport);
+        let frame_bytes = guard.receive().await.map_err(SyncError::Transport)?;
         let frame =
             FrameCodec::decode(&frame_bytes).map_err(|e| SyncError::Protocol(e.to_string()))?;
         let msg = SyncMessage::decode(&frame.payload)
@@ -194,24 +210,27 @@ impl<T: WsSyncTransport> SyncClient<T> {
     }
 }
 
+#[cfg(feature = "native")]
 /// Shared transport wrapper for SyncTransport trait.
 pub struct WsTransportBridgeShared<T: WsSyncTransport> {
     transport: Arc<Mutex<T>>,
 }
 
+#[cfg(feature = "native")]
 impl<T: WsSyncTransport> WsTransportBridgeShared<T> {
     fn new(transport: Arc<Mutex<T>>) -> Self {
         Self { transport }
     }
 }
 
+#[cfg(feature = "native")]
 impl<T: WsSyncTransport> SyncTransport for WsTransportBridgeShared<T> {
     type Error = TransportError;
 
     fn receive(&mut self) -> impl Future<Output = Result<Vec<u8>, Self::Error>> {
         let transport = Arc::clone(&self.transport);
         async move {
-            let mut guard = transport.lock().unwrap();
+            let mut guard = lock_mutex!(transport);
             guard.receive().await
         }
     }
@@ -221,7 +240,7 @@ impl<T: WsSyncTransport> SyncTransport for WsTransportBridgeShared<T> {
         async move {
             let frame = Frame::new(0, payload, false);
             let frame_bytes = FrameCodec::encode(&frame).map_err(|e| TransportError::Protocol(e.to_string()))?;
-            let mut guard = transport.lock().unwrap();
+            let mut guard = lock_mutex!(transport);
             guard.send(frame_bytes).await
         }
     }

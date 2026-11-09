@@ -7,7 +7,7 @@ use idp_model::{
     model::{Id, Permission, Role},
 };
 
-use crate::{ManagementError, ManagementSyncSelection, PermissionRepo, RoleRepo, SyncSelection, SyncSelectionRepo};
+use crate::{ManagementError, PermissionRepo, RoleRepo, SyncSelection};
 
 pub const MANAGEMENT_APPLICATION_URI: &str = "idp-management";
 

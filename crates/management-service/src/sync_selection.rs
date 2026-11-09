@@ -139,40 +139,40 @@ pub trait SyncSelectionRepo {
 /// Management Service extension for WebSocket sync selection.
 pub trait ManagementSyncSelection {
     /// Select a resource for WebSocket sync on a device.
-    async fn select_resource_for_sync(
+    fn select_resource_for_sync(
         &self,
         device_id: Id,
         resource_id: Id,
         application_id: Id,
         owner_subject: &str,
-    ) -> ManagementResult<()>;
+    ) -> impl Future<Output = ManagementResult<()>> + Send;
 
     /// Deselect a resource for WebSocket sync on a device.
-    async fn deselect_resource_for_sync(
+    fn deselect_resource_for_sync(
         &self,
         device_id: Id,
         resource_id: Id,
-    ) -> ManagementResult<()>;
+    ) -> impl Future<Output = ManagementResult<()>> + Send;
 
     /// List selected resources for WebSocket sync on a device.
-    async fn list_sync_selections_for_device(
+    fn list_sync_selections_for_device(
         &self,
         device_id: Id,
-    ) -> ManagementResult<Vec<SyncSelection>>;
+    ) -> impl Future<Output = ManagementResult<Vec<SyncSelection>>> + Send;
 
     /// List devices that have a resource selected for WebSocket sync.
-    async fn list_sync_targets_for_resource(
+    fn list_sync_targets_for_resource(
         &self,
         resource_id: Id,
-    ) -> ManagementResult<Vec<SyncSelection>>;
+    ) -> impl Future<Output = ManagementResult<Vec<SyncSelection>>> + Send;
 
     /// Get the sync target device for a resource from a source device.
     /// Returns the first device (other than source) that has the resource selected.
-    async fn get_sync_target(
+    fn get_sync_target(
         &self,
         resource_id: Id,
         source_device_id: Id,
-    ) -> ManagementResult<Option<SyncSelection>>;
+    ) -> impl Future<Output = ManagementResult<Option<SyncSelection>>> + Send;
 }
 
 

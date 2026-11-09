@@ -16,7 +16,7 @@ use super::{CodeChallengeMethod, ResponseMode, ResponseType};
 #[cfg_attr(
     feature = "wasm",
     derive(tsify::Tsify),
-    tsify(into_wasm_abi, from_wasm_abi)
+    
 )]
 pub struct AuthorizationRequest {
     pub response_type: ResponseType,

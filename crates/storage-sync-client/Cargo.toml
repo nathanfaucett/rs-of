@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 [features]
 default = ["native"]
 native = ["dep:tokio", "dep:tokio-tungstenite", "dep:futures-util", "ofdb-sql/sync"]
-browser = ["dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:futures-channel", "dep:web-sys", "ofdb-sql/sync"]
+browser = ["dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:futures-channel", "dep:web-sys", "dep:js-sys", "ofdb-sql/sync"]
 
 [dependencies]
 # Internal
@@ -34,7 +34,7 @@ async-trait = { version = "0.1", default-features = false }
 # WASM
 wasm-bindgen = { version = "0.2", default-features = false, features = ["std"], optional = true }
 wasm-bindgen-futures = { version = "0.4", default-features = false, features = ["std"], optional = true }
-web-sys = { version = "0.3", default-features = false, features = ["WebSocket"], optional = true }
+web-sys = { version = "0.3", default-features = false, features = ["WebSocket", "BinaryType", "MessageEvent", "ErrorEvent", "CloseEvent", "Event"], optional = true }
 js-sys = { version = "0.3", default-features = false, optional = true }
 
 # Logging

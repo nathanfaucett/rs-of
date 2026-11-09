@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(
     feature = "wasm",
     derive(tsify::Tsify),
-    tsify(into_wasm_abi, from_wasm_abi)
+    
 )]
 pub struct AuthorizationCodeGrantRequest {
     pub client_id: Option<String>,

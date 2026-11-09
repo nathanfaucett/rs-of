@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(
     feature = "wasm",
     derive(tsify::Tsify),
-    tsify(into_wasm_abi, from_wasm_abi)
+    
 )]
 pub enum ResponseType {
     /// Returns an authorization code.
