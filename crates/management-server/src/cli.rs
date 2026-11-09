@@ -1,5 +1,6 @@
 use std::{io, net::IpAddr, path::Path, sync::Arc};
 
+use api::{bind_addr, public_base_url};
 use clap::Parser;
 use cli::{CliArgs, shutdown_signal};
 use device_service::HostedControlPlane;
@@ -25,7 +26,7 @@ enum ManagementCommand {
 pub async fn run() -> io::Result<()> {
     let _ = dotenvy::dotenv();
     let args = CliArgs::<ManagementCommand>::parse();
-    let config = AppConfig::try_from(Path::new(&args.config)).map_err(io::Error::other)?;
+    let mut config = AppConfig::try_from(Path::new(&args.config)).map_err(io::Error::other)?;
     #[cfg(unix)]
     if let Some(ManagementCommand::ResetIndependent { remove_os_trust }) = &args.command {
         return crate::reset_independent(&config, *remove_os_trust).await;
@@ -53,6 +54,20 @@ pub async fn run() -> io::Result<()> {
             .map_err(io::Error::other)?,
         None => control,
     };
+
+    // Check for public base URL (set by portless via PORTLESS_URL or manually via PUBLIC_BASE_URL)
+    let has_public_base = public_base_url().is_some();
+    let portless_port = std::env::var("PORT").ok().and_then(|p| p.parse::<u16>().ok());
+    if let Some(base_url) = public_base_url() {
+        config.api_public_uri = format!("{}/management", base_url.trim_end_matches('/'));
+        config.server.host = IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1));
+        if let Some(port) = portless_port {
+            config.server.port = port;
+        }
+    } else if let Some(port) = portless_port {
+        config.server.port = port;
+    }
+
     let router = build_router(
         identity_client(&config).await?,
         &config.api_public_uri,
@@ -61,16 +76,24 @@ pub async fn run() -> io::Result<()> {
     )
     .await
     .map_err(io::Error::other)?;
+
     let (host, port) = match args.command {
-        Some(ManagementCommand::Serve { host, port }) => (
-            host.unwrap_or(config.server.host),
-            port.unwrap_or(config.server.port),
-        ),
-        _ => (config.server.host, config.server.port),
+        Some(ManagementCommand::Serve { host, port }) => (host, port),
+        _ => (None, None),
     };
+
     let shutdown = CancellationToken::new();
     let signal = tokio::spawn(shutdown_signal(shutdown.clone()));
-    let result = api::serve(router, (host, port).into(), shutdown).await;
+    let addr = if has_public_base {
+        bind_addr()
+    } else {
+        (
+            host.unwrap_or(config.server.host),
+            port.unwrap_or(config.server.port),
+        )
+            .into()
+    };
+    let result = api::serve(router, addr, shutdown).await;
     signal.abort();
     result
 }

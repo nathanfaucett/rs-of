@@ -1,5 +1,6 @@
 use std::{io, path::PathBuf};
 
+use api::{bind_addr, public_base_url};
 use clap::{Args as ClapArgs, Parser, Subcommand};
 use tokio_util::sync::CancellationToken;
 
@@ -247,23 +248,41 @@ pub async fn run() -> io::Result<()> {
         }
         _ => (),
     }
+    let has_public_base = public_base_url().is_some();
+    let portless_port = std::env::var("PORT").ok().and_then(|p| p.parse::<u16>().ok());
+
     let mut config = match args.config {
         Some(path) => UnifiedConfig::try_from(path.as_path()).map_err(io::Error::other)?,
         None => {
             let root = args
                 .data_dir
                 .unwrap_or_else(|| PathBuf::from("unified-data"));
-            let address = match &args.command {
-                Some(Command::Serve { host, port }) => std::net::SocketAddr::new(
-                    host.unwrap_or(std::net::Ipv4Addr::LOCALHOST.into()),
-                    port.unwrap_or(3000),
-                ),
-                _ => "127.0.0.1:3000".parse().expect("literal loopback address"),
+            let address = if has_public_base {
+                bind_addr()
+            } else {
+                match &args.command {
+                    Some(Command::Serve { host, port }) => std::net::SocketAddr::new(
+                        host.unwrap_or(std::net::Ipv4Addr::LOCALHOST.into()),
+                        port.unwrap_or(3000),
+                    ),
+                    _ => "127.0.0.1:3000".parse().expect("literal loopback address"),
+                }
             };
             UnifiedConfig::local(&root, address)
         }
     };
-    if let Some(Command::Serve { host, port }) = args.command {
+
+    if has_public_base {
+        let base_url = public_base_url().expect("public base URL must be set");
+        let base = base_url.trim_end_matches('/');
+        config.idp.api_public_uri = format!("{}/idp", base);
+        config.management.api_public_uri = format!("{}/management", base);
+        config.device.api_public_uri = format!("{}/device", base);
+        config.storage.api_public_uri = format!("{}/storage", base);
+        config.listen_addr = bind_addr();
+    } else if let Some(port) = portless_port {
+        config.listen_addr.set_port(port);
+    } else if let Some(Command::Serve { host, port }) = args.command {
         if let Some(host) = host {
             config.listen_addr.set_ip(host);
         }

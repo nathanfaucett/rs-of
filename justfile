@@ -23,6 +23,12 @@ help:
     @printf "  device [CONFIG] Run the standalone Device server\n"
     @printf "  storage [CONFIG] Run the standalone Storage server\n"
     @printf "  unified [CONFIG] Run the unified server\n"
+    @printf "  idp-portless [CONFIG]   Run the standalone IdP server via portless\n"
+    @printf "  management-portless [CONFIG] Run the standalone Management server via portless\n"
+    @printf "  device-portless [CONFIG] Run the standalone Device server via portless\n"
+    @printf "  storage-portless [CONFIG] Run the standalone Storage server via portless\n"
+    @printf "  unified-portless [CONFIG] Run the unified server via portless\n"
+    @printf "  portless-servers          Show commands to run all standalone servers via portless\n"
 
 build:
     cargo build --workspace
@@ -89,3 +95,35 @@ openapi-export:
 
 openapi-generate:
     pnpm openapi
+
+# Portless server recipes - run servers via portless proxy (auto HTTPS, stable .localhost URLs)
+# These require portless to be installed (npm install -g portless or npx portless)
+# Note: Run each in a separate terminal. portless manages the proxy and server processes.
+
+idp-portless config="config/idp/config.yaml" *args:
+    cargo build -p idp-server --features cli --bin idp-server
+    npx portless idp ./target/debug/idp-server --config "{{ config }}" {{ args }}
+
+management-portless config="config/management/config.yaml" *args:
+    cargo build -p management-server --features cli --bin management-server
+    npx portless management ./target/debug/management-server --config "{{ config }}" {{ args }}
+
+device-portless config="config/device/config.yaml" *args:
+    cargo build -p device-server --features cli --bin device-server
+    npx portless device ./target/debug/device-server --config "{{ config }}" {{ args }}
+
+storage-portless config="config/storage/config.yaml" *args:
+    cargo build -p storage-server --features cli --bin storage-server
+    npx portless storage ./target/debug/storage-server --config "{{ config }}" {{ args }}
+
+unified-portless config="config/unified/config.yaml" *args:
+    cargo build -p unified-server --features cli --bin unified-server
+    npx portless unified ./target/debug/unified-server --config "{{ config }}" {{ args }}
+
+# Run all standalone servers via portless (run each in separate terminal)
+portless-servers:
+    @echo "Run each in a separate terminal:"
+    @echo "  just idp-portless"
+    @echo "  just management-portless"
+    @echo "  just device-portless"
+    @echo "  just storage-portless"

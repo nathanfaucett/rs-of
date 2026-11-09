@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use api::serve;
+use api::{bind_addr, public_base_url, serve};
 #[cfg(feature = "completions")]
 use clap::CommandFactory;
 use clap::Parser;
@@ -98,17 +98,37 @@ pub async fn run() -> io::Result<()> {
 
     let cancellation_token = CancellationToken::new();
     #[cfg(unix)]
-    let app_config = Arc::new(crate::startup::load_config(Path::new(&args.config))?);
+    let mut app_config = Arc::new(crate::startup::load_config(Path::new(&args.config))?);
     #[cfg(not(unix))]
-    let app_config =
+    let mut app_config =
         Arc::new(AppConfig::try_from(Path::new(&args.config)).map_err(io::Error::other)?);
+
+    // Check for public base URL (set by portless via PORTLESS_URL or manually via PUBLIC_BASE_URL)
+    let has_public_base = public_base_url().is_some();
+    // Override port from PORT env var (set by portless)
+    let portless_port = std::env::var("PORT").ok().and_then(|p| p.parse::<u16>().ok());
+    if let Some(base_url) = public_base_url() {
+        let mut config = Arc::try_unwrap(app_config).unwrap_or_else(|arc| (*arc).clone());
+        config.api_public_uri = format!("{}/idp", base_url.trim_end_matches('/'));
+        config.server.host = IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1));
+        if let Some(port) = portless_port {
+            config.server.port = port;
+        }
+        app_config = Arc::new(config);
+    } else if let Some(port) = portless_port {
+        // Even without public base URL, respect PORT env var
+        let mut config = Arc::try_unwrap(app_config).unwrap_or_else(|arc| (*arc).clone());
+        config.server.port = port;
+        app_config = Arc::new(config);
+    }
+
     env_logger::Builder::from_env(
         Env::default().default_filter_or(format!("{},automerge=warn", app_config.log_level)),
     )
     .init();
 
     #[cfg(unix)]
-    if matches!(args.command, None | Some(IdpCommand::Serve { .. })) {
+    if !has_public_base && matches!(args.command, None | Some(IdpCommand::Serve { .. })) {
         let (host, port) = match args.command.as_ref() {
             Some(IdpCommand::Serve { host, port }) => (*host, *port),
             _ => (None, None),
@@ -145,13 +165,19 @@ pub async fn run() -> io::Result<()> {
         .layer(CorsLayer::very_permissive().allow_private_network(true))
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new().gzip(app_config.server.gzip));
+
     let run_serve = |host: Option<IpAddr>, port: Option<u16>| {
-        let addr = SocketAddr::from((
-            host.unwrap_or(app_config.server.host),
-            port.unwrap_or(app_config.server.port),
-        ));
+        let addr = if public_base_url().is_some() {
+            bind_addr()
+        } else {
+            SocketAddr::from((
+                host.unwrap_or(app_config.server.host),
+                port.unwrap_or(app_config.server.port),
+            ))
+        };
         spawn(serve(router, addr, cancellation_token.clone()))
     };
+
     let command_handle = match args.command {
         #[cfg(unix)]
         Some(IdpCommand::ResetIndependent { .. }) => {
@@ -199,14 +225,16 @@ mod tests {
     use clap::Parser;
     use cli::CliArgs;
 
+    use super::IdpCommand;
+
     #[cfg(unix)]
     #[test]
     fn local_reset_requires_explicit_os_trust_removal() {
         assert!(
-            CliArgs::<super::IdpCommand>::try_parse_from(["idp-server", "reset-independent"])
+            CliArgs::<IdpCommand>::try_parse_from(["idp-server", "reset-independent"])
                 .is_err()
         );
-        CliArgs::<super::IdpCommand>::try_parse_from([
+        CliArgs::<IdpCommand>::try_parse_from([
             "idp-server",
             "reset-independent",
             "--remove-os-trust",
@@ -216,8 +244,8 @@ mod tests {
 
     #[test]
     fn independent_startup_accepts_no_config_and_explicit_serve() {
-        CliArgs::<super::IdpCommand>::try_parse_from(["idp-server"]).expect("default launch");
-        CliArgs::<super::IdpCommand>::try_parse_from(["idp-server", "serve", "--port", "3000"])
+        CliArgs::<IdpCommand>::try_parse_from(["idp-server"]).expect("default launch");
+        CliArgs::<IdpCommand>::try_parse_from(["idp-server", "serve", "--port", "3000"])
             .expect("explicit serving launch");
     }
 }

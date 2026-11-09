@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use api::serve;
+use api::{bind_addr, public_base_url, serve};
 use clap::Parser;
 use cli::{CliArgs, shutdown_signal};
 
@@ -54,9 +54,9 @@ pub async fn run() -> io::Result<()> {
     let args = CliArgs::<DeviceCommand>::parse();
     let cancellation_token = CancellationToken::new();
     #[cfg(unix)]
-    let app_config = Arc::new(crate::startup::load_config(Path::new(&args.config))?);
+    let mut app_config = Arc::new(crate::startup::load_config(Path::new(&args.config))?);
     #[cfg(not(unix))]
-    let app_config = Arc::new(match AppConfig::try_from(Path::new(&args.config)) {
+    let mut app_config = Arc::new(match AppConfig::try_from(Path::new(&args.config)) {
         Ok(app_config) => app_config,
         Err(error) => {
             eprintln!("failed to load config {:?}: {error}", args.config);
@@ -64,13 +64,26 @@ pub async fn run() -> io::Result<()> {
         }
     });
 
-    #[cfg(unix)]
-    if let Some(DeviceCommand::ResetIndependent { remove_os_trust }) = args.command.as_ref() {
-        return crate::reset_independent(&app_config, *remove_os_trust, || Ok(())).await;
+    // Check for public base URL (set by portless via PORTLESS_URL or manually via PUBLIC_BASE_URL)
+    let has_public_base = public_base_url().is_some();
+    let portless_port = std::env::var("PORT").ok().and_then(|p| p.parse::<u16>().ok());
+    if has_public_base {
+        let base_url = public_base_url().expect("public base URL must be set");
+        let mut config = Arc::try_unwrap(app_config).unwrap_or_else(|arc| (*arc).clone());
+        config.api_public_uri = format!("{}/device", base_url.trim_end_matches('/'));
+        config.server.host = IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1));
+        if let Some(port) = portless_port {
+            config.server.port = port;
+        }
+        app_config = Arc::new(config);
+    } else if let Some(port) = portless_port {
+        let mut config = Arc::try_unwrap(app_config).unwrap_or_else(|arc| (*arc).clone());
+        config.server.port = port;
+        app_config = Arc::new(config);
     }
 
     #[cfg(unix)]
-    if matches!(args.command, None | Some(DeviceCommand::Serve { .. })) {
+    if !has_public_base && matches!(args.command, None | Some(DeviceCommand::Serve { .. })) {
         let (host, port) = match args.command.as_ref() {
             Some(DeviceCommand::Serve { host, port }) => (*host, *port),
             _ => (None, None),
@@ -177,10 +190,14 @@ pub async fn run() -> io::Result<()> {
     .layer(CompressionLayer::new().gzip(app_config.server.gzip));
 
     let run_serve = |host: Option<IpAddr>, port: Option<u16>| {
-        let addr = SocketAddr::from((
-            host.unwrap_or(app_config.server.host),
-            port.unwrap_or(app_config.server.port),
-        ));
+        let addr = if has_public_base {
+            bind_addr()
+        } else {
+            SocketAddr::from((
+                host.unwrap_or(app_config.server.host),
+                port.unwrap_or(app_config.server.port),
+            ))
+        };
         spawn(serve(router, addr, cancellation_token.clone()))
     };
 
