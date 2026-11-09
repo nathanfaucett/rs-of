@@ -12,7 +12,10 @@ browser = ["storage-sync-client/browser"]
 wasm = ["browser", "dep:ofdb-sql", "dep:ofdb-kv", "dep:file-system"]
 
 [dependencies]
-# Generated HTTP client
+# Generated HTTP client (OpenAPI)
+of-storage-api-client = { path = "../storage-api-client", default-features = false }
+
+# High-level storage client
 of-storage-client = { path = "../storage-client", default-features = false }
 
 # Sync transport

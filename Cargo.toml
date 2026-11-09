@@ -41,6 +41,7 @@ members = [
     "crates/management-client",
     "crates/device-client",
     "crates/storage-client",
+    "crates/storage-api-client",
     "crates/db",
     "crates/cli",
     "crates/api",
@@ -162,6 +163,7 @@ of-device-client = { path = "crates/device-client", default-features = false }
 of-idp-client = { path = "crates/idp-client", default-features = false }
 of-management-client = { path = "crates/management-client", default-features = false }
 of-storage-client = { path = "crates/storage-client", default-features = false }
+of-storage-api-client = { path = "crates/storage-api-client", default-features = false }
 
 # Isolated fixtures
 keyring-core = { version = "1.0", default-features = false }

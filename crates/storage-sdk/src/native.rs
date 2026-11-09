@@ -9,17 +9,18 @@ use {
         Client as SqlClient, Transaction as SqlTransaction,
     },
     ofdb_value::Value as OfdbValue,
-    of_storage_client::apis::configuration::Configuration,
-    of_storage_client::apis::resources_api::{
-        create_database, create_file_system, delete_database, delete_file_system,
+    of_storage_api_client::apis::configuration::Configuration,
+    of_storage_api_client::apis::resources_api::{
+        create_database, create_file_system, delete_database,
         get_database, get_file_system, list_databases, list_file_systems,
-        CreateResourceRequest, GetDatabaseParams, GetFileSystemParams,
+        GetDatabaseParams, GetFileSystemParams,
     },
-    of_storage_client::apis::sync_api::sync_connect,
-    of_storage_client::models::{SyncConnectRequest, SyncSessionResponse, SyncStatus as Status},
+    of_storage_api_client::apis::sync_api::sync_connect,
+    of_storage_api_client::models::{SyncConnectRequest, SyncSessionResponse, Status, CreateResourceRequest},
     storage_sync_client::{
         native::WebSocketSyncTransport, protocol::StoreIdentity, TokenProvider,
-        transport::{WsTransportBridge, TransportError},
+        client::{WsTransportBridge, WsTransportBridgeShared},
+        transport::TransportError,
     },
     std::sync::{Arc, Mutex},
     tokio::sync::Mutex as TokioMutex,
@@ -29,7 +30,7 @@ use {
 #[cfg(feature = "native")]
 use crate::{
     error::{StorageSdkError, StorageSdkResult},
-    handle::{ResourceId, 
+    handle::{ResourceId,
         DatabaseId, DatabaseInfo, FilesystemId, FilesystemInfo, KvStoreId,
         KvStoreInfo,
     },
@@ -85,7 +86,9 @@ impl StorageSdk {
         let token = (self.token_provider)().await?;
         self.with_config(|config| config.bearer_access_token = Some(token.into())).await;
 
-        let request = CreateResourceRequest { name: Some(name.to_string()) };
+        let request = of_storage_api_client::apis::resources_api::CreateDatabaseParams {
+            create_resource_request: CreateResourceRequest { name: Some(Some(name.to_string())) },
+        };
         let db_info = create_database(&self.http_config.lock().unwrap(), request).await?;
 
         let database = self.open_local_database(&DatabaseId::from_uuid(Uuid::parse_str(&db_info.id).unwrap())).await?;
@@ -108,7 +111,7 @@ impl StorageSdk {
 
         let db_info = get_database(
             &self.http_config.lock().unwrap(),
-            of_storage_client::apis::resources_api::GetDatabaseParams { database_id: id.to_string() },
+            of_storage_api_client::apis::resources_api::GetDatabaseParams { database_id: id.to_string() },
         ).await?;
 
         let database = self.open_local_database(&id).await?;
@@ -116,9 +119,9 @@ impl StorageSdk {
         Ok(SqlDatabaseHandle {
             sdk: self.clone(),
             info: DatabaseInfo {
-                id: DatabaseId::from_uuid(Uuid::parse_str(id: DatabaseId::from_uuid(Uuid::parse_str(id: DatabaseId::from_uuid(Uuid::parse_str(id: db_info.id,db_info.id).unwrap()),db_info.id).unwrap()),db_info.id).unwrap()),
+                id: DatabaseId::from_uuid(Uuid::parse_str(&db_info.id).unwrap()),
                 name: db_info.name.flatten().unwrap_or_default(),
-                application_id: db_info.application_id,
+                application_id: db_info.application_id.clone(),
             },
             database: Arc::new(TokioMutex::new(Some(database))),
         })
@@ -130,7 +133,7 @@ impl StorageSdk {
         self.with_config(|config| config.bearer_access_token = Some(token.into())).await;
 
         let databases = list_databases(&self.http_config.lock().unwrap()).await?;
-        
+
         Ok(databases.into_iter().map(|d| DatabaseInfo {
             id: DatabaseId::from_uuid(Uuid::parse_str(&d.id).unwrap()),
             name: d.name.flatten().unwrap_or_default(),
@@ -158,7 +161,9 @@ impl StorageSdk {
         let token = (self.token_provider)().await?;
         self.with_config(|config| config.bearer_access_token = Some(token.into())).await;
 
-        let request = CreateResourceRequest { name: Some(name.to_string()) };
+        let request = of_storage_api_client::apis::resources_api::CreateFileSystemParams {
+            create_resource_request: CreateResourceRequest { name: Some(Some(name.to_string())) },
+        };
         let info = create_file_system(&self.http_config.lock().unwrap(), request).await?;
 
         let fs = self.open_local_filesystem(&FilesystemId::from_uuid(Uuid::parse_str(&info.id).unwrap())).await?;
@@ -203,7 +208,7 @@ impl StorageSdk {
         self.with_config(|config| config.bearer_access_token = Some(token.into())).await;
 
         let filesystems = list_file_systems(&self.http_config.lock().unwrap()).await?;
-        
+
         Ok(filesystems.into_iter().map(|f| FilesystemInfo {
             id: FilesystemId::from_uuid(Uuid::parse_str(&f.id).unwrap()),
             name: f.name.flatten().unwrap_or_default(),
@@ -224,7 +229,7 @@ impl StorageSdk {
             target_device: config.target_device.into(),
         };
 
-        let session = sync_connect(&self.http_config.lock().unwrap(), of_storage_client::apis::sync_api::SyncConnectParams {
+        let session = sync_connect(&self.http_config.lock().unwrap(), of_storage_api_client::apis::sync_api::SyncConnectParams {
             sync_connect_request: request,
         }).await?;
 
@@ -272,8 +277,9 @@ impl StorageSdk {
         let path = format!("./data/filesystems/{}", id);
         std::fs::create_dir_all(&path).ok();
 
-        let node_id = iroh::NodeId::from_bytes(&[0u8; 32]).unwrap();
+        let node_id = Uuid::nil();
         let fs = file_system::FileSystem::open(&path, node_id)
+            .await
             .map_err(|e| StorageSdkError::filesystem(e.to_string()))?;
 
         Ok(fs)

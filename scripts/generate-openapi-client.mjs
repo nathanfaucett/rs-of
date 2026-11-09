@@ -107,7 +107,7 @@ function generate(name, language, output) {
       path.join(root, "scripts/openapi-templates/config.json"),
       "-t",
       path.join(root, "scripts/openapi-templates"),
-      `--additional-properties=packageName=of-${name}-client,useSingleRequestParameter=true,useChrono=false`,
+      `--additional-properties=packageName=of-${name === "storage" ? "storage-api-client" : `${name}-client`},useSingleRequestParameter=true,useChrono=false`,
     );
   else
     args.push(
@@ -299,9 +299,11 @@ try {
     ]);
     cpSync(ts, target, { recursive: true });
     generate(name, "rust", path.join(rust, name));
+    const crateName =
+      name === "storage" ? "storage-api-client" : `${name}-client`;
     replacements.push([
       path.join(rust, name),
-      path.join(root, "crates", `${name}-client`),
+      path.join(root, "crates", crateName),
     ]);
   }
   for (const name of names) {
@@ -347,16 +349,19 @@ try {
       moved.push([to, backup, existed]);
       renameSync(from, to);
     }
+    const crateNames = names.map((name) =>
+      name === "storage" ? "storage-api-client" : `${name}-client`,
+    );
     run("cargo", [
       "fmt",
       "--check",
-      ...names.flatMap((name) => ["-p", `of-${name}-client`]),
+      ...crateNames.flatMap((crateName) => ["-p", `of-${crateName}`]),
     ]);
     run("cargo", ["fetch"]);
     run("cargo", [
       "check",
       "--offline",
-      ...names.flatMap((name) => ["-p", `of-${name}-client`]),
+      ...crateNames.flatMap((crateName) => ["-p", `of-${crateName}`]),
     ]);
   } catch (error) {
     for (const [to, backup, existed] of moved.reverse()) {

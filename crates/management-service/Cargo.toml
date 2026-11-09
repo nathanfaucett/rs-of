@@ -14,7 +14,7 @@ name = "management_service"
 
 [features]
 default = ["std"]
-utoipa = ["std", "idp-model/utoipa"]
+utoipa = ["std", "idp-model/utoipa", "dep:utoipa", "dep:utoipa-gen"]
 replica = ["std", "dep:db", "idp-model/replica"]
 std = ["idp-model/std"]
 
@@ -31,6 +31,10 @@ serde = { version = "1.0", default-features = false }
 
 # Time
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+# OpenAPI
+utoipa = { version = "5.5", default-features = false, features = ["macros", "uuid"], optional = true }
+utoipa-gen = { version = "5.5", default-features = false, features = ["uuid"], optional = true }
 
 [dev-dependencies]
 # Internal

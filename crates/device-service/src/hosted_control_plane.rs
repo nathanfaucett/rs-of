@@ -22,7 +22,7 @@ use of_idp_client::apis::{
     super_routes_active_user_api::{ActiveUserParams, active_user},
     super_routes_oauth2_introspect_api::{IntrospectParams, introspect},
 };
-use of_storage_client::apis::resources_api::{
+use of_storage_api_client::apis::resources_api::{
     GetDatabaseParams, GetFileSystemParams, get_database, get_file_system,
 };
 use reqwest::{Client, Url, redirect::Policy};
@@ -470,7 +470,7 @@ impl HostedControlPlane {
         if resource_id != id.to_string() {
             return Err("invalid storage resource ID".to_owned());
         }
-        let configuration = of_storage_client::apis::configuration::Configuration {
+        let configuration = of_storage_api_client::apis::configuration::Configuration {
             base_path: self
                 .storage_base_url
                 .as_str()

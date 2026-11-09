@@ -4,12 +4,16 @@ use axum::{
     Json,
     extract::{Path, State},
 };
-use idp_model::model::Id;
-use management_service::{
-    ManagementService, SyncSelection, SyncSelectionRequest, SyncSelectionResponse,
+use idp_model::{
+    contract::{ErrorCode, ErrorResponse},
+    model::Id,
 };
-use crate::router::{RouterState, middleware::ManagementAuthorization, ErrorResponse};
+use management_service::{
+    SyncSelection, SyncSelectionRequest, SyncSelectionResponse,
+};
+use crate::router::{RouterState, middleware::ManagementAuthorization};
 use crate::router::routes::roles::require_application_permission;
+use uuid::Uuid;
 
 const SYNC_SELECTION_READ_PERMISSION: &str = "sync.selection.read";
 const SYNC_SELECTION_WRITE_PERMISSION: &str = "sync.selection.write";
@@ -34,7 +38,9 @@ pub(crate) async fn set_sync_selection(
     authorization: ManagementAuthorization,
     Json(request): Json<SyncSelectionRequest>,
 ) -> Result<Json<SyncSelectionResponse>, ErrorResponse> {
-    let device_id = Id::parse(&device_id_str).map_err(|_| ErrorResponse::new(idp_model::contract::ErrorCode::InvalidRequest))?;
+    let device_id = Uuid::parse_str(&device_id_str)
+        .map_err(|_| ErrorResponse::new(ErrorCode::InvalidRequest))?;
+    let device_id: Id = device_id.into();
 
     require_application_permission(
         state.management_service.as_ref(),
@@ -44,10 +50,7 @@ pub(crate) async fn set_sync_selection(
     )
     .await?;
 
-    let service = ManagementService::new(
-        state.permission_repo.clone(),
-        state.role_repo.clone(),
-    );
+    let service = state.management_service.clone();
 
     if request.select {
         service
@@ -58,18 +61,18 @@ pub(crate) async fn set_sync_selection(
                 &authorization.subject.to_string(),
             )
             .await
-            .map_err(|_| ErrorResponse::new(idp_model::contract::ErrorCode::ServiceUnavailable))?;
+            .map_err(|_| ErrorResponse::new(ErrorCode::TemporarilyUnavailable))?;
     } else {
         service
             .deselect_resource_for_sync(device_id, request.resource_id)
             .await
-            .map_err(|_| ErrorResponse::new(idp_model::contract::ErrorCode::ServiceUnavailable))?;
+            .map_err(|_| ErrorResponse::new(ErrorCode::TemporarilyUnavailable))?;
     }
 
     let selections = service
         .list_sync_selections_for_device(device_id)
         .await
-        .map_err(|_| ErrorResponse::new(idp_model::contract::ErrorCode::ServiceUnavailable))?;
+        .map_err(|_| ErrorResponse::new(ErrorCode::TemporarilyUnavailable))?;
 
     Ok(Json(SyncSelectionResponse { selections }))
 }
@@ -92,7 +95,9 @@ pub(crate) async fn list_sync_selections(
     Path(device_id_str): Path<String>,
     authorization: ManagementAuthorization,
 ) -> Result<Json<SyncSelectionResponse>, ErrorResponse> {
-    let device_id = Id::parse(&device_id_str).map_err(|_| ErrorResponse::new(idp_model::contract::ErrorCode::InvalidRequest))?;
+    let device_id = Uuid::parse_str(&device_id_str)
+        .map_err(|_| ErrorResponse::new(ErrorCode::InvalidRequest))?;
+    let device_id: Id = device_id.into();
 
     require_application_permission(
         state.management_service.as_ref(),
@@ -102,15 +107,12 @@ pub(crate) async fn list_sync_selections(
     )
     .await?;
 
-    let service = ManagementService::new(
-        state.permission_repo.clone(),
-        state.role_repo.clone(),
-    );
+    let service = state.management_service.clone();
 
     let selections = service
         .list_sync_selections_for_device(device_id)
         .await
-        .map_err(|_| ErrorResponse::new(idp_model::contract::ErrorCode::ServiceUnavailable))?;
+        .map_err(|_| ErrorResponse::new(ErrorCode::TemporarilyUnavailable))?;
 
     Ok(Json(SyncSelectionResponse { selections }))
 }
@@ -133,7 +135,9 @@ pub(crate) async fn list_sync_targets(
     Path(resource_id_str): Path<String>,
     authorization: ManagementAuthorization,
 ) -> Result<Json<SyncSelectionResponse>, ErrorResponse> {
-    let resource_id = Id::parse(&resource_id_str).map_err(|_| ErrorResponse::new(idp_model::contract::ErrorCode::InvalidRequest))?;
+    let resource_id = Uuid::parse_str(&resource_id_str)
+        .map_err(|_| ErrorResponse::new(ErrorCode::InvalidRequest))?;
+    let resource_id: Id = resource_id.into();
 
     require_application_permission(
         state.management_service.as_ref(),
@@ -143,15 +147,12 @@ pub(crate) async fn list_sync_targets(
     )
     .await?;
 
-    let service = ManagementService::new(
-        state.permission_repo.clone(),
-        state.role_repo.clone(),
-    );
+    let service = state.management_service.clone();
 
     let selections = service
         .list_sync_targets_for_resource(resource_id)
         .await
-        .map_err(|_| ErrorResponse::new(idp_model::contract::ErrorCode::ServiceUnavailable))?;
+        .map_err(|_| ErrorResponse::new(ErrorCode::TemporarilyUnavailable))?;
 
     Ok(Json(SyncSelectionResponse { selections }))
 }

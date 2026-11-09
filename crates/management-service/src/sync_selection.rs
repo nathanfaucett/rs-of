@@ -12,6 +12,76 @@ use serde::{Deserialize, Serialize};
 
 use crate::ManagementResult;
 
+#[cfg(feature = "utoipa")]
+use utoipa::openapi::schema::{SchemaType, SchemaFormat, KnownFormat, Type, ObjectBuilder};
+
+#[cfg(feature = "utoipa")]
+impl utoipa::ToSchema for SyncSelection {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("SyncSelection")
+    }
+}
+
+#[cfg(feature = "utoipa")]
+impl utoipa::PartialSchema for SyncSelection {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::Schema> {
+        let mut obj = ObjectBuilder::new()
+            .property("device_id", ObjectBuilder::new().schema_type(SchemaType::Type(Type::String)).format(Some(SchemaFormat::KnownFormat(KnownFormat::Uuid))).build())
+            .property("resource_id", ObjectBuilder::new().schema_type(SchemaType::Type(Type::String)).format(Some(SchemaFormat::KnownFormat(KnownFormat::Uuid))).build())
+            .property("application_id", ObjectBuilder::new().schema_type(SchemaType::Type(Type::String)).format(Some(SchemaFormat::KnownFormat(KnownFormat::Uuid))).build())
+            .property("owner_subject", ObjectBuilder::new().schema_type(SchemaType::Type(Type::String)).build())
+            .property("selected_at", ObjectBuilder::new().schema_type(SchemaType::Type(Type::Integer)).build());
+
+        obj = obj.required("device_id");
+        obj = obj.required("resource_id");
+        obj = obj.required("application_id");
+        obj = obj.required("owner_subject");
+        obj = obj.required("selected_at");
+
+        utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(obj.build()))
+    }
+}
+
+#[cfg(feature = "utoipa")]
+impl utoipa::ToSchema for SyncSelectionRequest {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("SyncSelectionRequest")
+    }
+}
+
+#[cfg(feature = "utoipa")]
+impl utoipa::PartialSchema for SyncSelectionRequest {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::Schema> {
+        let mut obj = ObjectBuilder::new()
+            .property("resource_id", ObjectBuilder::new().schema_type(SchemaType::Type(Type::String)).format(Some(SchemaFormat::KnownFormat(KnownFormat::Uuid))).build())
+            .property("select", ObjectBuilder::new().schema_type(SchemaType::Type(Type::Boolean)).build());
+
+        obj = obj.required("resource_id");
+        obj = obj.required("select");
+
+        utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(obj.build()))
+    }
+}
+
+#[cfg(feature = "utoipa")]
+impl utoipa::ToSchema for SyncSelectionResponse {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("SyncSelectionResponse")
+    }
+}
+
+#[cfg(feature = "utoipa")]
+impl utoipa::PartialSchema for SyncSelectionResponse {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::Schema> {
+        let mut obj = ObjectBuilder::new()
+            .property("selections", ObjectBuilder::new().schema_type(SchemaType::Type(Type::Array)).build());
+
+        obj = obj.required("selections");
+
+        utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(obj.build()))
+    }
+}
+
 /// Sync selection record.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SyncSelection {

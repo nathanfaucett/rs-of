@@ -398,7 +398,7 @@ where
     }
 
     // ManagementSyncSelection implementation
-    async fn select_resource_for_sync(
+    pub async fn select_resource_for_sync(
         &self,
         device_id: Id,
         resource_id: Id,
@@ -411,7 +411,7 @@ where
             .await
     }
 
-    async fn deselect_resource_for_sync(
+    pub async fn deselect_resource_for_sync(
         &self,
         device_id: Id,
         resource_id: Id,
@@ -420,21 +420,21 @@ where
         self.deselect_resource(device_id, resource_id).await
     }
 
-    async fn list_sync_selections_for_device(
+    pub async fn list_sync_selections_for_device(
         &self,
         device_id: Id,
     ) -> Result<Vec<SyncSelection>, ManagementError> {
         self.list_device_selections(device_id).await
     }
 
-    async fn list_sync_targets_for_resource(
+    pub async fn list_sync_targets_for_resource(
         &self,
         resource_id: Id,
     ) -> Result<Vec<SyncSelection>, ManagementError> {
         self.list_resource_sync_targets(resource_id).await
     }
 
-    async fn get_sync_target(
+    pub async fn get_sync_target(
         &self,
         resource_id: Id,
         source_device_id: Id,

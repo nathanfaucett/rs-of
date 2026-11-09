@@ -90,6 +90,7 @@ axum = { version = "0.8", default-features = false, features = [
     "macros",
 ] }
 http = { version = "1.4", default-features = false }
+uuid = { version = "1.29", default-features = false, features = ["serde", "v7"] }
 utoipa = { version = "5.5", default-features = false, features = ["macros"] }
 utoipa-axum = { version = "0.2", default-features = false }
 utoipa-swagger-ui = { version = "9.0", default-features = false, features = [

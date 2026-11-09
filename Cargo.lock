@@ -1708,6 +1708,7 @@ dependencies = [
  "model",
  "of-device-client",
  "of-idp-client",
+ "of-storage-api-client",
  "of-storage-client",
  "ofdb-sql",
  "postcard",
@@ -3341,6 +3342,7 @@ dependencies = [
  "of-device-client",
  "of-idp-client",
  "of-management-client",
+ "of-storage-api-client",
  "of-storage-client",
  "ofdb-sql",
  "postcard",
@@ -4097,6 +4099,7 @@ dependencies = [
  "utoipa",
  "utoipa-axum",
  "utoipa-swagger-ui",
+ "uuid",
 ]
 
 [[package]]
@@ -4109,6 +4112,8 @@ dependencies = [
  "serde",
  "thiserror 2.0.20",
  "tokio",
+ "utoipa",
+ "utoipa-gen",
 ]
 
 [[package]]
@@ -5049,6 +5054,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "of-storage-api-client"
+version = "0.1.0"
+dependencies = [
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "serde_with",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "of-storage-client"
 version = "0.1.0"
 dependencies = [
@@ -5082,6 +5100,7 @@ dependencies = [
  "file-system",
  "iroh",
  "log",
+ "of-storage-api-client",
  "of-storage-client",
  "ofdb-kv",
  "ofdb-sql",
@@ -8843,6 +8862,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+ "uuid",
 ]
 
 [[package]]

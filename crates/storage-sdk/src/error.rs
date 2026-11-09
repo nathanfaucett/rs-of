@@ -94,56 +94,56 @@ impl StorageSdkError {
 }
 
 // Implement From for various HTTP error types
-impl From<of_storage_client::apis::Error<of_storage_client::apis::sync_api::SyncConnectError>> for StorageSdkError {
-    fn from(e: of_storage_client::apis::Error<of_storage_client::apis::sync_api::SyncConnectError>) -> Self {
+impl From<of_storage_api_client::apis::Error<of_storage_api_client::apis::sync_api::SyncConnectError>> for StorageSdkError {
+    fn from(e: of_storage_api_client::apis::Error<of_storage_api_client::apis::sync_api::SyncConnectError>) -> Self {
         Self::Http(Box::new(e))
     }
 }
 
-impl From<of_storage_client::apis::Error<of_storage_client::apis::resources_api::CreateDatabaseError>> for StorageSdkError {
-    fn from(e: of_storage_client::apis::Error<of_storage_client::apis::resources_api::CreateDatabaseError>) -> Self {
+impl From<of_storage_api_client::apis::Error<of_storage_api_client::apis::resources_api::CreateDatabaseError>> for StorageSdkError {
+    fn from(e: of_storage_api_client::apis::Error<of_storage_api_client::apis::resources_api::CreateDatabaseError>) -> Self {
         Self::Http(Box::new(e))
     }
 }
 
-impl From<of_storage_client::apis::Error<of_storage_client::apis::resources_api::GetDatabaseError>> for StorageSdkError {
-    fn from(e: of_storage_client::apis::Error<of_storage_client::apis::resources_api::GetDatabaseError>) -> Self {
+impl From<of_storage_api_client::apis::Error<of_storage_api_client::apis::resources_api::GetDatabaseError>> for StorageSdkError {
+    fn from(e: of_storage_api_client::apis::Error<of_storage_api_client::apis::resources_api::GetDatabaseError>) -> Self {
         Self::Http(Box::new(e))
     }
 }
 
-impl From<of_storage_client::apis::Error<of_storage_client::apis::resources_api::ListDatabasesError>> for StorageSdkError {
-    fn from(e: of_storage_client::apis::Error<of_storage_client::apis::resources_api::ListDatabasesError>) -> Self {
+impl From<of_storage_api_client::apis::Error<of_storage_api_client::apis::resources_api::ListDatabasesError>> for StorageSdkError {
+    fn from(e: of_storage_api_client::apis::Error<of_storage_api_client::apis::resources_api::ListDatabasesError>) -> Self {
         Self::Http(Box::new(e))
     }
 }
 
-impl From<of_storage_client::apis::Error<of_storage_client::apis::resources_api::DeleteDatabaseError>> for StorageSdkError {
-    fn from(e: of_storage_client::apis::Error<of_storage_client::apis::resources_api::DeleteDatabaseError>) -> Self {
+impl From<of_storage_api_client::apis::Error<of_storage_api_client::apis::resources_api::DeleteDatabaseError>> for StorageSdkError {
+    fn from(e: of_storage_api_client::apis::Error<of_storage_api_client::apis::resources_api::DeleteDatabaseError>) -> Self {
         Self::Http(Box::new(e))
     }
 }
 
-impl From<of_storage_client::apis::Error<of_storage_client::apis::resources_api::CreateFileSystemError>> for StorageSdkError {
-    fn from(e: of_storage_client::apis::Error<of_storage_client::apis::resources_api::CreateFileSystemError>) -> Self {
+impl From<of_storage_api_client::apis::Error<of_storage_api_client::apis::resources_api::CreateFileSystemError>> for StorageSdkError {
+    fn from(e: of_storage_api_client::apis::Error<of_storage_api_client::apis::resources_api::CreateFileSystemError>) -> Self {
         Self::Http(Box::new(e))
     }
 }
 
-impl From<of_storage_client::apis::Error<of_storage_client::apis::resources_api::GetFileSystemError>> for StorageSdkError {
-    fn from(e: of_storage_client::apis::Error<of_storage_client::apis::resources_api::GetFileSystemError>) -> Self {
+impl From<of_storage_api_client::apis::Error<of_storage_api_client::apis::resources_api::GetFileSystemError>> for StorageSdkError {
+    fn from(e: of_storage_api_client::apis::Error<of_storage_api_client::apis::resources_api::GetFileSystemError>) -> Self {
         Self::Http(Box::new(e))
     }
 }
 
-impl From<of_storage_client::apis::Error<of_storage_client::apis::resources_api::ListFileSystemsError>> for StorageSdkError {
-    fn from(e: of_storage_client::apis::Error<of_storage_client::apis::resources_api::ListFileSystemsError>) -> Self {
+impl From<of_storage_api_client::apis::Error<of_storage_api_client::apis::resources_api::ListFileSystemsError>> for StorageSdkError {
+    fn from(e: of_storage_api_client::apis::Error<of_storage_api_client::apis::resources_api::ListFileSystemsError>) -> Self {
         Self::Http(Box::new(e))
     }
 }
 
-impl From<of_storage_client::apis::Error<of_storage_client::apis::resources_api::DeleteFileSystemError>> for StorageSdkError {
-    fn from(e: of_storage_client::apis::Error<of_storage_client::apis::resources_api::DeleteFileSystemError>) -> Self {
+impl From<of_storage_api_client::apis::Error<of_storage_api_client::apis::resources_api::DeleteFileSystemError>> for StorageSdkError {
+    fn from(e: of_storage_api_client::apis::Error<of_storage_api_client::apis::resources_api::DeleteFileSystemError>) -> Self {
         Self::Http(Box::new(e))
     }
 }
