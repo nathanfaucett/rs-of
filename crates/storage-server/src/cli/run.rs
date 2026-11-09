@@ -241,7 +241,7 @@ pub async fn run() -> io::Result<()> {
                 io::ErrorKind::InvalidInput,
                 "STORAGE_MANAGEMENT_OAUTH_CLIENT_SECRET is required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
             ))?;
-        let audience = app_config
+        let _audience = app_config
             .management_service_audience
             .as_deref()
             .filter(|value| !value.trim().is_empty())

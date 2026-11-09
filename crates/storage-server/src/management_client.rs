@@ -1,16 +1,14 @@
 //! Management Service client for Storage Server.
 
 use std::{
-    collections::HashMap,
     sync::Arc,
     time::{Duration, SystemTime},
 };
 
 use idp_model::model::Id;
-use management_service::{SyncSelection, SyncSelectionRepo};
+use management_service::SyncSelection;
 use reqwest::{Client, Url, redirect::Policy};
 
-use crate::{IdpClient, IdpIntrospectionError};
 
 #[derive(Clone)]
 pub struct ManagementClient {

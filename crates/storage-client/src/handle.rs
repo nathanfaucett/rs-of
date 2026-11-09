@@ -23,8 +23,8 @@ pub struct SqlDatabaseHandle {
     database: Database,
     store_identity: StoreIdentity,
     transport_config: TransportConfig,
-    token_provider: TokenProvider,
-    local_replica_id: Uuid,
+    _token_provider: TokenProvider,
+    _local_replica_id: Uuid,
 }
 
 impl SqlDatabaseHandle {
@@ -40,8 +40,8 @@ impl SqlDatabaseHandle {
             database,
             store_identity,
             transport_config,
-            token_provider,
-            local_replica_id,
+            _token_provider: token_provider,
+            _local_replica_id: local_replica_id,
         }
     }
 
@@ -57,7 +57,7 @@ impl SqlDatabaseHandle {
 
     /// Execute SQL directly on the database.
     pub async fn execute(&self, sql: &str) -> Result<QueryResult> {
-        let mut client = self.database.client();
+        let client = self.database.client();
         let results = client
             .execute_sql(sql, None)
             .await
@@ -71,7 +71,7 @@ impl SqlDatabaseHandle {
         sql: &str,
         params: QueryParams,
     ) -> Result<QueryResult> {
-        let mut client = self.database.client();
+        let client = self.database.client();
         let results = client
             .execute_sql(sql, Some(&params))
             .await
@@ -182,9 +182,9 @@ impl Debug for SqlDatabaseHandle {
 pub struct KvStoreHandle {
     // TODO: Add ofdb-kv database when KV sync is implemented
     store_identity: StoreIdentity,
-    transport_config: TransportConfig,
-    token_provider: TokenProvider,
-    local_replica_id: Uuid,
+    _transport_config: TransportConfig,
+    _token_provider: TokenProvider,
+    _local_replica_id: Uuid,
 }
 
 impl KvStoreHandle {
@@ -196,9 +196,9 @@ impl KvStoreHandle {
     ) -> Self {
         Self {
             store_identity,
-            transport_config,
-            token_provider,
-            local_replica_id,
+            _transport_config: transport_config,
+            _token_provider: token_provider,
+            _local_replica_id: local_replica_id,
         }
     }
 
@@ -225,9 +225,9 @@ impl Debug for KvStoreHandle {
 pub struct FilesystemHandle {
     // TODO: Add file-system instance when filesystem sync is implemented
     store_identity: StoreIdentity,
-    transport_config: TransportConfig,
-    token_provider: TokenProvider,
-    local_replica_id: Uuid,
+    _transport_config: TransportConfig,
+    _token_provider: TokenProvider,
+    _local_replica_id: Uuid,
 }
 
 impl FilesystemHandle {
@@ -239,9 +239,9 @@ impl FilesystemHandle {
     ) -> Self {
         Self {
             store_identity,
-            transport_config,
-            token_provider,
-            local_replica_id,
+            _transport_config: transport_config,
+            _token_provider: token_provider,
+            _local_replica_id: local_replica_id,
         }
     }
 

@@ -47,7 +47,7 @@ pub struct StorageSdk {
     http_config: Arc<Mutex<Configuration>>,
     token_provider: Arc<BoxTokenProvider>,
     application_id: String,
-    user_sub: String,
+    _user_sub: String,
     device_id: DeviceId,
 }
 
@@ -68,7 +68,7 @@ impl StorageSdk {
             http_config: Arc::new(Mutex::new(http_config)),
             token_provider: Arc::new(Box::new(token_provider)),
             application_id: application_id.into(),
-            user_sub: user_sub.into(),
+            _user_sub: user_sub.into(),
             device_id,
         }
     }
@@ -262,7 +262,7 @@ impl StorageSdk {
         Ok(database)
     }
 
-    async fn open_local_kv_store(&self, id: &KvStoreId) -> StorageSdkResult<ofdb_kv::Client> {
+    async fn _open_local_kv_store(&self, id: &KvStoreId) -> StorageSdkResult<ofdb_kv::Client> {
         let path = format!("./data/kv/{}.redb", id);
         std::fs::create_dir_all("./data/kv").ok();
 
@@ -357,7 +357,7 @@ impl SqlDatabaseHandle {
         role: SyncRole,
     ) -> StorageSdkResult<OfdbSyncResult> {
         let db = self.database().await?;
-        let store_identity = self.sdk.create_store_identity(self.info.id.into());
+        let _store_identity = self.sdk.create_store_identity(self.info.id.into());
 
         let sync_url = format!("{}/sync/ws", self.sdk.http_config.lock().unwrap().base_path);
         let token = (self.sdk.token_provider)().await?;

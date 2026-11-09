@@ -770,7 +770,7 @@ pub(super) struct SyncConnectRequest {
     pub resource_id: DatabaseId,
     pub target_device: Uuid,
     #[serde(default = "default_bidirectional")]
-    pub direction: SyncDirection,
+    pub _direction: SyncDirection,
 }
 
 fn default_bidirectional() -> SyncDirection {
@@ -800,6 +800,7 @@ pub(super) struct SyncSessionResponse {
 
 #[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub(super) enum SyncStatus {
     Connecting,
     Syncing,

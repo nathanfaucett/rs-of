@@ -4,22 +4,17 @@ use alloc::{string::String, sync::Arc, vec::Vec};
 use core::future::Future;
 use core::pin::Pin;
 
-use futures_util::future::FutureExt;
 use reqwest::Client as HttpClient;
-use storage_sync_client::client::{SyncClient as WsSyncClient, TokenProvider};
-use storage_sync_client::SyncError;
-use storage_sync_client::protocol::{
-    AttachDirection, Frame, FrameCodec, Hello, ProtocolId, StoreIdentity, SyncMessage, AuthToken,
-};
-use storage_sync_client::transport::native::WebSocketSyncTransport;
+use storage_sync_client::client::TokenProvider;
+use storage_sync_client::protocol::StoreIdentity;
 use uuid::Uuid;
 
 use crate::error::{Result, StorageClientError};
 use crate::handle::{SqlDatabaseHandle, KvStoreHandle, FilesystemHandle};
-use crate::transport::{WsSyncTransport, NativeWsTransport, TransportConfig};
-use crate::{ResourceId, DatabaseId, KvStoreId, FilesystemId, DeviceId, ApplicationId, Subject, CreateDatabaseRequest, OpenDatabaseRequest, CreateKvStoreRequest, OpenKvStoreRequest, CreateFilesystemRequest, OpenFilesystemRequest, SyncToDeviceRequest, SyncToDeviceResponse, SyncSession, SyncStatus, DatabaseInfo, KvStoreInfo, FilesystemInfo};
+use crate::transport::TransportConfig;
+use crate::{ResourceId, DatabaseId, KvStoreId, FilesystemId, DeviceId, SyncToDeviceRequest, SyncToDeviceResponse, SyncSession, DatabaseInfo, KvStoreInfo, FilesystemInfo};
 
-use ofdb_sql::{Database, SessionConfig, SyncResult as OfdbSyncResult, SyncRole, SyncTransport as OfdbSyncTransport};
+use ofdb_sql::Database;
 
 /// Native storage client for Rust applications.
 pub struct StorageClient {
@@ -497,7 +492,7 @@ struct TokenExchangeResponse {
     #[serde(rename = "accessToken")]
     access_token: Option<String>,
     #[serde(rename = "tokenType")]
-    token_type: Option<String>,
+    _token_type: Option<String>,
     #[serde(rename = "expiresIn")]
-    expires_in: Option<u64>,
+    _expires_in: Option<u64>,
 }

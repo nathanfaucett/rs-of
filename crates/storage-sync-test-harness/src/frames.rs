@@ -165,10 +165,12 @@ impl FrameCodec {
 }
 
 /// Streaming frame decoder for incremental reading.
+#[cfg(feature = "native")]
 pub struct FrameDecoder {
     buffer: Vec<u8>,
 }
 
+#[cfg(feature = "native")]
 impl FrameDecoder {
     pub fn new() -> Self {
         Self {
@@ -220,6 +222,7 @@ impl FrameDecoder {
         self.buffer.clear();
     }
 }
+#[cfg(feature = "native")]
 
 impl Default for FrameDecoder {
     fn default() -> Self {
@@ -255,6 +258,7 @@ mod tests {
         assert!(FrameCodec::encode(&frame).is_err());
     }
 
+#[cfg(feature = "native")]
     #[test]
     fn streaming_decoder() {
         let mut decoder = FrameDecoder::new();

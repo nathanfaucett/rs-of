@@ -21,9 +21,6 @@ use tokio::sync::Mutex;
 #[cfg(feature = "native")]
 use uuid::Uuid;
 
-#[cfg(not(feature = "native"))]
-use std::sync::Mutex;
-
 use thiserror::Error;
 
 #[cfg(feature = "browser")]

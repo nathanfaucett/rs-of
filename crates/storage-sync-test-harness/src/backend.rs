@@ -6,7 +6,9 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
-use crate::frames::{Frame, FrameCodec, MAX_FRAME_PAYLOAD, MAX_SESSION_BYTES};
+use crate::frames::{MAX_FRAME_PAYLOAD, MAX_SESSION_BYTES};
+#[cfg(feature = "native")]
+use crate::frames::Frame;
 use crate::protocol::*;
 
 /// Test backend configuration.
@@ -32,7 +34,7 @@ impl Default for BackendConfig {
 /// Store registration in backend.
 #[derive(Clone, Debug)]
 struct RegisteredStore {
-    store_identity: StoreIdentity,
+    _store_identity: StoreIdentity,
     auth_token: AuthToken,
     granted_direction: AttachDirection,
     backend_replica_id: Uuid,
@@ -70,7 +72,7 @@ impl TestBackend {
     ) -> Uuid {
         let backend_replica_id = Uuid::new_v4();
         let store = RegisteredStore {
-            store_identity: store_identity.clone(),
+            _store_identity: store_identity.clone(),
             auth_token,
             granted_direction: direction,
             backend_replica_id,
@@ -153,6 +155,7 @@ impl TestBackend {
     }
 
     /// Process a single frame, returning optional response frames.
+    #[cfg(feature = "native")]
     fn process_frame(
         &self,
         frame: Frame,
@@ -310,6 +313,7 @@ impl TestBackend {
         }))
     }
 
+    #[cfg(feature = "native")]
     fn handle_owner_message(
         &self,
         _protocol_id: ProtocolId,
@@ -330,6 +334,7 @@ impl TestBackend {
         Ok(())
     }
 
+    #[cfg(feature = "native")]
     fn handle_ack(&self, ack: Acknowledgement, state: &mut SessionState) {
         if let Some(store_id) = state.store_id {
             let mut stores = self.stores.lock().unwrap();
@@ -348,6 +353,7 @@ impl TestBackend {
         }
     }
 
+    #[cfg(feature = "native")]
     fn handle_cancel(
         &self,
         reason: CancelReason,
@@ -366,6 +372,7 @@ impl TestBackend {
     }
 
     /// Clone for use in async tasks.
+    #[cfg(feature = "native")]
     fn clone(&self) -> Self {
         Self {
             config: self.config.clone(),
@@ -418,6 +425,7 @@ fn direction_granted(granted: AttachDirection, requested: AttachDirection) -> bo
     }
 }
 
+#[cfg(feature = "native")]
 fn current_timestamp_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

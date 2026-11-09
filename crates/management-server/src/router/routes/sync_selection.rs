@@ -9,7 +9,7 @@ use idp_model::{
     model::Id,
 };
 use management_service::{
-    SyncSelection, SyncSelectionRequest, SyncSelectionResponse,
+    SyncSelectionRequest, SyncSelectionResponse,
 };
 use crate::router::{RouterState, middleware::ManagementAuthorization};
 use crate::router::routes::roles::require_application_permission;
