@@ -1,12 +1,12 @@
 <script lang="ts">
 import { onDestroy } from "svelte";
 import { Alert, Card, Field } from "$lib/ui";
-import type { VaultHandle } from "../vault";
+import type { VaultHandleLike } from "$lib/vault/types";
 import { preparePersonalJsonImport, type ImportPreview } from "./import";
 import { IMPORT_MAX_BYTES } from "./personal-json";
 
 let { vault, active, oncancel, onimported }: {
-    vault: VaultHandle;
+    vault: VaultHandleLike;
     active: () => boolean;
     oncancel: () => void;
     onimported: () => void;

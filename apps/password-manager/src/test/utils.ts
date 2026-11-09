@@ -1,13 +1,8 @@
-import { SharedDb } from "$lib/vault/storage/SharedDb";
+import { getSharedClient } from "$lib/vault/storage/migrate-to-shared";
 
 const SHARED_DB_NAME = "password-manager-v1";
 
 export async function clearStorage(): Promise<void> {
-	// First, close and reset SharedDb singleton
-	const sharedDb = SharedDb.getInstance();
-	sharedDb.close();
-	SharedDb.resetForTesting();
-
 	// Delete the shared DB to free up quota
 	await new Promise<void>((resolve, reject) => {
 		const request = indexedDB.deleteDatabase(SHARED_DB_NAME);
@@ -30,13 +25,11 @@ export async function clearStorage(): Promise<void> {
 }
 
 export async function getStorageClient(): Promise<{ client: import("@ofsdk/sql").Client; close: () => void }> {
-	const sharedDb = SharedDb.getInstance();
-	const client = await sharedDb.getClient();
+	const client = await getSharedClient();
 	return {
 		client,
-		// Don't close the client - it's managed by SharedDb
 		close() {
-			// No-op: clients are managed by SharedDb
+			client.close();
 		},
 	};
 }

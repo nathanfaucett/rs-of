@@ -4,7 +4,7 @@ import {
     type MutationFnParams,
 } from "@tanstack/db";
 import * as v from "valibot";
-import type { VaultHandle } from "../vault";
+import type { VaultHandleLike } from "$lib/vault/types";
 import { type Folder, StaleItemMutationError } from "../folder";
 import { type Secret, SecretSchema, SecretIdSchema } from "./secret";
 
@@ -21,7 +21,7 @@ export function createLocalSecretCollection({
     vault,
     onFolders = () => {},
 }: {
-    vault: VaultHandle;
+    vault: VaultHandleLike;
     onFolders?: (folders: Folder[]) => void;
 }): Collection<
     Secret,

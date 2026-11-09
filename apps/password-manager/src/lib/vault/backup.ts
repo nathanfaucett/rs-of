@@ -1,5 +1,4 @@
 import { Client, type Row, Transaction } from "@ofsdk/sql";
-import { SharedDb } from "./storage/SharedDb";
 import { VaultRegistry, createVaultRegistry, type VaultIdentity } from "./storage/VaultRegistry";
 import * as v from "valibot";
 import { transitionLogin } from "./secrets/legacy-login";
@@ -232,6 +231,15 @@ export async function encodeBackup(
   }
 }
 
+async function getSharedClient(): Promise<Client> {
+  const sqlModule = await import("@ofsdk/sql");
+  const schemaModule = await import("./storage/schema");
+  const db = await sqlModule.Database.open("password-manager-v1");
+  const client = db.client();
+  await client.migrate(schemaModule.MIGRATIONS);
+  return client;
+}
+
 export interface BackupRestore {
   readonly id: string;
   readonly name: string;
@@ -285,7 +293,7 @@ export async function prepareBackupRestore(
         );
       busy = true;
       try {
-        const client = await SharedDb.getInstance().getClient();
+        const client = await getSharedClient();
         const registry = createVaultRegistry(client);
         if (
           (await registry.listVaultIdentities()).some(
@@ -303,6 +311,7 @@ export async function prepareBackupRestore(
           status: "ready",
         };
         await stageVault(identity.id, key, payload);
+        client.close();
         return identity;
       } finally {
         busy = false;
@@ -421,9 +430,9 @@ export async function stageVault(
   key: CryptoKey,
   payload: BackupPayload,
 ): Promise<void> {
-  try {
-    const client = await SharedDb.getInstance().getClient();
+  const client = await getSharedClient();
 
+  try {
     // Check for duplicate vault ID before starting transaction
     const existing = await client.execute(
       `SELECT id FROM vaults WHERE id = ?`,
@@ -503,9 +512,7 @@ export async function stageVault(
 
     // Verify
     await verifySharedDb(vaultId, key, payload, client);
-  } catch {
-    throw new Error(
-      "Restore storage write could not be verified. No destination was published. Check browser storage and free space, then retry with the backup. Do not clear source data.",
-    );
+  } finally {
+    client.close();
   }
 }

@@ -2,7 +2,7 @@ import { useLiveQuery } from "@tanstack/svelte-db";
 import { SvelteDate } from "svelte/reactivity";
 import * as v from "valibot";
 import { type Folder, StaleItemMutationError } from "../folder";
-import type { VaultHandle } from "../vault";
+import type { VaultHandleLike } from "$lib/vault/types";
 import {
     createLocalSecretCollection,
     UnacknowledgedStorageWriteError,
@@ -24,7 +24,7 @@ import {
     type SecretDraft,
 } from "./secret-draft";
 
-export function createLocalSecretWorkflow({ vault }: { vault: VaultHandle }) {
+export function createLocalSecretWorkflow({ vault }: { vault: VaultHandleLike }) {
     let folders = $state.raw<Folder[]>([]);
     let folderFilter = $state("all");
     const collection = createLocalSecretCollection({

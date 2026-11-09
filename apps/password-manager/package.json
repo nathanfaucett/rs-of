@@ -48,8 +48,12 @@
     "dependencies": {
         "@aicacia/svelte-forms": "^0.1.1",
         "@lucide/svelte": "^1.24.0",
+        "@ofsdk/idp-client": "workspace:*",
+        "@ofsdk/management-client": "workspace:*",
+        "@ofsdk/oidc-client": "workspace:*",
         "@ofsdk/sql": "link:/home/nathan/code/rust/aicacia/ofdb/packages/sql",
         "@ofsdk/svelte-headless": "workspace:*",
+        "@ofsdk/sync-sdk": "workspace:*",
         "@tanstack/db": "~0.15.2",
         "@tanstack/svelte-db": "0.5.12",
         "jose": "5.9.6",

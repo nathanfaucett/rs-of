@@ -138,12 +138,24 @@ importers:
       '@lucide/svelte':
         specifier: ^1.24.0
         version: 1.28.0(svelte@5.56.8)
+      '@ofsdk/idp-client':
+        specifier: workspace:*
+        version: link:../../packages/idp-client
+      '@ofsdk/management-client':
+        specifier: workspace:*
+        version: link:../../packages/management-client
+      '@ofsdk/oidc-client':
+        specifier: workspace:*
+        version: link:../../packages/oidc-client
       '@ofsdk/sql':
         specifier: link:/home/nathan/code/rust/aicacia/ofdb/packages/sql
         version: link:../../../ofdb/packages/sql
       '@ofsdk/svelte-headless':
         specifier: workspace:*
         version: link:../../packages/svelte-headless
+      '@ofsdk/sync-sdk':
+        specifier: workspace:*
+        version: link:../../packages/sync-sdk
       '@tanstack/db':
         specifier: ~0.15.2
         version: 0.15.2(typescript@5.9.3)

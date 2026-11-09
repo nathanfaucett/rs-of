@@ -8,7 +8,7 @@ import FolderControls from "./FolderControls.svelte";
 import GeneratorDialog from "../generator/GeneratorDialog.svelte";
 import { Alert, Card, Field } from "$lib/ui";
 import Dialog from "$lib/shared/components/Dialog.svelte";
-import type { VaultHandle } from "../../vault";
+import type { VaultHandleLike } from "$lib/vault/types";
 import { createLocalSecretWorkflow } from "../workflow.svelte";
 import type { Secret } from "../secret";
 import { customFieldIssue, type SshKeyDraft } from "../secret-draft";
@@ -16,7 +16,7 @@ import { searchItems, type ItemTypeFilter, type ItemSort } from "../search";
 import { Pencil, Trash2, MoreHorizontal } from "@lucide/svelte";
 
 interface Props {
-    vault: VaultHandle;
+    vault: VaultHandleLike;
     initialTrash?: boolean;
     // Filter state (controlled by parent)
     searchText?: string;
@@ -28,7 +28,6 @@ interface Props {
     onFavoritesOnlyChange?: (value: boolean) => void;
     onSortChange?: (value: ItemSort) => void;
     onClearFilters?: () => void;
-    onFolderFilterChange?: (value: string) => void;
 }
 
 let {

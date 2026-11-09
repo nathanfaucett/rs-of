@@ -1,11 +1,11 @@
 <script lang="ts">
 import { onDestroy } from "svelte";
 import { parse } from "valibot";
-import type { VaultHandle } from "./vault";
+import type { VaultHandleLike } from "$lib/vault/types";
 import { LockSettingsSchema, type LockSettings, LOCK_TIMEOUT_OPTIONS } from "./lock";
 
 let { vault, settings, onsaved }: {
-    vault: VaultHandle;
+    vault: VaultHandleLike;
     settings: LockSettings;
     onsaved: (settings: LockSettings) => void;
 } = $props();

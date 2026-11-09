@@ -28,7 +28,7 @@ async function downloadBackup(recovery = false) {
 	const vault = vaultData.vault;
 	const request = session;
 	try {
-		const backup = await (recovery ? vault.exportTransitionBackup() : vault.exportBackup());
+		const backup = await vault.exportBackup();
 		if (vaultData.inactivity.check() || request !== session) return;
 		const url = URL.createObjectURL(new Blob([backup], { type: "application/json" }));
 		const link = document.createElement("a");

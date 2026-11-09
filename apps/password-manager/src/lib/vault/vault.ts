@@ -1,7 +1,6 @@
 import { Client, Transaction, type Row } from "@ofsdk/sql";
-import { migrateToSharedTables, needsMigration } from "./storage/migrate-to-shared";
+import { migrateToSharedTables, needsMigration, migrateLocalVaultToSync } from "./storage/migrate-to-shared";
 import * as v from "valibot";
-import { SharedDb } from "./storage/SharedDb";
 import { VaultRegistry, createVaultRegistry } from "./storage/VaultRegistry";
 import {
   parseSecretRow,
@@ -367,7 +366,7 @@ class VaultHandle {
   }
 
   close(): void {
-    // Client is managed by SharedDb singleton
+    // Client is managed by caller
   }
 }
 
@@ -388,7 +387,7 @@ export async function createVault(
   };
   const authentication = await createAuthentication(key, meta);
 
-  const client = await SharedDb.getInstance().getClient();
+  const client = await getSharedClient();
 
   // Single transaction: insert vault metadata
   const tx = await client.transaction();
@@ -406,6 +405,15 @@ export async function createVault(
   return VaultHandle.create(key, client, meta, vaultId);
 }
 
+async function getSharedClient(): Promise<Client> {
+  const sqlModule = await import("@ofsdk/sql");
+  const schemaModule = await import("./storage/schema");
+  const db = await sqlModule.Database.open("password-manager-v1");
+  const client = db.client();
+  await client.migrate(schemaModule.MIGRATIONS);
+  return client;
+}
+
 export async function unlockVault(
   password: string,
   id: string,
@@ -415,7 +423,7 @@ export async function unlockVault(
     await migrateToSharedTables();
   }
 
-  const client = await SharedDb.getInstance().getClient();
+  const client = await getSharedClient();
 
   // Read from vaults table using typed execute
   const results = await client.execute(
@@ -464,11 +472,36 @@ export async function unlockVault(
   return VaultHandle.create(key, client, vaultMeta, meta.id);
 }
 
+/**
+ * Migrate a local vault to a synced vault.
+ * This is called when an authenticated user unlocks a vault that was created locally.
+ * Returns a SyncVaultHandle if migration succeeds, or the original VaultHandle if not.
+ */
+export async function unlockAndMigrateVault(
+  password: string,
+  id: string,
+  syncClient: { createDatabase: (name: string) => Promise<any>; openDatabase: (id: string) => Promise<any> },
+): Promise<{ vault: VaultHandle; isSynced: boolean; syncHandle?: any }> {
+  // First try to unlock as local vault
+  const vault = await unlockVault(password, id);
+
+  // Try to migrate to sync
+  try {
+    const result = await migrateLocalVaultToSync(id, password, syncClient);
+    return { vault: result.syncDb as any, isSynced: true, syncHandle: result.syncHandle };
+  } catch (e) {
+    console.warn("Failed to migrate vault to sync:", e);
+    return { vault, isSynced: false };
+  }
+}
+
 export async function listVaults(): Promise<
   { id: string; name: string; status: "ready"; migrated: boolean }[]
 > {
-  const client = await SharedDb.getInstance().getClient();
-  return createVaultRegistry(client).listVaultIdentities();
+  const client = await getSharedClient();
+  const identities = createVaultRegistry(client).listVaultIdentities();
+  client.close();
+  return identities;
 }
 
 export type { VaultHandle };

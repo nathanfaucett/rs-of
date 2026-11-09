@@ -6,7 +6,7 @@ import SshKeyFields from "./SshKeyFields.svelte";
 import GeneratorDialog from "../generator/GeneratorDialog.svelte";
 import PasswordInput from "./PasswordInput.svelte";
 import { Alert, Card, Field } from "$lib/ui";
-import type { VaultHandle } from "../../vault";
+import type { VaultHandleLike } from "$lib/vault/types";
 import { createLocalSecretWorkflow } from "../workflow.svelte";
 import type { Secret } from "../secret";
 import {
@@ -28,7 +28,7 @@ import { UnacknowledgedStorageWriteError } from "../collection";
 import { StaleItemMutationError } from "../../folder";
 
 interface Props {
-    vault: VaultHandle;
+    vault: VaultHandleLike;
     kind?: EditableKind;
     record?: EditableSecret | null;
     recordId?: string | null;

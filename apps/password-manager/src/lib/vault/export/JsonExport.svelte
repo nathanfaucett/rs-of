@@ -1,9 +1,9 @@
 <script lang="ts">
 import { onDestroy, tick } from "svelte";
-import type { VaultHandle } from "../vault";
+import type { VaultHandleLike } from "$lib/vault/types";
 import { inspectJsonExport, JsonExportError, serializeJsonExport } from "./export";
 
-let { vault, isActive }: { vault: VaultHandle; isActive: () => boolean } = $props();
+let { vault, isActive }: { vault: VaultHandleLike; isActive: () => boolean } = $props();
 let preview = $state.raw<ReturnType<typeof inspectJsonExport> | null>(null);
 let busy = $state(false);
 let opened = $state(false);

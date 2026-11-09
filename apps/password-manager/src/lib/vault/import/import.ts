@@ -1,6 +1,6 @@
 import type { Secret } from "../secrets/secret";
 import { type ItemSnapshot, StaleItemMutationError } from "../folder";
-import type { VaultHandle } from "../vault";
+import type { VaultHandleLike } from "$lib/vault/types";
 import { normalizeTimestamp } from "../../shared/util/timestamp";
 import { parsePersonalJson, type ParsedImport } from "./personal-json";
 
@@ -94,7 +94,7 @@ function duplicates(parsed: ParsedImport, snapshot: ItemSnapshot) {
 }
 
 export async function preparePersonalJsonImport(
-    vault: VaultHandle,
+    vault: VaultHandleLike,
     text: string,
 ) {
     let parsed: ParsedImport | null = parsePersonalJson(text);
