@@ -136,7 +136,9 @@ impl FrameCodec {
             });
         }
         if frame.version != FRAMING_VERSION {
-            return Err(FrameError::InvalidVersion { version: frame.version });
+            return Err(FrameError::InvalidVersion {
+                version: frame.version,
+            });
         }
 
         let mut buf = Vec::with_capacity(4 + payload_len + 4);
@@ -247,8 +249,7 @@ pub async fn authorize_sync(
     }
 
     // Parse device ID from endpoint_id (which is the device's Iroh public key)
-    let device_id = Id::parse(endpoint_id)
-        .map_err(|_| SyncAuthError::Unauthorized)?;
+    let device_id = Id::parse_str(endpoint_id).map_err(|_| SyncAuthError::Unauthorized)?;
 
     // Check if source device has selection for this resource
     let has_selection = management_client
@@ -283,7 +284,9 @@ pub async fn authorize_sync(
     // Store target device ID for potential relay (future enhancement)
     tracing::debug!(
         "Sync authorized: source={}, target={}, resource={}",
-        device_id, sync_target.device_id, store_identity.store_id
+        device_id,
+        sync_target.device_id,
+        store_identity.store_id
     );
 
     Ok(SyncAuth {
@@ -321,10 +324,7 @@ pub fn sync_router(
         }))
 }
 
-async fn sync_ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<Arc<SyncState>>,
-) -> Response {
+async fn sync_ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<SyncState>>) -> Response {
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
@@ -376,7 +376,9 @@ impl<'a> ofdb_sql::SyncTransport for WebSocketTransport<'a> {
     async fn receive(&mut self) -> Result<Vec<u8>, Self::Error> {
         match self.socket.recv().await {
             Some(Ok(Message::Binary(data))) => Ok(data.to_vec()),
-            Some(Ok(Message::Close(_))) => Err(io::Error::new(io::ErrorKind::ConnectionAborted, "closed")),
+            Some(Ok(Message::Close(_))) => {
+                Err(io::Error::new(io::ErrorKind::ConnectionAborted, "closed"))
+            }
             Some(Err(e)) => Err(io::Error::new(io::ErrorKind::ConnectionAborted, e)),
             Some(Ok(_)) => self.receive().await,
             None => Err(io::Error::new(io::ErrorKind::ConnectionAborted, "closed")),
@@ -427,8 +429,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<SyncState>) {
     };
 
     // Extract token from AttachRequest
-    let token = String::from_utf8(attach_req.auth_token.0.clone())
-        .unwrap_or_default();
+    let token = String::from_utf8(attach_req.auth_token.0.clone()).unwrap_or_default();
 
     // Authorize the sync session
     let auth = match authorize_sync(
@@ -456,7 +457,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<SyncState>) {
         max_frame_bytes: MAX_FRAME_PAYLOAD,
         max_session_bytes: MAX_SESSION_BYTES,
     };
-    if send_message(&mut socket, &SyncMessage::AttachResponse(attach_resp)).await.is_err() {
+    if send_message(&mut socket, &SyncMessage::AttachResponse(attach_resp))
+        .await
+        .is_err()
+    {
         return;
     }
 
@@ -478,7 +482,9 @@ async fn receive_message(
                 let frame = FrameCodec::decode(&data)?;
                 return SyncMessage::decode(&frame.payload);
             }
-            Some(Ok(Message::Close(_))) => return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "closed")),
+            Some(Ok(Message::Close(_))) => {
+                return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "closed"));
+            }
             Some(Err(e)) => return Err(io::Error::new(io::ErrorKind::ConnectionAborted, e)),
             Some(Ok(_)) => continue,
             None => return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "closed")),
@@ -522,7 +528,8 @@ async fn run_sync_session(
 
     tracing::debug!(
         "Running sync session for store {}, target device {} (authoritative replica)",
-        store_id, target_device_id
+        store_id,
+        target_device_id
     );
 
     // Get the database

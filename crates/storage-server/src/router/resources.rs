@@ -173,10 +173,7 @@ pub fn resource_router(
             "/storage/filesystems/{filesystem_id}/residency",
             get(residency::get_file_system_residency).put(residency::put_file_system_residency),
         )
-        .route(
-            "/sync/connect",
-            post(sync_connect),
-        )
+        .route("/sync/connect", post(sync_connect))
         .with_state(state.clone());
     if let (Some(idp_client), Some(file_systems)) = (state.router.idp_client, state.file_systems) {
         router = router.merge(scoped_file_system_socket_router(idp_client, file_systems));
@@ -764,14 +761,13 @@ mod tests {
     }
 }
 
-use serde::{Deserialize, Serialize};
-use storage_service::ResourceId;
 use uuid::Uuid;
 
 #[derive(Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct SyncConnectRequest {
-    pub resource_id: ResourceId,
+    #[schema(value_type = String)]
+    pub resource_id: DatabaseId,
     pub target_device: Uuid,
     #[serde(default = "default_bidirectional")]
     pub direction: SyncDirection,
@@ -793,7 +789,8 @@ pub(super) enum SyncDirection {
 #[serde(rename_all = "camelCase")]
 pub(super) struct SyncSessionResponse {
     pub session_id: Uuid,
-    pub resource_id: ResourceId,
+    #[schema(value_type = String)]
+    pub resource_id: DatabaseId,
     pub source_device: Uuid,
     pub target_device: Uuid,
     pub status: SyncStatus,
@@ -829,27 +826,37 @@ pub(super) async fn sync_connect(
     headers: HeaderMap,
     Json(request): Json<SyncConnectRequest>,
 ) -> Result<Json<SyncSessionResponse>, StatusCode> {
-    let (scope, can_read, can_write) = namespace(
-        authorization(&state, &headers).await?,
-        "storage:databases",
-    )?;
+    let (scope, can_read, can_write) =
+        namespace(authorization(&state, &headers).await?, "storage:databases")?;
     if !(can_read || can_write) {
         return Err(StatusCode::FORBIDDEN);
     }
 
     // Verify the resource exists and user has access
-    let databases = state.databases.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
-    let resource = databases.get(&scope, request.resource_id.into()).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let databases = state
+        .databases
+        .as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let resource = databases
+        .get(&scope, request.resource_id.into())
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     if resource.is_none() {
         return Err(StatusCode::NOT_FOUND);
     }
 
     // Verify target device has this resource selected for sync via Management Service
-    let source_device_id = Id::parse(&state.router.endpoint_id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let source_device_id =
+        Id::parse_str(&state.router.endpoint_id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let target_device_id = Id::from(request.target_device);
-    let resource_id = Id::from(request.resource_id.0);
+    let resource_id = request.resource_id;
 
-    let has_selection = state.router.management_client
+    let management_client = state
+        .router
+        .management_client
+        .as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let has_selection = management_client
         .has_selection(target_device_id, resource_id)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -858,7 +865,7 @@ pub(super) async fn sync_connect(
     }
 
     // Also verify source device has selection (should be true if they're calling this)
-    let source_has_selection = state.router.management_client
+    let source_has_selection = management_client
         .has_selection(source_device_id, resource_id)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;

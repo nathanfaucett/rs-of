@@ -259,7 +259,6 @@ fn reject_previous_layout(config: &UnifiedConfig) -> io::Result<()> {
         endpoint.with_extension("host"),
         endpoint.with_extension("provisioning"),
         endpoint.with_extension("credentials"),
-        endpoint.clone(),
     ] {
         if api::setup_files::present(&path)? {
             return Err(io::Error::other(

@@ -274,7 +274,7 @@ fn build(
         .parse::<iroh::EndpointId>()
         .map_err(io::Error::other)?;
     crate::build_http_runtime(
-        RouterState::new(&intent.storage)
+        RouterState::new(&intent.storage, endpoint.to_string())
             .with_idp_client(idp)
             .with_device_client(device),
         Path::new(&config.data_dir),

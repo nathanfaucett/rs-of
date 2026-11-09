@@ -1,6 +1,10 @@
 //! Management Service client for Storage Server.
 
-use std::{collections::HashMap, sync::Arc, time::{Duration, SystemTime}};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 use idp_model::model::Id;
 use management_service::{SyncSelection, SyncSelectionRepo};
@@ -32,8 +36,8 @@ impl ManagementClient {
     ) -> Result<Self, String> {
         let management_base_url = Url::parse(management_base_url)
             .map_err(|e| format!("invalid management base URL: {}", e))?;
-        let idp_base_url = Url::parse(idp_base_url)
-            .map_err(|e| format!("invalid IdP base URL: {}", e))?;
+        let idp_base_url =
+            Url::parse(idp_base_url).map_err(|e| format!("invalid IdP base URL: {}", e))?;
 
         let client = Client::builder()
             .redirect(Policy::none())
@@ -60,7 +64,9 @@ impl ManagementClient {
         }
 
         // Request new service token from IdP
-        let token_url = self.idp_base_url.join("/token")
+        let token_url = self
+            .idp_base_url
+            .join("/token")
             .map_err(|e| format!("invalid token URL: {}", e))?;
 
         let params = [
@@ -70,7 +76,8 @@ impl ManagementClient {
             ("scope", "management.sync-selection.read"),
         ];
 
-        let response = self.client
+        let response = self
+            .client
             .post(token_url)
             .form(&params)
             .send()
@@ -82,7 +89,8 @@ impl ManagementClient {
             return Err(format!("token request failed with status: {}", status));
         }
 
-        let token_response: serde_json::Value = response.json()
+        let token_response: serde_json::Value = response
+            .json()
             .await
             .map_err(|e| format!("invalid token response: {}", e))?;
 
@@ -91,9 +99,7 @@ impl ManagementClient {
             .ok_or("no access token in response")?
             .to_string();
 
-        let expires_in = token_response["expires_in"]
-            .as_u64()
-            .unwrap_or(3600);
+        let expires_in = token_response["expires_in"].as_u64().unwrap_or(3600);
 
         *guard = Some(CachedToken {
             value: access_token.clone(),
@@ -111,11 +117,16 @@ impl ManagementClient {
     ) -> Result<Option<SyncSelection>, String> {
         let token = self.service_access_token().await?;
 
-        let url = self.management_base_url
-            .join(&format!("/management/resources/{}/sync-targets", resource_id))
+        let url = self
+            .management_base_url
+            .join(&format!(
+                "/management/resources/{}/sync-targets",
+                resource_id
+            ))
             .map_err(|e| format!("invalid URL: {}", e))?;
 
-        let response = self.client
+        let response = self
+            .client
             .get(url)
             .bearer_auth(&token)
             .send()
@@ -127,10 +138,14 @@ impl ManagementClient {
             return Ok(None);
         }
         if !status.is_success() {
-            return Err(format!("sync targets request failed with status: {}", status));
+            return Err(format!(
+                "sync targets request failed with status: {}",
+                status
+            ));
         }
 
-        let response_json: serde_json::Value = response.json()
+        let response_json: serde_json::Value = response
+            .json()
             .await
             .map_err(|e| format!("invalid response: {}", e))?;
 
@@ -139,14 +154,29 @@ impl ManagementClient {
             .ok_or("no selections array")?;
 
         for selection in selections {
-            let device_id = Id::parse(selection["device_id"].as_str().unwrap_or(""))
+            let device_id = Id::parse_str(selection["device_id"].as_str().unwrap_or(""))
                 .map_err(|_| "invalid device_id")?;
             if device_id != source_device_id {
                 return Ok(Some(SyncSelection {
-                    device_id: selection["device_id"].as_str().unwrap_or("").parse().unwrap(),
-                    resource_id: selection["resource_id"].as_str().unwrap_or("").parse().unwrap(),
-                    application_id: selection["application_id"].as_str().unwrap_or("").parse().unwrap(),
-                    owner_subject: selection["owner_subject"].as_str().unwrap_or("").to_string(),
+                    device_id: selection["device_id"]
+                        .as_str()
+                        .unwrap_or("")
+                        .parse()
+                        .unwrap(),
+                    resource_id: selection["resource_id"]
+                        .as_str()
+                        .unwrap_or("")
+                        .parse()
+                        .unwrap(),
+                    application_id: selection["application_id"]
+                        .as_str()
+                        .unwrap_or("")
+                        .parse()
+                        .unwrap(),
+                    owner_subject: selection["owner_subject"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string(),
                     selected_at: selection["selected_at"].as_i64().unwrap_or(0),
                 }));
             }
@@ -156,18 +186,19 @@ impl ManagementClient {
     }
 
     /// Check if a device has a resource selected for WebSocket sync.
-    pub async fn has_selection(
-        &self,
-        device_id: Id,
-        resource_id: Id,
-    ) -> Result<bool, String> {
+    pub async fn has_selection(&self, device_id: Id, resource_id: Id) -> Result<bool, String> {
         let token = self.service_access_token().await?;
 
-        let url = self.management_base_url
-            .join(&format!("/management/devices/{}/sync-selections", device_id))
+        let url = self
+            .management_base_url
+            .join(&format!(
+                "/management/devices/{}/sync-selections",
+                device_id
+            ))
             .map_err(|e| format!("invalid URL: {}", e))?;
 
-        let response = self.client
+        let response = self
+            .client
             .get(url)
             .bearer_auth(&token)
             .send()
@@ -179,10 +210,14 @@ impl ManagementClient {
             return Ok(false);
         }
         if !status.is_success() {
-            return Err(format!("sync selections request failed with status: {}", status));
+            return Err(format!(
+                "sync selections request failed with status: {}",
+                status
+            ));
         }
 
-        let response_json: serde_json::Value = response.json()
+        let response_json: serde_json::Value = response
+            .json()
             .await
             .map_err(|e| format!("invalid response: {}", e))?;
 
@@ -191,7 +226,7 @@ impl ManagementClient {
             .ok_or("no selections array")?;
 
         for selection in selections {
-            let sel_resource_id = Id::parse(selection["resource_id"].as_str().unwrap_or(""))
+            let sel_resource_id = Id::parse_str(selection["resource_id"].as_str().unwrap_or(""))
                 .map_err(|_| "invalid resource_id")?;
             if sel_resource_id == resource_id {
                 return Ok(true);

@@ -98,7 +98,11 @@ serde_qs = { version = "1.1", default-features = false, features = ["axum"] }
 # Utilities
 bytes = { version = "1.11", default-features = false, features = ["std"] }
 config = { version = "0.15", features = ["yaml"], default-features = false }
-uuid = { version = "1.29", default-features = false, features = ["std", "v7"] }
+uuid = { version = "1.29", default-features = false, features = [
+    "std",
+    "v4",
+    "v7",
+] }
 
 # Web
 axum = { version = "0.8", default-features = false, features = [
@@ -118,7 +122,10 @@ tower-http = { version = "0.7", features = [
 ], default-features = false }
 http = { version = "1.4", default-features = false }
 iroh = { version = "1.1", default-features = false, features = ["tls-ring"] }
-utoipa = { version = "5.5", default-features = false, features = ["macros"] }
+utoipa = { version = "5.5", default-features = false, features = [
+    "macros",
+    "uuid",
+] }
 utoipa-axum = { version = "0.2", default-features = false, features = [] }
 utoipa-swagger-ui = { version = "9.0", default-features = false, features = [
     "axum",
