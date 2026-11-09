@@ -21,18 +21,18 @@
 
 ## Tickets
 
-| # | Ticket | Status | Blocked By |
-|---|--------|--------|------------|
-| 01 | OIDC Authentication | open | — |
-| 02 | Sync SDK Integration | open | 01 |
-| 03 | SyncVaultHandle | open | 02 |
-| 04 | Vault State Integration | open | 03 |
-| 05 | Sync to Device | open | 02, 04 |
-| 06 | Cleanup & Testing | open | 03, 04, 05 |
+| #   | Ticket                  | Status | Blocked By |
+| --- | ----------------------- | ------ | ---------- |
+| 01  | OIDC Authentication     | done   | —          |
+| 02  | Sync SDK Integration    | done   | 01         |
+| 03  | SyncVaultHandle         | done   | 02         |
+| 04  | Vault State Integration | done   | 03         |
+| 05  | Sync to Device          | done   | 02, 04     |
+| 06  | Cleanup & Testing       | done   | 03, 04, 05 |
 
 ## Frontier
 
-**Next up: Ticket 01** (no dependencies)
+**All tickets complete!**
 
 ## Fog
 

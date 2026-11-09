@@ -1,14 +1,17 @@
 # Ticket 03: SyncVaultHandle — Replace SharedDb + VaultHandle
 
 ## Type: task
-## Status: open
+
+## Status: done
 
 ### Description
+
 Create `SyncVaultHandle` that wraps `DatabaseHandle` from sync-sdk, adding per-vault encryption. Replace `SharedDb` singleton and `VaultHandle` class.
 
 ### Acceptance Criteria
-- [ ] Create `src/lib/vault/sync-vault.ts` with `SyncVaultHandle` class:
-  - Constructor takes `DatabaseHandle`, `encryptionKey`, `vaultId`, `vaultMeta`
+
+- [x] Create `src/lib/vault/sync-vault.ts` with `SyncVaultHandle` class:
+  - Constructor takes `DatabaseHandle`, `encryptionKey`, `vaultId`, `vaultMeta`, optional `SyncSDKRef`
   - Implements same public API as current `VaultHandle`:
     - `id`, `loadSecrets()`, `loadFolders()`, `createFolder()`, `renameFolder()`, `moveItems()`, `deleteFolder()`
     - `decryptSecret()`, `encryptAndStore()`, `deleteSecret()`
@@ -19,16 +22,17 @@ Create `SyncVaultHandle` that wraps `DatabaseHandle` from sync-sdk, adding per-v
   - **New**: `state$` — Observable<SyncState> (sync status: connecting/synced/disconnected/error)
   - **New**: `sync(options?)` — starts bidirectional sync
   - **New**: `syncToDevice(targetDeviceId)` — delegates to `sync.syncToDevice(vaultId, targetDeviceId)`
-- [ ] Encryption/decryption logic unchanged from current `VaultHandle` (reuse `crypto.ts`)
-- [ ] `execute(sql, params)` → calls `handle.execute()`, decrypts result rows
-- [ ] `upsert(doc)` / `delete(id)` → encrypts payload, calls `handle.upsert/delete`
-- [ ] `changes$` subscription:
+- [x] Encryption/decryption logic unchanged from current `VaultHandle` (reuse `crypto.ts`)
+- [x] `execute(sql, params)` → calls `handle.execute()`, decrypts result rows
+- [x] `upsert(doc)` / `delete(id)` → encrypts payload, calls `handle.upsert/delete`
+- [x] `changes$` subscription:
   - `remote-upsert` → decrypt, emit parsed Secret/Folder
   - `remote-delete` → emit deleted ID
   - `conflict` → emit conflict event for UI handling
-- [ ] `state$` subscription → update UI sync indicator
+- [x] `state$` subscription → update UI sync indicator
 
 ### Implementation Notes
+
 - `DatabaseHandle` from `@ofsdk/sync-sdk` has:
   - `execute(sql, params)` → returns `{ columns, rows }`
   - `upsert(doc)`, `delete(id)` — high-level document API
@@ -42,9 +46,11 @@ Create `SyncVaultHandle` that wraps `DatabaseHandle` from sync-sdk, adding per-v
 - `SharedDb` can be removed once all vault operations use sync-sdk
 
 ### Dependencies
+
 - Blocked by: 02 (needs initialized SyncSDK)
 
 ### Testing
+
 - Unit: `SyncVaultHandle` encrypts/decrypts correctly, maps change events
 - Integration: Create vault → add secret → verify `changes$` emits local-upsert → sync → verify remote-upsert on other client
 - Migration: Existing vaults open correctly (same schema, same encryption)
