@@ -3,12 +3,16 @@
 use axum::{
     Json,
     extract::{Path, State},
-    http::{HeaderMap, header::AUTHORIZATION},
 };
+use idp_model::model::Id;
 use management_service::{
     ManagementService, SyncSelection, SyncSelectionRequest, SyncSelectionResponse,
 };
-use crate::router::{AppState, RouterState, ErrorResponse};
+use crate::router::{RouterState, middleware::ManagementAuthorization, ErrorResponse};
+use crate::router::routes::roles::require_application_permission;
+
+const SYNC_SELECTION_READ_PERMISSION: &str = "sync.selection.read";
+const SYNC_SELECTION_WRITE_PERMISSION: &str = "sync.selection.write";
 
 #[utoipa::path(
     post,
@@ -26,12 +30,20 @@ use crate::router::{AppState, RouterState, ErrorResponse};
 )]
 pub(crate) async fn set_sync_selection(
     State(state): State<RouterState>,
-    Path(device_id): Path<String>,
-    headers: HeaderMap,
+    Path(device_id_str): Path<String>,
+    authorization: ManagementAuthorization,
     Json(request): Json<SyncSelectionRequest>,
 ) -> Result<Json<SyncSelectionResponse>, ErrorResponse> {
-    let device_id = request.resource_id; // TODO: Fix - should parse device_id from path
-    // TODO: Implement proper authorization
+    let device_id = Id::parse(&device_id_str).map_err(|_| ErrorResponse::new(idp_model::contract::ErrorCode::InvalidRequest))?;
+
+    require_application_permission(
+        state.management_service.as_ref(),
+        &authorization,
+        authorization.application_id,
+        SYNC_SELECTION_WRITE_PERMISSION,
+    )
+    .await?;
+
     let service = ManagementService::new(
         state.permission_repo.clone(),
         state.role_repo.clone(),
@@ -42,8 +54,8 @@ pub(crate) async fn set_sync_selection(
             .select_resource_for_sync(
                 device_id,
                 request.resource_id,
-                Id::nil(), // TODO: Get application_id from context
-                "", // TODO: Get owner_subject from context
+                authorization.application_id,
+                &authorization.subject.to_string(),
             )
             .await
             .map_err(|_| ErrorResponse::new(idp_model::contract::ErrorCode::ServiceUnavailable))?;
@@ -77,11 +89,18 @@ pub(crate) async fn set_sync_selection(
 )]
 pub(crate) async fn list_sync_selections(
     State(state): State<RouterState>,
-    Path(device_id): Path<String>,
-    headers: HeaderMap,
+    Path(device_id_str): Path<String>,
+    authorization: ManagementAuthorization,
 ) -> Result<Json<SyncSelectionResponse>, ErrorResponse> {
-    // TODO: Implement proper authorization
-    let device_id = Id::parse(&device_id).map_err(|_| ErrorResponse::new(idp_model::contract::ErrorCode::InvalidRequest))?;
+    let device_id = Id::parse(&device_id_str).map_err(|_| ErrorResponse::new(idp_model::contract::ErrorCode::InvalidRequest))?;
+
+    require_application_permission(
+        state.management_service.as_ref(),
+        &authorization,
+        authorization.application_id,
+        SYNC_SELECTION_READ_PERMISSION,
+    )
+    .await?;
 
     let service = ManagementService::new(
         state.permission_repo.clone(),
@@ -111,11 +130,18 @@ pub(crate) async fn list_sync_selections(
 )]
 pub(crate) async fn list_sync_targets(
     State(state): State<RouterState>,
-    Path(resource_id): Path<String>,
-    headers: HeaderMap,
+    Path(resource_id_str): Path<String>,
+    authorization: ManagementAuthorization,
 ) -> Result<Json<SyncSelectionResponse>, ErrorResponse> {
-    // TODO: Implement proper authorization
-    let resource_id = Id::parse(&resource_id).map_err(|_| ErrorResponse::new(idp_model::contract::ErrorCode::InvalidRequest))?;
+    let resource_id = Id::parse(&resource_id_str).map_err(|_| ErrorResponse::new(idp_model::contract::ErrorCode::InvalidRequest))?;
+
+    require_application_permission(
+        state.management_service.as_ref(),
+        &authorization,
+        authorization.application_id,
+        SYNC_SELECTION_READ_PERMISSION,
+    )
+    .await?;
 
     let service = ManagementService::new(
         state.permission_repo.clone(),

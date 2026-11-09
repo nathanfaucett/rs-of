@@ -195,6 +195,12 @@ impl FrameCodec {
     }
 }
 
+/// Sync authorization result.
+///
+/// The `target_device_id` identifies the peer device that has the same resource
+/// selected for sync (via Management Service). For WebSocket sync, the server
+/// is the authoritative replica; this field is logged for admin visibility.
+/// Native peer-to-peer sync uses Iroh mesh separately.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SyncAuth {
     pub subject: String,
@@ -210,6 +216,12 @@ pub enum SyncAuthError {
     BackendUnavailable,
 }
 
+/// Authorizes a sync session by validating the token and checking Management selection.
+///
+/// Returns `SyncAuth` with the target device that has the same resource selected.
+/// The server acts as the authoritative replica for WebSocket sync; the
+/// `target_device_id` indicates which peer device also has sync enabled for
+/// this resource (used for admin visibility and audit).
 pub async fn authorize_sync(
     idp_client: &IdpClient,
     management_client: &ManagementClient,
@@ -492,16 +504,24 @@ async fn send_abort(socket: &mut WebSocket, reason: AbortReason) -> Result<(), i
     send_message(socket, &SyncMessage::Abort(reason)).await
 }
 
+/// Runs a sync session between the client and the server's authoritative replica.
+///
+/// Architecture: The storage server holds the authoritative database replica.
+/// Browser/server clients connect via WebSocket and sync *to* this server.
+/// The `target_device_id` in `SyncAuth` is logged for admin visibility only
+/// (the Management Service controls which devices have sync enabled for a resource).
+/// Native apps use Iroh mesh for peer-to-peer sync separately.
 async fn run_sync_session(
     transport: &mut WebSocketTransport<'_>,
     state: &Arc<SyncState>,
 ) -> Result<(), io::Error> {
     let db_runtime = &state.databases;
     let store_id = transport.authorization.store_id;
+    // target_device_id is logged for admin visibility; server is authoritative replica
     let target_device_id = transport.authorization.target_device_id;
 
     tracing::debug!(
-        "Running sync session for store {}, target device {}",
+        "Running sync session for store {}, target device {} (authoritative replica)",
         store_id, target_device_id
     );
 

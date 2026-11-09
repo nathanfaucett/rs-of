@@ -338,10 +338,7 @@ impl PermissionRepo for DbPermissionRepo {
             "INSERT INTO {SYNC_SELECTIONS} (id, device_id, resource_id, application_id, owner_subject, selected_at, revoked_at) VALUES ('{id}', '{device_id}', '{resource_id}', '{application_id}', '{owner_subject}', {now}, NULL) ON CONFLICT (device_id, resource_id) DO UPDATE SET revoked_at = NULL, selected_at = {now}, application_id = '{application_id}', owner_subject = '{owner_subject}'"
         );
         async move {
-            self.engine
-                .execute(vec![Statement::Update(query)])
-                .await
-                .map_err(db_error)?;
+            self.engine.execute_sql(&query, None).await.map_err(db_error)?;
             Ok(())
         }
     }
@@ -356,10 +353,7 @@ impl PermissionRepo for DbPermissionRepo {
             "UPDATE {SYNC_SELECTIONS} SET revoked_at = {now} WHERE device_id = '{device_id}' AND resource_id = '{resource_id}' AND revoked_at IS NULL"
         );
         async move {
-            self.engine
-                .execute(vec![Statement::Update(query)])
-                .await
-                .map_err(db_error)?;
+            self.engine.execute_sql(&query, None).await.map_err(db_error)?;
             Ok(())
         }
     }
@@ -373,7 +367,9 @@ impl PermissionRepo for DbPermissionRepo {
             SYNC_SELECTION_COLUMNS.join(", ")
         );
         async move {
-            let rows = self.rows::<SyncSelectionRow>(Statement::Query(query)).await?;
+            let results = self.engine.execute_sql(&query, None).await.map_err(db_error)?;
+            let result = results.into_iter().next().ok_or_else(|| ManagementError::InvalidInput("missing query result".into()))?;
+            let rows = result.rows_as::<SyncSelectionRow>().map_err(row_error)?;
             Ok(rows.into_iter().map(|r| r.into()).collect())
         }
     }
@@ -387,7 +383,9 @@ impl PermissionRepo for DbPermissionRepo {
             SYNC_SELECTION_COLUMNS.join(", ")
         );
         async move {
-            let rows = self.rows::<SyncSelectionRow>(Statement::Query(query)).await?;
+            let results = self.engine.execute_sql(&query, None).await.map_err(db_error)?;
+            let result = results.into_iter().next().ok_or_else(|| ManagementError::InvalidInput("missing query result".into()))?;
+            let rows = result.rows_as::<SyncSelectionRow>().map_err(row_error)?;
             Ok(rows.into_iter().map(|r| r.into()).collect())
         }
     }
@@ -401,12 +399,9 @@ impl PermissionRepo for DbPermissionRepo {
             "SELECT 1 FROM {SYNC_SELECTIONS} WHERE device_id = '{device_id}' AND resource_id = '{resource_id}' AND revoked_at IS NULL LIMIT 1"
         );
         async move {
-            let results = self
-                .engine
-                .execute(vec![Statement::Query(query)])
-                .await
-                .map_err(db_error)?;
-            Ok(!results[0].rows.is_empty())
+            let results = self.engine.execute_sql(&query, None).await.map_err(db_error)?;
+            let result = results.into_iter().next().ok_or_else(|| ManagementError::InvalidInput("missing query result".into()))?;
+            Ok(!result.rows.is_empty())
         }
     }
 
@@ -419,10 +414,7 @@ impl PermissionRepo for DbPermissionRepo {
             "UPDATE {SYNC_SELECTIONS} SET revoked_at = {now} WHERE device_id = '{device_id}' AND revoked_at IS NULL"
         );
         async move {
-            self.engine
-                .execute(vec![Statement::Update(query)])
-                .await
-                .map_err(db_error)?;
+            self.engine.execute_sql(&query, None).await.map_err(db_error)?;
             Ok(())
         }
     }

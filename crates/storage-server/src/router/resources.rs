@@ -844,9 +844,28 @@ pub(super) async fn sync_connect(
         return Err(StatusCode::NOT_FOUND);
     }
 
-    // For now, create a mock session response
-    // In a full implementation, this would query Management Service for target device
-    // and initiate the sync session via the sync WebSocket
+    // Verify target device has this resource selected for sync via Management Service
+    let source_device_id = Id::parse(&state.router.endpoint_id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let target_device_id = Id::from(request.target_device);
+    let resource_id = Id::from(request.resource_id.0);
+
+    let has_selection = state.router.management_client
+        .has_selection(target_device_id, resource_id)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if !has_selection {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    // Also verify source device has selection (should be true if they're calling this)
+    let source_has_selection = state.router.management_client
+        .has_selection(source_device_id, resource_id)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if !source_has_selection {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
     let session_id = Uuid::new_v4();
     let response = SyncSessionResponse {
         session_id,

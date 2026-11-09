@@ -13,7 +13,7 @@ description = "Role, permission, and assignment service over the identity databa
 name = "management_service"
 
 [features]
-default = []
+default = ["std"]
 utoipa = ["std", "idp-model/utoipa"]
 replica = ["std", "dep:db", "idp-model/replica"]
 std = ["idp-model/std"]
