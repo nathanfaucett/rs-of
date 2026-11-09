@@ -378,6 +378,8 @@ test("external OIDC still dynamically registers before authorization", async () 
   const url = await external.getAuthorizationUrl();
   expect(url.searchParams.get("client_id")).toBe("external-issued");
   expect(external.registeredClientId).toBe("external-issued");
-  expect(String(service.mock.calls[1][0])).toBe(metadata.registration_endpoint);
-  expect(service.mock.calls[1][1]?.method).toBe("POST");
+  expect(String(service.mock.calls[1]![0])).toBe(
+    metadata.registration_endpoint,
+  );
+  expect(service.mock.calls[1]![1]?.method).toBe("POST");
 });

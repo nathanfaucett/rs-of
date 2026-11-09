@@ -314,11 +314,11 @@ test.each([
   const pending = client().attach({ identity, direction: "Push" });
   await Promise.resolve();
   await Promise.resolve();
-  let data: ArrayBuffer | string = bytes(fixtures.acceptPush).buffer;
+  let data: ArrayBuffer | string = bytes(fixtures.acceptPush).buffer!;
   const view = new Uint8Array(data);
   if (fault === "version") view[0] = 2;
   if (fault === "flags") view[1] = 2;
-  if (fault === "crc") view[view.length - 1] ^= 1;
+  if (fault === "crc" && view.length > 0) view[view.length - 1]! ^= 1;
   if (fault === "truncated") data = data.slice(0, -1);
   if (fault === "trailing") data = new Uint8Array([...view, 0]).buffer;
   if (fault === "oversized") new DataView(data).setUint32(2, 16777217, true);

@@ -34,6 +34,7 @@ export class SyncClient {
   private readonly url: string;
   private readonly options: SyncClientOptions;
   constructor(options: SyncClientOptions) {
+    this.options = options;
     let url: URL;
     try {
       url = new URL(options.storageApiUrl);

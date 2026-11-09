@@ -515,12 +515,15 @@ it("preserves immutable configuration and emits no sensitive sign-in diagnostics
   try {
     await sdk.signin();
     expect(assign).toHaveBeenCalledOnce();
-    const url = new URL(assign.mock.calls[0][0]);
+    const url = new URL(assign.mock.calls[0]![0]);
     expect(url.searchParams.get("client_id")).toBe("web");
     expect(url.pathname).toBe("/idp/oauth2/authorize");
     expect(
-      JSON.parse(url.searchParams.get("registration") ?? "null").application
-        .uri,
+      (
+        JSON.parse(url.searchParams.get("registration") ?? "null") as {
+          application: { uri: string };
+        }
+      ).application!.uri,
     ).toBe("app.test");
     expect(debug).not.toHaveBeenCalled();
   } finally {
@@ -729,7 +732,7 @@ it("isolates lifecycle event target, currentTarget and listener receiver from th
   const sdk = new ApplicationSdk(options());
   await sdk.handleSigninCallback(await callback(sdk));
   const connection = await sdk.storage().openSocket("fs-one");
-  const endpoint = BrowserSocket.instances[0];
+  const endpoint = BrowserSocket.instances[0]!;
   const observed: unknown[] = [];
   const listener = function (this: unknown, event: Event) {
     observed.push(this, event.target, event.currentTarget);
@@ -768,7 +771,7 @@ it("guards adopted requests and queued work after retirement; only the recipient
   const sdk = new ApplicationSdk(options());
   await sdk.handleSigninCallback(await callback(sdk));
   const connection = await sdk.storage().openSocket("fs-one");
-  const endpoint = BrowserSocket.instances[0];
+  const endpoint = BrowserSocket.instances[0]!;
   expect("send" in connection.socket).toBe(false);
   expect(endpoint.url).toBe(
     "wss://files.test/storage?access_token=access&filesystem_id=fs-one",
@@ -812,7 +815,7 @@ it("closes an obsolete successful open before handoff", async () => {
   const pending = sdk.storage().openSocket("fs-one");
   const rejected = expect(pending).rejects.toThrow("ended");
   await vi.waitFor(() => expect(BrowserSocket.instances).toHaveLength(1));
-  const endpoint = BrowserSocket.instances[0];
+  const endpoint = BrowserSocket.instances[0]!;
   endpoint.readyState = 1;
   endpoint.dispatchEvent(new Event("open"));
   sdk.dispose();
@@ -830,7 +833,7 @@ it("disposal cancels an untransferred opening socket even when the server never 
   const rejected = expect(pending).rejects.toThrow();
   await vi.waitFor(() => expect(BrowserSocket.instances).toHaveLength(1));
   sdk.dispose();
-  await vi.waitFor(() => expect(BrowserSocket.instances[0].closes).toBe(1));
+  await vi.waitFor(() => expect(BrowserSocket.instances[0]!.closes).toBe(1));
   await rejected;
 });
 
@@ -881,7 +884,7 @@ it.each(["list", "create"])(
 it.each([401, 403, "offline"])(
   "does not end authentication on Storage denial/transient failure: %s",
   async (failure) => {
-    const controlled = vi.fn(service.getMockImplementation());
+    const controlled = vi.fn(service.getMockImplementation())!;
     const sdk = new ApplicationSdk({ ...options(), fetch: controlled });
     await sdk.handleSigninCallback(await callback(sdk));
     const snapshot = sdk.session;
@@ -898,7 +901,7 @@ it.each([401, 403, "offline"])(
         : `Filesystem list failed: ${failure}`,
     );
     expect(sdk.session).toBe(snapshot);
-    controlled.mockImplementation(service.getMockImplementation());
+    controlled!.mockImplementation(service.getMockImplementation()!);
     await expect(access.listFileSystems()).resolves.toEqual([
       { id: "fs-one", name: "Vault" },
     ]);
@@ -916,7 +919,7 @@ it("caller cancellation closes a failed open, and closing an adopted handle reje
   await vi.waitFor(() => expect(BrowserSocket.instances).toHaveLength(1));
   controller.abort();
   await rejected;
-  expect(BrowserSocket.instances[0].closes).toBe(1);
+  expect(BrowserSocket.instances[0]!.closes).toBe(1);
   BrowserSocket.connecting = false;
   const adopted = await access.openSocket("fs-one");
   adopted.close();
@@ -924,8 +927,8 @@ it("caller cancellation closes a failed open, and closing an adopted handle reje
   await expect(adopted.request({ type: "list", path: "" })).rejects.toThrow(
     "closed",
   );
-  expect(BrowserSocket.instances[1].closes).toBe(1);
-  expect(BrowserSocket.instances[1].sent).toEqual([]);
+  expect(BrowserSocket.instances[1]!.closes).toBe(1);
+  expect(BrowserSocket.instances[1]!.sent).toEqual([]);
 });
 
 it("rejects newly requested work immediately after retirement even behind an outstanding request", async () => {
@@ -936,7 +939,7 @@ it("rejects newly requested work immediately after retirement even behind an out
   const pending = connection.request({ type: "list", path: "" });
   const rejected = expect(pending).rejects.toThrow("ended");
   await vi.waitFor(() =>
-    expect(BrowserSocket.instances[0].sent).toHaveLength(1),
+    expect(BrowserSocket.instances[0]!.sent).toHaveLength(1),
   );
   await sdk.signout();
   let denied = false;
@@ -952,7 +955,7 @@ it("rejects newly requested work immediately after retirement even behind an out
     await rejected;
     await next;
   }
-  expect(BrowserSocket.instances[0].sent).toHaveLength(1);
+  expect(BrowserSocket.instances[0]!.sent).toHaveLength(1);
 });
 
 it.each(["list", "create", "open", "ensure", "sql"])(

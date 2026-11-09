@@ -32,6 +32,7 @@ test("memory sessions ignore legacy plaintext caches without purging unrelated c
       clientConfig: {
         authority: "https://issuer.example",
         redirectUri: "https://app.example/callback",
+        registration: { redirectUris: ["https://app.example/callback"] },
       },
       storage: "memory" as const,
     };
@@ -90,6 +91,7 @@ test.each([
         authority: "https://issuer.example",
         clientId: "app",
         redirectUri: "https://app.example/callback",
+        registration: { redirectUris: ["https://app.example/callback"] },
       },
       fetch,
       ...(storage === "memory" ? { storage: "memory" as const } : {}),
@@ -177,6 +179,7 @@ test("refresh recalculates access-token expiry instead of retaining the expired 
       authority: "https://issuer.example",
       clientId: "app",
       redirectUri: "https://app.example/callback",
+      registration: { redirectUris: ["https://app.example/callback"] },
     },
   });
   client.setToken({

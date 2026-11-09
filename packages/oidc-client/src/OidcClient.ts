@@ -390,7 +390,8 @@ export class OidcClient<
     ) {
       body.set("client_id", clientId);
     } else {
-      headers.Authorization = `Basic ${this.encodeBasicAuth(clientId, this.config.clientSecret)}`;
+      headers["Authorization"] =
+        `Basic ${this.encodeBasicAuth(clientId, this.config.clientSecret)}`;
     }
 
     return headers;
@@ -1241,7 +1242,7 @@ export class OidcClient<
     // The application URI identifies the onboarding target. It is required for
     // a new client and lets the IdP re-register a client whose ID was deleted.
     if (!clientId || this.config.registration) {
-      const application = this.getRegistrationMetadata().application as
+      const application = this.getRegistrationMetadata()["application"] as
         { uri?: string } | undefined;
       if (!application?.uri?.trim()) {
         if (!clientId)

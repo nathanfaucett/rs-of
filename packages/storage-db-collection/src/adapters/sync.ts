@@ -265,7 +265,7 @@ function decodeFrame(
 
   const _flags = buffer[1];
   const length =
-    buffer[2] | (buffer[3] << 8) | (buffer[4] << 16) | (buffer[5] << 24);
+    buffer[2]! | (buffer[3]! << 8) | (buffer[4]! << 16) | (buffer[5]! << 24);
 
   if (length > MAX_FRAME_PAYLOAD) {
     throw new Error(`Frame too large: ${length}`);
@@ -276,11 +276,11 @@ function decodeFrame(
 
   const payload = buffer.slice(6, 6 + length);
   const crcBytes = buffer.slice(6 + length, 6 + length + 4);
-  const expectedCrc =
-    crcBytes[0] |
-    (crcBytes[1] << 8) |
-    (crcBytes[2] << 16) |
-    (crcBytes[3] << 24);
+  const b0 = crcBytes[0]!;
+  const b1 = crcBytes[1]!;
+  const b2 = crcBytes[2]!;
+  const b3 = crcBytes[3]!;
+  const expectedCrc = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
 
   const actualCrc = crc32c(payload);
   if (actualCrc !== expectedCrc) {
@@ -311,6 +311,8 @@ export class NativeSyncClient {
   private tokenProvider: () => Promise<string>;
   private store_identity: StoreIdentity;
   private frameBuffer: Uint8Array = new Uint8Array();
+  private connected = false;
+  private replica_id = "";
 
   constructor(
     url: string,
