@@ -4,9 +4,8 @@ use std::{
     sync::Arc,
 };
 
-use api::{
-    IndependentCreateCommand, IndependentCreateHost, IndependentSetupHost, LocalTls, LocalTlsConfig,
-};
+use api::{LocalTls, LocalTlsConfig};
+use setup::{IndependentCreateCommand, IndependentCreateHost, IndependentSetupHost};
 use axum::{Router, extract::Request, http::StatusCode};
 use tokio::{sync::mpsc, task::JoinSet};
 use tokio_util::sync::CancellationToken;

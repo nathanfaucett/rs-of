@@ -11,11 +11,11 @@ use serde_json::Value;
 
 use crate::{
     IndependentCreateIntent, SetupAdmission, SetupScope,
-    independent_setup::HostSettings,
     setup_files::{
         absolute, present, private_options, read_private, require_private, sync_ancestry,
     },
 };
+use crate::HostSettings;
 
 #[derive(Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -155,7 +155,7 @@ impl IndependentReset {
         let intent: Option<IndependentCreateIntent> = admission
             .host_intent()
             .map_err(io::Error::other)?
-            .map(|value| serde_json::from_str(&value))
+            .map(|value: String| serde_json::from_str(&value))
             .transpose()?;
         if let Some(intent) = &intent {
             intent.canonical()?;
@@ -199,7 +199,7 @@ impl IndependentReset {
     fn save(&self) -> io::Result<()> {
         let temporary = self.journal_path.with_extension(format!(
             "json.{}",
-            crate::independent_exchange::random_capability()?
+            crate::random_capability()?
         ));
         let mut file = private_options(true).open(&temporary)?;
         file.write_all(&serde_json::to_vec(&self.journal)?)?;

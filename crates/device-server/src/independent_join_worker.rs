@@ -1,7 +1,8 @@
 use super::{Record, build, observe, open_existing, public, verify};
 use std::{io, path::Path, sync::Arc, time::Instant};
 
-use api::{IndependentCreateCommand, IndependentCreateControl, IndependentPeer};
+use setup::{IndependentCreateCommand, IndependentCreateControl};
+use api::IndependentPeer;
 use device_service::DeviceIdentity;
 use device_service::independent_join::IndependentJoinApproval;
 use device_service::independent_join::IndependentJoinRequest;

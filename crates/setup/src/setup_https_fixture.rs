@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use api::{IndependentSetupHost, LocalTls};
+use crate::{IndependentSetupHost, LocalTls};
 use axum::http::{
     StatusCode,
     header::{ACCESS_CONTROL_ALLOW_CREDENTIALS, ACCESS_CONTROL_ALLOW_ORIGIN},

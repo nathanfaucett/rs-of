@@ -1,6 +1,6 @@
 use std::{io, path::Path, sync::Arc, time::Instant};
 
-use api::{IndependentCreateCommand, IndependentCreateControl};
+use setup::{IndependentCreateCommand, IndependentCreateControl};
 use device_service::independent_join::IndependentJoinApproval;
 use device_service::independent_join::IndependentJoinRequest;
 use device_service::join_history::JoinHistoryContext;

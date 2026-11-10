@@ -1,6 +1,6 @@
 use std::{io, net::SocketAddr, path::Path};
 
-use api::IndependentSetupHost;
+use setup::IndependentSetupHost;
 
 #[path = "../../api/src/setup_https_fixture.rs"]
 mod fixture;

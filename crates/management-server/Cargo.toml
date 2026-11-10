@@ -41,6 +41,7 @@ dotenvy = { version = "0.15", default-features = false, optional = true }
 
 # Internal
 api = { path = "../api", default-features = false }
+setup = { workspace = true }
 db = { package = "idp-db", path = "../db", default-features = false, features = [
     "replica",
     "remote",

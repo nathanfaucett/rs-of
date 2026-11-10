@@ -145,6 +145,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "setup",
  "subtle",
  "tempfile",
  "tokio",
@@ -1678,6 +1679,7 @@ dependencies = [
  "ofdb-sql",
  "serde",
  "serde_json",
+ "setup",
  "storage-model",
  "tokio",
  "tokio-util",
@@ -3282,6 +3284,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_qs",
+ "setup",
  "sha2 0.10.9",
  "tokio",
  "tokio-util",
@@ -4093,6 +4096,7 @@ dependencies = [
  "model",
  "serde",
  "serde_json",
+ "setup",
  "tokio",
  "tokio-util",
  "tower",
@@ -7060,6 +7064,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "setup"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "getrandom 0.3.4",
+ "iroh",
+ "log",
+ "of-device-client",
+ "of-idp-client",
+ "rcgen",
+ "reqwest 0.12.28",
+ "rustix",
+ "rustls",
+ "serde",
+ "serde_json",
+ "subtle",
+ "tempfile",
+ "tokio",
+ "tokio-rustls",
+ "tokio-util",
+ "tower",
+ "tower-http 0.7.1",
+ "utoipa",
+ "utoipa-axum",
+]
+
+[[package]]
 name = "sha1"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7382,6 +7413,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_qs",
+ "setup",
  "storage-model",
  "storage-service",
  "tokio",
@@ -8768,6 +8800,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "setup",
  "storage-server",
  "tokio",
  "tokio-util",

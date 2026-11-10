@@ -1,6 +1,6 @@
 use std::{io, net::SocketAddr, path::Path};
 
-use api::IndependentSetupHost;
+use setup::IndependentSetupHost;
 
 use crate::AppConfig;
 

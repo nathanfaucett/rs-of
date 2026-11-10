@@ -1,3 +1,17 @@
+pub fn exact_https(base: &str) -> io::Result<()> {
+    let url = reqwest::Url::parse(base).map_err(io::Error::other)?;
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || url.as_str().trim_end_matches('/') != base
+    {
+        return Err(io::Error::other("exact canonical HTTPS base required"));
+    }
+    Ok(())
+}
 use std::io;
 
 use iroh::{EndpointId, Signature};
@@ -69,7 +83,7 @@ impl IndependentPeer {
 
     pub async fn discover_with_client(choice: &str, client: reqwest::Client) -> io::Result<Self> {
         let (base, _) = Self::choice(choice)?;
-        let nonce = crate::independent_exchange::random_capability()?;
+        let nonce = crate::random_capability()?;
         let configuration = of_device_client::apis::configuration::Configuration {
             base_path: base.to_owned(),
             client,
@@ -89,19 +103,4 @@ impl IndependentPeer {
         peer.verify(choice, &nonce)?;
         Ok(peer)
     }
-}
-
-pub fn exact_https(base: &str) -> io::Result<()> {
-    let url = reqwest::Url::parse(base).map_err(io::Error::other)?;
-    if url.scheme() != "https"
-        || url.host_str().is_none()
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.query().is_some()
-        || url.fragment().is_some()
-        || url.as_str().trim_end_matches('/') != base
-    {
-        return Err(io::Error::other("exact canonical HTTPS base required"));
-    }
-    Ok(())
 }

@@ -255,7 +255,7 @@ impl SetupAdmission {
     }
 
     /// Host lifecycle observation only, not mutation authority or an HTTP recovery contract.
-    pub(crate) fn host_intent(&self) -> Result<Option<String>> {
+    pub fn host_intent(&self) -> Result<Option<String>> {
         let mut local = self.inner.lock().map_err(unavailable)?;
         if local.failed {
             return Err(SetupAdmissionError::Unavailable);

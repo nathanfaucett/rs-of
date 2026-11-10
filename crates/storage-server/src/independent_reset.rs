@@ -63,7 +63,7 @@ pub async fn reset_independent(
 mod tests {
     use std::fs;
 
-    use api::IndependentSetupHost;
+    use setup::IndependentSetupHost;
     use idp_model::model::Id;
 
     use super::reset_independent;

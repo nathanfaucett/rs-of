@@ -10,14 +10,14 @@ use crate::{IndependentCreateControl, IndependentCreateIntent, IndependentOwnerP
 
 #[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Challenge {
+pub struct Challenge {
     operation: IndependentCreateIntent,
     recipient: String,
     registration: serde_json::Value,
     challenge: String,
 }
 
-pub(crate) struct OutstandingChallenge {
+pub struct OutstandingChallenge {
     bound: Challenge,
     expires: Instant,
 }
@@ -31,13 +31,13 @@ pub(crate) struct Registration {
     challenge: String,
 }
 
-pub(crate) fn random_capability() -> io::Result<String> {
+pub fn random_capability() -> io::Result<String> {
     let mut random = [0u8; 32];
     getrandom::fill(&mut random).map_err(|_| io::Error::other("secure randomness unavailable"))?;
     Ok(random.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-pub(crate) fn routes() -> utoipa_axum::router::OpenApiRouter<IndependentCreateControl> {
+pub fn routes() -> utoipa_axum::router::OpenApiRouter<IndependentCreateControl> {
     utoipa_axum::router::OpenApiRouter::new()
         .routes(utoipa_axum::routes!(public))
         .routes(utoipa_axum::routes!(challenge))

@@ -47,6 +47,7 @@ cli = { path = "../cli", default-features = false, features = [
 
 # Internal
 api = { path = "../api", default-features = false, features = [] }
+setup = { workspace = true }
 db = { package = "idp-db", path = "../db", default-features = false, features = ["replica", "remote", "server"] }
 model = { path = "../model", default-features = false, features = [
   "std",

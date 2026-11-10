@@ -15,7 +15,7 @@ pub(crate) fn require_unix_bootstrap() -> io::Result<()> {
     }
 }
 
-pub(crate) fn absolute(path: &Path) -> io::Result<PathBuf> {
+pub fn absolute(path: &Path) -> io::Result<PathBuf> {
     if path.as_os_str().is_empty()
         || path
             .components()
@@ -99,7 +99,7 @@ pub fn private_options(create_new: bool) -> OpenOptions {
     options
 }
 
-pub(crate) fn require_private(path: &Path, directory: bool) -> io::Result<()> {
+pub fn require_private(path: &Path, directory: bool) -> io::Result<()> {
     require_unix_bootstrap()?;
     let path = absolute(path)?;
     let metadata = fs::symlink_metadata(path)?;

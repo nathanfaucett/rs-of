@@ -46,6 +46,7 @@ config = { version = "0.15", default-features = false, features = ["yaml"] }
 
 # Internal
 api = { path = "../api", default-features = false }
+setup = { workspace = true }
 device-server = { path = "../device-server", default-features = false }
 idp-server = { path = "../idp-server", default-features = false }
 management-server = { path = "../management-server", default-features = false }

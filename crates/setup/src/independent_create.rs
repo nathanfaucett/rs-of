@@ -6,6 +6,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use crate::{canonical_openapi_router, IndependentPeer};
 use axum::{
     Json, Router,
     extract::{Request, State},
@@ -180,7 +181,7 @@ impl IndependentCreateHost {
             .with_state(self.control.clone())
             .split_for_parts()
             .0
-            .merge(crate::canonical_openapi_router(
+            .merge(canonical_openapi_router(
                 self.control.owner(),
                 &self.control.0.base,
             ))
@@ -249,7 +250,7 @@ impl IndependentCreateControl {
     pub(crate) fn write_document<T: Serialize>(&self, name: &str, value: &T) -> io::Result<()> {
         let path = self.directory().join(format!(
             ".worker-{}",
-            crate::independent_exchange::random_capability()?
+            crate::random_capability()?
         ));
         let mut file = private_options(true).open(&path)?;
         file.write_all(&serde_json::to_vec(value)?)?;
@@ -498,7 +499,7 @@ pub(crate) async fn join(
         let Some(choice) = request.intent.peer.as_deref() else {
             return StatusCode::BAD_REQUEST.into_response();
         };
-        let peer = match crate::IndependentPeer::discover(choice).await {
+        let peer = match IndependentPeer::discover(choice).await {
             Ok(peer) => peer,
             Err(_) => return StatusCode::BAD_GATEWAY.into_response(),
         };
@@ -617,14 +618,14 @@ pub(crate) async fn cancel(
     state.view = "unfinished";
     StatusCode::NO_CONTENT.into_response()
 }
-pub(super) struct RequestObservation<'a> {
+pub struct RequestObservation<'a> {
     phase: &'static str,
     owner: &'a str,
     started: Option<std::time::Instant>,
 }
 
 impl<'a> RequestObservation<'a> {
-    pub(super) fn start(owner: &'a str, phase: &'static str) -> Self {
+    pub fn start(owner: &'a str, phase: &'static str) -> Self {
         let started = std::env::var_os("OF_SETUP_TIMEOUT_TIMING").map(|_| {
             eprintln!("seam=owner_request phase={phase}_start owner={owner} pid={} thread={:?} wall_ms={}", std::process::id(), std::thread::current().id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("system clock").as_millis());
             std::time::Instant::now()
@@ -714,7 +715,7 @@ async fn normal(State(control): State<IndependentCreateControl>, request: Reques
     }
 }
 
-pub(super) async fn observe_request<F: Future>(future: F, owner: &str, phase: &str) -> F::Output {
+pub async fn observe_request<F: Future>(future: F, owner: &str, phase: &str) -> F::Output {
     if std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_none() {
         return future.await;
     }
@@ -729,7 +730,7 @@ pub(super) async fn observe_request<F: Future>(future: F, owner: &str, phase: &s
     }).await
 }
 
-pub(crate) fn setup_routes() -> utoipa_axum::router::OpenApiRouter<IndependentCreateControl> {
+pub fn setup_routes() -> utoipa_axum::router::OpenApiRouter<IndependentCreateControl> {
     utoipa_axum::router::OpenApiRouter::new()
         .routes(utoipa_axum::routes!(status))
         .routes(utoipa_axum::routes!(admission))

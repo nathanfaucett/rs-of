@@ -18,18 +18,19 @@ use crate::{
     },
     setup_origin, setup_router,
 };
+use crate::canonical_openapi_router;
 
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct HostSettings {
+pub struct HostSettings {
     version: u8,
-    pub(crate) owner: String,
-    pub(crate) domain: PathBuf,
+    pub owner: String,
+    pub domain: PathBuf,
     address: SocketAddr,
-    pub(crate) origin: String,
-    pub(crate) prefix: String,
+    pub origin: String,
+    pub prefix: String,
     #[serde(default)]
-    pub(crate) shared_tls: bool,
+    pub shared_tls: bool,
 }
 
 impl LocalTlsConfig for HostSettings {
@@ -224,7 +225,7 @@ impl IndependentSetupHost {
             SetupScope::from_owners(&[self.settings.owner.as_str()])
                 .expect("validated retained owner scope"),
         )
-        .merge(crate::canonical_openapi_router(
+        .merge(canonical_openapi_router(
             &self.settings.owner,
             &format!(
                 "{}{}",

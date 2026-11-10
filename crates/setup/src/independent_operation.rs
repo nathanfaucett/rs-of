@@ -1,5 +1,6 @@
 use std::io;
 
+use crate::{exact_https, IndependentPeer};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
@@ -38,8 +39,8 @@ impl IndependentCreateIntent {
                     && self
                         .peer
                         .as_deref()
-                        .is_some_and(|peer| crate::IndependentPeer::choice(peer).is_ok())
-                    && crate::exact_https(&self.issuer).is_ok()
+                        .is_some_and(|peer| IndependentPeer::choice(peer).is_ok())
+                    && exact_https(&self.issuer).is_ok()
             }
             _ => false,
         };

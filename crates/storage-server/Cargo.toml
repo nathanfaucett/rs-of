@@ -48,6 +48,7 @@ cli = { path = "../cli", default-features = false, features = [
 of-device-client = { path = "../device-client", default-features = false }
 of-idp-client = { path = "../idp-client", default-features = false }
 api = { path = "../api", default-features = false, features = [] }
+setup = { workspace = true }
 file-system = { path = "../../../offs/crates/file-system", default-features = false, features = [
 ] }
 idp-model = { path = "../idp-model", default-features = false, features = [

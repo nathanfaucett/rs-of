@@ -166,7 +166,7 @@ pub async fn reset_independent(
 
 #[cfg(test)]
 mod tests {
-    use api::IndependentSetupHost;
+    use setup::IndependentSetupHost;
     use idp_model::model::Id;
 
     #[tokio::test]

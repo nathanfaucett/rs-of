@@ -58,6 +58,7 @@ rust-argon2 = { version = "3.0", default-features = false }
 
 # Internal
 api = { path = "../api", default-features = false, features = [] }
+setup = { workspace = true }
 db = { package = "idp-db", path = "../db", default-features = false, features = [
     "replica",
     "remote",

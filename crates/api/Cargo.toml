@@ -17,6 +17,9 @@ default = []
 test-support = []
 
 [dependencies]
+# Internal
+setup = { path = "../setup", default-features = false }
+
 # Generated HTTP operations
 of-idp-client = { path = "../idp-client", default-features = false }
 of-device-client = { path = "../device-client", default-features = false }

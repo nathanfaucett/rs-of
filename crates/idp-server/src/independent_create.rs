@@ -1,6 +1,6 @@
 use std::{io, path::Path, sync::Arc, time::Instant};
 
-use api::{
+use setup::{
     IndependentCreateCommand, IndependentCreateControl, IndependentCreateIntent,
     IndependentOwnerPublic, IndependentSetupHost,
 };
