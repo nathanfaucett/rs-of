@@ -17,6 +17,18 @@ pub fn public_metadata_router(api_base_uri: &str, prefix: &str) -> Router {
     }
 }
 
+/// Serves only version without opening runtime state.
+/// `prefix` only mounts routes.
+pub fn version_router(_api_base_uri: &str, prefix: &str) -> Router {
+    let routes = Router::new().route("/version", get(version));
+
+    if prefix.is_empty() || prefix == "/" {
+        routes
+    } else {
+        Router::new().nest(prefix, routes)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use axum::{

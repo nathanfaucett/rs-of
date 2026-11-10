@@ -18,17 +18,11 @@ help:
     @printf "  clean          Remove build artifacts\n"
     @printf "  doc            Build workspace documentation\n"
     @printf "  boundary-check Check server dependency boundaries\n"
-    @printf "  idp [CONFIG]   Run the standalone IdP server\n"
-    @printf "  management [CONFIG] Run the standalone Management server\n"
-    @printf "  device [CONFIG] Run the standalone Device server\n"
-    @printf "  storage [CONFIG] Run the standalone Storage server\n"
-    @printf "  unified [CONFIG] Run the unified server\n"
-    @printf "  idp-portless [CONFIG]   Run the standalone IdP server via portless\n"
-    @printf "  management-portless [CONFIG] Run the standalone Management server via portless\n"
-    @printf "  device-portless [CONFIG] Run the standalone Device server via portless\n"
-    @printf "  storage-portless [CONFIG] Run the standalone Storage server via portless\n"
-    @printf "  unified-portless [CONFIG] Run the unified server via portless\n"
-    @printf "  portless-servers          Show commands to run all standalone servers via portless\n"
+    @printf "  idp [CONFIG]   Run the IdP server via portless (cargo run)\n"
+    @printf "  management [CONFIG] Run the Management server via portless (cargo run)\n"
+    @printf "  device [CONFIG] Run the Device server via portless (cargo run)\n"
+    @printf "  storage [CONFIG] Run the Storage server via portless (cargo run)\n"
+    @printf "  unified [CONFIG] Run the unified server via portless (cargo run)\n"
 
 build:
     cargo build --workspace
@@ -76,54 +70,22 @@ boundary-check:
     python3 scripts/check_server_dependencies.py
 
 idp config="config/idp/config.yaml" *args:
-    cargo run -p idp-server --features cli --bin idp-server -- --config "{{ config }}" {{ args }}
+    npx portless run --name idp cargo run -p idp-server --features cli --bin idp-server -- --config "{{ config }}" {{ args }}
 
 management config="config/management/config.yaml" *args:
-    cargo run -p management-server --features cli --bin management-server -- --config "{{ config }}" {{ args }}
+    npx portless run --name management cargo run -p management-server --features cli --bin management-server -- --config "{{ config }}" {{ args }}
 
 device config="config/device/config.yaml" *args:
-    cargo run -p device-server --features cli --bin device-server -- --config "{{ config }}" {{ args }}
+    npx portless run --name device cargo run -p device-server --features cli --bin device-server -- --config "{{ config }}" {{ args }}
 
 storage config="config/storage/config.yaml" *args:
-    cargo run -p storage-server --features cli --bin storage-server -- --config "{{ config }}" {{ args }}
+    npx portless run --name storage cargo run -p storage-server --features cli --bin storage-server -- --config "{{ config }}" {{ args }}
 
 unified config="config/unified/config.yaml" *args:
-    cargo run -p unified-server --features cli --bin unified-server -- --config "{{ config }}" {{ args }}
+    npx portless run --name unified cargo run -p unified-server --features cli --bin unified-server -- --config "{{ config }}" {{ args }}
 
 openapi-export:
     cargo run -p unified-server --example export-openapi -- openapi
 
 openapi-generate:
     pnpm openapi
-
-# Portless server recipes - run servers via portless proxy (auto HTTPS, stable .localhost URLs)
-# These require portless to be installed (npm install -g portless or npx portless)
-# Note: Run each in a separate terminal. portless manages the proxy and server processes.
-
-idp-portless config="config/idp/config.yaml" *args:
-    cargo build -p idp-server --features cli --bin idp-server
-    npx portless idp ./target/debug/idp-server --config "{{ config }}" {{ args }}
-
-management-portless config="config/management/config.yaml" *args:
-    cargo build -p management-server --features cli --bin management-server
-    npx portless management ./target/debug/management-server --config "{{ config }}" {{ args }}
-
-device-portless config="config/device/config.yaml" *args:
-    cargo build -p device-server --features cli --bin device-server
-    npx portless device ./target/debug/device-server --config "{{ config }}" {{ args }}
-
-storage-portless config="config/storage/config.yaml" *args:
-    cargo build -p storage-server --features cli --bin storage-server
-    npx portless storage ./target/debug/storage-server --config "{{ config }}" {{ args }}
-
-unified-portless config="config/unified/config.yaml" *args:
-    cargo build -p unified-server --features cli --bin unified-server
-    npx portless unified ./target/debug/unified-server --config "{{ config }}" {{ args }}
-
-# Run all standalone servers via portless (run each in separate terminal)
-portless-servers:
-    @echo "Run each in a separate terminal:"
-    @echo "  just idp-portless"
-    @echo "  just management-portless"
-    @echo "  just device-portless"
-    @echo "  just storage-portless"

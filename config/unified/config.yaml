@@ -17,10 +17,16 @@ device:
   server:
     prefix: /device
   data_dir: ./data/unified/device
+  identity_database_path: ./data/unified/device/idp.redb
   api_public_uri: https://127.0.0.1:3000/device
   storage_audience: https://127.0.0.1:3000/storage
+  idp_api_base: https://127.0.0.1:3000/idp/
+  storage_api_base: https://127.0.0.1:3000/storage/
+  expected_issuer: https://127.0.0.1:3000/idp
+  idp_permission_evaluator_client_id: "unified-evaluator"
 storage:
   server:
     prefix: /storage
   data_dir: ./data/unified/storage
   api_public_uri: https://127.0.0.1:3000/storage
+  device_endpoint_id: "unified-endpoint"
