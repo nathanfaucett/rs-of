@@ -13,6 +13,8 @@
         type DeviceEnrollment,
         type DeviceInfo,
         listDevices,
+        listPendingEnrollments,
+        approveDeviceEnrollment,
         renameDevice,
         revokeDevice,
         enrollDevice,
@@ -21,6 +23,7 @@
     import { Alert, Card, Page, PageHeader, Field } from "$lib/ui";
 
     let devices = $state<DeviceInfo[]>([]);
+    let pendingEnrollments = $state<DeviceEnrollment[]>([]);
     let loading = $state(false);
     let error = $state<string | null>(null);
     let deviceEndpointId = $state<string | null>(null);
@@ -60,6 +63,7 @@
         error = null;
         try {
             devices = await listDevices();
+            pendingEnrollments = await listPendingEnrollments();
         } catch (cause) {
             console.error(cause);
             error =
@@ -68,6 +72,17 @@
                     : "Failed to load devices";
         } finally {
             loading = false;
+        }
+    }
+
+    async function onApproveEnrollment(enrollment: DeviceEnrollment) {
+        try {
+            await approveDeviceEnrollment(enrollment.id);
+            notifications.add("Device enrollment approved", "success");
+            await loadDevices();
+        } catch (cause) {
+            console.error(cause);
+            notifications.add("Failed to approve enrollment", "error");
         }
     }
 
@@ -313,6 +328,45 @@
                 </tbody>
             </table>
         </div>
+    {/if}
+
+    {#if pendingEnrollments.length > 0}
+        <Card tone="subtle">
+            <h2 class="mb-3 text-base">Pending Enrollments</h2>
+            <div class="overflow-x-auto">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Device ID</th>
+                            <th>State</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {#each pendingEnrollments as enrollment (enrollment.id)}
+                            <tr>
+                                <td>
+                                    <code title={enrollment.id}
+                                        >{shortValue(enrollment.id)}</code
+                                    >
+                                </td>
+                                <td>{enrollment.state}</td>
+                                <td>
+                                    <button
+                                        class="btn btn-primary btn-md"
+                                        type="button"
+                                        onclick={() =>
+                                            void onApproveEnrollment(
+                                                enrollment,
+                                            )}>Approve</button
+                                    >
+                                </td>
+                            </tr>
+                        {/each}
+                    </tbody>
+                </table>
+            </div>
+        </Card>
     {/if}
 
     <Modal bind:this={enrollmentFormModalRef} title="Enroll New Device">

@@ -210,14 +210,10 @@ export async function enrollDevice(
 
 export async function approveDeviceEnrollment(
   enrollmentId: string,
-): Promise<void> {
-  const api = await sourceNodeJoinClient();
-  const parameters = { id: exactOfferId(enrollmentId) };
-  const response = await api.independentJoinApproveRaw(
-    parameters,
-    nodeJoinInit,
-  );
-  if (response.raw.status !== 202) {
-    throw new Error("Failed to approve device enrollment");
-  }
+): Promise<DeviceEnrollment> {
+  return deviceApi.approveEnrollment({ deviceId: enrollmentId });
+}
+
+export function listPendingEnrollments(): Promise<DeviceEnrollment[]> {
+  return deviceApi.listPendingEnrollments();
 }

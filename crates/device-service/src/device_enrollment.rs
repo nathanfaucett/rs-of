@@ -134,6 +134,23 @@ where
             .map_err(ErrorResponse::from)
     }
 
+    pub async fn list_pending(&self) -> ErrorResponseResult<Vec<DeviceEnrollment>> {
+        self.repo
+            .list_pending()
+            .await
+            .map(|devices| {
+                devices
+                    .into_iter()
+                    .map(|d| DeviceEnrollment {
+                        id: d.id,
+                        state: d.state,
+                        approval_code: None,
+                    })
+                    .collect()
+            })
+            .map_err(ErrorResponse::from)
+    }
+
     pub async fn rename(
         &self,
         owner_subject: &str,

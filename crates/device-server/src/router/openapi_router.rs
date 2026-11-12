@@ -19,12 +19,14 @@ use super::routes::device_selection::{
 };
 use super::routes::device_self_revocation::{__path_revoke_self, revoke_self};
 use super::routes::devices::{
-    __path_approve_enrollment, __path_enroll_device, __path_list_approved_device_endpoints, __path_list_devices,
-    __path_lookup_device_endpoint, __path_lookup_device_identity, __path_pairing_acceptance,
-    __path_revoke_device, __path_set_pairing_acceptance, __path_transfer_device,
-    __path_trusted_devices, __path_update_device, approve_enrollment, enroll_device, list_approved_device_endpoints,
-    list_devices, lookup_device_endpoint, lookup_device_identity, pairing_acceptance,
-    revoke_device, set_pairing_acceptance, transfer_device, trusted_devices, update_device,
+    __path_approve_enrollment, __path_enroll_device, __path_list_approved_device_endpoints,
+    __path_list_devices, __path_list_pending_enrollments, __path_lookup_device_endpoint,
+    __path_lookup_device_identity, __path_pairing_acceptance, __path_revoke_device,
+    __path_set_pairing_acceptance, __path_transfer_device, __path_trusted_devices,
+    __path_update_device, approve_enrollment, enroll_device, list_approved_device_endpoints,
+    list_devices, list_pending_enrollments, lookup_device_endpoint, lookup_device_identity,
+    pairing_acceptance, revoke_device, set_pairing_acceptance, transfer_device, trusted_devices,
+    update_device,
 };
 use super::routes::health::{__path_health, health};
 use super::routes::replication::{
@@ -56,6 +58,7 @@ fn routes() -> OpenApiRouter<RouterState> {
         .routes(routes!(list_approved_device_endpoints))
         .routes(routes!(trusted_devices))
         .routes(routes!(enroll_device))
+        .routes(routes!(list_pending_enrollments))
         .routes(routes!(approve_enrollment))
         .routes(routes!(pairing_acceptance))
         .routes(routes!(set_pairing_acceptance))

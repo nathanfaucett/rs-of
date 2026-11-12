@@ -1,4 +1,4 @@
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 
 use idp_model::model::{Id, User, UserEmail, UserPassword, UserPhoneNumber};
 

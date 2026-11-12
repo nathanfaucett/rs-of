@@ -403,6 +403,13 @@ export interface RotateClientKeyRequest {
   clientId: string;
 }
 
+export interface RotateClientSecretRequest {
+  /**
+   *
+   */
+  clientId: string;
+}
+
 export interface SetUserBlockedOperationRequest {
   /**
    *
@@ -1378,6 +1385,35 @@ export interface DefaultApiInterface {
     requestParameters: RotateClientKeyRequest,
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<void>;
+
+  /**
+   * Creates request options for rotateClientSecret without sending the request
+   * @param {string} clientId
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  rotateClientSecretRequestOpts(
+    requestParameters: RotateClientSecretRequest
+  ): Promise<runtime.RequestOpts>;
+
+  /**
+   *
+   * @param {string} clientId
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  rotateClientSecretRaw(
+    requestParameters: RotateClientSecretRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<string>>;
+
+  /**
+   */
+  rotateClientSecret(
+    requestParameters: RotateClientSecretRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<string>;
 
   /**
    * Creates request options for sessionsLogout without sending the request
@@ -3424,6 +3460,72 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<void> {
     await this.rotateClientKeyRaw(requestParameters, initOverrides);
+  }
+
+  /**
+   * Creates request options for rotateClientSecret without sending the request
+   */
+  async rotateClientSecretRequestOpts(
+    requestParameters: RotateClientSecretRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["clientId"] == null) {
+      throw new runtime.RequiredError(
+        "clientId",
+        'Required parameter "clientId" was null or undefined when calling rotateClientSecret().'
+      );
+    }
+
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
+    }
+
+    let urlPath = `/clients/{client_id}/rotate-secret`;
+    urlPath = urlPath.replace(
+      "{client_id}",
+      encodeURIComponent(String(requestParameters["clientId"]))
+    );
+
+    return {
+      path: urlPath,
+      method: "POST",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
+
+  /**
+   */
+  async rotateClientSecretRaw(
+    requestParameters: RotateClientSecretRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<string>> {
+    const requestOptions = await this.rotateClientSecretRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    if (this.isJsonMime(response.headers.get("content-type"))) {
+      return new runtime.JSONApiResponse<string>(response);
+    } else {
+      return new runtime.TextApiResponse(response) as any;
+    }
+  }
+
+  /**
+   */
+  async rotateClientSecret(
+    requestParameters: RotateClientSecretRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<string> {
+    const response = await this.rotateClientSecretRaw(requestParameters, initOverrides);
+    return await response.value();
   }
 
   /**

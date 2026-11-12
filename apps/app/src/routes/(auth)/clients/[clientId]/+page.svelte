@@ -9,11 +9,7 @@
         type ClientKey,
         idpAdministration,
     } from "$lib/common/state/idpAdministration";
-    import {
-        idpApi,
-        getIdpApiUrl,
-        idpOwnerAccessToken,
-    } from "$lib/common/state/idpClient.svelte";
+    import { idpApi } from "$lib/common/state/idpClient.svelte";
     import { notifications } from "$lib/common/state/notifications.svelte";
     import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
     import Modal from "$lib/common/components/Modal.svelte";
@@ -132,24 +128,7 @@
         }
         rotatingSecret = true;
         try {
-            const baseUrl = getIdpApiUrl();
-            if (!baseUrl) throw new Error("No IdP API URL configured");
-            const token = await idpOwnerAccessToken();
-            const response = await fetch(
-                `${baseUrl.replace(/\/$/, "")}/clients/${clientId}/rotate-secret`,
-                {
-                    method: "POST",
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                    },
-                },
-            );
-            if (!response.ok) {
-                throw new Error(
-                    `Failed to rotate secret: ${response.statusText}`,
-                );
-            }
-            const newSecret = await response.text();
+            const newSecret = await idpApi.rotateClientSecret({ clientId });
             secretModal = {
                 clientId: client.clientId!,
                 clientSecret: newSecret,

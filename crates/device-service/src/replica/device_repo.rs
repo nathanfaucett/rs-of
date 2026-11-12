@@ -534,6 +534,19 @@ impl DeviceRepo for DbDeviceRepo {
         rows.into_iter().map(TryInto::try_into).collect()
     }
 
+    async fn list_pending(&self) -> DeviceResult<Vec<Device>> {
+        let rows = self.records().await?;
+        let mut devices = Vec::new();
+        for row in rows
+            .into_iter()
+            .filter(|row| row.state == DeviceState::Pending && row.revoked_at.is_none())
+        {
+            self.ensure_clear(row.id).await?;
+            devices.push(row.try_into()?);
+        }
+        Ok(devices)
+    }
+
     async fn find_approved_by_public_key(&self, public_key: &str) -> DeviceResult<Option<Device>> {
         let mut results = self
             .engine

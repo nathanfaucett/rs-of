@@ -1106,6 +1106,29 @@
             "authorization": []
           }
         ]
+      },
+      "get": {
+        "operationId": "list_pending_enrollments",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DeviceEnrollment"
+                  }
+                }
+              }
+            },
+            "description": "Pending device enrollments"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
       }
     },
     "/devices/identities/{device_id}": {
@@ -2577,6 +2600,38 @@
             "description": "Version"
           }
         }
+      }
+    },
+    "/devices/enrollments/{device_id}/approve": {
+      "post": {
+        "operationId": "approve_enrollment",
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceEnrollment"
+                }
+              }
+            },
+            "description": "Approved enrollment"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
       }
     }
   },

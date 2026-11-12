@@ -313,6 +313,31 @@ pub(crate) async fn trusted_devices(
 }
 
 #[utoipa::path(
+    get,
+    path = "/devices/enrollments",
+    responses((status = 200, description = "Pending device enrollments", body = [DeviceEnrollment])),
+    security(("authorization" = []))
+)]
+pub(crate) async fn list_pending_enrollments(
+    State(state): State<RouterState>,
+    actor: DeviceAuthorization,
+) -> Result<Json<Vec<DeviceEnrollment>>, ErrorResponse> {
+    require_identity_permission(
+        &state,
+        &actor,
+        IdentityAction::DevicesRead,
+        PermissionTarget::Installation {
+            resource: IdentityResource::Device { id: None },
+        },
+    )
+    .await?;
+    DeviceEnrollmentService::new(devices(&state)?)
+        .list_pending()
+        .await
+        .map(Json)
+}
+
+#[utoipa::path(
     post,
     path = "/devices/enrollments",
     request_body = DeviceEnrollmentRequest,
@@ -504,7 +529,9 @@ pub(crate) async fn approve_enrollment(
         &actor,
         IdentityAction::DevicesEnroll,
         PermissionTarget::Installation {
-            resource: IdentityResource::Device { id: Some(device_id) },
+            resource: IdentityResource::Device {
+                id: Some(device_id),
+            },
         },
     )
     .await?;

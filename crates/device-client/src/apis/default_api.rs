@@ -13,6 +13,12 @@ use crate::{apis::ResponseContent, models};
 use reqwest;
 use serde::{Deserialize, Serialize, de::Error as _};
 
+/// struct for passing parameters to the method [`approve_enrollment`]
+#[derive(Clone, Debug)]
+pub struct ApproveEnrollmentParams {
+    pub device_id: String,
+}
+
 /// struct for passing parameters to the method [`delete_device_resource_selection`]
 #[derive(Clone, Debug)]
 pub struct DeleteDeviceResourceSelectionParams {
@@ -108,6 +114,13 @@ pub struct UpdateDeviceParams {
     pub update_device_request: models::UpdateDeviceRequest,
 }
 
+/// struct for typed errors of method [`approve_enrollment`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ApproveEnrollmentError {
+    UnknownValue(serde_json::Value),
+}
+
 /// struct for typed errors of method [`delete_device_resource_selection`]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -163,6 +176,13 @@ pub enum ListApprovedDeviceEndpointsError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ListDevicesError {
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`list_pending_enrollments`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ListPendingEnrollmentsError {
     UnknownValue(serde_json::Value),
 }
 
@@ -258,6 +278,64 @@ pub enum UpdateDeviceError {
 #[serde(untagged)]
 pub enum VersionError {
     UnknownValue(serde_json::Value),
+}
+
+pub async fn approve_enrollment(
+    configuration: &configuration::Configuration,
+    params: ApproveEnrollmentParams,
+) -> Result<models::DeviceEnrollment, Error<ApproveEnrollmentError>> {
+    let uri_str = format!(
+        "{}/devices/enrollments/{device_id}/approve",
+        configuration.base_path,
+        device_id = crate::apis::urlencode(params.device_id)
+    );
+    let mut req_builder = configuration
+        .client
+        .request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    if let Some(ref token) = configuration.bearer_access_token {
+        req_builder = req_builder.bearer_auth(token.to_owned());
+    };
+
+    let req = req_builder.build()?;
+    configuration::check_request(&req, configuration.request_limit)?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    let content_type = super::ContentType::from(content_type);
+
+    if status.as_u16() == 200 || false {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        match content_type {
+            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
+            ContentType::Text => {
+                return Err(Error::from(serde_json::Error::custom(
+                    "Received `text/plain` content type response that cannot be converted to `models::DeviceEnrollment`",
+                )));
+            }
+            ContentType::Unsupported(unknown_type) => {
+                return Err(Error::from(serde_json::Error::custom(format!(
+                    "Received `{unknown_type}` content type response that cannot be converted to `models::DeviceEnrollment`"
+                ))));
+            }
+        }
+    } else {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        let entity: Option<ApproveEnrollmentError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
 }
 
 pub async fn delete_device_resource_selection(
@@ -643,6 +721,57 @@ pub async fn list_devices(
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<ListDevicesError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+pub async fn list_pending_enrollments(
+    configuration: &configuration::Configuration,
+) -> Result<Vec<models::DeviceEnrollment>, Error<ListPendingEnrollmentsError>> {
+    let uri_str = format!("{}/devices/enrollments", configuration.base_path);
+    let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    if let Some(ref token) = configuration.bearer_access_token {
+        req_builder = req_builder.bearer_auth(token.to_owned());
+    };
+
+    let req = req_builder.build()?;
+    configuration::check_request(&req, configuration.request_limit)?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    let content_type = super::ContentType::from(content_type);
+
+    if status.as_u16() == 200 || false {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        match content_type {
+            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
+            ContentType::Text => {
+                return Err(Error::from(serde_json::Error::custom(
+                    "Received `text/plain` content type response that cannot be converted to `Vec&lt;models::DeviceEnrollment&gt;`",
+                )));
+            }
+            ContentType::Unsupported(unknown_type) => {
+                return Err(Error::from(serde_json::Error::custom(format!(
+                    "Received `{unknown_type}` content type response that cannot be converted to `Vec&lt;models::DeviceEnrollment&gt;`"
+                ))));
+            }
+        }
+    } else {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        let entity: Option<ListPendingEnrollmentsError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
             content,

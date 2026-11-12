@@ -81,6 +81,13 @@ import {
   VersionResponseToJSON,
 } from "../models/VersionResponse.js";
 
+export interface ApproveEnrollmentRequest {
+  /**
+   *
+   */
+  deviceId: string;
+}
+
 export interface DeleteDeviceResourceSelectionRequest {
   /**
    * Device ID
@@ -207,6 +214,35 @@ export interface UpdateDeviceOperationRequest {
  * @interface DefaultApiInterface
  */
 export interface DefaultApiInterface {
+  /**
+   * Creates request options for approveEnrollment without sending the request
+   * @param {string} deviceId
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  approveEnrollmentRequestOpts(
+    requestParameters: ApproveEnrollmentRequest
+  ): Promise<runtime.RequestOpts>;
+
+  /**
+   *
+   * @param {string} deviceId
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  approveEnrollmentRaw(
+    requestParameters: ApproveEnrollmentRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<DeviceEnrollment>>;
+
+  /**
+   */
+  approveEnrollment(
+    requestParameters: ApproveEnrollmentRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<DeviceEnrollment>;
+
   /**
    * Creates request options for deleteDeviceResourceSelection without sending the request
    * @param {string} deviceId Device ID
@@ -414,6 +450,29 @@ export interface DefaultApiInterface {
   listDevices(
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<Array<DeviceInfo>>;
+
+  /**
+   * Creates request options for listPendingEnrollments without sending the request
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  listPendingEnrollmentsRequestOpts(): Promise<runtime.RequestOpts>;
+
+  /**
+   *
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  listPendingEnrollmentsRaw(
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<Array<DeviceEnrollment>>>;
+
+  /**
+   */
+  listPendingEnrollments(
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<Array<DeviceEnrollment>>;
 
   /**
    * Creates request options for lookupDeviceEndpoint without sending the request
@@ -771,6 +830,70 @@ export interface DefaultApiInterface {
  *
  */
 export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
+  /**
+   * Creates request options for approveEnrollment without sending the request
+   */
+  async approveEnrollmentRequestOpts(
+    requestParameters: ApproveEnrollmentRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["deviceId"] == null) {
+      throw new runtime.RequiredError(
+        "deviceId",
+        'Required parameter "deviceId" was null or undefined when calling approveEnrollment().'
+      );
+    }
+
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
+    }
+
+    let urlPath = `/devices/enrollments/{device_id}/approve`;
+    urlPath = urlPath.replace(
+      "{device_id}",
+      encodeURIComponent(String(requestParameters["deviceId"]))
+    );
+
+    return {
+      path: urlPath,
+      method: "POST",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
+
+  /**
+   */
+  async approveEnrollmentRaw(
+    requestParameters: ApproveEnrollmentRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<DeviceEnrollment>> {
+    const requestOptions = await this.approveEnrollmentRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      DeviceEnrollmentFromJSON(jsonValue)
+    );
+  }
+
+  /**
+   */
+  async approveEnrollment(
+    requestParameters: ApproveEnrollmentRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<DeviceEnrollment> {
+    const response = await this.approveEnrollmentRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
+
   /**
    * Creates request options for deleteDeviceResourceSelection without sending the request
    */
@@ -1217,6 +1340,55 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<Array<DeviceInfo>> {
     const response = await this.listDevicesRaw(initOverrides);
+    return await response.value();
+  }
+
+  /**
+   * Creates request options for listPendingEnrollments without sending the request
+   */
+  async listPendingEnrollmentsRequestOpts(): Promise<runtime.RequestOpts> {
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
+    }
+
+    let urlPath = `/devices/enrollments`;
+
+    return {
+      path: urlPath,
+      method: "GET",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
+
+  /**
+   */
+  async listPendingEnrollmentsRaw(
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<Array<DeviceEnrollment>>> {
+    const requestOptions = await this.listPendingEnrollmentsRequestOpts();
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      jsonValue.map(DeviceEnrollmentFromJSON)
+    );
+  }
+
+  /**
+   */
+  async listPendingEnrollments(
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<Array<DeviceEnrollment>> {
+    const response = await this.listPendingEnrollmentsRaw(initOverrides);
     return await response.value();
   }
 

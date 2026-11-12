@@ -1,6 +1,6 @@
 use alloc::{string::String, vec::Vec};
 
-use crate::{Device, TrustedDevice};
+use crate::{Device, DeviceState, TrustedDevice};
 
 use crate::DeviceResult;
 
@@ -36,6 +36,8 @@ pub trait DeviceRepo {
     fn has_any(&self) -> impl Future<Output = DeviceResult<bool>>;
 
     fn list(&self) -> impl Future<Output = DeviceResult<Vec<Device>>>;
+
+    fn list_pending(&self) -> impl Future<Output = DeviceResult<Vec<Device>>>;
 
     fn find_approved_by_public_key(
         &self,

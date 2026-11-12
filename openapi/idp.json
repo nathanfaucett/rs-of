@@ -3950,6 +3950,38 @@
           }
         ]
       }
+    },
+    "/clients/{client_id}/rotate-secret": {
+      "post": {
+        "operationId": "rotate_client_secret",
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Rotated client secret"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
     }
   },
   "servers": [
