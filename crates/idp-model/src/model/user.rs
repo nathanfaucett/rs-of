@@ -78,6 +78,8 @@ impl From<User> for UserInfo {
             birthdate: val.birthdate.map(|s| s.to_rfc3339()),
             zoneinfo: val.zoneinfo,
             locale: val.locale,
+            blocked: val.blocked,
+            mfa_totp_enabled: Some(val.mfa_totp_secret.is_some()),
             updated_at: DateTime::from_timestamp_secs(val.updated_at.timestamp())
                 .unwrap_or_default(),
         }

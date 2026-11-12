@@ -58,6 +58,12 @@ pub struct CreateApplicationParams {
     pub application_registration: models::ApplicationRegistration,
 }
 
+/// struct for passing parameters to the method [`create_user`]
+#[derive(Clone, Debug)]
+pub struct CreateUserParams {
+    pub create_user_request: models::CreateUserRequest,
+}
+
 /// struct for passing parameters to the method [`delete_application`]
 #[derive(Clone, Debug)]
 pub struct DeleteApplicationParams {
@@ -187,6 +193,20 @@ pub struct RotateClientKeyParams {
     pub client_id: String,
 }
 
+/// struct for passing parameters to the method [`set_user_blocked`]
+#[derive(Clone, Debug)]
+pub struct SetUserBlockedParams {
+    pub user_id: String,
+    pub set_user_blocked_request: models::SetUserBlockedRequest,
+}
+
+/// struct for passing parameters to the method [`set_user_mfa`]
+#[derive(Clone, Debug)]
+pub struct SetUserMfaParams {
+    pub user_id: String,
+    pub set_user_mfa_request: models::SetUserMfaRequest,
+}
+
 /// struct for passing parameters to the method [`token`]
 #[derive(Clone, Debug, Default)]
 pub struct TokenParams {
@@ -226,7 +246,7 @@ pub struct UpdateApplicationParams {
 #[derive(Clone, Debug)]
 pub struct UpdateUserParams {
     pub user_id: String,
-    pub body: serde_json::Value,
+    pub update_user_info_request: models::UpdateUserInfoRequest,
 }
 
 /// struct for typed errors of method [`approve_for_user`]
@@ -254,6 +274,13 @@ pub enum AuthorizeQueryError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum CreateApplicationError {
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`create_user`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CreateUserError {
     UnknownValue(serde_json::Value),
 }
 
@@ -436,6 +463,20 @@ pub enum RotateClientKeyError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum SessionsLogoutError {
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`set_user_blocked`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SetUserBlockedError {
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`set_user_mfa`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SetUserMfaError {
     UnknownValue(serde_json::Value),
 }
 
@@ -690,6 +731,61 @@ pub async fn create_application(
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<CreateApplicationError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+pub async fn create_user(
+    configuration: &configuration::Configuration,
+    params: CreateUserParams,
+) -> Result<models::UserInfo, Error<CreateUserError>> {
+    let uri_str = format!("{}/users", configuration.base_path);
+    let mut req_builder = configuration
+        .client
+        .request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    if let Some(ref token) = configuration.bearer_access_token {
+        req_builder = req_builder.bearer_auth(token.to_owned());
+    };
+    req_builder = req_builder.json(&params.create_user_request);
+
+    let req = req_builder.build()?;
+    configuration::check_request(&req, configuration.request_limit)?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    let content_type = super::ContentType::from(content_type);
+
+    if status.as_u16() == 200 || false {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        match content_type {
+            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
+            ContentType::Text => {
+                return Err(Error::from(serde_json::Error::custom(
+                    "Received `text/plain` content type response that cannot be converted to `models::UserInfo`",
+                )));
+            }
+            ContentType::Unsupported(unknown_type) => {
+                return Err(Error::from(serde_json::Error::custom(format!(
+                    "Received `{unknown_type}` content type response that cannot be converted to `models::UserInfo`"
+                ))));
+            }
+        }
+    } else {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        let entity: Option<CreateUserError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
             content,
@@ -1851,6 +1947,86 @@ pub async fn sessions_logout(
     }
 }
 
+pub async fn set_user_blocked(
+    configuration: &configuration::Configuration,
+    params: SetUserBlockedParams,
+) -> Result<(), Error<SetUserBlockedError>> {
+    let uri_str = format!(
+        "{}/users/{user_id}/block",
+        configuration.base_path,
+        user_id = crate::apis::urlencode(params.user_id)
+    );
+    let mut req_builder = configuration
+        .client
+        .request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    if let Some(ref token) = configuration.bearer_access_token {
+        req_builder = req_builder.bearer_auth(token.to_owned());
+    };
+    req_builder = req_builder.json(&params.set_user_blocked_request);
+
+    let req = req_builder.build()?;
+    configuration::check_request(&req, configuration.request_limit)?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+
+    if status.as_u16() == 200 || false {
+        Ok(())
+    } else {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        let entity: Option<SetUserBlockedError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+pub async fn set_user_mfa(
+    configuration: &configuration::Configuration,
+    params: SetUserMfaParams,
+) -> Result<(), Error<SetUserMfaError>> {
+    let uri_str = format!(
+        "{}/users/{user_id}/mfa",
+        configuration.base_path,
+        user_id = crate::apis::urlencode(params.user_id)
+    );
+    let mut req_builder = configuration
+        .client
+        .request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    if let Some(ref token) = configuration.bearer_access_token {
+        req_builder = req_builder.bearer_auth(token.to_owned());
+    };
+    req_builder = req_builder.json(&params.set_user_mfa_request);
+
+    let req = req_builder.build()?;
+    configuration::check_request(&req, configuration.request_limit)?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+
+    if status.as_u16() == 200 || false {
+        Ok(())
+    } else {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        let entity: Option<SetUserMfaError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
 pub async fn token(
     configuration: &configuration::Configuration,
     params: TokenParams,
@@ -2016,7 +2192,7 @@ pub async fn update_user(
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
     };
-    req_builder = req_builder.json(&params.body);
+    req_builder = req_builder.json(&params.update_user_info_request);
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;

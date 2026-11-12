@@ -11,11 +11,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-#[cfg_attr(
-    feature = "wasm",
-    derive(tsify::Tsify),
-    
-)]
+#[cfg_attr(feature = "wasm", derive(tsify::Tsify))]
 pub struct UserInfo {
     pub sub: String,
 
@@ -72,6 +68,12 @@ pub struct UserInfo {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locale: Option<String>,
+
+    #[serde(default)]
+    pub blocked: bool,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mfa_totp_enabled: Option<bool>,
 
     pub updated_at: DateTime<Utc>,
 }

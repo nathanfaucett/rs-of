@@ -2,9 +2,10 @@
     import type { UserInfo } from "@ofsdk/idp-client";
     import { onMount } from "svelte";
     import { resolve } from "$app/paths";
+    import Modal from "$lib/common/components/Modal.svelte";
     import { idpApi } from "$lib/common/state/idpClient.svelte";
     import { notifications } from "$lib/common/state/notifications.svelte";
-    import { Alert, Card, Page, PageHeader } from "$lib/ui";
+    import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 
     const pageSize = 25;
 
@@ -13,6 +14,13 @@
     let error = $state<string | null>(null);
     let offset = $state(0);
     let hasNextPage = $state(false);
+
+    let createModalRef: Modal;
+    let creating = $state(false);
+    let createError = $state<string | null>(null);
+    let newName = $state("");
+    let newEmail = $state("");
+    let newPassword = $state("");
 
     const pageNumber = $derived(Math.floor(offset / pageSize) + 1);
 
@@ -50,6 +58,41 @@
         await loadUsers();
     }
 
+    function openCreateModal() {
+        newName = "";
+        newEmail = "";
+        newPassword = "";
+        createError = null;
+        createModalRef?.show();
+    }
+
+    async function onCreateUser() {
+        creating = true;
+        createError = null;
+        try {
+            await idpApi.createUser({
+                createUserRequest: {
+                    name: newName,
+                    email: newEmail,
+                    password: newPassword,
+                },
+            });
+            notifications.add("User created", "success");
+            createModalRef?.close();
+            offset = 0;
+            await loadUsers();
+        } catch (cause) {
+            console.error(cause);
+            createError =
+                cause instanceof Error
+                    ? cause.message
+                    : "Failed to create user";
+            notifications.add("Failed to create user", "error");
+        } finally {
+            creating = false;
+        }
+    }
+
     onMount(() => {
         void loadUsers();
     });
@@ -61,8 +104,7 @@
             <button
                 class="btn btn-primary btn-md"
                 type="button"
-                disabled
-                title="Create user requires backend endpoint (not yet implemented)"
+                onclick={openCreateModal}
             >
                 Add user
             </button>
@@ -120,4 +162,62 @@
             disabled={loading || !hasNextPage}>Next</button
         >
     </div>
+
+    <Modal bind:this={createModalRef} title="Create User">
+        <div class="flex flex-col gap-4">
+            <Field label="Name">
+                {#snippet children(control)}
+                    <input
+                        type="text"
+                        class="input"
+                        bind:value={newName}
+                        required
+                        {...control}
+                    />
+                {/snippet}
+            </Field>
+            <Field label="Email">
+                {#snippet children(control)}
+                    <input
+                        type="email"
+                        class="input"
+                        bind:value={newEmail}
+                        required
+                        {...control}
+                    />
+                {/snippet}
+            </Field>
+            <Field label="Password">
+                {#snippet children(control)}
+                    <input
+                        type="password"
+                        class="input"
+                        bind:value={newPassword}
+                        required
+                        minlength={8}
+                        {...control}
+                    />
+                {/snippet}
+            </Field>
+            {#if createError}
+                <Alert tone="danger">{createError}</Alert>
+            {/if}
+            <form method="dialog" class="flex justify-end gap-2">
+                <button
+                    class="btn btn-secondary btn-md"
+                    type="button"
+                    onclick={() => createModalRef?.close()}
+                    disabled={creating}>Cancel</button
+                >
+                <button
+                    class="btn btn-primary btn-md"
+                    type="button"
+                    onclick={onCreateUser}
+                    disabled={creating || !newName || !newEmail || !newPassword}
+                >
+                    {creating ? "Creating..." : "Create"}
+                </button>
+            </form>
+        </div>
+    </Modal>
 </Page>

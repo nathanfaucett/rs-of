@@ -54,6 +54,11 @@ import {
   CodeChallengeMethodToJSON,
 } from "../models/CodeChallengeMethod.js";
 import {
+  type CreateUserRequest,
+  CreateUserRequestFromJSON,
+  CreateUserRequestToJSON,
+} from "../models/CreateUserRequest.js";
+import {
   type DeviceAuthorization,
   DeviceAuthorizationFromJSON,
   DeviceAuthorizationToJSON,
@@ -95,6 +100,16 @@ import {
   ResponseTypeToJSON,
 } from "../models/ResponseType.js";
 import {
+  type SetUserBlockedRequest,
+  SetUserBlockedRequestFromJSON,
+  SetUserBlockedRequestToJSON,
+} from "../models/SetUserBlockedRequest.js";
+import {
+  type SetUserMfaRequest,
+  SetUserMfaRequestFromJSON,
+  SetUserMfaRequestToJSON,
+} from "../models/SetUserMfaRequest.js";
+import {
   type SubjectTokenType,
   SubjectTokenTypeFromJSON,
   SubjectTokenTypeToJSON,
@@ -104,6 +119,11 @@ import {
   TokenResponseFromJSON,
   TokenResponseToJSON,
 } from "../models/TokenResponse.js";
+import {
+  type UpdateUserInfoRequest,
+  UpdateUserInfoRequestFromJSON,
+  UpdateUserInfoRequestToJSON,
+} from "../models/UpdateUserInfoRequest.js";
 import { type UserInfo, UserInfoFromJSON, UserInfoToJSON } from "../models/UserInfo.js";
 import {
   type VersionResponse,
@@ -198,6 +218,13 @@ export interface CreateApplicationRequest {
    *
    */
   applicationRegistration: ApplicationRegistration;
+}
+
+export interface CreateUserOperationRequest {
+  /**
+   *
+   */
+  createUserRequest: CreateUserRequest;
 }
 
 export interface DeleteApplicationRequest {
@@ -376,6 +403,28 @@ export interface RotateClientKeyRequest {
   clientId: string;
 }
 
+export interface SetUserBlockedOperationRequest {
+  /**
+   *
+   */
+  userId: string;
+  /**
+   *
+   */
+  setUserBlockedRequest: SetUserBlockedRequest;
+}
+
+export interface SetUserMfaOperationRequest {
+  /**
+   *
+   */
+  userId: string;
+  /**
+   *
+   */
+  setUserMfaRequest: SetUserMfaRequest;
+}
+
 export interface TokenRequest {
   /**
    * Optional HTTP Basic OAuth Client credentials; client_credentials also accepts client_secret_post
@@ -474,7 +523,7 @@ export interface UpdateUserRequest {
   /**
    *
    */
-  body: object;
+  updateUserInfoRequest: UpdateUserInfoRequest;
 }
 
 /**
@@ -625,6 +674,35 @@ export interface DefaultApiInterface {
     requestParameters: CreateApplicationRequest,
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<void>;
+
+  /**
+   * Creates request options for createUser without sending the request
+   * @param {CreateUserRequest} createUserRequest
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  createUserRequestOpts(
+    requestParameters: CreateUserOperationRequest
+  ): Promise<runtime.RequestOpts>;
+
+  /**
+   *
+   * @param {CreateUserRequest} createUserRequest
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  createUserRaw(
+    requestParameters: CreateUserOperationRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<UserInfo>>;
+
+  /**
+   */
+  createUser(
+    requestParameters: CreateUserOperationRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<UserInfo>;
 
   /**
    * Creates request options for deleteApplication without sending the request
@@ -1323,6 +1401,68 @@ export interface DefaultApiInterface {
   sessionsLogout(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<void>;
 
   /**
+   * Creates request options for setUserBlocked without sending the request
+   * @param {string} userId
+   * @param {SetUserBlockedRequest} setUserBlockedRequest
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  setUserBlockedRequestOpts(
+    requestParameters: SetUserBlockedOperationRequest
+  ): Promise<runtime.RequestOpts>;
+
+  /**
+   *
+   * @param {string} userId
+   * @param {SetUserBlockedRequest} setUserBlockedRequest
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  setUserBlockedRaw(
+    requestParameters: SetUserBlockedOperationRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>>;
+
+  /**
+   */
+  setUserBlocked(
+    requestParameters: SetUserBlockedOperationRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<void>;
+
+  /**
+   * Creates request options for setUserMfa without sending the request
+   * @param {string} userId
+   * @param {SetUserMfaRequest} setUserMfaRequest
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  setUserMfaRequestOpts(
+    requestParameters: SetUserMfaOperationRequest
+  ): Promise<runtime.RequestOpts>;
+
+  /**
+   *
+   * @param {string} userId
+   * @param {SetUserMfaRequest} setUserMfaRequest
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  setUserMfaRaw(
+    requestParameters: SetUserMfaOperationRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>>;
+
+  /**
+   */
+  setUserMfa(
+    requestParameters: SetUserMfaOperationRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<void>;
+
+  /**
    * Creates request options for token without sending the request
    * @param {string} [authorization] Optional HTTP Basic OAuth Client credentials; client_credentials also accepts client_secret_post
    * @param {string} [clientId]
@@ -1419,7 +1559,7 @@ export interface DefaultApiInterface {
   /**
    * Creates request options for updateUser without sending the request
    * @param {string} userId
-   * @param {object} body
+   * @param {UpdateUserInfoRequest} updateUserInfoRequest
    * @throws {RequiredError}
    * @memberof DefaultApiInterface
    */
@@ -1428,7 +1568,7 @@ export interface DefaultApiInterface {
   /**
    *
    * @param {string} userId
-   * @param {object} body
+   * @param {UpdateUserInfoRequest} updateUserInfoRequest
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
    * @memberof DefaultApiInterface
@@ -1788,6 +1928,67 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<void> {
     await this.createApplicationRaw(requestParameters, initOverrides);
+  }
+
+  /**
+   * Creates request options for createUser without sending the request
+   */
+  async createUserRequestOpts(
+    requestParameters: CreateUserOperationRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["createUserRequest"] == null) {
+      throw new runtime.RequiredError(
+        "createUserRequest",
+        'Required parameter "createUserRequest" was null or undefined when calling createUser().'
+      );
+    }
+
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    headerParameters["Content-Type"] = "application/json";
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
+    }
+
+    let urlPath = `/users`;
+
+    return {
+      path: urlPath,
+      method: "POST",
+      headers: headerParameters,
+      query: queryParameters,
+      body: CreateUserRequestToJSON(requestParameters["createUserRequest"]),
+    };
+  }
+
+  /**
+   */
+  async createUserRaw(
+    requestParameters: CreateUserOperationRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<UserInfo>> {
+    const requestOptions = await this.createUserRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.JSONApiResponse(response, (jsonValue) => UserInfoFromJSON(jsonValue));
+  }
+
+  /**
+   */
+  async createUser(
+    requestParameters: CreateUserOperationRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<UserInfo> {
+    const response = await this.createUserRaw(requestParameters, initOverrides);
+    return await response.value();
   }
 
   /**
@@ -3261,6 +3462,142 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
   }
 
   /**
+   * Creates request options for setUserBlocked without sending the request
+   */
+  async setUserBlockedRequestOpts(
+    requestParameters: SetUserBlockedOperationRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["userId"] == null) {
+      throw new runtime.RequiredError(
+        "userId",
+        'Required parameter "userId" was null or undefined when calling setUserBlocked().'
+      );
+    }
+
+    if (requestParameters["setUserBlockedRequest"] == null) {
+      throw new runtime.RequiredError(
+        "setUserBlockedRequest",
+        'Required parameter "setUserBlockedRequest" was null or undefined when calling setUserBlocked().'
+      );
+    }
+
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    headerParameters["Content-Type"] = "application/json";
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
+    }
+
+    let urlPath = `/users/{user_id}/block`;
+    urlPath = urlPath.replace("{user_id}", encodeURIComponent(String(requestParameters["userId"])));
+
+    return {
+      path: urlPath,
+      method: "POST",
+      headers: headerParameters,
+      query: queryParameters,
+      body: SetUserBlockedRequestToJSON(requestParameters["setUserBlockedRequest"]),
+    };
+  }
+
+  /**
+   */
+  async setUserBlockedRaw(
+    requestParameters: SetUserBlockedOperationRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>> {
+    const requestOptions = await this.setUserBlockedRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.VoidApiResponse(response);
+  }
+
+  /**
+   */
+  async setUserBlocked(
+    requestParameters: SetUserBlockedOperationRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<void> {
+    await this.setUserBlockedRaw(requestParameters, initOverrides);
+  }
+
+  /**
+   * Creates request options for setUserMfa without sending the request
+   */
+  async setUserMfaRequestOpts(
+    requestParameters: SetUserMfaOperationRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["userId"] == null) {
+      throw new runtime.RequiredError(
+        "userId",
+        'Required parameter "userId" was null or undefined when calling setUserMfa().'
+      );
+    }
+
+    if (requestParameters["setUserMfaRequest"] == null) {
+      throw new runtime.RequiredError(
+        "setUserMfaRequest",
+        'Required parameter "setUserMfaRequest" was null or undefined when calling setUserMfa().'
+      );
+    }
+
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    headerParameters["Content-Type"] = "application/json";
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
+    }
+
+    let urlPath = `/users/{user_id}/mfa`;
+    urlPath = urlPath.replace("{user_id}", encodeURIComponent(String(requestParameters["userId"])));
+
+    return {
+      path: urlPath,
+      method: "POST",
+      headers: headerParameters,
+      query: queryParameters,
+      body: SetUserMfaRequestToJSON(requestParameters["setUserMfaRequest"]),
+    };
+  }
+
+  /**
+   */
+  async setUserMfaRaw(
+    requestParameters: SetUserMfaOperationRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>> {
+    const requestOptions = await this.setUserMfaRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.VoidApiResponse(response);
+  }
+
+  /**
+   */
+  async setUserMfa(
+    requestParameters: SetUserMfaOperationRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<void> {
+    await this.setUserMfaRaw(requestParameters, initOverrides);
+  }
+
+  /**
    * Creates request options for token without sending the request
    */
   async tokenRequestOpts(requestParameters: TokenRequest): Promise<runtime.RequestOpts> {
@@ -3471,10 +3808,10 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
       );
     }
 
-    if (requestParameters["body"] == null) {
+    if (requestParameters["updateUserInfoRequest"] == null) {
       throw new runtime.RequiredError(
-        "body",
-        'Required parameter "body" was null or undefined when calling updateUser().'
+        "updateUserInfoRequest",
+        'Required parameter "updateUserInfoRequest" was null or undefined when calling updateUser().'
       );
     }
 
@@ -3501,7 +3838,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
       method: "PUT",
       headers: headerParameters,
       query: queryParameters,
-      body: requestParameters["body"] as any,
+      body: UpdateUserInfoRequestToJSON(requestParameters["updateUserInfoRequest"]),
     };
   }
 

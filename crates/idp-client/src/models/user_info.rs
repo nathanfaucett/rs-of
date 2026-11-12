@@ -138,10 +138,14 @@ pub struct UserInfo {
         skip_serializing_if = "Option::is_none"
     )]
     pub zoneinfo: Option<Option<String>>,
+    #[serde(rename = "blocked")]
+    pub blocked: bool,
+    #[serde(rename = "mfa_totp_enabled", skip_serializing_if = "Option::is_none")]
+    pub mfa_totp_enabled: Option<bool>,
 }
 
 impl UserInfo {
-    pub fn new(sub: String, updated_at: String) -> UserInfo {
+    pub fn new(sub: String, updated_at: String, blocked: bool) -> UserInfo {
         UserInfo {
             birthdate: None,
             email: None,
@@ -163,6 +167,8 @@ impl UserInfo {
             updated_at,
             website: None,
             zoneinfo: None,
+            blocked,
+            mfa_totp_enabled: None,
         }
     }
 }

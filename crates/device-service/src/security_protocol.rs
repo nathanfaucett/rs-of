@@ -1,4 +1,5 @@
-
+pub use crate::security_policy::SecurityContext;
+use crate::security_policy::{SecurityHistory, SecuritySync};
 use db::DatabaseTransport;
 use db::SyncTransport;
 use idp_model::model::Id;
@@ -8,12 +9,10 @@ use iroh_chain::Server;
 use ofdb_sql::SyncRole;
 use ofdb_sync::{
     Config, Message, SyncResult, SyncTransport as OfdbSyncTransport, SynchronizeConfig,
-    SynchronizeError as SyncError, transport::framed::FramedTransport, synchronize,
+    SynchronizeError as SyncError, synchronize, transport::framed::FramedTransport,
 };
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
-pub use crate::security_policy::SecurityContext;
-use crate::security_policy::{SecurityHistory, SecuritySync};
 
 #[path = "security_bootstrap.rs"]
 pub mod bootstrap;
@@ -263,10 +262,11 @@ impl SecurityProtocol {
         let mut bindings = Vec::new();
         {
             let local = self.local_handshake(context).await?;
-            for (member, endpoint) in [
+            let endpoints: [(Id, String); 2] = [
                 (local.member, self.server.endpoint().id().to_string()),
                 (member, connection.remote_id().to_string()),
-            ] {
+            ];
+            for (member, endpoint) in endpoints {
                 bindings.push(self.owner().binding(&endpoint, Some(member)).await?);
             }
         }

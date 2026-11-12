@@ -105,6 +105,14 @@ export interface UserInfo {
    *
    */
   zoneinfo?: string | null;
+  /**
+   *
+   */
+  blocked: boolean;
+  /**
+   *
+   */
+  mfaTotpEnabled?: boolean;
 }
 
 /**
@@ -119,6 +127,7 @@ export function instanceOfUserInfo(value: object): value is UserInfo {
       (value as Record<string, any>)["updated_at"] === undefined)
   )
     return false;
+  if (!("blocked" in value) || value["blocked"] === undefined) return false;
   return true;
 }
 
@@ -206,6 +215,8 @@ export function UserInfoFromJSONTyped(json: any, ignoreDiscriminator: boolean): 
         : json["zoneinfo"] === null
           ? null
           : json["zoneinfo"],
+    blocked: json["blocked"],
+    mfaTotpEnabled: json["mfa_totp_enabled"] == null ? undefined : json["mfa_totp_enabled"],
   };
 }
 
@@ -243,5 +254,7 @@ export function UserInfoToJSONTyped(
       value["updatedAt"] == null ? value["updatedAt"] : serializeDateTime(value["updatedAt"]),
     website: value["website"],
     zoneinfo: value["zoneinfo"],
+    blocked: value["blocked"],
+    mfa_totp_enabled: value["mfaTotpEnabled"],
   };
 }

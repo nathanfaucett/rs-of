@@ -85,6 +85,15 @@ pub struct UpdateUserInfoRequest {
     pub phone_number_verified: Option<bool>,
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CreateUserRequest {
+    pub name: String,
+    pub email: String,
+    pub password: String,
+    pub email_verified: Option<bool>,
+}
+
 impl<A, C, AC, RT, U, G, K, P> OAuth2Service<A, C, AC, RT, U, G, K, P>
 where
     A: ApplicationRepo,
@@ -1833,6 +1842,27 @@ where
             scope: Some(scopes.join(" ")),
             issuer: Some(self.oauth_config.issuer.clone()),
         })
+    }
+
+    pub async fn create_user(&self, request: CreateUserRequest) -> ErrorResponseResult<UserInfo> {
+        let user = self
+            .user_repo
+            .create_user_with_password(&request.name, &request.password)
+            .await
+            .map_err(ErrorResponse::from)?;
+
+        if !request.email.is_empty() {
+            self.user_repo
+                .upsert_primary_user_email(
+                    user.id,
+                    &request.email,
+                    request.email_verified.unwrap_or(false),
+                )
+                .await
+                .map_err(ErrorResponse::from)?;
+        }
+
+        self.hydrate_user_info(user).await
     }
 
     pub async fn find_user_info(&self, user_id: Id) -> ErrorResponseResult<UserInfo> {
