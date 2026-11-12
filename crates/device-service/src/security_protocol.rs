@@ -9,12 +9,12 @@ use db::SyncTransport;
 use db::{Database, DatabaseTransport};
 use idp_model::model::Id;
 use idp_service::oauth2::NodeSignerBinding;
-use iroh::endpoint::{AsyncRead, AsyncWrite, Connection, RecvStream, SendStream};
+use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh_chain::Server;
 use ofdb_sql::SyncRole;
 use ofdb_sync::{
-    Config, Message, SyncResult, SyncTransport as OfdbSyncTransport, SynchronizeConfig,
-    SynchronizeError as SyncError, synchronize, transport::framed::FramedTransport,
+    Config, IrohTransport, Message, SyncResult, SyncTransport as OfdbSyncTransport,
+    SynchronizeConfig, SynchronizeError as SyncError, synchronize,
 };
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
@@ -142,10 +142,16 @@ impl SecurityProtocol {
         }
         self.authorize(connection, remote.member, context).await?;
 
-        // After handshake, create FramedTransport for sync protocol using cloned streams
-        let framed = FramedTransport::new(send, recv, Config::default());
-        self.exchange_framed(connection, remote.member, context, framed, SyncRole::Leader)
-            .await
+        // After handshake, create IrohTransport for sync protocol using cloned streams
+        let transport = IrohTransport::new(send, recv);
+        self.exchange_framed(
+            connection,
+            remote.member,
+            context,
+            transport,
+            SyncRole::Leader,
+        )
+        .await
     }
 
     pub async fn accept_data_stream(
@@ -189,13 +195,13 @@ impl SecurityProtocol {
             .send(serde_json::to_vec(&Response::Accepted(local)).map_err(io::Error::other)?)
             .await?;
 
-        // After handshake, create FramedTransport for sync protocol using cloned streams
-        let framed = FramedTransport::new(send, recv, Config::default());
+        // After handshake, create IrohTransport for sync protocol using cloned streams
+        let transport = IrohTransport::new(send, recv);
         self.exchange_framed(
             &connection,
             remote.member,
             remote.context,
-            framed,
+            transport,
             SyncRole::Follower,
         )
         .await
@@ -259,7 +265,7 @@ impl SecurityProtocol {
         connection: &Connection,
         member: Id,
         context: SecurityContext,
-        mut transport: FramedTransport<SendStream>,
+        mut transport: IrohTransport,
         role: SyncRole,
     ) -> io::Result<SyncResult> {
         self.authorize(connection, member, context).await?;
@@ -298,17 +304,15 @@ impl SecurityProtocol {
     }
 }
 
-struct AuthorizedFramedTransport<'a, S> {
-    transport: &'a mut FramedTransport<S>,
+struct AuthorizedFramedTransport<'a> {
+    transport: &'a mut IrohTransport,
     protocol: &'a SecurityProtocol,
     connection: &'a Connection,
     member: Id,
     context: SecurityContext,
 }
 
-impl<S: iroh::endpoint::AsyncWrite + iroh::endpoint::AsyncRead + Unpin + Send> OfdbSyncTransport
-    for AuthorizedFramedTransport<'_, S>
-{
+impl<'a> OfdbSyncTransport for AuthorizedFramedTransport<'a> {
     type Error = io::Error;
 
     async fn send(&mut self, msg: Message) -> io::Result<()> {

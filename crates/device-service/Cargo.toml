@@ -23,13 +23,14 @@ replica = [
     "dep:of-idp-client",
     "dep:of-device-client",
     "std",
-    "dep:db", "db/network",
+    "dep:db",
+    "db/network",
     "idp-model/replica",
     "idp-service/replica",
     "dep:api",
     "dep:axum",
     "dep:futures-util",
-    
+
     "dep:getrandom",
     "dep:ofdb-sql",
     "dep:tokio",
@@ -75,6 +76,7 @@ management-service = { path = "../management-service", default-features = false,
 model = { path = "../model", default-features = false, features = [] }
 ofdb-sync = { package = "ofdb-sync", path = "../../../ofdb/crates/sync", default-features = false, features = [
     "std",
+    "iroh",
 ] }
 storage-model = { path = "../storage-model", default-features = false, features = [
 ] }
@@ -102,7 +104,7 @@ serde_json = { version = "1.0", default-features = false, features = ["std"] }
 base64 = { version = "0.22", default-features = false, features = [
     "alloc",
 ], optional = true }
-iroh = { version = "1.1", default-features = false, features = [
+iroh = { version = "1.4", default-features = false, features = [
     "tls-ring",
 ], optional = true }
 

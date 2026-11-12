@@ -35,7 +35,9 @@ impl<'a, T: OldSyncTransport<Error = io::Error> + Send> SyncTransport for SyncAd
             let mut frame = Vec::with_capacity(4 + bytes.len());
             frame.extend_from_slice(&len.to_be_bytes());
             frame.extend_from_slice(&bytes);
-            inner.send(frame).await
+            // Since inner.send is no longer async, we just call it.
+            inner.send(frame)?;
+            Ok(())
         }
     }
 

@@ -39,4 +39,6 @@ ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-fe
 ], optional = true }
 
 # Stream transport
-iroh = { version = "1.1", default-features = false, features = ["tls-ring"], optional = true }
+iroh = { version = "1.4", default-features = false, features = [
+    "tls-ring",
+], optional = true }
