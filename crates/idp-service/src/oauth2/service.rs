@@ -1919,10 +1919,16 @@ where
             birthdate,
             zoneinfo: request.zoneinfo.or(existing.zoneinfo),
             locale: request.locale.or(existing.locale),
+            mfa_totp_secret: existing.mfa_totp_secret,
+            mfa_webauthn_credentials: existing.mfa_webauthn_credentials,
+            blocked: existing.blocked,
+            blocked_at: existing.blocked_at,
+            blocked_by: existing.blocked_by,
             created_at: existing.created_at,
             updated_at: Utc::now(),
         };
 
+        let user_id = user.id;
         let user = self
             .user_repo
             .update_user(user)
@@ -1931,7 +1937,7 @@ where
 
         if let Some(email) = request.email {
             self.user_repo
-                .upsert_primary_user_email(user.id, &email, request.email_verified.unwrap_or(false))
+                .upsert_primary_user_email(user_id, &email, request.email_verified.unwrap_or(false))
                 .await
                 .map_err(ErrorResponse::from)?;
         }
@@ -1939,7 +1945,7 @@ where
         if let Some(phone_number) = request.phone_number {
             self.user_repo
                 .upsert_primary_user_phone_number(
-                    user.id,
+                    user_id,
                     &phone_number,
                     request.phone_number_verified.unwrap_or(false),
                 )
@@ -1986,6 +1992,74 @@ where
 
         self.user_repo
             .delete_user_by_id(user_id)
+            .await
+            .map_err(ErrorResponse::from)
+    }
+
+    pub async fn set_user_mfa_totp_secret(
+        &self,
+        user_id: Id,
+        enable: bool,
+    ) -> ErrorResponseResult<()> {
+        let _user = self
+            .user_repo
+            .find_user_by_id(user_id)
+            .await
+            .map_err(ErrorResponse::from)?
+            .ok_or_else(|| {
+                ErrorResponse::new(ErrorCode::NotFound)
+                    .with_description("User not found".to_string())
+            })?;
+        let secret = if enable {
+            Some(crate::util::generate_random_string::<32>())
+        } else {
+            None
+        };
+        self.user_repo
+            .set_user_mfa_totp_secret(user_id, secret)
+            .await
+            .map_err(ErrorResponse::from)
+    }
+
+    pub async fn set_user_mfa_webauthn_credentials(
+        &self,
+        user_id: Id,
+        credentials: Option<String>,
+    ) -> ErrorResponseResult<()> {
+        if self
+            .user_repo
+            .find_user_by_id(user_id)
+            .await
+            .map_err(ErrorResponse::from)?
+            .is_none()
+        {
+            return Err(ErrorResponse::new(ErrorCode::NotFound)
+                .with_description("User not found".to_string()));
+        }
+        self.user_repo
+            .set_user_mfa_webauthn_credentials(user_id, credentials)
+            .await
+            .map_err(ErrorResponse::from)
+    }
+
+    pub async fn set_user_blocked(
+        &self,
+        user_id: Id,
+        blocked: bool,
+        blocked_by: Option<Id>,
+    ) -> ErrorResponseResult<()> {
+        if self
+            .user_repo
+            .find_user_by_id(user_id)
+            .await
+            .map_err(ErrorResponse::from)?
+            .is_none()
+        {
+            return Err(ErrorResponse::new(ErrorCode::NotFound)
+                .with_description("User not found".to_string()));
+        }
+        self.user_repo
+            .set_user_blocked(user_id, blocked, blocked_by)
             .await
             .map_err(ErrorResponse::from)
     }

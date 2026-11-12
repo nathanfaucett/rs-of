@@ -658,6 +658,34 @@ impl DeviceRepo for DbDeviceRepo {
         .map(Some)
     }
 
+    async fn approve_by_admin(&self, device_id: Id) -> DeviceResult<Option<Device>> {
+        let Some(row) = self.record(device_id).await? else {
+            return Ok(None);
+        };
+        self.ensure_clear(device_id).await?;
+        if row.state != DeviceState::Pending {
+            return Ok(None);
+        }
+        let updated_at = now();
+        self.update(
+            device_id,
+            vec![
+                assignment("state", Value::Integer(DeviceState::Approved as i64)),
+                assignment("updated_at", Value::Integer(updated_at.timestamp())),
+            ],
+        )
+        .await?;
+        DeviceRow {
+            state: DeviceState::Approved,
+            enrollment_code_hash: None,
+            enrollment_expires_at: None,
+            updated_at: updated_at.timestamp(),
+            ..row
+        }
+        .try_into()
+        .map(Some)
+    }
+
     async fn rename(
         &self,
         owner_subject: &str,

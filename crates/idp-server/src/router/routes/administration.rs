@@ -9,7 +9,7 @@ use idp_model::{
     },
     model::{Application, Id, Key, OAuth2UserConsent},
 };
-use idp_service::oauth2::UpdateUserInfoRequest;
+use idp_service::oauth2::{CreateUserRequest, UpdateUserInfoRequest};
 use serde::Deserialize;
 
 use crate::router::{
@@ -175,6 +175,24 @@ pub(crate) async fn list_users(
             .list_user_info(page.offset, page.limit.clamp(1, 100))
             .await?,
     ))
+    ))
+}
+
+#[utoipa::path(post, path = "/users", request_body = CreateUserRequest,
+    responses((status = 200, description = "Created user", body = UserInfo)), security(("authorization" = [])))]
+pub(crate) async fn create_user(
+    State(state): State<RouterState>,
+    actor: StandardAuthorization,
+    Json(body): Json<CreateUserRequest>,
+) -> Result<Json<UserInfo>, ErrorResponse> {
+    require(
+        &state,
+        &actor,
+        IdentityAction::UsersCreate,
+        IdentityResource::User { id: None },
+    )
+    .await?;
+    Ok(Json(state.oauth2_service.create_user(body).await?))
 }
 
 #[utoipa::path(get, path = "/users/{user_id}", params(("user_id" = String, Path)),
@@ -253,6 +271,73 @@ pub(crate) async fn reset_password(
     state
         .oauth2_service
         .reset_user_password(id, &body.password)
+        .await
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SetUserMfaRequest {
+    pub method: String,
+    pub enable: bool,
+}
+
+#[utoipa::path(post, path = "/users/{user_id}/mfa", params(("user_id" = String, Path)),
+    request_body = SetUserMfaRequest, responses((status = 200, description = "Updated MFA")), security(("authorization" = [])))]
+pub(crate) async fn set_user_mfa(
+    State(state): State<RouterState>,
+    Path(id): Path<Id>,
+    actor: StandardAuthorization,
+    Json(body): Json<SetUserMfaRequest>,
+) -> Result<(), ErrorResponse> {
+    require(
+        &state,
+        &actor,
+        IdentityAction::UsersMfa,
+        IdentityResource::User { id: Some(id) },
+    )
+    .await?;
+    if body.method != "totp" && body.method != "webauthn" {
+        return Err(ErrorResponse::new(ErrorCode::InvalidRequest)
+            .with_description("unsupported MFA method"));
+    }
+    if body.method == "totp" {
+        state
+            .oauth2_service
+            .set_user_mfa_totp_secret(id, body.enable)
+            .await
+    } else {
+        // WebAuthn credentials would be handled separately
+        state
+            .oauth2_service
+            .set_user_mfa_webauthn_credentials(id, None)
+            .await
+    }
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SetUserBlockedRequest {
+    pub blocked: bool,
+}
+
+#[utoipa::path(post, path = "/users/{user_id}/block", params(("user_id" = String, Path)),
+    request_body = SetUserBlockedRequest, responses((status = 200, description = "Updated block status")), security(("authorization" = [])))]
+pub(crate) async fn set_user_blocked(
+    State(state): State<RouterState>,
+    Path(id): Path<Id>,
+    actor: StandardAuthorization,
+    Json(body): Json<SetUserBlockedRequest>,
+) -> Result<(), ErrorResponse> {
+    require(
+        &state,
+        &actor,
+        IdentityAction::UsersBlock,
+        IdentityResource::User { id: Some(id) },
+    )
+    .await?;
+    state
+        .oauth2_service
+        .set_user_blocked(id, body.blocked, None)
         .await
 }
 

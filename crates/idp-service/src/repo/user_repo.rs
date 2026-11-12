@@ -64,5 +64,24 @@ pub trait UserRepo {
         password: &str,
     ) -> impl Future<Output = RepoResult<()>>;
 
+    fn set_user_mfa_totp_secret(
+        &self,
+        user_id: Id,
+        secret: Option<String>,
+    ) -> impl Future<Output = RepoResult<()>>;
+
+    fn set_user_mfa_webauthn_credentials(
+        &self,
+        user_id: Id,
+        credentials: Option<String>,
+    ) -> impl Future<Output = RepoResult<()>>;
+
+    fn set_user_blocked(
+        &self,
+        user_id: Id,
+        blocked: bool,
+        blocked_by: Option<Id>,
+    ) -> impl Future<Output = RepoResult<()>>;
+
     fn delete_user_by_id(&self, user_id: Id) -> impl Future<Output = RepoResult<()>>;
 }

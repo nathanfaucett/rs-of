@@ -489,3 +489,27 @@ pub(crate) async fn revoke_device(
         .await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
+
+#[utoipa::path(post, path = "/devices/enrollments/{device_id}/approve",
+    params(("device_id" = String, Path)),
+    responses((status = 200, description = "Approved enrollment", body = DeviceEnrollment)),
+    security(("authorization" = [])))]
+pub(crate) async fn approve_enrollment(
+    State(state): State<RouterState>,
+    Path(device_id): Path<Id>,
+    actor: DeviceAuthorization,
+) -> Result<Json<DeviceEnrollment>, ErrorResponse> {
+    require_identity_permission(
+        &state,
+        &actor,
+        IdentityAction::DevicesEnroll,
+        PermissionTarget::Installation {
+            resource: IdentityResource::Device { id: Some(device_id) },
+        },
+    )
+    .await?;
+    DeviceEnrollmentService::new(devices(&state)?)
+        .approve_enrollment(device_id)
+        .await
+        .map(Json)
+}

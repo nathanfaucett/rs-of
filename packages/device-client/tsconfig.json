@@ -8,8 +8,8 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "exactOptionalPropertyTypes": false,
-    "noImplicitOverride": false,
+    "noImplicitOverride": false
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "esm", "types"],
+  "exclude": ["node_modules", "dist", "esm", "types"]
 }

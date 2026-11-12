@@ -61,6 +61,11 @@ pub trait DeviceRepo {
         enrollment_code_hash: &[u8],
     ) -> impl Future<Output = DeviceResult<Option<Device>>>;
 
+    fn approve_by_admin(
+        &self,
+        device_id: idp_model::model::Id,
+    ) -> impl Future<Output = DeviceResult<Option<Device>>>;
+
     fn rename(
         &self,
         owner_subject: &str,

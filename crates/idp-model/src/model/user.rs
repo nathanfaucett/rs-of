@@ -40,6 +40,12 @@ pub struct User {
 
     pub locale: Option<String>,
 
+    pub mfa_totp_secret: Option<String>,
+    pub mfa_webauthn_credentials: Option<String>,
+    pub blocked: bool,
+    pub blocked_at: Option<DateTime<Utc>>,
+    pub blocked_by: Option<Id>,
+
     #[serde(with = "chrono::serde::ts_seconds")]
     pub created_at: DateTime<Utc>,
     #[serde(with = "chrono::serde::ts_seconds")]

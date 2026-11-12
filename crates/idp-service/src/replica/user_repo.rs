@@ -323,6 +323,11 @@ impl UserRepo for DbUserRepo {
             birthdate: None,
             zoneinfo: None,
             locale: None,
+            mfa_totp_secret: None,
+            mfa_webauthn_credentials: None,
+            blocked: false,
+            blocked_at: None,
+            blocked_by: None,
             created_at: now,
             updated_at: now,
         };
@@ -569,6 +574,70 @@ impl UserRepo for DbUserRepo {
         Ok(())
     }
 
+
+    async fn set_user_mfa_totp_secret(&self, user_id: Id, secret: Option<String>) -> RepoResult<()> {
+        let now = now().timestamp();
+        self.engine
+            .execute(vec![Statement::Query(Query::Update(QueryUpdate {
+                from: from(USERS),
+                assignments: vec![
+                    assignment(USERS, "mfa_totp_secret", secret.map(Value::Text).unwrap_or(Value::Null)),
+                    assignment(USERS, "updated_at", Value::Integer(now)),
+                ],
+                predicate: Some(equals(USERS, "id", Value::Uuid(user_id))),
+                returning: None,
+            }))])
+            .await
+            .map_err(db_error)?;
+        Ok(())
+    }
+
+    async fn set_user_mfa_webauthn_credentials(&self, user_id: Id, credentials: Option<String>) -> RepoResult<()> {
+        let now = now().timestamp();
+        self.engine
+            .execute(vec![Statement::Query(Query::Update(QueryUpdate {
+                from: from(USERS),
+                assignments: vec![
+                    assignment(USERS, "mfa_webauthn_credentials", credentials.map(Value::Text).unwrap_or(Value::Null)),
+                    assignment(USERS, "updated_at", Value::Integer(now)),
+                ],
+                predicate: Some(equals(USERS, "id", Value::Uuid(user_id))),
+                returning: None,
+            }))])
+            .await
+            .map_err(db_error)?;
+        Ok(())
+    }
+
+    async fn set_user_blocked(&self, user_id: Id, blocked: bool, blocked_by: Option<Id>) -> RepoResult<()> {
+        let now = now().timestamp();
+        let blocked_at = if blocked {
+            Some(Value::Integer(now))
+        } else {
+            None
+        };
+        let blocked_by_val = if blocked {
+            blocked_by.map(|id| Value::Uuid(id)).unwrap_or(Value::Null)
+        } else {
+            Value::Null
+        };
+        self.engine
+            .execute(vec![Statement::Query(Query::Update(QueryUpdate {
+                from: from(USERS),
+                assignments: vec![
+                    assignment(USERS, "blocked", bool_value(blocked)),
+                    assignment(USERS, "blocked_at", blocked_at.unwrap_or(Value::Null)),
+                    assignment(USERS, "blocked_by", blocked_by_val),
+                    assignment(USERS, "updated_at", Value::Integer(now)),
+                ],
+                predicate: Some(equals(USERS, "id", Value::Uuid(user_id))),
+                returning: None,
+            }))])
+            .await
+            .map_err(db_error)?;
+        Ok(())
+    }
+
     async fn delete_user_by_id(&self, user_id: Id) -> RepoResult<()> {
         self.engine
             .execute(vec![Statement::Query(Query::Delete(QueryDelete {
@@ -597,6 +666,11 @@ struct UserRow {
     birthdate: Option<String>,
     zoneinfo: Option<String>,
     locale: Option<String>,
+    mfa_totp_secret: Option<String>,
+    mfa_webauthn_credentials: Option<String>,
+    blocked: bool,
+    blocked_at: Option<i64>,
+    blocked_by: Option<Uuid>,
     created_at: i64,
     updated_at: i64,
     handle: String,
@@ -617,6 +691,11 @@ impl FromRow for UserRow {
             birthdate: decode!(row, columns, "birthdate")?,
             zoneinfo: decode!(row, columns, "zoneinfo")?,
             locale: decode!(row, columns, "locale")?,
+            mfa_totp_secret: decode!(row, columns, "mfa_totp_secret")?,
+            mfa_webauthn_credentials: decode!(row, columns, "mfa_webauthn_credentials")?,
+            blocked: decode!(row, columns, "blocked")?,
+            blocked_at: decode!(row, columns, "blocked_at")?,
+            blocked_by: decode!(row, columns, "blocked_by")?,
             created_at: decode!(row, columns, "created_at")?,
             updated_at: decode!(row, columns, "updated_at")?,
             handle: decode!(row, columns, "handle")?,
@@ -640,6 +719,11 @@ impl TryFrom<UserRow> for User {
             birthdate: row.birthdate.map(birthdate).transpose()?,
             zoneinfo: row.zoneinfo,
             locale: row.locale,
+            mfa_totp_secret: row.mfa_totp_secret,
+            mfa_webauthn_credentials: row.mfa_webauthn_credentials,
+            blocked: row.blocked,
+            blocked_at: row.blocked_at.map(timestamp).transpose()?,
+            blocked_by: row.blocked_by.map(|u| Id::from_u128(u.as_u128())),
             created_at: timestamp(row.created_at)?,
             updated_at: timestamp(row.updated_at)?,
         })
@@ -661,6 +745,11 @@ impl From<&User> for UserRow {
             birthdate: user.birthdate.map(|value| value.to_rfc3339()),
             zoneinfo: user.zoneinfo.clone(),
             locale: user.locale.clone(),
+            mfa_totp_secret: user.mfa_totp_secret.clone(),
+            mfa_webauthn_credentials: user.mfa_webauthn_credentials.clone(),
+            blocked: user.blocked,
+            blocked_at: user.blocked_at.map(|v| v.timestamp()),
+            blocked_by: user.blocked_by,
             created_at: user.created_at.timestamp(),
             updated_at: user.updated_at.timestamp(),
             handle: user.name.clone(),
@@ -683,6 +772,11 @@ impl UserRow {
             assignment(USERS, "birthdate", option_text(row.birthdate)),
             assignment(USERS, "zoneinfo", option_text(row.zoneinfo)),
             assignment(USERS, "locale", option_text(row.locale)),
+            assignment(USERS, "mfa_totp_secret", option_text(row.mfa_totp_secret)),
+            assignment(USERS, "mfa_webauthn_credentials", option_text(row.mfa_webauthn_credentials)),
+            assignment(USERS, "blocked", bool_value(row.blocked)),
+            assignment(USERS, "blocked_at", row.blocked_at.map_or(Value::Null, Value::Integer)),
+            assignment(USERS, "blocked_by", row.blocked_by.map_or(Value::Null, Value::Uuid)),
             assignment(USERS, "updated_at", Value::Integer(updated_at.timestamp())),
         ]
     }
@@ -1059,5 +1153,17 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
+    }
+
+    async fn delete_user_by_id(&self, user_id: Id) -> RepoResult<()> {
+        self.engine
+            .execute(vec![Statement::Query(Query::Delete(QueryDelete {
+                from: from(USERS),
+                predicate: Some(equals(USERS, "id", Value::Uuid(user_id))),
+                returning: None,
+            }))])
+            .await
+            .map_err(db_error)?;
+        Ok(())
     }
 }

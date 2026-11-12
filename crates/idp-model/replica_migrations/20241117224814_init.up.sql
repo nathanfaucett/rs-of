@@ -14,7 +14,12 @@ CREATE TABLE IF NOT EXISTS users (
     zoneinfo TEXT,
     locale TEXT,
     created_at INTEGER,
-    updated_at INTEGER
+    updated_at INTEGER,
+    mfa_totp_secret TEXT,
+    mfa_webauthn_credentials TEXT,
+    blocked INTEGER NOT NULL DEFAULT 0,
+    blocked_at INTEGER,
+    blocked_by UUID
 );
 CREATE UNIQUE INDEX IF NOT EXISTS users_handle ON users (handle);
 
@@ -207,3 +212,59 @@ CREATE INDEX IF NOT EXISTS idp_replica_signers_member
     ON idp_replica_signers (member_id, revoked_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idp_replica_signers_active_member
     ON idp_replica_signers (active_member_id);
+
+CREATE TABLE IF NOT EXISTS roles (
+    id UUID PRIMARY KEY,
+    application_id UUID,
+    name TEXT,
+    description TEXT,
+    revoked_at INTEGER,
+    created_at INTEGER,
+    updated_at INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS roles_application_name ON roles (application_id, name);
+
+CREATE TABLE IF NOT EXISTS permissions (
+    id UUID PRIMARY KEY,
+    application_id UUID,
+    name TEXT,
+    description TEXT,
+    revoked_at INTEGER,
+    created_at INTEGER,
+    updated_at INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS permissions_application_name ON permissions (application_id, name);
+
+CREATE TABLE IF NOT EXISTS role_permissions (
+    id UUID PRIMARY KEY,
+    role_id UUID,
+    permission_id UUID,
+    revoked_at INTEGER,
+    created_at INTEGER,
+    updated_at INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS role_permissions_role_permission ON role_permissions (role_id, permission_id);
+
+CREATE TABLE IF NOT EXISTS application_user_roles (
+    id UUID PRIMARY KEY,
+    user_id UUID,
+    application_id UUID,
+    role_id UUID,
+    revoked_at INTEGER,
+    created_at INTEGER,
+    updated_at INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS application_user_roles_user_application_role ON application_user_roles (user_id, application_id, role_id);
+
+CREATE TABLE IF NOT EXISTS sync_selections (
+    id UUID PRIMARY KEY,
+    device_id UUID NOT NULL,
+    resource_id UUID NOT NULL,
+    application_id UUID NOT NULL,
+    owner_subject TEXT NOT NULL,
+    selected_at INTEGER NOT NULL,
+    revoked_at INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS sync_selections_device_resource ON sync_selections (device_id, resource_id);
+CREATE INDEX IF NOT EXISTS sync_selections_resource ON sync_selections (resource_id);
+CREATE INDEX IF NOT EXISTS sync_selections_device ON sync_selections (device_id);

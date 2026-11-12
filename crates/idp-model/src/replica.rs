@@ -79,20 +79,6 @@ pub async fn validate_identity(client: &db::Client) -> Result<(), db::QueryError
     transaction.rollback().await
 }
 
-pub async fn up_policy(engine: &Database) -> Result<(), db::QueryError> {
-    for statement in include_str!("../replica_migrations/policy.up.sql")
-        .split(';')
-        .map(str::trim)
-        .filter(|statement| !statement.is_empty())
-    {
-        engine
-            .client()
-            .translate_and_execute(statement, &SqlTranslator)
-            .await?;
-    }
-    Ok(())
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SecurityTable {
     User,

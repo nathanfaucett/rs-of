@@ -171,6 +171,23 @@ where
             .then_some(())
             .ok_or_else(|| ErrorResponse::new(ErrorCode::NotFound))
     }
+
+    pub async fn approve_enrollment(
+        &self,
+        device_id: idp_model::model::Id,
+    ) -> ErrorResponseResult<DeviceEnrollment> {
+        let device = self
+            .repo
+            .approve_by_admin(device_id)
+            .await
+            .map_err(ErrorResponse::from)?
+            .ok_or_else(|| ErrorResponse::new(ErrorCode::NotFound))?;
+        Ok(DeviceEnrollment {
+            id: device.id,
+            state: device.state,
+            approval_code: None,
+        })
+    }
 }
 
 fn validate_enrollment(request: &DeviceEnrollmentRequest) -> ErrorResponseResult<()> {

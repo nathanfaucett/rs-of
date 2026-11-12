@@ -3,7 +3,7 @@ use axum::{
     extract::{Path, State},
 };
 use idp_model::contract::{
-    ClientRegistration, ErrorCode, ErrorResponse, IdentityAction, IdentityResource,
+    ClientRegistration, ClientType, ErrorCode, ErrorResponse, IdentityAction, IdentityResource,
     PermissionTarget,
 };
 
@@ -184,6 +184,44 @@ pub(crate) async fn put_register(
         state.oauth2_service.update_client(&client_id, body).await?
     };
     Ok(Json(client))
+}
+
+#[utoipa::path(post, path = "/clients/{client_id}/rotate-secret",
+    params(("client_id" = String, Path)),
+    responses((status = 200, description = "Rotated client secret", body = String)),
+    security(("authorization" = [])))]
+pub(crate) async fn rotate_client_secret(
+    State(state): State<RouterState>,
+    Path(client_id): Path<String>,
+    actor: StandardAuthorization,
+) -> Result<Json<String>, ErrorResponse> {
+    let existing = state.oauth2_service.get_client(&client_id).await?;
+    let application_id = state
+        .oauth2_service
+        .application_id_for_client(&client_id)
+        .await?;
+    if existing.client_type != ClientType::Confidential {
+        return Err(ErrorResponse::new(ErrorCode::InvalidRequest)
+            .with_description("secret rotation only supported for confidential clients"));
+    }
+    let infrastructure = infrastructure_client(&existing);
+    let action = if infrastructure {
+        IdentityAction::InfrastructureClientsUpdate
+    } else {
+        IdentityAction::ClientsUpdate
+    };
+    require_identity_permission(
+        &state,
+        &actor,
+        action,
+        client_target(application_id, infrastructure, Some(client_id.clone())),
+    )
+    .await?;
+    let secret = state
+        .oauth2_service
+        .rotate_client_secret(&client_id)
+        .await?;
+    Ok(Json(secret))
 }
 
 fn client_target(

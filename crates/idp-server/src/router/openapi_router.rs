@@ -8,13 +8,15 @@ use crate::RouterState;
 use super::openapi::{__path_openapi_json, openapi_json};
 use super::routes::active_user::{__path_active_user, active_user};
 use super::routes::administration::{
-    __path_create_application, __path_delete_application, __path_delete_user,
+    __path_create_application, __path_create_user, __path_delete_application, __path_delete_user,
     __path_get_application, __path_get_user, __path_list_applications, __path_list_client_keys,
     __path_list_consents, __path_list_users, __path_reset_password, __path_revoke_client_keys,
-    __path_revoke_consent, __path_rotate_client_key, __path_update_application, __path_update_user,
-    create_application, delete_application, delete_user, get_application, get_user,
-    list_applications, list_client_keys, list_consents, list_users, reset_password,
-    revoke_client_keys, revoke_consent, rotate_client_key, update_application, update_user,
+    __path_revoke_consent, __path_rotate_client_key, __path_set_user_blocked, __path_set_user_mfa,
+    __path_update_application, __path_update_user, create_application, create_user,
+    delete_application, delete_user, get_application, get_user, list_applications,
+    list_client_keys, list_consents, list_users, reset_password, revoke_client_keys,
+    revoke_consent, rotate_client_key, set_user_blocked, set_user_mfa, update_application,
+    update_user,
 };
 use super::routes::health::{__path_health, health};
 use super::routes::replica_signers::{
@@ -35,7 +37,8 @@ use super::routes::oauth2::device::{
 use super::routes::oauth2::introspect::{__path_introspect, introspect};
 use super::routes::oauth2::register::{
     __path_delete_register, __path_get_register, __path_put_register, __path_register,
-    delete_register, get_register, put_register, register,
+    __path_rotate_client_secret, delete_register, get_register, put_register, register,
+    rotate_client_secret,
 };
 use super::routes::oauth2::revoke::{__path_revoke, revoke};
 use super::routes::oauth2::sessions::{__path_sessions_logout, sessions_logout};
@@ -74,10 +77,13 @@ fn routes() -> OpenApiRouter<RouterState> {
         .routes(routes!(update_application))
         .routes(routes!(delete_application))
         .routes(routes!(list_users))
+        .routes(routes!(create_user))
         .routes(routes!(get_user))
         .routes(routes!(update_user))
         .routes(routes!(delete_user))
         .routes(routes!(reset_password))
+        .routes(routes!(set_user_mfa))
+        .routes(routes!(set_user_blocked))
         .routes(routes!(list_consents))
         .routes(routes!(revoke_consent))
         .routes(routes!(list_client_keys))
@@ -95,6 +101,7 @@ fn routes() -> OpenApiRouter<RouterState> {
         .routes(routes!(get_client))
         .routes(routes!(delete_register))
         .routes(routes!(put_register))
+        .routes(routes!(rotate_client_secret))
         .routes(routes!(token))
         .routes(routes!(revoke))
         .routes(routes!(sessions_logout))
@@ -183,7 +190,7 @@ mod tests {
                 .flat_map(|item| item.as_object().expect("path item").values())
                 .filter_map(|operation| operation["operationId"].as_str())
                 .collect::<Vec<_>>();
-            assert_eq!(operations.len(), 40, "complete IdP operation inventory");
+            assert_eq!(operations.len(), 44, "complete IdP operation inventory");
             assert_eq!(operations.iter().collect::<BTreeSet<_>>().len(), 40);
             assert!(document["paths"]["/openapi.json"]["get"]["operationId"].is_string());
             let mut registered_paths = paths.clone();
