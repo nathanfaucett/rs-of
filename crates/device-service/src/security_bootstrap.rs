@@ -9,8 +9,8 @@ use idp_service::replica::LocalIdentity;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use ofdb_sql::SyncRole;
 use ofdb_sync::{
-    Config, Message, SyncResult, SyncTransport, SynchronizeConfig,
-    SynchronizeError as SyncError, transport::framed::FramedTransport, synchronize,
+    IrohTransport, Message, SyncResult, SyncTransport, SynchronizeConfig,
+    SynchronizeError as SyncError, synchronize,
 };
 use serde::{Deserialize, Serialize};
 
@@ -227,9 +227,9 @@ impl SecurityProtocol {
         }
 
         // After handshake, create FramedTransport for sync protocol using cloned streams
-        let framed = FramedTransport::new(send, recv, Config::default());
+        let framed = IrohTransport::new(send, recv);
         let result = bootstrap_stage(|| {
-            self.receive_bootstrap_history_framed(
+            self.receive_bootstrap_history(
                 connection,
                 owner,
                 &approval,
@@ -282,8 +282,8 @@ impl SecurityProtocol {
         transport.send(serde_json::to_vec(&request)?).await?;
 
         // After handshake, create FramedTransport for sync protocol using cloned streams
-        let framed = FramedTransport::new(send, recv, Config::default());
-        let mut source_transport = SourceFramedTransport {
+        let framed = IrohTransport::new(send, recv);
+        let mut source_transport = SourceTransport {
             transport: &mut framed,
             protocol: self,
             connection: &connection,
@@ -293,7 +293,7 @@ impl SecurityProtocol {
             last_send: std::time::Instant::now(),
         };
         bootstrap_stage(|| {
-            self.node_bootstrap_session_framed(
+            self.node_bootstrap_session(
                 &request.approval,
                 request.context,
                 &mut source_transport,
@@ -538,13 +538,13 @@ impl SecurityProtocol {
             .any(|g| matches!(g.context, SecurityContext::Idp | SecurityContext::Devices)))
     }
 
-    async fn receive_bootstrap_history_framed<T, Q, U>(
+    async fn receive_bootstrap_history<T, Q, U>(
         &self,
         connection: &Connection,
         owner: &impl NodeJoinOwner,
         approval: &NodeJoinApproval,
         context: SecurityContext,
-        mut transport: FramedTransport<SendStream>,
+        mut transport: IrohTransport,
         mut check: Q,
     ) -> io::Result<SyncResult>
     where
@@ -559,14 +559,14 @@ impl SecurityProtocol {
             return Err(denied("Management bootstrap requires the IdP import first"));
         }
         self.validate_local_schema(context).await?;
-        let mut auth_transport = ReceiverFramedTransport {
+        let mut auth_transport = ReceiverTransport {
             transport: &mut transport,
             protocol: self,
             connection,
             owner,
             approval,
         };
-        self.node_bootstrap_session_framed(approval, context, &mut auth_transport, || {
+        self.node_bootstrap_session(approval, context, &mut auth_transport, || {
             let additional = check();
             async move {
                 bootstrap_stage(|| self.check_bootstrap_receiver(connection, owner, approval))
@@ -578,7 +578,7 @@ impl SecurityProtocol {
         .await
     }
 
-    async fn node_bootstrap_session_framed<T, Q, U>(
+    async fn node_bootstrap_session<T, Q, U>(
         &self,
         approval: &NodeJoinApproval,
         context: SecurityContext,
@@ -665,8 +665,8 @@ where
     }
 }
 
-struct SourceFramedTransport<'a, S> {
-    transport: &'a mut FramedTransport<S>,
+struct SourceTransport<'a> {
+    transport: &'a mut IrohTransport,
     protocol: &'a SecurityProtocol,
     connection: &'a Connection,
     approval: &'a NodeJoinApproval,
@@ -675,8 +675,8 @@ struct SourceFramedTransport<'a, S> {
     last_send: std::time::Instant,
 }
 
-impl<S: futures_util::io::AsyncWrite + futures_util::io::AsyncRead + Unpin + Send> SyncTransport
-    for SourceFramedTransport<'_, S>
+impl SyncTransport
+    for SourceTransport<'_>
 {
     type Error = io::Error;
 
@@ -701,16 +701,16 @@ impl<S: futures_util::io::AsyncWrite + futures_util::io::AsyncRead + Unpin + Sen
     }
 }
 
-struct ReceiverFramedTransport<'a, S, O> {
-    transport: &'a mut FramedTransport<S>,
+struct ReceiverTransport<'a, O> {
+    transport: &'a mut IrohTransport,
     protocol: &'a SecurityProtocol,
     connection: &'a Connection,
     owner: &'a O,
     approval: &'a NodeJoinApproval,
 }
 
-impl<S: futures_util::io::AsyncWrite + futures_util::io::AsyncRead + Unpin + Send, O: NodeJoinOwner>
-    SyncTransport for ReceiverFramedTransport<'_, S, O>
+impl<O: NodeJoinOwner>
+    SyncTransport for ReceiverTransport<'_, O>
 {
     type Error = io::Error;
 

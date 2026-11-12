@@ -283,7 +283,7 @@ impl SecurityProtocol {
         }
         let mut total = SyncResult::default();
         for (database, _history, _tables) in self.sessions(context) {
-            let mut auth_transport = AuthorizedFramedTransport {
+            let mut auth_transport = AuthorizedTransport {
                 transport: &mut transport,
                 protocol: self,
                 connection,
@@ -304,7 +304,7 @@ impl SecurityProtocol {
     }
 }
 
-struct AuthorizedFramedTransport<'a> {
+struct AuthorizedTransport<'a> {
     transport: &'a mut IrohTransport,
     protocol: &'a SecurityProtocol,
     connection: &'a Connection,
@@ -312,7 +312,7 @@ struct AuthorizedFramedTransport<'a> {
     context: SecurityContext,
 }
 
-impl<'a> OfdbSyncTransport for AuthorizedFramedTransport<'a> {
+impl<'a> OfdbSyncTransport for AuthorizedTransport<'a> {
     type Error = io::Error;
 
     async fn send(&mut self, msg: Message) -> io::Result<()> {
