@@ -23,12 +23,13 @@ replica = [
     "dep:of-idp-client",
     "dep:of-device-client",
     "std",
-    "dep:db",
+    "dep:db", "db/network",
     "idp-model/replica",
     "idp-service/replica",
     "dep:api",
     "dep:axum",
     "dep:futures-util",
+    
     "dep:getrandom",
     "dep:ofdb-sql",
     "dep:tokio",
@@ -38,7 +39,6 @@ replica = [
 
 std = [
     "dep:of-idp-client",
-    "dep:of-storage-client",
     "dep:of-storage-api-client",
     "idp-model/std",
     "idp-service/std",
@@ -61,7 +61,6 @@ utoipa = { version = "5.5", default-features = false, features = [
 # Internal
 of-idp-client = { path = "../idp-client", default-features = false, optional = true }
 of-device-client = { path = "../device-client", default-features = false, optional = true }
-of-storage-client = { path = "../storage-client", default-features = false, optional = true }
 of-storage-api-client = { path = "../storage-api-client", default-features = false, optional = true }
 api = { path = "../api", default-features = false, optional = true }
 db = { package = "idp-db", path = "../db", default-features = false, features = [
@@ -74,6 +73,9 @@ iroh-chain = { path = "../../../ofnet/crates/iroh-chain", default-features = fal
 ], optional = true }
 management-service = { path = "../management-service", default-features = false, optional = true }
 model = { path = "../model", default-features = false, features = [] }
+ofdb-sync = { package = "ofdb-sync", path = "../../../ofdb/crates/sync", default-features = false, features = [
+    "std",
+] }
 storage-model = { path = "../storage-model", default-features = false, features = [
 ] }
 uuid = { version = "1.29", default-features = false, features = ["v5"] }
@@ -126,7 +128,6 @@ futures-util = { version = "0.3", default-features = false, features = [
 ], optional = true }
 getrandom = { version = "0.3", default-features = false, optional = true }
 ofdb-sql = { path = "../../../ofdb/crates/sql", default-features = false, features = [
-    "sync",
     "native-stage",
 ], optional = true }
 tokio = { version = "1.52", default-features = false, features = [
@@ -148,7 +149,6 @@ idp-model = { path = "../idp-model", default-features = false, features = [
     "std",
 ] }
 ofdb-sql = { path = "../../../ofdb/crates/sql", default-features = false, features = [
-    "sync",
 ] }
 tokio = { version = "1.4", default-features = false, features = [
     "macros",

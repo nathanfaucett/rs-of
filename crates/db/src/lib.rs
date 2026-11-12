@@ -16,4 +16,4 @@ pub use ofdb_sql::{
 #[cfg(feature = "network")]
 mod database_transport;
 #[cfg(feature = "network")]
-pub use database_transport::DatabaseTransport;
+pub use database_transport::{DatabaseTransport, SyncTransport};

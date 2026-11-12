@@ -9,7 +9,8 @@ use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
 use management_service::ManagementService;
 use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
-use ofdb_sql::{SessionConfig, SyncMessage, SyncRole, SyncTransport};
+use ofdb_sql::{SyncRole, SessionConfig};
+use ofdb_sync::{SyncTransport, SynchronizeError as SyncError};
 use tokio_util::sync::CancellationToken;
 
 use super::test_fixtures::{enroll, sql};

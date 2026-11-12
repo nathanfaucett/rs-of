@@ -275,15 +275,14 @@ fn denied(reason: impl std::fmt::Display) -> io::Error {
 mod tests {
     use std::sync::Arc;
 
+    use super::{SecurityContext, SecurityHistory, SecuritySync};
+    use crate::sync_validation_direction::SyncValidationDirection;
     use db::{Database, Value};
     use idp_model::{contract::IdentityAction, model::Id};
     use management_service::{
         ManagementService,
         replica::{DbPermissionRepo, DbRoleRepo},
     };
-    use ofdb_sql::{SyncCandidateView, SyncTableView, SyncValidationDirection};
-
-    use super::{SecurityContext, SecurityHistory, SecuritySync};
 
     const INSTALLATION: &str = "https://installation.example";
 

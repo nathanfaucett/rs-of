@@ -7,7 +7,13 @@ license = "MIT OR Apache-2.0"
 
 [features]
 default = ["native"]
-native = ["dep:tokio", "dep:ofdb-sql", "dep:ofdb-kv", "dep:file-system", "storage-sync-client/native"]
+native = [
+    "dep:tokio",
+    "dep:ofdb-sql",
+    "dep:ofdb-kv",
+    "dep:file-system",
+    "storage-sync-client/native",
+]
 browser = ["storage-sync-client/browser"]
 wasm = ["browser", "dep:ofdb-sql", "dep:ofdb-kv", "dep:file-system"]
 
@@ -22,8 +28,14 @@ of-storage-client = { path = "../storage-client", default-features = false }
 storage-sync-client = { path = "../storage-sync-client", default-features = false, optional = true }
 
 # Internal engines
-ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = ["sql", "redb", "sync"], optional = true }
-ofdb-kv = { package = "ofdb-kv", path = "../../../ofdb/crates/kv", default-features = false, features = ["redb", "sync"], optional = true }
+ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = [
+    "sql",
+    "redb",
+], optional = true }
+ofdb-kv = { package = "ofdb-kv", path = "../../../ofdb/crates/kv", default-features = false, features = [
+    "redb",
+    "sync",
+], optional = true }
 file-system = { path = "../../../offs/crates/file-system", default-features = false, optional = true }
 
 # Dependencies
@@ -31,13 +43,26 @@ ofdb-value = { package = "ofdb-value", path = "../../../ofdb/crates/value", defa
 iroh = { version = "1.1", default-features = false }
 
 # Serialization
-serde = { version = "1.0", default-features = false, features = ["derive", "std"] }
+serde = { version = "1.0", default-features = false, features = [
+    "derive",
+    "std",
+] }
 serde_json = { version = "1.0", default-features = false, features = ["std"] }
-uuid = { version = "1.29", default-features = false, features = ["serde", "std", "v5"] }
+uuid = { version = "1.29", default-features = false, features = [
+    "serde",
+    "std",
+    "v5",
+] }
 url = { version = "2.5", default-features = false, features = ["std"] }
 
 # Async
-tokio = { version = "1.52", default-features = false, features = ["fs", "io-util", "macros", "rt-multi-thread", "time"], optional = true }
+tokio = { version = "1.52", default-features = false, features = [
+    "fs",
+    "io-util",
+    "macros",
+    "rt-multi-thread",
+    "time",
+], optional = true }
 
 # Error handling
 thiserror = { version = "2.0", default-features = false }
@@ -49,6 +74,8 @@ log = { version = "0.4", default-features = false, features = ["std"] }
 #[cfg(target_arch = "wasm32")]
 wasm-bindgen = { version = "0.2", default-features = false, features = ["std"] }
 #[cfg(target_arch = "wasm32")]
-wasm-bindgen-futures = { version = "0.4", default-features = false, features = ["std"] }
+wasm-bindgen-futures = { version = "0.4", default-features = false, features = [
+    "std",
+] }
 #[cfg(target_arch = "wasm32")]
 serde-wasm-bindgen = { version = "0.6", default-features = false }

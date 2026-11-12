@@ -1,5 +1,4 @@
 /// Resource handles with built-in sync transport.
-
 use alloc::{boxed::Box, string::ToString};
 use core::fmt::{Debug, Formatter, Result as FmtResult};
 use core::future::Future;
@@ -14,7 +13,8 @@ use crate::transport::NativeWsTransport;
 #[cfg(feature = "browser")]
 use crate::transport::BrowserWsTransport;
 
-use ofdb_sql::{Database, QueryParams, QueryResult, SessionConfig, SyncResult as OfdbSyncResult, SyncRole};
+use ofdb_sql::{Database, QueryParams, QueryResult, SessionConfig};
+use ofdb_sync::{PushResult as OfdbSyncResult, SyncRole};
 use storage_sync_client::client::{TokenProvider, WsTransportBridge};
 use storage_sync_client::protocol::StoreIdentity;
 
@@ -62,21 +62,23 @@ impl SqlDatabaseHandle {
             .execute_sql(sql, None)
             .await
             .map_err(|e| StorageClientError::Database(e.to_string()))?;
-        results.into_iter().next().ok_or(StorageClientError::Database("no result".into()))
+        results
+            .into_iter()
+            .next()
+            .ok_or(StorageClientError::Database("no result".into()))
     }
 
     /// Execute SQL with parameters.
-    pub async fn execute_with_params(
-        &self,
-        sql: &str,
-        params: QueryParams,
-    ) -> Result<QueryResult> {
+    pub async fn execute_with_params(&self, sql: &str, params: QueryParams) -> Result<QueryResult> {
         let client = self.database.client();
         let results = client
             .execute_sql(sql, Some(&params))
             .await
             .map_err(|e| StorageClientError::Database(e.to_string()))?;
-        results.into_iter().next().ok_or(StorageClientError::Database("no result".into()))
+        results
+            .into_iter()
+            .next()
+            .ok_or(StorageClientError::Database("no result".into()))
     }
 
     /// Start a transaction.
@@ -89,47 +91,14 @@ impl SqlDatabaseHandle {
     }
 
     /// Synchronize with a remote peer using the built-in transport.
-    pub async fn synchronize(
-        &mut self,
-        config: Option<SessionConfig>,
-        role: SyncRole,
-    ) -> Result<OfdbSyncResult> {
+    /// Synchronize with the peer.
+    pub async fn synchronize(&mut self, config: Option<SessionConfig>) -> Result<OfdbSyncResult> {
         let mut transport = self.create_transport().await?;
         let config = config.unwrap_or_default();
 
         let result = self
             .database
-            .synchronize(&mut transport, &config, role)
-            .await
-            .map_err(|e| StorageClientError::Sync(e.to_string()))?;
-
-        Ok(result)
-    }
-
-    /// Synchronize with authorization check before each batch.
-    pub async fn synchronize_checked<F, Fut>(
-        &mut self,
-        config: Option<SessionConfig>,
-        role: SyncRole,
-        check: F,
-    ) -> Result<OfdbSyncResult>
-    where
-        F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<()>> + Send,
-    {
-        let mut transport = self.create_transport().await?;
-        let config = config.unwrap_or_default();
-
-        let check_fn = move || {
-            let fut = check();
-            async move {
-                fut.await.map_err(|e| e.to_string())
-            }
-        };
-
-        let result = self
-            .database
-            .synchronize_checked(&mut transport, &config, role, check_fn)
+            .synchronize(&mut transport, &config)
             .await
             .map_err(|e| StorageClientError::Sync(e.to_string()))?;
 
@@ -150,14 +119,20 @@ impl SqlDatabaseHandle {
         #[cfg(feature = "native")]
         {
             let transport = NativeWsTransport::connect(&self.transport_config.sync_ws_url).await?;
-            let bridge = WsTransportBridge::new(Box::new(transport) as Box<dyn WsSyncTransport + Send>);
+            let bridge =
+                WsTransportBridge::new(Box::new(transport) as Box<dyn WsSyncTransport + Send>);
             Ok(bridge)
         }
 
         #[cfg(feature = "browser")]
         {
-            let transport = BrowserWsTransport::connect(&self.transport_config.sync_ws_url, &self.transport_config.auth_token).await?;
-            let bridge = WsTransportBridge::new(Box::new(transport) as Box<dyn WsSyncTransport + Send>);
+            let transport = BrowserWsTransport::connect(
+                &self.transport_config.sync_ws_url,
+                &self.transport_config.auth_token,
+            )
+            .await?;
+            let bridge =
+                WsTransportBridge::new(Box::new(transport) as Box<dyn WsSyncTransport + Send>);
             Ok(bridge)
         }
 

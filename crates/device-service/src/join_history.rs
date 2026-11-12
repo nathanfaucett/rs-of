@@ -8,6 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use crate::sync_validation_direction::SyncValidationDirection;
 use axum::{
     Json, Router,
     extract::{
@@ -20,10 +21,9 @@ use axum::{
 };
 use db::{Database, Value};
 use futures_util::{SinkExt, StreamExt};
-use ofdb_sql::{
-    SessionConfig, SyncCandidateView, SyncError, SyncRole, SyncTransport,
-    SyncValidationDirection,
-};
+use ofdb_sql::SyncRole;
+use ofdb_sync::{SyncTransport, SynchronizeConfig as SessionConfig, SynchronizeError as SyncError};
+use ofdb_sync::{SynchronizeConfig as SessionConfig, SynchronizeError as SyncError};
 use serde::{Deserialize, Serialize};
 use tokio::{net::TcpStream, sync::Mutex};
 use tokio_tungstenite::{
@@ -323,6 +323,10 @@ impl SyncTransport for HistorySocket {
             }
         }
     }
+
+    async fn close(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 pub async fn import_join_history(
@@ -421,8 +425,16 @@ async fn synchronize(
     cancellation: &CancellationToken,
 ) -> io::Result<()> {
     let is_receiver = matches!(context, JoinHistoryContext::Device);
-    let role = if is_receiver { SyncRole::Initiator } else { SyncRole::Responder };
-    let direction = if is_receiver { SyncValidationDirection::Incoming } else { SyncValidationDirection::Outgoing };
+    let role = if is_receiver {
+        SyncRole::Initiator
+    } else {
+        SyncRole::Responder
+    };
+    let direction = if is_receiver {
+        SyncValidationDirection::Incoming
+    } else {
+        SyncValidationDirection::Outgoing
+    };
     log::debug!(
         "Join history context={} phase=sync_start role={role:?}",
         context.role()

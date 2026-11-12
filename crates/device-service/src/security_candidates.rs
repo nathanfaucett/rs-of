@@ -1,7 +1,31 @@
 use db::Value;
 use idp_model::{contract::JwkPublic, model::Id};
 use idp_service::security_sync::public_security_tables;
-use ofdb_sql::{SyncCandidateView, SyncRowView, SyncTableView};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+/// Mock candidate view for compatibility with deprecated sync API
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncCandidateView {
+    pub tables: Vec<CandidateTable>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CandidateTable {
+    pub name: String,
+    pub columns: Vec<String>,
+    pub rows: Vec<CandidateRow>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CandidateRow {
+    pub deleted: bool,
+    pub cells: HashMap<String, Value>,
+}
+
+/// Deprecated placeholder types (replaced by new sync API)
+pub type SyncRowView = ();
+pub type SyncTableView = ();
 
 pub struct JoinCandidate<'a> {
     pub member_id: Id,
@@ -82,25 +106,21 @@ pub fn permits_installation(table: &str, column: &str, value: &Value, installati
     }
 }
 
-fn field<'a>(table: &SyncTableView, row: &'a SyncRowView, column: &str) -> Option<&'a Value> {
-    if row.deleted || row.conflicts.iter().any(|(name, _)| name == column) {
-        return None;
+fn field<'a>(table: &CandidateTable, row: &'a CandidateRow, column: &str) -> Option<&'a Value> {
+    if row.deleted || row.cells.contains_key(column) {
+        return row.cells.get(column);
     }
-    table
-        .columns
-        .iter()
-        .position(|name| name == column)
-        .and_then(|index| row.row.values.get(index))
+    None
 }
 
-fn uuid(table: &SyncTableView, row: &SyncRowView, column: &str) -> Option<Id> {
+fn uuid(table: &CandidateTable, row: &CandidateRow, column: &str) -> Option<Id> {
     match field(table, row, column) {
         Some(Value::Uuid(id)) => Some(*id),
         _ => None,
     }
 }
 
-fn text<'a>(table: &SyncTableView, row: &'a SyncRowView, column: &str) -> Option<&'a str> {
+fn text<'a>(table: &CandidateTable, row: &'a CandidateRow, column: &str) -> Option<&'a str> {
     match field(table, row, column) {
         Some(Value::Text(text)) => Some(text),
         _ => None,
@@ -108,8 +128,8 @@ fn text<'a>(table: &SyncTableView, row: &'a SyncRowView, column: &str) -> Option
 }
 
 fn validate_device(
-    table: &SyncTableView,
-    row: &SyncRowView,
+    table: &CandidateTable,
+    row: &CandidateRow,
     bindings: &[PeerBinding],
 ) -> Result<(), String> {
     let owner = text(table, row, "owner_subject")
@@ -128,8 +148,8 @@ fn validate_device(
 }
 
 fn validate_member(
-    table: &SyncTableView,
-    row: &SyncRowView,
+    table: &CandidateTable,
+    row: &CandidateRow,
     bindings: &[PeerBinding],
 ) -> Result<(), String> {
     let member = uuid(table, row, "member_id");

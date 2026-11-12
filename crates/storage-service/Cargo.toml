@@ -21,7 +21,6 @@ ofdb-kv = { path = "../../../ofdb/crates/kv", default-features = false, features
 ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = [
     "redb",
     "sql",
-    "sync",
 ] }
 storage-model = { path = "../storage-model", default-features = false, features = [
     "std",

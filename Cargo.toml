@@ -46,7 +46,6 @@ members = [
     "crates/cli",
     "crates/api",
     "crates/key",
-    "crates/model",
     "crates/management-server",
     "crates/management-service",
     "crates/device-service",
@@ -57,13 +56,11 @@ members = [
     "crates/storage-model",
     "crates/storage-server",
     "crates/storage-service",
-    "crates/storage-sync-client",
-    "crates/storage-sync-test-harness",
-    "crates/storage-sdk",
     "crates/unified-server",
     "crates/tauri-plugin-fetch-api",
     "apps/app/src-tauri",
 ]
+exclude = ["crates/storage-sync-client", "crates/storage-sync-test-harness"]
 
 [workspace.dependencies]
 setup = { path = "crates/setup", default-features = false }
@@ -211,7 +208,6 @@ device-service = { path = "crates/device-service", default-features = false, fea
     "std",
     "utoipa",
 ] }
-file-system = { path = "../offs/crates/file-system", default-features = false }
 http = { version = "1.4", default-features = false }
 idp-model = { path = "crates/idp-model", default-features = false, features = [
     "replica",

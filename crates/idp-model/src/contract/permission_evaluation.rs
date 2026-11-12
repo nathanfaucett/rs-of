@@ -37,9 +37,12 @@ pub enum IdentityAction {
     ApplicationsUpdate,
     ApplicationsDelete,
     UsersRead,
+    UsersCreate,
     UsersUpdate,
     UsersDelete,
     UsersResetPassword,
+    UsersMfa,
+    UsersBlock,
     ConsentsRead,
     ConsentsRevoke,
     KeysRead,
@@ -78,9 +81,12 @@ impl IdentityAction {
             Self::ApplicationsUpdate => "idp.applications.update",
             Self::ApplicationsDelete => "idp.applications.delete",
             Self::UsersRead => "idp.users.read",
+            Self::UsersCreate => "idp.users.create",
             Self::UsersUpdate => "idp.users.update",
             Self::UsersDelete => "idp.users.delete",
             Self::UsersResetPassword => "idp.users.reset_password",
+            Self::UsersMfa => "idp.users.mfa",
+            Self::UsersBlock => "idp.users.block",
             Self::ConsentsRead => "idp.consents.read",
             Self::ConsentsRevoke => "idp.consents.revoke",
             Self::KeysRead => "idp.keys.read",
@@ -210,7 +216,13 @@ impl PermissionEvaluationRequest {
             ) => !id.is_nil(),
             (A::UsersRead, IdentityResource::User { id: None }) => true,
             (
-                A::UsersRead | A::UsersUpdate | A::UsersDelete | A::UsersResetPassword,
+                A::UsersRead
+                | A::UsersCreate
+                | A::UsersUpdate
+                | A::UsersDelete
+                | A::UsersResetPassword
+                | A::UsersMfa
+                | A::UsersBlock,
                 IdentityResource::User { id: Some(id) },
             ) => !id.is_nil(),
             (A::ConsentsRead, IdentityResource::Consent { user_id, id: None }) => !user_id.is_nil(),

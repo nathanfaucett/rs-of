@@ -75,7 +75,6 @@ wasm-bindgen = { version = "0.2", default-features = false, features = [
 # Database sync tests
 ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = [
     "in-memory",
-    "sync",
 ] }
 
 # Async

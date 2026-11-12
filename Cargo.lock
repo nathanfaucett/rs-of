@@ -467,8 +467,8 @@ dependencies = [
  "flate2",
  "getrandom 0.4.3",
  "hex",
- "hexane",
- "itertools",
+ "hexane 0.2.1",
+ "itertools 0.14.0",
  "js-sys",
  "leb128",
  "rand 0.10.3",
@@ -485,12 +485,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "automerge"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fb849130973a7808a167887f56b1e8bdc36b9b541542602dcb337f34aecf47b"
+dependencies = [
+ "cfg-if",
+ "flate2",
+ "getrandom 0.4.3",
+ "hex",
+ "hexane 1.0.0-alpha.5",
+ "itertools 0.15.0",
+ "leb128",
+ "rand 0.10.3",
+ "rustc-hash",
+ "serde",
+ "sha2 0.11.0",
+ "smol_str",
+ "thiserror 2.0.20",
+ "tinyvec",
+ "tracing",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "autosurgeon"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b3e9830fb43a71ecbcce339e6ccb0bde5456a3f18d5b810a744870e4a50d832"
 dependencies = [
- "automerge",
+ "automerge 0.10.0",
  "autosurgeon-derive",
  "similar",
  "thiserror 1.0.69",
@@ -539,7 +563,7 @@ dependencies = [
  "sha1",
  "sync_wrapper",
  "tokio",
- "tokio-tungstenite 0.29.0",
+ "tokio-tungstenite",
  "tower",
  "tower-layer",
  "tower-service",
@@ -1237,7 +1261,7 @@ dependencies = [
  "bitflags 2.13.2",
  "core-foundation",
  "core-graphics-types",
- "foreign-types 0.5.0",
+ "foreign-types",
  "libc",
 ]
 
@@ -1711,8 +1735,8 @@ dependencies = [
  "of-device-client",
  "of-idp-client",
  "of-storage-api-client",
- "of-storage-client",
  "ofdb-sql",
+ "ofdb-sync",
  "postcard",
  "reqwest 0.12.28",
  "serde",
@@ -1720,7 +1744,7 @@ dependencies = [
  "storage-model",
  "thiserror 2.0.20",
  "tokio",
- "tokio-tungstenite 0.29.0",
+ "tokio-tungstenite",
  "tokio-util",
  "utoipa",
  "uuid",
@@ -2177,18 +2201,13 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-util",
- "js-sys",
  "ofdb-kv",
  "ofdb-platform",
  "postcard",
  "serde",
- "serde-wasm-bindgen",
  "serde_json",
  "tokio",
  "uuid",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
 ]
 
 [[package]]
@@ -2234,21 +2253,12 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "foreign-types"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6f339eb8adc052cd2ca78910fda869aefa38d22d5cb648e6485e4d3fc06f3b1"
-dependencies = [
- "foreign-types-shared 0.1.1",
-]
-
-[[package]]
-name = "foreign-types"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d737d9aa519fb7b749cbc3b962edcf310a8dd1f4b67c91c4f83975dbdd17d965"
 dependencies = [
  "foreign-types-macros",
- "foreign-types-shared 0.3.1",
+ "foreign-types-shared",
 ]
 
 [[package]]
@@ -2261,12 +2271,6 @@ dependencies = [
  "quote",
  "syn 3.0.6",
 ]
-
-[[package]]
-name = "foreign-types-shared"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
 
 [[package]]
 name = "foreign-types-shared"
@@ -2657,24 +2661,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
-name = "gloo-net"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2899cb1a13be9020b010967adc6b2a8a343b6f1428b90238c9d53ca24decc6db"
-dependencies = [
- "futures-channel",
- "futures-core",
- "futures-sink",
- "gloo-utils",
- "js-sys",
- "pin-project",
- "thiserror 1.0.69",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
 name = "gloo-timers"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2684,19 +2670,6 @@ dependencies = [
  "futures-core",
  "js-sys",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "gloo-utils"
-version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "037fcb07216cb3a30f7292bd0176b050b7b9a052ba830ef7d5d65f6dc64ba58e"
-dependencies = [
- "js-sys",
- "serde",
- "serde_json",
- "wasm-bindgen",
- "web-sys",
 ]
 
 [[package]]
@@ -2907,6 +2880,16 @@ dependencies = [
  "leb128",
  "thiserror 2.0.20",
  "web-sys",
+]
+
+[[package]]
+name = "hexane"
+version = "1.0.0-alpha.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81df830f11babb0eee9a082e09135ef0a7d8791f3fe9b279bb9485bf7eaf23e0"
+dependencies = [
+ "leb128",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -3328,7 +3311,6 @@ dependencies = [
  "axum",
  "device-server",
  "device-service",
- "file-system",
  "futures-util",
  "http",
  "idp-db",
@@ -3358,7 +3340,7 @@ dependencies = [
  "storage-service",
  "tempfile",
  "tokio",
- "tokio-tungstenite 0.29.0",
+ "tokio-tungstenite",
  "tokio-util",
  "tower",
  "unified-server",
@@ -3646,6 +3628,15 @@ name = "itertools"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b4baf93f58d4425749ca49a51c50ebab072c5df6994d08fed93541c331481dc"
 dependencies = [
  "either",
 ]
@@ -4362,23 +4353,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "native-tls"
-version = "0.2.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "465500e14ea162429d264d44189adc38b199b62b1c21eea9f69e4b73cb03bbf2"
-dependencies = [
- "libc",
- "log",
- "openssl",
- "openssl-probe",
- "openssl-sys",
- "schannel",
- "security-framework",
- "security-framework-sys",
- "tempfile",
-]
-
-[[package]]
 name = "ndk"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5076,13 +5050,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "file-system",
  "futures-util",
  "of-management-client",
  "ofdb-kv",
  "ofdb-platform",
  "ofdb-sql",
- "ofdb-sql-sync",
+ "ofdb-sync",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -5090,70 +5063,10 @@ dependencies = [
  "serde_with",
  "storage-model",
  "storage-service",
- "storage-sync-client",
  "thiserror 2.0.20",
  "tokio",
  "url",
  "uuid",
-]
-
-[[package]]
-name = "of-storage-sdk"
-version = "0.1.0"
-dependencies = [
- "file-system",
- "iroh",
- "log",
- "of-storage-api-client",
- "of-storage-client",
- "ofdb-kv",
- "ofdb-sql",
- "ofdb-value",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "storage-sync-client",
- "thiserror 2.0.20",
- "tokio",
- "url",
- "uuid",
- "wasm-bindgen",
- "wasm-bindgen-futures",
-]
-
-[[package]]
-name = "of-storage-sync-test-harness"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "crc32fast",
- "futures",
- "futures-channel",
- "gloo-net",
- "js-sys",
- "ofdb-platform",
- "ofdb-sql-engine",
- "ofdb-sql-engine-redb",
- "ofdb-sql-schema",
- "ofdb-sql-sync",
- "ofdb-sync-runtime",
- "ofdb-value",
- "postcard",
- "rustls",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "thiserror 2.0.20",
- "tokio",
- "tokio-tungstenite 0.25.0",
- "tracing",
- "tracing-subscriber",
- "tungstenite 0.25.0",
- "uuid",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
 ]
 
 [[package]]
@@ -5161,11 +5074,12 @@ name = "ofdb-btree"
 version = "0.1.0"
 dependencies = [
  "async-lock",
- "async-stream",
  "futures",
  "ofdb-platform",
+ "serde",
  "thiserror 2.0.20",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -5174,7 +5088,7 @@ version = "0.1.0"
 dependencies = [
  "async-lock",
  "async-stream",
- "automerge",
+ "automerge 0.10.0",
  "base64 0.21.7",
  "futures",
  "ofdb-btree",
@@ -5216,13 +5130,14 @@ dependencies = [
 name = "ofdb-kv"
 version = "0.1.0"
 dependencies = [
+ "automerge 0.10.0",
  "base64 0.22.1",
  "ofdb-btree",
  "ofdb-btree-indexeddb",
  "ofdb-btree-redb",
  "ofdb-kv-store",
- "ofdb-kv-sync",
  "ofdb-platform",
+ "ofdb-sync",
  "ofdb-value",
  "redb",
  "serde_json",
@@ -5233,25 +5148,13 @@ dependencies = [
 name = "ofdb-kv-store"
 version = "0.1.0"
 dependencies = [
- "automerge",
+ "automerge 0.10.0",
  "autosurgeon",
  "futures",
  "ofdb-btree",
  "ofdb-btree-automerge",
  "ofdb-value",
  "uuid",
-]
-
-[[package]]
-name = "ofdb-kv-sync"
-version = "0.1.0"
-dependencies = [
- "ofdb-btree",
- "ofdb-btree-automerge",
- "ofdb-kv-store",
- "ofdb-sync-runtime",
- "postcard",
- "serde",
 ]
 
 [[package]]
@@ -5269,6 +5172,8 @@ dependencies = [
 name = "ofdb-sql"
 version = "0.1.0"
 dependencies = [
+ "automerge 0.12.0",
+ "ofdb-btree",
  "ofdb-platform",
  "ofdb-sql-client",
  "ofdb-sql-engine",
@@ -5279,8 +5184,8 @@ dependencies = [
  "ofdb-sql-query",
  "ofdb-sql-schema",
  "ofdb-sql-server",
- "ofdb-sql-sync",
  "ofdb-sql-translator",
+ "ofdb-sync",
  "ofdb-value",
  "sha2 0.10.9",
  "tokio",
@@ -5327,7 +5232,7 @@ name = "ofdb-sql-engine-automerge"
 version = "0.1.0"
 dependencies = [
  "async-stream",
- "automerge",
+ "automerge 0.10.0",
  "futures",
  "ofdb-btree",
  "ofdb-btree-automerge",
@@ -5428,23 +5333,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ofdb-sql-sync"
-version = "0.1.0"
-dependencies = [
- "futures",
- "ofdb-platform",
- "ofdb-sql-engine",
- "ofdb-sync-runtime",
- "ofdb-value",
- "postcard",
- "serde",
- "sha2 0.10.9",
- "tempfile",
- "thiserror 2.0.20",
- "uuid",
-]
-
-[[package]]
 name = "ofdb-sql-translator"
 version = "0.1.0"
 dependencies = [
@@ -5458,25 +5346,37 @@ dependencies = [
 ]
 
 [[package]]
-name = "ofdb-sync-runtime"
+name = "ofdb-sync"
 version = "0.1.0"
 dependencies = [
+ "futures",
+ "js-sys",
  "ofdb-btree",
  "ofdb-platform",
+ "postcard",
+ "serde",
+ "thiserror 2.0.20",
  "tokio",
+ "uuid",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
 name = "ofdb-value"
 version = "0.1.0"
 dependencies = [
- "automerge",
+ "automerge 0.10.0",
  "autosurgeon",
  "postcard",
  "redb",
  "serde",
+ "serde-wasm-bindgen",
  "serde_json",
+ "tsify",
  "uuid",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -5512,47 +5412,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "openssl"
-version = "0.10.82"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4de8111e94a56adca7ebfe6c365b6d42f99deb69b74b6becacd4204e2f193aa2"
-dependencies = [
- "bitflags 2.13.2",
- "cfg-if",
- "foreign-types 0.3.2",
- "libc",
- "openssl-macros",
- "openssl-sys",
-]
-
-[[package]]
-name = "openssl-macros"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a948666b637a0f465e8564c73e89d4dde00d72d4d473cc972f390fc3dcee7d9c"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "openssl-probe"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
-
-[[package]]
-name = "openssl-sys"
-version = "0.9.118"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19c413d6ec9ebaf5e1c829d355cb3e9f783778d700f135be0921d52fce3c60ae"
-dependencies = [
- "cc",
- "libc",
- "pkg-config",
- "vcpkg",
-]
 
 [[package]]
 name = "option-ext"
@@ -6055,7 +5918,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03da047801ff44bb6a4d407d4860c05fd70bb81714e6b2f3812603d5b145b042"
 dependencies = [
  "heck 0.5.0",
- "itertools",
+ "itertools 0.14.0",
  "log",
  "multimap",
  "petgraph",
@@ -6074,7 +5937,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -6177,22 +6040,11 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "rand"
-version = "0.8.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e058c7de0b26af77780c769414d6257830bb240f3c38477dbc2c16e5f54d6d4c"
-dependencies = [
- "libc",
- "rand_chacha 0.3.1",
- "rand_core 0.6.4",
-]
-
-[[package]]
-name = "rand"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9ef1d0d795eb7d84685bca4f72f3649f064e6641543d3a8c415898726a57b41"
 dependencies = [
- "rand_chacha 0.9.0",
+ "rand_chacha",
  "rand_core 0.9.5",
 ]
 
@@ -6205,16 +6057,6 @@ dependencies = [
  "chacha20",
  "getrandom 0.4.3",
  "rand_core 0.10.1",
-]
-
-[[package]]
-name = "rand_chacha"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88"
-dependencies = [
- "ppv-lite86",
- "rand_core 0.6.4",
 ]
 
 [[package]]
@@ -7443,29 +7285,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "storage-sync-client"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "crc32fast",
- "futures-channel",
- "futures-util",
- "js-sys",
- "log",
- "ofdb-sql",
- "ofdb-sql-sync",
- "postcard",
- "serde",
- "thiserror 2.0.20",
- "tokio",
- "tokio-tungstenite 0.29.0",
- "uuid",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
 name = "string_cache"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8169,16 +7988,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tokio-native-tls"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbae76ab933c85776efabc971569dd6119c580d8f5d448769dec1764bf796ef2"
-dependencies = [
- "native-tls",
- "tokio",
-]
-
-[[package]]
 name = "tokio-rustls"
 version = "0.26.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8202,23 +8011,6 @@ dependencies = [
 
 [[package]]
 name = "tokio-tungstenite"
-version = "0.25.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c28562dd8aea311048ed1ab9372a6b9a59977e1b308afb87c985c1f2b3206938"
-dependencies = [
- "futures-util",
- "log",
- "native-tls",
- "rustls",
- "rustls-pki-types",
- "tokio",
- "tokio-native-tls",
- "tokio-rustls",
- "tungstenite 0.25.0",
-]
-
-[[package]]
-name = "tokio-tungstenite"
 version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f72a05e828585856dacd553fba484c242c46e391fb0e58917c942ee9202915c"
@@ -8230,7 +8022,7 @@ dependencies = [
  "rustls-pki-types",
  "tokio",
  "tokio-rustls",
- "tungstenite 0.29.0",
+ "tungstenite",
 ]
 
 [[package]]
@@ -8646,27 +8438,6 @@ dependencies = [
 
 [[package]]
 name = "tungstenite"
-version = "0.25.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "326eb16466ed89221beef69dbc94f517ee888bae959895472133924a25f7070e"
-dependencies = [
- "byteorder",
- "bytes",
- "data-encoding",
- "http",
- "httparse",
- "log",
- "native-tls",
- "rand 0.8.8",
- "rustls",
- "rustls-pki-types",
- "sha1",
- "thiserror 2.0.20",
- "utf-8",
-]
-
-[[package]]
-name = "tungstenite"
 version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c01152af293afb9c7c2a57e4b559c5620b421f6d133261c60dd2d0cdb38e6b8"
@@ -8850,12 +8621,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "utf-8"
-version = "0.7.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09cc8ee72d2a9becf2f2febe0205bbed8fc6615b7cb429ad062dc7b7ddd036a9"
-
-[[package]]
 name = "utf8_iter"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8933,12 +8698,6 @@ name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
-
-[[package]]
-name = "vcpkg"
-version = "0.2.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "version-compare"

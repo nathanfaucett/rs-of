@@ -50,9 +50,11 @@ pub use pairing_acceptance::{
 #[cfg(all(feature = "replica", unix))]
 pub mod independent_join;
 #[cfg(all(feature = "replica", unix))]
-pub mod join_history;
+// pub mod join_history; // TODO: update to new sync API
 #[cfg(feature = "replica")]
 pub mod security_candidates;
+mod sync_validation_direction;
+
 #[cfg(feature = "replica")]
 pub mod security_policy;
 mod security_sync;
@@ -62,6 +64,9 @@ pub use security_sync::{PUBLIC_DEVICE_TABLES, permits_device_table, public_devic
 pub mod hosted_join;
 #[cfg(feature = "replica")]
 pub mod issuer_discovery;
+
+#[cfg(feature = "replica")]
+mod push_sync_adapter;
 
 #[cfg(all(test, feature = "replica"))]
 mod security_protocol_contract_tests;
