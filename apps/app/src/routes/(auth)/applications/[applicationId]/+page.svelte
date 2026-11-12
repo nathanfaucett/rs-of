@@ -23,6 +23,7 @@
     import { managementApi } from "$lib/common/state/managementClient.svelte";
     import { notifications } from "$lib/common/state/notifications.svelte";
     import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
+    import Modal from "$lib/common/components/Modal.svelte";
 
     const applicationId = page.params.applicationId;
     const profileOptions = Object.values(ClientProfile);
@@ -72,6 +73,9 @@
 
     let creatingClient = $state(false);
     let clients = $state<ClientRegistration[]>([]);
+    let secretModal = $state<{ clientId: string; clientSecret: string } | null>(
+        null,
+    );
 
     let clientName = $state("");
     let clientUri = $state("");
@@ -468,6 +472,12 @@
             resetClientForm();
             notifications.add("Client created", "success");
             clients = [...clients, created];
+            if (created.clientSecret) {
+                secretModal = {
+                    clientId: created.clientId!,
+                    clientSecret: created.clientSecret,
+                };
+            }
         } catch (cause) {
             console.error(cause);
             notifications.add("Failed to create client", "error");
@@ -1058,5 +1068,81 @@
                 </div>
             {/if}
         </Card>
+    {/if}
+    {#if secretModal}
+        <Modal title="Client Credentials">
+            <div class="flex flex-col gap-4">
+                <p class="mb-0 text-sm text-ink-muted">
+                    Copy these credentials now. The secret will not be shown
+                    again.
+                </p>
+                <div class="grid gap-3 md:grid-cols-2">
+                    <div class="flex flex-col gap-2">
+                        <label
+                            for="secret-modal-client-id"
+                            class="text-sm font-medium">Client ID</label
+                        >
+                        <div class="flex gap-2">
+                            <input
+                                readonly
+                                id="secret-modal-client-id"
+                                value={secretModal.clientId}
+                                class="flex-1 rounded-control border border-line bg-surface p-2 text-sm font-mono"
+                            />
+                            <button
+                                class="btn btn-secondary btn-md"
+                                onclick={() => {
+                                    navigator.clipboard.writeText(
+                                        secretModal.clientId,
+                                    );
+                                    notifications.add(
+                                        "Client ID copied",
+                                        "success",
+                                    );
+                                }}
+                            >
+                                Copy
+                            </button>
+                        </div>
+                    </div>
+                    <div class="flex flex-col gap-2">
+                        <label
+                            for="secret-modal-client-secret"
+                            class="text-sm font-medium">Client Secret</label
+                        >
+                        <div class="flex gap-2">
+                            <input
+                                readonly
+                                id="secret-modal-client-secret"
+                                value={secretModal.clientSecret}
+                                class="flex-1 rounded-control border border-line bg-surface p-2 text-sm font-mono"
+                            />
+                            <button
+                                class="btn btn-secondary btn-md"
+                                onclick={() => {
+                                    navigator.clipboard.writeText(
+                                        secretModal.clientSecret,
+                                    );
+                                    notifications.add(
+                                        "Client secret copied",
+                                        "success",
+                                    );
+                                }}
+                            >
+                                Copy
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <form method="dialog" class="flex justify-end">
+                    <button
+                        class="btn btn-primary btn-md"
+                        onclick={() => (secretModal = null)}
+                    >
+                        Done
+                    </button>
+                </form>
+            </div>
+        </Modal>
     {/if}
 </Page>

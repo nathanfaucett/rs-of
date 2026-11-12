@@ -1,204 +1,223 @@
 import {
-    Configuration as IndependentJoinConfiguration,
-    IndependentJoinApi,
+  Configuration as IndependentJoinConfiguration,
+  IndependentJoinApi,
 } from "@ofsdk/device-client";
 import * as v from "valibot";
 import type {
-    DeviceEnrollment,
-    DeviceInfo,
-    DeviceState,
+  DeviceEnrollment,
+  DeviceInfo,
+  DeviceState,
 } from "@ofsdk/device-client";
 import {
-    ownerAccessToken,
-    ensureTauriIdpApiUrl,
-    getIdpApiUrl,
+  ownerAccessToken,
+  ensureTauriIdpApiUrl,
+  getIdpApiUrl,
 } from "./idpClient.svelte";
 import {
-    deviceApi,
-    getDeviceApiUrl,
-    ensureTauriDeviceApiUrl,
+  deviceApi,
+  getDeviceApiUrl,
+  ensureTauriDeviceApiUrl,
 } from "./deviceClient.svelte";
 import { setupBase, fetchSetupStatus } from "./setupApi";
 import {
-    exactIndependentIntent,
-    type IndependentIntent,
+  exactIndependentIntent,
+  type IndependentIntent,
 } from "./independentSetupApi";
 
 export type { DeviceEnrollment, DeviceInfo, DeviceState };
 
 export interface PendingNodeJoin {
-    offer_id: string;
-    authenticated_endpoint: string;
-    request: {
-        installation: string;
-        member_id: string;
-        endpoint_id: string;
-        approving_peer: string;
-        name: string;
-        public_signer: Record<string, unknown>;
-        operation: IndependentIntent;
-        device_id: string;
-    };
+  offer_id: string;
+  authenticated_endpoint: string;
+  request: {
+    installation: string;
+    member_id: string;
+    endpoint_id: string;
+    approving_peer: string;
+    name: string;
+    public_signer: Record<string, unknown>;
+    operation: IndependentIntent;
+    device_id: string;
+  };
 }
 
 async function nodeJoinBearer(): Promise<string> {
-    const token = await ownerAccessToken("idp-management");
-    if (!token) throw new Error("Sign in to manage Node joining");
-    return token;
+  const token = await ownerAccessToken("idp-management");
+  if (!token) throw new Error("Sign in to manage Node joining");
+  return token;
 }
 
 const nodeJoinInit: RequestInit = {
-    credentials: "omit",
-    redirect: "error",
-    cache: "no-store",
+  credentials: "omit",
+  redirect: "error",
+  cache: "no-store",
 };
 async function sourceNodeJoinClient(): Promise<IndependentJoinApi> {
-    await ensureTauriIdpApiUrl();
-    await ensureTauriDeviceApiUrl();
-    const base = setupBase(getDeviceApiUrl() ?? "");
-    const bearer = await nodeJoinBearer();
-    if (getDeviceApiUrl()?.replace(/\/$/, "") !== base)
-        throw new Error(
-            "Source owner target changed; sign in to the intended Node",
-        );
-    const idpBase = getIdpApiUrl();
-    if (!idpBase) throw new Error("Configure the source IdP owner base");
-    const scope = await fetchSetupStatus(idpBase);
-    if (
-        !scope.owners.includes("idp") ||
-        getIdpApiUrl() !== idpBase ||
-        getDeviceApiUrl()?.replace(/\/$/, "") !== base
-    )
-        throw new Error(
-            "Source owner scope or target changed; sign in to the intended Node",
-        );
-    return new IndependentJoinApi(
-        new IndependentJoinConfiguration({
-            basePath: base,
-            fetchApi: fetch,
-            headers: { Authorization: `Bearer ${bearer}` },
-        }),
+  await ensureTauriIdpApiUrl();
+  await ensureTauriDeviceApiUrl();
+  const base = setupBase(getDeviceApiUrl() ?? "");
+  const bearer = await nodeJoinBearer();
+  if (getDeviceApiUrl()?.replace(/\/$/, "") !== base)
+    throw new Error(
+      "Source owner target changed; sign in to the intended Node",
     );
+  const idpBase = getIdpApiUrl();
+  if (!idpBase) throw new Error("Configure the source IdP owner base");
+  const scope = await fetchSetupStatus(idpBase);
+  if (
+    !scope.owners.includes("idp") ||
+    getIdpApiUrl() !== idpBase ||
+    getDeviceApiUrl()?.replace(/\/$/, "") !== base
+  )
+    throw new Error(
+      "Source owner scope or target changed; sign in to the intended Node",
+    );
+  return new IndependentJoinApi(
+    new IndependentJoinConfiguration({
+      basePath: base,
+      fetchApi: fetch,
+      headers: { Authorization: `Bearer ${bearer}` },
+    }),
+  );
 }
 
 const independentJoinRequest = v.object({
-    operation: v.custom<IndependentIntent>((value) => {
-        try {
-            exactIndependentIntent(value, true);
-            return true;
-        } catch {
-            return false;
-        }
-    }),
-    device_id: v.pipe(v.string(), v.uuid()),
-    member_id: v.pipe(v.string(), v.uuid()),
-    endpoint_id: v.string(),
-    public_signer: v.record(v.string(), v.unknown()),
-    source: v.object({
-        endpoint: v.string(),
-        device: v.string(),
-        issuer: v.string(),
-    }),
+  operation: v.custom<IndependentIntent>((value) => {
+    try {
+      exactIndependentIntent(value, true);
+      return true;
+    } catch {
+      return false;
+    }
+  }),
+  device_id: v.pipe(v.string(), v.uuid()),
+  member_id: v.pipe(v.string(), v.uuid()),
+  endpoint_id: v.string(),
+  public_signer: v.record(v.string(), v.unknown()),
+  source: v.object({
+    endpoint: v.string(),
+    device: v.string(),
+    issuer: v.string(),
+  }),
 });
 const pendingJoinSchema = v.object({
-    offer_id: v.pipe(v.string(), v.uuid()),
-    authenticated_endpoint: v.string(),
-    request: independentJoinRequest,
+  offer_id: v.pipe(v.string(), v.uuid()),
+  authenticated_endpoint: v.string(),
+  request: independentJoinRequest,
 });
 
 function exactOfferId(offerId: string): string {
-    return v.parse(v.pipe(v.string(), v.uuid()), offerId);
+  return v.parse(v.pipe(v.string(), v.uuid()), offerId);
 }
 
 export async function nodeJoinAccepting(accepting?: boolean): Promise<boolean> {
-    const api = await sourceNodeJoinClient();
-    const response =
-        accepting === undefined
-            ? await api.independentJoinAcceptingRaw(nodeJoinInit)
-            : await api.independentJoinSetAcceptingRaw(
-                  { acceptanceRequest: { accepting } },
-                  nodeJoinInit,
-              );
-    if (response.raw.status === 204 && accepting !== undefined)
-        return nodeJoinAccepting();
-    if (response.raw.status !== 200)
-        throw new Error("Invalid source acceptance evidence");
-    return v.parse(v.object({ accepting: v.boolean() }), await response.value())
-        .accepting;
+  const api = await sourceNodeJoinClient();
+  const response =
+    accepting === undefined
+      ? await api.independentJoinAcceptingRaw(nodeJoinInit)
+      : await api.independentJoinSetAcceptingRaw(
+          { acceptanceRequest: { accepting } },
+          nodeJoinInit,
+        );
+  if (response.raw.status === 204 && accepting !== undefined)
+    return nodeJoinAccepting();
+  if (response.raw.status !== 200)
+    throw new Error("Invalid source acceptance evidence");
+  return v.parse(v.object({ accepting: v.boolean() }), await response.value())
+    .accepting;
 }
 
 export async function pendingNodeJoins(): Promise<PendingNodeJoin[]> {
-    const api = await sourceNodeJoinClient();
-    const response = await api.independentJoinPendingRaw(nodeJoinInit);
-    if (response.raw.status !== 200)
-        throw new Error("Invalid source offer evidence");
-    const offers = v.parse(v.array(pendingJoinSchema), await response.value());
-    if (
-        offers.some(
-            (offer) =>
-                offer.authenticated_endpoint !== offer.request.endpoint_id,
-        )
+  const api = await sourceNodeJoinClient();
+  const response = await api.independentJoinPendingRaw(nodeJoinInit);
+  if (response.raw.status !== 200)
+    throw new Error("Invalid source offer evidence");
+  const offers = v.parse(v.array(pendingJoinSchema), await response.value());
+  if (
+    offers.some(
+      (offer) => offer.authenticated_endpoint !== offer.request.endpoint_id,
     )
-        throw new Error("Source offer endpoint binding mismatch");
-    return offers.map((offer) => {
-        const request = offer.request;
-        if (
-            request.operation.purpose !== "join" ||
-            request.device_id === request.member_id ||
-            request.source.issuer !== request.operation.issuer ||
-            `${request.source.device}#${request.source.endpoint}` !==
-                request.operation.peer
-        )
-            throw new Error(
-                "Independent offer source/operation binding mismatch",
-            );
-        return {
-            ...offer,
-            request: {
-                ...request,
-                name: request.operation.node,
-                installation: request.operation.issuer,
-                approving_peer: request.source.endpoint,
-            },
-        };
-    });
+  )
+    throw new Error("Source offer endpoint binding mismatch");
+  return offers.map((offer) => {
+    const request = offer.request;
+    if (
+      request.operation.purpose !== "join" ||
+      request.device_id === request.member_id ||
+      request.source.issuer !== request.operation.issuer ||
+      `${request.source.device}#${request.source.endpoint}` !==
+        request.operation.peer
+    )
+      throw new Error("Independent offer source/operation binding mismatch");
+    return {
+      ...offer,
+      request: {
+        ...request,
+        name: request.operation.node,
+        installation: request.operation.issuer,
+        approving_peer: request.source.endpoint,
+      },
+    };
+  });
 }
 
 export async function approvePendingNodeJoin(
-    offerId: string,
+  offerId: string,
 ): Promise<"accepted"> {
-    const api = await sourceNodeJoinClient();
-    const parameters = { id: exactOfferId(offerId) };
-    const response = await api.independentJoinApproveRaw(
-        parameters,
-        nodeJoinInit,
-    );
-    if (response.raw.status !== 202)
-        throw new Error("Invalid source approval response; refresh offers");
-    return "accepted";
+  const api = await sourceNodeJoinClient();
+  const parameters = { id: exactOfferId(offerId) };
+  const response = await api.independentJoinApproveRaw(
+    parameters,
+    nodeJoinInit,
+  );
+  if (response.raw.status !== 202)
+    throw new Error("Invalid source approval response; refresh offers");
+  return "accepted";
 }
 
 export async function rejectPendingNodeJoin(offerId: string): Promise<void> {
-    const api = await sourceNodeJoinClient();
-    const parameters = { id: exactOfferId(offerId) };
-    const response = await api.independentJoinRejectRaw(
-        parameters,
-        nodeJoinInit,
-    );
-    if (response.raw.status !== 204)
-        throw new Error("Invalid source rejection response; refresh offers");
-    return;
+  const api = await sourceNodeJoinClient();
+  const parameters = { id: exactOfferId(offerId) };
+  const response = await api.independentJoinRejectRaw(parameters, nodeJoinInit);
+  if (response.raw.status !== 204)
+    throw new Error("Invalid source rejection response; refresh offers");
+  return;
 }
 
 export function listDevices(signal?: AbortSignal): Promise<DeviceInfo[]> {
-    signal?.throwIfAborted();
-    return deviceApi.listDevices(signal ? { signal } : undefined);
+  signal?.throwIfAborted();
+  return deviceApi.listDevices(signal ? { signal } : undefined);
 }
 
 export function renameDevice(id: string, name: string): Promise<DeviceInfo> {
-    return deviceApi.updateDevice({ id, updateDeviceRequest: { name } });
+  return deviceApi.updateDevice({ id, updateDeviceRequest: { name } });
 }
 
 export function revokeDevice(id: string): Promise<void> {
-    return deviceApi.revokeDevice({ id });
+  return deviceApi.revokeDevice({ id });
+}
+
+export async function enrollDevice(
+  address: string,
+  name: string,
+  publicKey: string,
+): Promise<DeviceEnrollment> {
+  const enrollment = await deviceApi.enrollDevice({
+    deviceEnrollmentRequest: { address, name, publicKey },
+  });
+  return enrollment;
+}
+
+export async function approveDeviceEnrollment(
+  enrollmentId: string,
+): Promise<void> {
+  const api = await sourceNodeJoinClient();
+  const parameters = { id: exactOfferId(enrollmentId) };
+  const response = await api.independentJoinApproveRaw(
+    parameters,
+    nodeJoinInit,
+  );
+  if (response.raw.status !== 202) {
+    throw new Error("Failed to approve device enrollment");
+  }
 }

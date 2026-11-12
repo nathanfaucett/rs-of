@@ -1,5 +1,6 @@
 <script lang="ts">
     import type { ClientRegistration } from "@ofsdk/idp-client";
+    import { ClientType } from "@ofsdk/idp-client";
     import { onMount } from "svelte";
     import { goto } from "$app/navigation";
     import { resolve } from "$app/paths";
@@ -8,9 +9,14 @@
         type ClientKey,
         idpAdministration,
     } from "$lib/common/state/idpAdministration";
-    import { idpApi } from "$lib/common/state/idpClient.svelte";
+    import {
+        idpApi,
+        getIdpApiUrl,
+        idpOwnerAccessToken,
+    } from "$lib/common/state/idpClient.svelte";
     import { notifications } from "$lib/common/state/notifications.svelte";
     import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
+    import Modal from "$lib/common/components/Modal.svelte";
 
     const clientId = page.params.clientId;
 
@@ -26,6 +32,11 @@
     let jwkError = $state<string | null>(null);
     let jwk = $state<Record<string, unknown> | null>(null);
     let jwkKeyId = $state<string | null>(null);
+    let secretModal = $state<{ clientId: string; clientSecret: string } | null>(
+        null,
+    );
+    let revealingSecret = $state(false);
+    let rotatingSecret = $state(false);
 
     let clientName = $state("");
     let clientUri = $state("");
@@ -86,6 +97,70 @@
             notifications.add("Failed to load client", "error");
         } finally {
             loading = false;
+        }
+    }
+
+    async function revealSecret() {
+        if (!client) return;
+        revealingSecret = true;
+        try {
+            const currentClient = await idpApi.getRegister({ clientId });
+            if (currentClient.clientSecret) {
+                secretModal = {
+                    clientId: currentClient.clientId!,
+                    clientSecret: currentClient.clientSecret,
+                };
+            } else {
+                notifications.add("No client secret available", "error");
+            }
+        } catch (cause) {
+            console.error(cause);
+            notifications.add("Failed to reveal secret", "error");
+        } finally {
+            revealingSecret = false;
+        }
+    }
+
+    async function rotateSecret() {
+        if (!client) return;
+        if (
+            !confirm(
+                "Regenerate client secret? This will invalidate the current secret.",
+            )
+        ) {
+            return;
+        }
+        rotatingSecret = true;
+        try {
+            const baseUrl = getIdpApiUrl();
+            if (!baseUrl) throw new Error("No IdP API URL configured");
+            const token = await idpOwnerAccessToken();
+            const response = await fetch(
+                `${baseUrl.replace(/\/$/, "")}/clients/${clientId}/rotate-secret`,
+                {
+                    method: "POST",
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                },
+            );
+            if (!response.ok) {
+                throw new Error(
+                    `Failed to rotate secret: ${response.statusText}`,
+                );
+            }
+            const newSecret = await response.text();
+            secretModal = {
+                clientId: client.clientId!,
+                clientSecret: newSecret,
+            };
+            notifications.add("Client secret rotated", "success");
+            await loadClient();
+        } catch (cause) {
+            console.error(cause);
+            notifications.add("Failed to rotate secret", "error");
+        } finally {
+            rotatingSecret = false;
         }
     }
 
@@ -168,7 +243,30 @@
     {:else if loading}
         <Card tone="subtle">Loading client...</Card>
     {:else if client}
-        <Card description="Client ID: {client.clientId ?? '-'}">
+        {#snippet cardActions()}
+            <div class="flex items-center gap-2">
+                <button
+                    class="btn btn-secondary btn-sm"
+                    onclick={revealSecret}
+                    disabled={revealingSecret || rotatingSecret}
+                >
+                    {revealingSecret ? "Revealing..." : "Reveal secret"}
+                </button>
+                {#if client.clientType === ClientType.Confidential}
+                    <button
+                        class="btn btn-warning btn-sm"
+                        onclick={rotateSecret}
+                        disabled={revealingSecret || rotatingSecret}
+                    >
+                        {rotatingSecret ? "Rotating..." : "Regenerate secret"}
+                    </button>
+                {/if}
+            </div>
+        {/snippet}
+        <Card
+            description="Client ID: {client.clientId ?? '-'}"
+            actions={cardActions}
+        >
             <div class="flex flex-col gap-4">
                 <Field label="Name">
                     {#snippet children({
@@ -378,5 +476,81 @@
                 >
             </div>
         </Card>
+    {/if}
+    {#if secretModal}
+        <Modal title="Client Credentials">
+            <div class="flex flex-col gap-4">
+                <p class="mb-0 text-sm text-ink-muted">
+                    Copy these credentials now. The secret will not be shown
+                    again.
+                </p>
+                <div class="grid gap-3 md:grid-cols-2">
+                    <div class="flex flex-col gap-2">
+                        <label
+                            for="secret-modal-client-id"
+                            class="text-sm font-medium">Client ID</label
+                        >
+                        <div class="flex gap-2">
+                            <input
+                                readonly
+                                id="secret-modal-client-id"
+                                value={secretModal.clientId}
+                                class="flex-1 rounded-control border border-line bg-surface p-2 text-sm font-mono"
+                            />
+                            <button
+                                class="btn btn-secondary btn-md"
+                                onclick={() => {
+                                    navigator.clipboard.writeText(
+                                        secretModal.clientId,
+                                    );
+                                    notifications.add(
+                                        "Client ID copied",
+                                        "success",
+                                    );
+                                }}
+                            >
+                                Copy
+                            </button>
+                        </div>
+                    </div>
+                    <div class="flex flex-col gap-2">
+                        <label
+                            for="secret-modal-client-secret"
+                            class="text-sm font-medium">Client Secret</label
+                        >
+                        <div class="flex gap-2">
+                            <input
+                                readonly
+                                id="secret-modal-client-secret"
+                                value={secretModal.clientSecret}
+                                class="flex-1 rounded-control border border-line bg-surface p-2 text-sm font-mono"
+                            />
+                            <button
+                                class="btn btn-secondary btn-md"
+                                onclick={() => {
+                                    navigator.clipboard.writeText(
+                                        secretModal.clientSecret,
+                                    );
+                                    notifications.add(
+                                        "Client secret copied",
+                                        "success",
+                                    );
+                                }}
+                            >
+                                Copy
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <form method="dialog" class="flex justify-end">
+                    <button
+                        class="btn btn-primary btn-md"
+                        onclick={() => (secretModal = null)}
+                    >
+                        Done
+                    </button>
+                </form>
+            </div>
+        </Modal>
     {/if}
 </Page>

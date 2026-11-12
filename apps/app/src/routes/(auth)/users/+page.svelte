@@ -56,7 +56,18 @@
 </script>
 
 <Page>
-    <PageHeader title="Users" description="Page {pageNumber}" />
+    <PageHeader title="Users" description="Page {pageNumber}">
+        {#snippet actions()}
+            <button
+                class="btn btn-primary btn-md"
+                type="button"
+                disabled
+                title="Create user requires backend endpoint (not yet implemented)"
+            >
+                Add user
+            </button>
+        {/snippet}
+    </PageHeader>
 
     {#if error}
         <Alert tone="danger">{error}</Alert>
