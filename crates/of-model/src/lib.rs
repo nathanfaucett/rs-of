@@ -6,6 +6,8 @@ pub mod contract;
 #[cfg(feature = "replica")]
 pub mod db;
 pub mod device;
+#[cfg(feature = "replica")]
+pub mod error;
 pub mod idp;
 pub mod json_vec;
 pub mod management;

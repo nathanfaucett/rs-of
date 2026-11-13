@@ -25,6 +25,11 @@
 
 `db::Database` is object-safe. It returns the existing SQL `Client` and `Transaction`, not a second transaction protocol. Implementations cover the existing database owner (redb or memory) and a query `Client` (embedded or remote). Owner sub-traits expose query clients; they do not grant authorization or expose database hosting controls. Owner services retain their existing permission checks.
 
+`error::DatabaseError` (with `replica`) re-exports the existing SQL `QueryError`.
+`embedded-db` provides initialized Embedded, Memory, and optional Network adapters
+for this interface. Its runtime requires `std`; domain-only builds do not.
+See [the adapter README](../embedded-db/README.md).
+
 `replica::up` applies the fresh unified schema in one SQL transaction. It includes identity, Device, Management sync, and Storage catalog tables. The integration test uses a real redb file, repeats initialization, commits and rolls back transactions, then checks retained data after reopen.
 
 Independent identity initialization remains at `idp::replica::up`. Independent Device initialization uses `replica::up_device` and retains Device schema validation in `device-service`. Neither initializes the other owner's tables. Independent Storage keeps its existing file-backed catalogs; the new unified SQL catalog is not a replacement for that runtime yet.

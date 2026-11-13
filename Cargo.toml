@@ -43,6 +43,7 @@ members = [
     "crates/storage-client",
     "crates/storage-api-client",
     "crates/db",
+    "crates/embedded-db",
     "crates/cli",
     "crates/server-common",
     "crates/key",
@@ -184,7 +185,10 @@ rustls = { version = "0.23", default-features = false, features = [
     "std",
     "tls12",
 ] }
-of-model = { path = "crates/of-model", default-features = false, features = ["replica", "std"] }
+of-model = { path = "crates/of-model", default-features = false, features = [
+    "replica",
+    "std",
+] }
 tokio-tungstenite = { version = "0.29", default-features = false, features = [
     "connect",
     "handshake",

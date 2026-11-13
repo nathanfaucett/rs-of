@@ -1,0 +1,36 @@
+[package]
+name = "embedded-db"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Shared SQL database adapters for embedded, memory, and network access"
+
+[features]
+default = []
+network = ["db/remote"]
+
+[dependencies]
+# Internal
+db = { package = "idp-db", path = "../db", default-features = false, features = [
+    "replica",
+] }
+of-model = { path = "../of-model", default-features = false, features = [
+    "replica",
+] }
+
+[dev-dependencies]
+# Database fixtures
+ofdb-sql = { path = "../../../ofdb/crates/sql", default-features = false, features = [
+    "server",
+] }
+tempfile = { version = "3.27", default-features = false }
+tokio = { version = "1.52", default-features = false, features = [
+    "macros",
+    "net",
+    "rt-multi-thread",
+    "sync",
+    "time",
+] }
