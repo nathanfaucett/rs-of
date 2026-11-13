@@ -1,87 +1,62 @@
-/// Resource handles with built-in sync transport.
-use alloc::{boxed::Box, string::ToString};
-use core::fmt::{Debug, Formatter, Result as FmtResult};
+use alloc::string::{String, ToString};
 use core::future::Future;
+
+use ofdb_sql::history::{SessionConfig, SyncResult, SyncRole, SyncTransport};
+use ofdb_sql::{Database, QueryParams, QueryResult};
 use uuid::Uuid;
 
-use crate::error::{Result, StorageClientError};
-use crate::transport::{TransportConfig, WsSyncTransport};
+use crate::{
+    error::{Result, StorageClientError},
+    protocol::StoreIdentity,
+    transport::{TokenProvider, TransportConfig},
+};
 
-#[cfg(feature = "native")]
-use crate::transport::NativeWsTransport;
-
-#[cfg(feature = "browser")]
-use crate::transport::BrowserWsTransport;
-
-use ofdb_sql::{Database, QueryParams, QueryResult, SessionConfig};
-use ofdb_sync::{PushResult as OfdbSyncResult, SyncRole};
-use storage_sync_client::client::{TokenProvider, WsTransportBridge};
-use storage_sync_client::protocol::StoreIdentity;
-
-/// SQL Database handle with built-in sync transport.
 pub struct SqlDatabaseHandle {
     database: Database,
     store_identity: StoreIdentity,
     transport_config: TransportConfig,
-    _token_provider: TokenProvider,
-    _local_replica_id: Uuid,
+    token_provider: TokenProvider,
 }
-
 impl SqlDatabaseHandle {
-    /// Create a new SQL database handle.
     pub fn new(
         database: Database,
         store_identity: StoreIdentity,
         transport_config: TransportConfig,
         token_provider: TokenProvider,
-        local_replica_id: Uuid,
     ) -> Self {
         Self {
             database,
             store_identity,
             transport_config,
-            _token_provider: token_provider,
-            _local_replica_id: local_replica_id,
+            token_provider,
         }
     }
-
-    /// Get the underlying database.
     pub fn database(&self) -> &Database {
         &self.database
     }
-
-    /// Get a mutable reference to the database.
     pub fn database_mut(&mut self) -> &mut Database {
         &mut self.database
     }
-
-    /// Execute SQL directly on the database.
     pub async fn execute(&self, sql: &str) -> Result<QueryResult> {
-        let client = self.database.client();
-        let results = client
+        self.database
+            .client()
             .execute_sql(sql, None)
             .await
-            .map_err(|e| StorageClientError::Database(e.to_string()))?;
-        results
+            .map_err(|e| StorageClientError::Database(e.to_string()))?
             .into_iter()
             .next()
-            .ok_or(StorageClientError::Database("no result".into()))
+            .ok_or_else(|| StorageClientError::Database("no result".into()))
     }
-
-    /// Execute SQL with parameters.
     pub async fn execute_with_params(&self, sql: &str, params: QueryParams) -> Result<QueryResult> {
-        let client = self.database.client();
-        let results = client
+        self.database
+            .client()
             .execute_sql(sql, Some(&params))
             .await
-            .map_err(|e| StorageClientError::Database(e.to_string()))?;
-        results
+            .map_err(|e| StorageClientError::Database(e.to_string()))?
             .into_iter()
             .next()
-            .ok_or(StorageClientError::Database("no result".into()))
+            .ok_or_else(|| StorageClientError::Database("no result".into()))
     }
-
-    /// Start a transaction.
     pub async fn transaction(&self) -> Result<ofdb_sql::Transaction> {
         self.database
             .client()
@@ -89,150 +64,136 @@ impl SqlDatabaseHandle {
             .await
             .map_err(|e| StorageClientError::Database(e.to_string()))
     }
-
-    /// Synchronize with a remote peer using the built-in transport.
-    /// Synchronize with the peer.
-    pub async fn synchronize(&mut self, config: Option<SessionConfig>) -> Result<OfdbSyncResult> {
-        let mut transport = self.create_transport().await?;
-        let config = config.unwrap_or_default();
-
-        let result = self
-            .database
-            .synchronize(&mut transport, &config)
+    /// Exchanges typed SQL history on an owner-admitted resource stream.
+    /// The check must reject revoked authorization or cancellation before each apply.
+    pub async fn synchronize_with<T, Q, U>(
+        &self,
+        transport: &mut T,
+        config: &SessionConfig,
+        role: SyncRole,
+        staging_directory: impl AsRef<std::path::Path>,
+        check: Q,
+    ) -> Result<SyncResult>
+    where
+        T: SyncTransport,
+        T::Error: core::fmt::Display,
+        Q: FnMut() -> U + ofdb_platform::MaybeSend,
+        U: Future<Output = core::result::Result<(), String>> + ofdb_platform::MaybeSend,
+    {
+        self.database
+            .exchange_resource_history(transport, config, role, staging_directory, check)
             .await
-            .map_err(|e| StorageClientError::Sync(e.to_string()))?;
-
-        Ok(result)
+            .map_err(|e| StorageClientError::Sync(e.to_string()))
     }
-
-    /// Get the store identity for this database.
+    #[cfg(any(
+        all(feature = "native", not(target_arch = "wasm32")),
+        all(feature = "browser", target_arch = "wasm32")
+    ))]
+    pub async fn synchronize(&self, config: Option<SessionConfig>) -> Result<SyncResult> {
+        let token = (self.token_provider)().await?;
+        let mut transport = crate::transport::OwnerTransport::connect(
+            &self.transport_config.sync_ws_url,
+            &self.store_identity,
+            token,
+        )
+        .await?;
+        let directory = std::env::temp_dir()
+            .join("of-storage-client")
+            .join(self.resource_id().to_string())
+            .join(self.store_identity.replica_id.to_string());
+        self.synchronize_with(
+            &mut transport,
+            &config.unwrap_or_default(),
+            SyncRole::Initiator,
+            directory,
+            || async {
+                (self.token_provider)()
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            },
+        )
+        .await
+    }
     pub fn store_identity(&self) -> &StoreIdentity {
         &self.store_identity
     }
-
-    /// Get the resource ID.
     pub fn resource_id(&self) -> Uuid {
         self.store_identity.store_id
     }
-
-    async fn create_transport(&self) -> Result<WsTransportBridge<Box<dyn WsSyncTransport + Send>>> {
-        #[cfg(feature = "native")]
-        {
-            let transport = NativeWsTransport::connect(&self.transport_config.sync_ws_url).await?;
-            let bridge =
-                WsTransportBridge::new(Box::new(transport) as Box<dyn WsSyncTransport + Send>);
-            Ok(bridge)
-        }
-
-        #[cfg(feature = "browser")]
-        {
-            let transport = BrowserWsTransport::connect(
-                &self.transport_config.sync_ws_url,
-                &self.transport_config.auth_token,
-            )
-            .await?;
-            let bridge =
-                WsTransportBridge::new(Box::new(transport) as Box<dyn WsSyncTransport + Send>);
-            Ok(bridge)
-        }
-
-        #[cfg(not(any(feature = "native", feature = "browser")))]
-        {
-            Err(StorageClientError::InvalidArgument(
-                "No transport feature enabled".into(),
-            ))
-        }
-    }
 }
-
-impl Debug for SqlDatabaseHandle {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+impl core::fmt::Debug for SqlDatabaseHandle {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SqlDatabaseHandle")
             .field("resource_id", &self.resource_id())
             .finish()
     }
 }
 
-/// KV Store handle with built-in sync transport.
 pub struct KvStoreHandle {
-    // TODO: Add ofdb-kv database when KV sync is implemented
+    database: ofdb_kv::Database,
     store_identity: StoreIdentity,
-    _transport_config: TransportConfig,
-    _token_provider: TokenProvider,
-    _local_replica_id: Uuid,
 }
-
 impl KvStoreHandle {
-    pub fn new(
-        store_identity: StoreIdentity,
-        transport_config: TransportConfig,
-        token_provider: TokenProvider,
-        local_replica_id: Uuid,
-    ) -> Self {
+    pub fn new(database: ofdb_kv::Database, store_identity: StoreIdentity) -> Self {
         Self {
+            database,
             store_identity,
-            _transport_config: transport_config,
-            _token_provider: token_provider,
-            _local_replica_id: local_replica_id,
         }
     }
-
-    /// Get the store identity for this KV store.
+    pub fn database(&self) -> &ofdb_kv::Database {
+        &self.database
+    }
+    /// Exchanges KV v3 history on an owner-admitted resource stream.
+    pub async fn synchronize_with<T, Q, U>(
+        &self,
+        transport: &mut T,
+        role: ofdb_kv::history::SyncRole,
+        config: ofdb_kv::history::Config,
+        check: Q,
+    ) -> Result<()>
+    where
+        T: ofdb_kv::history::SyncTransport,
+        T::Error: core::fmt::Display,
+        Q: FnMut() -> U,
+        U: Future<Output = core::result::Result<(), String>>,
+    {
+        self.database
+            .exchange_history(transport, role, config, check)
+            .await
+            .map_err(|e| StorageClientError::Sync(e.to_string()))
+    }
     pub fn store_identity(&self) -> &StoreIdentity {
         &self.store_identity
     }
-
-    /// Get the resource ID.
     pub fn resource_id(&self) -> Uuid {
         self.store_identity.store_id
     }
 }
-
-impl Debug for KvStoreHandle {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+impl core::fmt::Debug for KvStoreHandle {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("KvStoreHandle")
             .field("resource_id", &self.resource_id())
             .finish()
     }
 }
 
-/// Filesystem handle with built-in sync transport.
 pub struct FilesystemHandle {
-    // TODO: Add file-system instance when filesystem sync is implemented
     store_identity: StoreIdentity,
-    _transport_config: TransportConfig,
-    _token_provider: TokenProvider,
-    _local_replica_id: Uuid,
 }
-
 impl FilesystemHandle {
-    pub fn new(
-        store_identity: StoreIdentity,
-        transport_config: TransportConfig,
-        token_provider: TokenProvider,
-        local_replica_id: Uuid,
-    ) -> Self {
-        Self {
-            store_identity,
-            _transport_config: transport_config,
-            _token_provider: token_provider,
-            _local_replica_id: local_replica_id,
-        }
+    pub fn new(store_identity: StoreIdentity) -> Self {
+        Self { store_identity }
     }
-
-    /// Get the store identity for this filesystem.
     pub fn store_identity(&self) -> &StoreIdentity {
         &self.store_identity
     }
-
-    /// Get the resource ID.
     pub fn resource_id(&self) -> Uuid {
         self.store_identity.store_id
     }
 }
-
-impl Debug for FilesystemHandle {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+impl core::fmt::Debug for FilesystemHandle {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("FilesystemHandle")
             .field("resource_id", &self.resource_id())
             .finish()
