@@ -16,7 +16,9 @@
     "lint:fix": "biome lint --write .",
     "format": "biome format .",
     "format:fix": "biome format --write .",
-    "postinstall": "svelte-kit sync"
+    "postinstall": "svelte-kit sync",
+    "test": "vitest run",
+    "test:e2e": "playwright test --config ../../e2e/playwright.config.ts --project app"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3",

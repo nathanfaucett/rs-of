@@ -4,6 +4,11 @@
   "type": "module",
   "scripts": {
     "test": "pnpm -r run test",
+    "test:e2e": "playwright test --config e2e/playwright.config.ts",
+    "test:e2e:lifecycle": "node --test e2e/backend.test.mjs",
+    "test:e2e:check": "pnpm --filter @ofsdk/app exec tsc --project ../../e2e/tsconfig.json",
+    "test:backend": "pnpm --filter @ofsdk/app test && pnpm --filter @ofsdk/password-manager test:backend",
+    "e2e:prepare": "pnpm sdk:build && pnpm --filter @ofsdk/native-fetch --filter @ofsdk/oidc-client run build:esm && pnpm --filter @ofsdk/svelte-headless exec svelte-kit sync && pnpm --filter @ofsdk/svelte-headless exec svelte-package && pnpm --filter @ofsdk/sync-sdk run build:browser && pnpm --filter @ofsdk/app --filter @ofsdk/password-manager exec svelte-kit sync",
     "coverage": "pnpm -r run coverage",
     "lint": "pnpm -r run lint",
     "lint:fix": "pnpm -r run lint:fix",
@@ -23,7 +28,9 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3",
-    "@vitest/browser-playwright": "^4.1.12",
+    "@playwright/test": "^1.64.1",
+    "@vitest/browser-playwright": "4.1.10",
+    "vitest": "4.1.10",
     "portless": "^0.15.4"
   }
 }
