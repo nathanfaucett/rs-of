@@ -12,7 +12,7 @@ An independently usable Installation member hosting IdP, Management, Device, and
 _Avoid_: Authority node, privileged replica, Storage-only Node
 
 **Unified Host**:
-The host composing a Node's IdP, Management, Device, and Storage contexts while retaining separate domain and state ownership.
+The host composing IdP, Management, Device, and Storage while retaining separate domain ownership. Local development composition does not establish Installation membership or imply mesh participation.
 
 **User**:
 An authenticated human subject with a stable public identity.
