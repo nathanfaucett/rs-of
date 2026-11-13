@@ -16,7 +16,7 @@ name = "idp_service"
 default = ["std"]
 
 headless = ["key/headless"]
-replica = ["std", "db/replica", "of-model/replica", "dep:tokio"]
+replica = ["std", "db/replica", "of-model/replica", "dep:tokio", "dep:ofdb-kv"]
 std = [
     "key/std",
     "of-model/std",
@@ -38,6 +38,9 @@ key = { path = "../key", default-features = false, features = ["secure-store"] }
 of-model = { path = "../of-model", default-features = false, features = [
     "std",
 ] }
+
+# Local private storage
+ofdb-kv = { path = "../../../ofdb/crates/kv", default-features = false, features = ["redb"], optional = true }
 
 # Cryptography
 k256 = { version = "0.13", default-features = false, features = ["ecdsa"] }

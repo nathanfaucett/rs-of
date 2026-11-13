@@ -29,14 +29,25 @@ struct CopyPolicy {
 }
 
 pub(crate) struct LocalCopyPolicy {
-    path: PathBuf,
+    storage: PolicyStorage,
     lock: Mutex<()>,
 }
 
+enum PolicyStorage {
+    File(PathBuf),
+    Kv(ofdb_kv::Client),
+}
+
 impl LocalCopyPolicy {
+    pub fn with_store(store: ofdb_kv::Client) -> Self {
+        Self {
+            storage: PolicyStorage::Kv(store),
+            lock: Mutex::new(()),
+        }
+    }
     pub(crate) fn new(path: PathBuf) -> Self {
         Self {
-            path,
+            storage: PolicyStorage::File(path),
             lock: Mutex::new(()),
         }
     }
@@ -285,23 +296,58 @@ impl LocalCopyPolicy {
     }
 
     fn write(&self, policy: &CopyPolicy) -> io::Result<()> {
-        if let Some(parent) = self.path.parent() {
+        let path = match &self.storage {
+            PolicyStorage::Kv(store) => {
+                return crate::persistence::run(async {
+                    let value = serde_json::to_value(policy).map_err(io::Error::other)?;
+                    store
+                        .set("policy", ofdb_kv::Value::Json(value.into()), None)
+                        .await
+                        .map_err(crate::persistence::error)
+                });
+            }
+            PolicyStorage::File(path) => path,
+        };
+        if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
         let bytes = serde_json::to_vec(policy).map_err(io::Error::other)?;
-        let temporary = self.path.with_extension("tmp");
+        let temporary = path.with_extension("tmp");
         let mut file = File::create(&temporary)?;
         file.write_all(&bytes)?;
         file.sync_all()?;
-        fs::rename(temporary, &self.path)?;
-        if let Some(parent) = self.path.parent() {
+        fs::rename(temporary, path)?;
+        if let Some(parent) = path.parent() {
             File::open(parent)?.sync_all()?;
         }
         Ok(())
     }
 
     fn read(&self) -> io::Result<CopyPolicy> {
-        match fs::read(&self.path) {
+        let path = match &self.storage {
+            PolicyStorage::Kv(store) => {
+                return crate::persistence::run(async {
+                    match store
+                        .get("policy")
+                        .await
+                        .map_err(crate::persistence::error)?
+                    {
+                        None => Ok(CopyPolicy::default()),
+                        Some(ofdb_kv::Value::Json(value)) => serde_json::from_value(
+                            serde_json::Value::try_from(value)
+                                .map_err(crate::persistence::error)?,
+                        )
+                        .map_err(io::Error::other),
+                        _ => Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "invalid local copy policy",
+                        )),
+                    }
+                });
+            }
+            PolicyStorage::File(path) => path,
+        };
+        match fs::read(path) {
             Ok(bytes) => serde_json::from_slice(&bytes)
                 .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error)),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(CopyPolicy::default()),

@@ -143,7 +143,11 @@ pub async fn build_local_router(
     std::fs::create_dir_all(data_dir)?;
     let directory = std::fs::canonicalize(data_dir)?;
     let data_dir = directory.as_path();
-    let engine = embedded_db::local_client(data_dir, "idp", db)?;
+    let database = embedded_db::local_database(data_dir, "idp", db)?;
+    let engine = database.client();
+    let storage = database
+        .local_storage()
+        .ok_or_else(|| io::Error::other("local IdP requires shared embedded storage"))?;
 
     let mut config = AppConfig {
         data_dir: data_dir.to_string_lossy().into_owned(),
@@ -160,11 +164,16 @@ pub async fn build_local_router(
     };
     config.oauth2.issuer = base.into();
     config.oauth2.local_signer = Some(
-        crate::local_seed::signer(engine.clone(), &config.key_namespace, &config.oauth2.issuer)
-            .await?,
+        crate::local_seed::signer(
+            engine.clone(),
+            &storage,
+            &config.key_namespace,
+            &config.oauth2.issuer,
+        )
+        .await?,
     );
     let permissions = LocalPermissions::new(engine.clone());
-    let keys = PrivateKeyKeyringRepo::new_local(engine.clone()).map_err(io::Error::other)?;
+    let keys = PrivateKeyKeyringRepo::new_local(&storage).map_err(io::Error::other)?;
     let state = build_state_with_keys(&config, engine, None, None, Some(permissions), keys).await?;
     crate::local_seed::seed(&state, origin).await?;
     for (username, password) in users {

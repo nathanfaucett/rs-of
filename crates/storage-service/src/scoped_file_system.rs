@@ -18,7 +18,7 @@ use of_model::storage::{ResourceCatalog, ResourceIdentity, ResourceKind};
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::Mutex;
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Deserialize, Serialize)]
 struct StorageNamespaceId {
     user_sub: String,
     application_id: of_model::idp::model::Id,
@@ -55,6 +55,7 @@ where
 {
     changes: tokio::sync::watch::Sender<()>,
     root: PathBuf,
+    shared: Option<ofdb_kv::SharedDatabase>,
     local_peer: PeerId,
     pub(crate) local_copies: Arc<crate::local_copy::LocalCopyPolicy>,
     pub(crate) content_reader: Arc<StdMutex<Option<ContentReader>>>,
@@ -72,25 +73,47 @@ where
 {
     pub fn new(root: PathBuf, local_peer: PeerId) -> io::Result<Self> {
         std::fs::create_dir_all(&root)?;
-        Self::new_local(root, local_peer)
+        Self::build(root, local_peer, None)
     }
 
-    /// Defers resource files until a local resource is used.
-    pub fn new_local(root: PathBuf, local_peer: PeerId) -> io::Result<Self> {
+    pub fn with_shared(storage: ofdb_kv::SharedDatabase, local_peer: PeerId) -> io::Result<Self> {
+        Self::build(PathBuf::new(), local_peer, Some(storage))
+    }
+
+    fn build(
+        root: PathBuf,
+        local_peer: PeerId,
+        shared: Option<ofdb_kv::SharedDatabase>,
+    ) -> io::Result<Self> {
+        let local_copies = match &shared {
+            Some(storage) => crate::local_copy::LocalCopyPolicy::with_store(
+                ofdb_kv::Database::open_shared(storage, "storage-filesystem-copy-policy")
+                    .map_err(crate::persistence::error)?
+                    .client(),
+            ),
+            None => {
+                crate::local_copy::LocalCopyPolicy::new(root.join("filesystem-local-copies.json"))
+            }
+        };
         Ok(Self {
             changes: tokio::sync::watch::channel(()).0,
-            local_copies: Arc::new(crate::local_copy::LocalCopyPolicy::new(
-                root.join("filesystem-local-copies.json"),
-            )),
+            local_copies: Arc::new(local_copies),
             root,
+            shared,
             local_peer,
             content_reader: Arc::new(StdMutex::new(None)),
-
             catalogs: StdMutex::new(BTreeMap::new()),
             resources: Mutex::new(BTreeMap::new()),
             residency_updates: StdMutex::new(BTreeMap::new()),
             copy_catalogs: StdMutex::new(BTreeMap::new()),
         })
+    }
+
+    fn namespace_name(id: &StorageNamespaceId) -> String {
+        format!(
+            "storage-filesystem:{}",
+            of_model::idp::model::Id::new_v5(&id.application_id, id.user_sub.as_bytes())
+        )
     }
 
     pub fn catalog_changes(&self) -> tokio::sync::watch::Receiver<()> {
@@ -538,7 +561,20 @@ where
             .join("copies")
             .join(resource_id.as_uuid().to_string())
             .join(generation.to_string());
-        let catalog = Arc::new(FileSystemCatalog::open(root).map_err(|error| error.to_string())?);
+        let catalog = Arc::new(
+            match &self.shared {
+                Some(storage) => FileSystemCatalog::open_shared(
+                    storage,
+                    &format!(
+                        "{}:copy:{}:{generation}",
+                        Self::namespace_name(namespace),
+                        resource_id.as_uuid()
+                    ),
+                ),
+                None => FileSystemCatalog::open(root),
+            }
+            .map_err(|error| error.to_string())?,
+        );
         catalog
             .import_snapshot(&[entry])
             .await
@@ -556,6 +592,37 @@ where
     fn catalogs_on_disk(
         &self,
     ) -> Result<Vec<(StorageNamespaceId, Arc<FileSystemCatalog>)>, String> {
+        if let Some(storage) = &self.shared {
+            let registry = ofdb_kv::Database::open_shared(storage, "storage-filesystem-namespaces")
+                .map_err(|error| error.to_string())?
+                .client();
+            let namespaces: Vec<StorageNamespaceId> = crate::persistence::run(async {
+                registry
+                    .scan_prefix("namespace:")
+                    .await
+                    .map_err(crate::persistence::error)?
+                    .into_iter()
+                    .map(|(_, value)| {
+                        let ofdb_kv::Value::Json(value) = value else {
+                            return Err(io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                "invalid filesystem namespace record",
+                            ));
+                        };
+                        serde_json::from_value(
+                            serde_json::Value::try_from(value)
+                                .map_err(crate::persistence::error)?,
+                        )
+                        .map_err(io::Error::other)
+                    })
+                    .collect()
+            })
+            .map_err(|error| error.to_string())?;
+            return namespaces
+                .into_iter()
+                .map(|namespace| self.catalog(&namespace).map(|catalog| (namespace, catalog)))
+                .collect();
+        }
         let root = self.root.join("filesystems");
         let subjects = match fs::read_dir(root) {
             Ok(subjects) => subjects,
@@ -608,8 +675,30 @@ where
             return Ok(Arc::clone(catalog));
         }
         let catalog = Arc::new(
-            FileSystemCatalog::open(namespace_root(&self.root, id))
-                .map_err(|error| error.to_string())?,
+            match &self.shared {
+                Some(storage) => {
+                    let name = Self::namespace_name(id);
+                    let registry =
+                        ofdb_kv::Database::open_shared(storage, "storage-filesystem-namespaces")
+                            .map_err(|error| error.to_string())?
+                            .client();
+                    crate::persistence::run(async {
+                        let value = serde_json::to_value(id).map_err(io::Error::other)?;
+                        registry
+                            .set(
+                                &format!("namespace:{name}"),
+                                ofdb_kv::Value::Json(value.into()),
+                                None,
+                            )
+                            .await
+                            .map_err(crate::persistence::error)
+                    })
+                    .map_err(|error| error.to_string())?;
+                    FileSystemCatalog::open_shared(storage, &name)
+                }
+                None => FileSystemCatalog::open(namespace_root(&self.root, id)),
+            }
+            .map_err(|error| error.to_string())?,
         );
         catalogs.insert(id.clone(), Arc::clone(&catalog));
         Ok(catalog)
@@ -703,42 +792,69 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn local_runtime_defers_files_and_retains_resource_content_and_tombstones() {
+    async fn shared_filesystems_keep_content_residency_and_retirement_in_the_host_database() {
+        use of_model::db::Database as ModelDatabase;
         let namespace = Namespace {
             user_sub: "local-user",
             application_id: of_model::idp::model::Id::now_v7(),
         };
-        let root = env::temp_dir().join(format!("local-filesystem-{}", namespace.application_id));
+        let root = env::temp_dir().join(format!("shared-filesystem-{}", namespace.application_id));
+        let database = embedded_db::EmbeddedDatabase::open(&root)
+            .await
+            .expect("host");
         let runtime =
-            ScopedFileSystemRuntime::new_local(root.clone(), 1_u8).expect("lazy local runtime");
-        assert!(!root.exists());
+            ScopedFileSystemRuntime::with_shared(database.local_storage().expect("storage"), 1_u8)
+                .expect("runtime");
         let resource = runtime
             .create_resource(&namespace, Some("Documents".into()))
             .await
-            .expect("create local filesystem");
+            .expect("resource");
         let filesystem = runtime
             .open_resource(&namespace, resource.id)
             .await
-            .expect("open filesystem");
+            .expect("filesystem");
         filesystem
             .write("saved.txt", b"durable local content")
             .await
             .expect("write file");
+        let passthrough = runtime
+            .create_resource(&namespace, Some("Remote".into()))
+            .await
+            .expect("passthrough resource");
+        runtime
+            .set_resource_residency(
+                &namespace,
+                passthrough.id,
+                file_system::Residency::Passthrough,
+            )
+            .await
+            .expect("passthrough policy");
         drop(filesystem);
         drop(runtime);
+        drop(database);
+        let database = embedded_db::EmbeddedDatabase::open(&root)
+            .await
+            .expect("restart host");
         let runtime =
-            ScopedFileSystemRuntime::new_local(root.clone(), 1_u8).expect("reopen runtime");
+            ScopedFileSystemRuntime::with_shared(database.local_storage().expect("storage"), 1_u8)
+                .expect("restart runtime");
         assert_eq!(
-            runtime
-                .list_resources(&namespace)
-                .await
-                .expect("retained catalog"),
-            vec![resource.clone()]
+            runtime.list_resources(&namespace).await.expect("catalog"),
+            vec![resource.clone(), passthrough.clone()]
         );
         let filesystem = runtime
             .open_resource(&namespace, resource.id)
             .await
-            .expect("reopen filesystem");
+            .expect("reopen resource");
+        assert_eq!(
+            runtime
+                .open_resource(&namespace, passthrough.id)
+                .await
+                .expect("passthrough resource")
+                .residency("")
+                .expect("retained mode"),
+            file_system::Residency::Passthrough
+        );
         assert_eq!(
             filesystem
                 .read("saved.txt")
@@ -746,30 +862,92 @@ mod tests {
                 .expect("retained content"),
             b"durable local content"
         );
+        runtime
+            .remove_owner_copies(namespace.user_sub)
+            .await
+            .expect("retire discovered owner resources");
+        assert!(filesystem.read("saved.txt").await.is_err());
+        assert_eq!(
+            std::fs::read_dir(&root)
+                .expect("one file after resource use and retirement")
+                .count(),
+            1
+        );
+        database
+            .client()
+            .execute_sql("SELECT * FROM users", None)
+            .await
+            .expect("control plane remains usable");
         drop(filesystem);
-        assert!(
-            runtime
-                .delete_resource(&namespace, resource.id)
-                .await
-                .expect("delete filesystem")
-        );
         drop(runtime);
+        drop(database);
+        let database = embedded_db::EmbeddedDatabase::open(&root)
+            .await
+            .expect("restart retired host");
         let runtime =
-            ScopedFileSystemRuntime::new_local(root.clone(), 1_u8).expect("reopen tombstone");
-        assert!(
-            runtime
-                .is_tombstoned(&namespace, resource.id)
-                .await
-                .expect("retained tombstone")
-        );
+            ScopedFileSystemRuntime::with_shared(database.local_storage().expect("storage"), 1_u8)
+                .expect("retired runtime");
         assert!(
             runtime
                 .open_resource(&namespace, resource.id)
                 .await
                 .is_err()
         );
+        assert!(runtime.create_resource(&namespace, None).await.is_err());
+        assert_eq!(
+            runtime
+                .list_resources(&namespace)
+                .await
+                .expect("retained identity"),
+            vec![resource.clone(), passthrough]
+        );
+        runtime
+            .activate_owner(namespace.user_sub)
+            .expect("restore owner");
+        runtime
+            .remove_unselected_projected_resources(&[(
+                namespace.user_sub.to_owned(),
+                namespace.application_id,
+                resource.id,
+            )])
+            .await
+            .expect("reselect fresh copy");
+        let fresh = runtime
+            .open_resource(&namespace, resource.id)
+            .await
+            .expect("fresh generation");
+        assert!(fresh.read("saved.txt").await.is_err());
+        fresh
+            .write("new.txt", b"new generation")
+            .await
+            .expect("write fresh copy");
+        drop(fresh);
         drop(runtime);
-        fs::remove_dir_all(root).expect("remove local filesystem");
+        drop(database);
+        let database = embedded_db::EmbeddedDatabase::open(&root)
+            .await
+            .expect("restart reselected host");
+        let runtime =
+            ScopedFileSystemRuntime::with_shared(database.local_storage().expect("storage"), 1_u8)
+                .expect("reselected runtime");
+        let fresh = runtime
+            .open_resource(&namespace, resource.id)
+            .await
+            .expect("retained generation");
+        assert_eq!(
+            fresh.read("new.txt").await.expect("retained fresh content"),
+            b"new generation"
+        );
+        assert_eq!(
+            std::fs::read_dir(&root)
+                .expect("single host after reselection")
+                .count(),
+            1
+        );
+        drop(fresh);
+        drop(runtime);
+        drop(database);
+        fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[tokio::test]

@@ -10,15 +10,21 @@ use of_model::{
 #[derive(Clone)]
 pub struct EmbeddedDatabase {
     database: db::Database,
+    storage: db::SharedDatabase,
 }
 
 impl EmbeddedDatabase {
     /// Opens `<data_dir>/unified.redb` and initializes all owner tables.
     pub async fn open(data_dir: impl AsRef<Path>) -> Result<Self, DatabaseError> {
         std::fs::create_dir_all(data_dir.as_ref()).map_err(storage_error)?;
+        Self::open_file(data_dir.as_ref().join("unified.redb")).await
+    }
+
+    pub async fn open_file(path: impl AsRef<Path>) -> Result<Self, DatabaseError> {
+        let storage = crate::local::open_private_storage(path.as_ref()).map_err(storage_error)?;
         let database = Self {
-            database: crate::local::open_private_database(&data_dir.as_ref().join("unified.redb"))
-                .map_err(storage_error)?,
+            database: db::Database::open_shared(&storage, "control")?,
+            storage,
         };
         replica::up(&database).await?;
         Ok(database)
@@ -28,12 +34,15 @@ impl EmbeddedDatabase {
 #[derive(Clone)]
 pub struct MemoryDatabase {
     database: db::Database,
+    storage: db::SharedDatabase,
 }
 
 impl MemoryDatabase {
     pub async fn new() -> Result<Self, DatabaseError> {
+        let storage = db::SharedDatabase::in_memory().map_err(storage_error)?;
         let database = Self {
-            database: db::Database::in_memory(),
+            database: db::Database::open_shared(&storage, "control")?,
+            storage,
         };
         replica::up(&database).await?;
         Ok(database)
@@ -70,7 +79,7 @@ fn storage_error(error: std::io::Error) -> DatabaseError {
 }
 
 macro_rules! database {
-    ($type:ty, $client:expr) => {
+    ($type:ty, $client:expr, $storage:expr) => {
         impl IdpDatabase for $type {
             fn client(&self) -> Client {
                 ($client)(self)
@@ -92,6 +101,9 @@ macro_rules! database {
             }
         }
         impl Database for $type {
+            fn local_storage(&self) -> Option<db::SharedDatabase> {
+                ($storage)(self)
+            }
             fn client(&self) -> Client {
                 ($client)(self)
             }
@@ -111,13 +123,19 @@ macro_rules! database {
     };
 }
 
-database!(EmbeddedDatabase, |database: &EmbeddedDatabase| database
-    .database
-    .client());
-database!(MemoryDatabase, |database: &MemoryDatabase| database
-    .database
-    .client());
+database!(
+    EmbeddedDatabase,
+    |database: &EmbeddedDatabase| database.database.client(),
+    |database: &EmbeddedDatabase| Some(database.storage.clone())
+);
+database!(
+    MemoryDatabase,
+    |database: &MemoryDatabase| database.database.client(),
+    |database: &MemoryDatabase| Some(database.storage.clone())
+);
 #[cfg(feature = "network")]
-database!(NetworkDatabase, |database: &NetworkDatabase| database
-    .client
-    .clone());
+database!(
+    NetworkDatabase,
+    |database: &NetworkDatabase| database.client.clone(),
+    |_: &NetworkDatabase| None
+);

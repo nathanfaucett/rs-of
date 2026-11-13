@@ -17,7 +17,7 @@ use crate::RouterState;
 
 pub async fn signer(
     client: db::Client,
-
+    storage: &db::SharedDatabase,
     namespace: &str,
     issuer: &str,
 ) -> io::Result<idp_service::oauth2::NodeSignerBinding> {
@@ -37,7 +37,7 @@ pub async fn signer(
     };
     let keys = KeyService::new(
         DbKeyRepo::new(client.clone()),
-        PrivateKeyKeyringRepo::new_local(client.clone()).map_err(io::Error::other)?,
+        PrivateKeyKeyringRepo::new_local(storage).map_err(io::Error::other)?,
         namespace,
     );
     let public = keys

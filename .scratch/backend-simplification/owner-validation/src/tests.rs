@@ -90,18 +90,20 @@ async fn sql_catalog_is_shared_scoped_and_persists_lifecycle_without_catalog_fil
 }
 
 #[tokio::test]
-async fn sql_runtime_uses_the_catalog_but_keeps_resource_contents_in_files() {
-    let root = tempfile::tempdir().expect("resource root");
+async fn sql_runtime_keeps_catalog_and_resource_contents_in_the_shared_host() {
     let database = MemoryDatabase::new().await.expect("owner schema");
     let scope = Scope("owner", Id::now_v7());
-    let runtime =
-        DatabaseRuntime::with_client(root.path().to_owned(), database.client()).expect("runtime");
+    let runtime = DatabaseRuntime::with_shared(
+        database.local_storage().expect("shared storage"),
+        database.client(),
+    )
+    .expect("runtime");
     let resource = runtime
         .ensure(&scope, "key", Some("SQL content".into()))
         .expect("ensure SQL database");
     let content = runtime
         .open_existing(&scope, resource.id)
-        .expect("resource file")
+        .expect("resource database")
         .expect("opened resource");
     content
         .client()
@@ -110,8 +112,11 @@ async fn sql_runtime_uses_the_catalog_but_keeps_resource_contents_in_files() {
         .expect("resource contents");
     drop(content);
     drop(runtime);
-    let reopened =
-        DatabaseRuntime::with_client(root.path().to_owned(), database.client()).expect("reopen");
+    let reopened = DatabaseRuntime::with_shared(
+        database.local_storage().expect("shared storage"),
+        database.client(),
+    )
+    .expect("reopen");
     assert_eq!(
         reopened
             .ensure(&scope, "key", None)
@@ -121,7 +126,7 @@ async fn sql_runtime_uses_the_catalog_but_keeps_resource_contents_in_files() {
     assert!(
         reopened
             .open_existing(&scope, resource.id)
-            .expect("persistent file")
+            .expect("persistent resource")
             .is_some()
     );
 }
@@ -144,12 +149,18 @@ async fn local_seed_is_repeatable_and_supports_real_admin_credentials_and_public
     let namespace = "owner-local-validation";
 
     for pass in 0..2 {
-        let binding = crate::local_seed::signer(client.clone(), namespace, issuer)
-            .await
-            .expect("local signer without setup");
+        let binding = crate::local_seed::signer(
+            client.clone(),
+            &database.local_storage().expect("local storage"),
+            namespace,
+            issuer,
+        )
+        .await
+        .expect("local signer without setup");
         let keys = Arc::new(KeyService::new(
             DbKeyRepo::new(client.clone()),
-            PrivateKeyKeyringRepo::new_local(client.clone()).expect("local keys"),
+            PrivateKeyKeyringRepo::new_local(&database.local_storage().expect("local storage"))
+                .expect("local keys"),
             namespace,
         ));
         let service = Arc::new(OAuth2Service::new(

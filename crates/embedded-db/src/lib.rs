@@ -3,7 +3,7 @@
 mod database;
 mod local;
 
-pub use local::local_client;
+pub use local::{local_client, local_database};
 
 #[cfg(feature = "network")]
 pub use database::NetworkDatabase;

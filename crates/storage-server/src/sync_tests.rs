@@ -120,6 +120,10 @@ struct Fixture {
 
 impl Fixture {
     async fn new() -> Self {
+        Self::with_storage(false).await
+    }
+
+    async fn with_storage(shared: bool) -> Self {
         let directory = TestDirectory::new();
         let application = Id::now_v7();
         let identity = StoreIdentity {
@@ -165,10 +169,20 @@ impl Fixture {
                 "applicationId": application.to_string()
             })).expect("introspection"))
         });
-        let databases = Arc::new(
+        let databases = Arc::new(if shared {
+            use of_model::db::Database;
+            let database = embedded_db::EmbeddedDatabase::open(directory.0.join("server"))
+                .await
+                .expect("shared host");
+            storage_service::DatabaseRuntime::with_shared(
+                database.local_storage().expect("shared storage"),
+                database.client(),
+            )
+            .expect("shared runtime")
+        } else {
             storage_service::DatabaseRuntime::new(directory.0.join("server"))
-                .expect("server databases"),
-        );
+                .expect("server databases")
+        });
         let state = RouterState::new("http://localhost", "test-endpoint")
             .with_idp_client(idp)
             .with_device_client(device);
@@ -270,6 +284,53 @@ impl SyncTransport for ClientTransport {
             )),
         }
     }
+}
+
+#[tokio::test]
+async fn ws_shared_resource_sync_and_retirement_create_no_staging_or_sidecars() {
+    let fixture = Fixture::with_storage(true).await;
+    let source_host = ofdb_sql::SharedDatabase::create(fixture.directory.0.join("source.redb"))
+        .expect("source host");
+    let source = ofdb_sql::Database::open_shared(&source_host, "source").expect("source namespace");
+    sql(&source, &format!("CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents VALUES (CAST('{}' AS UUID), 'kept')", Id::now_v7())).await;
+    let target = fixture
+        .databases
+        .open_selected(&fixture.namespace, fixture.identity.store_id)
+        .expect("target")
+        .expect("selected resource");
+    let mut transport = ClientTransport(fixture.attach().await);
+    source
+        .exchange_resource_history(
+            &mut transport,
+            &SessionConfig::default(),
+            SyncRole::Initiator,
+            fixture.directory.0.join("source-stage"),
+            || async { Ok(()) },
+        )
+        .await
+        .expect("shared SQL exchange");
+    assert_eq!(values(&target).await, [db::Value::Text("kept".into())]);
+    fixture
+        .databases
+        .remove_local_copy(&fixture.namespace, fixture.identity.store_id)
+        .await
+        .expect("resource retirement");
+    assert!(
+        target
+            .client()
+            .execute_sql("SELECT * FROM documents", None)
+            .await
+            .is_err()
+    );
+    assert!(fixture.directory.0.join("server/unified.redb").is_file());
+    assert_eq!(
+        std::fs::read_dir(fixture.directory.0.join("server"))
+            .expect("single file host")
+            .count(),
+        1
+    );
+    assert!(!fixture.directory.0.join("staging").exists());
+    assert!(!fixture.directory.0.join("source-stage").exists());
 }
 
 #[tokio::test]

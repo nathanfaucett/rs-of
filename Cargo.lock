@@ -2180,6 +2180,7 @@ name = "file-system"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "futures",
  "futures-core",
  "futures-util",
  "ofdb-kv",
@@ -3250,6 +3251,7 @@ dependencies = [
  "keyring-core",
  "log",
  "of-model",
+ "ofdb-kv",
  "ofdb-sql",
  "rust-argon2",
  "serde",
@@ -5247,6 +5249,8 @@ name = "ofdb-sql-history"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "ofdb-btree",
+ "ofdb-btree-redb",
  "ofdb-platform",
  "ofdb-sql-engine",
  "ofdb-value",
@@ -7269,6 +7273,7 @@ dependencies = [
 name = "storage-service"
 version = "0.1.0"
 dependencies = [
+ "embedded-db",
  "file-system",
  "of-model",
  "ofdb-kv",

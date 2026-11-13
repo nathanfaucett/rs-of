@@ -88,6 +88,7 @@ async fn smoke(tls: bool) {
     let mut retained_tls = None;
     let mut retained_jwks = None;
     let mut retained_resource = None;
+    let mut retained_filesystem = None;
     let mut startup_times = Vec::new();
     for restart in 0..2 {
         let start = Instant::now();
@@ -160,12 +161,10 @@ async fn smoke(tls: bool) {
         } else {
             vec!["unified.redb"]
         };
-        if restart == 0 {
-            assert_eq!(
-                entries, expected,
-                "local startup must not create owner files"
-            );
-        }
+        assert_eq!(
+            entries, expected,
+            "local restart must retain the single-file layout after resource use"
+        );
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -261,6 +260,9 @@ async fn smoke(tls: bool) {
             assert_eq!(token.status(), 200);
             let token: Value = token.json().await.expect("seed User token");
             let bearer = token["access_token"].as_str().expect("seed User bearer");
+            retained_filesystem = Some(
+                filesystem_restart(&client, &base, bearer, retained_filesystem.as_deref()).await,
+            );
             if let Some(id) = &retained_resource {
                 let read = exchange_storage(
                     &client,
@@ -297,6 +299,13 @@ async fn smoke(tls: bool) {
                 2
             );
         }
+        assert_eq!(
+            std::fs::read_dir(root.path())
+                .expect("layout after resource use")
+                .count(),
+            if tls { 2 } else { 1 },
+            "resource use must not create sidecars"
+        );
         drop(server);
     }
     eprintln!(
@@ -580,6 +589,74 @@ async fn storage_roundtrip(
         .expect("read-only write denial");
     assert_eq!(response.status(), 403);
     id.to_owned()
+}
+
+async fn filesystem_restart(
+    client: &reqwest::Client,
+    base: &str,
+    bearer: &str,
+    retained: Option<&str>,
+) -> String {
+    let id = if let Some(id) = retained {
+        id.to_owned()
+    } else {
+        let write = exchange_storage(
+            client,
+            base,
+            "local-login",
+            bearer,
+            "storage:filesystems",
+            "write",
+        )
+        .await;
+        let response = client
+            .post(format!("{base}/storage/filesystems"))
+            .bearer_auth(&write)
+            .json(&json!({"name":"Retained filesystem"}))
+            .send()
+            .await
+            .expect("create filesystem");
+        assert_eq!(response.status(), 201);
+        let resource: Value = response.json().await.expect("filesystem resource");
+        let id = resource["id"].as_str().expect("filesystem ID").to_owned();
+        let response = client
+            .put(format!("{base}/storage/filesystems/{id}/residency"))
+            .bearer_auth(write)
+            .json(&json!({"mode":"passthrough"}))
+            .send()
+            .await
+            .expect("persist filesystem residency");
+        assert_eq!(response.status(), 204);
+        id
+    };
+    let read = exchange_storage(
+        client,
+        base,
+        "local-login",
+        bearer,
+        "storage:filesystems",
+        "read",
+    )
+    .await;
+    let response = client
+        .get(format!("{base}/storage/filesystems/{id}"))
+        .bearer_auth(&read)
+        .send()
+        .await
+        .expect("retained filesystem");
+    assert_eq!(response.status(), 200);
+    let resource: Value = response.json().await.expect("filesystem detail");
+    assert_eq!(resource["name"], "Retained filesystem");
+    let response = client
+        .get(format!("{base}/storage/filesystems/{id}/residency"))
+        .bearer_auth(read)
+        .send()
+        .await
+        .expect("retained residency");
+    assert_eq!(response.status(), 200);
+    let residency: Value = response.json().await.expect("filesystem residency");
+    assert_eq!(residency["mode"], "passthrough");
+    id
 }
 
 async fn assert_saved_resource(client: &reqwest::Client, url: &str, read: &str) {

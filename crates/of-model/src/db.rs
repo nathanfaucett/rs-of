@@ -21,6 +21,9 @@ pub trait ManagementDatabase: Send + Sync {
 
 /// Query access is shared; hosting and replication stay with the database owner.
 pub trait Database: Send + Sync {
+    fn local_storage(&self) -> Option<db::SharedDatabase> {
+        None
+    }
     fn client(&self) -> Client;
     fn idp(&self) -> &dyn IdpDatabase;
     fn device(&self) -> &dyn DeviceDatabase;
