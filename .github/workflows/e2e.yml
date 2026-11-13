@@ -31,6 +31,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: nathanfaucett/rs-ofdb
+          ref: 544b6270116ef73e7cab53b2a191bcad608146ba
           path: ofdb
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -43,20 +44,7 @@ jobs:
           repository: nathanfaucett/rs-offs
           path: offs
           persist-credentials: false
-      - name: Checkout qualified ofdb Rust dependency
-        uses: actions/checkout@v4
-        with:
-          repository: nathanfaucett/rs-ofdb
-          ref: 503dc0808b304fcc21dc91b44a3c037099061e61
-          path: ofdb-buildfix
-          persist-credentials: false
-      - name: Checkout qualified offs Rust dependency
-        uses: actions/checkout@v4
-        with:
-          repository: nathanfaucett/rs-offs
-          ref: ce2051b9173ff6de5582667155180298b0562b86
-          path: offs-buildfix
-          persist-credentials: false
+
       - uses: actions/setup-node@v4
         with:
           node-version-file: of/.nvmrc
@@ -76,7 +64,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             of/target
-          key: ${{ runner.os }}-e2e-cargo-${{ hashFiles('of/Cargo.lock', 'ofdb-buildfix/Cargo.lock', 'ofnet/Cargo.lock', 'offs-buildfix/Cargo.lock') }}
+          key: ${{ runner.os }}-e2e-cargo-${{ hashFiles('of/Cargo.lock', 'ofdb/Cargo.lock', 'ofnet/Cargo.lock', 'offs/Cargo.lock') }}
       - name: Build the linked ofdb SQL package
         working-directory: ofdb
         run: |

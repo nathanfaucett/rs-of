@@ -89,7 +89,7 @@ iroh = { version = "1.4", default-features = false, features = ["tls-ring"] }
 
 # Database
 
-ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb-buildfix/crates/sql", default-features = false, features = [
+ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = [
     "redb",
 ] }
 

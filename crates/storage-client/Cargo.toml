@@ -54,10 +54,10 @@ storage-service = { version = "0.1", path = "../storage-service", default-featur
 of-management-client = { version = "0.1", path = "../management-client", default-features = false, optional = true }
 
 # Data engines
-ofdb-sql = { version = "0.1", path = "../../../ofdb-buildfix/crates/sql", package = "ofdb-sql", default-features = false }
-ofdb-sync = { package = "ofdb-sync", path = "../../../ofdb-buildfix/crates/sync", default-features = false }
-ofdb-kv = { version = "0.1", path = "../../../ofdb-buildfix/crates/kv", package = "ofdb-kv", default-features = false }
-# file-system = { version = "0.1", path = "../../../offs-buildfix/crates/file-system", package = "file-system", default-features = false }
+ofdb-sql = { version = "0.1", path = "../../../ofdb/crates/sql", package = "ofdb-sql", default-features = false }
+ofdb-sync = { package = "ofdb-sync", path = "../../../ofdb/crates/sync", default-features = false }
+ofdb-kv = { version = "0.1", path = "../../../ofdb/crates/kv", package = "ofdb-kv", default-features = false }
+# file-system = { version = "0.1", path = "../../../offs/crates/file-system", package = "file-system", default-features = false }
 
 # Async
 tokio = { version = "1.44", default-features = false, features = [
@@ -75,7 +75,7 @@ anyhow = { version = "1.0", default-features = false, optional = true }
 
 # Sync
 # ofdb-sql-sync was renamed to ofdb-sync in ofdb
-# ofdb-sql-sync = { version = "0.1", path = "../../../ofdb-buildfix/crates/sql-sync", package = "ofdb-sql-sync", default-features = false, features = ["native-stage"] }
+# ofdb-sql-sync = { version = "0.1", path = "../../../ofdb/crates/sql-sync", package = "ofdb-sql-sync", default-features = false, features = ["native-stage"] }
 
 # Platform
-ofdb-platform = { version = "0.1", path = "../../../ofdb-buildfix/crates/platform", package = "ofdb-platform", default-features = false, optional = true }
+ofdb-platform = { version = "0.1", path = "../../../ofdb/crates/platform", package = "ofdb-platform", default-features = false, optional = true }

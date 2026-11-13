@@ -73,7 +73,7 @@ iroh-chain = { path = "../../../ofnet/crates/iroh-chain", default-features = fal
 ], optional = true }
 management-service = { path = "../management-service", default-features = false, optional = true }
 
-ofdb-sync = { package = "ofdb-sync", path = "../../../ofdb-buildfix/crates/sync", default-features = false, features = [
+ofdb-sync = { package = "ofdb-sync", path = "../../../ofdb/crates/sync", default-features = false, features = [
     "std",
     "iroh",
 ] }
@@ -125,7 +125,7 @@ futures-util = { version = "0.3", default-features = false, features = [
     "std",
 ], optional = true }
 getrandom = { version = "0.3", default-features = false, optional = true }
-ofdb-sql = { path = "../../../ofdb-buildfix/crates/sql", default-features = false, features = [
+ofdb-sql = { path = "../../../ofdb/crates/sql", default-features = false, features = [
     "native-stage",
 ], optional = true }
 tokio = { version = "1.52", default-features = false, features = [
@@ -143,7 +143,7 @@ tokio-util = { version = "0.7", default-features = false, optional = true }
 
 [dev-dependencies]
 of-model = { path = "../of-model", default-features = false, features = ["std"] }
-ofdb-sql = { path = "../../../ofdb-buildfix/crates/sql", default-features = false, features = [
+ofdb-sql = { path = "../../../ofdb/crates/sql", default-features = false, features = [
 ] }
 tokio = { version = "1.4", default-features = false, features = [
     "macros",

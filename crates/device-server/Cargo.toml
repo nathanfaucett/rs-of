@@ -76,7 +76,7 @@ idp-service = { path = "../idp-service", default-features = false, features = [
 ] }
 
 # Database
-ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb-buildfix/crates/sql", default-features = false, features = [
+ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = [
 
     "redb",
 ] }

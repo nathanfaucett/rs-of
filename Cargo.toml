@@ -219,7 +219,7 @@ management-service = { path = "crates/management-service", default-features = fa
     "std",
 ] }
 
-ofdb-sql = { path = "../ofdb-buildfix/crates/sql", default-features = false, features = [
+ofdb-sql = { path = "../ofdb/crates/sql", default-features = false, features = [
     "native-stage",
 ] }
 postcard = { version = "1.1", default-features = false, features = ["alloc"] }

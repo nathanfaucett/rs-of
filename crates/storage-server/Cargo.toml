@@ -51,7 +51,7 @@ of-idp-client = { path = "../idp-client", default-features = false }
 server-common = { path = "../server-common", default-features = false, features = [
 ] }
 setup = { workspace = true }
-file-system = { path = "../../../offs-buildfix/crates/file-system", default-features = false, features = [
+file-system = { path = "../../../offs/crates/file-system", default-features = false, features = [
 ] }
 of-model = { path = "../of-model", default-features = false, features = [
     "axum",
@@ -67,11 +67,11 @@ management-service = { path = "../management-service", default-features = false,
 key = { path = "../key", default-features = false, features = ["std"] }
 
 
-ofdb-kv = { path = "../../../ofdb-buildfix/crates/kv", default-features = false, features = [
+ofdb-kv = { path = "../../../ofdb/crates/kv", default-features = false, features = [
     "redb",
     "sync",
 ] }
-ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb-buildfix/crates/sql", default-features = false, features = [
+ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = [
     "redb",
     "native-stage",
 ] }
@@ -157,7 +157,7 @@ env_logger = { version = "0.10", default-features = false, features = [] }
 [dependencies.ofdb-sync]
 package = "ofdb-sync"
 version = "0.1"
-path = "../../../ofdb-buildfix/crates/sync"
+path = "../../../ofdb/crates/sync"
 default-features = false
 features = ["std", "iroh"]
 

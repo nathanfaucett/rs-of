@@ -1,6 +1,6 @@
 # Real backend tests
 
-Run from the `of` repository. Keep `ofdb`, `ofnet`, and `offs` beside it. Integration `8596dfa08` also requires the `ofdb-buildfix` and `offs-buildfix` sibling aliases described in `.scratch/backend-simplification/buildfix-validation.md`. CI checks out those exact dependency commits. Worktrees need the same layout. Do not remove task worktree directories.
+Run from the `of` repository. Keep `ofdb`, `ofnet`, and `offs` beside it. Use `ofdb` branch `backend-simplification` at `544b6270116ef73e7cab53b2a191bcad608146ba`; CI pins the same commit. Keep `offs` on `main`. No sibling aliases are required. Worktrees need the same layout. Do not remove task worktree directories.
 
 ## Prepare
 
@@ -33,12 +33,12 @@ Each app also has `pnpm test:e2e`. Run it from that app directory to select its 
 
 `backend.mjs` is the global setup for both runners. Vitest installs it on the Chromium instance only: installing the same setup on both the root and browser project starts two servers. By default it runs `cargo run --locked -p unified-server -- local ... --no-tls` on port 1355, with a fresh OS temporary directory. It waits for all four owner health routes. It reports build/process failures and missing health routes. The default deadline is 180 seconds, including Cargo; set `E2E_START_TIMEOUT_MS` for a slower first build. This is not a three-second startup benchmark.
 
-To use an already-built executable, set `E2E_BACKEND_BIN` to its path, relative to the repository root or absolute. This still starts a new process and new temporary data; it never connects to an existing developer backend. For the shared task worktrees:
+To use an already-built executable, set `E2E_BACKEND_BIN` to its path, relative to the repository root or absolute. This still starts a new process and new temporary data; it never connects to an existing developer backend. For a build in the standard sibling layout:
 
 ```sh
-E2E_BACKEND_BIN=../buildfix/target/debug/unified-server pnpm test:e2e
-E2E_BACKEND_BIN=../buildfix/target/debug/unified-server pnpm --filter @ofsdk/app test:backend
-E2E_BACKEND_BIN=../buildfix/target/debug/unified-server pnpm --filter @ofsdk/password-manager test:backend
+E2E_BACKEND_BIN=./target/debug/unified-server pnpm test:e2e
+E2E_BACKEND_BIN=./target/debug/unified-server pnpm --filter @ofsdk/app test:backend
+E2E_BACKEND_BIN=./target/debug/unified-server pnpm --filter @ofsdk/password-manager test:backend
 ```
 
 Teardown terminates the process group before removing only its temporary backend directory. Failed startup uses the same cleanup. The launcher refuses an occupied port. Do not run backend suites in parallel or reuse a developer backend. An external SIGKILL cannot run JavaScript teardown.

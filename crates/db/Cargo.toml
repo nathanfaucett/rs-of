@@ -34,7 +34,7 @@ url = { version = "2.5", default-features = false, features = [
 ], optional = true }
 
 # Database
-ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb-buildfix/crates/sql", default-features = false, features = [
+ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = [
     "sql",
 ], optional = true }
 

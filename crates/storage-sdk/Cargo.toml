@@ -28,18 +28,18 @@ of-storage-client = { path = "../storage-client", default-features = false }
 storage-sync-client = { path = "../storage-sync-client", default-features = false, optional = true }
 
 # Internal engines
-ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb-buildfix/crates/sql", default-features = false, features = [
+ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = [
     "sql",
     "redb",
 ], optional = true }
-ofdb-kv = { package = "ofdb-kv", path = "../../../ofdb-buildfix/crates/kv", default-features = false, features = [
+ofdb-kv = { package = "ofdb-kv", path = "../../../ofdb/crates/kv", default-features = false, features = [
     "redb",
     "sync",
 ], optional = true }
-file-system = { path = "../../../offs-buildfix/crates/file-system", default-features = false, optional = true }
+file-system = { path = "../../../offs/crates/file-system", default-features = false, optional = true }
 
 # Dependencies
-ofdb-value = { package = "ofdb-value", path = "../../../ofdb-buildfix/crates/value", default-features = false }
+ofdb-value = { package = "ofdb-value", path = "../../../ofdb/crates/value", default-features = false }
 iroh = { version = "1.4", default-features = false }
 
 # Serialization
