@@ -1,0 +1,65 @@
+# AGENTS.md
+
+For Domain information, see the [Domain Model](GLOSSARY.md).
+
+## Refactoring Protocol
+
+- ALWAYS choose rewriting and deleting over modifying or wrapping old code.
+- NEVER write glue code to support old versions or maintain past state.
+- ALWAYS clean up and purge any files, functions, or blocks rendered obsolete by new implementations.
+
+## Patterns & Conventions
+
+- Default to `no_std`; enable `std` only when required (IO, threading, async runtimes).
+- Group Rust imports by namespace and order: std/core/alloc → external → internal (`crate`, `super`).
+- Prefer explicit imports and minimal dependencies.
+- Avoid glob imports and hard-coded absolute paths.
+- No non-essential comments; prefer refactoring over comments.
+- Prefer expect("message") over unwrap(); always provide a clear message explaining the invariant.
+
+## Module Organization
+
+- Keep modules minimal: `mod.rs` should only declare/re-export modules.
+- `lib.rs` and `mod.rs` must stay thin: crate-level attributes, `extern crate`, `pub use`, and `mod` declarations only.
+- Do not place implementation logic (structs, enums, `impl` blocks, free `fn`, constants, statics, type aliases, traits) directly in `lib.rs` or `mod.rs`.
+- If functionality is missing, create/update a sibling module (for example, `src/node.rs`) and wire it from `lib.rs`/`mod.rs`.
+- When adding behavior, create/update a dedicated module file (`src/<feature>.rs`) and re-export as needed.
+
+## Dependencies & Versioning
+
+- All new dependencies must use only `major.minor` in the version field.
+- Specify dependencies in full table form with `default-features = false` and enable only required features.
+- Group dependencies by logical category with a comment header, alphabetize within groups, and separate groups with a blank line.
+
+## Code Style
+
+- Follow Rust's standard formatting and style guidelines.
+- Use `clippy` for linting and adhere to its recommendations.
+- Use `rustfmt` for consistent code formatting.
+- **Visibility**: Use only `pub` or no visibility (private). NEVER use `pub(crate)`, `pub(super)`, `pub(in path)`. Re-export public API from `lib.rs`/`mod.rs`.
+
+## Testing
+
+- Write unit tests for all public functions and critical internal logic.
+- Use integration tests for testing public API behavior and interactions between modules.
+- Use focused tests and checks while implementing changes.
+- Run `cargo hack test --feature-powerset --workspace --all-targets` as final validation after implementation is complete, not incrementally.
+
+## CRAP (Complexity, Risk, and Priority)
+
+- Assess new features and changes for complexity, risk, and priority before implementation.
+- Run `just crap` as final validation after implementation is complete, not incrementally.
+
+## Agent Skills
+
+### Issue tracker
+
+Issues live as Markdown files under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+
+### Triage Labels
+
+Use the default canonical labels. See `docs/agents/triage-labels.md`.
+
+### Domain Docs
+
+Use a single-context `GLOSSARY.md` at the repo root and ADRs under `docs/adr/`. See `docs/agents/domain.md`.
