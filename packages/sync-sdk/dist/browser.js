@@ -2,7 +2,7 @@
 import { BehaviorSubject, Subject } from "rxjs";
 import { StorageClient } from "@ofsdk/storage-client";
 import { SyncClient, } from "@ofsdk/storage-sync-client";
-import { SqlDatabase, SqlSessionConfig, SqlSyncRole, JsSqlSyncTransport, } from "@ofsdk/sql";
+import initializeSql, { SqlDatabase, SqlSessionConfig, SqlSyncRole, JsSqlSyncTransport, } from "@ofsdk/sql";
 /** Browser sync SDK implementation */
 export class BrowserSyncSDK {
     config;
@@ -200,8 +200,37 @@ class BrowserDatabaseHandle {
         if (!this.sqlDatabase)
             throw new Error("Database closed");
         const client = this.sqlDatabase.client();
-        const result = await client.execute(sql, params ? JSON.stringify(params) : undefined);
-        return JSON.parse(result);
+        const result = await client.execute(sql, params
+            ? JSON.stringify(params.map((value) => {
+                if (value === null)
+                    return { type: "null" };
+                if (typeof value === "string")
+                    return { type: "text", value };
+                if (typeof value === "boolean")
+                    return { type: "bool", value };
+                if (typeof value === "bigint" ||
+                    (typeof value === "number" && Number.isSafeInteger(value))) {
+                    return { type: "integer", value: String(value) };
+                }
+                throw new TypeError("SQL parameters must be text, booleans, integers or null");
+            }))
+            : undefined);
+        const results = JSON.parse(result);
+        const last = results.at(-1) ?? { columns: [], rows: [] };
+        return {
+            columns: last.columns,
+            rows: last.rows.map((row) => row.map((value) => {
+                if (value.type === "null")
+                    return null;
+                if (value.type === "integer") {
+                    const integer = BigInt(value.value);
+                    return Number.isSafeInteger(Number(integer))
+                        ? Number(integer)
+                        : integer;
+                }
+                return value.value;
+            })),
+        };
     }
     get changes$() {
         return this._changes$.asObservable();
@@ -378,6 +407,7 @@ class BrowserFilesystemHandle {
 }
 /** Create sync SDK instance for browser */
 export async function createSync(config) {
+    await initializeSql();
     const sdk = new BrowserSyncSDK(config);
     return sdk;
 }

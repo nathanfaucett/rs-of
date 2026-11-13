@@ -1,91 +1,61 @@
-# Coordinator handoff: remaining real backend failures
+# Coordinator handoff after integration 52ac21c7b
 
-Branch: `backend-simplification-e2e`; integration ancestor: `8596dfa08`.
-No Rust implementation or dependency files were changed in this frontend pass.
+Status: **full Playwright green; one real Vitest vault test blocked**. No Rust source, Cargo file, dependency alias, or local-auth assertion was changed by the E2E agent.
 
-## Runtime under test
+## Actual completed suites
 
-Every suite starts a separate real HTTP backend on an empty temporary directory.
-Executable: `../buildfix/target/debug/unified-server`, modified 2026-11-13 07:58:56 -0500.
-SHA-256: `9462eae55a744634fdc908058f4043bf5a06c42b3b3ae1123a7cfcba9f9fe0c7`.
-The buildfix worktree HEAD was `200c29056`, with uncommitted Rust owner changes. This executable is not a build of the E2E branch; the Rust agent owns its build qualification.
+Final runs use the integrated root executable `of/target/debug/unified-server`, selected from this worktree as `E2E_BACKEND_BIN=../../../target/debug/unified-server`. Each run starts a new process with empty temporary backend data.
 
-## Passing baseline
+- Full Playwright: **11 passed**, no skipped tests. Includes actual browser sign-in/consent/PKCE/callback/reload, both clients' remote Storage SQL CRUD, and the first Device returning `approved` and appearing in the Device list. The integration local-auth assertions are unchanged.
+- Full serial backend Vitest: app **4 passed**; password-manager **4 passed, 1 failed**. Health, User info, Device list and Storage SQL writes pass in both browsers.
+- Restored isolated frontend tests: **30 passed**. Lifecycle tests: **7 passed**. E2E TypeScript and browser SDK compilation pass.
 
-- All four owner health routes and real OIDC discovery.
-- Administrator password sign-in and User info.
-- Both seeded clients (`app`, `password-manager`): consent, S256 PKCE code exchange, and User info. Requests follow `crates/unified-server/tests/composition.rs::authenticate`.
-- Actual app browser sign-in, protected route, session reload, Device list and Storage list access.
-- Actual password-manager browser sign-in, server-owned consent metadata, denial with preserved state, approval, PKCE callback, verified client Application URI, User info, vault selector, and session reload.
-- Device list after token exchange now returns 200 in both real Vitest browser suites. The previous 503 list blocker is superseded.
+The previous Storage create 500 and first-Device approval 404 reports are superseded. First enrollment is already approved; attempting to approve it again was a test error, fixed by local-auth integration.
 
-The old setup-page redirect, unsupported browser scopes, lost PKCE state, callback initialization loop, orphan Svelte effect, Node SDK import, database-name-as-ID request, Vite SQL WASM denial, and incorrect frontend Device audience are fixed on this branch. No fake setup evidence, injected session, HTTP interception, or disabled identity validation was used.
+## Remaining request: missing local WebSocket route
 
-## 1. Storage creation: HTTP 500
+The strict encrypted-vault test now initializes the real WASM module, creates a remote database, creates local vault tables, encrypts a secret, and reads the local encrypted record through the real browser SDK. Its next public SDK operation is:
 
-Use either frontend's PKCE access token. The real SDK first succeeds with:
+```ts
+await handle.sync({ direction: "push" });
+```
+
+The SDK attempts `ws://127.0.0.1:1355/storage/sync/ws`. Browser error: `SyncError: Sync WebSocket failed`.
+
+A separate real HTTP upgrade probe on a fresh integrated backend confirms:
 
 ```http
-POST /idp/oauth2/token
-Content-Type: application/x-www-form-urlencoded
-
-grant_type=urn:ietf:params:oauth:grant-type:token-exchange
-subject_token=<frontend access token>
-subject_token_type=urn:ietf:params:oauth:token-type:access_token
-client_id=app
-resource=storage:databases
-authorization_details=[{"type":"storage","actions":["write"]}]
+GET /storage/sync/ws HTTP/1.1
+Host: 127.0.0.1:1355
+Connection: Upgrade
+Upgrade: websocket
+Sec-WebSocket-Version: 13
+Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
 ```
 
-It then sends:
+**Actual: HTTP 404, empty body**, not 101. Repeated with the final root executable. This fails before any Hello, AttachRequest, bearer validation or SQL owner message can be sent. The browser client URL matches `storage-server/src/sync.rs::sync_router`. No fake socket, direct-HTTP replacement, skipped sync, or removed remote ciphertext assertion was introduced.
 
-```http
-POST /storage/databases
-Authorization: Bearer <exchanged access token>
-Content-Type: application/json
-
-{"name":"e2e-app"}
-```
-
-Actual: **500, empty body**. Backend stderr:
-
-```text
-[ERROR storage_server::router::resources] Storage database creation failed: I/O error: No such file or directory (os error 2)
-```
-
-Also reproduced with `client_id=password-manager`, name `e2e-password-manager`, and with `local-login` in both Vitest browser suites. The encrypted vault's real sync SDK fails creation at the same endpoint. This replaces the earlier 503 report. Later SQL/vault CRUD and remote ciphertext assertions remain in place but cannot execute.
-
-## 2. Device approval: HTTP 404 after successful enrollment
-
-After app consent/PKCE, exchange the access token for `resource=http://127.0.0.1:1355/device`, `client_id=app`. Exchange succeeds. A generated Device client then sends:
-
-```http
-POST /device/devices/enrollments
-Authorization: Bearer <exchanged access token>
-Content-Type: application/json
-
-{"name":"E2E browser device","publicKey":"<64 hex characters from a new Ed25519 public key>","address":"127.0.0.1:23456"}
-```
-
-Enrollment succeeds and returns a nonempty `id`. The next request uses that exact returned ID:
-
-```http
-POST /device/devices/enrollments/01a1d512-7972-7780-8b90-2daf0cda79c4/approve
-Authorization: Bearer <same exchanged access token>
-```
-
-Actual: **404 `{"error":"not_found"}`**. No request body; this matches the generated `approveEnrollment({ deviceId: enrollment.id })` contract. Approval and approved-Device listing assertions are retained. The prior 503 enrollment blocker is superseded; enrollment now succeeds.
+Required Rust-owner decision/repair: expose the supported authenticated SQL sync endpoint in the local composition, or provide its canonical local endpoint/contract if different. Do not infer that a mounted route alone will make the vault test pass: subsequent identity, policy, browser-WASM protocol and resource synchronization have not yet run. Direction handling is unchanged in the SDK (it currently requests bidirectional attach); it was not relaxed to mask this failure.
 
 ## Reproduce
 
-Run serially from this worktree:
+Run serially from `.scratch/worktrees/e2e`:
 
 ```sh
-E2E_BACKEND_BIN=../buildfix/target/debug/unified-server pnpm exec playwright test --config e2e/playwright.config.ts owners.e2e.ts
-E2E_BACKEND_BIN=../buildfix/target/debug/unified-server pnpm test:backend
-E2E_BACKEND_BIN=../buildfix/target/debug/unified-server pnpm exec playwright test --config e2e/playwright.config.ts app.e2e.ts password-manager.e2e.ts
+E2E_BACKEND_BIN=../../../target/debug/unified-server pnpm test:e2e
+E2E_BACKEND_BIN=../../../target/debug/unified-server pnpm test:backend
+E2E_BACKEND_BIN=../../../target/debug/unified-server pnpm --filter @ofsdk/password-manager test:backend
 ```
 
-Measured full Playwright run: **8 passed, 3 failed**. Real Vitest: app **3 passed, 1 failed**; password-manager **3 passed, 2 failed**. Browser-only frontend tests: app **3 passed**, password-manager **2 passed**, including reload.
+Final logs: ignored `e2e/.scratch/integration52-playwright-confirmed.log`, `integration52-vitest-final.log`, and `integration52-websocket-final.log`.
 
-Local logs: ignored `e2e/.scratch/playwright-final-current.log`, `vitest-browser-final.log`, `browser-app-final.log`, and `browser-password-manager-reload.log`. Runner reports are replaced by later runs. They contain ephemeral local-test credentials; do not publish raw traces without review.
+## Binary provenance
+
+Root HEAD: `52ac21c7b`. The coordinator had an uncommitted desktop Cargo.lock correction and a test-only IdP test repair. E2E did not modify either. The root binary was built normally with `cargo build --locked -p unified-server`; no Rust feature matrix or CRAP run was started by E2E. Initial root binary was absent; the first E2E-worktree locked build failed without changing its lockfile, and one root build attempt timed out before the successful build.
+
+The coordinator subsequently rebuilt the same integrated root executable while running its Rust checks. Final Playwright, Vitest and repeated upgrade-probe runs used the resulting executable:
+
+- Modified: 2026-11-13 13:02:13 -0500.
+- SHA-256: `08f44e72b66304a5e528bf2de2093fe0fc3b3603324193b44b34d6ee7a8631db`.
+
+No all-green Vitest or completed remote encrypted-vault CRUD claim is made. See [validation](runtime-validation.md).

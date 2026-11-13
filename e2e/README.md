@@ -25,7 +25,7 @@ pnpm test:backend
 pnpm test:e2e
 ```
 
-`pnpm --filter @ofsdk/app test` runs isolated browser-configuration, native capability and registration tests without backend HTTP mocks. `pnpm test:backend` runs the app and password-manager Vitest browser suites in sequence. Each suite starts its own real backend. Runs are serial; a failing first suite does not suppress the second, and any failure returns a nonzero exit code. The normal password-manager `pnpm test` still runs offline vault unit tests without a backend.
+`pnpm --filter @ofsdk/app test` runs isolated browser-configuration, native capability and registration tests without backend HTTP mocks. `pnpm test:backend` runs the app and password-manager Vitest browser suites in sequence. Each suite starts its own real backend. Runs are serial; a failing first suite does not suppress the second, and any failure returns a nonzero exit code. Runner environments use Chokidar polling to avoid shared-host inotify limits; this does not change production watchers. The normal password-manager `pnpm test` still runs offline vault unit tests without a backend.
 
 Each app also has `pnpm test:e2e`. Run it from that app directory to select its Playwright project. The root Playwright run covers both frontends plus owner HTTP contracts. API coverage for both client registrations is in the app project.
 
@@ -55,7 +55,7 @@ Password-manager uses the SDK's existing local storage mode so the PKCE verifier
 
 ## Test boundaries
 
-- Playwright: owner health/discovery, failed sign-in, consent plus PKCE exchanges for both registered clients, Storage SQL CRUD, Device enrollment/approval/listing, app session access, and the password-manager redirect/consent/callback flow.
+- Playwright: owner health/discovery, failed sign-in, consent plus PKCE exchanges for both registered clients, Storage SQL CRUD, first-Device enrollment/autoapproval/listing, app session access, and the password-manager redirect/consent/callback flow.
 - Vitest with Chromium: real browser CORS, sign-in/User info, Device access, Storage writes, and encrypted password-manager vault CRUD through the real sync SDK. The vault test reads remote ciphertext through the public Storage API; it cannot pass with a local-only write.
 - Node lifecycle tests: a small child-process fixture checks supervision only. It is not an identity, Device, or Storage substitute. No domain test intercepts HTTP or supplies fake owner clients.
 
