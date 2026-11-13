@@ -86,6 +86,8 @@ async fn smoke(tls: bool) {
     drop(listener);
     let base = format!("{}://127.0.0.1:{port}", if tls { "https" } else { "http" });
     let mut retained_tls = None;
+    let mut retained_jwks = None;
+    let mut retained_resource = None;
     let mut startup_times = Vec::new();
     for restart in 0..2 {
         let start = Instant::now();
@@ -148,6 +150,34 @@ async fn smoke(tls: bool) {
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         };
+        let mut entries = std::fs::read_dir(root.path())
+            .expect("local data directory")
+            .map(|entry| entry.expect("directory entry").file_name())
+            .collect::<Vec<_>>();
+        entries.sort();
+        let expected = if tls {
+            vec!["tls", "unified.redb"]
+        } else {
+            vec!["unified.redb"]
+        };
+        if restart == 0 {
+            assert_eq!(
+                entries, expected,
+                "local startup must not create owner files"
+            );
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(root.path().join("unified.redb"))
+                    .expect("database metadata")
+                    .permissions()
+                    .mode()
+                    & 0o077,
+                0
+            );
+        }
         for owner in ["idp", "device", "management", "storage"] {
             assert_eq!(
                 client
@@ -210,6 +240,10 @@ async fn smoke(tls: bool) {
         assert_eq!(response.status(), 200);
         let jwks: Value = response.json().await.expect("JWKS JSON");
         assert!(!jwks["keys"].as_array().expect("JWKS keys").is_empty());
+        if let Some(previous) = &retained_jwks {
+            assert_eq!(&jwks, previous, "restart must retain the signing key");
+        }
+        retained_jwks = Some(jwks);
         authenticate(&client, &base, restart == 0).await;
         if !tls {
             let token = client
@@ -226,13 +260,27 @@ async fn smoke(tls: bool) {
                 .expect("seed user sign-in");
             assert_eq!(token.status(), 200);
             let token: Value = token.json().await.expect("seed User token");
-            storage_roundtrip(
-                &client,
-                &base,
-                "local-login",
-                token["access_token"].as_str().expect("seed User bearer"),
-            )
-            .await;
+            let bearer = token["access_token"].as_str().expect("seed User bearer");
+            if let Some(id) = &retained_resource {
+                let read = exchange_storage(
+                    &client,
+                    &base,
+                    "local-login",
+                    bearer,
+                    "storage:databases",
+                    "read",
+                )
+                .await;
+                assert_saved_resource(
+                    &client,
+                    &format!("{base}/storage/databases/{id}/sql"),
+                    &read,
+                )
+                .await;
+            } else {
+                retained_resource =
+                    Some(storage_roundtrip(&client, &base, "local-login", bearer).await);
+            }
         } else {
             let material = (
                 std::fs::read(root.path().join("tls/cert.pem")).expect("certificate"),
@@ -483,7 +531,12 @@ async fn exchange_storage(
         .to_owned()
 }
 
-async fn storage_roundtrip(client: &reqwest::Client, base: &str, client_id: &str, bearer: &str) {
+async fn storage_roundtrip(
+    client: &reqwest::Client,
+    base: &str,
+    client_id: &str,
+    bearer: &str,
+) -> String {
     let write = exchange_storage(
         client,
         base,
@@ -515,9 +568,24 @@ async fn storage_roundtrip(client: &reqwest::Client, base: &str, client_id: &str
     let body = response.text().await.expect("Storage write response");
     assert_eq!(status, 200, "Storage write: {body}");
     let read = exchange_storage(client, base, client_id, bearer, "storage:databases", "read").await;
+    assert_saved_resource(client, &url, &read).await;
     let response = client
         .post(&url)
         .bearer_auth(&read)
+        .json(&json!({"statements":[
+            {"sql":"DELETE FROM notes","params":[]}
+        ]}))
+        .send()
+        .await
+        .expect("read-only write denial");
+    assert_eq!(response.status(), 403);
+    id.to_owned()
+}
+
+async fn assert_saved_resource(client: &reqwest::Client, url: &str, read: &str) {
+    let response = client
+        .post(url)
+        .bearer_auth(read)
         .json(&json!({"statements":[
             {"sql":"SELECT value FROM notes WHERE id = ?","params":[{"type":"text","value":"note"}]}
         ]}))
@@ -533,13 +601,17 @@ async fn storage_roundtrip(client: &reqwest::Client, base: &str, client_id: &str
         json!([[{"type":"text","value":"saved"}]])
     );
     let response = client
-        .post(&url)
-        .bearer_auth(&read)
+        .post(url)
+        .bearer_auth(read)
         .json(&json!({"statements":[
-            {"sql":"DELETE FROM notes","params":[]}
+            {"sql":"SELECT secret FROM local_private_keys","params":[]}
         ]}))
         .send()
         .await
-        .expect("read-only write denial");
-    assert_eq!(response.status(), 403);
+        .expect("private key isolation check");
+    assert_eq!(
+        response.status(),
+        400,
+        "resource SQL must not expose owner private keys"
+    );
 }

@@ -42,9 +42,17 @@ impl DatabaseRuntime {
 
     /// Uses migrated shared SQL for the catalog; resource contents remain under `root`.
     pub fn with_client(root: PathBuf, client: ofdb_sql::Client) -> io::Result<Self> {
-        let mut runtime = Self::new(root.clone())?;
-        runtime.catalog = DatabaseCatalog::with_client(root, client)?;
-        Ok(runtime)
+        Ok(Self {
+            catalog: DatabaseCatalog::with_client(root.clone(), client)?,
+            local_copies: crate::local_copy::LocalCopyPolicy::new(
+                root.join("database-local-copies.json"),
+            ),
+            root,
+            open: Mutex::new(BTreeMap::new()),
+            kv_open: Mutex::new(BTreeMap::new()),
+            cleanup: tokio::sync::Mutex::new(()),
+            changes: tokio::sync::watch::channel(()).0,
+        })
     }
 
     pub fn catalog_changes(&self) -> tokio::sync::watch::Receiver<()> {

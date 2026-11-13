@@ -149,7 +149,7 @@ pub async fn build_local_router(
         data_dir: data_dir.to_string_lossy().into_owned(),
         ui_public_uri: origin.trim_end_matches('/').into(),
         api_public_uri: base.into(),
-        key_namespace: format!("local:{}", data_dir.display()),
+        key_namespace: "of:local".into(),
         password: idp_service::PasswordConfig {
             memory_mib: 1,
             iterations: 1,
@@ -160,17 +160,11 @@ pub async fn build_local_router(
     };
     config.oauth2.issuer = base.into();
     config.oauth2.local_signer = Some(
-        crate::local_seed::signer(
-            engine.clone(),
-            &data_dir.join("idp-keys"),
-            &config.key_namespace,
-            &config.oauth2.issuer,
-        )
-        .await?,
+        crate::local_seed::signer(engine.clone(), &config.key_namespace, &config.oauth2.issuer)
+            .await?,
     );
     let permissions = LocalPermissions::new(engine.clone());
-    let keys =
-        PrivateKeyKeyringRepo::new_local(&data_dir.join("idp-keys")).map_err(io::Error::other)?;
+    let keys = PrivateKeyKeyringRepo::new_local(engine.clone()).map_err(io::Error::other)?;
     let state = build_state_with_keys(&config, engine, None, None, Some(permissions), keys).await?;
     crate::local_seed::seed(&state, origin).await?;
     for (username, password) in users {

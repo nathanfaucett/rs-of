@@ -68,7 +68,7 @@ pub async fn compose_local_router(config: &UnifiedConfig) -> io::Result<Router> 
     let storage_base = format!("{base}/storage");
     let port = config.listen_addr.port();
     let idp = idp_server::build_local_router(
-        &config.data_dir.join("idp"),
+        &config.data_dir,
         &idp_base,
         &config.origin,
         Some(db.clone()),

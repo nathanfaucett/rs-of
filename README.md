@@ -67,13 +67,18 @@ Seeding is repeatable. Conflicting retained credentials fail rather than being
 replaced. Local mode uses public test credentials and reduced password-hash cost;
 it binds loopback only. Do not expose it through a public proxy.
 
-Keep the entire data directory for restart and backup. The owner entrypoints also
-retain IdP private keys and Storage resource files. The database alone is not a
-complete backup. This is not a migration for the previous unified-server layout.
+Fresh startup creates only `unified.redb` and, for HTTPS, `tls/`. Local IdP private
+keys and the Storage peer label are stored in `unified.redb`. On Unix, this file
+must deny group and other access. Private keys are not encrypted at rest. Local
+private-key tables must never be replicated or exposed as resource databases.
 
-**Validation is incomplete:** the owner HTTP constructors are blocked by existing
-Device replication and filesystem snapshot compile errors. See
-[ticket 04 validation](.scratch/backend-simplification/unified-validation.md).
+Keep the entire data directory for restart and backup. Used Storage resources
+still create separate SQL/KV files, filesystem catalogs and contents, and copy
+journals. The database alone is not a complete backup. This is not a migration
+for the previous unified-server layout.
+
+Full single-file resource persistence and broad validation remain incomplete.
+See the [persistence assessment and test results](.scratch/backend-simplification/persistence-validation.md).
 The fresh-start, restart, HTTPS and OAuth HTTP tests are written, but have not passed.
 
 ## Independent Node setup

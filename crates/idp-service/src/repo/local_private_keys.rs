@@ -1,33 +1,20 @@
-use std::{
-    fs,
-    io::{self, Write},
-    path::{Path, PathBuf},
-};
+use std::future::Future;
 
+use db::{Client, QueryParams, Row, Value, decode};
 use key::{DerivationPath, DerivedKey};
-use sha2::{Digest, Sha256};
+use of_model::idp::model::Id;
 
 use crate::repo::{RepoError, RepoResult};
 
-pub struct LocalPrivateKeys(PathBuf);
+pub struct LocalPrivateKeys(Client);
 
 impl LocalPrivateKeys {
-    pub fn new(root: &Path) -> RepoResult<Self> {
-        let mut builder = fs::DirBuilder::new();
-        builder.recursive(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::DirBuilderExt;
-            builder.mode(0o700);
-        }
-        builder.create(root).map_err(error)?;
-        require_private(root, true)?;
-        Ok(Self(root.to_owned()))
-    }
-
-    fn path(&self, namespace: &str, derivation: &DerivationPath) -> PathBuf {
-        let digest = Sha256::digest(format!("{namespace}\0{derivation}").as_bytes());
-        self.0.join(format!("{digest:x}.key"))
+    pub fn new(client: Client) -> RepoResult<Self> {
+        run(async {
+            client.execute_sql("CREATE TABLE IF NOT EXISTS local_private_keys (id UUID PRIMARY KEY, secret TEXT)", None).await.map_err(error)?;
+            Ok(())
+        })?;
+        Ok(Self(client))
     }
 
     pub fn load(
@@ -35,73 +22,106 @@ impl LocalPrivateKeys {
         namespace: &str,
         derivation: &DerivationPath,
     ) -> RepoResult<Option<DerivedKey>> {
-        let path = self.path(namespace, derivation);
-        match fs::symlink_metadata(&path) {
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(source) => return Err(error(source)),
-            Ok(_) => require_private(&path, false)?,
-        }
-        let secret = fs::read_to_string(path).map_err(error)?;
-        Ok(Some(DerivedKey::from_xprv(secret, derivation.clone())?))
+        run(async {
+            let id = key_id(namespace, derivation);
+            let params = QueryParams::Positional(vec![Value::Uuid(id)]);
+            let mut transaction = self.0.transaction().await.map_err(error)?;
+            if !transaction
+                .row_conflicts("local_private_keys", &Row::new(vec![Value::Uuid(id)]))
+                .await
+                .map_err(error)?
+                .is_empty()
+            {
+                return Err(RepoError::InvalidInput(
+                    "conflicted local private key".into(),
+                ));
+            }
+            let rows = transaction
+                .execute_sql(
+                    "SELECT secret FROM local_private_keys WHERE id = $1",
+                    Some(&params),
+                )
+                .await
+                .map_err(error)?;
+            let secret: Option<String> = rows[0]
+                .rows
+                .first()
+                .map(|row| decode(&row.values[0], "secret").map_err(error))
+                .transpose()?
+                .flatten();
+            transaction.rollback().await.map_err(error)?;
+            secret
+                .map(|secret| DerivedKey::from_xprv(secret, derivation.clone()).map_err(Into::into))
+                .transpose()
+        })
     }
 
     pub fn store(&self, namespace: &str, key: &DerivedKey) -> RepoResult<()> {
-        require_private(&self.0, true)?;
-        let path = self.path(namespace, key.derivation_path());
-        let temporary = path.with_extension(format!("{}.tmp", of_model::idp::model::Id::now_v7()));
-        let mut options = fs::OpenOptions::new();
-        options.create_new(true).write(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let result = (|| {
-            let mut file = options.open(&temporary)?;
-            file.write_all(key.to_xprv_string().as_bytes())?;
-            file.sync_all()?;
-            fs::rename(&temporary, &path)?;
-            fs::File::open(&self.0)?.sync_all()
-        })();
-        if result.is_err() {
-            let _ = fs::remove_file(temporary);
-        }
-        result.map_err(error)
+        self.write(
+            namespace,
+            key.derivation_path(),
+            Some(key.to_xprv_string().to_string()),
+        )
     }
 
     pub fn delete(&self, namespace: &str, derivation: &DerivationPath) -> RepoResult<()> {
-        match fs::remove_file(self.path(namespace, derivation)) {
-            Ok(()) => fs::File::open(&self.0)
-                .and_then(|directory| directory.sync_all())
-                .map_err(error),
-            Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(source) => Err(error(source)),
-        }
+        self.write(namespace, derivation, None)
+    }
+
+    fn write(
+        &self,
+        namespace: &str,
+        derivation: &DerivationPath,
+        secret: Option<String>,
+    ) -> RepoResult<()> {
+        run(async {
+            let id = key_id(namespace, derivation);
+            let mut transaction = self.0.transaction().await.map_err(error)?;
+            let params = QueryParams::Positional(vec![
+                Value::Uuid(id),
+                secret.map_or(Value::Null, Value::Text),
+            ]);
+            let id_params = QueryParams::Positional(vec![Value::Uuid(id)]);
+            let rows = transaction
+                .execute_sql(
+                    "SELECT id FROM local_private_keys WHERE id = $1",
+                    Some(&id_params),
+                )
+                .await
+                .map_err(error)?;
+            let sql = if rows[0].rows.is_empty() {
+                "INSERT INTO local_private_keys (id, secret) VALUES ($1, $2)"
+            } else {
+                "UPDATE local_private_keys SET secret = $2 WHERE id = $1"
+            };
+            transaction
+                .execute_sql(sql, Some(&params))
+                .await
+                .map_err(error)?;
+            transaction.commit().await.map_err(error)
+        })
     }
 }
 
-fn require_private(path: &Path, directory: bool) -> RepoResult<()> {
-    let metadata = fs::symlink_metadata(path).map_err(error)?;
-    if metadata.is_symlink()
-        || (directory && !metadata.is_dir())
-        || (!directory && !metadata.is_file())
-    {
-        return Err(RepoError::InvalidInput(
-            "local key storage must use regular files and directories".into(),
-        ));
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if metadata.permissions().mode() & 0o077 != 0 {
-            return Err(RepoError::InvalidInput(
-                "local key storage must deny group and other access".into(),
-            ));
-        }
-    }
-    Ok(())
+fn key_id(namespace: &str, derivation: &DerivationPath) -> Id {
+    let namespace = Id::new_v5(&Id::NAMESPACE_URL, namespace.as_bytes());
+    Id::new_v5(&namespace, derivation.to_string().as_bytes())
 }
 
-fn error(source: io::Error) -> RepoError {
-    RepoError::InvalidInput(source.to_string())
+fn run<T: Send>(future: impl Future<Output = RepoResult<T>> + Send) -> RepoResult<T> {
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .build()
+                    .map_err(error)?
+                    .block_on(future)
+            })
+            .join()
+            .map_err(|_| RepoError::InvalidInput("local private key worker panicked".into()))?
+    })
+}
+
+fn error(error: impl std::fmt::Display) -> RepoError {
+    RepoError::InvalidInput(error.to_string())
 }

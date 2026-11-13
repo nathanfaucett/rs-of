@@ -17,7 +17,8 @@ impl EmbeddedDatabase {
     pub async fn open(data_dir: impl AsRef<Path>) -> Result<Self, DatabaseError> {
         std::fs::create_dir_all(data_dir.as_ref()).map_err(storage_error)?;
         let database = Self {
-            database: db::Database::open(data_dir.as_ref().join("unified.redb"))?,
+            database: crate::local::open_private_database(&data_dir.as_ref().join("unified.redb"))
+                .map_err(storage_error)?,
         };
         replica::up(&database).await?;
         Ok(database)

@@ -1,28 +1,7 @@
-#![cfg(feature = "std")]
+#![cfg(feature = "replica")]
 
 use idp_service::repo::{PrivateKeyKeyringRepo, PrivateKeyRepo};
 use key::DerivationPath;
-
-#[cfg(unix)]
-#[test]
-fn local_private_keys_reject_public_or_symlink_directories() {
-    use std::os::unix::fs::{PermissionsExt, symlink};
-    let root = std::env::temp_dir().join(format!(
-        "unsafe-local-private-{}",
-        of_model::idp::model::Id::now_v7()
-    ));
-    std::fs::create_dir(&root).expect("fixture directory");
-    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755))
-        .expect("public fixture");
-    assert!(PrivateKeyKeyringRepo::new_local(&root).is_err());
-    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))
-        .expect("private fixture");
-    let link = root.with_extension("link");
-    symlink(&root, &link).expect("symlink fixture");
-    assert!(PrivateKeyKeyringRepo::new_local(&link).is_err());
-    std::fs::remove_file(link).expect("remove fixture link");
-    std::fs::remove_dir(root).expect("remove fixture directory");
-}
 
 #[test]
 fn local_private_keys_persist_without_an_os_credential_store() {
@@ -30,10 +9,15 @@ fn local_private_keys_persist_without_an_os_credential_store() {
         "local-private-{}",
         of_model::idp::model::Id::now_v7()
     ));
-    let repo = PrivateKeyKeyringRepo::new_local(&root).expect("file-backed local keys");
+    std::fs::create_dir(&root).expect("database directory");
+    let database = db::Database::open(root.join("unified.redb")).expect("database");
+    let repo =
+        PrivateKeyKeyringRepo::new_local(database.client()).expect("database-backed local keys");
     let key = repo.ensure_master_key("local").expect("create local key");
     drop(repo);
-    let reopened = PrivateKeyKeyringRepo::new_local(&root).expect("reopen local keys");
+    drop(database);
+    let database = db::Database::open(root.join("unified.redb")).expect("reopen database");
+    let reopened = PrivateKeyKeyringRepo::new_local(database.client()).expect("reopen local keys");
     assert_eq!(
         reopened
             .load("local", &DerivationPath::default())
@@ -57,5 +41,26 @@ fn local_private_keys_persist_without_an_os_credential_store() {
             .expect("deleted key")
             .is_none()
     );
+    drop(reopened);
+    drop(database);
+    let database = db::Database::open(root.join("unified.redb")).expect("reopen after delete");
+    let reopened =
+        PrivateKeyKeyringRepo::new_local(database.client()).expect("retained key deletion");
+    assert!(
+        reopened
+            .load("local", &DerivationPath::default())
+            .expect("deleted after restart")
+            .is_none()
+    );
+    let replacement = reopened
+        .ensure_master_key("local")
+        .expect("replace deleted key");
+    assert_ne!(replacement.to_xprv_string(), key.to_xprv_string());
+    assert_eq!(
+        std::fs::read_dir(&root).expect("local disk layout").count(),
+        1
+    );
+    drop(reopened);
+    drop(database);
     std::fs::remove_dir_all(root).expect("remove local keys");
 }

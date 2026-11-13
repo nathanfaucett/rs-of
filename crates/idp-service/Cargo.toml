@@ -16,25 +16,28 @@ name = "idp_service"
 default = ["std"]
 
 headless = ["key/headless"]
-replica = ["std", "db/replica", "of-model/replica"]
+replica = ["std", "db/replica", "of-model/replica", "dep:tokio"]
 std = [
-  "key/std",
-  "of-model/std",
+    "key/std",
+    "of-model/std",
 
-  "chrono/std",
-  "chrono/serde",
-  "base64/std",
-  "getrandom/std",
-  "serde/std",
-  "serde_json/std",
+    "chrono/std",
+    "chrono/serde",
+    "base64/std",
+    "getrandom/std",
+    "serde/std",
+    "serde_json/std",
 ]
 
 [dependencies]
 # Internal
-db = { package = "idp-db", path = "../db", default-features = false, features = [] }
+db = { package = "idp-db", path = "../db", default-features = false, features = [
+] }
 
 key = { path = "../key", default-features = false, features = ["secure-store"] }
-of-model = { path = "../of-model", default-features = false, features = ["std"] }
+of-model = { path = "../of-model", default-features = false, features = [
+    "std",
+] }
 
 # Cryptography
 k256 = { version = "0.13", default-features = false, features = ["ecdsa"] }
@@ -50,8 +53,8 @@ getrandom = { version = "0.3", default-features = false, features = [] }
 
 # Utilities
 chrono = { version = "0.4", default-features = false, features = [
-  "clock",
-  "serde",
+    "clock",
+    "serde",
 ] }
 rust-argon2 = { version = "3.0", default-features = false }
 
@@ -63,16 +66,30 @@ log = { version = "0.4", default-features = false, features = [] }
 # Keyring
 keyring-core = { version = "1.0", default-features = false, features = [] }
 
+# Async
+[dependencies.tokio]
+version = "1.53"
+default-features = false
+features = ["rt"]
+optional = true
+
 [dev-dependencies]
 # Native SQL observation controls
 futures = { version = "0.3", default-features = false, features = ["std"] }
-ofdb-sql = { path = "../../../ofdb/crates/sql", default-features = false, features = ["redb", "remote", "server", "sql"] }
+ofdb-sql = { path = "../../../ofdb/crates/sql", default-features = false, features = [
+    "redb",
+    "remote",
+    "server",
+    "sql",
+] }
 
 # Existing test dependencies
-of-model = { path = "../of-model", default-features = false, features = ["std"] }
+of-model = { path = "../of-model", default-features = false, features = [
+    "std",
+] }
 tokio = { version = "1.4", default-features = false, features = [
-  "macros",
-  "rt",
-  "sync",
-  "time",
+    "macros",
+    "rt",
+    "sync",
+    "time",
 ] }

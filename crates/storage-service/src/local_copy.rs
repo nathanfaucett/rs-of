@@ -7,8 +7,8 @@ use std::{
 };
 
 use of_model::idp::model::Id;
-use serde::{Deserialize, Serialize};
 use of_model::storage::StorageNamespace;
+use serde::{Deserialize, Serialize};
 
 #[derive(Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -285,6 +285,9 @@ impl LocalCopyPolicy {
     }
 
     fn write(&self, policy: &CopyPolicy) -> io::Result<()> {
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent)?;
+        }
         let bytes = serde_json::to_vec(policy).map_err(io::Error::other)?;
         let temporary = self.path.with_extension("tmp");
         let mut file = File::create(&temporary)?;

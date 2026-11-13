@@ -9,9 +9,12 @@ self-signed leaf certificate, not the independent setup CA or OS trust changes.
 See the [local backend commands](../README.md#local-development-backend).
 
 This mode is for loopback development. It does not establish Installation
-membership or qualify production Node setup. Owner files outside `unified.redb`
-remain necessary for restart and resource persistence. Back up the entire data
-directory, not just the database.
+membership or qualify production Node setup. Fresh startup creates `unified.redb`
+and optional `tls/` only. Local IdP private keys and the Storage peer label are in
+the database. Resource stores are opened lazily and still use separate files.
+Back up the entire data directory after using resources, not just the database.
+Never replicate the local private-key table or expose the owner database through
+a resource SQL endpoint.
 
 ## Independent deployments
 
