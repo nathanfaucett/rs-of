@@ -85,7 +85,7 @@ unified *args:
     cargo run -p unified-server -- local {{ args }}
 
 openapi-export:
-    cargo run -p unified-server --example export-openapi -- openapi
+    cargo run -p unified-server --features independent-contracts --example export-openapi -- openapi
 
 openapi-generate:
     pnpm openapi

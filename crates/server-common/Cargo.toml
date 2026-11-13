@@ -14,12 +14,13 @@ name = "server_common"
 
 [features]
 default = []
-test-support = ["setup/test-support", "dep:serde_json"]
+independent = ["dep:setup"]
+test-support = ["independent", "setup/test-support"]
 
 [dependencies]
 # Internal
 of-model = { path = "../of-model", default-features = false, features = ["std"] }
-setup = { path = "../setup", default-features = false }
+setup = { path = "../setup", default-features = false, optional = true }
 
 # Logging
 log = { version = "0.4", default-features = false }
@@ -37,4 +38,8 @@ tokio-util = { version = "0.7", default-features = false }
 version = "1.0"
 default-features = false
 features = ["std"]
-optional = true
+
+[dependencies.reqwest]
+version = "0.12"
+default-features = false
+features = ["rustls-tls-native-roots"]

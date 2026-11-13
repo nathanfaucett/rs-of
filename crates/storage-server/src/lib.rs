@@ -3,9 +3,9 @@
 #[cfg(feature = "cli")]
 mod cli;
 mod config;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "independent"))]
 mod independent_reset;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "independent"))]
 pub use independent_reset::reset_independent;
 #[cfg(all(unix, feature = "cli"))]
 mod startup;
@@ -72,7 +72,7 @@ pub use runtime::{StorageRuntime, build_http_runtime, build_local_runtime, build
 #[cfg(feature = "sync")]
 pub use sync::{SyncState, sync_router};
 
-#[cfg(all(unix, feature = "network"))]
+#[cfg(all(unix, feature = "independent", feature = "network"))]
 mod independent_create;
-#[cfg(all(unix, feature = "network"))]
+#[cfg(all(unix, feature = "independent", feature = "network"))]
 pub use independent_create::{run_owner_setup, serve_independent_create};

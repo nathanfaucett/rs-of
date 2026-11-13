@@ -19,7 +19,8 @@ required-features = ["cli"]
 
 [features]
 default = ["cli", "completions", "swagger-ui"]
-cli = ["network", "dep:dotenvy", "dep:clap", "dep:cli"]
+independent = ["network", "dep:setup", "server-common/independent", "device-service/independent"]
+cli = ["independent", "network", "dep:dotenvy", "dep:clap", "dep:cli"]
 network = ["dep:tokio", "dep:tokio-util"]
 sync = ["network", "dep:futures-util", "dep:crc32fast"]
 completions = ["cli?/completions"]
@@ -50,7 +51,7 @@ of-device-client = { path = "../device-client", default-features = false }
 of-idp-client = { path = "../idp-client", default-features = false }
 server-common = { path = "../server-common", default-features = false, features = [
 ] }
-setup = { workspace = true }
+setup = { workspace = true, optional = true }
 file-system = { path = "../../../offs/crates/file-system", default-features = false, features = [
 ] }
 of-model = { path = "../of-model", default-features = false, features = [

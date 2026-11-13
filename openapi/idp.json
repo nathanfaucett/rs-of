@@ -714,6 +714,32 @@
         ],
         "type": "string"
       },
+      "CreateUserRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "email_verified": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "email",
+          "password"
+        ],
+        "type": "object"
+      },
       "DeviceAuthorization": {
         "properties": {
           "device_code": {
@@ -815,7 +841,7 @@
         "type": "string"
       },
       "ErrorResponse": {
-        "description": "Standard OAuth 2.0 error response structure (RFC 6749 Section 5.2).\nshould match fields from crates/model/src/contract/error_response.rs",
+        "description": "Standard OAuth 2.0 error response structure (RFC 6749 Section 5.2).",
         "properties": {
           "error": {
             "$ref": "#/components/schemas/ErrorCode"
@@ -1450,6 +1476,34 @@
         ],
         "type": "object"
       },
+      "SetUserBlockedRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "blocked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "blocked"
+        ],
+        "type": "object"
+      },
+      "SetUserMfaRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "enable": {
+            "type": "boolean"
+          },
+          "method": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "method",
+          "enable"
+        ],
+        "type": "object"
+      },
       "StandardClaims": {
         "properties": {
           "aud": {
@@ -1814,6 +1868,108 @@
         ],
         "type": "string"
       },
+      "UpdateUserInfoRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "birthdate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email_verified": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "family_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "given_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locale": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "middle_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nickname": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phone_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phone_number_verified": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "picture": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "profile": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sex": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "website": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "zoneinfo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "UserInfo": {
         "properties": {
           "birthdate": {
@@ -1821,6 +1977,9 @@
               "string",
               "null"
             ]
+          },
+          "blocked": {
+            "type": "boolean"
           },
           "email": {
             "type": [
@@ -1855,6 +2014,12 @@
           "locale": {
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "mfa_totp_enabled": {
+            "type": [
+              "boolean",
               "null"
             ]
           },
@@ -1930,18 +2095,11 @@
               "string",
               "null"
             ]
-          },
-          "blocked": {
-            "type": "boolean"
-          },
-          "mfa_totp_enabled": {
-            "type": "boolean"
           }
         },
         "required": [
           "sub",
-          "updated_at",
-          "blocked"
+          "updated_at"
         ],
         "type": "object"
       },
@@ -1950,6 +2108,12 @@
           "build": {
             "format": "date-time",
             "type": "string"
+          },
+          "features": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "name": {
             "type": "string"
@@ -1964,111 +2128,6 @@
           "build"
         ],
         "type": "object"
-      },
-      "CreateUserRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "email": {
-            "type": "string"
-          },
-          "password": {
-            "type": "string"
-          },
-          "email_verified": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "name",
-          "email",
-          "password"
-        ]
-      },
-      "SetUserMfaRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "method": {
-            "type": "string"
-          },
-          "enable": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "method",
-          "enable"
-        ]
-      },
-      "SetUserBlockedRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "blocked": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "blocked"
-        ]
-      },
-      "UpdateUserInfoRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "given_name": {
-            "type": "string"
-          },
-          "family_name": {
-            "type": "string"
-          },
-          "middle_name": {
-            "type": "string"
-          },
-          "nickname": {
-            "type": "string"
-          },
-          "profile": {
-            "type": "string"
-          },
-          "picture": {
-            "type": "string"
-          },
-          "website": {
-            "type": "string"
-          },
-          "sex": {
-            "type": "string"
-          },
-          "birthdate": {
-            "type": "string"
-          },
-          "zoneinfo": {
-            "type": "string"
-          },
-          "locale": {
-            "type": "string"
-          },
-          "email": {
-            "type": "string"
-          },
-          "email_verified": {
-            "type": "boolean"
-          },
-          "phone_number": {
-            "type": "string"
-          },
-          "phone_number_verified": {
-            "type": "boolean"
-          }
-        }
       }
     },
     "securitySchemes": {
@@ -2338,6 +2397,38 @@
         "responses": {
           "200": {
             "description": "Rotated client signing key metadata"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
+    "/clients/{client_id}/rotate-secret": {
+      "post": {
+        "operationId": "rotate_client_secret",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Rotated client secret"
           }
         },
         "security": [
@@ -3751,6 +3842,41 @@
         ]
       }
     },
+    "/users/{user_id}/block": {
+      "post": {
+        "operationId": "set_user_blocked",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetUserBlockedRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated block status"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
     "/users/{user_id}/consents": {
       "get": {
         "operationId": "list_consents",
@@ -3829,6 +3955,41 @@
         ]
       }
     },
+    "/users/{user_id}/mfa": {
+      "post": {
+        "operationId": "set_user_mfa",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetUserMfaRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated MFA"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
     "/users/{user_id}/password": {
       "put": {
         "operationId": "reset_password",
@@ -3879,108 +4040,6 @@
             "description": "Version"
           }
         }
-      }
-    },
-    "/users/{user_id}/mfa": {
-      "post": {
-        "operationId": "set_user_mfa",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "user_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetUserMfaRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Updated MFA"
-          }
-        },
-        "security": [
-          {
-            "authorization": []
-          }
-        ]
-      }
-    },
-    "/users/{user_id}/block": {
-      "post": {
-        "operationId": "set_user_blocked",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "user_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetUserBlockedRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Updated block status"
-          }
-        },
-        "security": [
-          {
-            "authorization": []
-          }
-        ]
-      }
-    },
-    "/clients/{client_id}/rotate-secret": {
-      "post": {
-        "operationId": "rotate_client_secret",
-        "parameters": [
-          {
-            "name": "client_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Rotated client secret"
-          }
-        },
-        "security": [
-          {
-            "authorization": []
-          }
-        ]
       }
     }
   },

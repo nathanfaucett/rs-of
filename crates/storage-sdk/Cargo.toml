@@ -27,6 +27,9 @@ of-storage-client = { path = "../storage-client", default-features = false }
 # Sync transport
 storage-sync-client = { path = "../storage-sync-client", default-features = false, optional = true }
 
+# Shared domain contracts
+of-model = { path = "../of-model", default-features = false, features = ["std"] }
+
 # Internal engines
 ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = [
     "sql",

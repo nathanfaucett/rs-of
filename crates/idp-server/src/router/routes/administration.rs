@@ -203,7 +203,7 @@ pub(crate) async fn get_user(
 }
 
 #[utoipa::path(put, path = "/users/{user_id}", params(("user_id" = String, Path)),
-    request_body = Object, responses((status = 200, description = "Updated user", body = UserInfo)), security(("authorization" = [])))]
+    request_body = UpdateUserInfoRequest, responses((status = 200, description = "Updated user", body = UserInfo)), security(("authorization" = [])))]
 pub(crate) async fn update_user(
     State(state): State<RouterState>,
     Path(id): Path<Id>,

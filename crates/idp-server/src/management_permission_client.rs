@@ -1,5 +1,11 @@
 use std::io;
 
+use of_management_client::apis::{
+    Error,
+    configuration::Configuration,
+    default_api::{EvaluatePermissionParams, evaluate_permission},
+};
+use of_model::contract::PrincipalType;
 use of_model::idp::{
     contract::{
         ClientCredentialsGrantRequest, ErrorCode, ErrorResponse,
@@ -7,12 +13,6 @@ use of_model::idp::{
         PermissionEvaluationResponse, PermissionSubject, TokenEndpointAuthMethod, TokenRequest,
     },
     model::Id,
-};
-use of_model::contract::PrincipalType;
-use of_management_client::apis::{
-    Error,
-    configuration::Configuration,
-    default_api::{EvaluatePermissionParams, evaluate_permission},
 };
 use reqwest::{Client, Url};
 
@@ -45,7 +45,7 @@ impl ManagementPermissionClient {
             base,
             client_id: config.client_id.clone(),
             client_secret: config.client_secret.clone(),
-            client: server_common::LocalTls::verification_client()?,
+            client: server_common::verification_client()?,
         })
     }
 

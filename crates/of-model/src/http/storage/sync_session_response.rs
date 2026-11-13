@@ -50,23 +50,4 @@ impl SyncSessionResponse {
         }
     }
 }
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
-pub enum Status {
-    #[serde(rename = "connecting")]
-    Connecting,
-    #[serde(rename = "syncing")]
-    Syncing,
-    #[serde(rename = "completed")]
-    Completed,
-    #[serde(rename = "failed")]
-    Failed,
-    #[serde(rename = "cancelled")]
-    Cancelled,
-}
-
-impl Default for Status {
-    fn default() -> Status {
-        Self::Connecting
-    }
-}
+pub use crate::storage::sync::SyncStatus as Status;

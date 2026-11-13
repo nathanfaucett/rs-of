@@ -1,8 +1,10 @@
-use of_model::idp::model::Id;
 use iroh::EndpointId;
 use iroh_chain::{PairingOffer, Server};
+use of_model::idp::model::Id;
 use serde::{Deserialize, Serialize};
 use std::{io, time::Duration};
+
+use crate::hosted_join::NodeJoinRequestExt;
 
 pub fn validate_issuer(issuer: &str) -> io::Result<()> {
     let url = reqwest::Url::parse(issuer).map_err(|_| {

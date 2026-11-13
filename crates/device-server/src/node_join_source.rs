@@ -1,6 +1,7 @@
 use std::{collections::BTreeMap, io, sync::Arc, time::Instant};
 
-use server_common::SecurityAddon;
+use device_service::hosted_join::NodeJoinRequestExt;
+
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -14,9 +15,10 @@ use device_service::hosted_join::NodeJoinApproval;
 use device_service::hosted_join::NodeJoinIdentity;
 use device_service::hosted_join::NodeJoinRequest;
 use device_service::replica::DbDeviceRepo;
-use of_model::idp::model::Id;
 use iroh_chain::{PairingOffer, Server};
+use of_model::idp::model::Id;
 use serde::{Deserialize, Serialize};
+use server_common::SecurityAddon;
 use tokio::{
     sync::{Mutex, broadcast},
     task::JoinSet,
@@ -537,12 +539,12 @@ pub(crate) fn node_join_router(source: Option<Arc<NodeJoinSource>>, prefix: &str
 #[cfg(test)]
 mod tests {
     use super::{Pending, QueuedOffer};
-    use of_model::idp::model::Id;
     use iroh::{
         endpoint::Connection,
         protocol::{AcceptError, ProtocolHandler},
     };
     use iroh_chain::{EndpointIdStore, PAIRING_ALPN, Server};
+    use of_model::idp::model::Id;
     use std::{collections::BTreeMap, sync::Arc, time::Duration};
     use tokio::sync::{Mutex, Notify};
     use tokio_util::sync::CancellationToken;

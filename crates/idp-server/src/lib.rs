@@ -4,9 +4,9 @@
 #[cfg(feature = "cli")]
 mod cli;
 mod config;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "independent"))]
 mod independent_reset;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "independent"))]
 pub use independent_reset::reset_independent;
 #[cfg(all(unix, feature = "cli"))]
 mod startup;
@@ -52,21 +52,22 @@ pub use runtime::{
     IdpRuntime, build_local_router, build_oauth_runtime, build_runtime, identity_client,
 };
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "independent"))]
 mod independent_create;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "independent"))]
 mod independent_identity;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "independent"))]
 mod independent_join;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "independent"))]
 pub use independent_create::{run_owner_setup, serve_independent_create};
-#[cfg(unix)]
+#[cfg(all(unix, feature = "independent"))]
 pub use independent_join::build_independent_idp;
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "independent"))]
 pub use independent_join::independent_join_openapi;
 
 pub mod issuer_discovery;
 pub mod local_provisioning;
 pub use issuer_discovery::discover_installation_issuer;
+#[cfg(feature = "independent")]
 pub use server_common::LocalTls;

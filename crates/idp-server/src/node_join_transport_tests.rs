@@ -1,13 +1,15 @@
 use std::{fs, path::PathBuf, time::Duration};
 
+use device_service::hosted_join::{NodeJoinApprovalExt, NodeJoinRequestExt};
+
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use of_model::idp::model::Id;
 use idp_service::{
     oauth2::NodeSignerBinding,
     repo::{PrivateKeyKeyringRepo, PrivateKeyRepo, RawKeyringRepo},
 };
 use iroh::{Endpoint, SecretKey, endpoint::presets::Minimal};
 use iroh_chain::{DATA_ALPN, EndpointIdStore, MESH_ALPN, PAIRING_ALPN, Server};
+use of_model::idp::model::Id;
 
 use device_service::hosted_join::NodeJoinApproval;
 use device_service::hosted_join::NodeJoinRequest;

@@ -41,9 +41,9 @@ pub use pairing_acceptance::{
     PairingAcceptanceController, PairingAcceptanceControllerSlot, TimedPairingAcceptanceController,
 };
 
-#[cfg(all(feature = "replica", unix))]
+#[cfg(all(feature = "independent", unix))]
 pub mod independent_join;
-#[cfg(all(feature = "replica", unix))]
+#[cfg(all(feature = "independent", unix))]
 pub mod join_history;
 #[cfg(feature = "replica")]
 pub mod security_candidates;
