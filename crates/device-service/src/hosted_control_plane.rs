@@ -7,26 +7,26 @@ use std::{
 
 use idp_service::oauth2::{decode_jwt, verify_jwt};
 
-use of_model::idp::{
-    contract::{IntrospectionResponse, Jwks},
-    model::Id,
-};
 use iroh::EndpointId;
-use of_model::contract::{
-    AuthorizationDetail, StandardClaims, StorageAuthorizationAction, TokenResponse, TokenType,
-    TokenUse,
-};
 use of_idp_client::apis::{
     configuration::Configuration,
     default_api::{TokenParams, jwks, token},
     super_routes_active_user_api::{ActiveUserParams, active_user},
     super_routes_oauth2_introspect_api::{IntrospectParams, introspect},
 };
+use of_model::contract::{
+    AuthorizationDetail, StandardClaims, StorageAuthorizationAction, TokenResponse, TokenType,
+    TokenUse,
+};
+use of_model::idp::{
+    contract::{IntrospectionResponse, Jwks},
+    model::Id,
+};
+use of_model::storage::ResourceKind;
 use of_storage_api_client::apis::resources_api::{
     GetDatabaseParams, GetFileSystemParams, get_database, get_file_system,
 };
 use reqwest::{Client, Url, redirect::Policy};
-use of_model::storage::ResourceKind;
 
 use crate::{DeviceEndpointIdentity, DeviceIdentity, PairingAcceptanceController};
 #[cfg(feature = "replica")]
@@ -889,23 +889,41 @@ mod tests {
 
     #[tokio::test]
     async fn introspection_rejection_is_not_treated_as_upstream_unavailable() {
+        fn read_request(stream: &mut std::net::TcpStream) {
+            let mut headers = Vec::new();
+            while !headers.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                stream
+                    .read_exact(&mut byte)
+                    .expect("complete request header byte");
+                headers.push(byte[0]);
+                assert!(headers.len() <= 16 * 1024, "bounded fixture headers");
+            }
+            let headers = String::from_utf8(headers).expect("HTTP request headers");
+            let length = headers
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>().expect("request length"))
+                })
+                .unwrap_or(0);
+            assert!(length <= 16 * 1024, "bounded fixture body");
+            stream
+                .read_exact(&mut vec![0; length])
+                .expect("complete request body");
+        }
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind test HTTP server");
         let address = listener.local_addr().expect("read test HTTP address");
         let server = thread::spawn(move || {
             let (mut token_stream, _) = listener.accept().expect("accept token request");
-            let mut token_request = [0; 4096];
-            token_stream
-                .read(&mut token_request)
-                .expect("read token request");
+            read_request(&mut token_stream);
             let token_response = r#"{"access_token":"management-token","token_type":"Bearer","expires_in":300,"scope":"idp.token.validate idp.user.lookup","iss":"https://issuer.example"}"#;
             write!(token_stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{token_response}", token_response.len()).expect("write token response");
 
             let (mut introspection_stream, _) =
                 listener.accept().expect("accept introspection request");
-            let mut introspection_request = [0; 4096];
-            introspection_stream
-                .read(&mut introspection_request)
-                .expect("read introspection request");
+            read_request(&mut introspection_stream);
             let error_response = r#"{"error":"invalid_token"}"#;
             write!(introspection_stream, "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{error_response}", error_response.len()).expect("write rejection response");
         });

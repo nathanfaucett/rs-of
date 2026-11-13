@@ -5,7 +5,17 @@ use utoipa::openapi::{OpenApi, Server};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let out = PathBuf::from(env::args_os().nth(1).expect("output directory argument"));
-    let documents = BTreeMap::from([
+    let documents = canonical_documents();
+    fs::create_dir_all(&out)?;
+    for (name, mut document) in documents {
+        document.servers = Some(vec![Server::new(format!("https://localhost/{name}"))]);
+        write(&out, name, document)?;
+    }
+    Ok(())
+}
+
+pub fn canonical_documents() -> BTreeMap<&'static str, OpenApi> {
+    let mut documents = BTreeMap::from([
         ("idp", idp_server::openapi_document("", "/idp")),
         (
             "management",
@@ -14,20 +24,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("device", device_server::openapi_document("", "/device")),
         ("storage", storage_server::openapi_document("", "/storage")),
     ]);
-
-    fs::create_dir_all(&out)?;
-    for (name, mut document) in documents {
-        let base = match name {
-            "idp" => "/idp",
-            "management" => "/management",
-            "device" => "/device",
-            "storage" => "/storage",
-            _ => "/",
-        };
-        document.servers = Some(vec![Server::new(format!("https://localhost{base}"))]);
-        write(&out, name, document)?;
+    for owner in ["idp", "device", "storage"] {
+        let document = documents.get_mut(owner).expect("canonical owner");
+        merge(
+            document,
+            server_common::owner_setup_openapi(),
+            "owner_setup",
+            None,
+        );
+        merge(
+            document,
+            device_service::join_history::history_openapi(),
+            "independent_join",
+            None,
+        );
     }
-    Ok(())
+    merge(
+        documents.get_mut("idp").expect("IdP"),
+        idp_server::independent_join_openapi(),
+        "independent_join",
+        None,
+    );
+    merge(
+        documents.get_mut("device").expect("Device"),
+        device_server::independent_join_openapi(),
+        "independent_join",
+        None,
+    );
+    documents
 }
 fn write(
     out: &std::path::Path,
@@ -39,4 +63,62 @@ fn write(
     bytes.push(b'\n');
     fs::write(out.join(format!("{name}.json")), bytes)?;
     Ok(())
+}
+
+fn merge(target: &mut OpenApi, mut source: OpenApi, tag: &str, prefix: Option<&str>) {
+    let paths = std::mem::take(&mut source.paths.paths);
+    for (path, mut item) in paths {
+        for operation in [
+            &mut item.get,
+            &mut item.put,
+            &mut item.post,
+            &mut item.delete,
+            &mut item.options,
+            &mut item.head,
+            &mut item.patch,
+            &mut item.trace,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let id = operation.operation_id.as_deref().expect("operation ID");
+            operation.operation_id = Some(format!("{tag}_{id}"));
+            operation.tags = Some(vec![tag.to_owned()]);
+        }
+        let path = prefix.map_or(path.as_str(), |prefix| {
+            path.strip_prefix(prefix).expect("owner prefix")
+        });
+        assert!(
+            !target.paths.paths.contains_key(path),
+            "duplicate owner route {path}"
+        );
+        source.paths.paths.insert(path.to_owned(), item);
+    }
+    target.merge(source);
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn canonical_exports_preserve_independent_owner_operations() {
+        let documents = super::canonical_documents();
+        for owner in ["idp", "device", "storage"] {
+            let paths = &documents[owner].paths.paths;
+            for path in [
+                "/setup/owner/status",
+                "/setup/owner/create",
+                "/setup/owner/join",
+                "/independent/node-joins/history/request",
+                "/independent/node-joins/history/stream",
+            ] {
+                assert!(paths.contains_key(path), "{owner}: missing {path}");
+            }
+        }
+        assert!(
+            !documents["management"]
+                .paths
+                .paths
+                .contains_key("/setup/owner/status")
+        );
+    }
 }

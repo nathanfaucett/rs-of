@@ -15,11 +15,11 @@ use axum::{
     http::{Method, Request, StatusCode, header::AUTHORIZATION},
 };
 use device_service::DeviceState;
-use of_model::idp::{contract::IntrospectionResponse, model::Id};
 use of_model::contract::{
     AuthorizationDetail, PrincipalType, StandardClaims, StorageAuthorizationAction,
     StorageAuthorizationDetail, TokenType, TokenUse,
 };
+use of_model::idp::{contract::IntrospectionResponse, model::Id};
 use storage_server::{
     DeviceReplicationPolicy, IdpClient, IdpIntrospectionError, LocalReplicationAuthorizer,
     RouterState, resource_router,
@@ -30,7 +30,11 @@ use tower::ServiceExt;
 
 async fn request_status(client: IdpClient, method: Method) -> StatusCode {
     let app = resource_router(
-        RouterState::new("http://storage.local").with_idp_client(client),
+        RouterState::new(
+            "http://storage.local",
+            iroh::SecretKey::generate().public().to_string(),
+        )
+        .with_idp_client(client),
         None,
         None,
     );
@@ -235,7 +239,11 @@ async fn missing_bearer_is_denied_without_identity_or_policy_work() {
             }),
         );
     let response = resource_router(
-        RouterState::new("http://storage.local").with_idp_client(client),
+        RouterState::new(
+            "http://storage.local",
+            iroh::SecretKey::generate().public().to_string(),
+        )
+        .with_idp_client(client),
         None,
         None,
     )
@@ -283,7 +291,11 @@ async fn storage_response_rechecks_policy_before_returning_success() {
     .with_local_device_policy(endpoint, policy);
     let root = std::env::temp_dir().join(format!("storage-response-policy-{}", Id::now_v7()));
     let app = resource_router(
-        RouterState::new("http://storage.local").with_idp_client(client),
+        RouterState::new(
+            "http://storage.local",
+            iroh::SecretKey::generate().public().to_string(),
+        )
+        .with_idp_client(client),
         Some(Arc::new(
             DatabaseRuntime::new(root.clone()).expect("isolated database catalog"),
         )),

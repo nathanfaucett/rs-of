@@ -7,10 +7,6 @@ use std::{
 use device_service::ApprovedDeviceEndpoints;
 use iroh::{EndpointId, endpoint::Connection};
 use iroh_chain::Server;
-use of_model::contract::{
-    OwnerCopyCleanup, ReplicationAdmissionRequest, SelectedResourcesResponse, TokenResponse,
-    TokenType,
-};
 use of_device_client::apis::{
     configuration::Configuration,
     default_api::list_approved_device_endpoints,
@@ -20,6 +16,10 @@ use of_device_client::apis::{
     },
 };
 use of_idp_client::apis::default_api::{TokenParams, token};
+use of_model::contract::{
+    OwnerCopyCleanup, ReplicationAdmissionRequest, SelectedResourcesResponse, TokenResponse,
+    TokenType,
+};
 use reqwest::{Client, Url, redirect::Policy};
 
 const MAX_RESPONSE_SIZE: usize = 64 * 1024;
@@ -498,8 +498,8 @@ mod tests {
             http::{HeaderMap, StatusCode},
             routing::{get, post},
         };
-        use of_model::idp::model::Id;
         use of_model::contract::SelectedResource;
+        use of_model::idp::model::Id;
 
         let local = iroh::SecretKey::generate().public();
         let remote = iroh::SecretKey::generate().public();
@@ -729,8 +729,7 @@ mod tests {
             .expect("read redirect target address");
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept token request");
-            let mut request = [0; 4096];
-            stream.read(&mut request).expect("read token request");
+            crate::execution_test_support::read_http_request(&mut stream);
             write!(
                 stream,
                 "HTTP/1.1 302 Found\r\nLocation: http://{redirect_address}/stolen\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
@@ -761,8 +760,7 @@ mod tests {
         let address = listener.local_addr().expect("read test HTTP address");
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept token request");
-            let mut request = [0; 4096];
-            stream.read(&mut request).expect("read token request");
+            crate::execution_test_support::read_http_request(&mut stream);
             let mut body = r#"{"access_token":"service-token","token_type":"Bearer","expires_in":3600,"scope":"management.device.list management.replication.read management.replication.admit","iss":"https://idp.example"}"#.to_owned();
             body.push_str(&" ".repeat(65_537 - body.len()));
             write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
@@ -795,8 +793,7 @@ mod tests {
         let address = listener.local_addr().expect("read test HTTP address");
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept token request");
-            let mut request = [0; 4096];
-            stream.read(&mut request).expect("read token request");
+            crate::execution_test_support::read_http_request(&mut stream);
             let body = r#"{"error":"invalid_client"}"#;
             write!(stream, "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).expect("write token rejection");
         });

@@ -23,3 +23,6 @@ pub use setup::{
 
 #[cfg(all(unix, feature = "test-support"))]
 pub mod setup_https_fixture;
+
+#[cfg(unix)]
+pub use setup::owner_setup_openapi;

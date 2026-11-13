@@ -5,10 +5,8 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use of_model::idp::contract::IntrospectionResponse;
 #[cfg(feature = "network")]
 use iroh::EndpointId;
-use of_model::contract::{TokenResponse, TokenType};
 use of_idp_client::{
     apis::{
         Error,
@@ -18,6 +16,8 @@ use of_idp_client::{
     },
     models::IntrospectionRequest,
 };
+use of_model::contract::{TokenResponse, TokenType};
+use of_model::idp::contract::IntrospectionResponse;
 use reqwest::{Client, Url, redirect::Policy};
 
 const MAX_RESPONSE_SIZE: usize = 64 * 1024;
@@ -420,8 +420,8 @@ mod tests {
         use std::sync::{Arc, Mutex};
 
         use device_service::DeviceState;
-        use of_model::idp::{contract::IntrospectionResponse, model::Id};
         use of_model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
+        use of_model::idp::{contract::IntrospectionResponse, model::Id};
 
         let endpoint = iroh::SecretKey::generate().public();
         let owner = Id::now_v7().to_string();
@@ -602,8 +602,7 @@ mod tests {
             .expect("read redirect target address");
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept token request");
-            let mut request = [0; 4096];
-            stream.read(&mut request).expect("read token request");
+            crate::execution_test_support::read_http_request(&mut stream);
             write!(
                 stream,
                 "HTTP/1.1 302 Found\r\nLocation: http://{redirect_address}/stolen\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
@@ -633,8 +632,7 @@ mod tests {
         let address = listener.local_addr().expect("read test HTTP address");
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept token request");
-            let mut request = [0; 4096];
-            stream.read(&mut request).expect("read token request");
+            crate::execution_test_support::read_http_request(&mut stream);
             let mut body = r#"{"access_token":"service-token","token_type":"Bearer","expires_in":3600,"scope":"idp.token.validate","iss":"https://idp.example"}"#.to_owned();
             body.push_str(&" ".repeat(65_537 - body.len()));
             write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
@@ -666,8 +664,7 @@ mod tests {
         let address = listener.local_addr().expect("read test HTTP address");
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept token request");
-            let mut request = [0; 4096];
-            stream.read(&mut request).expect("read token request");
+            crate::execution_test_support::read_http_request(&mut stream);
             let body = r#"{"error":"invalid_client"}"#;
             write!(stream, "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).expect("write token rejection");
         });

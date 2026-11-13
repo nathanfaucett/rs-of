@@ -7,7 +7,7 @@ use std::{
     },
 };
 
-use ofdb_sql::SyncTransport;
+use ofdb_sql::history::SyncTransport;
 
 use super::AuthorizedTransport;
 

@@ -72,3 +72,6 @@ mod independent_setup_tests;
 mod setup_admission_tests;
 #[cfg(all(test, target_os = "linux"))]
 mod setup_install_tests;
+
+#[cfg(unix)]
+pub use independent_openapi::owner_setup_openapi;

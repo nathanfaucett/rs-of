@@ -81,7 +81,8 @@ pub fn openapi_document(api_base_uri: &str, prefix: &str) -> OpenApiDocument {
 }
 
 pub fn openapi_router(router_state: RouterState, prefix: &str) -> OpenApiRouter {
-    let openapi_spec = server_common::canonical_openapi("storage", &router_state.api_base_uri, prefix);
+    let openapi_spec =
+        server_common::canonical_openapi("storage", &router_state.api_base_uri, prefix);
     let prefix = if prefix == "/" { "" } else { prefix };
     let runtime_router = if prefix.is_empty() {
         OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(routes().with_state(router_state))
@@ -148,8 +149,11 @@ mod tests {
         use tower::ServiceExt;
 
         let base = "https://standalone.example";
-        let (router, _) =
-            crate::openapi_router(crate::RouterState::new(base), "").split_for_parts();
+        let (router, _) = crate::openapi_router(
+            crate::RouterState::new(base, iroh::SecretKey::generate().public().to_string()),
+            "",
+        )
+        .split_for_parts();
         let response = router
             .oneshot(
                 Request::builder()

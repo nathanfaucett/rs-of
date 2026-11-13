@@ -6,12 +6,6 @@ use device_service::DeviceRepo;
 use device_service::replica::DbDeviceRepo;
 use device_service::replica::DbSelectionPolicyRepo;
 use device_service::replica::SelectionPolicy;
-use of_model::idp::{
-    contract::{
-        IdpSignerRecord, JwkPublic, JwkPublicParameters, JwsAlgorithm, KeyUse, ReplicaMembership,
-    },
-    model::Id,
-};
 use idp_service::{
     PasswordConfig,
     replica::{DbReplicaSignerRepo, DbUserRepo},
@@ -23,6 +17,12 @@ use iroh::{
     endpoint::{Connection, presets},
 };
 use of_model::contract::SelectedResource;
+use of_model::idp::{
+    contract::{
+        IdpSignerRecord, JwkPublic, JwkPublicParameters, JwsAlgorithm, KeyUse, ReplicaMembership,
+    },
+    model::Id,
+};
 use tokio::sync::Notify;
 
 use crate::{DeviceReplicationPolicy, LocalReplicationAuthorizer};
@@ -337,4 +337,29 @@ pub(crate) async fn sql(database: &Database, sql: &str) {
         .translate_and_execute(sql, &SqlTranslator)
         .await
         .expect("public SQL fixture");
+}
+
+pub fn read_http_request(stream: &mut std::net::TcpStream) {
+    let mut headers = Vec::new();
+    while !headers.ends_with(b"\r\n\r\n") {
+        let mut byte = [0];
+        std::io::Read::read_exact(stream, &mut byte).expect("complete fixture request header");
+        headers.push(byte[0]);
+        assert!(headers.len() <= 16 * 1024, "bounded fixture headers");
+    }
+    let headers = String::from_utf8(headers).expect("fixture HTTP headers");
+    let length = headers
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("content-length").then(|| {
+                value
+                    .trim()
+                    .parse::<usize>()
+                    .expect("fixture content length")
+            })
+        })
+        .unwrap_or(0);
+    assert!(length <= 16 * 1024, "bounded fixture body");
+    std::io::Read::read_exact(stream, &mut vec![0; length]).expect("complete fixture request body");
 }

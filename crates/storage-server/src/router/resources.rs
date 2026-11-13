@@ -520,7 +520,14 @@ mod tests {
     use crate::{IdpClient, RouterState, resource_router};
 
     fn router() -> axum::Router {
-        resource_router(RouterState::new("http://storage.local"), None, None)
+        resource_router(
+            RouterState::new(
+                "http://storage.local",
+                iroh::SecretKey::generate().public().to_string(),
+            ),
+            None,
+            None,
+        )
     }
 
     fn live_idp_client(introspection_status: &str, claims: StandardClaims) -> IdpClient {
@@ -541,8 +548,7 @@ mod tests {
                 (introspection_status, introspection_body),
             ] {
                 let (mut stream, _) = listener.accept().expect("accept IdP request");
-                let mut request = [0; 4096];
-                stream.read(&mut request).expect("read IdP request");
+                crate::execution_test_support::read_http_request(&mut stream);
                 write!(stream, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
                     .expect("write IdP response");
             }
@@ -583,7 +589,11 @@ mod tests {
 
     async fn request_status(client: IdpClient, method: Method) -> StatusCode {
         let app = resource_router(
-            RouterState::new("http://storage.local").with_idp_client(client),
+            RouterState::new(
+                "http://storage.local",
+                iroh::SecretKey::generate().public().to_string(),
+            )
+            .with_idp_client(client),
             None,
             None,
         );

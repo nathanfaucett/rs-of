@@ -7,9 +7,9 @@ use iroh::EndpointId;
 use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard, watch};
 use tokio_util::sync::CancellationToken;
 
-use crate::database_protocol::DatabaseResourceDescriptor;
+use crate::database_protocol::{DatabasePhase, DatabaseResourceDescriptor};
 
-type Key = (EndpointId, String, String, String);
+type Key = (EndpointId, String, String, String, DatabasePhase);
 
 #[derive(Default)]
 pub(crate) struct DatabaseSessions(Mutex<BTreeMap<Key, Weak<Session>>>);
@@ -36,7 +36,12 @@ pub(crate) struct SessionPermit {
 }
 
 impl DatabaseSessions {
-    fn session(&self, peer: EndpointId, resource: &DatabaseResourceDescriptor) -> Arc<Session> {
+    fn session(
+        &self,
+        peer: EndpointId,
+        resource: &DatabaseResourceDescriptor,
+        phase: DatabasePhase,
+    ) -> Arc<Session> {
         let mut sessions = self.0.lock().expect("database session map is unpoisoned");
         sessions.retain(|_, session| session.strong_count() > 0);
         let key = (
@@ -44,6 +49,7 @@ impl DatabaseSessions {
             resource.owner_subject.clone(),
             resource.application_id.clone(),
             resource.database_id.clone(),
+            phase,
         );
         if let Some(session) = sessions.get(&key).and_then(Weak::upgrade) {
             return session;
@@ -57,8 +63,9 @@ impl DatabaseSessions {
         &self,
         peer: EndpointId,
         resource: &DatabaseResourceDescriptor,
+        phase: DatabasePhase,
     ) -> SessionPermit {
-        let session = self.session(peer, resource);
+        let session = self.session(peer, resource, phase);
         let guard = session.serial.clone().lock_owned().await;
         let cancellation = CancellationToken::new();
         session.outbound.send_replace(Some(cancellation.clone()));
@@ -75,8 +82,9 @@ impl DatabaseSessions {
         local: EndpointId,
         peer: EndpointId,
         resource: &DatabaseResourceDescriptor,
+        phase: DatabasePhase,
     ) -> SessionPermit {
-        let session = self.session(peer, resource);
+        let session = self.session(peer, resource, phase);
         let prefer_inbound = local.to_string() > peer.to_string();
         let mut outbound = session.outbound.subscribe();
         let acquire = session.serial.clone().lock_owned();
@@ -120,7 +128,7 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::{DatabaseSessions, SessionPermit};
-    use crate::database_protocol::DatabaseResourceDescriptor;
+    use crate::database_protocol::{DatabasePhase, DatabaseResourceDescriptor};
 
     #[tokio::test]
     async fn inbound_observes_outbound_token_published_after_it_started_waiting() {
@@ -136,8 +144,8 @@ mod tests {
             application_id: "app".into(),
             database_id: "db".into(),
         };
-        let lower_outbound = lower.outbound(ids[1], &resource).await;
-        let session = higher.session(ids[0], &resource);
+        let lower_outbound = lower.outbound(ids[1], &resource, DatabasePhase::Sql).await;
+        let session = higher.session(ids[0], &resource, DatabasePhase::Sql);
         // Hold the exact outbound seam: serial acquired, token not yet published.
         let higher_outbound = SessionPermit {
             _guard: session.serial.clone().lock_owned().await,
@@ -145,8 +153,8 @@ mod tests {
             cancellation: CancellationToken::new(),
             outbound: true,
         };
-        let higher_inbound = higher.inbound(ids[1], ids[0], &resource);
-        let lower_inbound = lower.inbound(ids[0], ids[1], &resource);
+        let higher_inbound = higher.inbound(ids[1], ids[0], &resource, DatabasePhase::Sql);
+        let lower_inbound = lower.inbound(ids[0], ids[1], &resource, DatabasePhase::Sql);
         tokio::pin!(higher_inbound, lower_inbound);
         poll_fn(|cx| {
             assert!(higher_inbound.as_mut().poll(cx).is_pending());
@@ -188,8 +196,10 @@ mod tests {
             application_id: "app".into(),
             database_id: "db".into(),
         };
-        let outgoing = sessions.outbound(ids[0], &resource).await;
-        let incoming = sessions.inbound(ids[1], ids[0], &resource);
+        let outgoing = sessions
+            .outbound(ids[0], &resource, DatabasePhase::Sql)
+            .await;
+        let incoming = sessions.inbound(ids[1], ids[0], &resource, DatabasePhase::Sql);
         tokio::pin!(incoming);
         tokio::select! {
             biased;
@@ -198,8 +208,10 @@ mod tests {
         }
         drop(outgoing);
         drop(incoming.await);
-        let outgoing = sessions.outbound(ids[1], &resource).await;
-        let incoming = sessions.inbound(ids[0], ids[1], &resource);
+        let outgoing = sessions
+            .outbound(ids[1], &resource, DatabasePhase::Sql)
+            .await;
+        let incoming = sessions.inbound(ids[0], ids[1], &resource, DatabasePhase::Sql);
         tokio::pin!(incoming);
         tokio::select! {
             biased;

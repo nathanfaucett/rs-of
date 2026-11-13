@@ -5110,6 +5110,7 @@ dependencies = [
  "ofdb-platform",
  "ofdb-sync",
  "ofdb-value",
+ "postcard",
  "redb",
  "serde",
  "serde_json",

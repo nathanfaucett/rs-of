@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use of_model::idp::model::Id;
 use iroh::protocol::ProtocolHandler;
 use iroh_chain::{EndpointIdStore, Server};
 use of_model::contract::SelectedResource;
+use of_model::idp::model::Id;
 
 use storage_service::DatabaseRuntime;
 use tokio_util::sync::CancellationToken;
@@ -112,18 +112,18 @@ impl Fixture {
             },
         ]
     }
-    async fn sync_sql(&self, role: ofdb_sql::SyncRole) {
+    async fn sync_sql(&self, role: ofdb_sql::history::SyncRole) {
         let [mut source, mut target] = self.transports().await;
-        let config = ofdb_sql::SessionConfig::default();
+        let config = ofdb_sql::history::SessionConfig::default();
         let (a, b) = tokio::join!(
-            Box::pin(self.databases[0].synchronize_with_stage_directory_checked(
+            Box::pin(self.databases[0].exchange_resource_history(
                 &mut source,
                 &config,
                 sql_opposite(role),
                 self.nodes[0].root.join("staging"),
                 || check_apply(self.authorize(0), CancellationToken::new())
             )),
-            Box::pin(self.databases[1].synchronize_with_stage_directory_checked(
+            Box::pin(self.databases[1].exchange_resource_history(
                 &mut target,
                 &config,
                 role,
@@ -134,9 +134,9 @@ impl Fixture {
         a.expect("authorized source SQL sync");
         b.expect("authorized target SQL sync");
     }
-    async fn retry_kv(&self, receiver_role: ofdb_kv::SyncRole) {
+    async fn retry_kv(&self, receiver_role: ofdb_kv::history::SyncRole) {
         let [mut left, mut right] = self.transports().await;
-        let config = ofdb_kv::SyncConfig {
+        let config = ofdb_kv::history::Config {
             max_snapshots_per_batch: 1,
             ..Default::default()
         };
@@ -147,10 +147,10 @@ impl Fixture {
             transport: &mut right,
         };
         let (a, b) = tokio::join!(
-            self.kv[0].synchronize_checked(&mut left_kv, opposite(receiver_role), config, || {
+            self.kv[0].exchange_history(&mut left_kv, opposite(receiver_role), config, || {
                 check_apply(self.authorize(0), CancellationToken::new())
             }),
-            self.kv[1].synchronize_checked(&mut right_kv, receiver_role, config, || check_apply(
+            self.kv[1].exchange_history(&mut right_kv, receiver_role, config, || check_apply(
                 self.authorize(1),
                 CancellationToken::new()
             )),
@@ -159,17 +159,17 @@ impl Fixture {
         b.expect("authorized receiver retry");
     }
 }
-fn opposite(role: ofdb_kv::SyncRole) -> ofdb_kv::SyncRole {
+fn opposite(role: ofdb_kv::history::SyncRole) -> ofdb_kv::history::SyncRole {
     match role {
-        ofdb_kv::SyncRole::Initiator => ofdb_kv::SyncRole::Responder,
-        ofdb_kv::SyncRole::Responder => ofdb_kv::SyncRole::Initiator,
+        ofdb_kv::history::SyncRole::Initiator => ofdb_kv::history::SyncRole::Responder,
+        ofdb_kv::history::SyncRole::Responder => ofdb_kv::history::SyncRole::Initiator,
     }
 }
 
-fn sql_opposite(role: ofdb_sql::SyncRole) -> ofdb_sql::SyncRole {
+fn sql_opposite(role: ofdb_sql::history::SyncRole) -> ofdb_sql::history::SyncRole {
     match role {
-        ofdb_sql::SyncRole::Initiator => ofdb_sql::SyncRole::Responder,
-        ofdb_sql::SyncRole::Responder => ofdb_sql::SyncRole::Initiator,
+        ofdb_sql::history::SyncRole::Initiator => ofdb_sql::history::SyncRole::Responder,
+        ofdb_sql::history::SyncRole::Responder => ofdb_sql::history::SyncRole::Initiator,
     }
 }
 async fn values(database: &ofdb_sql::Database) -> Vec<db::Value> {
@@ -196,6 +196,19 @@ async fn production_session_claim(
     source: usize,
     resource: &SelectedResource,
 ) -> std::io::Result<()> {
+    tokio::try_join!(
+        production_phase(fixture, source, resource, super::DatabasePhase::Sql),
+        production_phase(fixture, source, resource, super::DatabasePhase::Kv)
+    )?;
+    Ok(())
+}
+
+async fn production_phase(
+    fixture: &Fixture,
+    source: usize,
+    resource: &SelectedResource,
+    phase: super::DatabasePhase,
+) -> std::io::Result<()> {
     let (mut send, mut recv) = fixture.peers.connections[source]
         .open_bi()
         .await
@@ -206,40 +219,44 @@ async fn production_session_claim(
     super::write_frame(
         &mut send,
         &serde_json::to_vec(&super::DatabaseSyncHandshake {
+            phase,
             resource: super::descriptor(resource),
             deleted: false,
         })
         .map_err(std::io::Error::other)?,
     )
     .await?;
-    if super::read_frame(&mut recv, super::MAX_HANDSHAKE_BYTES).await? != b"OK" {
-        return Err(std::io::Error::other("DATA handshake denied"));
+    if super::read_frame(&mut recv, 4096).await? != b"OK" {
+        return Err(std::io::Error::other("invalid acknowledgement"));
     }
     let mut transport = AuthorizedTransport {
         transport: crate::DatabaseTransport::new(send, recv),
         authorize: fixture.authorize(source),
     };
-    fixture.databases[source]
-        .synchronize_with_stage_directory_checked(
-            &mut transport,
-            &ofdb_sql::SessionConfig::default(),
-            ofdb_sql::SyncRole::Initiator,
-            fixture.nodes[source].root.join("staging"),
-            || check_apply(fixture.authorize(source), CancellationToken::new()),
-        )
-        .await
-        .map_err(super::sql_sync_error)?;
-    fixture.kv[source]
-        .synchronize_checked(
-            &mut KvAuthorizedTransport {
-                transport: &mut transport,
-            },
-            ofdb_kv::SyncRole::Initiator,
-            ofdb_kv::SyncConfig::default(),
-            || check_apply(fixture.authorize(source), CancellationToken::new()),
-        )
-        .await
-        .map_err(super::kv_sync_error)
+    match phase {
+        super::DatabasePhase::Sql => fixture.databases[source]
+            .exchange_resource_history(
+                &mut transport,
+                &ofdb_sql::history::SessionConfig::default(),
+                ofdb_sql::history::SyncRole::Initiator,
+                fixture.nodes[source].root.join("staging"),
+                || check_apply(fixture.authorize(source), CancellationToken::new()),
+            )
+            .await
+            .map(|_| ())
+            .map_err(super::sql_sync_error),
+        super::DatabasePhase::Kv => fixture.kv[source]
+            .exchange_history(
+                &mut KvAuthorizedTransport {
+                    transport: &mut transport,
+                },
+                ofdb_kv::history::SyncRole::Initiator,
+                ofdb_kv::history::Config::default(),
+                || check_apply(fixture.authorize(source), CancellationToken::new()),
+            )
+            .await
+            .map_err(super::kv_sync_error),
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -259,6 +276,20 @@ async fn real_selected_production_data_handler_uses_injected_local_policy_on_exi
         eprintln!("DATA: first selected session");
         production_session(&fixture).await.expect("actual handler allows locally selected resource without remote authority");
         eprintln!("DATA: initial SQL/KV session completed");
+        let (mut stalled_send, mut stalled_recv) = fixture.peers.connections[0].open_bi().await.expect("stalled SQL stream");
+        stalled_send.write_all(&[crate::data_protocol::DATABASE_STREAM_KIND]).await.expect("database stream kind");
+        super::write_frame(&mut stalled_send, &serde_json::to_vec(&super::DatabaseSyncHandshake {
+            phase: super::DatabasePhase::Sql,
+            resource: super::descriptor(&fixture.resource),
+            deleted: false,
+        }).expect("SQL handshake")).await.expect("send SQL handshake");
+        assert_eq!(super::read_frame(&mut stalled_recv, 4096).await.expect("SQL admitted"), b"OK");
+        fixture.kv[0].client().set("independent", ofdb_kv::Value::Integer(42), None).await.expect("KV write while SQL is stalled");
+        tokio::time::timeout(std::time::Duration::from_secs(10), production_phase(&fixture, 0, &fixture.resource, super::DatabasePhase::Kv))
+            .await.expect("KV cannot wait for stalled SQL").expect("independent KV transfer");
+        assert_eq!(fixture.kv[1].client().scan_all().await.expect("replicated KV"), vec![("independent".into(), ofdb_kv::Value::Integer(42))]);
+        drop(stalled_send);
+        drop(stalled_recv);
         fixture.nodes[1].restrict(0, false).await;
         sql(&fixture.databases[0], &format!("INSERT INTO documents VALUES (CAST('{}' AS UUID), 'denied')", Id::now_v7())).await;
         assert!(production_session(&fixture).await.is_err(), "actual handler rejects the next stream on its already-open connection");
@@ -280,7 +311,7 @@ async fn delayed_http_policy_cannot_release_database_frame_after_local_denial() 
         http::HeaderMap,
         routing::{get, post},
     };
-    use ofdb_sql::SyncTransport;
+    use ofdb_sql::history::SyncTransport;
 
     tokio::time::timeout(std::time::Duration::from_secs(120), async {
         for denial in ["resource", "owner", "cancellation"] {
@@ -394,7 +425,7 @@ async fn real_production_database_retirement_denies_existing_connection_with_sel
         };
         let id = fixture.resource.resource_id.parse().expect("resource ID");
         let before = fixture.databases[0]
-            .sync_manifest()
+            .history_manifest()
             .await
             .expect("source state");
         assert!(
@@ -417,7 +448,7 @@ async fn real_production_database_retirement_denies_existing_connection_with_sel
         );
         assert_eq!(
             fixture.databases[0]
-                .sync_manifest()
+                .history_manifest()
                 .await
                 .expect("source retained"),
             before
@@ -494,38 +525,45 @@ async fn real_production_database_admission_checks_identity_both_selections_and_
 struct QueuedPayload {
     transport: AuthorizedTransport,
     gate: Gate,
-    sends: usize,
     paused: bool,
 }
-impl ofdb_sql::SyncTransport for QueuedPayload {
+impl ofdb_sql::history::SyncTransport for QueuedPayload {
     type Error = std::io::Error;
     async fn receive(&mut self) -> std::io::Result<Vec<u8>> {
-        ofdb_sql::SyncTransport::receive(&mut self.transport).await
+        ofdb_sql::history::SyncTransport::receive(&mut self.transport).await
     }
     async fn send(&mut self, frame: Vec<u8>) -> std::io::Result<()> {
-        let message =
-            postcard::from_bytes::<ofdb_sql::SyncMessage>(&frame).expect("actual owner SQL frame");
+        let message = postcard::from_bytes::<ofdb_sql::history::SyncMessage>(&frame)
+            .expect("actual owner SQL frame");
         if !self.paused
-            && matches!(message, ofdb_sql::SyncMessage::State(ref rows) if !rows.is_empty())
+            && matches!(message, ofdb_sql::history::SyncMessage::State(ref rows) if !rows.is_empty())
         {
             self.paused = true;
             self.gate.pause().await;
         }
-        ofdb_sql::SyncTransport::send(&mut self.transport, frame).await
+        ofdb_sql::history::SyncTransport::send(&mut self.transport, frame).await
     }
 }
-impl ofdb_kv::SyncTransport for QueuedPayload {
+impl ofdb_kv::history::SyncTransport for QueuedPayload {
     type Error = std::io::Error;
     async fn receive(&mut self) -> std::io::Result<Vec<u8>> {
-        ofdb_sql::SyncTransport::receive(&mut self.transport).await
+        ofdb_sql::history::SyncTransport::receive(&mut self.transport).await
     }
     async fn send(&mut self, frame: Vec<u8>) -> std::io::Result<()> {
-        self.sends += 1;
-        // With one native source key, owner KV v2 sends Hello then its snapshot batch in both roles.
-        if self.sends == 2 {
+        let message = ofdb_kv::history::decode_frame::<std::io::Error>(
+            &frame,
+            ofdb_kv::history::Config::default(),
+        )
+        .expect("actual KV frame");
+        if !self.paused
+            && matches!(message, ofdb_kv::history::Message::Snapshots(ref rows) if !rows.is_empty())
+            || !self.paused
+                && matches!(message, ofdb_kv::history::Message::Changes(ref rows) if !rows.is_empty())
+        {
+            self.paused = true;
             self.gate.pause().await;
         }
-        ofdb_sql::SyncTransport::send(&mut self.transport, frame).await
+        ofdb_sql::history::SyncTransport::send(&mut self.transport, frame).await
     }
 }
 
@@ -541,47 +579,47 @@ async fn real_selected_sql_and_kv_queued_payloads_recheck_native_sender_policy_o
                 } else {
                     sql(&fixture.databases[sender], &format!("CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents VALUES (CAST('{}' AS UUID), 'source')", Id::now_v7())).await;
                 }
-                let manifest = fixture.databases[receiver].sync_manifest().await.expect("recipient baseline");
+                let manifest = fixture.databases[receiver].history_manifest().await.expect("recipient baseline");
                 let [left, right] = fixture.transports().await;
                 let (source, mut target) = if sender == 0 { (left, right) } else { (right, left) };
                 let gate = Gate::default();
-                let mut source = QueuedPayload { transport: source, gate: gate.clone(), sends: 0, paused: false };
+                let mut source = QueuedPayload { transport: source, gate: gate.clone(), paused: false };
                 let mut run = Box::pin(async {
                     if kv {
-                        let source_role = if sender == 0 { ofdb_kv::SyncRole::Initiator } else { ofdb_kv::SyncRole::Responder };
+                        let source_role = if sender == 0 { ofdb_kv::history::SyncRole::Initiator } else { ofdb_kv::history::SyncRole::Responder };
                         let (a, b) = tokio::join!(
-                            async { let result = fixture.kv[sender].synchronize_checked(&mut source, source_role, ofdb_kv::SyncConfig::default(), || check_apply(fixture.authorize(sender), CancellationToken::new())).await; drop(source); result },
-                            async { let result = fixture.kv[receiver].synchronize_checked(&mut KvAuthorizedTransport { transport: &mut target }, opposite(source_role), ofdb_kv::SyncConfig::default(), || check_apply(fixture.authorize(receiver), CancellationToken::new())).await; drop(target); result },
+                            async { let result = fixture.kv[sender].exchange_history(&mut source, source_role, ofdb_kv::history::Config::default(), || check_apply(fixture.authorize(sender), CancellationToken::new())).await; drop(source); result },
+                            async { let result = fixture.kv[receiver].exchange_history(&mut KvAuthorizedTransport { transport: &mut target }, opposite(source_role), ofdb_kv::history::Config::default(), || check_apply(fixture.authorize(receiver), CancellationToken::new())).await; drop(target); result },
                         );
-                        assert!(matches!(a, Err(ofdb_kv::SyncError::Transport(ref error)) if error.kind() == std::io::ErrorKind::PermissionDenied), "native sender denies its already-prepared KV payload: {a:?}");
+                        assert!(matches!(a, Err(ofdb_kv::history::Error::Transport(ref error)) if error.kind() == std::io::ErrorKind::PermissionDenied), "native sender denies its already-prepared KV payload: {a:?}");
                         assert!(b.is_err());
                     } else {
-                        let source_role = if sender == 0 { ofdb_sql::SyncRole::Initiator } else { ofdb_sql::SyncRole::Responder };
-                        let config = ofdb_sql::SessionConfig::default();
+                        let source_role = if sender == 0 { ofdb_sql::history::SyncRole::Initiator } else { ofdb_sql::history::SyncRole::Responder };
+                        let config = ofdb_sql::history::SessionConfig::default();
                         let (a, b) = tokio::join!(
-                            async { let result = fixture.databases[sender].synchronize_with_stage_directory_checked(&mut source, &config, source_role, fixture.nodes[sender].root.join("staging"), || check_apply(fixture.authorize(sender), CancellationToken::new())).await; drop(source); result },
-                            async { let result = fixture.databases[receiver].synchronize_with_stage_directory_checked(&mut target, &config, sql_opposite(source_role), fixture.nodes[receiver].root.join("staging"), || check_apply(fixture.authorize(receiver), CancellationToken::new())).await; drop(target); result },
+                            async { let result = fixture.databases[sender].exchange_resource_history(&mut source, &config, source_role, fixture.nodes[sender].root.join("staging"), || check_apply(fixture.authorize(sender), CancellationToken::new())).await; drop(source); result },
+                            async { let result = fixture.databases[receiver].exchange_resource_history(&mut target, &config, sql_opposite(source_role), fixture.nodes[receiver].root.join("staging"), || check_apply(fixture.authorize(receiver), CancellationToken::new())).await; drop(target); result },
                         );
-                        assert!(matches!(a, Err(ofdb_sql::SyncError::Transport(ref error)) if error.kind() == std::io::ErrorKind::PermissionDenied), "native sender denies its already-prepared SQL payload: {a:?}");
+                        assert!(matches!(a, Err(ofdb_sql::history::SyncError::Transport(ref error)) if error.kind() == std::io::ErrorKind::PermissionDenied), "native sender denies its already-prepared SQL payload: {a:?}");
                         assert!(b.is_err());
                     }
                 });
                 tokio::select! { () = gate.reached() => {}, () = &mut run => panic!("actual owner payload did not reach queued send gate") }
-                assert_eq!(fixture.databases[receiver].sync_manifest().await.expect("no SQL import before release"), manifest);
+                assert_eq!(fixture.databases[receiver].history_manifest().await.expect("no SQL import before release"), manifest);
                 assert!(fixture.kv[receiver].client().scan_all().await.expect("no KV import before release").is_empty());
                 fixture.nodes[sender].restrict(if kv { sender } else { receiver }, false).await;
                 assert!(fixture.authorize(receiver)().await, "independent recipient still permits its own local view");
                 gate.release(); run.await;
-                assert_eq!(fixture.databases[receiver].sync_manifest().await.expect("denied SQL payload absent"), manifest);
+                assert_eq!(fixture.databases[receiver].history_manifest().await.expect("denied SQL payload absent"), manifest);
                 assert!(fixture.kv[receiver].client().scan_all().await.expect("denied KV payload absent").is_empty());
                 fixture.nodes[sender].restrict(if kv { sender } else { receiver }, true).await;
                 if kv {
                     assert_eq!(fixture.kv[sender].client().scan_all().await.expect("source retained"), vec![("source".into(), ofdb_kv::Value::Integer(7))]);
-                    fixture.retry_kv(ofdb_kv::SyncRole::Responder).await;
+                    fixture.retry_kv(ofdb_kv::history::SyncRole::Responder).await;
                     assert_eq!(fixture.kv[sender].client().scan_all().await.expect("source"), fixture.kv[receiver].client().scan_all().await.expect("same-connection retry"));
                 } else {
                     assert_eq!(values(&fixture.databases[sender]).await, [db::Value::Text("source".into())]);
-                    fixture.sync_sql(ofdb_sql::SyncRole::Responder).await;
+                    fixture.sync_sql(ofdb_sql::history::SyncRole::Responder).await;
                     assert_eq!(values(&fixture.databases[sender]).await, values(&fixture.databases[receiver]).await);
                 }
                 eprintln!("native queued payload denial and retry: KV={kv}, sender={sender}");
@@ -658,7 +696,7 @@ async fn real_selected_identity_namespace_and_local_evaluation_failures_deny() {
 async fn real_selected_sql_denies_received_apply_and_retries_on_existing_connection() {
     tokio::time::timeout(std::time::Duration::from_secs(600), async {
         let started = std::time::Instant::now();
-        for (device, role) in [ofdb_sql::SyncRole::Initiator, ofdb_sql::SyncRole::Responder].into_iter().enumerate() {
+        for (device, role) in [ofdb_sql::history::SyncRole::Initiator, ofdb_sql::history::SyncRole::Responder].into_iter().enumerate() {
             let mut fixture = Fixture::new().await;
             eprintln!("SQL {role:?}: initialized {:?}", started.elapsed());
             let kept = Id::now_v7(); let denied = Id::now_v7();
@@ -669,16 +707,16 @@ async fn real_selected_sql_denies_received_apply_and_retries_on_existing_connect
             let [mut source, mut target] = fixture.transports().await;
             let gate = Gate::default(); let hook_gate = gate.clone();
             let authorize = fixture.authorize(1);
-            let config = ofdb_sql::SessionConfig::default();
+            let config = ofdb_sql::history::SessionConfig::default();
             let mut calls = 0;
             let mut run = Box::pin(async {
                 tokio::join!(
                     async {
-                        let result = fixture.databases[0].synchronize_with_stage_directory_checked(&mut source, &config, sql_opposite(role), fixture.nodes[0].root.join("staging"), || check_apply(fixture.authorize(0), CancellationToken::new())).await;
+                        let result = fixture.databases[0].exchange_resource_history(&mut source, &config, sql_opposite(role), fixture.nodes[0].root.join("staging"), || check_apply(fixture.authorize(0), CancellationToken::new())).await;
                         drop(source); result
                     },
                     async {
-                        let result = fixture.databases[1].synchronize_with_stage_directory_checked(&mut target, &config, role, fixture.nodes[1].root.join("staging"), || {
+                        let result = fixture.databases[1].exchange_resource_history(&mut target, &config, role, fixture.nodes[1].root.join("staging"), || {
                             calls += 1; let pause = calls == 1; let gate = hook_gate.clone(); let authorize = authorize.clone();
                             async move { if pause { gate.pause().await; } check_apply(authorize, CancellationToken::new()).await }
                         }).await;
@@ -691,7 +729,7 @@ async fn real_selected_sql_denies_received_apply_and_retries_on_existing_connect
             fixture.nodes[1].restrict(device, false).await;
             gate.release();
             let (_, result) = run.await;
-            assert!(matches!(result, Err(ofdb_sql::SyncError::PreApply(_))), "actual selected SQL apply denied: {result:?}");
+            assert!(matches!(result, Err(ofdb_sql::history::SyncError::PreApply(_))), "actual selected SQL apply denied: {result:?}");
             assert_eq!(values(&fixture.databases[1]).await, [db::Value::Text("kept".into())]);
             assert_eq!(values(&fixture.databases[0]).await, [db::Value::Text("denied".into()), db::Value::Text("kept".into())]);
             fixture.nodes[1].restrict(device, true).await;
@@ -710,12 +748,12 @@ async fn real_selected_sql_denies_received_apply_and_retries_on_existing_connect
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn real_selected_kv_first_commit_survives_learned_denial_and_same_connection_retry() {
     tokio::time::timeout(std::time::Duration::from_secs(600), tokio::spawn(async {
-        for role in [ofdb_kv::SyncRole::Initiator, ofdb_kv::SyncRole::Responder] {
+        for role in [ofdb_kv::history::SyncRole::Initiator, ofdb_kv::history::SyncRole::Responder] {
             for device in 0..2 {
                 eprintln!("KV case {role:?} Device {device}: setup");
                 let mut fixture = Fixture::new().await;
                 for (key, value) in [("a", 1), ("b", 2), ("c", 3)] { fixture.kv[0].client().set(key, ofdb_kv::Value::Integer(value), None).await.expect("source write"); }
-                let config = ofdb_kv::SyncConfig { max_snapshots_per_batch: 1, ..Default::default() };
+                let config = ofdb_kv::history::Config { max_snapshots_per_batch: 1, ..Default::default() };
                 let [mut source, mut target] = fixture.transports().await;
                 let gate = Gate::default();
                 let hook_gate = gate.clone();
@@ -725,12 +763,12 @@ async fn real_selected_kv_first_commit_survives_learned_denial_and_same_connecti
                     tokio::join!(
                         async {
                             let mut source_kv = KvAuthorizedTransport { transport: &mut source };
-                            let result = fixture.kv[0].synchronize_checked(&mut source_kv, opposite(role), config, || check_apply(fixture.authorize(0), CancellationToken::new())).await;
+                            let result = fixture.kv[0].exchange_history(&mut source_kv, opposite(role), config, || check_apply(fixture.authorize(0), CancellationToken::new())).await;
                             drop(source_kv); drop(source); result
                         },
                         async {
                         let mut target_kv = KvAuthorizedTransport { transport: &mut target };
-                        let result = fixture.kv[1].synchronize_checked(&mut target_kv, role, config, || {
+                        let result = fixture.kv[1].exchange_history(&mut target_kv, role, config, || {
                             calls += 1;
                             let pause = calls == 2;
                             let gate = hook_gate.clone(); let authorize = target_authorize.clone();
@@ -741,14 +779,14 @@ async fn real_selected_kv_first_commit_survives_learned_denial_and_same_connecti
                     )
                 });
                 tokio::select! { result = &mut run => panic!("session ended before second apply gate: {result:?}"), () = gate.reached() => {} }
-                assert_eq!(fixture.kv[1].client().scan_all().await.expect("observe committed first batch before learning denial"), vec![("a".into(), ofdb_kv::Value::Integer(1))]);
-                eprintln!("KV: first commit observed, learning denial");
+                // The pre-commit guard holds the KV writer; observe retained commits after rollback.
+                eprintln!("KV: second batch blocked before commit, learning denial");
                 fixture.nodes[1].restrict(device, false).await;
                 assert!(fixture.authorize(0)().await, "independent source Node still has its earlier locally trusted view");
                 gate.release();
                 let (_, result) = run.await;
                 eprintln!("KV: denied session ended: {result:?}");
-                assert!(matches!(result, Err(ofdb_kv::SyncError::PreApply(_))), "later owner apply must deny: {result:?}");
+                assert!(matches!(result, Err(ofdb_kv::history::Error::PreApply(_))), "later owner apply must deny: {result:?}");
                 assert_eq!(fixture.kv[1].client().scan_all().await.expect("retained first batch"), vec![("a".into(), ofdb_kv::Value::Integer(1))]);
                 assert_eq!(fixture.kv[0].client().scan_all().await.expect("source preserved").len(), 3);
 
@@ -758,7 +796,7 @@ async fn real_selected_kv_first_commit_survives_learned_denial_and_same_connecti
                 eprintln!("KV: retry completed");
                 assert_eq!(fixture.kv[0].client().scan_all().await.expect("source"), fixture.kv[1].client().scan_all().await.expect("retry converges"));
                 assert_eq!(fixture.peers.connections[1].remote_id(), fixture.peers.ids()[0]);
-                if device == 0 && matches!(role, ofdb_kv::SyncRole::Responder) {
+                if device == 0 && matches!(role, ofdb_kv::history::SyncRole::Responder) {
                     fixture.peers.reconnect().await;
                     fixture.retry_kv(role).await;
                     assert_eq!(fixture.kv[0].client().scan_all().await.expect("source after reconnect"), fixture.kv[1].client().scan_all().await.expect("new authenticated connection converges"));

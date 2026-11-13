@@ -304,7 +304,11 @@ mod tests {
         )
         .expect("configure authenticated remote policy source");
         let remote_policy = build_runtime(
-            RouterState::new("https://storage.example").with_device_client(remote.clone()),
+            RouterState::new(
+                "https://storage.example",
+                server.endpoint().id().to_string(),
+            )
+            .with_device_client(remote.clone()),
             &data_dir,
             "/storage",
             "",
@@ -345,10 +349,13 @@ mod tests {
             })
         });
         let runtime = build_runtime(
-            RouterState::new("https://storage.example")
-                .with_device_client(remote)
-                .with_idp_client(idp)
-                .with_local_replication_authorizer(policy.clone()),
+            RouterState::new(
+                "https://storage.example",
+                server.endpoint().id().to_string(),
+            )
+            .with_device_client(remote)
+            .with_idp_client(idp)
+            .with_local_replication_authorizer(policy.clone()),
             &data_dir,
             "/storage",
             "",
@@ -372,7 +379,11 @@ mod tests {
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
         runtime.shutdown().await.expect("stop local-policy runtime");
         let local_only = build_runtime(
-            RouterState::new("https://storage.example").with_local_replication_authorizer(policy),
+            RouterState::new(
+                "https://storage.example",
+                server.endpoint().id().to_string(),
+            )
+            .with_local_replication_authorizer(policy),
             &data_dir,
             "/storage",
             "",
@@ -399,7 +410,10 @@ mod tests {
         let data_dir =
             std::env::temp_dir().join(format!("storage-runtime-{}-{unique}", std::process::id()));
         let runtime = build_runtime(
-            RouterState::new("http://storage.local"),
+            RouterState::new(
+                "http://storage.local",
+                iroh::SecretKey::generate().public().to_string(),
+            ),
             &data_dir,
             "/storage",
             "",

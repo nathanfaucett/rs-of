@@ -419,6 +419,14 @@ impl ReplicationHost {
         resource: SelectedResource,
         deleted: bool,
     ) -> bool {
+        let mut subscription = if resource.kind == "database" && !deleted {
+            self.database
+                .sync_changes(&crate::database_protocol::descriptor(&resource))
+                .ok()
+                .flatten()
+        } else {
+            None
+        };
         let mut retry = Duration::from_millis(100);
         loop {
             let result = if resource.kind == "database" {
@@ -431,6 +439,19 @@ impl ReplicationHost {
             };
             if result.is_ok() && deleted {
                 return true;
+            }
+            if result.is_ok() {
+                if let Some(changes) = subscription.as_mut() {
+                    #[allow(
+                        deprecated,
+                        reason = "bounded history passes need coalesced invalidation, not incremental event payloads"
+                    )]
+                    if changes.changed().await.is_err() {
+                        return false;
+                    }
+                    retry = Duration::from_millis(100);
+                    continue;
+                }
             }
             if let Err(error) = result {
                 log::debug!(
