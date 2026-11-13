@@ -254,10 +254,43 @@ pub async fn authorize_sync(
     })
 }
 
+async fn authorize_session(
+    idp: &IdpClient,
+    device: Option<&DeviceClient>,
+    token: &str,
+    identity: &StoreIdentity,
+    endpoint_id: &str,
+) -> Result<SyncAuth, SyncAuthError> {
+    if let Some(device) = device {
+        return authorize_sync(idp, device, token, identity, endpoint_id).await;
+    }
+    let authorization = crate::authorize_storage_token(idp, token)
+        .await
+        .map_err(|error| match error {
+            crate::StorageAuthorizationError::InvalidToken => SyncAuthError::Unauthorized,
+            crate::StorageAuthorizationError::ServiceUnavailable => {
+                SyncAuthError::BackendUnavailable
+            }
+        })?;
+    if authorization.resource != "storage:databases"
+        || !authorization.can_read
+        || !authorization.can_write
+    {
+        return Err(SyncAuthError::Unauthorized);
+    }
+    Ok(SyncAuth {
+        subject: authorization.subject,
+        application_id: authorization.application_id,
+        store_id: identity.store_id,
+        direction: AttachDirection::Bidirectional,
+    })
+}
+
 pub struct SyncState {
     pub router_state: RouterState,
     pub databases: Arc<DatabaseRuntime>,
     pub staging_dir: PathBuf,
+    local: bool,
 }
 
 pub fn sync_router(
@@ -265,12 +298,30 @@ pub fn sync_router(
     databases: Arc<DatabaseRuntime>,
     staging_dir: PathBuf,
 ) -> Router {
+    build_sync_router(state, databases, staging_dir, false)
+}
+
+pub fn local_sync_router(
+    state: RouterState,
+    databases: Arc<DatabaseRuntime>,
+    staging_dir: PathBuf,
+) -> Router {
+    build_sync_router(state, databases, staging_dir, true)
+}
+
+fn build_sync_router(
+    state: RouterState,
+    databases: Arc<DatabaseRuntime>,
+    staging_dir: PathBuf,
+    local: bool,
+) -> Router {
     Router::new()
         .route("/storage/sync/ws", get(sync_ws_handler))
         .with_state(Arc::new(SyncState {
             router_state: state,
             databases,
             staging_dir,
+            local,
         }))
 }
 
@@ -296,7 +347,7 @@ impl StorageNamespace for WsNamespace {
 
 struct SessionAuthorization<'a> {
     idp: &'a IdpClient,
-    device: &'a DeviceClient,
+    device: Option<&'a DeviceClient>,
     token: &'a str,
     identity: &'a StoreIdentity,
     endpoint_id: &'a str,
@@ -305,7 +356,7 @@ struct SessionAuthorization<'a> {
 
 impl SessionAuthorization<'_> {
     async fn check(&self) -> io::Result<()> {
-        match authorize_sync(
+        match authorize_session(
             self.idp,
             self.device,
             self.token,
@@ -461,13 +512,23 @@ async fn attach_and_sync(wire: &mut WireSocket, state: &SyncState) -> Result<(),
         _ => return Err(AbortReason::MalformedMessage),
     };
     let token = String::from_utf8(request.auth_token.0).map_err(|_| AbortReason::Unauthorized)?;
-    let (Some(idp), Some(device)) = (
-        &state.router_state.idp_client,
-        &state.router_state.device_client,
-    ) else {
-        return Err(AbortReason::BackendUnavailable);
+    let idp = state
+        .router_state
+        .idp_client
+        .as_ref()
+        .ok_or(AbortReason::BackendUnavailable)?;
+    let device = if state.local {
+        None
+    } else {
+        Some(
+            state
+                .router_state
+                .device_client
+                .as_ref()
+                .ok_or(AbortReason::BackendUnavailable)?,
+        )
     };
-    let auth = authorize_sync(
+    let auth = authorize_session(
         idp,
         device,
         &token,

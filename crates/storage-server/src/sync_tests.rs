@@ -124,6 +124,10 @@ impl Fixture {
     }
 
     async fn with_storage(shared: bool) -> Self {
+        Self::with_options(shared, false).await
+    }
+
+    async fn with_options(shared: bool, local: bool) -> Self {
         let directory = TestDirectory::new();
         let application = Id::now_v7();
         let identity = StoreIdentity {
@@ -163,11 +167,18 @@ impl Fixture {
         )
         .expect("Device client");
         let idp = IdpClient::local(move |_| async move {
-            Ok(serde_json::from_value(json!({
+            let mut response = json!({
                 "claims": { "type": "Bearer", "use": "Access", "exp": i64::MAX, "iat": 0, "nbf": 0,
                     "iss": "https://idp.example", "aud": "storage:sync", "client_id": "client", "sub": "alice", "principal_type": "user", "scope": "" },
                 "applicationId": application.to_string()
-            })).expect("introspection"))
+            });
+            if local {
+                response["claims"]["aud"] = json!("storage:databases");
+                response["claims"]["resource"] = json!("storage:databases");
+                response["claims"]["authorization_details"] =
+                    json!([{ "type": "storage", "actions": ["read", "write"] }]);
+            }
+            Ok(serde_json::from_value(response).expect("introspection"))
         });
         let databases = Arc::new(if shared {
             use of_model::db::Database;
@@ -186,11 +197,19 @@ impl Fixture {
         let state = RouterState::new("http://localhost", "test-endpoint")
             .with_idp_client(idp)
             .with_device_client(device);
-        let router = sync_router(
-            state.clone(),
-            databases.clone(),
-            directory.0.join("staging"),
-        );
+        let router = if local {
+            super::local_sync_router(
+                state.clone(),
+                databases.clone(),
+                directory.0.join("staging"),
+            )
+        } else {
+            sync_router(
+                state.clone(),
+                databases.clone(),
+                directory.0.join("staging"),
+            )
+        };
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("WS listener");
@@ -288,7 +307,19 @@ impl SyncTransport for ClientTransport {
 
 #[tokio::test]
 async fn ws_shared_resource_sync_and_retirement_create_no_staging_or_sidecars() {
-    let fixture = Fixture::with_storage(true).await;
+    shared_resource_sync_and_retirement(false).await;
+}
+
+#[tokio::test]
+async fn ws_local_scoped_resource_sync_and_retirement_without_device_selection() {
+    shared_resource_sync_and_retirement(true).await;
+}
+
+async fn shared_resource_sync_and_retirement(local: bool) {
+    let fixture = Fixture::with_options(true, local).await;
+    if local {
+        *fixture.policy.lock().expect("policy lock") = Value::Null;
+    }
     let source_host = ofdb_sql::SharedDatabase::create(fixture.directory.0.join("source.redb"))
         .expect("source host");
     let source = ofdb_sql::Database::open_shared(&source_host, "source").expect("source namespace");
@@ -462,7 +493,7 @@ async fn ws_authorization_revoked_during_preapply_preserves_committed_history() 
     .expect("initial authorization");
     let authorization = SessionAuthorization {
         idp,
-        device,
+        device: Some(device),
         token: "user-token",
         identity: &fixture.identity,
         endpoint_id: "test-endpoint",

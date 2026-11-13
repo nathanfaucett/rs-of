@@ -276,11 +276,11 @@ fn build_runtime_inner(
         .merge(resource_routes);
 
     #[cfg(feature = "sync")]
-    let router = router.merge(crate::sync::sync_router(
-        state,
-        Arc::clone(&databases),
-        data_dir.join("sync-staging"),
-    ));
+    let router = router.merge(if local {
+        crate::sync::local_sync_router(state, Arc::clone(&databases), data_dir.join("sync-staging"))
+    } else {
+        crate::sync::sync_router(state, Arc::clone(&databases), data_dir.join("sync-staging"))
+    });
 
     Ok(StorageRuntime {
         router,

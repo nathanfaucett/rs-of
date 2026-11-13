@@ -45,6 +45,20 @@ async fn local_runtime_accepts_shared_and_owner_databases_without_setup_or_mesh(
             .await
             .expect("health response");
         assert_eq!(response.status(), StatusCode::OK);
+        #[cfg(feature = "sync")]
+        {
+            let response = runtime
+                .router()
+                .oneshot(
+                    Request::builder()
+                        .uri("/storage/sync/ws")
+                        .body(Body::empty())
+                        .expect("WS route request"),
+                )
+                .await
+                .expect("WS route response");
+            assert_ne!(response.status(), StatusCode::NOT_FOUND);
+        }
         assert_eq!(root.join("storage.redb").exists(), !injected);
         assert!(!root.join("storage-local.peer").exists());
         assert!(!root.join("databases").exists());

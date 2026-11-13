@@ -104,3 +104,75 @@ async fn ws_authorization_requires_exact_current_resource_policy() {
     server.abort();
     let _ = server.await;
 }
+
+#[tokio::test]
+async fn local_ws_requires_database_capability_and_rechecks_revocation() {
+    let identity = StoreIdentity {
+        store_id: uuid::Uuid::now_v7(),
+        replica_id: uuid::Uuid::now_v7(),
+        creation_epoch: 0,
+        schema_fingerprint: [0; 32],
+    };
+    let response = Arc::new(Mutex::new(json!({
+        "claims": { "type": "Bearer", "use": "Access", "exp": i64::MAX, "iat": 0, "nbf": 0,
+            "iss": "https://idp.example", "aud": "storage:databases", "resource": "storage:databases",
+            "authorization_details": [{ "type": "storage", "actions": ["read", "write"] }],
+            "client_id": "client", "sub": "alice", "principal_type": "user", "scope": "" },
+        "applicationId": uuid::Uuid::now_v7().to_string()
+    })));
+    let current = response.clone();
+    let idp = IdpClient::local(move |_| {
+        let current = current.clone();
+        async move {
+            Ok(
+                serde_json::from_value(current.lock().expect("claims lock").clone())
+                    .expect("introspection"),
+            )
+        }
+    });
+    let baseline = response.lock().expect("claims lock").clone();
+    let expected = super::authorize_session(&idp, None, "resource-token", &identity, "local")
+        .await
+        .expect("scoped capability");
+    let authorization = super::SessionAuthorization {
+        idp: &idp,
+        device: None,
+        token: "resource-token",
+        identity: &identity,
+        endpoint_id: "local",
+        expected: &expected,
+    };
+    for (pointer, value) in [
+        ("/claims/aud", json!("https://idp.example/userinfo")),
+        ("/claims/resource", json!("storage:filesystems")),
+        ("/claims/principal_type", json!("client")),
+        ("/claims/exp", json!(0)),
+        ("/claims/authorization_details/0/actions", json!(["read"])),
+        ("/claims/authorization_details/0/actions", json!(["write"])),
+    ] {
+        let mut changed = baseline.clone();
+        *changed.pointer_mut(pointer).expect("fixture field") = value;
+        *response.lock().expect("claims lock") = changed;
+        assert!(
+            authorization.check().await.is_err(),
+            "must reject {pointer}"
+        );
+    }
+    for (pointer, value) in [
+        ("/claims/sub", json!("bob")),
+        ("/applicationId", json!(uuid::Uuid::now_v7().to_string())),
+    ] {
+        let mut changed = baseline.clone();
+        *changed.pointer_mut(pointer).expect("fixture field") = value;
+        *response.lock().expect("claims lock") = changed;
+        assert!(
+            authorization.check().await.is_err(),
+            "session scope cannot change at {pointer}"
+        );
+    }
+    *response.lock().expect("claims lock") = baseline;
+    authorization
+        .check()
+        .await
+        .expect("same capability can retry");
+}
