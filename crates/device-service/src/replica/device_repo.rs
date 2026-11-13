@@ -1339,7 +1339,7 @@ mod tests {
         receiver: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
     }
 
-    impl ofdb_sql::SyncTransport for Channel {
+    impl ofdb_sql::history::SyncTransport for Channel {
         type Error = &'static str;
 
         async fn send(&mut self, frame: Vec<u8>) -> Result<(), Self::Error> {
@@ -1362,20 +1362,26 @@ mod tests {
             sender: b,
             receiver: ar,
         };
-        let config = ofdb_sql::SessionConfig::default();
+        let config = ofdb_sql::history::SessionConfig::default();
         let (sent, received) = tokio::join!(
-            source.synchronize_tables_checked(
+            source.exchange_history(
                 &mut left,
                 &config,
-                ofdb_sql::SyncRole::Initiator,
+                ofdb_sql::history::SyncRole::Initiator,
+                std::env::temp_dir(),
                 &["devices"],
+                |_, _, _| Ok(()),
+                |_| Ok(()),
                 || async { Ok(()) },
             ),
-            destination.synchronize_tables_checked(
+            destination.exchange_history(
                 &mut right,
                 &config,
-                ofdb_sql::SyncRole::Responder,
+                ofdb_sql::history::SyncRole::Responder,
+                std::env::temp_dir(),
                 &["devices"],
+                |_, _, _| Ok(()),
+                |_| Ok(()),
                 || async { Ok(()) },
             ),
         );

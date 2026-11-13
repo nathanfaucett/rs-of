@@ -198,29 +198,9 @@ async fn approved_enrollment_denies_tombstones_pending_and_timestamp_only_revoca
 #[cfg(feature = "replica")]
 #[tokio::test]
 async fn approved_enrollment_denies_unresolved_owner_conflicts_even_with_exact_visible_binding() {
-    use std::{io, sync::Arc};
-
     use device_service::replica::DbDeviceRepo;
     use of_model::idp::model::Id;
-    use ofdb_sql::{SessionConfig, SyncRole, SyncTransport};
-    use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
-
-    struct Transport(UnboundedSender<Vec<u8>>, UnboundedReceiver<Vec<u8>>);
-
-    impl SyncTransport for Transport {
-        type Error = io::Error;
-
-        async fn receive(&mut self) -> io::Result<Vec<u8>> {
-            self.1
-                .recv()
-                .await
-                .ok_or_else(|| io::Error::from(io::ErrorKind::UnexpectedEof))
-        }
-
-        async fn send(&mut self, frame: Vec<u8>) -> io::Result<()> {
-            self.0.send(frame).map_err(io::Error::other)
-        }
-    }
+    use std::sync::Arc;
 
     let left = Arc::new(db::Database::in_memory());
     device_service::replica::up(&left)
@@ -234,17 +214,10 @@ async fn approved_enrollment_denies_unresolved_owner_conflicts_even_with_exact_v
         .await
         .expect("approved binding");
     let right = db::Database::in_memory();
-    let (left_sender, right_receiver) = unbounded_channel();
-    let (right_sender, left_receiver) = unbounded_channel();
-    let mut left_transport = Transport(left_sender, left_receiver);
-    let mut right_transport = Transport(right_sender, right_receiver);
-    let config = SessionConfig::default();
-    let (sent, received) = tokio::join!(
-        left.synchronize(&mut left_transport, &config, SyncRole::Initiator),
-        right.synchronize(&mut right_transport, &config, SyncRole::Responder),
-    );
-    sent.expect("send initial public state");
-    received.expect("replicated Management state");
+    right
+        .import_history(left.export_history().await.expect("initial native history"))
+        .await
+        .expect("atomic Management history import");
     for (engine, address) in [(left.as_ref(), "left"), (&right, "right")] {
         engine
             .client()
@@ -258,11 +231,11 @@ async fn approved_enrollment_denies_unresolved_owner_conflicts_even_with_exact_v
             .expect("concurrent Management update");
     }
     for unit in right
-        .export_sync_state()
+        .export_history()
         .await
         .expect("concurrent public state")
     {
-        left.apply_sync_state(unit).await.expect("learn conflict");
+        left.apply_history(unit).await.expect("learn conflict");
     }
     assert!(
         !left

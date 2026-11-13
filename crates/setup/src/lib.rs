@@ -4,8 +4,6 @@ mod canonical_openapi;
 pub mod independent_create;
 #[cfg(unix)]
 mod independent_exchange;
-#[cfg(all(test, unix))]
-mod independent_exchange_lifecycle_tests;
 #[cfg(unix)]
 mod independent_history;
 #[cfg(unix)]
@@ -23,8 +21,6 @@ mod local_tls;
 mod setup_admission;
 pub mod setup_files;
 #[cfg(unix)]
-mod setup_https_fixture;
-#[cfg(unix)]
 mod setup_install;
 #[cfg(unix)]
 mod setup_routes;
@@ -38,8 +34,7 @@ pub use canonical_openapi::{canonical_openapi, canonical_openapi_router};
 #[cfg(unix)]
 pub use independent_create::{
     IndependentCreateCommand, IndependentCreateControl, IndependentCreateHost,
-    IndependentRegistrar, IndependentSecretLoader,
-    setup_routes,
+    IndependentRegistrar, IndependentSecretLoader, setup_routes,
 };
 #[cfg(unix)]
 pub use independent_exchange::{random_capability, routes};
@@ -52,7 +47,7 @@ pub use independent_peer::{IndependentPeer, exact_https};
 #[cfg(unix)]
 pub use independent_reset::{IndependentReset, uninstall_local_ca};
 #[cfg(unix)]
-pub use independent_setup::{IndependentSetupHost, HostSettings};
+pub use independent_setup::{HostSettings, IndependentSetupHost};
 pub use local_tls::{LocalTls, LocalTlsConfig, TlsListener};
 #[cfg(unix)]
 pub use setup_admission::{
@@ -74,10 +69,6 @@ pub use setup_server::serve_setup_verified;
 #[cfg(all(test, unix))]
 mod independent_setup_tests;
 #[cfg(all(test, unix))]
-mod independent_exchange_lifecycle_tests;
+mod setup_admission_tests;
 #[cfg(all(test, target_os = "linux"))]
 mod setup_install_tests;
-#[cfg(all(test, unix))]
-mod setup_admission_tests;
-#[cfg(all(test, unix))]
-mod setup_server_teardown_tests;

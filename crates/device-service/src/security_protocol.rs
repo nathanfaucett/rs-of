@@ -12,10 +12,7 @@ use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh_chain::Server;
 use of_model::idp::model::Id;
 
-use ofdb_sync::{
-    IrohTransport, Message, SyncResult, SyncTransport as OfdbSyncTransport, SynchronizeConfig,
-    SynchronizeError as SyncError,
-};
+use ofdb_sql::history::{SessionConfig, SyncError, SyncResult, SyncRole};
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
@@ -142,10 +139,14 @@ impl SecurityProtocol {
         }
         self.authorize(connection, remote.member, context).await?;
 
-        let (send, recv) = transport.into_streams();
-        let transport = IrohTransport::new(send, recv);
-        self.exchange_framed(connection, remote.member, context, transport)
-            .await
+        self.exchange_framed(
+            connection,
+            remote.member,
+            context,
+            transport,
+            SyncRole::Initiator,
+        )
+        .await
     }
 
     pub async fn accept_data_stream(
@@ -189,11 +190,15 @@ impl SecurityProtocol {
             .send(serde_json::to_vec(&Response::Accepted(local)).map_err(io::Error::other)?)
             .await?;
 
-        let (send, recv) = transport.into_streams();
-        let transport = IrohTransport::new(send, recv);
-        self.exchange_framed(&connection, remote.member, remote.context, transport)
-            .await
-            .map(|_| ())
+        self.exchange_framed(
+            &connection,
+            remote.member,
+            remote.context,
+            transport,
+            SyncRole::Responder,
+        )
+        .await
+        .map(|_| ())
     }
 
     pub async fn validate_local_schema(&self, context: SecurityContext) -> io::Result<()> {
@@ -253,7 +258,8 @@ impl SecurityProtocol {
         connection: &Connection,
         member: Id,
         context: SecurityContext,
-        mut transport: IrohTransport,
+        mut transport: DatabaseTransport,
+        role: SyncRole,
     ) -> io::Result<SyncResult> {
         self.authorize(connection, member, context).await?;
         log::debug!("starting scoped security session: {context:?}");
@@ -269,19 +275,34 @@ impl SecurityProtocol {
             }
         }
         let mut total = SyncResult::default();
-        for (database, _history, _tables) in self.sessions(context) {
-            let auth_transport = AuthorizedTransport {
-                transport: &mut transport,
-                protocol: self,
-                connection,
-                member,
-                context,
-            };
+        let mut authorized = AuthorizedSecurityTransport {
+            transport: &mut transport,
+            protocol: self,
+            connection,
+            member,
+            context,
+        };
+        for (database, history, tables) in self.sessions(context) {
             let result = database
-                .synchronize(auth_transport, SynchronizeConfig::default())
+                .exchange_history(
+                    &mut authorized,
+                    &SessionConfig::default(),
+                    role,
+                    self.staging_directory.join(history.name()),
+                    &tables,
+                    |table, column, value| {
+                        history.validate_value(table, column, value, &self.installation)
+                    },
+                    |view| history.validate_candidate(view, &self.installation, &bindings, None),
+                    || async {
+                        self.authorize(connection, member, context)
+                            .await
+                            .map_err(|error| error.to_string())
+                    },
+                )
                 .await
                 .map_err(|error| match error {
-                    SyncError::Apply(reason) => denied(reason),
+                    SyncError::PreApply(reason) => denied(reason),
                     SyncError::Transport(error) => error,
                     error => io::Error::other(error.to_string()),
                 })?;
@@ -291,65 +312,32 @@ impl SecurityProtocol {
     }
 }
 
-struct TransportRef<'a, T>(&'a mut T);
-
-impl<T: OfdbSyncTransport + Send> OfdbSyncTransport for TransportRef<'_, T>
-where
-    T::Error: std::error::Error + Send + Sync + 'static,
-{
-    type Error = io::Error;
-
-    async fn send(&mut self, msg: Message) -> io::Result<()> {
-        require_validated_history(&msg)?;
-        self.0.send(msg).await.map_err(io::Error::other)
-    }
-
-    async fn receive(&mut self) -> io::Result<Message> {
-        let msg = self.0.receive().await.map_err(io::Error::other)?;
-        require_validated_history(&msg)?;
-        Ok(msg)
-    }
-}
-
-fn require_validated_history(msg: &Message) -> io::Result<()> {
-    if matches!(msg, Message::ChangeEvent(_) | Message::Snapshot { .. }) {
-        return Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "security history requires scoped candidate validation; the current ofdb push API does not provide it",
-        ));
-    }
-    Ok(())
-}
-
-struct AuthorizedTransport<'a> {
-    transport: &'a mut IrohTransport,
+struct AuthorizedSecurityTransport<'a, T> {
+    transport: &'a mut T,
     protocol: &'a SecurityProtocol,
     connection: &'a Connection,
     member: Id,
     context: SecurityContext,
 }
-
-impl<'a> OfdbSyncTransport for AuthorizedTransport<'a> {
+impl<T: SyncTransport<Error = io::Error> + Send> SyncTransport
+    for AuthorizedSecurityTransport<'_, T>
+{
     type Error = io::Error;
-
-    async fn send(&mut self, msg: Message) -> io::Result<()> {
+    async fn send(&mut self, frame: Vec<u8>) -> io::Result<()> {
         self.protocol
             .authorize(self.connection, self.member, self.context)
             .await?;
-        require_validated_history(&msg)?;
-        self.transport.send(msg).await.map_err(io::Error::other)
+        self.transport.send(frame).await
     }
-
-    async fn receive(&mut self) -> io::Result<Message> {
+    async fn receive(&mut self) -> io::Result<Vec<u8>> {
         self.protocol
             .authorize(self.connection, self.member, self.context)
             .await?;
-        let msg = self.transport.receive().await.map_err(io::Error::other)?;
+        let frame = self.transport.receive().await?;
         self.protocol
             .authorize(self.connection, self.member, self.context)
             .await?;
-        require_validated_history(&msg)?;
-        Ok(msg)
+        Ok(frame)
     }
 }
 
@@ -367,12 +355,12 @@ fn now() -> io::Result<i64> {
 }
 
 fn accumulate(total: &mut SyncResult, result: SyncResult) {
-    total.events_received += result.events_received;
-    total.events_sent += result.events_sent;
-    total.snapshots_received += result.snapshots_received;
-    total.snapshots_sent += result.snapshots_sent;
-    total.bytes_received += result.bytes_received;
-    total.bytes_sent += result.bytes_sent;
+    total.received_units += result.received_units;
+    total.sent_units += result.sent_units;
+    total.received_changes += result.received_changes;
+    total.sent_changes += result.sent_changes;
+    total.received_snapshots += result.received_snapshots;
+    total.sent_snapshots += result.sent_snapshots;
 }
 
 #[cfg(test)]
@@ -380,16 +368,16 @@ mod test_fixtures {
     include!("security_protocol_test_fixtures.rs");
 }
 
-// Test modules commented out due to API changes
-// #[cfg(test)]
-// mod outbound_tests {
-//     include!("security_outbound_tests.rs");
-// }
-// #[cfg(test)]
-// mod history_tests {
-//     include!("security_history_tests.rs");
-// }
-// #[cfg(test)]
-// mod sync_tests {
-//     include!("security_sync_tests.rs");
-// }
+#[cfg(test)]
+mod sync_tests {
+    include!("security_sync_tests.rs");
+}
+
+#[cfg(test)]
+mod outbound_tests {
+    include!("security_outbound_tests.rs");
+}
+#[cfg(test)]
+mod history_tests {
+    include!("security_history_tests.rs");
+}

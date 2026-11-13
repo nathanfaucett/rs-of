@@ -8,10 +8,10 @@ use std::{
 
 use db::{Database, Row, Value};
 use of_model::idp::model::Id;
-use ofdb_sql::{ 
-    AutomergeRowCodec, Engine, InMemoryKernel, Kernel, KernelTransaction, RowCodec, SyncKey,
-    SyncMessage, SyncRole, apply_sync_state_batch_for, export_sync_state_for,
+use ofdb_sql::history::{
+    SyncKey, SyncMessage, SyncRole, apply_sync_state_batch_for, export_sync_state_for,
 };
+use ofdb_sql::{AutomergeRowCodec, Engine, InMemoryKernel, Kernel, KernelTransaction, RowCodec};
 
 use super::{Pair, Poison, RecoveryAttack, public_jwk, sync_fixture, unvalidated_initiate};
 use crate::{
@@ -186,7 +186,7 @@ async fn approved_endpoints_without_idp_signers_exchange_and_device_revocation_d
         );
         let before = pair
             .idp_b
-            .sync_manifest()
+            .history_manifest()
             .await
             .expect("revoked receiver manifest");
         pair.protocol_a
@@ -195,7 +195,7 @@ async fn approved_endpoints_without_idp_signers_exchange_and_device_revocation_d
             .expect_err("valid signer cannot override Device revocation on existing connection");
         assert_eq!(
             pair.idp_b
-                .sync_manifest()
+                .history_manifest()
                 .await
                 .expect("unchanged receiver"),
             before
@@ -296,7 +296,7 @@ async fn marker3_rejects_correlated_rebinding_of_authenticated_session_peer() {
                     let owner = Id::now_v7();
                     sql(&source, &format!("UPDATE devices SET owner_subject = '{owner}' WHERE id = CAST('{member}' AS UUID)")).await;
                 }
-                let source_before = source.sync_manifest().await.expect("source manifest");
+                let source_before = source.history_manifest().await.expect("source manifest");
                 pair.serve(matches!(role, SyncRole::Responder));
                 let connection = pair.connect().await;
                 match role {
@@ -304,7 +304,7 @@ async fn marker3_rejects_correlated_rebinding_of_authenticated_session_peer() {
                     SyncRole::Responder => super::unvalidated_initiate_context(&pair, &connection, SecurityContext::Device).await,
                 }.expect_err("correlated rows cannot rebind authenticated session evidence");
                 assert_eq!(sql(&target, &query).await[0].rows, before, "pinned Device batch rolls back");
-                assert_eq!(source.sync_manifest().await.expect("unchanged source"), source_before);
+                assert_eq!(source.history_manifest().await.expect("unchanged source"), source_before);
                 drop((source, target));
                 pair.close().await;
             }
@@ -317,7 +317,7 @@ async fn inject_overwritten_device_state(source: &Database, member: Id) {
     let engine = Engine::new(kernel.clone(), AutomergeRowCodec::new());
     apply_sync_state_batch_for(
         &engine,
-        source.export_sync_state().await.expect("source history"),
+        source.export_history().await.expect("source history"),
     )
     .await
     .expect("copy Device history into raw fixture");
@@ -371,7 +371,7 @@ async fn inject_overwritten_device_state(source: &Database, member: Id) {
         })
         .expect("injected Device history unit");
     source
-        .apply_sync_state(unit)
+        .apply_history(unit)
         .await
         .expect("retain corrupt history behind valid current projection");
 }
@@ -398,8 +398,8 @@ async fn management_rejects_overwritten_invalid_device_history_before_export_or_
                         assert_eq!(sql(&source, &format!("SELECT state FROM devices WHERE id = CAST('{member}' AS UUID)")).await[0].rows[0].values,
                             vec![Value::Integer(1)]);
                     }
-                    let before = target.sync_manifest().await.expect("pre-import Management manifest");
-                    let source_before = source.sync_manifest().await.expect("corrupt source manifest");
+                    let before = target.history_manifest().await.expect("pre-import Management manifest");
+                    let source_before = source.history_manifest().await.expect("corrupt source manifest");
                     pair.serve(matches!(role, SyncRole::Responder));
                     let connection = pair.connect().await;
                     let error = match role {
@@ -410,8 +410,8 @@ async fn management_rejects_overwritten_invalid_device_history_before_export_or_
                         assert!(error.to_string().contains("Invalid historical scoped value type"),
                             "historical type gate, not incidental integrity rejection: {deleted}/{outgoing}/{role:?}: {error}");
                     }
-                    assert_eq!(target.sync_manifest().await.expect("unchanged target"), before);
-                    assert_eq!(source.sync_manifest().await.expect("unchanged corrupt source"), source_before);
+                    assert_eq!(target.history_manifest().await.expect("unchanged target"), before);
+                    assert_eq!(source.history_manifest().await.expect("unchanged corrupt source"), source_before);
                     if outgoing {
                         assert!(!pair.received.lock().expect("wire frames").iter().any(|frame|
                             frame.windows(b"invalid-historical-state".len()).any(|bytes| bytes == b"invalid-historical-state")),
@@ -508,7 +508,7 @@ async fn reject_candidates(known: bool) {
                     );
                     let before = sql(&target, &query).await[0].rows.clone();
                     corrupt(&source, &extra, attack).await;
-                    let source_before = source.sync_manifest().await.expect("source manifest");
+                    let source_before = source.history_manifest().await.expect("source manifest");
                     let baseline = sql(&target, "SELECT * FROM idp_replica_signers").await[0]
                         .rows
                         .clone();
@@ -526,7 +526,7 @@ async fn reject_candidates(known: bool) {
                         result.expect_err("semantic invalidity must reject at actual export/apply");
                     assert!(!error.to_string().contains("https://foreign.example"));
                     assert_eq!(
-                        source.sync_manifest().await.expect("unchanged source"),
+                        source.history_manifest().await.expect("unchanged source"),
                         source_before
                     );
                     if outgoing {

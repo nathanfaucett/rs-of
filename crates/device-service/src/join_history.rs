@@ -21,9 +21,7 @@ use axum::{
 };
 use db::{Database, Value};
 use futures_util::{SinkExt, StreamExt};
-use ofdb_sql::SyncRole;
-use ofdb_sync::{SyncTransport, SynchronizeConfig as SessionConfig, SynchronizeError as SyncError};
-use ofdb_sync::{SynchronizeConfig as SessionConfig, SynchronizeError as SyncError};
+use ofdb_sql::history::{SessionConfig, SyncCandidateView, SyncError, SyncRole, SyncTransport};
 use serde::{Deserialize, Serialize};
 use tokio::{net::TcpStream, sync::Mutex};
 use tokio_tungstenite::{
@@ -323,10 +321,6 @@ impl SyncTransport for HistorySocket {
             }
         }
     }
-
-    async fn close(&mut self) -> io::Result<()> {
-        Ok(())
-    }
 }
 
 pub async fn import_join_history(
@@ -424,7 +418,7 @@ async fn synchronize(
     check: CheckJoinHistory,
     cancellation: &CancellationToken,
 ) -> io::Result<()> {
-    let is_receiver = matches!(context, JoinHistoryContext::Device);
+    let is_receiver = matches!(transport, HistorySocket::Client(..));
     let role = if is_receiver {
         SyncRole::Initiator
     } else {
@@ -442,7 +436,7 @@ async fn synchronize(
     let sync_at = Instant::now();
     let config = SessionConfig::default();
     let tables = context.tables();
-    let result = engine.synchronize_tables_with_stage_directory_candidate_validated_checked(
+    let result = engine.exchange_history(
         transport,
         &config,
         role,

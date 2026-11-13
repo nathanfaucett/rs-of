@@ -1,5 +1,8 @@
 use std::sync::Arc;
 
+use idp_service::oauth2::NodeSignerBinding;
+use idp_service::repo::ClientRepo;
+use iroh::SecretKey;
 use of_model::idp::{
     contract::{
         ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, GrantType,
@@ -8,9 +11,6 @@ use of_model::idp::{
     },
     model::Id,
 };
-use idp_service::oauth2::NodeSignerBinding;
-use idp_service::repo::ClientRepo;
-use iroh::SecretKey;
 
 use crate::{AppConfig, OwnerProvisioner, node_provisioning_tests::Secrets};
 
@@ -414,7 +414,7 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
         db::Database::open(root.join("management/management.redb"))
             .expect("native Management owner"),
     );
-    of_model::idp::replica::up_policy(&management)
+    of_model::idp::replica::up(&management)
         .await
         .expect("identity policy schema");
     device_service::replica::up(&management)
@@ -1023,10 +1023,12 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
 pub(crate) struct TestStore(std::sync::Arc<keyring_core::mock::Store>);
 impl TestStore {
     pub(crate) fn new() -> Arc<keyring_core::CredentialStore> {
-        Arc::new(Self(keyring_core::mock::Store::new().expect("test keyring")))
+        Arc::new(Self(
+            keyring_core::mock::Store::new().expect("test keyring"),
+        ))
     }
 }
-impl keyring_core::server_common::CredentialStoreApi for TestStore {
+impl keyring_core::api::CredentialStoreApi for TestStore {
     fn vendor(&self) -> String {
         self.0.vendor()
     }
@@ -1039,7 +1041,7 @@ impl keyring_core::server_common::CredentialStoreApi for TestStore {
         user: &str,
         _: Option<&std::collections::HashMap<&str, &str>>,
     ) -> keyring_core::Result<keyring_core::Entry> {
-        keyring_core::server_common::CredentialStoreApi::build(&*self.0, service, user, None)
+        keyring_core::api::CredentialStoreApi::build(&*self.0, service, user, None)
     }
     fn search(
         &self,

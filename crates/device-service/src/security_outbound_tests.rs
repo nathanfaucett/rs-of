@@ -2,15 +2,14 @@ use std::{io, path::PathBuf, sync::Arc, time::Duration};
 
 use db::Database;
 use db::DatabaseTransport;
-use of_model::idp::{contract::IdentityAction, model::Id};
 use idp_service::oauth2::NodeSignerBinding;
 use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets};
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
 use management_service::ManagementService;
 use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
-use ofdb_sql::{SyncRole, SessionConfig};
-use ofdb_sync::{SyncTransport, SynchronizeError as SyncError};
+use of_model::idp::{contract::IdentityAction, model::Id};
+use ofdb_sql::history::{SessionConfig, SyncMessage, SyncRole, SyncTransport};
 use tokio_util::sync::CancellationToken;
 
 use super::test_fixtures::{enroll, sql};
@@ -349,7 +348,7 @@ async fn peer_exchange(
         } else {
             SyncRole::Initiator
         };
-        let mut peer_result = Ok(ofdb_sql::SyncResult::default());
+        let mut peer_result = Ok(ofdb_sql::history::SyncResult::default());
         for (_, name, tables) in fixture.source.sessions(context) {
             let database = match context {
                 SecurityContext::Idp => &fixture.peer_idp,
@@ -361,11 +360,14 @@ async fn peer_exchange(
                 SecurityContext::Device => &fixture.peer_management,
             };
             peer_result = database
-                .synchronize_tables_checked(
+                .exchange_history(
                     &mut transport,
                     &SessionConfig::default(),
                     peer_role,
+                    std::env::temp_dir(),
                     &tables,
+                    |_, _, _| Ok(()),
+                    |_| Ok(()),
                     || async { Ok(()) },
                 )
                 .await;

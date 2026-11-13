@@ -1,5 +1,9 @@
 # Build-fix qualification
 
+> Follow-up: see `security-history-validation.md`. The independent compilation and
+> fail-all security-history limits below were repaired after merging `8596dfa08`.
+> This older record is retained for the original validation results.
+
 Branch: `backend-simplification-buildfix`. Base: integration `64e44f11e`.
 Worktree: `.scratch/worktrees/buildfix`.
 Status: **local server builds and runs; acceptance remains incomplete**.
@@ -18,18 +22,18 @@ Status: **local server builds and runs; acceptance remains incomplete**.
 
 ## Actual validation
 
-| Command | Result |
-| --- | --- |
-| `cargo check -p unified-server --all-targets` | Passed on the final Rust implementation. Warnings remain. |
-| `cargo clippy -p unified-server --all-targets` | Passed on the final Rust implementation. Warnings remain; this is not a `-D warnings` run. |
-| `cargo test -p unified-server --all-targets -- --test-threads=1 --nocapture` | **2 passed, 1 failed**. Both real-process functional smoke tests passed. The separate startup performance test failed. |
-| `cargo test --manifest-path .scratch/backend-simplification/owner-validation/Cargo.toml --target-dir target -- --test-threads=1` | **16 passed**, zero failed/ignored, including the expanded seed/secret-rotation test. |
-| `cargo fmt -p unified-server -- --check` | Passed. |
-| `rustfmt --edition 2024 --config skip_children=true --check` on all changed surviving Rust files | Passed. This avoids unrelated missing owner HTTPS fixture module paths. |
-| `git diff --check` | Passed. |
-| `cargo check -p device-server --features cli` | Failed: five unresolved `device_service::join_history` imports. This source module was already disabled at the integration base and still calls removed staged SQL sync APIs. |
-| `cargo hack test --feature-powerset --workspace --all-targets` | Final attempt timed out after 200 seconds during compilation. No full-suite result. |
-| `just crap` | Final attempt timed out after 200 seconds during coverage compilation. No CRAP result. Its SDK-build prerequisite was invoked; no frontend source changes were committed. |
+| Command                                                                                                                          | Result                                                                                                                                                                        |
+| -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cargo check -p unified-server --all-targets`                                                                                    | Passed on the final Rust implementation. Warnings remain.                                                                                                                     |
+| `cargo clippy -p unified-server --all-targets`                                                                                   | Passed on the final Rust implementation. Warnings remain; this is not a `-D warnings` run.                                                                                    |
+| `cargo test -p unified-server --all-targets -- --test-threads=1 --nocapture`                                                     | **2 passed, 1 failed**. Both real-process functional smoke tests passed. The separate startup performance test failed.                                                        |
+| `cargo test --manifest-path .scratch/backend-simplification/owner-validation/Cargo.toml --target-dir target -- --test-threads=1` | **16 passed**, zero failed/ignored, including the expanded seed/secret-rotation test.                                                                                         |
+| `cargo fmt -p unified-server -- --check`                                                                                         | Passed.                                                                                                                                                                       |
+| `rustfmt --edition 2024 --config skip_children=true --check` on all changed surviving Rust files                                 | Passed. This avoids unrelated missing owner HTTPS fixture module paths.                                                                                                       |
+| `git diff --check`                                                                                                               | Passed.                                                                                                                                                                       |
+| `cargo check -p device-server --features cli`                                                                                    | Failed: five unresolved `device_service::join_history` imports. This source module was already disabled at the integration base and still calls removed staged SQL sync APIs. |
+| `cargo hack test --feature-powerset --workspace --all-targets`                                                                   | Final attempt timed out after 200 seconds during compilation. No full-suite result.                                                                                           |
+| `just crap`                                                                                                                      | Final attempt timed out after 200 seconds during coverage compilation. No CRAP result. Its SDK-build prerequisite was invoked; no frontend source changes were committed.     |
 
 The smoke tests launch the actual `unified-server` executable on an available loopback port and an empty temporary directory. They check all four health routes, absence of duplicate prefixes/setup routes, OIDC discovery, both frontend CORS origins, administrator sign-in, User info, consent and PKCE token exchange for both frontends, optional seed-user sign-in, restart, and trusted HTTPS with unchanged certificate/key bytes.
 

@@ -6,16 +6,16 @@ use std::{
 };
 
 use db::Database;
-use of_model::idp::contract::{
-    ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, EntityType, GrantType,
-    TokenEndpointAuthMethod,
-};
 use idp_service::{
     generate_random_string,
     replica::{DbApplicationRepo, DbClientRepo, DbKeyRepo},
     repo::{
         ApplicationRepo, ClientRepo, KeyRepo, KeyService, PrivateKeyKeyringRepo, PrivateKeyRepo,
     },
+};
+use of_model::idp::contract::{
+    ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, EntityType, GrantType,
+    TokenEndpointAuthMethod,
 };
 use serde::Serialize;
 
@@ -259,10 +259,6 @@ mod tests {
     };
 
     use db::Database;
-    use of_model::idp::contract::{
-        ClientCredentialsGrantRequest, EntityType, IntrospectionRequest, OAuth2ClientAuth,
-        TokenRequest,
-    };
     use idp_service::{
         PasswordConfig,
         oauth2::{OAuth2Config, OAuth2Service, decode_jwt},
@@ -279,12 +275,16 @@ mod tests {
     use key::{DerivationPath, DerivedKey};
     use management_service::LocalPermissions;
     use of_model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
+    use of_model::idp::contract::{
+        ClientCredentialsGrantRequest, EntityType, IntrospectionRequest, OAuth2ClientAuth,
+        TokenRequest,
+    };
 
     struct ModifierTolerantTestStore {
         inner: Arc<keyring_core::mock::Store>,
     }
 
-    impl keyring_core::server_common::CredentialStoreApi for ModifierTolerantTestStore {
+    impl keyring_core::api::CredentialStoreApi for ModifierTolerantTestStore {
         fn vendor(&self) -> String {
             self.inner.vendor()
         }
@@ -299,14 +299,14 @@ mod tests {
             user: &str,
             _modifiers: Option<&HashMap<&str, &str>>,
         ) -> keyring_core::Result<keyring_core::Entry> {
-            keyring_core::server_common::CredentialStoreApi::build(&*self.inner, service, user, None)
+            keyring_core::api::CredentialStoreApi::build(&*self.inner, service, user, None)
         }
 
         fn search(
             &self,
             spec: &HashMap<&str, &str>,
         ) -> keyring_core::Result<Vec<keyring_core::Entry>> {
-            keyring_core::server_common::CredentialStoreApi::search(&*self.inner, spec)
+            keyring_core::api::CredentialStoreApi::search(&*self.inner, spec)
         }
 
         fn as_any(&self) -> &dyn Any {
@@ -627,7 +627,7 @@ mod tests {
             .expect("bind temporary IdP Iroh endpoint");
         let policy_engine =
             Arc::new(Database::open(root.join("devices.redb")).expect("open local policy store"));
-        of_model::idp::replica::up_policy(&policy_engine)
+        of_model::idp::replica::up(&policy_engine)
             .await
             .expect("initialize local policy schema");
         device_service::replica::up(&policy_engine)
@@ -1020,9 +1020,9 @@ mod tests {
             2
         );
 
-        let registration = serde_json::to_string(&of_model::idp::contract::ClientRegistration::from(
-            refresh_client.clone(),
-        ))
+        let registration = serde_json::to_string(
+            &of_model::idp::contract::ClientRegistration::from(refresh_client.clone()),
+        )
         .expect("serialize valid registration body");
         policy
             .delete_role_by_id(admin_role.application_id, admin_role.id)

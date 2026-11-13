@@ -24,8 +24,7 @@ required-features = ["cli"]
 
 [features]
 default = ["cli", "completions", "swagger-ui"]
-cli = ["independent", "dep:dotenvy", "dep:clap", "dep:cli"]
-independent = []
+cli = ["dep:dotenvy", "dep:clap", "dep:cli"]
 completions = ["cli?/completions", "dep:clap_complete"]
 swagger-ui = ["utoipa-swagger-ui"]
 
@@ -150,3 +149,8 @@ env_logger = { version = "0.10", default-features = false, features = [] }
 
 # Keyring
 keyring-core = { version = "1.0", default-features = false, features = [] }
+
+[dev-dependencies.server-common]
+path = "../server-common"
+default-features = false
+features = ["test-support"]

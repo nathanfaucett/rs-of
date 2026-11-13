@@ -181,3 +181,8 @@ management-service = { path = "../management-service", default-features = false,
 # Web
 
 tower = { version = "0.5", default-features = false, features = ["util"] }
+
+[dev-dependencies.server-common]
+path = "../server-common"
+default-features = false
+features = ["test-support"]

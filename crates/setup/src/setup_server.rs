@@ -367,3 +367,7 @@ mod tests {
             .expect("clean shutdown");
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "setup_server_teardown_tests.rs"]
+mod lifecycle_tests;

@@ -757,41 +757,25 @@ mod tests {
         }
     }
 
-    struct Channel {
-        sender: futures::channel::mpsc::UnboundedSender<Vec<u8>>,
-        receiver: futures::channel::mpsc::UnboundedReceiver<Vec<u8>>,
-    }
-
-    impl ofdb_sql::SyncTransport for Channel {
-        type Error = &'static str;
-        async fn send(&mut self, frame: Vec<u8>) -> Result<(), Self::Error> {
-            self.sender.unbounded_send(frame).map_err(|_| "closed")
-        }
-        async fn receive(&mut self) -> Result<Vec<u8>, Self::Error> {
-            use futures::StreamExt;
-            self.receiver.next().await.ok_or("closed")
-        }
-    }
-
     async fn synchronize(source: &db::Database, destination: &db::Database) {
-        let (a, ar) = futures::channel::mpsc::unbounded();
-        let (b, br) = futures::channel::mpsc::unbounded();
-        let mut left = Channel {
-            sender: a,
-            receiver: br,
-        };
-        let mut right = Channel {
-            sender: b,
-            receiver: ar,
-        };
-        let config = ofdb_sql::SessionConfig::default();
-        let (sent, received) = futures::future::join(
-            source.synchronize(&mut left, &config, ofdb_sql::SyncRole::Initiator),
-            destination.synchronize(&mut right, &config, ofdb_sql::SyncRole::Responder),
-        )
-        .await;
-        sent.expect("sync trusted domain fixture");
-        received.expect("receive trusted domain fixture");
+        destination
+            .import_history(
+                source
+                    .export_history()
+                    .await
+                    .expect("source native history"),
+            )
+            .await
+            .expect("atomic native history import");
+        source
+            .import_history(
+                destination
+                    .export_history()
+                    .await
+                    .expect("merged native history"),
+            )
+            .await
+            .expect("atomic reverse native history import");
     }
 
     async fn update(engine: &db::Database, table: &str, id: u128, column: &str, value: &str) {

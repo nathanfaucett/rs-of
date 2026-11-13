@@ -2,8 +2,7 @@ use std::{io, net::SocketAddr, path::Path};
 
 use setup::IndependentSetupHost;
 
-#[path = "../../api/src/setup_https_fixture.rs"]
-mod fixture;
+use server_common::setup_https_fixture as fixture;
 
 fn prepare(
     root: &Path,

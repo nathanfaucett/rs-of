@@ -5,7 +5,6 @@ use std::{
 };
 
 use db::{Database, Value};
-use of_model::idp::{contract::IdentityAction, model::Id};
 use idp_service::{
     PasswordConfig,
     oauth2::NodeSignerBinding,
@@ -17,6 +16,7 @@ use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
 use management_service::ManagementService;
 use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
+use of_model::idp::{contract::IdentityAction, model::Id};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -343,7 +343,7 @@ async fn exchange_history() {
         serde_json::json!({"version": 1, "installation": INSTALLATION, "member": member_b, "context": "idp"}),
         serde_json::json!({"version": 2, "installation": INSTALLATION, "member": member_a, "context": "idp"}),
     ] {
-        use ofdb_sql::SyncTransport;
+        use ofdb_sql::history::SyncTransport;
         let before = security_manifests(&idp_a, &idp_b, &management_a, &management_b).await;
         let (mut send, recv) = connection
             .open_bi()
@@ -663,14 +663,17 @@ async fn security_manifests(
     management_b: &Database,
 ) -> impl PartialEq + std::fmt::Debug + use<> {
     (
-        idp_a.sync_manifest().await.expect("source IdP manifest"),
-        idp_b.sync_manifest().await.expect("recipient IdP manifest"),
+        idp_a.history_manifest().await.expect("source IdP manifest"),
+        idp_b
+            .history_manifest()
+            .await
+            .expect("recipient IdP manifest"),
         management_a
-            .sync_manifest()
+            .history_manifest()
             .await
             .expect("source Management manifest"),
         management_b
-            .sync_manifest()
+            .history_manifest()
             .await
             .expect("recipient Management manifest"),
     )
@@ -681,7 +684,7 @@ async fn assert_admission_closed(
     member: Id,
     context: SecurityContext,
 ) {
-    use ofdb_sql::SyncTransport;
+    use ofdb_sql::history::SyncTransport;
     let (mut send, recv) = connection
         .open_bi()
         .await

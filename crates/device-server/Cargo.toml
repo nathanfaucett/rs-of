@@ -24,8 +24,7 @@ required-features = ["cli"]
 
 [features]
 default = ["cli", "completions", "swagger-ui"]
-cli = ["independent", "dep:dotenvy", "dep:clap", "dep:cli"]
-independent = []
+cli = ["dep:dotenvy", "dep:clap", "dep:cli"]
 completions = ["cli?/completions"]
 swagger-ui = ["utoipa-swagger-ui"]
 
@@ -142,3 +141,8 @@ chrono = { version = "0.4", default-features = false, features = [
 
 # Web
 tower = { version = "0.5", default-features = false, features = ["util"] }
+
+[dev-dependencies.server-common]
+path = "../server-common"
+default-features = false
+features = ["test-support"]
