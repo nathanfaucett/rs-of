@@ -921,6 +921,12 @@
             "format": "date-time",
             "type": "string"
           },
+          "features": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "name": {
             "type": "string"
           },
@@ -1077,6 +1083,29 @@
       }
     },
     "/devices/enrollments": {
+      "get": {
+        "operationId": "list_pending_enrollments",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeviceEnrollment"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Pending device enrollments"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      },
       "post": {
         "operationId": "enroll_device",
         "requestBody": {
@@ -1106,22 +1135,31 @@
             "authorization": []
           }
         ]
-      },
-      "get": {
-        "operationId": "list_pending_enrollments",
+      }
+    },
+    "/devices/enrollments/{device_id}/approve": {
+      "post": {
+        "operationId": "approve_enrollment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/DeviceEnrollment"
-                  }
+                  "$ref": "#/components/schemas/DeviceEnrollment"
                 }
               }
             },
-            "description": "Pending device enrollments"
+            "description": "Approved enrollment"
           }
         },
         "security": [
@@ -2600,38 +2638,6 @@
             "description": "Version"
           }
         }
-      }
-    },
-    "/devices/enrollments/{device_id}/approve": {
-      "post": {
-        "operationId": "approve_enrollment",
-        "parameters": [
-          {
-            "name": "device_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeviceEnrollment"
-                }
-              }
-            },
-            "description": "Approved enrollment"
-          }
-        },
-        "security": [
-          {
-            "authorization": []
-          }
-        ]
       }
     }
   },

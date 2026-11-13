@@ -60,14 +60,7 @@ pub struct SyncConnectRequest {
     pub _direction: SyncDirection,
 }
 
-#[derive(Deserialize, Serialize)]
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub enum SyncDirection {
-    Push,
-    Pull,
-    Bidirectional,
-}
+pub use crate::storage::sync::{SyncDirection, SyncStatus};
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -81,18 +74,6 @@ pub struct SyncSessionResponse {
     pub status: SyncStatus,
     pub bytes_sent: u64,
     pub bytes_received: u64,
-}
-
-#[derive(Serialize)]
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
-pub enum SyncStatus {
-    Connecting,
-    Syncing,
-    Completed,
-    Failed,
-    Cancelled,
 }
 
 fn default_bidirectional() -> SyncDirection {

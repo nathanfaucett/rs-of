@@ -26,6 +26,7 @@ use super::storage_socket::__path_upgrade_socket;
         resources::delete_file_system,
         resources::residency::get_file_system_residency,
         resources::residency::put_file_system_residency,
+        resources::sync_connect,
         upgrade_socket
     ),
     components(schemas(

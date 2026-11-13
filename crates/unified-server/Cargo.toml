@@ -19,6 +19,7 @@ required-features = ["cli"]
 
 [features]
 default = ["cli"]
+independent-contracts = ["idp-server/independent", "device-server/independent", "storage-server/independent", "server-common/independent", "device-service/independent"]
 cli = ["dep:clap", "dep:cli", "dep:env_logger", "tokio/signal"]
 completions = ["cli", "dep:clap_complete"]
 swagger-ui = [
@@ -116,3 +117,7 @@ utoipa = { version = "5.5", default-features = false }
 
 # Process fixtures
 tempfile = { version = "3.27", default-features = false }
+
+[[example]]
+name = "export-openapi"
+required-features = ["independent-contracts"]

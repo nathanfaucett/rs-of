@@ -1,5 +1,7 @@
 use std::io;
 
+use device_service::hosted_join::NodeJoinRequestExt;
+
 use iroh::endpoint::presets;
 use iroh::{EndpointId, SecretKey};
 use iroh_chain::{EndpointIdStore, Server};

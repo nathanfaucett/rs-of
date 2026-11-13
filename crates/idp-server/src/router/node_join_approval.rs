@@ -1,15 +1,17 @@
 use std::{io, time::Instant};
 
+use device_service::hosted_join::{NodeJoinApprovalExt, NodeJoinRequestExt};
+
 use db::{Row, SqlTranslator, Transaction, Value};
 use device_service::DeviceRepo;
+use idp_service::replica::DbReplicaSignerRepo;
+use iroh_chain::{MAX_PAIRING_PAYLOAD_LENGTH, PairingOffer};
 use of_model::idp::{
     contract::{
         IdentityAction, IdentityResource, IdpSignerRecord, PermissionTarget, ReplicaMembership,
     },
     model::Id,
 };
-use idp_service::replica::DbReplicaSignerRepo;
-use iroh_chain::{MAX_PAIRING_PAYLOAD_LENGTH, PairingOffer};
 
 use super::middleware::require_identity_permission_for_audience;
 use crate::{RouterState, authorize_bearer, node_join::invalid};

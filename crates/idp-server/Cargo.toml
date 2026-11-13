@@ -24,7 +24,8 @@ required-features = ["cli"]
 
 [features]
 default = ["cli", "completions", "swagger-ui"]
-cli = ["dep:dotenvy", "dep:clap", "dep:cli"]
+independent = ["dep:setup", "server-common/independent", "device-service/independent"]
+cli = ["independent", "dep:dotenvy", "dep:clap", "dep:cli"]
 completions = ["cli?/completions", "dep:clap_complete"]
 swagger-ui = ["utoipa-swagger-ui"]
 
@@ -59,7 +60,7 @@ rust-argon2 = { version = "3.0", default-features = false }
 embedded-db = { path = "../embedded-db", default-features = false }
 server-common = { path = "../server-common", default-features = false, features = [
 ] }
-setup = { workspace = true }
+setup = { workspace = true, optional = true }
 db = { package = "idp-db", path = "../db", default-features = false, features = [
     "replica",
     "remote",

@@ -100,6 +100,30 @@ fn merge(target: &mut OpenApi, mut source: OpenApi, tag: &str, prefix: Option<&s
 #[cfg(test)]
 mod tests {
     #[test]
+    fn canonical_exports_keep_all_published_paths_and_oauth_request_schemas() {
+        let documents = super::canonical_documents();
+        for owner in ["idp", "management", "device", "storage"] {
+            let published = server_common::canonical_openapi(owner, "https://localhost", "");
+            for path in published["paths"]
+                .as_object()
+                .expect("published owner paths")
+                .keys()
+            {
+                assert!(
+                    documents[owner].paths.paths.contains_key(path),
+                    "{owner}: lost published path {path}"
+                );
+            }
+        }
+        let idp = serde_json::to_value(&documents["idp"]).expect("IdP contract");
+        assert_eq!(
+            idp["paths"]["/users/{user_id}"]["put"]["requestBody"]["content"]["application/json"]["schema"]
+                ["$ref"],
+            "#/components/schemas/UpdateUserInfoRequest"
+        );
+    }
+
+    #[test]
     fn canonical_exports_preserve_independent_owner_operations() {
         let documents = super::canonical_documents();
         for owner in ["idp", "device", "storage"] {

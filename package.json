@@ -23,7 +23,7 @@
     "openapi:device": "node scripts/generate-openapi-client.mjs device",
     "openapi:management": "pnpm --filter \"./packages/management-client\" run openapi",
     "openapi": "node scripts/generate-openapi-client.mjs",
-    "openapi:export": "cargo run -p unified-server --example export-openapi -- openapi",
+    "openapi:export": "cargo run -p unified-server --features independent-contracts --example export-openapi -- openapi",
     "openapi:check": "node scripts/qualify-openapi-clients.mjs"
   },
   "devDependencies": {

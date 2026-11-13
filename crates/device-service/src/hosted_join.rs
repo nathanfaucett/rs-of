@@ -1,39 +1,22 @@
 use std::{future::Future, io, pin::Pin};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use of_model::idp::{contract::JwkPublic, model::Id};
 use iroh::{EndpointAddr, EndpointId, Signature};
 use iroh_chain::{PairingOffer, Server};
-use serde::{Deserialize, Serialize};
+use of_model::idp::model::Id;
 
 const PURPOSE: &str = "of.equal-node-join.v1";
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-#[serde(deny_unknown_fields)]
-pub struct NodeJoinRequest {
-    pub purpose: String,
-    pub installation: String,
-    #[cfg_attr(feature = "utoipa", schema(value_type = String, format = "uuid"))]
-    pub member_id: Id,
-    pub endpoint_id: String,
-    pub name: String,
-    pub public_signer: JwkPublic,
-    pub approving_peer: String,
+pub use of_model::node_join::{NodeJoinApproval, NodeJoinRequest};
+
+pub trait NodeJoinRequestExt: Sized {
+    fn validate_trusted_peer(peer: &str) -> io::Result<()>;
+    fn validate(&self) -> io::Result<()>;
+    async fn send(&self, server: &Server, peer: EndpointAddr) -> io::Result<NodeJoinApproval>;
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-#[serde(deny_unknown_fields)]
-pub struct NodeJoinApproval {
-    pub request: NodeJoinRequest,
-    #[cfg_attr(feature = "utoipa", schema(value_type = String, format = "uuid"))]
-    pub owner_subject: Id,
-    pub signature: String,
-}
-
-impl NodeJoinRequest {
-    pub fn validate_trusted_peer(peer: &str) -> io::Result<()> {
+impl NodeJoinRequestExt for NodeJoinRequest {
+    fn validate_trusted_peer(peer: &str) -> io::Result<()> {
         let endpoint: EndpointId = peer.parse().map_err(io::Error::other)?;
         if endpoint.to_string() != peer {
             return Err(invalid("trusted peer endpoint ID must be canonical"));
@@ -41,7 +24,7 @@ impl NodeJoinRequest {
         Ok(())
     }
 
-    pub fn validate(&self) -> io::Result<()> {
+    fn validate(&self) -> io::Result<()> {
         let endpoint: EndpointId = self.endpoint_id.parse().map_err(io::Error::other)?;
         let peer: EndpointId = self.approving_peer.parse().map_err(io::Error::other)?;
         let key_id: Id = self.public_signer.kid.parse().map_err(io::Error::other)?;
@@ -61,7 +44,7 @@ impl NodeJoinRequest {
         Ok(())
     }
 
-    pub async fn send(&self, server: &Server, peer: EndpointAddr) -> io::Result<NodeJoinApproval> {
+    async fn send(&self, server: &Server, peer: EndpointAddr) -> io::Result<NodeJoinApproval> {
         self.validate()?;
         if server.endpoint().id().to_string() != self.endpoint_id
             || peer.id.to_string() != self.approving_peer
@@ -79,8 +62,18 @@ impl NodeJoinRequest {
     }
 }
 
-impl NodeJoinApproval {
-    pub fn signed_by(
+pub trait NodeJoinApprovalExt: Sized {
+    fn signed_by(
+        identity: &crate::DeviceIdentity,
+        request: NodeJoinRequest,
+        owner_subject: Id,
+    ) -> io::Result<Self>;
+    fn payload(request: &NodeJoinRequest, owner: Id) -> io::Result<Vec<u8>>;
+    fn verify(&self, expected: &NodeJoinRequest) -> io::Result<()>;
+}
+
+impl NodeJoinApprovalExt for NodeJoinApproval {
+    fn signed_by(
         identity: &crate::DeviceIdentity,
         request: NodeJoinRequest,
         owner_subject: Id,
@@ -93,7 +86,7 @@ impl NodeJoinApproval {
         })
     }
 
-    pub fn payload(request: &NodeJoinRequest, owner: Id) -> io::Result<Vec<u8>> {
+    fn payload(request: &NodeJoinRequest, owner: Id) -> io::Result<Vec<u8>> {
         Ok(serde_json::to_vec(&(
             "of.equal-node-join-approval.v1",
             request,
@@ -101,7 +94,7 @@ impl NodeJoinApproval {
         ))?)
     }
 
-    pub fn verify(&self, expected: &NodeJoinRequest) -> io::Result<()> {
+    fn verify(&self, expected: &NodeJoinRequest) -> io::Result<()> {
         expected.validate()?;
         if self.request != *expected || self.owner_subject.is_nil() {
             return Err(invalid(
@@ -143,7 +136,7 @@ fn invalid(message: &str) -> io::Error {
 
 #[cfg(test)]
 mod setup_peer_tests {
-    use super::NodeJoinRequest;
+    use super::{NodeJoinRequest, NodeJoinRequestExt};
 
     #[test]
     fn trusted_peer_input_requires_a_canonical_endpoint_identity() {

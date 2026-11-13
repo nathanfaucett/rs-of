@@ -87,7 +87,7 @@
         "additionalProperties": false,
         "properties": {
           "creationKey": {
-            "description": "Case-sensitive application-chosen identity; 1\u2013128 UTF-8 bytes.",
+            "description": "Case-sensitive application-chosen identity; 1–128 UTF-8 bytes.",
             "maxLength": 128,
             "minLength": 1,
             "type": "string"
@@ -745,11 +745,97 @@
           }
         ]
       },
+      "SyncConnectRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "Direction": {
+            "$ref": "#/components/schemas/SyncDirection"
+          },
+          "resourceId": {
+            "type": "string"
+          },
+          "targetDevice": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "resourceId",
+          "targetDevice"
+        ],
+        "type": "object"
+      },
+      "SyncDirection": {
+        "enum": [
+          "push",
+          "pull",
+          "bidirectional"
+        ],
+        "type": "string"
+      },
+      "SyncSessionResponse": {
+        "properties": {
+          "bytesReceived": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "bytesSent": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "resourceId": {
+            "type": "string"
+          },
+          "sessionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "sourceDevice": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SyncStatus"
+          },
+          "targetDevice": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId",
+          "resourceId",
+          "sourceDevice",
+          "targetDevice",
+          "status",
+          "bytesSent",
+          "bytesReceived"
+        ],
+        "type": "object"
+      },
+      "SyncStatus": {
+        "enum": [
+          "connecting",
+          "syncing",
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "type": "string"
+      },
       "VersionResponse": {
         "properties": {
           "build": {
             "format": "date-time",
             "type": "string"
+          },
+          "features": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "name": {
             "type": "string"
@@ -762,73 +848,6 @@
           "name",
           "version",
           "build"
-        ],
-        "type": "object"
-      },
-      "SyncConnectRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "resourceId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "targetDevice": {
-            "type": "string",
-            "format": "uuid"
-          }
-        },
-        "required": [
-          "resourceId",
-          "targetDevice"
-        ],
-        "type": "object"
-      },
-      "SyncSessionResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "sessionId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "resourceId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "sourceDevice": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "targetDevice": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "connecting",
-              "syncing",
-              "completed",
-              "failed",
-              "cancelled"
-            ]
-          },
-          "bytesSent": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "bytesReceived": {
-            "type": "integer",
-            "minimum": 0
-          }
-        },
-        "required": [
-          "sessionId",
-          "resourceId",
-          "sourceDevice",
-          "targetDevice",
-          "status",
-          "bytesSent",
-          "bytesReceived"
         ],
         "type": "object"
       }
@@ -2073,23 +2092,6 @@
         ]
       }
     },
-    "/version": {
-      "get": {
-        "operationId": "version",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/VersionResponse"
-                }
-              }
-            },
-            "description": "Version"
-          }
-        }
-      }
-    },
     "/sync/connect": {
       "post": {
         "operationId": "sync_connect",
@@ -2133,8 +2135,25 @@
           }
         ],
         "tags": [
-          "sync"
+          "resources"
         ]
+      }
+    },
+    "/version": {
+      "get": {
+        "operationId": "version",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionResponse"
+                }
+              }
+            },
+            "description": "Version"
+          }
+        }
       }
     }
   },

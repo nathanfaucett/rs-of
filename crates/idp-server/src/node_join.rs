@@ -1,8 +1,10 @@
 use std::{fs, io, io::Write, path::Path};
 
-use of_model::idp::model::Id;
+use device_service::hosted_join::{NodeJoinApprovalExt, NodeJoinRequestExt};
+
 use idp_service::{oauth2::NodeSignerBinding, repo::PrivateKeyRepo};
 use iroh::EndpointId;
+use of_model::idp::model::Id;
 use serde::Serialize;
 
 use device_service::hosted_join::NodeJoinApproval;

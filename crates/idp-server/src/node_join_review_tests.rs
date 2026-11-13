@@ -1,17 +1,19 @@
 use std::{sync::Arc, time::Duration};
 
+use device_service::hosted_join::{NodeJoinApprovalExt, NodeJoinRequestExt};
+
 use db::{Database, SqlTranslator};
 use device_service::DeviceRepo;
-use of_model::idp::{
-    contract::{INSTALLATION_POLICY_ID, IdentityAction},
-    model::Id,
-};
 use idp_service::{oauth2::NodeSignerBinding, replica::DbReplicaSignerRepo, repo::UserRepo};
 use iroh::{SecretKey, endpoint::presets};
 use iroh_chain::{EndpointIdStore, Server};
 use management_service::ManagementService;
 use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
+use of_model::idp::{
+    contract::{INSTALLATION_POLICY_ID, IdentityAction},
+    model::Id,
+};
 use tokio::sync::Notify;
 
 use crate::{

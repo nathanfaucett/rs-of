@@ -1,10 +1,12 @@
 use std::{io, path::PathBuf};
 
+use device_service::hosted_join::{NodeJoinApprovalExt, NodeJoinRequestExt};
+
 use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD};
-use of_model::idp::contract::{JwkPublic, JwkPublicParameters, JwsAlgorithm, KeyUse};
 use idp_service::repo::{PrivateKeyKeyringRepo, PrivateKeyRepo};
 use iroh::{EndpointId, SecretKey, endpoint::presets::Preset};
 use iroh_chain::{EndpointIdStore, Server};
+use of_model::idp::contract::{JwkPublic, JwkPublicParameters, JwsAlgorithm, KeyUse};
 
 use super::{NodeJoinApproval, NodeJoinRequest, read_optional};
 use crate::AppConfig;

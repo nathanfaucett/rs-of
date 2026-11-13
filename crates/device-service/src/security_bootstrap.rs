@@ -4,6 +4,8 @@ use iroh::endpoint::{Connection, RecvStream, SendStream};
 use of_model::idp::model::Id;
 use std::{future::Future, io, sync::Arc};
 
+use crate::hosted_join::{NodeJoinApprovalExt, NodeJoinRequestExt};
+
 use ofdb_sql::history::{SessionConfig, SyncError, SyncResult, SyncRole, SyncTransport};
 use serde::{Deserialize, Serialize};
 

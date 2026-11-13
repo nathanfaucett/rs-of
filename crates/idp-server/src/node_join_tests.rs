@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use device_service::hosted_join::{NodeJoinApprovalExt, NodeJoinRequestExt};
+
 use idp_service::oauth2::NodeSignerBinding;
 use idp_service::repo::ClientRepo;
 use iroh::SecretKey;

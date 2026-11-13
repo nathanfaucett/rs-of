@@ -24,7 +24,8 @@ required-features = ["cli"]
 
 [features]
 default = ["cli", "completions", "swagger-ui"]
-cli = ["dep:dotenvy", "dep:clap", "dep:cli"]
+independent = ["dep:setup", "server-common/independent", "device-service/independent"]
+cli = ["independent", "dep:dotenvy", "dep:clap", "dep:cli"]
 completions = ["cli?/completions"]
 swagger-ui = ["utoipa-swagger-ui"]
 
@@ -57,7 +58,7 @@ cli = { path = "../cli", default-features = false, features = [
 embedded-db = { path = "../embedded-db", default-features = false }
 server-common = { path = "../server-common", default-features = false, features = [
 ] }
-setup = { workspace = true }
+setup = { workspace = true, optional = true }
 db = { package = "idp-db", path = "../db", default-features = false, features = [
     "replica",
     "remote",

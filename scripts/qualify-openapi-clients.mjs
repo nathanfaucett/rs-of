@@ -44,6 +44,8 @@ try {
             "run",
             "-p",
             "unified-server",
+            "--features",
+            "independent-contracts",
             "--example",
             "export-openapi",
             "--",
