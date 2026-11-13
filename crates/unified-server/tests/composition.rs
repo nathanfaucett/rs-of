@@ -86,7 +86,7 @@ async fn smoke(tls: bool) {
     let base = format!("{}://127.0.0.1:{port}", if tls { "https" } else { "http" });
     let mut retained_tls = None;
     let mut startup_times = Vec::new();
-    for _ in 0..2 {
+    for restart in 0..2 {
         let start = Instant::now();
         let mut command = Command::new(env!("CARGO_BIN_EXE_unified-server"));
         command
@@ -196,7 +196,15 @@ async fn smoke(tls: bool) {
                 .expect("CORS preflight");
             assert_eq!(response.headers()["access-control-allow-origin"], origin);
         }
-        authenticate(&client, &base).await;
+        let response = client
+            .get(format!("{base}/idp/.well-known/jwks.json"))
+            .send()
+            .await
+            .expect("local JWKS over HTTP");
+        assert_eq!(response.status(), 200);
+        let jwks: Value = response.json().await.expect("JWKS JSON");
+        assert!(!jwks["keys"].as_array().expect("JWKS keys").is_empty());
+        authenticate(&client, &base, restart == 0).await;
         if !tls {
             let token = client
                 .post(format!("{base}/idp/oauth2/token"))
@@ -254,7 +262,7 @@ async fn smoke(tls: bool) {
     }
 }
 
-async fn authenticate(client: &reqwest::Client, base: &str) {
+async fn authenticate(client: &reqwest::Client, base: &str, first_start: bool) {
     let response = client
         .post(format!("{base}/idp/oauth2/token"))
         .form(&[
@@ -327,49 +335,46 @@ async fn authenticate(client: &reqwest::Client, base: &str) {
         401,
     );
     let device_bearer = token["access_token"].as_str().expect("Device bearer");
-    let enrollment = client
-        .post(format!("{base}/device/devices/enrollments"))
-        .bearer_auth(device_bearer)
-        .json(&json!({
-            "name": "Local HTTP device",
-            "publicKey": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
-            "address": "127.0.0.1:23456",
-        }))
-        .send()
-        .await
-        .expect("Device enrollment");
-    let status = enrollment.status();
-    let body = enrollment.text().await.expect("Device enrollment response");
-    assert_eq!(status, 200, "Device enrollment: {body}");
-    let enrollment: Value = serde_json::from_str(&body).expect("enrollment JSON");
-    let device_id = enrollment["id"].as_str().expect("enrollment ID");
-    let response = client
-        .post(format!(
-            "{base}/device/devices/enrollments/{device_id}/approve"
-        ))
-        .bearer_auth(device_bearer)
-        .send()
-        .await
-        .expect("Device approval");
-    let status = response.status();
-    let body = response.text().await.expect("Device approval response");
-    assert_eq!(status, 200, "Device approval: {body}");
-    let devices: Value = client
-        .get(format!("{base}/device/devices"))
-        .bearer_auth(device_bearer)
-        .send()
-        .await
-        .expect("approved Device list")
-        .json()
-        .await
-        .expect("Device list JSON");
-    assert!(
-        devices
-            .as_array()
-            .expect("Device array")
-            .iter()
-            .any(|device| device["id"] == device_id)
-    );
+    let listed: Value = serde_json::from_str(&body).expect("Device list JSON");
+    if first_start {
+        assert_eq!(listed, json!([]));
+        let enrollment = client
+            .post(format!("{base}/device/devices/enrollments"))
+            .bearer_auth(device_bearer)
+            .json(&json!({
+                "name": "Local HTTP device",
+                "publicKey": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+                "address": "127.0.0.1:23456",
+            }))
+            .send()
+            .await
+            .expect("Device enrollment");
+        let status = enrollment.status();
+        let body = enrollment.text().await.expect("Device enrollment response");
+        assert_eq!(status, 200, "Device enrollment: {body}");
+        let enrollment: Value = serde_json::from_str(&body).expect("enrollment JSON");
+        let device_id = enrollment["id"].as_str().expect("enrollment ID");
+        assert_eq!(enrollment["state"], "approved");
+        let devices: Value = client
+            .get(format!("{base}/device/devices"))
+            .bearer_auth(device_bearer)
+            .send()
+            .await
+            .expect("approved Device list")
+            .json()
+            .await
+            .expect("Device list JSON");
+        assert!(
+            devices
+                .as_array()
+                .expect("Device array")
+                .iter()
+                .any(|device| device["id"] == device_id)
+        );
+    } else {
+        assert_eq!(listed.as_array().expect("retained Device array").len(), 1);
+        assert_eq!(listed[0]["name"], "Local HTTP device");
+    }
     let user: Value = client
         .get(format!("{base}/idp/userinfo"))
         .bearer_auth(bearer)
@@ -494,8 +499,7 @@ async fn storage_roundtrip(client: &reqwest::Client, base: &str, client_id: &str
     assert_eq!(status, 201, "{client_id} Storage create: {body}");
     let resource: Value = serde_json::from_str(&body).expect("Storage resource JSON");
     let id = resource["id"].as_str().expect("Storage resource ID");
-    let resource_uri = "storage:databases";
-    let write = exchange_storage(client, base, client_id, bearer, &resource_uri, "write").await;
+
     let url = format!("{base}/storage/databases/{id}/sql");
     let response = client.post(&url).bearer_auth(&write).json(&json!({"statements":[
         {"sql":"CREATE TABLE notes (id TEXT PRIMARY KEY, value TEXT NOT NULL)","params":[]},
@@ -504,7 +508,7 @@ async fn storage_roundtrip(client: &reqwest::Client, base: &str, client_id: &str
     let status = response.status();
     let body = response.text().await.expect("Storage write response");
     assert_eq!(status, 200, "Storage write: {body}");
-    let read = exchange_storage(client, base, client_id, bearer, &resource_uri, "read").await;
+    let read = exchange_storage(client, base, client_id, bearer, "storage:databases", "read").await;
     let response = client
         .post(&url)
         .bearer_auth(&read)
