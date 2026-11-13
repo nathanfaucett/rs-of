@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { access } from "node:fs/promises";
+import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createServer } from "node:net";
 import { test } from "node:test";
 import { startBackend } from "./backend.mjs";
@@ -16,6 +18,13 @@ async function freePort() {
 const fixture = `
 const http = require('node:http');
 const fs = require('node:fs');
+if (process.argv[2] === 'local') {
+  const assert = require('node:assert/strict');
+  const args = process.argv.slice(2);
+  assert.equal(args[args.indexOf('--data-dir') + 1], process.env.E2E_DATA_DIR);
+  assert.equal(args[args.indexOf('--port') + 1], process.env.E2E_PORT);
+  assert.ok(args.includes('--no-tls'));
+}
 fs.writeFileSync(process.env.E2E_DATA_DIR + '/started', String(process.pid));
 http.createServer((req, res) => {
   res.statusCode = req.url === '/management/health' && process.env.UNHEALTHY ? 503 : 200;
@@ -74,6 +83,38 @@ test("reports a child exit without waiting for the health deadline", async () =>
   const config = await options();
   config.args = ["-e", "process.exit(23)"];
   await assert.rejects(startBackend(config), /exited.*23/);
+});
+
+test("starts a prebuilt executable with the local CLI and an isolated data directory", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "of-launcher-test-"));
+  const binary = join(directory, "server.cjs");
+  await writeFile(binary, `#!${process.execPath}\n` + fixture, { mode: 0o755 });
+  try {
+    const backend = await startBackend({
+      binary,
+      port: await freePort(),
+      timeoutMs: 2000,
+    });
+    try {
+      await access(join(backend.dataDir, "started"));
+    } finally {
+      await backend.stop();
+    }
+    await assert.rejects(access(backend.dataDir), { code: "ENOENT" });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("uses an explicit prebuilt binary without falling back to Cargo", async () => {
+  await assert.rejects(
+    startBackend({
+      binary: "/missing/e2e-binary",
+      port: await freePort(),
+      timeoutMs: 500,
+    }),
+    /ENOENT/
+  );
 });
 
 test("reports spawn failure and removes temporary data", async () => {

@@ -10,22 +10,21 @@ test("password-manager redirects to IdP, requests consent, and establishes a ses
   await expect(page).toHaveURL(new RegExp(`^${appURL}/signin`));
   await signIn(page);
   await expect(page).toHaveURL(new RegExp(`^${appURL}/authorize`));
-  const approval = page.waitForResponse(
-    (response) =>
-      response.url() === `${backendURL}/idp/oauth2/auth/approve-for-user` &&
-      response.request().method() === "POST"
-  );
-  const exchange = page.waitForResponse(
-    (response) =>
-      response.url() === `${backendURL}/idp/oauth2/token` &&
-      response.request().postData()?.includes("grant_type=authorization_code") === true
-  );
-  const userInfo = page.waitForResponse(
-    (response) => response.url() === `${backendURL}/idp/userinfo`
-  );
-  await page.getByRole("button", { name: "Allow", exact: true }).click();
-  expect((await approval).ok()).toBeTruthy();
-  const response = await exchange;
+  const [approval, response, user] = await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url() === `${backendURL}/idp/oauth2/auth/approve-for-user` &&
+        response.request().method() === "POST"
+    ),
+    page.waitForResponse(
+      (response) =>
+        response.url() === `${backendURL}/idp/oauth2/token` &&
+        response.request().postData()?.includes("grant_type=authorization_code") === true
+    ),
+    page.waitForResponse((response) => response.url() === `${backendURL}/idp/userinfo`),
+    page.getByRole("button", { name: "Allow", exact: true }).click(),
+  ]);
+  expect(approval.ok()).toBeTruthy();
   expect(response.ok()).toBeTruthy();
   expect(await response.json()).toEqual(
     expect.objectContaining({
@@ -35,7 +34,7 @@ test("password-manager redirects to IdP, requests consent, and establishes a ses
   );
   await expect(page).toHaveURL(`${passwordManagerURL}/`);
   await expect(page.getByRole("button", { name: "Create new vault", exact: true })).toBeVisible();
-  const user = await userInfo;
+
   expect(user.ok()).toBeTruthy();
   expect((await user.json()).email).toBe("admin@local.test");
 });

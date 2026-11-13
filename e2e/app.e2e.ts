@@ -7,13 +7,14 @@ test("app signs in and uses its session for Device and Storage access", async ({
   request,
 }) => {
   await page.goto(`${appURL}/signin`);
-  const tokenResponse = page.waitForResponse(
-    (response) =>
-      response.url() === `${backendURL}/idp/oauth2/token` &&
-      response.request().postData()?.includes("grant_type=password") === true
-  );
-  await signIn(page);
-  const response = await tokenResponse;
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url() === `${backendURL}/idp/oauth2/token` &&
+        response.request().postData()?.includes("grant_type=password") === true
+    ),
+    signIn(page),
+  ]);
   expect(response.ok()).toBeTruthy();
   const token = await response.json();
   await expect(page).not.toHaveURL(/\/signin/);
@@ -30,7 +31,9 @@ test("app signs in and uses its session for Device and Storage access", async ({
   });
   expect(resourceToken.ok()).toBeTruthy();
   const devices = await request.get(`${backendURL}/device/devices`, {
-    headers: { Authorization: `Bearer ${(await resourceToken.json()).access_token}` },
+    headers: {
+      Authorization: `Bearer ${(await resourceToken.json()).access_token}`,
+    },
   });
   expect(devices.ok()).toBeTruthy();
   expect(await devices.json()).toEqual(expect.any(Array));

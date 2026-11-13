@@ -10,13 +10,13 @@ export default defineConfig({
   server: { fs: { allow: ["../.."] } },
   test: {
     include: ["src/**/*.backend.test.ts"],
-    globalSetup: ["../../e2e/backend.mjs"],
+
     testTimeout: 60000,
     browser: {
       api: { host: "127.0.0.1", port: 5173, strictPort: true },
       enabled: true,
       provider: playwright(),
-      instances: [{ browser: "chromium" }],
+      instances: [{ browser: "chromium", globalSetup: ["../../e2e/backend.mjs"] }],
       headless: true,
     },
   },

@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { StorageClient } from "../packages/storage-client/src/index";
 import { backendURL, json, session } from "./browser-session";
+import { checkedFetch } from "./http";
 
 test("all four owners are healthy in a real browser", async () => {
   for (const owner of ["idp", "device", "storage", "management"]) {
@@ -8,7 +9,7 @@ test("all four owners are healthy in a real browser", async () => {
   }
 });
 
-test("browser authenticates, reads Devices, and persists Storage writes", async () => {
+test("browser authenticates and reads real User info", async () => {
   const login = await session();
   const user = await json(
     await fetch(`${backendURL}/idp/userinfo`, {
@@ -16,6 +17,10 @@ test("browser authenticates, reads Devices, and persists Storage writes", async 
     })
   );
   expect(user.email).toBe("admin@local.test");
+});
+
+test("browser exchanges its session for Device access", async () => {
+  const login = await session();
   const token = await json(
     await fetch(`${backendURL}/idp/oauth2/token`, {
       method: "POST",
@@ -34,11 +39,16 @@ test("browser authenticates, reads Devices, and persists Storage writes", async 
     })
   );
   expect(devices).toEqual(expect.any(Array));
+});
+
+test("browser persists real Storage writes", async () => {
+  const login = await session();
   const storage = new StorageClient({
     idpBaseUrl: `${backendURL}/idp`,
     storageBaseUrl: `${backendURL}/storage`,
     clientId: "local-login",
     bearerToken: () => login.access_token,
+    fetch: checkedFetch,
   });
   const resource = await storage.createDatabase(`browser-${crypto.randomUUID()}`);
   try {

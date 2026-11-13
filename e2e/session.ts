@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 import { StorageClient } from "../packages/storage-client/src/index";
 import { backendURL } from "./backend.mjs";
+import { checkedFetch } from "./http";
 
 export async function json(response: Awaited<ReturnType<APIRequestContext["post"]>>) {
   expect(
@@ -85,11 +86,14 @@ export function storageClient(clientId: string, accessToken: string) {
     storageBaseUrl: `${backendURL}/storage`,
     clientId,
     bearerToken: () => accessToken,
+    fetch: checkedFetch,
   });
 }
 
 export async function signIn(page: Page) {
-  await page.getByRole("textbox", { name: "Username", exact: true }).fill("admin@local.test");
+  const username = page.getByRole("textbox", { name: "Username", exact: true });
+  await expect(username, "Sign-in must be available without installation setup").toBeVisible();
+  await username.fill("admin@local.test");
   await page.getByLabel("Password", { exact: true }).fill("password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
 }
