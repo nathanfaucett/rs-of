@@ -2,7 +2,7 @@ use std::{fs, sync::Arc, time::Duration};
 
 use futures_util::{SinkExt, StreamExt};
 use rustls::pki_types::{CertificateDer, pem::PemObject};
-use storage_model::{StorageRequest, StorageResponse};
+use of_model::storage::{StorageRequest, StorageResponse};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{
     Connector, MaybeTlsStream, WebSocketStream, connect_async_tls_with_config, tungstenite::Message,

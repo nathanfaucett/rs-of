@@ -1,4 +1,4 @@
-use idp_model::{
+use of_model::idp::{
     contract::{
         ErrorCode, ErrorResponse, IdentityAction, PermissionEvaluationRequest, PermissionSubject,
         PermissionTarget,

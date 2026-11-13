@@ -2,7 +2,7 @@ use std::{io, time::Instant};
 
 use db::{Row, SqlTranslator, Transaction, Value};
 use device_service::DeviceRepo;
-use idp_model::{
+use of_model::idp::{
     contract::{
         IdentityAction, IdentityResource, IdpSignerRecord, PermissionTarget, ReplicaMembership,
     },
@@ -357,7 +357,7 @@ async fn require_clear(transaction: &mut Transaction, table: &str, key: &Row) ->
 fn text(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
-fn auth_error(error: idp_model::contract::ErrorResponse) -> io::Error {
+fn auth_error(error: of_model::idp::contract::ErrorResponse) -> io::Error {
     io::Error::new(
         io::ErrorKind::PermissionDenied,
         format!("join authorization denied: {:?}", error.error),

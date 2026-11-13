@@ -3,10 +3,11 @@ use axum::{
     extract::{Query, RawQuery, State},
     response::Redirect,
 };
-use idp_model::contract::{
+use of_model::idp::contract::{
     ApplicationRegistration, AuthorizationCodeResponse, AuthorizationRequest,
     AuthorizationUiRequest, ErrorCode, ErrorResponse, ResponseType,
 };
+pub use of_model::server::idp::auth::OnboardingRegistration;
 use serde::Deserialize;
 
 use crate::router::{RouterState, middleware::StandardAuthorization};
@@ -57,12 +58,6 @@ pub(crate) async fn authorize_query(
     redirect_url.push_str(&query_string);
 
     Ok(Redirect::to(&redirect_url))
-}
-
-#[derive(Deserialize)]
-struct OnboardingRegistration {
-    application: ApplicationRegistration,
-    client_id: Option<String>,
 }
 
 fn validate_ui_request(request: &AuthorizationUiRequest) -> Result<(), ErrorResponse> {

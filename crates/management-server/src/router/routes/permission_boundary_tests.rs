@@ -5,8 +5,8 @@ use axum::{
     extract::{Path, Query, State},
 };
 use device_service::HostedControlPlane;
-use idp_model::replica::up_policy as up;
-use idp_model::{
+use of_model::idp::replica::up_policy as up;
+use of_model::idp::{
     contract::{
         ErrorCode, INSTALLATION_POLICY_ID, IdentityAction, IdentityResource,
         PermissionEvaluationRequest, PermissionSubject, PermissionTarget,

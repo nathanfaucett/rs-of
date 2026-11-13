@@ -16,11 +16,11 @@ name = "idp_service"
 default = ["std"]
 
 headless = ["key/headless"]
-replica = ["std", "db/replica", "idp-model/replica"]
+replica = ["std", "db/replica", "of-model/replica"]
 std = [
   "key/std",
-  "idp-model/std",
-  "model/std",
+  "of-model/std",
+
   "chrono/std",
   "chrono/serde",
   "base64/std",
@@ -34,11 +34,7 @@ std = [
 db = { package = "idp-db", path = "../db", default-features = false, features = [] }
 
 key = { path = "../key", default-features = false, features = ["secure-store"] }
-model = { path = "../model", default-features = false, features = [] }
-idp-model = { path = "../idp-model", default-features = false, features = [
-  "std",
-] }
-
+of-model = { path = "../of-model", default-features = false, features = ["std"] }
 
 # Cryptography
 k256 = { version = "0.13", default-features = false, features = ["ecdsa"] }
@@ -52,7 +48,6 @@ serde_json = { version = "1.0", default-features = false, features = ["std"] }
 # Random
 getrandom = { version = "0.3", default-features = false, features = [] }
 
-
 # Utilities
 chrono = { version = "0.4", default-features = false, features = [
   "clock",
@@ -62,13 +57,11 @@ rust-argon2 = { version = "3.0", default-features = false }
 
 thiserror = { version = "2.0", default-features = false, features = [] }
 
-
 # Logging
 log = { version = "0.4", default-features = false, features = [] }
 
 # Keyring
 keyring-core = { version = "1.0", default-features = false, features = [] }
-
 
 [dev-dependencies]
 # Native SQL observation controls
@@ -76,7 +69,7 @@ futures = { version = "0.3", default-features = false, features = ["std"] }
 ofdb-sql = { path = "../../../ofdb/crates/sql", default-features = false, features = ["redb", "remote", "server", "sql"] }
 
 # Existing test dependencies
-idp-model = { path = "../idp-model", default-features = false, features = ["std"] }
+of-model = { path = "../of-model", default-features = false, features = ["std"] }
 tokio = { version = "1.4", default-features = false, features = [
   "macros",
   "rt",

@@ -14,7 +14,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::post,
 };
-use idp_model::{
+use of_model::idp::{
     contract::{
         ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, EntityType,
         GrantType, IdentityAction, IdentityResource, MANAGEMENT_PERMISSION_EVALUATE_SCOPE,
@@ -24,7 +24,7 @@ use idp_model::{
     model::Id,
 };
 use idp_service::{oauth2::NodeSignerBinding, repo::ClientRepo};
-use model::contract::PrincipalType;
+use of_model::contract::PrincipalType;
 use tower::ServiceExt;
 
 use crate::{
@@ -163,7 +163,7 @@ struct TlsConfig {
     root: PathBuf,
     address: SocketAddr,
 }
-impl api::LocalTlsConfig for TlsConfig {
+impl server_common::LocalTlsConfig for TlsConfig {
     fn tls_directory(&self) -> PathBuf {
         self.root.clone()
     }
@@ -255,7 +255,7 @@ async fn independent_permission_http_binds_exact_request_and_fails_closed() {
             .await
             .expect("isolated TLS listener");
         let address = listener.local_addr().expect("TLS address");
-        let tls = api::LocalTls::create(&TlsConfig {
+        let tls = server_common::LocalTls::create(&TlsConfig {
             root: fixture.root.join("evaluator-tls"),
             address,
         })

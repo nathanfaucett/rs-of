@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, io, path::PathBuf, sync::Arc, time::Duration};
 
 use iroh::EndpointId;
 use iroh_chain::Server;
-use model::contract::SelectedResource;
+use of_model::contract::SelectedResource;
 use storage_service::{DatabaseRuntime, ScopedFileSystemRuntime};
 use tokio::{sync::watch, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
@@ -468,11 +468,11 @@ impl ReplicationHost {
 
 struct ResourceScope<'a>(&'a SelectedResource);
 
-impl storage_model::StorageNamespace for ResourceScope<'_> {
+impl of_model::storage::StorageNamespace for ResourceScope<'_> {
     fn user_sub(&self) -> &str {
         &self.0.owner_subject
     }
-    fn application_id(&self) -> idp_model::model::Id {
+    fn application_id(&self) -> of_model::idp::model::Id {
         self.0
             .application_id
             .parse()

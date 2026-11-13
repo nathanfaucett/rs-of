@@ -11,10 +11,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use api::{IndependentCreateIntent, LocalTls};
+use server_common::{IndependentCreateIntent, LocalTls};
 use device_service::DeviceRepo;
 use device_service::replica::DbDeviceRepo;
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use reqwest::{Client, StatusCode};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;

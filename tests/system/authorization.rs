@@ -167,7 +167,7 @@ pub async fn denial_scenario(independent_layout: bool) {
 
 async fn retained_socket_denial(node: &Node, user: &Configuration, session: &str, resource: &str) {
     use futures_util::{SinkExt, StreamExt};
-    use storage_model::{StorageRequest, StorageResponse};
+    use of_model::storage::{StorageRequest, StorageResponse};
     use tokio_tungstenite::{connect_async_tls_with_config, tungstenite::Message};
 
     let token = node.exchange(session, "storage:filesystems", "").await;

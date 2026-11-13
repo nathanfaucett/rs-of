@@ -5,7 +5,7 @@ use std::{
 
 use base64::{Engine as Base64Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use db::{Query, QueryColumn, QueryFrom, QuerySelect, Statement, Value};
-use idp_model::{
+use of_model::idp::{
     contract::{
         ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, EntityType,
         ErrorCode, GrantType, OAuth2ClientAuth, RefreshTokenGrantRequest, ResponseType,
@@ -15,7 +15,7 @@ use idp_model::{
     replica::up,
 };
 use key::{DerivationPath, DerivedKey};
-use model::contract::{RefreshToken, StandardClaims, TokenResponse};
+use of_model::contract::{RefreshToken, StandardClaims, TokenResponse};
 
 use crate::{
     PasswordConfig,
@@ -101,7 +101,7 @@ async fn setup() -> (Arc<TestEngine>, TestService, Client, UserPrincipal) {
         .prepare_node_signer(&binding)
         .expect("prepare independent local signer");
 
-    let member = idp_model::contract::ReplicaMembership {
+    let member = of_model::idp::contract::ReplicaMembership {
         installation_id: service.oauth_config.issuer.clone(),
         issuer: service.oauth_config.issuer.clone(),
         member_id: binding.member_id,
@@ -109,7 +109,7 @@ async fn setup() -> (Arc<TestEngine>, TestService, Client, UserPrincipal) {
         approved_at: 1,
         revoked_at: None,
     };
-    let signer = idp_model::contract::IdpSignerRecord {
+    let signer = of_model::idp::contract::IdpSignerRecord {
         member_id: binding.member_id,
         key_id: binding.key_id,
         issuer: member.issuer.clone(),
@@ -682,10 +682,10 @@ async fn refresh_verification_precedes_consumption() {
     issued.iat += 3600;
     invalid_claims.push(issued);
     let mut use_claim = claims.clone();
-    use_claim.r#use = model::contract::TokenUse::Access;
+    use_claim.r#use = of_model::contract::TokenUse::Access;
     invalid_claims.push(use_claim);
     let mut principal_type = claims.clone();
-    principal_type.principal_type = model::contract::PrincipalType::Client;
+    principal_type.principal_type = of_model::contract::PrincipalType::Client;
     invalid_claims.push(principal_type);
     let mut tokens: Vec<String> = invalid_claims
         .iter()
@@ -780,7 +780,7 @@ async fn user_token_signer_is_not_the_user_principal() {
 #[tokio::test]
 async fn missing_local_signer_does_not_consume_authorization_code() {
     use crate::repo::OAuth2AuthorizationCodeRepo;
-    use idp_model::contract::AuthorizationCodeGrantRequest;
+    use of_model::idp::contract::AuthorizationCodeGrantRequest;
     let (_, mut service, client, principal) = setup().await;
     let code = service
         .authorization_code_repo
@@ -915,7 +915,7 @@ async fn persisted_node_binding_reopens_for_real_offline_issuance_and_rotation()
         assert_eq!(
             keys.prepare_node_signer(binding)
                 .expect("exact preparation retry"),
-            idp_model::contract::JwkPublic::from(signing)
+            of_model::idp::contract::JwkPublic::from(signing)
         );
         let missing_secret = KeyService::new(
             DbKeyRepo::new(engine.client()),

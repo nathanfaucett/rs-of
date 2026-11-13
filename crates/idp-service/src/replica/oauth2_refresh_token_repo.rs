@@ -2,7 +2,7 @@ use db::{
     Query, QueryColumn, QueryExpr, QueryExprValue, QueryFrom, QueryInsert, QuerySelect,
     QueryUpdate, QueryUpdateAssignment, Row, Statement, Value,
 };
-use idp_model::{
+use of_model::idp::{
     model::Id,
     replica::{SecurityRow, SecurityTable, allows_token_issuance},
 };

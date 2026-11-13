@@ -57,7 +57,7 @@ mod tests {
     fn acknowledged_storage_requires_existing_roots_without_repair() {
         let root = std::env::temp_dir().join(format!(
             "storage-retained-{}",
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         let config = AppConfig {
             data_dir: root.to_string_lossy().into_owned(),

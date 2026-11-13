@@ -3,7 +3,7 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode, header::AUTHORIZATION},
 };
-use idp_model::{
+use of_model::idp::{
     contract::{ErrorCode, ErrorResponse, IDP_USER_LOOKUP_SCOPE},
     model::Id,
 };
@@ -43,7 +43,7 @@ mod tests {
         body::Body,
         http::{Request, StatusCode},
     };
-    use idp_model::contract::{
+    use of_model::idp::contract::{
         ApplicationRegistration, ClientCredentialsGrantRequest, ClientProfile, ClientRegistration,
         ClientType, GrantType, OAuth2ClientAuth, TokenEndpointAuthMethod, TokenRequest,
     };
@@ -140,7 +140,7 @@ mod tests {
         }
         let token = authorized.expect("authorized service token");
         assert_eq!(
-            call(token.clone(), idp_model::model::Id::now_v7()).await,
+            call(token.clone(), of_model::idp::model::Id::now_v7()).await,
             StatusCode::NOT_FOUND
         );
         fixture

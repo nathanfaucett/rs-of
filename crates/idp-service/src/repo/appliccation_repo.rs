@@ -1,6 +1,6 @@
 use alloc::{string::String, vec::Vec};
 
-use idp_model::model::{Application, Id};
+use of_model::idp::model::{Application, Id};
 
 use crate::repo::RepoResult;
 

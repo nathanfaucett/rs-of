@@ -4,6 +4,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 use iroh::EndpointId;
+pub use of_model::server::storage::residency::{ResidencyMode, ResourceResidency};
 use serde::{Deserialize, Serialize};
 use storage_service::{FileSystemId, ScopedFileSystemRuntime};
 
@@ -16,19 +17,6 @@ impl From<String> for ResidencyUpdateError {
         log::warn!("Storage Residency owner update failed: {error}");
         Self(StatusCode::INTERNAL_SERVER_ERROR)
     }
-}
-
-#[derive(Clone, Copy, Deserialize, Serialize, utoipa::ToSchema)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum ResidencyMode {
-    Full,
-    Passthrough,
-}
-
-#[derive(Deserialize, Serialize, utoipa::ToSchema)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct ResourceResidency {
-    mode: ResidencyMode,
 }
 
 async fn require_target(

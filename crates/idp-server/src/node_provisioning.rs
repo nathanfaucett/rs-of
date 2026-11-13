@@ -5,7 +5,7 @@ use std::{
 
 use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD};
 use db::{SqlTranslator, Value};
-use idp_model::{
+use of_model::idp::{
     contract::{
         ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, EntityType,
         GrantType, IdpSignerRecord, JwkPublic, JwkPublicParameters, JwsAlgorithm, KeyUse,
@@ -367,7 +367,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
                 verify_public_login_registration(&existing, &request)?;
                 Ok(existing)
             }
-            Err(error) if error.error == idp_model::contract::ErrorCode::InvalidClient => {
+            Err(error) if error.error == of_model::idp::contract::ErrorCode::InvalidClient => {
                 self.create_setup_client(request).await?;
                 self.oauth2
                     .get_client(&client_id)

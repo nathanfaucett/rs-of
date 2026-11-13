@@ -34,13 +34,13 @@ pub async fn identity_client(config: &AppConfig) -> io::Result<Client> {
             ));
         }
         let client = remote.connect().await?;
-        idp_model::replica::validate_identity(&client)
+        of_model::idp::replica::validate_identity(&client)
             .await
             .map_err(io::Error::other)?;
         Ok(client)
     } else {
         let owner = crate::provisioning::open_identity_database(config)?;
-        idp_model::replica::validate_identity(&owner.client())
+        of_model::idp::replica::validate_identity(&owner.client())
             .await
             .map_err(io::Error::other)?;
         Ok(owner.client())

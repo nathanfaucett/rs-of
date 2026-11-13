@@ -1,6 +1,6 @@
 use std::io;
 
-use idp_model::{
+use of_model::idp::{
     contract::{
         ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, GrantType,
         TokenEndpointAuthMethod,

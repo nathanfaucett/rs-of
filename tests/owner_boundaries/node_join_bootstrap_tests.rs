@@ -4,7 +4,7 @@ use db::{Database, SqlTranslator};
 use device_service::DeviceRepo;
 use device_service::replica::DbDeviceRepo;
 use device_service::security_protocol::{SecurityContext, SecurityProtocol};
-use idp_model::{contract::IdentityAction, model::Id};
+use of_model::idp::{contract::IdentityAction, model::Id};
 use idp_server::{AppConfig, OwnerProvisioner};
 use idp_service::{oauth2::NodeSignerBinding, replica::DbReplicaSignerRepo};
 use iroh::{SecretKey, endpoint::presets::Minimal};
@@ -40,7 +40,7 @@ async fn issue_local_token(
     client: Id,
     policy: Arc<Database>,
 ) {
-    use idp_model::contract::{
+    use of_model::idp::contract::{
         ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, GrantType,
         TokenEndpointAuthMethod,
     };
@@ -116,7 +116,7 @@ async fn issue_local_token(
         .verify_node_signer(binding)
         .await
         .expect("local signing material and imported trust");
-    let (header, claims) = idp_service::oauth2::verify_jwt::<model::contract::StandardClaims>(
+    let (header, claims) = idp_service::oauth2::verify_jwt::<of_model::contract::StandardClaims>(
         &public,
         token["access_token"].as_str().expect("issued access token"),
     )
@@ -152,7 +152,7 @@ async fn receipt_boundary() {
     );
     let role = policy
         .create_role(
-            idp_model::contract::INSTALLATION_POLICY_ID,
+            of_model::idp::contract::INSTALLATION_POLICY_ID,
             "Explicit join approval",
             None,
         )
@@ -160,7 +160,7 @@ async fn receipt_boundary() {
         .expect("purpose-specific source role");
     policy
         .add_role_to_user(
-            idp_model::contract::INSTALLATION_POLICY_ID,
+            of_model::idp::contract::INSTALLATION_POLICY_ID,
             fixture.administrator,
             role.id,
         )
@@ -172,7 +172,7 @@ async fn receipt_boundary() {
     ] {
         let permission = policy
             .create_permission(
-                idp_model::contract::INSTALLATION_POLICY_ID,
+                of_model::idp::contract::INSTALLATION_POLICY_ID,
                 action.permission(),
                 None,
             )
@@ -180,7 +180,7 @@ async fn receipt_boundary() {
             .expect("explicit Installation permission");
         policy
             .add_permission_to_role(
-                idp_model::contract::INSTALLATION_POLICY_ID,
+                of_model::idp::contract::INSTALLATION_POLICY_ID,
                 role.id,
                 permission.id,
             )
@@ -540,7 +540,7 @@ async fn receipt_boundary() {
     );
     let permission = policy
         .create_permission(
-            idp_model::contract::INSTALLATION_POLICY_ID,
+            of_model::idp::contract::INSTALLATION_POLICY_ID,
             IdentityAction::ManagementSecuritySync.permission(),
             None,
         )
@@ -548,7 +548,7 @@ async fn receipt_boundary() {
         .expect("explicit missing context grant");
     policy
         .add_permission_to_role(
-            idp_model::contract::INSTALLATION_POLICY_ID,
+            of_model::idp::contract::INSTALLATION_POLICY_ID,
             role.id,
             permission.id,
         )
@@ -667,7 +667,7 @@ async fn receipt_boundary() {
     );
     policy
         .remove_permission_from_role(
-            idp_model::contract::INSTALLATION_POLICY_ID,
+            of_model::idp::contract::INSTALLATION_POLICY_ID,
             role.id,
             permission.id,
         )

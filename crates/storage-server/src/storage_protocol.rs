@@ -10,8 +10,8 @@ use iroh::{
     protocol::{AcceptError, ProtocolHandler},
 };
 use iroh_chain::{DATA_ALPN, Server};
-use model::contract::SelectedResource;
-use storage_model::StorageNamespace;
+use of_model::contract::SelectedResource;
+use of_model::storage::StorageNamespace;
 use storage_service::ScopedFileSystemRuntime;
 use tokio_util::sync::CancellationToken;
 
@@ -393,13 +393,13 @@ pub(crate) fn descriptor(resource: &SelectedResource) -> IrohResourceDescriptor 
 }
 struct Namespace {
     owner_subject: String,
-    application_id: idp_model::model::Id,
+    application_id: of_model::idp::model::Id,
 }
 impl StorageNamespace for Namespace {
     fn user_sub(&self) -> &str {
         &self.owner_subject
     }
-    fn application_id(&self) -> idp_model::model::Id {
+    fn application_id(&self) -> of_model::idp::model::Id {
         self.application_id
     }
 }

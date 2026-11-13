@@ -6,7 +6,7 @@ use axum::{
 };
 use device_service::HostedControlPlane;
 use device_service::replica::DbSelectionPolicyRepo;
-use idp_model::{
+use of_model::idp::{
     contract::{ErrorCode, IdentityAction},
     model::Id,
 };
@@ -14,7 +14,7 @@ use management_service::ManagementService;
 use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
 async fn up(engine: &db::Database) -> Result<(), db::QueryError> {
-    idp_model::replica::up_policy(engine).await?;
+    of_model::idp::replica::up_policy(engine).await?;
     device_service::replica::up(engine).await
 }
 

@@ -2,7 +2,7 @@ use axum::{
     Json,
     extract::{Path, State},
 };
-use idp_model::contract::{
+use of_model::idp::contract::{
     ClientRegistration, ClientType, ErrorCode, ErrorResponse, IdentityAction, IdentityResource,
     PermissionTarget,
 };
@@ -225,7 +225,7 @@ pub(crate) async fn rotate_client_secret(
 }
 
 fn client_target(
-    application_id: idp_model::model::Id,
+    application_id: of_model::idp::model::Id,
     infrastructure: bool,
     client_id: Option<String>,
 ) -> PermissionTarget {
@@ -243,7 +243,7 @@ fn client_target(
 #[cfg(test)]
 mod tests {
     use super::client_target;
-    use idp_model::{
+    use of_model::idp::{
         contract::{IdentityAction, PermissionEvaluationRequest, PermissionSubject},
         model::Id,
     };

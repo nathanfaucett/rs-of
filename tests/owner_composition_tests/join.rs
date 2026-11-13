@@ -8,10 +8,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use api::{IndependentCreateIntent, LocalTls};
+use server_common::{IndependentCreateIntent, LocalTls};
 use device_service::DeviceIdentity;
 use device_service::HostedControlPlane;
-use idp_model::{
+use of_model::idp::{
     contract::{ClientProfile, ClientType, GrantType, IdentityAction, TokenEndpointAuthMethod},
     model::Id,
 };
@@ -114,7 +114,7 @@ struct SourceTls {
     directory: PathBuf,
     address: SocketAddr,
 }
-impl api::LocalTlsConfig for SourceTls {
+impl server_common::LocalTlsConfig for SourceTls {
     fn tls_directory(&self) -> PathBuf {
         self.directory.clone()
     }
@@ -427,7 +427,7 @@ async fn source_tokens(http: &Client, source: &ExistingSource) -> (String, Strin
         .await
         .expect("ordinary existing source login");
     assert_eq!(response.status(), StatusCode::OK);
-    let token: model::contract::TokenResponse = response.json().await.expect("ordinary User token");
+    let token: of_model::contract::TokenResponse = response.json().await.expect("ordinary User token");
     let device = http
         .post(format!("{}/oauth2/token", source.idp))
         .form(&[
@@ -447,7 +447,7 @@ async fn source_tokens(http: &Client, source: &ExistingSource) -> (String, Strin
         .await
         .expect("ordinary Management audience exchange");
     assert_eq!(device.status(), StatusCode::OK);
-    let device: model::contract::TokenResponse =
+    let device: of_model::contract::TokenResponse =
         device.json().await.expect("Management User token");
     let storage = http
         .post(format!("{}/oauth2/token", source.idp))
@@ -472,7 +472,7 @@ async fn source_tokens(http: &Client, source: &ExistingSource) -> (String, Strin
         .await
         .expect("ordinary Storage exchange");
     assert_eq!(storage.status(), StatusCode::OK);
-    let storage: model::contract::TokenResponse = storage.json().await.expect("Storage User token");
+    let storage: of_model::contract::TokenResponse = storage.json().await.expect("Storage User token");
     (device.access_token.0, storage.access_token.0)
 }
 async fn pending_offer(http: &Client, source: &ExistingSource, bearer: &str) -> serde_json::Value {
@@ -536,7 +536,7 @@ async fn use_joined(
         .await
         .expect("joined IdP audience exchange");
     assert_eq!(response.status(), StatusCode::OK);
-    let admin: model::contract::TokenResponse =
+    let admin: of_model::contract::TokenResponse =
         response.json().await.expect("joined administration token");
     assert_eq!(
         http.get(format!("{}/applications", intent.idp))

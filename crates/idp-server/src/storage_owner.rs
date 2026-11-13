@@ -1,4 +1,4 @@
-use idp_model::contract::{ErrorCode, ErrorResponse, IntrospectionResponse};
+use of_model::idp::contract::{ErrorCode, ErrorResponse, IntrospectionResponse};
 
 use crate::{RouterState, authorize_bearer_any_principal};
 

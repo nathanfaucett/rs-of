@@ -3,7 +3,7 @@ use db::{
     FromRow, FromRowError, Query, QueryColumn, QueryExpr, QueryExprValue, QueryFrom, QueryInsert,
     QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid, Value,
 };
-use idp_model::{
+use of_model::idp::{
     contract::CodeChallengeMethod,
     model::{Id, OAuth2AuthorizationCode},
     replica::{SecurityRow, SecurityTable, allows_token_issuance},
@@ -380,7 +380,7 @@ fn select(predicate: Option<QueryExpr>) -> Query {
 mod tests {
     use super::*;
     use chrono::Duration;
-    use idp_model::replica::up;
+    use of_model::idp::replica::up;
     use std::sync::Arc;
 
     #[tokio::test]

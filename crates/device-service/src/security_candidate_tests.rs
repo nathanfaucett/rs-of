@@ -7,7 +7,7 @@ use std::{
 };
 
 use db::{Database, Row, Value};
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use ofdb_sql::{ 
     AutomergeRowCodec, Engine, InMemoryKernel, Kernel, KernelTransaction, RowCodec, SyncKey,
     SyncMessage, SyncRole, apply_sync_state_batch_for, export_sync_state_for,

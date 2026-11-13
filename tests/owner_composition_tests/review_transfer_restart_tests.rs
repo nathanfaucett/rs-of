@@ -1,9 +1,9 @@
 use std::{fs, net::SocketAddr, path::Path, sync::Arc, time::Duration};
 
-use api::IndependentCreateIntent;
+use server_common::IndependentCreateIntent;
 use device_service::replica::DbDeviceRepo;
 use device_service::replica::DbSelectionPolicyRepo;
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use reqwest::{Client, StatusCode};
 use tokio_util::sync::CancellationToken;
 
@@ -126,7 +126,7 @@ pub(super) async fn qualify(
         }
         super::current_status(http, &intent.device, false).await;
         let token = super::storage_policy_token(root, http, intent).await;
-        let policy: model::contract::SelectedResourcesResponse = http
+        let policy: of_model::contract::SelectedResourcesResponse = http
             .get(format!(
                 "{}/replication/devices/{endpoint}/selections",
                 intent.device

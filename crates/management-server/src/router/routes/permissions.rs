@@ -2,7 +2,10 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
-use idp_model::contract::{ErrorCode, ErrorResponse};
+use of_model::idp::contract::{ErrorCode, ErrorResponse};
+pub use of_model::server::management::permissions::{
+    CreatePermissionRequest, ListPermissionsQuery, PermissionResponse,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::router::{RouterState, middleware::ManagementAuthorization};
@@ -11,48 +14,6 @@ use super::roles::require_application_permission;
 
 const PERMISSIONS_READ_PERMISSION: &str = "permissions.read";
 const PERMISSIONS_WRITE_PERMISSION: &str = "permissions.write";
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, utoipa::ToSchema)]
-pub(crate) struct PermissionResponse {
-    #[schema(value_type = String)]
-    pub id: idp_model::model::Id,
-    #[schema(value_type = String)]
-    pub application_id: idp_model::model::Id,
-    pub name: String,
-    pub description: Option<String>,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-impl From<idp_model::model::Permission> for PermissionResponse {
-    fn from(value: idp_model::model::Permission) -> Self {
-        Self {
-            id: value.id,
-            application_id: value.application_id,
-            name: value.name,
-            description: value.description,
-            created_at: value.created_at.timestamp(),
-            updated_at: value.updated_at.timestamp(),
-        }
-    }
-}
-
-#[derive(
-    Clone, Debug, Deserialize, Eq, PartialEq, Serialize, utoipa::IntoParams, utoipa::ToSchema,
-)]
-#[into_params(parameter_in = Query)]
-pub(crate) struct ListPermissionsQuery {
-    #[serde(default)]
-    pub offset: u32,
-    #[serde(default = "default_limit")]
-    pub limit: u32,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, utoipa::ToSchema)]
-pub(crate) struct CreatePermissionRequest {
-    pub name: String,
-    pub description: Option<String>,
-}
 
 #[utoipa::path(
     get,
@@ -68,7 +29,7 @@ pub(crate) struct CreatePermissionRequest {
 )]
 pub(crate) async fn list_permissions(
     State(state): State<RouterState>,
-    Path(application_id): Path<idp_model::model::Id>,
+    Path(application_id): Path<of_model::idp::model::Id>,
     Query(query): Query<ListPermissionsQuery>,
     authorization: ManagementAuthorization,
 ) -> Result<Json<Vec<PermissionResponse>>, ErrorResponse> {
@@ -103,7 +64,7 @@ pub(crate) async fn list_permissions(
 )]
 pub(crate) async fn create_permission(
     State(state): State<RouterState>,
-    Path(application_id): Path<idp_model::model::Id>,
+    Path(application_id): Path<of_model::idp::model::Id>,
     authorization: ManagementAuthorization,
     Json(body): Json<CreatePermissionRequest>,
 ) -> Result<Json<PermissionResponse>, ErrorResponse> {
@@ -138,7 +99,10 @@ pub(crate) async fn create_permission(
 )]
 pub(crate) async fn delete_permission(
     State(state): State<RouterState>,
-    Path((application_id, permission_id)): Path<(idp_model::model::Id, idp_model::model::Id)>,
+    Path((application_id, permission_id)): Path<(
+        of_model::idp::model::Id,
+        of_model::idp::model::Id,
+    )>,
     authorization: ManagementAuthorization,
 ) -> Result<(), ErrorResponse> {
     require_application_permission(
@@ -182,7 +146,7 @@ pub(crate) async fn delete_permission(
 )]
 pub(crate) async fn list_role_permissions(
     State(state): State<RouterState>,
-    Path((application_id, role_id)): Path<(idp_model::model::Id, idp_model::model::Id)>,
+    Path((application_id, role_id)): Path<(of_model::idp::model::Id, of_model::idp::model::Id)>,
     authorization: ManagementAuthorization,
 ) -> Result<Json<Vec<PermissionResponse>>, ErrorResponse> {
     require_application_permission(
@@ -218,9 +182,9 @@ pub(crate) async fn list_role_permissions(
 pub(crate) async fn assign_permission_to_role(
     State(state): State<RouterState>,
     Path((application_id, role_id, permission_id)): Path<(
-        idp_model::model::Id,
-        idp_model::model::Id,
-        idp_model::model::Id,
+        of_model::idp::model::Id,
+        of_model::idp::model::Id,
+        of_model::idp::model::Id,
     )>,
     authorization: ManagementAuthorization,
 ) -> Result<(), ErrorResponse> {
@@ -277,9 +241,9 @@ pub(crate) async fn assign_permission_to_role(
 pub(crate) async fn revoke_permission_from_role(
     State(state): State<RouterState>,
     Path((application_id, role_id, permission_id)): Path<(
-        idp_model::model::Id,
-        idp_model::model::Id,
-        idp_model::model::Id,
+        of_model::idp::model::Id,
+        of_model::idp::model::Id,
+        of_model::idp::model::Id,
     )>,
     authorization: ManagementAuthorization,
 ) -> Result<(), ErrorResponse> {
@@ -296,10 +260,6 @@ pub(crate) async fn revoke_permission_from_role(
         .remove_permission_from_role(application_id, role_id, permission_id)
         .await
         .map_err(ErrorResponse::from)
-}
-
-const fn default_limit() -> u32 {
-    50
 }
 
 fn normalize_limit(limit: u32) -> u32 {

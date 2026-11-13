@@ -2,10 +2,10 @@ use std::marker::PhantomData;
 
 use axum::extract::{FromRef, FromRequestParts};
 use http::{HeaderValue, header::AUTHORIZATION, request::Parts};
-use idp_model::contract::EntityType;
-use idp_model::contract::{ErrorCode, ErrorResponse};
+use of_model::idp::contract::EntityType;
+use of_model::idp::contract::{ErrorCode, ErrorResponse};
 use idp_service::oauth2::Principal;
-use model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
+use of_model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
 use serde::de::DeserializeOwned;
 
 use crate::RouterState;
@@ -20,7 +20,7 @@ where
 {
     pub principal: Box<dyn Principal>,
     pub claims: T,
-    pub application_id: idp_model::model::Id,
+    pub application_id: of_model::idp::model::Id,
     pub token: String,
     _phantom_data: PhantomData<T>,
 }

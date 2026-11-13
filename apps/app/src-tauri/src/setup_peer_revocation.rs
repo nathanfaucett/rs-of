@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use management_server::MANAGEMENT_APPLICATION_URI;
 
 use crate::setup_reset as reset;

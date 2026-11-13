@@ -5,9 +5,9 @@ use idp_server::IdpRuntime;
 use storage_server::IdpClient;
 
 pub(crate) fn storage_introspection_error(
-    error: idp_model::contract::ErrorResponse,
+    error: of_model::idp::contract::ErrorResponse,
 ) -> storage_server::IdpIntrospectionError {
-    use idp_model::contract::ErrorCode;
+    use of_model::idp::contract::ErrorCode;
     use storage_server::IdpIntrospectionError;
 
     match error.error {

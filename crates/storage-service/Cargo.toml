@@ -11,9 +11,7 @@ repository.workspace = true
 # Internal
 file-system = { path = "../../../offs/crates/file-system", default-features = false, features = [
 ] }
-idp-model = { path = "../idp-model", default-features = false, features = [
-    "std",
-] }
+of-model = { path = "../of-model", default-features = false, features = ["std"] }
 ofdb-kv = { path = "../../../ofdb/crates/kv", default-features = false, features = [
     "redb",
     "sync",
@@ -21,9 +19,6 @@ ofdb-kv = { path = "../../../ofdb/crates/kv", default-features = false, features
 ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = [
     "redb",
     "sql",
-] }
-storage-model = { path = "../storage-model", default-features = false, features = [
-    "std",
 ] }
 
 # Serialization

@@ -7,12 +7,12 @@ use std::{
 
 use idp_service::oauth2::{decode_jwt, verify_jwt};
 
-use idp_model::{
+use of_model::idp::{
     contract::{IntrospectionResponse, Jwks},
     model::Id,
 };
 use iroh::EndpointId;
-use model::contract::{
+use of_model::contract::{
     AuthorizationDetail, StandardClaims, StorageAuthorizationAction, TokenResponse, TokenType,
     TokenUse,
 };
@@ -26,7 +26,7 @@ use of_storage_api_client::apis::resources_api::{
     GetDatabaseParams, GetFileSystemParams, get_database, get_file_system,
 };
 use reqwest::{Client, Url, redirect::Policy};
-use storage_model::ResourceKind;
+use of_model::storage::ResourceKind;
 
 use crate::{DeviceEndpointIdentity, DeviceIdentity, PairingAcceptanceController};
 #[cfg(feature = "replica")]
@@ -564,7 +564,7 @@ impl HostedControlPlane {
             || claims.nbf > now
             || claims.sub.is_empty()
             || claims.aud.is_empty()
-            || claims.principal_type != model::contract::PrincipalType::User
+            || claims.principal_type != of_model::contract::PrincipalType::User
         {
             return Err("invalid storage access token".to_owned());
         }
@@ -682,11 +682,11 @@ mod tests {
         thread,
     };
 
-    use model::contract::{
+    use of_model::contract::{
         AuthorizationDetail, PrincipalType, StandardClaims, StorageAuthorizationAction,
         StorageAuthorizationDetail, TokenType, TokenUse,
     };
-    use storage_model::ResourceKind;
+    use of_model::storage::ResourceKind;
 
     use super::{HostedControlPlane, normalize_service_url, validate_storage_read_claims};
 
@@ -721,7 +721,7 @@ mod tests {
 
     #[tokio::test]
     async fn local_idp_rechecks_owner_callbacks_without_service_credentials() {
-        use idp_model::{contract::IntrospectionResponse, model::Id};
+        use of_model::idp::{contract::IntrospectionResponse, model::Id};
         use std::sync::{
             Arc,
             atomic::{AtomicBool, Ordering},
@@ -772,7 +772,7 @@ mod tests {
 
     #[tokio::test]
     async fn local_idp_preserves_claim_and_identity_response_checks() {
-        use idp_model::{contract::IntrospectionResponse, model::Id};
+        use of_model::idp::{contract::IntrospectionResponse, model::Id};
 
         let endpoint = iroh::SecretKey::from_bytes(&[8; 32]).public().to_string();
         let control = HostedControlPlane::new_with_services(
@@ -929,7 +929,7 @@ mod tests {
         kind: ResourceKind,
         status: &str,
         body: &str,
-    ) -> (Result<idp_model::model::Id, String>, String) {
+    ) -> (Result<of_model::idp::model::Id, String>, String) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind test HTTP server");
         let address = listener.local_addr().expect("read test HTTP address");
         let status = status.to_owned();

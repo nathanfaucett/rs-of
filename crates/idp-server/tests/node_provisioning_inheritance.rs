@@ -14,7 +14,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use idp_server::{AppConfig, OwnerProvisioner};
 use idp_service::{
     oauth2::NodeSignerBinding,

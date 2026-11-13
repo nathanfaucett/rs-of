@@ -1,7 +1,7 @@
 use alloc::{string::String, vec::Vec};
 
-use idp_model::model::Id;
-use model::contract::AuthorizationDetail;
+use of_model::idp::model::Id;
+use of_model::contract::AuthorizationDetail;
 
 use super::RepoResult;
 

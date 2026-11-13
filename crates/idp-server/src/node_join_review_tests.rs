@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use db::{Database, SqlTranslator};
 use device_service::DeviceRepo;
-use idp_model::{
+use of_model::idp::{
     contract::{INSTALLATION_POLICY_ID, IdentityAction},
     model::Id,
 };

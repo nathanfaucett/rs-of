@@ -50,7 +50,7 @@ pub(crate) fn publish(data: &Path, name: &str, value: &Value) -> io::Result<()> 
         return Err(io::Error::other("invalid native state filename"));
     }
     read_optional(&data.join(name))?;
-    let temporary = data.join(format!(".{name}-{}.tmp", idp_model::model::Id::now_v7()));
+    let temporary = data.join(format!(".{name}-{}.tmp", of_model::idp::model::Id::now_v7()));
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -88,7 +88,7 @@ pub(crate) async fn run(data: &Path) -> io::Result<()> {
             .is_some()
     {
         let reset =
-            api::IndependentReset::open("idp", std::path::Path::new(&config.idp.data_dir), true)?;
+            server_common::IndependentReset::open("idp", std::path::Path::new(&config.idp.data_dir), true)?;
         if let (Some(worker), Some(intent)) = (reset.worker(), reset.intent()) {
             if let Some(member) = worker["member"].as_str() {
                 let target = json!({"version":1, "issuer":intent.issuer, "member_id":member, "status":"pending"});
@@ -161,8 +161,8 @@ pub(crate) fn recover(data: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn validate_revocation(target: &Value) -> io::Result<idp_model::model::Id> {
-    let member: idp_model::model::Id = serde_json::from_value(target["member_id"].clone())?;
+fn validate_revocation(target: &Value) -> io::Result<of_model::idp::model::Id> {
+    let member: of_model::idp::model::Id = serde_json::from_value(target["member_id"].clone())?;
     let issuer = reqwest::Url::parse(
         target["issuer"]
             .as_str()

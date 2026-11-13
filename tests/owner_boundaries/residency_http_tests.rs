@@ -2,9 +2,9 @@ use std::sync::{Arc, OnceLock};
 
 use device_service::replica::DbSelectionPolicyRepo;
 use device_service::replica::SelectionPolicy;
-use idp_model::contract::{GrantType, TokenEndpointAuthMethod};
+use of_model::idp::contract::{GrantType, TokenEndpointAuthMethod};
 use idp_service::repo::ClientRepo;
-use model::contract::StorageAuthorizationAction;
+use of_model::contract::StorageAuthorizationAction;
 use storage_server::{RouterState, StorageCopyRetirement, openapi_router, resource_router};
 use storage_service::ScopedFileSystemRuntime;
 
@@ -399,7 +399,7 @@ async fn residency_denials_preserve_mode_and_cleanup_fences() {
     let unknown = format!(
         "{}/storage/filesystems/{}/residency",
         fixture.storage_listener.base,
-        idp_model::model::Id::now_v7()
+        of_model::idp::model::Id::now_v7()
     );
     assert_eq!(
         fixture

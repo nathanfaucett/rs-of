@@ -9,7 +9,7 @@ use device_service::DeviceRepo;
 use device_service::HostedControlPlane;
 use device_service::replica::DbDeviceRepo;
 use device_service::replica::DbSelectionPolicyRepo;
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use idp_service::setup_credentials::{SetupRelationship, create_setup_secret, load_setup_secret};
 use management_service::INITIAL_ADMINISTRATOR_ACTIONS;
 use serde::{Deserialize, Serialize};
@@ -42,7 +42,7 @@ struct Record {
     endpoint_attempted: bool,
     endpoint: Option<String>,
     domain_attempted: bool,
-    source: Option<api::IndependentPeer>,
+    source: Option<server_common::IndependentPeer>,
     approval: Option<device_service::independent_join::IndependentJoinApproval>,
     #[serde(default)]
     imported: bool,
@@ -633,7 +633,7 @@ async fn identity_client(
             loop {
                 if let Ok(client) = db::Client::connect_unix(path).await {
                     let client = client.with_deadline(std::time::Duration::from_secs(10));
-                    idp_model::replica::validate_identity(&client)
+                    of_model::idp::replica::validate_identity(&client)
                         .await
                         .map_err(io::Error::other)?;
                     return Ok(client);

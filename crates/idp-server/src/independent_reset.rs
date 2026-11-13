@@ -1,10 +1,10 @@
 use std::{fs, io, path::Path, sync::Arc};
 
-use api::IndependentReset;
+use server_common::IndependentReset;
 use db::Database;
 use device_service::independent_join::IndependentJoinApproval;
 use device_service::independent_join::IndependentJoinRequest;
-use idp_model::{contract::ClientRegistration, model::Id};
+use of_model::idp::{contract::ClientRegistration, model::Id};
 use idp_service::setup_credentials::delete_setup_secrets;
 use serde::Deserialize;
 
@@ -179,7 +179,7 @@ pub async fn reset_independent(
 #[cfg(test)]
 mod tests {
     use setup::IndependentSetupHost;
-    use idp_model::model::Id;
+    use of_model::idp::model::Id;
 
     #[tokio::test]
     async fn reset_cannot_remove_a_running_setup_only_idp_host() {

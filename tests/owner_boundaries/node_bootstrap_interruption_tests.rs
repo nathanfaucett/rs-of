@@ -9,7 +9,7 @@ use std::{
 };
 
 use db::{Database, SqlTranslator};
-use idp_model::{contract::IdentityAction, model::Id};
+use of_model::idp::{contract::IdentityAction, model::Id};
 use idp_server::{AppConfig, NodeJoinStage, OwnerProvisioner};
 use idp_service::{oauth2::NodeSignerBinding, replica::DbReplicaSignerRepo};
 use iroh::{SecretKey, endpoint::presets::Minimal};
@@ -115,7 +115,7 @@ async fn interruption_boundary(
     );
     let role = policy
         .create_role(
-            idp_model::contract::INSTALLATION_POLICY_ID,
+            of_model::idp::contract::INSTALLATION_POLICY_ID,
             "Explicit join approval",
             None,
         )
@@ -123,7 +123,7 @@ async fn interruption_boundary(
         .expect("purpose-specific source role");
     policy
         .add_role_to_user(
-            idp_model::contract::INSTALLATION_POLICY_ID,
+            of_model::idp::contract::INSTALLATION_POLICY_ID,
             fixture.administrator,
             role.id,
         )
@@ -138,7 +138,7 @@ async fn interruption_boundary(
     {
         let permission = policy
             .create_permission(
-                idp_model::contract::INSTALLATION_POLICY_ID,
+                of_model::idp::contract::INSTALLATION_POLICY_ID,
                 action.permission(),
                 None,
             )
@@ -146,7 +146,7 @@ async fn interruption_boundary(
             .expect("explicit Installation permission");
         policy
             .add_permission_to_role(
-                idp_model::contract::INSTALLATION_POLICY_ID,
+                of_model::idp::contract::INSTALLATION_POLICY_ID,
                 role.id,
                 permission.id,
             )
@@ -804,7 +804,7 @@ async fn interruption_boundary(
     drop(gated);
     drop(transport);
     let permission = policy
-        .list_permissions(idp_model::contract::INSTALLATION_POLICY_ID, 0, 100)
+        .list_permissions(of_model::idp::contract::INSTALLATION_POLICY_ID, 0, 100)
         .await
         .expect("existing explicit permissions")
         .into_iter()
@@ -813,7 +813,7 @@ async fn interruption_boundary(
     {
         policy
             .add_permission_to_role(
-                idp_model::contract::INSTALLATION_POLICY_ID,
+                of_model::idp::contract::INSTALLATION_POLICY_ID,
                 role.id,
                 permission.id,
             )
@@ -1175,7 +1175,7 @@ impl device_service::node_join_owner::NodeJoinOwner for InterruptingOwner<'_> {
     async fn verify_node_signer(
         &self,
         binding: &NodeSignerBinding,
-    ) -> io::Result<idp_model::contract::JwkPublic> {
+    ) -> io::Result<of_model::idp::contract::JwkPublic> {
         self.inner.verify_node_signer(binding).await
     }
 }

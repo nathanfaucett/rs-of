@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use db::Database;
 use device_service::replica::DbDeviceRepo;
-use idp_model::contract::{
+use of_model::idp::contract::{
     IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
     PermissionTarget,
 };
@@ -47,11 +47,11 @@ fn run_http_test(lifecycle_only: bool) {
 async fn run_separate_permission_acceptance(lifecycle_only: bool) {
     let root = std::env::temp_dir().join(format!(
         "permission-http-{}",
-        idp_model::model::Id::now_v7()
+        of_model::idp::model::Id::now_v7()
     ));
     let issuer = format!(
         "https://permission-{}.example",
-        idp_model::model::Id::now_v7()
+        of_model::idp::model::Id::now_v7()
     );
     let idp_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
@@ -207,7 +207,7 @@ async fn run_separate_permission_acceptance(lifecycle_only: bool) {
     idp_task.abort();
     let _ = idp_task.await;
     let evaluation = PermissionEvaluationRequest {
-        request_id: idp_model::model::Id::now_v7(),
+        request_id: of_model::idp::model::Id::now_v7(),
         subject: PermissionSubject::User {
             id: fixture.administrator,
         },
@@ -272,7 +272,7 @@ async fn run_separate_permission_acceptance(lifecycle_only: bool) {
         client
             .post(format!("{idp_base}/idp/oauth2/introspect"))
             .bearer_auth(token["access_token"].as_str().expect("service token"))
-            .json(&idp_model::contract::IntrospectionRequest {
+            .json(&of_model::idp::contract::IntrospectionRequest {
                 token: fresh_user,
                 token_type_hint: None,
             })

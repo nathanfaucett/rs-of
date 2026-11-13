@@ -1,82 +1,21 @@
-pub mod challenge;
-pub use self::challenge::Challenge;
-pub mod create_resource_request;
-pub use self::create_resource_request::CreateResourceRequest;
-pub mod database_detail_response;
-pub use self::database_detail_response::DatabaseDetailResponse;
-pub mod database_failure;
-pub use self::database_failure::DatabaseFailure;
-pub mod database_resource;
-pub use self::database_resource::DatabaseResource;
-pub mod ensure_database_request;
-pub use self::ensure_database_request::EnsureDatabaseRequest;
-pub mod file_system_detail_response;
-pub use self::file_system_detail_response::FileSystemDetailResponse;
-pub mod file_system_resource_response;
-pub use self::file_system_resource_response::FileSystemResourceResponse;
-pub mod history_request;
-pub use self::history_request::HistoryRequest;
-pub mod independent_create_intent;
-pub use self::independent_create_intent::IndependentCreateIntent;
-pub mod independent_create_request;
-pub use self::independent_create_request::IndependentCreateRequest;
-pub mod independent_join_approval;
-pub use self::independent_join_approval::IndependentJoinApproval;
-pub mod independent_join_request;
-pub use self::independent_join_request::IndependentJoinRequest;
-pub mod independent_owner_public;
-pub use self::independent_owner_public::IndependentOwnerPublic;
-pub mod independent_peer;
-pub use self::independent_peer::IndependentPeer;
-pub mod jwk_public;
-pub use self::jwk_public::JwkPublic;
-pub mod jwk_public_parameters;
-pub use self::jwk_public_parameters::JwkPublicParameters;
-pub mod jwk_public_parameters_one_of;
-pub use self::jwk_public_parameters_one_of::JwkPublicParametersOneOf;
-pub mod jwk_public_parameters_one_of_1;
-pub use self::jwk_public_parameters_one_of_1::JwkPublicParametersOneOf1;
-pub mod jwk_public_parameters_one_of_2;
-pub use self::jwk_public_parameters_one_of_2::JwkPublicParametersOneOf2;
-pub mod jws_algorithm;
-pub use self::jws_algorithm::JwsAlgorithm;
-pub mod key_use;
-pub use self::key_use::KeyUse;
-pub mod owner_setup_status;
-pub use self::owner_setup_status::OwnerSetupStatus;
-pub mod registration;
-pub use self::registration::Registration;
-pub mod residency_mode;
-pub use self::residency_mode::ResidencyMode;
-pub mod resource_residency;
-pub use self::resource_residency::ResourceResidency;
-pub mod sql_request;
-pub use self::sql_request::SqlRequest;
-pub mod sql_response;
-pub use self::sql_response::SqlResponse;
-pub mod sql_result;
-pub use self::sql_result::SqlResult;
-pub mod sql_statement;
-pub use self::sql_statement::SqlStatement;
-pub mod sql_value;
-pub use self::sql_value::SqlValue;
-pub mod sql_value_one_of;
-pub use self::sql_value_one_of::SqlValueOneOf;
-pub mod sql_value_one_of_1;
-pub use self::sql_value_one_of_1::SqlValueOneOf1;
-pub mod sql_value_one_of_2;
-pub use self::sql_value_one_of_2::SqlValueOneOf2;
-pub mod sql_value_one_of_3;
-pub use self::sql_value_one_of_3::SqlValueOneOf3;
-pub mod sql_value_one_of_4;
-pub use self::sql_value_one_of_4::SqlValueOneOf4;
-pub mod sql_value_one_of_5;
-pub use self::sql_value_one_of_5::SqlValueOneOf5;
-pub mod sql_value_one_of_6;
-pub use self::sql_value_one_of_6::SqlValueOneOf6;
-pub mod sync_connect_request;
-pub use self::sync_connect_request::SyncConnectRequest;
-pub mod sync_session_response;
-pub use self::sync_session_response::SyncSessionResponse;
-pub mod version_response;
-pub use self::version_response::VersionResponse;
+pub use of_model::http::storage::{
+    Challenge, CreateResourceRequest, DatabaseDetailResponse, DatabaseFailure, DatabaseResource,
+    EnsureDatabaseRequest, FileSystemDetailResponse, FileSystemResourceResponse, HistoryRequest,
+    IndependentCreateIntent, IndependentCreateRequest, IndependentJoinApproval,
+    IndependentJoinRequest, IndependentOwnerPublic, IndependentPeer, JwkPublic,
+    JwkPublicParameters, JwkPublicParametersOneOf, JwkPublicParametersOneOf1,
+    JwkPublicParametersOneOf2, JwsAlgorithm, KeyUse, OwnerSetupStatus, Registration, ResidencyMode,
+    ResourceResidency, SqlRequest, SqlResponse, SqlResult, SqlStatement, SqlValue, SqlValueOneOf,
+    SqlValueOneOf1, SqlValueOneOf2, SqlValueOneOf3, SqlValueOneOf4, SqlValueOneOf5, SqlValueOneOf6,
+    SyncConnectRequest, SyncSessionResponse, VersionResponse, challenge, create_resource_request,
+    database_detail_response, database_failure, database_resource, ensure_database_request,
+    file_system_detail_response, file_system_resource_response, history_request,
+    independent_create_intent, independent_create_request, independent_join_approval,
+    independent_join_request, independent_owner_public, independent_peer, jwk_public,
+    jwk_public_parameters, jwk_public_parameters_one_of, jwk_public_parameters_one_of_1,
+    jwk_public_parameters_one_of_2, jws_algorithm, key_use, owner_setup_status, registration,
+    residency_mode, resource_residency, sql_request, sql_response, sql_result, sql_statement,
+    sql_value, sql_value_one_of, sql_value_one_of_1, sql_value_one_of_2, sql_value_one_of_3,
+    sql_value_one_of_4, sql_value_one_of_5, sql_value_one_of_6, sync_connect_request,
+    sync_session_response, version_response,
+};

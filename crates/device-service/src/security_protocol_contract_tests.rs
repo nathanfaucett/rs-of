@@ -10,7 +10,7 @@ use crate::{security_policy::SecurityContext, security_protocol::SecurityProtoco
 #[tokio::test]
 async fn owner_rejects_unreviewed_public_schema() {
     let idp = Arc::new(Database::in_memory());
-    idp_model::replica::up(&idp).await.expect("identity schema");
+    of_model::idp::replica::up(&idp).await.expect("identity schema");
     let devices = Arc::new(Database::in_memory());
     crate::replica::up(&devices).await.expect("Device schema");
     let server =
@@ -51,8 +51,8 @@ async fn owner_rejects_unreviewed_public_schema() {
 fn bootstrap_requires_the_exact_shared_endpoint_before_opening_owners() {
     let endpoint = SecretKey::generate().public();
     let mut binding = idp_service::oauth2::NodeSignerBinding {
-        member_id: idp_model::model::Id::now_v7(),
-        key_id: idp_model::model::Id::now_v7(),
+        member_id: of_model::idp::model::Id::now_v7(),
+        key_id: of_model::idp::model::Id::now_v7(),
         endpoint_id: endpoint.to_string(),
     };
     crate::node_join_owner::check_bootstrap_endpoint(endpoint, &binding)

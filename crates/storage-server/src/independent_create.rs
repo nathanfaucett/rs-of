@@ -4,7 +4,7 @@ use setup::{
     IndependentCreateCommand, IndependentCreateControl, IndependentCreateIntent,
     IndependentOwnerPublic, IndependentSetupHost,
 };
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use idp_service::setup_credentials::{SetupRelationship, create_setup_secret, load_setup_secret};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;

@@ -12,11 +12,11 @@ use db::{
     Query, QueryColumn, QueryExpr, QueryExprValue, QueryFrom, QueryUpdate, QueryUpdateAssignment,
     SqlTranslator, Statement, Value,
 };
-use idp_model::{
+use of_model::idp::{
     contract::{EntityType, IdpSignerRecord, ReplicaMembership},
     model::Id,
 };
-use model::contract::StandardClaims;
+use of_model::contract::StandardClaims;
 use std::sync::Arc;
 
 async fn public_verifier(source: &TestEngine) -> (Arc<TestEngine>, TestService) {
@@ -272,9 +272,9 @@ async fn public_node_signers_verify_without_private_material_or_principal_impers
         let mut claims = original.clone();
         match field {
             "subject" => claims.sub = Id::now_v7().to_string(),
-            "type" => claims.principal_type = model::contract::PrincipalType::Client,
+            "type" => claims.principal_type = of_model::contract::PrincipalType::Client,
             "issuer" => claims.iss = "https://other-installation.example".into(),
-            "use" => claims.r#use = model::contract::TokenUse::Id,
+            "use" => claims.r#use = of_model::contract::TokenUse::Id,
             "scope" => claims.scope.push("ungranted".into()),
             "lifetime" => claims.exp = 0,
             _ => claims.client_id = "other-client".into(),
@@ -487,7 +487,7 @@ async fn id_tokens_bind_the_principal_root_for_owner_local_verification() {
     assert_eq!(claims["principal_key_id"], principal.key.id.to_string());
     assert_ne!(header.kid, principal.key.id.to_string());
     let (_, typed) =
-        decode_jwt::<idp_model::contract::IdTokenClaims>(&token).expect("typed bound ID claims");
+        decode_jwt::<of_model::idp::contract::IdTokenClaims>(&token).expect("typed bound ID claims");
     assert_eq!(typed.principal_key_id, principal.key.id);
     assert_eq!(
         typed.user_info.as_ref().expect("OIDC profile").sub,
@@ -502,7 +502,7 @@ async fn id_tokens_bind_the_principal_root_for_owner_local_verification() {
         .verify_token_principal(&token)
         .await
         .expect("owner verifies ID Principal");
-    assert_eq!(verified.r#use, model::contract::TokenUse::Id);
+    assert_eq!(verified.r#use, of_model::contract::TokenUse::Id);
     assert_eq!(verified.sub, principal.user.id.to_string());
     assert!(
         verifier
@@ -565,7 +565,7 @@ async fn id_tokens_bind_the_principal_root_for_owner_local_verification() {
 
 #[tokio::test]
 async fn partitioned_nodes_consume_same_code_once_per_local_store() {
-    use idp_model::contract::{AuthorizationCodeGrantRequest, TokenRequest};
+    use of_model::idp::contract::{AuthorizationCodeGrantRequest, TokenRequest};
     let (source, first, client, principal) = setup().await;
     let code = first
         .authorization_code_repo
@@ -614,7 +614,7 @@ async fn partitioned_nodes_consume_same_code_once_per_local_store() {
 
 #[tokio::test]
 async fn independent_nodes_issue_client_tokens_with_distinct_local_signers() {
-    use idp_model::contract::{ClientCredentialsGrantRequest, TokenRequest};
+    use of_model::idp::contract::{ClientCredentialsGrantRequest, TokenRequest};
     let (source, first, _, _) = setup().await;
     let mut registration = super::infrastructure_client_registration();
     registration.allowed_audiences = vec!["https://service.example".into()];
@@ -646,7 +646,7 @@ async fn independent_nodes_issue_client_tokens_with_distinct_local_signers() {
             .await
             .expect_err("public metadata alone cannot authenticate a confidential client")
             .error,
-        idp_model::contract::ErrorCode::InvalidClient
+        of_model::idp::contract::ErrorCode::InvalidClient
     );
     provision_fixture_client_secret(&engine, client.id, "stable-secret").await;
     let left = first
@@ -663,7 +663,7 @@ async fn independent_nodes_issue_client_tokens_with_distinct_local_signers() {
     assert_ne!(a.kid, b.kid);
     assert_eq!(ac.sub, client.id.to_string());
     assert_eq!(bc.sub, ac.sub);
-    assert_eq!(ac.principal_type, model::contract::PrincipalType::Client);
+    assert_eq!(ac.principal_type, of_model::contract::PrincipalType::Client);
     assert!(
         first
             .validate_access_token(&left.access_token.0, "https://service.example")
@@ -699,7 +699,7 @@ async fn independent_nodes_issue_client_tokens_with_distinct_local_signers() {
                 audience: Some("https://service.example".into()),
                 resource: None,
             }),
-            Some(idp_model::contract::OAuth2ClientAuth {
+            Some(of_model::idp::contract::OAuth2ClientAuth {
                 client_id: client.client_id.clone(),
                 client_secret: Some("stable-secret".into()),
                 method: client.token_endpoint_auth_method,

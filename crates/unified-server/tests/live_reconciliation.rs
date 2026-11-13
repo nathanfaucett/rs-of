@@ -6,7 +6,7 @@ use std::{
 };
 
 struct MockProvider(Arc<keyring_core::mock::Store>);
-impl keyring_core::api::CredentialStoreApi for MockProvider {
+impl keyring_core::server_common::CredentialStoreApi for MockProvider {
     fn vendor(&self) -> String {
         self.0.vendor()
     }
@@ -83,7 +83,7 @@ async fn composed_owners_reconcile_create_join_and_offline_reopen() {
     if std::env::var_os("OF_OWNER_LIVE_ROOT").is_none() {
         let root = std::env::temp_dir().join(format!(
             "unified-owner-live-{}",
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         let mut roots = Vec::new();
         for name in ["source", "target"] {
@@ -140,7 +140,7 @@ async fn composed_owners_reconcile_create_join_and_offline_reopen() {
         format!("{base}/storage"),
     ];
     let codes = ["idp", "device", "storage"].map(|owner| {
-        api::SetupAdmission::protected_code(
+        server_common::SetupAdmission::protected_code(
             host.admission_path(owner)
                 .expect("owner path")
                 .parent()
@@ -313,7 +313,7 @@ async fn composed_owners_reconcile_create_join_and_offline_reopen() {
     let target = SetupHost::prepare(target_config.clone()).expect("target owners");
     let target_base = format!("https://{}", target.local_addr());
     let target_codes = ["idp", "device", "storage"].map(|owner| {
-        api::SetupAdmission::protected_code(
+        server_common::SetupAdmission::protected_code(
             target
                 .admission_path(owner)
                 .expect("target owner")

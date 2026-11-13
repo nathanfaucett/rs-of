@@ -10,7 +10,7 @@ use std::{
 
 use db::Database;
 use device_service::HostedControlPlane;
-use idp_model::{
+use of_model::idp::{
     contract::{
         IdentityAction, IdentityResource, MANAGEMENT_PERMISSION_EVALUATE_SCOPE,
         PermissionEvaluationRequest, PermissionEvaluationResponse, PermissionSubject,
@@ -34,7 +34,7 @@ struct TlsConfig {
     address: SocketAddr,
 }
 
-impl api::LocalTlsConfig for TlsConfig {
+impl server_common::LocalTlsConfig for TlsConfig {
     fn tls_directory(&self) -> PathBuf {
         self.root.clone()
     }
@@ -53,7 +53,7 @@ fn independent_permission_production_management_https() {
     let address = listener.local_addr().expect("TLS address");
     let mut bundle = Vec::new();
     for owner in ["idp", "management"] {
-        let tls = api::LocalTls::create(&TlsConfig {
+        let tls = server_common::LocalTls::create(&TlsConfig {
             root: root.join(owner),
             address,
         })
@@ -119,7 +119,7 @@ async fn evaluator_token(
         .expect("production evaluator token endpoint");
     assert_eq!(response.status(), StatusCode::OK);
     response
-        .json::<model::contract::TokenResponse>()
+        .json::<of_model::contract::TokenResponse>()
         .await
         .expect("typed evaluator token")
         .access_token
@@ -266,12 +266,12 @@ async fn independent_permission_management_https_child() {
         )
         .await
         .expect("production Management router");
-        let idp_tls = api::LocalTls::open(&TlsConfig {
+        let idp_tls = server_common::LocalTls::open(&TlsConfig {
             root: root.join("idp"),
             address: idp_address,
         })
         .expect("retained IdP TLS");
-        let management_tls = api::LocalTls::open(&TlsConfig {
+        let management_tls = server_common::LocalTls::open(&TlsConfig {
             root: root.join("management"),
             address: management_address,
         })
@@ -298,7 +298,7 @@ async fn independent_permission_management_https_child() {
             .await
             .expect("production Management HTTPS server");
         });
-        let client = api::LocalTls::verification_client().expect("production native HTTPS client");
+        let client = server_common::LocalTls::verification_client().expect("production native HTTPS client");
         let bearer = user_token(&client, &base, "administrator", "idp-services").await;
         let applications_url = format!("{idp_base}/applications");
         assert_eq!(

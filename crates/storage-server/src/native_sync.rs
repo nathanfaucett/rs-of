@@ -2,7 +2,7 @@ use std::{io, sync::Arc};
 
 use iroh::{EndpointAddr, EndpointId, address_lookup::MemoryLookup};
 use iroh_chain::Server;
-use model::contract::SelectedResource;
+use of_model::contract::SelectedResource;
 use serde::{Deserialize, Serialize};
 
 use crate::{IdpClient, LocalReplicationAuthorizer, authorize_storage_token};

@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use iroh::protocol::ProtocolHandler;
 use iroh_chain::{EndpointIdStore, Server};
-use model::contract::SelectedResource;
+use of_model::contract::SelectedResource;
 
 use storage_service::DatabaseRuntime;
 use tokio_util::sync::CancellationToken;

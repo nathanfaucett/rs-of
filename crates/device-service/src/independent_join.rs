@@ -1,8 +1,8 @@
 use std::io;
 
-use api::{IndependentCreateIntent, IndependentPeer};
+use server_common::{IndependentCreateIntent, IndependentPeer};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use idp_model::{contract::JwkPublic, model::Id};
+use of_model::idp::{contract::JwkPublic, model::Id};
 use iroh::{EndpointId, Signature};
 use serde::{Deserialize, Serialize};
 
@@ -100,7 +100,7 @@ impl IndependentJoinApproval {
                 "invalid shared Join context",
             ));
         }
-        api::LocalTls::verification_client()?
+        server_common::LocalTls::verification_client()?
             .post(format!(
                 "{}/independent/node-joins/verify",
                 self.request.source.device

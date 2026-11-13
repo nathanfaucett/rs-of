@@ -64,5 +64,5 @@ pub use independent_join::independent_join_openapi;
 
 pub mod issuer_discovery;
 pub mod local_provisioning;
-pub use api::LocalTls;
+pub use server_common::LocalTls;
 pub use issuer_discovery::discover_installation_issuer;

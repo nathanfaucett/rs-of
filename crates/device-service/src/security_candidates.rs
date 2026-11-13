@@ -1,5 +1,5 @@
 use db::Value;
-use idp_model::{contract::JwkPublic, model::Id};
+use of_model::idp::{contract::JwkPublic, model::Id};
 use idp_service::security_sync::public_security_tables;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

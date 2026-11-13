@@ -6,7 +6,7 @@ use alloc::{
     vec::Vec,
 };
 
-use idp_model::contract::{
+use of_model::idp::contract::{
     AuthorizationServerMetadata, CodeChallengeMethod, GrantType, ResponseMode, ResponseType,
     TokenEndpointAuthMethod,
 };

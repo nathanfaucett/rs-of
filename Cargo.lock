@@ -130,34 +130,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
-name = "api"
-version = "0.1.0"
-dependencies = [
- "axum",
- "getrandom 0.3.4",
- "iroh",
- "log",
- "of-device-client",
- "of-idp-client",
- "rcgen",
- "reqwest 0.12.28",
- "rustix",
- "rustls",
- "serde",
- "serde_json",
- "setup",
- "subtle",
- "tempfile",
- "tokio",
- "tokio-rustls",
- "tokio-util",
- "tower",
- "tower-http 0.7.1",
- "utoipa",
- "utoipa-axum",
-]
-
-[[package]]
 name = "apple-native-keyring-store"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1680,7 +1652,6 @@ dependencies = [
 name = "device-server"
 version = "0.1.0"
 dependencies = [
- "api",
  "axum",
  "base64 0.22.1",
  "chrono",
@@ -1692,19 +1663,18 @@ dependencies = [
  "env_logger",
  "http",
  "idp-db",
- "idp-model",
  "idp-service",
  "iroh",
  "iroh-chain",
  "log",
  "management-service",
- "model",
  "of-idp-client",
+ "of-model",
  "ofdb-sql",
  "serde",
  "serde_json",
+ "server-common",
  "setup",
- "storage-model",
  "tokio",
  "tokio-util",
  "tower",
@@ -1718,22 +1688,20 @@ dependencies = [
 name = "device-service"
 version = "0.1.0"
 dependencies = [
- "api",
  "axum",
  "base64 0.22.1",
  "chrono",
  "futures-util",
  "getrandom 0.3.4",
  "idp-db",
- "idp-model",
  "idp-service",
  "iroh",
  "iroh-chain",
  "log",
  "management-service",
- "model",
  "of-device-client",
  "of-idp-client",
+ "of-model",
  "of-storage-api-client",
  "ofdb-sql",
  "ofdb-sync",
@@ -1741,7 +1709,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
- "storage-model",
+ "server-common",
  "thiserror 2.0.20",
  "tokio",
  "tokio-tungstenite",
@@ -3211,33 +3179,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "idp-model"
-version = "0.1.0"
-dependencies = [
- "axum",
- "base64 0.22.1",
- "build-time",
- "chrono",
- "futures",
- "idp-db",
- "include_dir",
- "key",
- "model",
- "ofdb-sql",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "tsify",
- "utoipa",
- "uuid",
- "wasm-bindgen",
-]
-
-[[package]]
 name = "idp-server"
 version = "0.1.0"
 dependencies = [
- "api",
  "axum",
  "base64 0.22.1",
  "clap",
@@ -3249,7 +3193,6 @@ dependencies = [
  "env_logger",
  "http",
  "idp-db",
- "idp-model",
  "idp-service",
  "iroh",
  "iroh-chain",
@@ -3257,16 +3200,17 @@ dependencies = [
  "keyring-core",
  "log",
  "management-service",
- "model",
  "of-device-client",
  "of-idp-client",
  "of-management-client",
+ "of-model",
  "ofdb-sql",
  "reqwest 0.12.28",
  "rust-argon2",
  "serde",
  "serde_json",
  "serde_qs",
+ "server-common",
  "setup",
  "sha2 0.10.9",
  "tokio",
@@ -3287,12 +3231,11 @@ dependencies = [
  "futures",
  "getrandom 0.3.4",
  "idp-db",
- "idp-model",
  "k256",
  "key",
  "keyring-core",
  "log",
- "model",
+ "of-model",
  "ofdb-sql",
  "rust-argon2",
  "serde",
@@ -3306,7 +3249,6 @@ dependencies = [
 name = "idp-unified"
 version = "0.1.0"
 dependencies = [
- "api",
  "async-trait",
  "axum",
  "device-server",
@@ -3314,7 +3256,6 @@ dependencies = [
  "futures-util",
  "http",
  "idp-db",
- "idp-model",
  "idp-server",
  "idp-service",
  "iroh",
@@ -3323,10 +3264,10 @@ dependencies = [
  "log",
  "management-server",
  "management-service",
- "model",
  "of-device-client",
  "of-idp-client",
  "of-management-client",
+ "of-model",
  "of-storage-api-client",
  "of-storage-client",
  "ofdb-sql",
@@ -3335,7 +3276,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
- "storage-model",
+ "server-common",
  "storage-server",
  "storage-service",
  "tempfile",
@@ -3958,10 +3899,8 @@ dependencies = [
 name = "lidp"
 version = "0.1.0"
 dependencies = [
- "api",
  "axum",
  "device-server",
- "idp-model",
  "idp-server",
  "idp-service",
  "iroh",
@@ -3970,11 +3909,13 @@ dependencies = [
  "management-server",
  "of-device-client",
  "of-idp-client",
+ "of-model",
  "reqwest 0.12.28",
  "rustix",
  "rustls",
  "serde",
  "serde_json",
+ "server-common",
  "storage-server",
  "tauri",
  "tauri-build",
@@ -4073,7 +4014,6 @@ checksum = "d3d25b0e0b648a86960ac23b7ad4abb9717601dec6f66c165f5b037f3f03065f"
 name = "management-server"
 version = "0.1.0"
 dependencies = [
- "api",
  "axum",
  "clap",
  "cli",
@@ -4082,12 +4022,12 @@ dependencies = [
  "dotenvy",
  "http",
  "idp-db",
- "idp-model",
  "log",
  "management-service",
- "model",
+ "of-model",
  "serde",
  "serde_json",
+ "server-common",
  "setup",
  "tokio",
  "tokio-util",
@@ -4104,7 +4044,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "idp-db",
- "idp-model",
+ "of-model",
  "serde",
  "thiserror 2.0.20",
  "tokio",
@@ -4204,21 +4144,6 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "model"
-version = "0.1.0"
-dependencies = [
- "axum",
- "build-time",
- "chrono",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "tsify",
- "utoipa",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -4998,6 +4923,7 @@ dependencies = [
 name = "of-device-client"
 version = "0.1.0"
 dependencies = [
+ "of-model",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -5011,6 +4937,7 @@ dependencies = [
 name = "of-idp-client"
 version = "0.1.0"
 dependencies = [
+ "of-model",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -5024,6 +4951,7 @@ dependencies = [
 name = "of-management-client"
 version = "0.1.0"
 dependencies = [
+ "of-model",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -5033,9 +4961,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "of-model"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "build-time",
+ "chrono",
+ "futures",
+ "idp-db",
+ "include_dir",
+ "key",
+ "ofdb-sql",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "serde_repr",
+ "serde_with",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tsify",
+ "utoipa",
+ "uuid",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "of-storage-api-client"
 version = "0.1.0"
 dependencies = [
+ "of-model",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -5053,6 +5008,7 @@ dependencies = [
  "async-trait",
  "futures-util",
  "of-management-client",
+ "of-model",
  "ofdb-kv",
  "ofdb-platform",
  "ofdb-sql",
@@ -5062,7 +5018,6 @@ dependencies = [
  "serde_json",
  "serde_repr",
  "serde_with",
- "storage-model",
  "storage-service",
  "thiserror 2.0.20",
  "tokio",
@@ -6899,6 +6854,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "server-common"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "log",
+ "of-model",
+ "setup",
+ "tokio",
+ "tokio-util",
+ "utoipa",
+]
+
+[[package]]
 name = "servo_arc"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7212,20 +7180,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
-name = "storage-model"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "idp-model",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "storage-server"
 version = "0.1.0"
 dependencies = [
- "api",
  "axum",
  "base64 0.22.1",
  "bytes",
@@ -7240,16 +7197,15 @@ dependencies = [
  "futures-util",
  "http",
  "idp-db",
- "idp-model",
  "idp-service",
  "iroh",
  "iroh-chain",
  "key",
  "log",
  "management-service",
- "model",
  "of-device-client",
  "of-idp-client",
+ "of-model",
  "ofdb-kv",
  "ofdb-sql",
  "postcard",
@@ -7257,8 +7213,8 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_qs",
+ "server-common",
  "setup",
- "storage-model",
  "storage-service",
  "tokio",
  "tokio-util",
@@ -7275,12 +7231,11 @@ name = "storage-service"
 version = "0.1.0"
 dependencies = [
  "file-system",
- "idp-model",
+ "of-model",
  "ofdb-kv",
  "ofdb-sql",
  "serde",
  "serde_json",
- "storage-model",
  "tokio",
  "utoipa",
  "uuid",
@@ -8557,7 +8512,6 @@ checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 name = "unified-server"
 version = "0.1.0"
 dependencies = [
- "api",
  "axum",
  "clap",
  "clap_complete",
@@ -8566,13 +8520,14 @@ dependencies = [
  "device-server",
  "device-service",
  "env_logger",
- "idp-model",
  "idp-server",
  "keyring-core",
  "management-server",
+ "of-model",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "server-common",
  "setup",
  "storage-server",
  "tokio",

@@ -1,6 +1,6 @@
 use std::{fs, io, io::Write, path::Path};
 
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use idp_service::{oauth2::NodeSignerBinding, repo::PrivateKeyRepo};
 use iroh::EndpointId;
 use serde::Serialize;

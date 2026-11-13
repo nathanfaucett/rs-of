@@ -4,7 +4,7 @@ use alloc::{
 };
 
 use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD};
-use idp_model::{
+use of_model::idp::{
     contract::{JwkPrivate, JwkPrivateParameters, JwkPublic, JwsAlgorithm, KeyUse},
     model::Id,
 };

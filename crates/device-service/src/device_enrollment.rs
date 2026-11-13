@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use idp_model::contract::{ErrorCode, ErrorResponse, ErrorResponseResult};
+use of_model::idp::contract::{ErrorCode, ErrorResponse, ErrorResponseResult};
 use iroh::{EndpointId, Signature};
 
 use crate::{
@@ -81,7 +81,7 @@ where
 
     pub async fn approve_pairing(
         &self,
-        device_id: idp_model::model::Id,
+        device_id: of_model::idp::model::Id,
         request: DevicePairingApprovalRequest,
     ) -> ErrorResponseResult<DeviceInfo> {
         let (device, accepting_public_key) = self
@@ -110,7 +110,7 @@ where
 
     pub async fn pairing_approval_payload(
         &self,
-        device_id: idp_model::model::Id,
+        device_id: of_model::idp::model::Id,
     ) -> ErrorResponseResult<String> {
         let (device, _) = self
             .repo
@@ -154,7 +154,7 @@ where
     pub async fn rename(
         &self,
         owner_subject: &str,
-        device_id: idp_model::model::Id,
+        device_id: of_model::idp::model::Id,
         request: UpdateDeviceRequest,
     ) -> ErrorResponseResult<DeviceInfo> {
         validate_name(&request.name)?;
@@ -169,7 +169,7 @@ where
     pub async fn revoke(
         &self,
         owner_subject: &str,
-        device_id: idp_model::model::Id,
+        device_id: of_model::idp::model::Id,
         protected_public_key: &str,
     ) -> ErrorResponseResult<()> {
         self.repo
@@ -191,7 +191,7 @@ where
 
     pub async fn approve_enrollment(
         &self,
-        device_id: idp_model::model::Id,
+        device_id: of_model::idp::model::Id,
     ) -> ErrorResponseResult<DeviceEnrollment> {
         let device = self
             .repo

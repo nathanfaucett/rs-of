@@ -1,7 +1,7 @@
 use std::{io, path::Path};
 
-use api::IndependentReset;
-use idp_model::model::Id;
+use server_common::IndependentReset;
+use of_model::idp::model::Id;
 use idp_service::setup_credentials::delete_setup_secrets;
 use serde::Deserialize;
 
@@ -64,7 +64,7 @@ mod tests {
     use std::fs;
 
     use setup::IndependentSetupHost;
-    use idp_model::model::Id;
+    use of_model::idp::model::Id;
 
     use super::reset_independent;
     use crate::AppConfig;

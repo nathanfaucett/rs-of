@@ -3,7 +3,7 @@ use std::sync::{Arc, OnceLock};
 use device_service::HostedControlPlane;
 use device_service::replica::DbSelectionPolicyRepo;
 use device_service::replica::SelectionPolicy;
-use idp_model::{
+use of_model::idp::{
     contract::{EntityType, GrantType, IdentityAction, TokenEndpointAuthMethod},
     model::Id,
 };
@@ -14,7 +14,7 @@ use idp_service::{
 use management_service::ManagementService;
 use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
-use model::contract::{StorageAuthorizationAction, TokenResponse};
+use of_model::contract::{StorageAuthorizationAction, TokenResponse};
 use storage_server::{RouterState, StorageCopyRetirement, resource_router};
 
 use crate::support::native::{Fixture, Gate, Listener, registration};
@@ -249,7 +249,7 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
             &fixture.owner.to_string(),
             "storage:filesystems",
             fixture.scope.application_id,
-            storage_model::ResourceKind::FileSystem,
+            of_model::storage::ResourceKind::FileSystem,
             &fixture.resource.as_uuid().to_string(),
         )
         .await

@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::security_policy::{SecurityHistory, SecuritySync};
 use db::SyncTransport;
 use db::{Database, DatabaseTransport};
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use idp_service::oauth2::NodeSignerBinding;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh_chain::Server;

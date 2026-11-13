@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use axum::Router;
-use idp_model::{contract::IntrospectionResponse, model::Id};
+use of_model::idp::{contract::IntrospectionResponse, model::Id};
 use iroh::EndpointId;
-use model::contract::{
+use of_model::contract::{
     AuthorizationDetail, PrincipalType, StorageAuthorizationAction, TokenType, TokenUse,
 };
 
@@ -11,7 +11,7 @@ use crate::{
     IdpClient, IdpIntrospectionError, StorageSocketAccess, StorageSocketAuthorizationError,
     StorageSocketAuthorizer, storage_router,
 };
-use storage_model::StorageNamespace as StorageNamespaceContract;
+use of_model::storage::StorageNamespace as StorageNamespaceContract;
 use storage_service::{FileSystemId, ScopedFileSystemRuntime, ScopedStorageService};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -177,8 +177,8 @@ fn storage_authorization(
 
 #[cfg(test)]
 mod tests {
-    use idp_model::contract::IntrospectionResponse;
-    use model::contract::{
+    use of_model::idp::contract::IntrospectionResponse;
+    use of_model::contract::{
         AuthorizationDetail, PrincipalType, StandardClaims, StorageAuthorizationAction,
         StorageAuthorizationDetail, TokenType, TokenUse,
     };

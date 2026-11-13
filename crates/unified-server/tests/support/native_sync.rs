@@ -2,14 +2,14 @@ use std::{path::Path, sync::Arc, time::Duration};
 
 use device_service::{DeviceRepo, replica::{DbDeviceRepo, DbSelectionPolicyRepo, SelectionPolicy}};
 use db::{Database, SqlTranslator, Value};
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use serde_json::Value as JsonValue;
 use storage_service::DatabaseRuntime;
 use tokio_util::sync::CancellationToken;
 use unified_server::{SetupHost, StorageSyncDirection, StorageSyncRequest, UnifiedConfig};
 
 struct Namespace { owner: String, application: Id }
-impl storage_model::StorageNamespace for Namespace {
+impl of_model::storage::StorageNamespace for Namespace {
     fn user_sub(&self) -> &str { &self.owner }
     fn application_id(&self) -> Id { self.application }
 }

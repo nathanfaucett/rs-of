@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use api::ServerConfig;
+use server_common::ServerConfig;
 
 use serde::Deserialize;
 

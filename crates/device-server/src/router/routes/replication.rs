@@ -4,11 +4,11 @@ use axum::{
     http::{HeaderMap, header::AUTHORIZATION},
 };
 use device_service::replica::SelectedResource as StoredSelectedResource;
-use idp_model::{
+use of_model::idp::{
     contract::{ErrorCode, ErrorResponse},
     model::Id,
 };
-use model::contract::{
+use of_model::contract::{
     MANAGEMENT_REPLICATION_ADMIT_SCOPE, MANAGEMENT_REPLICATION_READ_SCOPE, OwnerCopyCleanup,
     PrincipalType, ReplicationAdmissionRequest, SelectedResourcesResponse, StandardClaims,
 };
@@ -230,15 +230,15 @@ mod tests {
     use device_service::replica::DbSelectionPolicyRepo;
     use device_service::replica::SelectedResource as StoredSelectedResource;
     #[cfg(feature = "cli")]
-    use idp_model::contract::IntrospectionResponse;
-    use idp_model::model::Id;
+    use of_model::idp::contract::IntrospectionResponse;
+    use of_model::idp::model::Id;
     #[cfg(feature = "cli")]
     use management_service::ManagementService;
     #[cfg(feature = "cli")]
     use management_service::replica::DbPermissionRepo;
     #[cfg(feature = "cli")]
     use management_service::replica::DbRoleRepo;
-    use model::contract::{
+    use of_model::contract::{
         MANAGEMENT_REPLICATION_ADMIT_SCOPE, MANAGEMENT_REPLICATION_READ_SCOPE, PrincipalType,
         StandardClaims, TokenType, TokenUse,
     };
@@ -263,7 +263,7 @@ mod tests {
         };
         use device_service::replica::SelectionPolicy;
         use device_service::replica::up;
-        use model::contract::SelectedResourcesResponse;
+        use of_model::contract::SelectedResourcesResponse;
         use tower::ServiceExt;
 
         let device = Id::now_v7();
@@ -819,9 +819,9 @@ mod tests {
         .await
         .expect_err("unauthorized token must not authorize selection reads");
         let expected_error = if token_was_introspected {
-            idp_model::contract::ErrorCode::AccessDenied
+            of_model::idp::contract::ErrorCode::AccessDenied
         } else {
-            idp_model::contract::ErrorCode::NotAuthorized
+            of_model::idp::contract::ErrorCode::NotAuthorized
         };
         assert_eq!(error.error, expected_error);
         http_server.join().expect("join IdP test server");

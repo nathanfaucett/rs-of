@@ -8,8 +8,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use api::{IndependentCreateIntent, IndependentSetupHost, LocalTls};
-use idp_model::model::Id;
+use server_common::{IndependentCreateIntent, IndependentSetupHost, LocalTls};
+use of_model::idp::model::Id;
 use reqwest::{Client, StatusCode};
 use tokio_util::sync::CancellationToken;
 
@@ -352,8 +352,8 @@ pub(super) async fn normal_use(
             .and_then(|value| value.to_str().ok()),
         Some("https://untrusted.example")
     );
-    let token: model::contract::TokenResponse = response.json().await.expect("normal token");
-    let administration_token: model::contract::TokenResponse = http
+    let token: of_model::contract::TokenResponse = response.json().await.expect("normal token");
+    let administration_token: of_model::contract::TokenResponse = http
         .post(format!("{}/oauth2/token", intent.idp))
         .form(&[
             (
@@ -406,7 +406,7 @@ pub(super) async fn normal_use(
         .await
         .expect("Management audience exchange");
     assert_eq!(response.status(), StatusCode::OK);
-    let token: model::contract::TokenResponse =
+    let token: of_model::contract::TokenResponse =
         response.json().await.expect("Management audience token");
     let management_token = token.access_token.0.clone();
     let response = http
@@ -445,7 +445,7 @@ pub(super) async fn normal_use(
         .await
         .expect("Storage token exchange");
     assert_eq!(response.status(), StatusCode::OK);
-    let token: model::contract::TokenResponse = response.json().await.expect("Storage token");
+    let token: of_model::contract::TokenResponse = response.json().await.expect("Storage token");
     let response = http
         .get(format!("{}/databases", intent.storage))
         .bearer_auth(&token.access_token.0)
@@ -1067,7 +1067,7 @@ pub(super) async fn seed_endpoint_negatives(root: &Path) -> Vec<(String, StatusC
     use device_service::replica::DbDeviceRepo;
     use device_service::replica::DbSelectionPolicyRepo;
     use device_service::replica::SelectionPolicy;
-    use idp_model::contract::IdentityAction;
+    use of_model::idp::contract::IdentityAction;
     use management_service::ManagementService;
     use management_service::replica::DbPermissionRepo;
     use management_service::replica::DbRoleRepo;
@@ -1216,7 +1216,7 @@ async fn storage_policy_token(
         );
     }
     response
-        .json::<model::contract::TokenResponse>()
+        .json::<of_model::contract::TokenResponse>()
         .await
         .expect("service token")
         .access_token
@@ -1369,7 +1369,7 @@ async fn revoke_current_signer(
         .await
         .expect("ordinary IdP owner audience exchange");
     assert_eq!(response.status(), StatusCode::OK);
-    let token: model::contract::TokenResponse = response.json().await.expect("IdP User token");
+    let token: of_model::contract::TokenResponse = response.json().await.expect("IdP User token");
     let record: serde_json::Value = serde_json::from_slice(
         &fs::read(root.join("idp.setup-host/worker.json")).expect("retained exact signer identity"),
     )
@@ -1476,7 +1476,7 @@ async fn delayed_forged_https_callback(
     let registration = serde_json::json!({"client_id":"00000000-0000-4000-8000-000000000001"});
     control
         .set_public(
-            api::IndependentOwnerPublic {
+            server_common::IndependentOwnerPublic {
                 operation: intent.clone(),
                 owner: "device".into(),
                 clients: vec![registration.clone()],

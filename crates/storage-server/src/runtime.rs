@@ -211,7 +211,7 @@ mod tests {
         let server = iroh_chain::Server::new(endpoint, iroh_chain::EndpointIdStore::default());
         let data_dir = std::env::temp_dir().join(format!(
             "storage-local-policy-{}",
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         let cancellation = tokio_util::sync::CancellationToken::new();
         let remote = crate::DeviceClient::new(
@@ -245,23 +245,23 @@ mod tests {
             async { Err("local policy unavailable".to_owned()) }
         });
         let idp = crate::IdpClient::local(|_| async {
-            Ok(idp_model::contract::IntrospectionResponse {
-                claims: model::contract::StandardClaims {
-                    r#type: model::contract::TokenType::Bearer,
-                    r#use: model::contract::TokenUse::Access,
+            Ok(of_model::idp::contract::IntrospectionResponse {
+                claims: of_model::contract::StandardClaims {
+                    r#type: of_model::contract::TokenType::Bearer,
+                    r#use: of_model::contract::TokenUse::Access,
                     exp: i64::MAX,
                     iat: 0,
                     nbf: 0,
                     iss: "https://idp.example".into(),
                     aud: "https://storage.example".into(),
                     client_id: "application-client".into(),
-                    sub: idp_model::model::Id::now_v7().to_string(),
-                    principal_type: model::contract::PrincipalType::User,
+                    sub: of_model::idp::model::Id::now_v7().to_string(),
+                    principal_type: of_model::contract::PrincipalType::User,
                     resource: None,
                     authorization_details: None,
                     scope: vec![],
                 },
-                application_id: idp_model::model::Id::now_v7().to_string(),
+                application_id: of_model::idp::model::Id::now_v7().to_string(),
             })
         });
         let runtime = build_runtime(

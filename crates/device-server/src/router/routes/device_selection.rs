@@ -1,3 +1,4 @@
+pub use of_model::server::device::device_selection::{SelectionKind, SelectionRequest};
 use std::string::String;
 
 use axum::{
@@ -6,59 +7,18 @@ use axum::{
     http::StatusCode,
 };
 use device_service::replica::SelectionPolicy;
-use idp_model::{
+use of_model::idp::{
     contract::{ErrorCode, ErrorResponse},
     model::Id,
 };
+use of_model::storage::ResourceKind;
 use serde::Deserialize;
-use storage_model::ResourceKind;
 
 use crate::router::{RouterState, middleware::DeviceAuthorization};
 
 use crate::router::middleware::require_application_permission;
 
 const SELECTION_PERMISSION: &str = "devices.select";
-
-#[derive(Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct SelectionRequest {
-    #[schema(value_type = String)]
-    application_id: Id,
-    kind: SelectionKind,
-    #[schema(value_type = String)]
-    id: Id,
-    storage_access_token: String,
-}
-
-#[derive(Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum SelectionKind {
-    Database,
-    Filesystem,
-}
-
-impl SelectionKind {
-    fn resource_kind(&self) -> ResourceKind {
-        match self {
-            Self::Database => ResourceKind::Database,
-            Self::Filesystem => ResourceKind::FileSystem,
-        }
-    }
-
-    fn storage_audience(&self) -> &'static str {
-        match self {
-            Self::Database => "storage:databases",
-            Self::Filesystem => "storage:filesystems",
-        }
-    }
-
-    fn policy_kind(&self) -> &'static str {
-        match self {
-            Self::Database => "database",
-            Self::Filesystem => "filesystem",
-        }
-    }
-}
 
 #[utoipa::path(
     put,

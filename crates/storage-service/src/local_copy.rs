@@ -6,9 +6,9 @@ use std::{
     sync::Mutex,
 };
 
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use serde::{Deserialize, Serialize};
-use storage_model::StorageNamespace;
+use of_model::storage::StorageNamespace;
 
 #[derive(Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]

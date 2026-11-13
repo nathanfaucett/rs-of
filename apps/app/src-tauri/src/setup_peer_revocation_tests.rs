@@ -99,7 +99,7 @@ async fn peer_reset_revocation_pins_issuer_exchanges_each_audience_and_acknowled
     });
     let data = root.join("reset-profile");
     fs::create_dir(&data).expect("isolated reset profile");
-    let member = idp_model::model::Id::now_v7();
+    let member = of_model::idp::model::Id::now_v7();
     setup_reset::publish(&data, &format!("reset-revocation-{member}.json"), &json!({"version":1, "issuer":"https://installation.test/idp", "member_id":member, "status":"pending"})).expect("retained public target");
     assert!(
         super::revoke(

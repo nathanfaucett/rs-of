@@ -27,7 +27,7 @@ mod tests {
     async fn socket_reset_validates_selector_without_connecting_or_removing_socket() {
         let root = std::env::temp_dir().join(format!(
             "management-socket-reset-{}",
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         std::fs::create_dir(&root).expect("test root");
         let socket = root.join("identity.sock");
@@ -64,7 +64,7 @@ mod tests {
     async fn stateless_consumer_reset_never_removes_retained_owner_data() {
         let root = std::env::temp_dir().join(format!(
             "management-reset-{}",
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         let config = crate::AppConfig {
             data_dir: root.to_string_lossy().into_owned(),

@@ -3,7 +3,7 @@ use db::{
     FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue, QueryFrom,
     QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid, Value,
 };
-use idp_model::{
+use of_model::idp::{
     contract::Sex,
     model::{Id, User, UserEmail, UserPassword, UserPhoneNumber},
     replica::allows_authentication,
@@ -113,10 +113,10 @@ impl DbUserRepo {
             .map(User::try_from)
             .collect::<RepoResult<Vec<_>>>()?;
         for user in &users {
-            if !idp_model::replica::allows_authorization(
+            if !of_model::idp::replica::allows_authorization(
                 &self.engine,
-                &[idp_model::replica::SecurityRow::new(
-                    idp_model::replica::SecurityTable::User,
+                &[of_model::idp::replica::SecurityRow::new(
+                    of_model::idp::replica::SecurityTable::User,
                     user.id,
                 )],
             )
@@ -1041,7 +1041,7 @@ use db::Database;
 mod tests {
     use std::sync::Arc;
 
-    use idp_model::replica::up;
+    use of_model::idp::replica::up;
 
     use super::*;
 

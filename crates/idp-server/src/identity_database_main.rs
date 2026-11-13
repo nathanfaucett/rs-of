@@ -33,7 +33,7 @@ async fn main() -> io::Result<()> {
         }
     };
     let database = db::Database::open(&args.database).map_err(io::Error::other)?;
-    idp_model::replica::up(&database)
+    of_model::idp::replica::up(&database)
         .await
         .map_err(io::Error::other)?;
     database

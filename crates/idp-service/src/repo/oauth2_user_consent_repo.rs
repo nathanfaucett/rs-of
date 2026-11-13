@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 
-use idp_model::model::{Id, OAuth2UserConsent};
+use of_model::idp::model::{Id, OAuth2UserConsent};
 
 use crate::repo::RepoResult;
 

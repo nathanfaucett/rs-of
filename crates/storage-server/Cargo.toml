@@ -47,13 +47,11 @@ cli = { path = "../cli", default-features = false, features = [
 # Internal
 of-device-client = { path = "../device-client", default-features = false }
 of-idp-client = { path = "../idp-client", default-features = false }
-api = { path = "../api", default-features = false, features = [] }
+server-common = { path = "../server-common", default-features = false, features = [] }
 setup = { workspace = true }
 file-system = { path = "../../../offs/crates/file-system", default-features = false, features = [
 ] }
-idp-model = { path = "../idp-model", default-features = false, features = [
-    "std",
-] }
+of-model = { path = "../of-model", default-features = false, features = ["axum", "std", "utoipa"] }
 idp-service = { path = "../idp-service", default-features = false, features = [
     "std",
 ] }
@@ -61,11 +59,7 @@ management-service = { path = "../management-service", default-features = false,
     "std",
 ] }
 key = { path = "../key", default-features = false, features = ["std"] }
-model = { path = "../model", default-features = false, features = [
-    "std",
-    "utoipa",
-    "axum",
-] }
+
 ofdb-kv = { path = "../../../ofdb/crates/kv", default-features = false, features = [
     "redb",
     "sync",
@@ -78,12 +72,9 @@ reqwest = { version = "0.12", default-features = false, features = [
     "json",
     "rustls-tls-native-roots",
 ] }
-storage-model = { path = "../storage-model", default-features = false, features = [
-    "std",
-] }
+
 storage-service = { path = "../storage-service", default-features = false, features = [
 ] }
-
 
 # Serialization
 base64 = { version = "0.22", default-features = false, features = ["std"] }
@@ -171,7 +162,6 @@ idp-service = { path = "../idp-service", default-features = false, features = [
 management-service = { path = "../management-service", default-features = false, features = [
     "replica",
 ] }
-
 
 # Web
 

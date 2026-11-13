@@ -3,14 +3,15 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
-use idp_model::{
+use idp_service::repo::RepoError;
+use of_model::idp::{
     contract::{
         ErrorCode, ErrorResponse, IdentityAction, IdentityResource, IdpSignerRecord, JwkPublic,
         PermissionTarget, ReplicaMembership,
     },
     model::Id,
 };
-use idp_service::repo::RepoError;
+pub use of_model::server::idp::replica_signers::{EnrollReplicaSigner, RotateReplicaSigner};
 use serde::Deserialize;
 use utoipa::ToSchema;
 
@@ -18,21 +19,6 @@ use crate::router::{
     RouterState,
     middleware::{StandardAuthorization, require_identity_permission},
 };
-
-#[derive(Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct EnrollReplicaSigner {
-    #[schema(value_type = String)]
-    member_id: Id,
-    endpoint_id: String,
-    public_jwk: JwkPublic,
-}
-
-#[derive(Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct RotateReplicaSigner {
-    public_jwk: JwkPublic,
-}
 
 #[utoipa::path(
     post,

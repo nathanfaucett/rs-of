@@ -399,7 +399,7 @@ impl Node {
             .into_iter()
             .zip(addrs)
         {
-            let host = api::IndependentSetupHost::prepare(
+            let host = server_common::IndependentSetupHost::prepare(
                 owner,
                 &self.root.path().join(owner),
                 addr,

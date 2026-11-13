@@ -3,7 +3,7 @@ use axum::{
     extract::State,
     http::{HeaderMap, header::AUTHORIZATION},
 };
-use idp_model::{
+use of_model::idp::{
     contract::{
         ErrorCode, ErrorResponse, MANAGEMENT_PERMISSION_EVALUATE_SCOPE, PermissionAuditIdentity,
         PermissionEvaluationRequest, PermissionEvaluationResponse, PermissionSubject,
@@ -11,7 +11,7 @@ use idp_model::{
     },
     model::Id,
 };
-use model::contract::{PrincipalType, StandardClaims};
+use of_model::contract::{PrincipalType, StandardClaims};
 
 use crate::RouterState;
 
@@ -126,14 +126,14 @@ fn denied() -> ErrorResponse {
 #[cfg(test)]
 mod tests {
     use super::bind_actor;
-    use idp_model::{
+    use of_model::idp::{
         contract::{
             IdentityAction, IdentityResource, MANAGEMENT_PERMISSION_EVALUATE_SCOPE,
             PermissionEvaluationRequest, PermissionSubject, PermissionTarget,
         },
         model::Id,
     };
-    use model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
+    use of_model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
 
     #[test]
     fn actor_binding_requires_the_distinct_idp_relationship_or_the_same_user() {

@@ -6,7 +6,7 @@ use device_service::DeviceRepo;
 use device_service::replica::DbDeviceRepo;
 use device_service::replica::DbSelectionPolicyRepo;
 use device_service::replica::SelectionPolicy;
-use idp_model::{
+use of_model::idp::{
     contract::{
         IdpSignerRecord, JwkPublic, JwkPublicParameters, JwsAlgorithm, KeyUse, ReplicaMembership,
     },
@@ -22,7 +22,7 @@ use iroh::{
     address_lookup::MemoryLookup,
     endpoint::{Connection, presets},
 };
-use model::contract::SelectedResource;
+use of_model::contract::SelectedResource;
 use tokio::sync::Notify;
 
 use crate::{DeviceReplicationPolicy, LocalReplicationAuthorizer};
@@ -199,7 +199,7 @@ impl DomainNode {
         let idp = Arc::new(Database::open(root.join("idp.redb")).expect("IdP store"));
         let management =
             Arc::new(Database::open(root.join("management.redb")).expect("Management store"));
-        idp_model::replica::up(&idp).await.expect("IdP schema");
+        of_model::idp::replica::up(&idp).await.expect("IdP schema");
         device_service::replica::up(&management)
             .await
             .expect("Management schema");

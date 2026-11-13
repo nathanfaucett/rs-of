@@ -32,7 +32,7 @@ async fn exact_retry_observes_retired_owner_and_submits_only_incomplete_owners()
     ] {
         let root = std::env::temp_dir().join(format!(
             "cli-owner-retry-{}",
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -61,8 +61,8 @@ async fn exact_retry_observes_retired_owner_and_submits_only_incomplete_owners()
             _ => (),
         }
         let retired = root.join("retired-admission");
-        let admission = api::SetupAdmission::open(&retired).expect("admission");
-        let code = api::SetupAdmission::protected_code(&retired)
+        let admission = server_common::SetupAdmission::open(&retired).expect("admission");
+        let code = server_common::SetupAdmission::protected_code(&retired)
             .expect("code")
             .expect("live code");
         let mut headers = HeaderMap::new();
@@ -70,7 +70,7 @@ async fn exact_retry_observes_retired_owner_and_submits_only_incomplete_owners()
             "Authorization",
             format!("Setup {code}").parse().expect("header"),
         );
-        let exact = api::IndependentCreateIntent {
+        let exact = server_common::IndependentCreateIntent {
             purpose: "create".into(),
             operation_nonce: "0123456789abcdef0123456789abcdef".into(),
             administrator: "admin".into(),
@@ -110,9 +110,9 @@ async fn exact_retry_observes_retired_owner_and_submits_only_incomplete_owners()
                 root.join(format!("{owner}-admission"))
             };
             if owner != "idp" {
-                drop(api::SetupAdmission::open(&path).expect("live owner admission"));
+                drop(server_common::SetupAdmission::open(&path).expect("live owner admission"));
             }
-            let expected = api::SetupAdmission::protected_code(&path).expect("protected state");
+            let expected = server_common::SetupAdmission::protected_code(&path).expect("protected state");
             paths.push(path.join("state"));
             let posts = posts.clone();
             let exact = exact.clone();
@@ -129,7 +129,7 @@ async fn exact_retry_observes_retired_owner_and_submits_only_incomplete_owners()
                         );
                         posts.lock().expect("posts").push((owner.into(), body));
                         if owner == "idp" && conflict == "retirement-race" {
-                            api::SetupAdmission::open(&path)
+                            server_common::SetupAdmission::open(&path)
                                 .expect("retiring owner")
                                 .retire(&headers, &exact)
                                 .expect("retire during request");
@@ -196,7 +196,7 @@ async fn exact_retry_observes_retired_owner_and_submits_only_incomplete_owners()
             }
         }
         assert!(
-            api::SetupAdmission::protected_code(&retired)
+            server_common::SetupAdmission::protected_code(&retired)
                 .expect("retired state")
                 .is_none()
         );

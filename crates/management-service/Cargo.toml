@@ -14,13 +14,13 @@ name = "management_service"
 
 [features]
 default = ["std"]
-utoipa = ["std", "idp-model/utoipa", "dep:utoipa", "dep:utoipa-gen"]
-replica = ["std", "dep:db", "idp-model/replica"]
-std = ["idp-model/std"]
+utoipa = ["std", "of-model/utoipa", "dep:utoipa", "dep:utoipa-gen"]
+replica = ["std", "dep:db", "of-model/replica"]
+std = ["of-model/std"]
 
 [dependencies]
 # Internal
-idp-model = { path = "../idp-model", default-features = false }
+of-model = { path = "../of-model", default-features = false, features = [] }
 db = { package = "idp-db", path = "../db", default-features = false, optional = true }
 
 # Error handling
@@ -38,9 +38,7 @@ utoipa-gen = { version = "5.5", default-features = false, features = ["uuid"], o
 
 [dev-dependencies]
 # Internal
-idp-model = { path = "../idp-model", default-features = false, features = [
-    "std",
-] }
+of-model = { path = "../of-model", default-features = false, features = ["std"] }
 
 # Async
 tokio = { version = "1.52", default-features = false, features = [

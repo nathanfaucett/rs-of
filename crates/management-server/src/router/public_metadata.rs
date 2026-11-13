@@ -8,7 +8,7 @@ pub fn public_metadata_router(api_base_uri: &str, prefix: &str) -> Router {
     let routes = Router::new()
         .route("/version", get(version))
         .route("/openapi.json", get(openapi_json))
-        .with_state(api::canonical_openapi("management", api_base_uri, ""));
+        .with_state(server_common::canonical_openapi("management", api_base_uri, ""));
 
     if prefix.is_empty() || prefix == "/" {
         routes
@@ -53,7 +53,7 @@ mod tests {
                     assert!(value["version"].is_string());
                     assert!(value["build"].is_string());
                 } else {
-                    assert_eq!(value, api::canonical_openapi("management", base, ""));
+                    assert_eq!(value, server_common::canonical_openapi("management", base, ""));
                     assert_eq!(value["servers"][0]["url"], base);
                     assert!(value["paths"]["/version"].is_object());
                     assert!(value["paths"]["/openapi.json"].is_object());

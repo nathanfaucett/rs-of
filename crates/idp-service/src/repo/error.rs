@@ -4,7 +4,7 @@ use alloc::{
 };
 use core::error::Error;
 
-use idp_model::contract::{ErrorCode, ErrorResponse};
+use of_model::idp::contract::{ErrorCode, ErrorResponse};
 use key::DerivationPath;
 
 #[derive(Debug, thiserror::Error)]

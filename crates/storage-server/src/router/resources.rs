@@ -1,3 +1,7 @@
+pub use of_model::server::storage::resources::{
+    CreateResourceRequest, DatabaseDetailResponse, EnsureDatabaseRequest, FileSystemDetailResponse,
+    FileSystemResourceResponse, SyncConnectRequest, SyncDirection, SyncSessionResponse, SyncStatus,
+};
 use std::sync::Arc;
 
 use axum::{
@@ -6,8 +10,8 @@ use axum::{
     http::{HeaderMap, StatusCode, header::AUTHORIZATION},
     routing::{get, post},
 };
-use idp_model::model::Id;
 use iroh::EndpointId;
+use of_model::idp::model::Id;
 use serde::{Deserialize, Serialize};
 use storage_service::{
     DatabaseId, DatabaseResource, FileSystemId, FileSystemResource, ScopedFileSystemRuntime,
@@ -35,7 +39,7 @@ struct StorageNamespace {
     application_id: Id,
 }
 
-impl storage_model::StorageNamespace for StorageNamespace {
+impl of_model::storage::StorageNamespace for StorageNamespace {
     fn user_sub(&self) -> &str {
         &self.user_sub
     }
@@ -43,20 +47,6 @@ impl storage_model::StorageNamespace for StorageNamespace {
     fn application_id(&self) -> Id {
         self.application_id
     }
-}
-
-#[derive(Deserialize, utoipa::ToSchema)]
-pub(super) struct CreateResourceRequest {
-    name: Option<String>,
-}
-
-#[derive(Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct EnsureDatabaseRequest {
-    /// Case-sensitive application-chosen identity; 1–128 UTF-8 bytes.
-    #[schema(min_length = 1, max_length = 128)]
-    creation_key: String,
-    name: Option<String>,
 }
 
 #[utoipa::path(post, path = "/storage/databases/ensure", request_body = EnsureDatabaseRequest,
@@ -101,39 +91,6 @@ pub(super) async fn ensure_database(
         .await
         .map_err(sql::status)?;
     Ok(Json(resource))
-}
-
-#[derive(Serialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct FileSystemResourceResponse {
-    id: String,
-    name: Option<String>,
-}
-
-impl From<FileSystemResource> for FileSystemResourceResponse {
-    fn from(resource: FileSystemResource) -> Self {
-        Self {
-            id: resource.id.as_uuid().to_string(),
-            name: resource.name,
-        }
-    }
-}
-
-#[derive(Serialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct DatabaseDetailResponse {
-    #[schema(value_type = String)]
-    id: DatabaseId,
-    name: Option<String>,
-    application_id: String,
-}
-
-#[derive(Serialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct FileSystemDetailResponse {
-    id: String,
-    name: Option<String>,
-    application_id: String,
 }
 
 pub fn resource_router(
@@ -415,7 +372,7 @@ pub(super) async fn create_file_system(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     authorize_response(&state, &headers, &scope, "storage:filesystems", true).await?;
-    Ok((StatusCode::CREATED, Json(resource.into())))
+    Ok((StatusCode::CREATED, Json(file_system_response(resource))))
 }
 
 #[utoipa::path(
@@ -448,7 +405,9 @@ pub(super) async fn list_file_systems(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     authorize_response(&state, &headers, &scope, "storage:filesystems", false).await?;
-    Ok(Json(resources.into_iter().map(Into::into).collect()))
+    Ok(Json(
+        resources.into_iter().map(file_system_response).collect(),
+    ))
 }
 
 #[utoipa::path(
@@ -551,11 +510,11 @@ mod tests {
         body::Body,
         http::{Method, Request, StatusCode, header::AUTHORIZATION},
     };
-    use idp_model::contract::IntrospectionResponse;
-    use model::contract::{
+    use of_model::contract::{
         AuthorizationDetail, PrincipalType, StandardClaims, StorageAuthorizationAction,
         StorageAuthorizationDetail, TokenType, TokenUse,
     };
+    use of_model::idp::contract::IntrospectionResponse;
     use tower::ServiceExt;
 
     use crate::{IdpClient, RouterState, resource_router};
@@ -763,52 +722,6 @@ mod tests {
 
 use uuid::Uuid;
 
-#[derive(Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct SyncConnectRequest {
-    #[schema(value_type = String)]
-    pub resource_id: DatabaseId,
-    pub target_device: Uuid,
-    #[serde(default = "default_bidirectional")]
-    pub _direction: SyncDirection,
-}
-
-fn default_bidirectional() -> SyncDirection {
-    SyncDirection::Bidirectional
-}
-
-#[derive(Deserialize, Serialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub(super) enum SyncDirection {
-    Push,
-    Pull,
-    Bidirectional,
-}
-
-#[derive(Serialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct SyncSessionResponse {
-    pub session_id: Uuid,
-    #[schema(value_type = String)]
-    pub resource_id: DatabaseId,
-    pub source_device: Uuid,
-    pub target_device: Uuid,
-    pub status: SyncStatus,
-    pub bytes_sent: u64,
-    pub bytes_received: u64,
-}
-
-#[derive(Serialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
-pub(super) enum SyncStatus {
-    Connecting,
-    Syncing,
-    Completed,
-    Failed,
-    Cancelled,
-}
-
 #[utoipa::path(
     post,
     path = "/sync/connect",
@@ -886,4 +799,11 @@ pub(super) async fn sync_connect(
     };
 
     Ok(Json(response))
+}
+
+fn file_system_response(resource: FileSystemResource) -> FileSystemResourceResponse {
+    FileSystemResourceResponse {
+        id: resource.id.as_uuid().to_string(),
+        name: resource.name,
+    }
 }

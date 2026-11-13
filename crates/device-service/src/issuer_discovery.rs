@@ -1,4 +1,4 @@
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use iroh::EndpointId;
 use iroh_chain::{PairingOffer, Server};
 use serde::{Deserialize, Serialize};
@@ -112,7 +112,7 @@ fn decode(request: &Request, peer: &str, reply: &[u8]) -> io::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::{PURPOSE, Request, Response, decode};
-    use idp_model::model::Id;
+    use of_model::idp::model::Id;
     #[test]
     fn issuer_response_requires_exact_nonce_peer_and_purpose() {
         let request = Request {

@@ -8,8 +8,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use api::SecurityAddon;
-use api::{IndependentPeer, LocalTls};
+use server_common::SecurityAddon;
+use server_common::{IndependentPeer, LocalTls};
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -27,7 +27,7 @@ use device_service::join_history::JoinHistorySource;
 use device_service::replica::DbDeviceRepo;
 use device_service::replica::DbSelectionPolicyRepo;
 use device_service::replica::SelectionPolicy;
-use idp_model::{
+use of_model::idp::{
     contract::{
         IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
         PermissionTarget,
@@ -36,7 +36,7 @@ use idp_model::{
 };
 use iroh_chain::{EndpointIdStore, PairingOffer, Server};
 use management_service::LocalPermissions;
-use model::contract::PrincipalType;
+use of_model::contract::PrincipalType;
 use tokio::{sync::Mutex, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 

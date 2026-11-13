@@ -6,11 +6,11 @@ use device_service::{
     DeviceEndpointIdentity, HostedControlPlane,
     replica::{DbDeviceRepo, DbSelectionPolicyRepo},
 };
-use idp_model::{
+use of_model::idp::{
     contract::{ErrorCode, ErrorResponse},
     model::Id,
 };
-use model::contract::{OwnerCopyCleanup, SelectedResource, SelectedResourcesResponse};
+use of_model::contract::{OwnerCopyCleanup, SelectedResource, SelectedResourcesResponse};
 
 #[derive(Clone)]
 pub struct DeviceAuthority {

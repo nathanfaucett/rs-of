@@ -2,7 +2,7 @@ use std::{io, path::PathBuf, sync::Arc, time::Duration};
 
 use db::Database;
 use db::DatabaseTransport;
-use idp_model::{contract::IdentityAction, model::Id};
+use of_model::idp::{contract::IdentityAction, model::Id};
 use idp_service::oauth2::NodeSignerBinding;
 use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets};
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
@@ -63,7 +63,7 @@ impl Fixture {
         let key = Id::now_v7();
         {
             let idp = Arc::new(Database::open(root.join("source-idp.redb")).expect("native IdP"));
-            idp_model::replica::up(&idp).await.expect("IdP schema");
+            of_model::idp::replica::up(&idp).await.expect("IdP schema");
             sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{actor}' AS UUID), 'owner', 'Owner', 1, 1)")).await;
             let management = Arc::new(
                 Database::open(root.join("source-management.redb")).expect("native Management"),
@@ -674,12 +674,12 @@ async fn identity_policy_history_grant_and_revocation_reach_an_existing_peer() {
         .add_role_to_user(Id::nil(), fixture.actor, role.id)
         .await
         .expect("assign role");
-    let request = idp_model::contract::PermissionEvaluationRequest {
+    let request = of_model::idp::contract::PermissionEvaluationRequest {
         request_id: Id::now_v7(),
-        subject: idp_model::contract::PermissionSubject::User { id: fixture.actor },
+        subject: of_model::idp::contract::PermissionSubject::User { id: fixture.actor },
         action: IdentityAction::ApplicationsRead,
-        target: idp_model::contract::PermissionTarget::Installation {
-            resource: idp_model::contract::IdentityResource::Application { id: None },
+        target: of_model::idp::contract::PermissionTarget::Installation {
+            resource: of_model::idp::contract::IdentityResource::Application { id: None },
         },
     };
     let peer = management_service::LocalPermissions::new(fixture.peer_idp.client());

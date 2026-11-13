@@ -14,7 +14,7 @@ name = "device_service"
 
 [features]
 default = []
-utoipa = ["std", "dep:utoipa", "idp-model/utoipa"]
+utoipa = ["std", "dep:utoipa", "of-model/utoipa"]
 
 replica = [
     "dep:log",
@@ -25,9 +25,9 @@ replica = [
     "std",
     "dep:db",
     "db/network",
-    "idp-model/replica",
+    "of-model/replica",
     "idp-service/replica",
-    "dep:api",
+    "dep:server-common",
     "dep:axum",
     "dep:futures-util",
 
@@ -41,10 +41,9 @@ replica = [
 std = [
     "dep:of-idp-client",
     "dep:of-storage-api-client",
-    "idp-model/std",
+    "of-model/std",
     "idp-service/std",
-    "model/std",
-    "storage-model/std",
+
     "dep:base64",
 
     "dep:iroh",
@@ -63,23 +62,22 @@ utoipa = { version = "5.5", default-features = false, features = [
 of-idp-client = { path = "../idp-client", default-features = false, optional = true }
 of-device-client = { path = "../device-client", default-features = false, optional = true }
 of-storage-api-client = { path = "../storage-api-client", default-features = false, optional = true }
-api = { path = "../api", default-features = false, optional = true }
+server-common = { path = "../server-common", default-features = false, optional = true }
 db = { package = "idp-db", path = "../db", default-features = false, features = [
     "network",
 ], optional = true }
-idp-model = { path = "../idp-model", default-features = false, features = [] }
+of-model = { path = "../of-model", default-features = false, features = [] }
 idp-service = { path = "../idp-service", default-features = false, features = [
 ] }
 iroh-chain = { path = "../../../ofnet/crates/iroh-chain", default-features = false, features = [
 ], optional = true }
 management-service = { path = "../management-service", default-features = false, optional = true }
-model = { path = "../model", default-features = false, features = [] }
+
 ofdb-sync = { package = "ofdb-sync", path = "../../../ofdb/crates/sync", default-features = false, features = [
     "std",
     "iroh",
 ] }
-storage-model = { path = "../storage-model", default-features = false, features = [
-] }
+
 uuid = { version = "1.29", default-features = false, features = ["v5"] }
 
 # Protocol diagnostics
@@ -89,7 +87,6 @@ log = { version = "0.4", default-features = false, features = [
 
 # Error Handling
 thiserror = { version = "2.0", default-features = false, features = [] }
-
 
 # Time
 chrono = { version = "0.4", default-features = false, features = [
@@ -107,7 +104,6 @@ base64 = { version = "0.22", default-features = false, features = [
 iroh = { version = "1.4", default-features = false, features = [
     "tls-ring",
 ], optional = true }
-
 
 # Serialization
 serde = { version = "1.0", default-features = false, features = ["derive"] }
@@ -145,18 +141,14 @@ tokio-tungstenite = { version = "0.29", default-features = false, features = [
 ], optional = true }
 tokio-util = { version = "0.7", default-features = false, optional = true }
 
-
 [dev-dependencies]
-idp-model = { path = "../idp-model", default-features = false, features = [
-    "std",
-] }
+of-model = { path = "../of-model", default-features = false, features = ["std"] }
 ofdb-sql = { path = "../../../ofdb/crates/sql", default-features = false, features = [
 ] }
 tokio = { version = "1.4", default-features = false, features = [
     "macros",
     "rt",
 ] }
-
 
 # Security wire assertions
 postcard = { version = "1.1", default-features = false, features = ["alloc"] }

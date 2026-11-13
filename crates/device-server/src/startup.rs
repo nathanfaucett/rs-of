@@ -81,7 +81,7 @@ mod tests {
     fn existing_owner_keeps_its_listener_and_does_not_gain_fresh_admission() {
         let root = std::env::temp_dir().join(format!(
             "device-existing-{}",
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         std::fs::create_dir(&root).expect("existing domain root");
         let path = root.join("config.yaml");
@@ -108,7 +108,7 @@ mod tests {
     fn retained_setup_keeps_the_default_listener_after_domain_creation() {
         let root = std::env::temp_dir().join(format!(
             "device-retained-port-{}",
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         std::fs::create_dir(&root).expect("fixture root");
         let domain = root.join("device");
@@ -160,7 +160,7 @@ mod tests {
     fn optional_cli_config_uses_an_independent_root_and_port() {
         let path = std::env::temp_dir().join(format!(
             "absent-device-{}.yaml",
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         let config = super::load_config(&path).expect("optional configuration");
         assert_eq!(config.data_dir, "device-data");
@@ -170,7 +170,7 @@ mod tests {
     #[test]
     fn fresh_owner_routing_settings_are_not_relationship_credentials() {
         let root =
-            std::env::temp_dir().join(format!("device-routing-{}", idp_model::model::Id::now_v7()));
+            std::env::temp_dir().join(format!("device-routing-{}", of_model::idp::model::Id::now_v7()));
         let config = crate::AppConfig {
             data_dir: root.join("device").to_string_lossy().into_owned(),
             idp_api_base: "https://127.0.0.1:3000".into(),
@@ -190,7 +190,7 @@ mod tests {
     fn fresh_owner_startup_requires_no_relationship_credentials() {
         let root = std::env::temp_dir().join(format!(
             "device-independent-{}",
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         let config = crate::AppConfig {
             data_dir: root.join("device").to_string_lossy().into_owned(),

@@ -11,12 +11,12 @@ use std::{
     },
 };
 
-use api::{IndependentCreateIntent, LocalTls};
-use idp_model::model::Id;
+use server_common::{IndependentCreateIntent, LocalTls};
+use of_model::idp::model::Id;
 use idp_service::repo::RawKeyringRepo;
 use keyring_core::{
     Entry,
-    api::{Credential, CredentialApi, CredentialStoreApi},
+    server_common::{Credential, CredentialApi, CredentialStoreApi},
 };
 use serde_json::Value;
 use tokio::time::{Duration, Instant, sleep};

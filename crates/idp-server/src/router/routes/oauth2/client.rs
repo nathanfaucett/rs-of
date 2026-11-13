@@ -2,7 +2,7 @@ use axum::{
     Json,
     extract::{Path, State},
 };
-use idp_model::contract::{ClientConsentMetadata, ErrorResponse};
+use of_model::idp::contract::{ClientConsentMetadata, ErrorResponse};
 
 use crate::router::{RouterState, middleware::StandardAuthorization};
 

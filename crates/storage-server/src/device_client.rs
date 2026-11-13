@@ -7,7 +7,7 @@ use std::{
 use device_service::ApprovedDeviceEndpoints;
 use iroh::{EndpointId, endpoint::Connection};
 use iroh_chain::Server;
-use model::contract::{
+use of_model::contract::{
     OwnerCopyCleanup, ReplicationAdmissionRequest, SelectedResourcesResponse, TokenResponse,
     TokenType,
 };
@@ -336,7 +336,7 @@ mod tests {
             AUDIENCE,
         )
         .expect("Management client");
-        let cleanup = model::contract::OwnerCopyCleanup {
+        let cleanup = of_model::contract::OwnerCopyCleanup {
             cleanup_id: "cleanup".into(),
             device_id: "device".into(),
             endpoint_id: "endpoint".into(),
@@ -498,8 +498,8 @@ mod tests {
             http::{HeaderMap, StatusCode},
             routing::{get, post},
         };
-        use idp_model::model::Id;
-        use model::contract::SelectedResource;
+        use of_model::idp::model::Id;
+        use of_model::contract::SelectedResource;
 
         let local = iroh::SecretKey::generate().public();
         let remote = iroh::SecretKey::generate().public();
@@ -979,7 +979,7 @@ mod tests {
                 .split_once("\r\n\r\n")
                 .expect("admission request has a body")
                 .1;
-            serde_json::from_str::<model::contract::ReplicationAdmissionRequest>(body)
+            serde_json::from_str::<of_model::contract::ReplicationAdmissionRequest>(body)
                 .expect("valid admission request body")
         };
         let forward_request = parse_admission(&admission_requests[0]);

@@ -5,7 +5,7 @@ use axum::{
     body::Body,
     http::{Request, StatusCode, header::LOCATION},
 };
-use idp_model::contract::AuthorizationRequest;
+use of_model::idp::contract::AuthorizationRequest;
 use idp_service::{
     PasswordConfig,
     oauth2::{OAuth2Config, OAuth2Service},

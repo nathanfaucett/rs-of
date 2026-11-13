@@ -5,9 +5,9 @@ use device_service::DeviceRepo;
 use device_service::replica::DbDeviceRepo;
 use device_service::replica::DbSelectionPolicyRepo;
 use device_service::replica::SelectionPolicy;
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use idp_service::{PasswordConfig, replica::DbUserRepo, repo::UserRepo};
-use model::contract::SelectedResource;
+use of_model::contract::SelectedResource;
 
 use super::{DeviceReplicationPolicy, LocalReplicationAuthorizer};
 
@@ -27,7 +27,7 @@ async fn native_selection_fixture(select: bool) {
     let idp = Arc::new(Database::open(root.join("idp.redb")).expect("IdP store"));
     let management =
         Arc::new(Database::open(root.join("management.redb")).expect("Management store"));
-    idp_model::replica::up(&idp).await.expect("IdP schema");
+    of_model::idp::replica::up(&idp).await.expect("IdP schema");
     device_service::replica::up(&management)
         .await
         .expect("Management schema");
@@ -156,7 +156,7 @@ async fn callback_cleanup_preserves_exact_binding_cancellation_and_remote_denial
         atomic::{AtomicUsize, Ordering},
     };
 
-    use model::contract::{OwnerCopyCleanup, SelectedResourcesResponse};
+    use of_model::contract::{OwnerCopyCleanup, SelectedResourcesResponse};
     use storage_service::{DatabaseRuntime, ScopedFileSystemRuntime};
     use tokio_util::sync::CancellationToken;
 

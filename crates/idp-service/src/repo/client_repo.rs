@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 
-use idp_model::{
+use of_model::idp::{
     contract::ClientRegistration,
     model::{Client, Id},
 };

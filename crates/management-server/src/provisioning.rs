@@ -1,7 +1,7 @@
 use std::{io, sync::Arc};
 
 use db::Database;
-use idp_model::{
+use of_model::idp::{
     contract::IdentityAction,
     model::{Id, Role},
 };
@@ -63,7 +63,7 @@ pub async fn identity_client(config: &crate::AppConfig) -> io::Result<db::Client
     config.validate_identity_connection()?;
     if let Some(remote) = &config.identity_database {
         let client = remote.connect().await?;
-        idp_model::replica::validate_identity(&client)
+        of_model::idp::replica::validate_identity(&client)
             .await
             .map_err(io::Error::other)?;
         return Ok(client);
@@ -81,7 +81,7 @@ pub async fn identity_client(config: &crate::AppConfig) -> io::Result<db::Client
             .await
             .map_err(io::Error::other)?
             .with_deadline(deadline);
-            idp_model::replica::validate_identity(&client)
+            of_model::idp::replica::validate_identity(&client)
                 .await
                 .map_err(io::Error::other)?;
             Ok(client)
@@ -168,12 +168,12 @@ mod tests {
         use std::{sync::Arc, time::Duration};
         let root = std::env::temp_dir().join(format!(
             "management-socket-{}",
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         std::fs::create_dir(&root).expect("private test root");
         let socket = root.join("identity.sock");
         let engine = Arc::new(db::Database::open(root.join("owner.redb")).expect("owner database"));
-        idp_model::replica::up(&engine)
+        of_model::idp::replica::up(&engine)
             .await
             .expect("identity schema");
         let (stop, stopped) = tokio::sync::oneshot::channel();
@@ -202,7 +202,7 @@ mod tests {
         let client = super::identity_client(&config)
             .await
             .expect("explicit socket identity connection");
-        idp_model::replica::validate_identity(&client)
+        of_model::idp::replica::validate_identity(&client)
             .await
             .expect("same identity schema");
         assert!(
@@ -225,7 +225,7 @@ mod tests {
         };
         let root = std::env::temp_dir().join(format!(
             "management-socket-denial-{}",
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         std::fs::create_dir(&root).expect("test root");
         let mut config = crate::AppConfig {
@@ -324,7 +324,7 @@ mod tests {
     async fn standalone_identity_requires_remote_without_local_fallback() {
         let root = std::env::temp_dir().join(format!(
             "management-client-{}",
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         let mut config = crate::AppConfig {
             data_dir: root.to_string_lossy().into_owned(),
@@ -348,7 +348,7 @@ mod initial_administrator_tests {
     use std::sync::Arc;
 
     use db::Database;
-    use idp_model::{
+    use of_model::idp::{
         contract::{
             IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
             PermissionTarget,
@@ -375,7 +375,7 @@ mod initial_administrator_tests {
         };
         {
             let engine = Arc::new(Database::open(&path).expect("owner database"));
-            idp_model::replica::up(&engine)
+            of_model::idp::replica::up(&engine)
                 .await
                 .expect("identity schema");
             grant

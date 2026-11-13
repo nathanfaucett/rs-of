@@ -14,7 +14,7 @@ use std::{
 use db::Database;
 use device_service::replica::DbSelectionPolicyRepo;
 use device_service::replica::SelectionPolicy;
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use tower::ServiceExt;
 
 struct TlsConfig {
@@ -22,7 +22,7 @@ struct TlsConfig {
     address: SocketAddr,
 }
 
-impl api::LocalTlsConfig for TlsConfig {
+impl server_common::LocalTlsConfig for TlsConfig {
     fn tls_directory(&self) -> PathBuf {
         self.root.clone()
     }
@@ -42,7 +42,7 @@ fn independent_transfer_production_https() {
     let address = listener.local_addr().expect("TLS address");
     let mut bundle = Vec::new();
     for owner in ["idp", "device"] {
-        let tls = api::LocalTls::create(&TlsConfig {
+        let tls = server_common::LocalTls::create(&TlsConfig {
             root: root.join(owner),
             address,
         })
@@ -116,7 +116,7 @@ async fn independent_transfer_https_child() {
         use device_service::HostedControlPlane;
         use device_service::replica::DbDeviceRepo;
         use idp_service::{PasswordConfig, replica::DbUserRepo, repo::UserRepo};
-        use model::contract::{OwnerCopyCleanup, SelectedResourcesResponse};
+        use of_model::contract::{OwnerCopyCleanup, SelectedResourcesResponse};
         use storage_server::{DeviceClient, LocalReplicationAuthorizer, StorageCopyRetirement};
         use storage_service::{DatabaseRuntime, ScopedFileSystemRuntime};
         use tokio_util::sync::CancellationToken;
@@ -255,12 +255,12 @@ async fn independent_transfer_https_child() {
                     next.run(request).await
                 }
             }));
-        let idp_tls = api::LocalTls::open(&TlsConfig {
+        let idp_tls = server_common::LocalTls::open(&TlsConfig {
             root: root.join("idp"),
             address: idp_address,
         })
         .expect("retained IdP TLS");
-        let management_tls = api::LocalTls::open(&TlsConfig {
+        let management_tls = server_common::LocalTls::open(&TlsConfig {
             root: root.join("device"),
             address: management_address,
         })
@@ -288,7 +288,7 @@ async fn independent_transfer_https_child() {
             "storage-service",
         )
         .expect("existing scoped Storage relationship");
-        let http = api::LocalTls::verification_client().expect("native-root HTTPS client");
+        let http = server_common::LocalTls::verification_client().expect("native-root HTTPS client");
         let cleanup_url = format!("{management_base}/replication/owner-cleanup");
         let selection_url = format!("{management_base}/replication/devices/{local}/selections");
         assert_eq!(
@@ -384,7 +384,7 @@ async fn independent_transfer_https_child() {
                 .status(),
             StatusCode::UNAUTHORIZED
         );
-        let token_response: model::contract::TokenResponse = http
+        let token_response: of_model::contract::TokenResponse = http
             .post(format!("{idp_base}/oauth2/token"))
             .form(&[
                 ("grant_type", "client_credentials"),

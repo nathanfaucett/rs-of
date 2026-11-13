@@ -53,7 +53,6 @@ zeroize = { version = "1.9", default-features = false, features = [] }
 # Keyring
 keyring-core = { version = "1.0", default-features = false, features = [], optional = true }
 
-
 [target.'cfg(target_os = "linux")'.dependencies]
 dbus-secret-service-keyring-store = { version = "1.0", default-features = false, features = [
   "crypto-rust",

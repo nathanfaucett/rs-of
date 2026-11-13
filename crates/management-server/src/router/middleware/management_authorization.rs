@@ -1,10 +1,10 @@
 use axum::extract::{FromRef, FromRequestParts};
 use http::{HeaderValue, header::AUTHORIZATION, request::Parts};
-use idp_model::{
+use of_model::idp::{
     contract::{ErrorCode, ErrorResponse},
     model::Id,
 };
-use model::contract::StandardClaims;
+use of_model::contract::StandardClaims;
 
 use crate::RouterState;
 
@@ -62,7 +62,7 @@ where
 }
 
 fn management_audience(claims: &StandardClaims) -> bool {
-    claims.principal_type == model::contract::PrincipalType::User
+    claims.principal_type == of_model::contract::PrincipalType::User
         && claims.aud == management_service::MANAGEMENT_APPLICATION_URI
 }
 
@@ -104,7 +104,7 @@ fn authorization_from_header(
 
 #[cfg(test)]
 mod tests {
-    use model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
+    use of_model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
 
     use super::management_audience;
 

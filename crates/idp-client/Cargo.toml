@@ -6,6 +6,9 @@ publish = false
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+# Shared HTTP contracts
+of-model = { path = "../of-model", default-features = false }
+
 # Serialization
 serde = { version = "1.0", default-features = false, features = ["derive", "std"] }
 serde_json = { version = "1.0", default-features = false, features = ["std"] }

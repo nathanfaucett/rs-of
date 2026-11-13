@@ -12,6 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import { extractRustModels } from "./shared-rust-models.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const destinations = {
@@ -299,6 +300,14 @@ try {
     ]);
     cpSync(ts, target, { recursive: true });
     generate(name, "rust", path.join(rust, name));
+    const modelOwner = name === "storage" ? "storage_api" : name;
+    const shared = path.join(stage, "models", modelOwner);
+    extractRustModels(path.join(rust, name), modelOwner, shared);
+    run("rustfmt", ["--edition", "2024", path.join(shared, "mod.rs")]);
+    replacements.push([
+      shared,
+      path.join(root, "crates/of-model/src/http", modelOwner),
+    ]);
     const crateName =
       name === "storage" ? "storage-api-client" : `${name}-client`;
     replacements.push([
@@ -355,6 +364,8 @@ try {
     run("cargo", [
       "fmt",
       "--check",
+      "-p",
+      "of-model",
       ...crateNames.flatMap((crateName) => ["-p", `of-${crateName}`]),
     ]);
     run("cargo", ["fetch"]);

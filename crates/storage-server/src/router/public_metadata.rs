@@ -5,7 +5,7 @@ use super::{openapi::openapi_json, routes::version::version};
 /// Serves version and the full API contract without opening runtime state.
 /// `api_base_uri` is the complete public owner base; `prefix` only mounts routes.
 pub fn public_metadata_router(api_base_uri: &str, prefix: &str) -> Router {
-    let document = api::canonical_openapi("storage", api_base_uri, "");
+    let document = server_common::canonical_openapi("storage", api_base_uri, "");
     let routes = Router::new()
         .route("/version", get(version))
         .route("/openapi.json", get(openapi_json))
@@ -54,7 +54,7 @@ mod tests {
                     assert!(value["version"].is_string());
                     assert!(value["build"].is_string());
                 } else {
-                    assert_eq!(value, api::canonical_openapi("storage", base, ""));
+                    assert_eq!(value, server_common::canonical_openapi("storage", base, ""));
                     assert!(value["paths"]["/databases"].is_object());
                     assert!(value["paths"]["/filesystems"].is_object());
                     assert!(value["paths"]["/"].is_object());

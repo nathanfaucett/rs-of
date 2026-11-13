@@ -2,7 +2,7 @@ use std::{fmt, sync::Arc};
 
 use file_system::{Entry, FileKind, FileSystem};
 use serde::{Serialize, de::DeserializeOwned};
-use storage_model::{
+use of_model::storage::{
     StorageEntry, StorageErrorCode, StorageNamespace, StorageRequest, StorageResponse,
     StorageSession,
 };
@@ -189,13 +189,13 @@ where
 mod policy_tests {
     use super::StorageService;
     use std::sync::Arc;
-    use storage_model::StorageRequest;
+    use of_model::storage::StorageRequest;
 
     #[tokio::test]
     async fn passthrough_service_cannot_delete_or_rename_metadata() {
         let root = std::env::temp_dir().join(format!(
             "passthrough-service-{}",
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         let filesystem = Arc::new(
             file_system::FileSystem::open(&root, 1_u8)
@@ -412,7 +412,7 @@ mod tests {
     use std::{env, fs, sync::Arc};
 
     use file_system::{FileSystem, Residency};
-    use storage_model::{StorageRequest, StorageResponse};
+    use of_model::storage::{StorageRequest, StorageResponse};
 
     use super::StorageService;
 

@@ -15,8 +15,8 @@ use axum::{
     http::{Method, Request, StatusCode, header::AUTHORIZATION},
 };
 use device_service::DeviceState;
-use idp_model::{contract::IntrospectionResponse, model::Id};
-use model::contract::{
+use of_model::idp::{contract::IntrospectionResponse, model::Id};
+use of_model::contract::{
     AuthorizationDetail, PrincipalType, StandardClaims, StorageAuthorizationAction,
     StorageAuthorizationDetail, TokenType, TokenUse,
 };

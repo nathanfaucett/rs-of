@@ -1,11 +1,11 @@
-use idp_model::{
+use of_model::idp::{
     contract::{
         ClientRegistration, ErrorCode, ErrorResponse, GrantType, IdentityAction,
         PermissionEvaluationRequest, PermissionSubject, PermissionTarget,
     },
     model::Id,
 };
-use model::contract::PrincipalType;
+use of_model::contract::PrincipalType;
 
 use crate::{RouterState, router::middleware::StandardAuthorization};
 

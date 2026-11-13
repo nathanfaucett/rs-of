@@ -1,8 +1,9 @@
+pub use of_model::server::idp::administration::{Page, ResetPassword, SetUserMfaRequest, SetUserBlockedRequest};
 use axum::{
     Json,
     extract::{Path, Query, State},
 };
-use idp_model::{
+use of_model::idp::{
     contract::{
         ApplicationRegistration, ErrorCode, ErrorResponse, IdentityAction, IdentityResource,
         PermissionTarget, UserInfo,
@@ -16,18 +17,6 @@ use crate::router::{
     RouterState,
     middleware::{StandardAuthorization, require_identity_permission},
 };
-
-#[derive(Deserialize, utoipa::IntoParams)]
-#[into_params(parameter_in = Query)]
-pub(crate) struct Page {
-    #[serde(default)]
-    pub offset: u32,
-    #[serde(default = "default_limit")]
-    pub limit: u32,
-}
-fn default_limit() -> u32 {
-    50
-}
 
 async fn require(
     state: &RouterState,
@@ -247,12 +236,6 @@ pub(crate) async fn delete_user(
     state.oauth2_service.delete_user(id).await
 }
 
-#[derive(Deserialize, utoipa::ToSchema)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct ResetPassword {
-    pub password: String,
-}
-
 #[utoipa::path(put, path = "/users/{user_id}/password", params(("user_id" = String, Path)),
     request_body = ResetPassword, responses((status = 200, description = "Reset password")), security(("authorization" = [])))]
 pub(crate) async fn reset_password(
@@ -272,13 +255,6 @@ pub(crate) async fn reset_password(
         .oauth2_service
         .reset_user_password(id, &body.password)
         .await
-}
-
-#[derive(Deserialize, utoipa::ToSchema)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct SetUserMfaRequest {
-    pub method: String,
-    pub enable: bool,
 }
 
 #[utoipa::path(post, path = "/users/{user_id}/mfa", params(("user_id" = String, Path)),
@@ -312,12 +288,6 @@ pub(crate) async fn set_user_mfa(
             .set_user_mfa_webauthn_credentials(id, None)
             .await
     }
-}
-
-#[derive(Deserialize, utoipa::ToSchema)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct SetUserBlockedRequest {
-    pub blocked: bool,
 }
 
 #[utoipa::path(post, path = "/users/{user_id}/block", params(("user_id" = String, Path)),

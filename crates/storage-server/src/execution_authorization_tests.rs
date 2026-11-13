@@ -11,7 +11,7 @@ use db::{Database, SqlTranslator};
 use device_service::DeviceRepo;
 use device_service::replica::DbDeviceRepo;
 use file_system::FileResponse;
-use idp_model::{
+use of_model::idp::{
     contract::{
         IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
         PermissionTarget,
@@ -63,7 +63,7 @@ async fn queued_write_fixture(in_flight: bool) {
         std::fs::create_dir_all(&root).expect("create local stores");
         let idp = Arc::new(Database::open(root.join("idp.redb")).expect("open IdP"));
         let management = Arc::new(Database::open(root.join("management.redb")).expect("open Management"));
-        idp_model::replica::up(&idp).await.expect("IdP schema");
+        of_model::idp::replica::up(&idp).await.expect("IdP schema");
         device_service::replica::up(&management).await.expect("Device schema");
         management_service::replica::up(&management).await.expect("Management policy schema");
         let actor = Id::now_v7();
@@ -129,7 +129,7 @@ async fn queued_write_fixture(in_flight: bool) {
                 write_loop(inner.clone(), send, received, inner.shutdown.subscribe()).await
             })
         };
-        service.remove_role_from_user(idp_model::contract::INSTALLATION_POLICY_ID, actor, role).await.expect("learn local denial while queued");
+        service.remove_role_from_user(of_model::idp::contract::INSTALLATION_POLICY_ID, actor, role).await.expect("learn local denial while queued");
         assert!(!LocalPermissions::new(management.client()).evaluate(&request).await.expect("current local denial"));
         inner.outgoing.lock().expect("queue lock").take();
         resume.notify_one();

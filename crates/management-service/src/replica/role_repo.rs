@@ -3,7 +3,7 @@ use db::{
     FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue, QueryFrom,
     QueryInsert, QuerySelect, Row, Statement, Uuid, Value,
 };
-use idp_model::{
+use of_model::idp::{
     model::{Id, Permission, Role},
     replica::{SecurityRow, SecurityTable, allows_authorization},
 };

@@ -7,7 +7,7 @@ use device_service::HostedControlPlane;
 use device_service::PairingAcceptanceController;
 use device_service::TimedPairingAcceptanceController;
 use device_service::replica::DbDeviceRepo;
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use idp_service::{
     oauth2::OAuth2Service,
     replica::{
@@ -35,7 +35,7 @@ impl IdpRuntime {
     pub async fn authorize_management_bearer(
         &self,
         bearer: &str,
-    ) -> Result<idp_model::contract::IntrospectionResponse, String> {
+    ) -> Result<of_model::idp::contract::IntrospectionResponse, String> {
         crate::management_owner::authorize_management_bearer(&self.join_state, bearer).await
     }
 
@@ -50,7 +50,7 @@ impl IdpRuntime {
     pub async fn authorize_storage_bearer(
         &self,
         bearer: &str,
-    ) -> Result<idp_model::contract::IntrospectionResponse, idp_model::contract::ErrorResponse>
+    ) -> Result<of_model::idp::contract::IntrospectionResponse, of_model::idp::contract::ErrorResponse>
     {
         crate::storage_owner::authorize_storage_bearer(&self.join_state, bearer).await
     }
@@ -58,7 +58,7 @@ impl IdpRuntime {
     pub async fn authorize_node_join_approver(
         &self,
         bearer: &str,
-    ) -> io::Result<idp_model::model::Id> {
+    ) -> io::Result<of_model::idp::model::Id> {
         self.join_state.authorize_node_join_approver(bearer).await
     }
 
@@ -187,7 +187,7 @@ pub async fn identity_client(config: &AppConfig) -> io::Result<db::Client> {
             ));
         }
         let client = remote.connect().await?;
-        idp_model::replica::validate_identity(&client)
+        of_model::idp::replica::validate_identity(&client)
             .await
             .map_err(io::Error::other)?;
         return Ok(client);
@@ -195,7 +195,7 @@ pub async fn identity_client(config: &AppConfig) -> io::Result<db::Client> {
     std::fs::create_dir_all(&config.data_dir)?;
     let database = Database::open(std::path::Path::new(&config.data_dir).join("idp.redb"))
         .map_err(io::Error::other)?;
-    idp_model::replica::up(&database)
+    of_model::idp::replica::up(&database)
         .await
         .map_err(io::Error::other)?;
     Ok(database.client())
@@ -361,7 +361,7 @@ mod tests {
     async fn remote_identity_startup_never_falls_back_to_a_private_database() {
         let root = std::env::temp_dir().join(format!(
             "remote-identity-startup-{}",
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         let listener =
             std::net::TcpListener::bind("127.0.0.1:0").expect("reserve unavailable SQL endpoint");
@@ -541,7 +541,7 @@ mod tests {
         drop(engine);
         let mut invalid = config;
         invalid.oauth2.local_signer.as_mut().expect("signer").key_id =
-            idp_model::model::Id::now_v7();
+            of_model::idp::model::Id::now_v7();
         let engine = Arc::new(db::Database::open(root.join("idp.redb")).expect("existing owner"));
         assert!(
             super::build_oauth_runtime(&invalid, engine.client())
@@ -589,13 +589,13 @@ mod tests {
             .expect("current local User");
         assert!(
             runtime
-                .active_user(idp_model::model::Id::nil())
+                .active_user(of_model::idp::model::Id::nil())
                 .await
                 .is_err()
         );
         assert!(
             runtime
-                .active_user(idp_model::model::Id::now_v7())
+                .active_user(of_model::idp::model::Id::now_v7())
                 .await
                 .is_err()
         );

@@ -1,7 +1,7 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use chrono::Utc;
-use idp_model::{
+use of_model::idp::{
     contract::{ClientProfile, ClientType, GrantType, TokenEndpointAuthMethod},
     model::{Client, Id},
 };
@@ -48,7 +48,7 @@ impl Fixture {
         };
         let engine = Engine::new(kernel.clone(), AutomergeRowCodec::new());
         let migration =
-            include_str!("../../../idp-model/replica_migrations/20241117224814_init.up.sql");
+            include_str!("../../../of-model/identity_migrations/0001_init.up.sql");
         for statement in migration.split(';').map(str::trim).filter(|statement| {
             statement.starts_with("CREATE TABLE IF NOT EXISTS clients (")
                 || statement.starts_with("CREATE TABLE IF NOT EXISTS local_client_credentials (")

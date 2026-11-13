@@ -13,7 +13,7 @@ use device_service::DeviceRepo;
 use device_service::PairingAcceptance;
 use device_service::TrustedDevice;
 use device_service::UpdateDeviceRequest;
-use idp_model::{
+use of_model::idp::{
     contract::{
         ErrorCode, ErrorResponse, IdentityAction, IdentityResource, MANAGEMENT_DEVICE_LIST_SCOPE,
         MANAGEMENT_DEVICE_LOOKUP_SCOPE, PermissionTarget,
@@ -21,7 +21,7 @@ use idp_model::{
     model::Id,
 };
 use iroh::EndpointId;
-use model::contract::PrincipalType;
+use of_model::contract::PrincipalType;
 
 use crate::router::{
     RouterState,

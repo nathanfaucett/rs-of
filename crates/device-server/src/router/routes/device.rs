@@ -1,15 +1,9 @@
 use axum::{Json, extract::State, http::StatusCode};
+pub use of_model::server::device::device::Device;
 use serde::Serialize;
 use utoipa::ToSchema;
 
 use crate::RouterState;
-
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Device {
-    public_key: String,
-    address: String,
-}
 
 #[utoipa::path(
     get,

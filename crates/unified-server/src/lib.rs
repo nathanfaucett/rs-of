@@ -7,7 +7,7 @@ mod runtime;
 #[cfg(unix)]
 mod setup_host;
 
-pub use api::LocalTls;
+pub use server_common::LocalTls;
 #[cfg(feature = "cli")]
 pub use cli::run;
 pub use config::UnifiedConfig;

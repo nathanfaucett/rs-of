@@ -1,7 +1,7 @@
 use std::io;
 
 use db::Client;
-use idp_model::{contract::JwkPublic, model::Id};
+use of_model::idp::{contract::JwkPublic, model::Id};
 
 use super::{DbReplicaSignerRepo, DbUserRepo};
 use crate::{PasswordConfig, oauth2::NodeSignerBinding, repo::UserRepo};

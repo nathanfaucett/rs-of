@@ -13,7 +13,7 @@ use axum::{
 };
 use crc32fast::Hasher;
 use serde::{Deserialize, Serialize};
-use storage_model::StorageNamespace;
+use of_model::storage::StorageNamespace;
 use storage_service::DatabaseRuntime;
 use uuid::Uuid;
 
@@ -241,7 +241,7 @@ pub async fn authorize_sync(
 
     let claims = &introspection.claims;
     let now = unix_time_seconds();
-    if claims.exp <= now || claims.nbf > now || claims.r#use != model::contract::TokenUse::Access {
+    if claims.exp <= now || claims.nbf > now || claims.r#use != of_model::contract::TokenUse::Access {
         return Err(SyncAuthError::Unauthorized);
     }
     if claims.aud != "storage:sync" {

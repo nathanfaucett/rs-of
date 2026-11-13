@@ -2,7 +2,7 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD};
 use chrono::Utc;
-use idp_model::{
+use of_model::idp::{
     contract::{
         EntityType, IdpSignerRecord, JwkPublic, JwkPublicParameters, JwsAlgorithm, KeyUse,
         ReplicaMembership,
@@ -48,7 +48,7 @@ impl Fixture {
         };
         let engine = Engine::new(kernel.clone(), AutomergeRowCodec::new());
         let migration =
-            include_str!("../../../idp-model/replica_migrations/20241117224814_init.up.sql");
+            include_str!("../../../of-model/identity_migrations/0001_init.up.sql");
         for statement in migration.split(';').map(str::trim).filter(|statement| {
             statement.starts_with("CREATE TABLE IF NOT EXISTS keys (")
                 || statement.starts_with("CREATE TABLE IF NOT EXISTS idp_replica_members (")
@@ -259,7 +259,7 @@ async fn key_read_preserves_every_decoded_field() {
     let future = Utc::now().timestamp() + 3600;
     fixture.key(id, entity, Some(parent), 10).await;
     fixture.sql(&format!("UPDATE keys SET derivation_path = 'm/7/42', derivation_index = 42, hardened = 0, name = 'Decoded key', public_jwk = '{encoded}', revoked_at = {future}, expires_at = {future}, updated_at = 20 WHERE id = CAST('{id}' AS UUID)")).await;
-    let expected = idp_model::model::Key {
+    let expected = of_model::idp::model::Key {
         id,
         parent_id: Some(parent),
         entity_type: EntityType::User,

@@ -6,7 +6,7 @@ use std::sync::{
 use axum::Router;
 use db::Database;
 use futures_util::{SinkExt, StreamExt};
-use idp_model::{
+use of_model::idp::{
     contract::{
         ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, GrantType,
         TokenEndpointAuthMethod,
@@ -21,10 +21,10 @@ use idp_service::{
 use iroh::{SecretKey, endpoint::presets};
 use iroh_chain::{EndpointIdStore, Server};
 use management_service::LocalPermissions;
-use model::contract::{
+use of_model::contract::{
     AuthorizationDetail, StorageAuthorizationAction, StorageAuthorizationDetail, TokenResponse,
 };
-use storage_model::{StorageRequest, StorageResponse, StorageSession};
+use of_model::storage::{StorageRequest, StorageResponse, StorageSession};
 use storage_service::{DatabaseRuntime, FileSystemId, ScopedFileSystemRuntime};
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -42,7 +42,7 @@ pub(crate) struct StorageNamespace {
     pub(crate) user_sub: String,
     pub(crate) application_id: Id,
 }
-impl storage_model::StorageNamespace for StorageNamespace {
+impl of_model::storage::StorageNamespace for StorageNamespace {
     fn user_sub(&self) -> &str {
         &self.user_sub
     }

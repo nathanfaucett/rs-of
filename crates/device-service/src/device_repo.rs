@@ -25,12 +25,12 @@ pub trait DeviceRepo {
 
     fn pending_pairing(
         &self,
-        device_id: idp_model::model::Id,
+        device_id: of_model::idp::model::Id,
     ) -> impl Future<Output = DeviceResult<Option<(Device, String)>>>;
 
     fn approve_pairing(
         &self,
-        device_id: idp_model::model::Id,
+        device_id: of_model::idp::model::Id,
     ) -> impl Future<Output = DeviceResult<Option<Device>>>;
 
     fn has_any(&self) -> impl Future<Output = DeviceResult<bool>>;
@@ -59,26 +59,26 @@ pub trait DeviceRepo {
 
     fn approve(
         &self,
-        device_id: idp_model::model::Id,
+        device_id: of_model::idp::model::Id,
         enrollment_code_hash: &[u8],
     ) -> impl Future<Output = DeviceResult<Option<Device>>>;
 
     fn approve_by_admin(
         &self,
-        device_id: idp_model::model::Id,
+        device_id: of_model::idp::model::Id,
     ) -> impl Future<Output = DeviceResult<Option<Device>>>;
 
     fn rename(
         &self,
         owner_subject: &str,
-        device_id: idp_model::model::Id,
+        device_id: of_model::idp::model::Id,
         name: String,
     ) -> impl Future<Output = DeviceResult<Option<Device>>>;
 
     fn revoke(
         &self,
         owner_subject: &str,
-        device_id: idp_model::model::Id,
+        device_id: of_model::idp::model::Id,
         protected_public_key: &str,
     ) -> impl Future<Output = DeviceResult<bool>>;
 

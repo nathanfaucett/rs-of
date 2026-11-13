@@ -1,124 +1,33 @@
-pub mod application_registration;
-pub use self::application_registration::ApplicationRegistration;
-pub mod approve_for_user_request;
-pub use self::approve_for_user_request::ApproveForUserRequest;
-pub mod authorization_code_response;
-pub use self::authorization_code_response::AuthorizationCodeResponse;
-pub mod authorization_code_response_one_of;
-pub use self::authorization_code_response_one_of::AuthorizationCodeResponseOneOf;
-pub mod authorization_code_response_one_of_1;
-pub use self::authorization_code_response_one_of_1::AuthorizationCodeResponseOneOf1;
-pub mod authorization_detail;
-pub use self::authorization_detail::AuthorizationDetail;
-pub mod authorization_request;
-pub use self::authorization_request::AuthorizationRequest;
-pub mod authorization_server_metadata;
-pub use self::authorization_server_metadata::AuthorizationServerMetadata;
-pub mod challenge;
-pub use self::challenge::Challenge;
-pub mod client_consent_metadata;
-pub use self::client_consent_metadata::ClientConsentMetadata;
-pub mod client_profile;
-pub use self::client_profile::ClientProfile;
-pub mod client_registration;
-pub use self::client_registration::ClientRegistration;
-pub mod client_type;
-pub use self::client_type::ClientType;
-pub mod code_challenge_method;
-pub use self::code_challenge_method::CodeChallengeMethod;
-pub mod create_user_request;
-pub use self::create_user_request::CreateUserRequest;
-pub mod device_authorization;
-pub use self::device_authorization::DeviceAuthorization;
-pub mod enroll_replica_signer;
-pub use self::enroll_replica_signer::EnrollReplicaSigner;
-pub mod error_code;
-pub use self::error_code::ErrorCode;
-pub mod error_response;
-pub use self::error_response::ErrorResponse;
-pub mod grant_type;
-pub use self::grant_type::GrantType;
-pub mod health_response;
-pub use self::health_response::HealthResponse;
-pub mod health_status;
-pub use self::health_status::HealthStatus;
-pub mod health_status_one_of;
-pub use self::health_status_one_of::HealthStatusOneOf;
-pub mod history_request;
-pub use self::history_request::HistoryRequest;
-pub mod independent_create_intent;
-pub use self::independent_create_intent::IndependentCreateIntent;
-pub mod independent_create_request;
-pub use self::independent_create_request::IndependentCreateRequest;
-pub mod independent_join_approval;
-pub use self::independent_join_approval::IndependentJoinApproval;
-pub mod independent_join_request;
-pub use self::independent_join_request::IndependentJoinRequest;
-pub mod independent_owner_public;
-pub use self::independent_owner_public::IndependentOwnerPublic;
-pub mod independent_peer;
-pub use self::independent_peer::IndependentPeer;
-pub mod introspection_request;
-pub use self::introspection_request::IntrospectionRequest;
-pub mod introspection_response;
-pub use self::introspection_response::IntrospectionResponse;
-pub mod is_allowed_for_user_request;
-pub use self::is_allowed_for_user_request::IsAllowedForUserRequest;
-pub mod is_allowed_for_user_response;
-pub use self::is_allowed_for_user_response::IsAllowedForUserResponse;
-pub mod jwk_public;
-pub use self::jwk_public::JwkPublic;
-pub mod jwk_public_parameters;
-pub use self::jwk_public_parameters::JwkPublicParameters;
-pub mod jwk_public_parameters_one_of;
-pub use self::jwk_public_parameters_one_of::JwkPublicParametersOneOf;
-pub mod jwk_public_parameters_one_of_1;
-pub use self::jwk_public_parameters_one_of_1::JwkPublicParametersOneOf1;
-pub mod jwk_public_parameters_one_of_2;
-pub use self::jwk_public_parameters_one_of_2::JwkPublicParametersOneOf2;
-pub mod jwks;
-pub use self::jwks::Jwks;
-pub mod jws_algorithm;
-pub use self::jws_algorithm::JwsAlgorithm;
-pub mod key_use;
-pub use self::key_use::KeyUse;
-pub mod owner_setup_status;
-pub use self::owner_setup_status::OwnerSetupStatus;
-pub mod principal_type;
-pub use self::principal_type::PrincipalType;
-pub mod registration;
-pub use self::registration::Registration;
-pub mod reset_password;
-pub use self::reset_password::ResetPassword;
-pub mod response_mode;
-pub use self::response_mode::ResponseMode;
-pub mod response_type;
-pub use self::response_type::ResponseType;
-pub mod rotate_replica_signer;
-pub use self::rotate_replica_signer::RotateReplicaSigner;
-pub mod set_user_blocked_request;
-pub use self::set_user_blocked_request::SetUserBlockedRequest;
-pub mod set_user_mfa_request;
-pub use self::set_user_mfa_request::SetUserMfaRequest;
-pub mod standard_claims;
-pub use self::standard_claims::StandardClaims;
-pub mod storage_authorization_action;
-pub use self::storage_authorization_action::StorageAuthorizationAction;
-pub mod storage_authorization_detail;
-pub use self::storage_authorization_detail::StorageAuthorizationDetail;
-pub mod subject_token_type;
-pub use self::subject_token_type::SubjectTokenType;
-pub mod token_endpoint_auth_method;
-pub use self::token_endpoint_auth_method::TokenEndpointAuthMethod;
-pub mod token_response;
-pub use self::token_response::TokenResponse;
-pub mod token_type;
-pub use self::token_type::TokenType;
-pub mod token_use;
-pub use self::token_use::TokenUse;
-pub mod update_user_info_request;
-pub use self::update_user_info_request::UpdateUserInfoRequest;
-pub mod user_info;
-pub use self::user_info::UserInfo;
-pub mod version_response;
-pub use self::version_response::VersionResponse;
+pub use of_model::http::idp::{
+    ApplicationRegistration, ApproveForUserRequest, AuthorizationCodeResponse,
+    AuthorizationCodeResponseOneOf, AuthorizationCodeResponseOneOf1, AuthorizationDetail,
+    AuthorizationRequest, AuthorizationServerMetadata, Challenge, ClientConsentMetadata,
+    ClientProfile, ClientRegistration, ClientType, CodeChallengeMethod, CreateUserRequest,
+    DeviceAuthorization, EnrollReplicaSigner, ErrorCode, ErrorResponse, GrantType, HealthResponse,
+    HealthStatus, HealthStatusOneOf, HistoryRequest, IndependentCreateIntent,
+    IndependentCreateRequest, IndependentJoinApproval, IndependentJoinRequest,
+    IndependentOwnerPublic, IndependentPeer, IntrospectionRequest, IntrospectionResponse,
+    IsAllowedForUserRequest, IsAllowedForUserResponse, JwkPublic, JwkPublicParameters,
+    JwkPublicParametersOneOf, JwkPublicParametersOneOf1, JwkPublicParametersOneOf2, Jwks,
+    JwsAlgorithm, KeyUse, OwnerSetupStatus, PrincipalType, Registration, ResetPassword,
+    ResponseMode, ResponseType, RotateReplicaSigner, SetUserBlockedRequest, SetUserMfaRequest,
+    StandardClaims, StorageAuthorizationAction, StorageAuthorizationDetail, SubjectTokenType,
+    TokenEndpointAuthMethod, TokenResponse, TokenType, TokenUse, UpdateUserInfoRequest, UserInfo,
+    VersionResponse, application_registration, approve_for_user_request,
+    authorization_code_response, authorization_code_response_one_of,
+    authorization_code_response_one_of_1, authorization_detail, authorization_request,
+    authorization_server_metadata, challenge, client_consent_metadata, client_profile,
+    client_registration, client_type, code_challenge_method, create_user_request,
+    device_authorization, enroll_replica_signer, error_code, error_response, grant_type,
+    health_response, health_status, health_status_one_of, history_request,
+    independent_create_intent, independent_create_request, independent_join_approval,
+    independent_join_request, independent_owner_public, independent_peer, introspection_request,
+    introspection_response, is_allowed_for_user_request, is_allowed_for_user_response, jwk_public,
+    jwk_public_parameters, jwk_public_parameters_one_of, jwk_public_parameters_one_of_1,
+    jwk_public_parameters_one_of_2, jwks, jws_algorithm, key_use, owner_setup_status,
+    principal_type, registration, reset_password, response_mode, response_type,
+    rotate_replica_signer, set_user_blocked_request, set_user_mfa_request, standard_claims,
+    storage_authorization_action, storage_authorization_detail, subject_token_type,
+    token_endpoint_auth_method, token_response, token_type, token_use, update_user_info_request,
+    user_info, version_response,
+};

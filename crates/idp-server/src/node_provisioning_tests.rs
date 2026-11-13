@@ -7,7 +7,7 @@ use std::{
     },
 };
 
-use idp_model::{
+use of_model::idp::{
     contract::{
         ApplicationRegistration, ClientCredentialsGrantRequest, ClientProfile, ClientRegistration,
         ClientType, GrantType, OAuth2ClientAuth, TokenEndpointAuthMethod, TokenRequest,
@@ -19,7 +19,7 @@ use idp_service::{
     repo::{ApplicationRepo, ClientRepo, KeyRepo, PrivateKeyRepo, RepoError, RepoResult},
 };
 use key::{DerivationPath, DerivedKey};
-use model::contract::StandardClaims;
+use of_model::contract::StandardClaims;
 
 use crate::{AppConfig, OwnerProvisioner};
 
@@ -107,7 +107,7 @@ impl PrivateKeyRepo for Secrets {
 fn retain_private_attempt(
     owner: &OwnerProvisioner<Secrets>,
     slot: &str,
-    root: &idp_model::model::Key,
+    root: &of_model::idp::model::Key,
 ) {
     let paths =
         idp_service::repo::KeyService::<idp_service::replica::DbKeyRepo, Secrets>::private_paths(
@@ -129,7 +129,7 @@ fn retain_private_attempt(
 
 async fn publish_private_attempt(
     owner: &OwnerProvisioner<Secrets>,
-    root: &idp_model::model::Key,
+    root: &of_model::idp::model::Key,
 ) -> RepoResult<DerivedKey> {
     let keys = &owner.oauth2.key_service;
     let namespace = keys.scoped_namespace(root.entity_type, root.entity_id);
@@ -273,7 +273,7 @@ async fn node_preparation_stored_interruption_reopens_exactly_without_enrolled_t
     .expect("inventory");
     assert_eq!(inventory["node"]["state"], "attempted");
     assert_eq!(inventory["node"]["binding"], serde_json::json!(binding));
-    let expected: idp_model::contract::JwkPublic =
+    let expected: of_model::idp::contract::JwkPublic =
         serde_json::from_value(inventory["node"]["public_signer"].clone())
             .expect("public identity captured before store");
     println!(
@@ -917,7 +917,7 @@ async fn inventory_captures_metadata_root_without_using_private_provider() {
         .oauth2
         .key_service
         .key_repo()
-        .find_active_entity_root_key(idp_model::contract::EntityType::Client, entity)
+        .find_active_entity_root_key(of_model::idp::contract::EntityType::Client, entity)
         .await
         .expect("root lookup")
         .expect("captured root");
@@ -1014,12 +1014,12 @@ async fn metadata_root_retries_reject_corrupt_capture_and_missing_actual_root() 
     for (slot, entity, id) in [
         (
             format!("user:{user}"),
-            idp_model::contract::EntityType::User,
+            of_model::idp::contract::EntityType::User,
             user,
         ),
         (
             client.to_string(),
-            idp_model::contract::EntityType::Client,
+            of_model::idp::contract::EntityType::Client,
             owner
                 .oauth2
                 .client_repo
@@ -1078,7 +1078,7 @@ async fn metadata_root_retries_reject_corrupt_capture_and_missing_actual_root() 
             }
             let bytes = serde_json::to_vec(&corrupt).expect("fault fixture");
             std::fs::write(&path, &bytes).expect("inject capture fault");
-            if entity == idp_model::contract::EntityType::User {
+            if entity == of_model::idp::contract::EntityType::User {
                 owner
                     .ensure_initial_user_root(user)
                     .await
@@ -1128,7 +1128,7 @@ async fn metadata_root_retries_reject_corrupt_capture_and_missing_actual_root() 
             )
             .await
             .expect("inject corrupt root metadata");
-        if entity == idp_model::contract::EntityType::User {
+        if entity == of_model::idp::contract::EntityType::User {
             owner
                 .ensure_initial_user_root(user)
                 .await
@@ -1158,7 +1158,7 @@ async fn metadata_root_retries_reject_corrupt_capture_and_missing_actual_root() 
             .delete_by_entity_type_and_id(entity, id)
             .await
             .expect("lose captured metadata");
-        if entity == idp_model::contract::EntityType::User {
+        if entity == of_model::idp::contract::EntityType::User {
             owner
                 .ensure_initial_user_root(user)
                 .await
@@ -1248,12 +1248,12 @@ async fn metadata_root_retry_validates_rotated_active_root_independently() {
     for (slot, entity, id) in [
         (
             format!("user:{user}"),
-            idp_model::contract::EntityType::User,
+            of_model::idp::contract::EntityType::User,
             user,
         ),
         (
             client.to_string(),
-            idp_model::contract::EntityType::Client,
+            of_model::idp::contract::EntityType::Client,
             client_entity,
         ),
     ] {
@@ -1276,7 +1276,7 @@ async fn metadata_root_retry_validates_rotated_active_root_independently() {
         let reference = std::fs::read(&reference_path).expect("initial capture remains the anchor");
         let record: serde_json::Value = serde_json::from_slice(&reference).expect("capture");
         assert_eq!(record["root_id"], serde_json::json!(initial.id));
-        let valid = if entity == idp_model::contract::EntityType::User {
+        let valid = if entity == of_model::idp::contract::EntityType::User {
             owner.ensure_initial_user_root(user).await
         } else {
             owner.ensure_client_root(&client.to_string()).await
@@ -1321,13 +1321,13 @@ async fn metadata_root_retry_validates_rotated_active_root_independently() {
                 .expect("fault fixture")
                 .remove(0)
                 .rows;
-            let result = if entity == idp_model::contract::EntityType::User {
+            let result = if entity == of_model::idp::contract::EntityType::User {
                 owner.ensure_initial_user_root(user).await
             } else {
                 owner.ensure_client_root(&client.to_string()).await
             };
             result.expect_err("corrupt active metadata must deny even with an intact initial root");
-            if entity == idp_model::contract::EntityType::Client {
+            if entity == of_model::idp::contract::EntityType::Client {
                 let registration = owner
                     .oauth2
                     .get_client(&client.to_string())
@@ -1358,7 +1358,7 @@ async fn metadata_root_retry_validates_rotated_active_root_independently() {
             assert_eq!(secrets.load_calls.load(Ordering::SeqCst), 0);
             owner.engine.translate_and_execute(&format!("UPDATE keys SET hardened = 1, derivation_index = {}, derivation_path = '{}', public_jwk = NULL WHERE id = CAST('{}' AS UUID)", active.derivation_index, active.derivation_path.replace('\'', "''"), active.id), &db::SqlTranslator).await.expect("restore exact active metadata fixture");
         }
-        let valid = if entity == idp_model::contract::EntityType::User {
+        let valid = if entity == of_model::idp::contract::EntityType::User {
             owner.ensure_initial_user_root(user).await
         } else {
             owner.ensure_client_root(&client.to_string()).await
@@ -1406,7 +1406,7 @@ async fn metadata_only_reset_refuses_uninventoried_cryptographic_material() {
             .await
             .expect("metadata root");
         let keys = &owner.oauth2.key_service;
-        let entity = idp_model::contract::EntityType::User;
+        let entity = of_model::idp::contract::EntityType::User;
         let initial = keys
             .key_repo()
             .find_active_entity_root_key(entity, user)
@@ -1617,7 +1617,7 @@ async fn legacy_reset_verifies_inactive_unpublished_paths_before_discarding_meta
             .await
             .expect("initial root");
         let keys = &owner.oauth2.key_service;
-        let entity = idp_model::contract::EntityType::User;
+        let entity = of_model::idp::contract::EntityType::User;
         let initial = keys
             .key_repo()
             .find_active_entity_root_key(entity, user)
@@ -1765,7 +1765,7 @@ async fn legacy_private_attempt_is_unchanged_until_explicit_verified_reset() {
         .oauth2
         .key_service
         .key_repo()
-        .find_active_entity_root_key(idp_model::contract::EntityType::User, user)
+        .find_active_entity_root_key(of_model::idp::contract::EntityType::User, user)
         .await
         .expect("root")
         .expect("actual root");
@@ -1777,7 +1777,7 @@ async fn legacy_private_attempt_is_unchanged_until_explicit_verified_reset() {
         .oauth2
         .key_service
         .key_repo()
-        .delete_by_entity_type_and_id(idp_model::contract::EntityType::User, user)
+        .delete_by_entity_type_and_id(of_model::idp::contract::EntityType::User, user)
         .await
         .expect("lose public rows after private attempt");
     let inventory_path = root.join("setup-secret-inventory.json");
@@ -1819,7 +1819,7 @@ async fn legacy_private_attempt_is_unchanged_until_explicit_verified_reset() {
     let namespace = owner
         .oauth2
         .key_service
-        .scoped_namespace(idp_model::contract::EntityType::User, user);
+        .scoped_namespace(of_model::idp::contract::EntityType::User, user);
     assert_eq!(
         secrets
             .load(&namespace, private.derivation_path())
@@ -1937,7 +1937,7 @@ async fn inventory_user_cleanup_survives_lost_key_metadata() {
         .oauth2
         .key_service
         .key_repo()
-        .find_active_entity_root_key(idp_model::contract::EntityType::User, user)
+        .find_active_entity_root_key(of_model::idp::contract::EntityType::User, user)
         .await
         .expect("User root")
         .expect("retained root");
@@ -1950,7 +1950,7 @@ async fn inventory_user_cleanup_survives_lost_key_metadata() {
         .oauth2
         .key_service
         .key_repo()
-        .delete_by_entity_type_and_id(idp_model::contract::EntityType::User, user)
+        .delete_by_entity_type_and_id(of_model::idp::contract::EntityType::User, user)
         .await
         .expect("lose metadata");
     owner
@@ -2079,7 +2079,7 @@ async fn restricted_desktop_client_enables_local_user_signin_and_exact_retry() {
         let result = provisioner
             .oauth2
             .token(
-                TokenRequest::Password(idp_model::contract::PasswordGrantRequest {
+                TokenRequest::Password(of_model::idp::contract::PasswordGrantRequest {
                     client_id: desktop_client.to_string(),
                     username: "desktop-admin".into(),
                     password: password.into(),
@@ -2101,10 +2101,10 @@ async fn restricted_desktop_client_enables_local_user_signin_and_exact_retry() {
                     .oauth2
                     .token(
                         TokenRequest::TokenExchange(
-                            idp_model::contract::TokenExchangeGrantRequest {
+                            of_model::idp::contract::TokenExchangeGrantRequest {
                                 subject_token: token.access_token.0.clone(),
                                 subject_token_type:
-                                    idp_model::contract::SubjectTokenType::AccessToken,
+                                    of_model::idp::contract::SubjectTokenType::AccessToken,
                                 actor_token: None,
                                 actor_token_type: None,
                                 resource: Some(audience.into()),
@@ -2126,14 +2126,14 @@ async fn restricted_desktop_client_enables_local_user_signin_and_exact_retry() {
                 assert_eq!(claims.sub, user.to_string());
                 assert_eq!(claims.aud, audience);
                 assert_eq!(claims.scope, ["openid", "profile", "email"]);
-                assert_eq!(claims.principal_type, model::contract::PrincipalType::User);
+                assert_eq!(claims.principal_type, of_model::contract::PrincipalType::User);
             }
         }
     }
     let keys = &provisioner.oauth2.key_service;
     let user_key = keys
         .key_repo()
-        .find_by_entity_type_and_id(idp_model::contract::EntityType::User, user)
+        .find_by_entity_type_and_id(of_model::idp::contract::EntityType::User, user)
         .await
         .expect("retained public identity")
         .expect("User key");
@@ -2147,7 +2147,7 @@ async fn restricted_desktop_client_enables_local_user_signin_and_exact_retry() {
     publish_private_attempt(&provisioner, &user_key)
         .await
         .expect("explicit published User crypto fixture");
-    let namespace = keys.scoped_namespace(idp_model::contract::EntityType::User, user);
+    let namespace = keys.scoped_namespace(of_model::idp::contract::EntityType::User, user);
     keys.private_key_repo()
         .delete(&namespace, &user_key.derivation_path().expect("User path"))
         .expect("simulate lost private reference");
@@ -2216,7 +2216,7 @@ async fn private_attempt_client_never_regenerates_and_reset_deletes_internal_nam
     let keys = &provisioner.oauth2.key_service;
     let key = keys
         .key_repo()
-        .find_active_entity_root_key(idp_model::contract::EntityType::Client, client.id)
+        .find_active_entity_root_key(of_model::idp::contract::EntityType::Client, client.id)
         .await
         .expect("Client root")
         .expect("retained metadata");
@@ -2245,7 +2245,7 @@ async fn private_attempt_client_never_regenerates_and_reset_deletes_internal_nam
             .public_jwk
             .expect("explicitly published")
     );
-    let namespace = keys.scoped_namespace(idp_model::contract::EntityType::Client, client.id);
+    let namespace = keys.scoped_namespace(of_model::idp::contract::EntityType::Client, client.id);
     let path = key.derivation_path().expect("client key path");
     let retained = secrets
         .load(&namespace, &path)
@@ -2289,7 +2289,7 @@ async fn private_attempt_client_never_regenerates_and_reset_deletes_internal_nam
     );
     assert!(
         keys.key_repo()
-            .list_by_entity_type_and_id(idp_model::contract::EntityType::Client, client.id)
+            .list_by_entity_type_and_id(of_model::idp::contract::EntityType::Client, client.id)
             .await
             .expect("removed metadata")
             .is_empty()
@@ -2383,12 +2383,12 @@ async fn reset_retains_deleted_client_namespace_across_native_reopen_and_secret_
     let namespace = provisioner
         .oauth2
         .key_service
-        .scoped_namespace(idp_model::contract::EntityType::Client, client.id);
+        .scoped_namespace(of_model::idp::contract::EntityType::Client, client.id);
     let key = provisioner
         .oauth2
         .key_service
         .key_repo()
-        .find_active_entity_root_key(idp_model::contract::EntityType::Client, client.id)
+        .find_active_entity_root_key(of_model::idp::contract::EntityType::Client, client.id)
         .await
         .expect("Client root")
         .expect("metadata root");

@@ -1,0 +1,54 @@
+[package]
+name = "of-model"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Shared owner domain models and contracts"
+
+[features]
+default = []
+std = ["key/std", "serde/std", "serde_json/std", "chrono/std", "base64/std"]
+replica = ["std", "dep:db", "db/replica", "dep:include_dir"]
+utoipa = ["dep:utoipa", "std"]
+axum = ["dep:axum"]
+wasm = ["dep:tsify", "dep:serde-wasm-bindgen", "dep:wasm-bindgen"]
+
+[dependencies]
+# Internal
+db = { package = "idp-db", path = "../db", default-features = false, features = [], optional = true }
+key = { path = "../key", default-features = false, features = [] }
+
+# Database
+include_dir = { version = "0.7", default-features = false, features = [], optional = true }
+
+# Serialization
+serde = { version = "1.0", default-features = false, features = ["alloc", "derive"] }
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
+serde_repr = { version = "0.1", default-features = false }
+serde_with = { version = "3.8", default-features = false, features = ["alloc", "macros"] }
+
+# Web
+axum = { version = "0.8", default-features = false, features = ["json"], optional = true }
+utoipa = { version = "5.5", default-features = false, features = ["chrono", "macros", "uuid"], optional = true }
+
+# Utilities
+base64 = { version = "0.22", default-features = false, features = ["alloc"] }
+build-time = { version = "0.1", default-features = false, features = [] }
+chrono = { version = "0.4", default-features = false, features = ["alloc", "serde"] }
+thiserror = { version = "2.0", default-features = false }
+uuid = { version = "1.29", default-features = false, features = ["serde", "v7"] }
+
+# Wasm
+serde-wasm-bindgen = { version = "0.6", default-features = false, optional = true, features = [] }
+tsify = { version = "0.5", default-features = false, features = ["js"], optional = true }
+wasm-bindgen = { version = "0.2", default-features = false, features = ["std"], optional = true }
+
+[dev-dependencies]
+# Migration tests
+futures = { version = "0.3", default-features = false, features = ["executor"] }
+tempfile = { version = "3.27", default-features = false }
+
+ofdb-sql = { path = "../../../ofdb/crates/sql", default-features = false, features = ["in-memory", "sync"] }

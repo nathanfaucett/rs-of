@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use api::{LocalTls, LocalTlsConfig};
+use server_common::{LocalTls, LocalTlsConfig};
 use setup::{IndependentCreateCommand, IndependentCreateHost, IndependentSetupHost};
 use axum::{Router, extract::Request, http::StatusCode};
 use tokio::{sync::mpsc, task::JoinSet};
@@ -58,11 +58,11 @@ impl SetupHost {
                 ));
             }
         }
-        let retained = api::setup_files::present(&config.tls_directory())?;
+        let retained = server_common::setup_files::present(&config.tls_directory())?;
         if !retained
             && paths[..3].iter().any(|path| {
-                api::setup_files::present(path).unwrap_or(true)
-                    || api::setup_files::present(&path.with_extension("setup-host")).unwrap_or(true)
+                server_common::setup_files::present(path).unwrap_or(true)
+                    || server_common::setup_files::present(&path.with_extension("setup-host")).unwrap_or(true)
             })
         {
             return Err(io::Error::other(
@@ -244,7 +244,7 @@ fn reject_previous_layout(config: &UnifiedConfig) -> io::Result<()> {
         .parent()
         .ok_or_else(|| io::Error::other("endpoint root has no parent"))?;
     if let Some(data) = parent.parent()
-        && api::setup_files::present(&data.join("reset-state.json"))?
+        && server_common::setup_files::present(&data.join("reset-state.json"))?
     {
         return Err(io::Error::other(
             "native reset is pending; finish that exact reset before starting owner workers",
@@ -259,7 +259,7 @@ fn reject_previous_layout(config: &UnifiedConfig) -> io::Result<()> {
         endpoint.with_extension("provisioning"),
         endpoint.with_extension("credentials"),
     ] {
-        if api::setup_files::present(&path)? {
+        if server_common::setup_files::present(&path)? {
             return Err(io::Error::other(
                 "unsupported previous Unified Host installation; preserve this root and restore the previous binary for recovery/reset, or explicitly choose a new empty data directory; automatic migration is not supported",
             ));

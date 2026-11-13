@@ -7,11 +7,11 @@ use device_service::HostedControlPlane;
 use device_service::replica::DbDeviceRepo;
 use device_service::replica::DbSelectionPolicyRepo;
 use device_service::replica::OwnerPolicyObservation;
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use management_service::ManagementService;
 use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
-use model::contract::SelectedResource;
+use of_model::contract::SelectedResource;
 
 use crate::{RouterState, router::openapi_router};
 
@@ -102,8 +102,8 @@ mod tests {
     use device_service::replica::DbSelectionPolicyRepo;
     use device_service::replica::SelectionPolicy;
     use device_service::replica::up;
-    use idp_model::model::Id;
-    use model::contract::SelectedResource;
+    use of_model::idp::model::Id;
+    use of_model::contract::SelectedResource;
     use std::{fs, sync::Arc};
 
     async fn replication_policy(

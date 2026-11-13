@@ -44,16 +44,15 @@ members = [
     "crates/storage-api-client",
     "crates/db",
     "crates/cli",
-    "crates/api",
+    "crates/server-common",
     "crates/key",
     "crates/management-server",
     "crates/management-service",
     "crates/device-service",
     "crates/device-server",
-    "crates/idp-model",
+    "crates/of-model",
     "crates/idp-server",
     "crates/idp-service",
-    "crates/storage-model",
     "crates/storage-server",
     "crates/storage-service",
     "crates/unified-server",
@@ -136,7 +135,7 @@ strip = true
 
 [dev-dependencies]
 # System-test service entry points
-api = { path = "crates/api", default-features = false, features = [
+server-common = { path = "crates/server-common", default-features = false, features = [
     "test-support",
 ] }
 device-server = { path = "crates/device-server", default-features = false, features = [
@@ -185,9 +184,7 @@ rustls = { version = "0.23", default-features = false, features = [
     "std",
     "tls12",
 ] }
-storage-model = { path = "crates/storage-model", default-features = false, features = [
-    "std",
-] }
+of-model = { path = "crates/of-model", default-features = false, features = ["replica", "std"] }
 tokio-tungstenite = { version = "0.29", default-features = false, features = [
     "connect",
     "handshake",
@@ -209,10 +206,7 @@ device-service = { path = "crates/device-service", default-features = false, fea
     "utoipa",
 ] }
 http = { version = "1.4", default-features = false }
-idp-model = { path = "crates/idp-model", default-features = false, features = [
-    "replica",
-    "std",
-] }
+
 iroh = { version = "1.4", default-features = false, features = ["tls-ring"] }
 iroh-chain = { path = "../ofnet/crates/iroh-chain", default-features = false }
 log = { version = "0.4", default-features = false, features = ["std"] }
@@ -220,7 +214,7 @@ management-service = { path = "crates/management-service", default-features = fa
     "replica",
     "std",
 ] }
-model = { path = "crates/model", default-features = false, features = ["std"] }
+
 ofdb-sql = { path = "../ofdb/crates/sql", default-features = false, features = [
     "native-stage",
 ] }

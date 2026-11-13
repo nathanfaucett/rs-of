@@ -1,7 +1,7 @@
 use db::Database;
 use device_service::DeviceRepo;
 use device_service::replica::DbDeviceRepo;
-use idp_model::contract::{
+use of_model::idp::contract::{
     ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, EntityType, GrantType,
     INSTALLATION_POLICY_ID, IdentityAction, IdentityResource, MANAGEMENT_PERMISSION_EVALUATE_SCOPE,
     PermissionEvaluationRequest, PermissionEvaluationResponse, PermissionSubject, PermissionTarget,
@@ -25,14 +25,14 @@ use std::{
 #[derive(serde::Deserialize, serde::Serialize)]
 pub(crate) struct PermissionFixture {
     pub(crate) local_signer: idp_service::oauth2::NodeSignerBinding,
-    pub(crate) application_id: idp_model::model::Id,
-    pub(crate) other_application_id: idp_model::model::Id,
-    pub(crate) administrator: idp_model::model::Id,
-    pub(crate) app_administrator: idp_model::model::Id,
-    pub(crate) application_role: idp_model::model::Id,
-    pub(crate) unassigned_user: idp_model::model::Id,
-    pub(crate) registrar: idp_model::model::Id,
-    pub(crate) consent_id: idp_model::model::Id,
+    pub(crate) application_id: of_model::idp::model::Id,
+    pub(crate) other_application_id: of_model::idp::model::Id,
+    pub(crate) administrator: of_model::idp::model::Id,
+    pub(crate) app_administrator: of_model::idp::model::Id,
+    pub(crate) application_role: of_model::idp::model::Id,
+    pub(crate) unassigned_user: of_model::idp::model::Id,
+    pub(crate) registrar: of_model::idp::model::Id,
+    pub(crate) consent_id: of_model::idp::model::Id,
 }
 
 pub(crate) async fn seed_idp(
@@ -62,7 +62,7 @@ pub(crate) async fn seed_idp_with_config(
     )
     .await
     .expect("fresh native fixture owner");
-    let administrator = idp_model::model::Id::now_v7();
+    let administrator = of_model::idp::model::Id::now_v7();
     owner
         .prepare_fresh_setup_secret_inventory(administrator, &[])
         .await
@@ -213,7 +213,7 @@ pub(crate) async fn seed_idp_with_config(
             owner
                 .ensure_initial_user(
                     administrator,
-                    idp_model::model::Id::now_v7(),
+                    of_model::idp::model::Id::now_v7(),
                     name,
                     "user-password",
                 )
@@ -262,20 +262,20 @@ pub(crate) async fn seed_idp_with_config(
         .await
         .expect("Device fixture schema");
     let devices = DbDeviceRepo::new(management.client());
-    let member_id = idp_model::model::Id::now_v7();
+    let member_id = of_model::idp::model::Id::now_v7();
     devices
         .enroll_approved_exact(member_id, administrator, "owner-test", endpoint_id, 1)
         .await
         .expect("Device-owned approved local endpoint");
     let local_signer = idp_service::oauth2::NodeSignerBinding {
         member_id,
-        key_id: idp_model::model::Id::now_v7(),
+        key_id: of_model::idp::model::Id::now_v7(),
         endpoint_id: endpoint_id.into(),
     };
     let public_jwk = owner
         .prepare_node_signer(&local_signer)
         .expect("prepare local Node signer");
-    let member = idp_model::contract::ReplicaMembership {
+    let member = of_model::idp::contract::ReplicaMembership {
         installation_id: issuer.into(),
         issuer: issuer.into(),
         member_id: local_signer.member_id,
@@ -283,7 +283,7 @@ pub(crate) async fn seed_idp_with_config(
         approved_at: 1,
         revoked_at: None,
     };
-    let signer = idp_model::contract::IdpSignerRecord {
+    let signer = of_model::idp::contract::IdpSignerRecord {
         member_id: member.member_id,
         key_id: local_signer.key_id,
         issuer: issuer.into(),
@@ -325,7 +325,7 @@ pub(crate) async fn seed_idp_with_config(
         unassigned_user: user_ids[2],
         registrar: user_ids[3],
         consent_id: consent.id,
-        application_role: idp_model::model::Id::now_v7(),
+        application_role: of_model::idp::model::Id::now_v7(),
     }
 }
 
@@ -337,7 +337,7 @@ pub(crate) async fn seed_permissions_at(path: &std::path::Path, fixture: &mut Pe
     fs::create_dir_all(path.parent().expect("database directory"))
         .expect("create Management data directory");
     let engine = Arc::new(Database::open(path).expect("open Management fixture"));
-    idp_model::replica::up_policy(&engine)
+    of_model::idp::replica::up_policy(&engine)
         .await
         .expect("initialize Management schema");
     seed_permissions_on(engine.client(), fixture).await;
@@ -650,7 +650,7 @@ pub(crate) async fn run_lifecycle_http_checks(
     .await;
     let old_token = infrastructure_token(client, base, &id, "rotated-infrastructure-secret").await;
     let evaluation = PermissionEvaluationRequest {
-        request_id: idp_model::model::Id::now_v7(),
+        request_id: of_model::idp::model::Id::now_v7(),
         subject: PermissionSubject::User {
             id: fixture.administrator,
         },
@@ -1243,7 +1243,7 @@ pub(crate) async fn run_permission_http_checks(
     )
     .await;
     let mut evaluation = PermissionEvaluationRequest {
-        request_id: idp_model::model::Id::now_v7(),
+        request_id: of_model::idp::model::Id::now_v7(),
         subject: PermissionSubject::User {
             id: fixture.administrator,
         },
@@ -1395,7 +1395,7 @@ struct ModifierTolerantTestStore {
     inner: Arc<keyring_core::mock::Store>,
 }
 
-impl keyring_core::api::CredentialStoreApi for ModifierTolerantTestStore {
+impl keyring_core::server_common::CredentialStoreApi for ModifierTolerantTestStore {
     fn vendor(&self) -> String {
         self.inner.vendor()
     }
@@ -1410,11 +1410,11 @@ impl keyring_core::api::CredentialStoreApi for ModifierTolerantTestStore {
         user: &str,
         _modifiers: Option<&HashMap<&str, &str>>,
     ) -> keyring_core::Result<keyring_core::Entry> {
-        keyring_core::api::CredentialStoreApi::build(&*self.inner, service, user, None)
+        keyring_core::server_common::CredentialStoreApi::build(&*self.inner, service, user, None)
     }
 
     fn search(&self, spec: &HashMap<&str, &str>) -> keyring_core::Result<Vec<keyring_core::Entry>> {
-        keyring_core::api::CredentialStoreApi::search(&*self.inner, spec)
+        keyring_core::server_common::CredentialStoreApi::search(&*self.inner, spec)
     }
 
     fn as_any(&self) -> &dyn Any {

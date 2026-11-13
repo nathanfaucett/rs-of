@@ -5,7 +5,7 @@ use std::{
 };
 
 use db::{Database, Value};
-use idp_model::{contract::IdentityAction, model::Id};
+use of_model::idp::{contract::IdentityAction, model::Id};
 use idp_service::{
     PasswordConfig,
     oauth2::NodeSignerBinding,
@@ -71,7 +71,7 @@ async fn exchange_history() {
     let key_b = Id::now_v7();
     {
         let idp = Arc::new(Database::open(root.join("a-idp.redb")).expect("seed IdP"));
-        idp_model::replica::up(&idp)
+        of_model::idp::replica::up(&idp)
             .await
             .expect("fresh secret-free schemas");
         sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{actor}' AS UUID), 'administrator', 'Administrator', 1, 1)")).await;

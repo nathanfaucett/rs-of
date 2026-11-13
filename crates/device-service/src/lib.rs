@@ -3,18 +3,13 @@
 
 extern crate alloc;
 
-mod contract;
-mod device;
-mod device_state_sql;
-
-pub use contract::{
-    ApprovedDeviceEndpoints, DeviceApprovalRequest, DeviceEndpointIdentity, DeviceEnrollment,
-    DeviceEnrollmentRequest, DeviceInfo, DevicePairingApprovalPayload,
+pub use of_model::device::{
+    ApprovedDeviceEndpoints, Device, DeviceApprovalRequest, DeviceEndpointIdentity,
+    DeviceEnrollment, DeviceEnrollmentRequest, DeviceInfo, DevicePairingApprovalPayload,
     DevicePairingApprovalRequest, DevicePairingRequest, DeviceSelfRevocationRequest, DeviceState,
     DeviceTransferRequest, PairingAcceptance, TrustedDevice, UpdateDeviceRequest,
     device_pairing_approval_payload, device_self_revocation_payload,
 };
-pub use device::Device;
 
 #[cfg(feature = "replica")]
 pub mod replica;
@@ -24,7 +19,6 @@ mod device_enrollment;
 #[cfg(feature = "std")]
 mod device_identity;
 mod device_repo;
-mod error;
 #[cfg(feature = "std")]
 mod hosted_control_plane;
 #[cfg(feature = "std")]
@@ -39,9 +33,9 @@ pub use device_identity::{
     open_with_allowlist as open_device_identity_with_allowlist,
 };
 pub use device_repo::DeviceRepo;
-pub use error::{DeviceError, DeviceResult};
 #[cfg(feature = "std")]
 pub use hosted_control_plane::HostedControlPlane;
+pub use of_model::device_error::{DeviceError, DeviceResult};
 #[cfg(feature = "std")]
 pub use pairing_acceptance::{
     PairingAcceptanceController, PairingAcceptanceControllerSlot, TimedPairingAcceptanceController,

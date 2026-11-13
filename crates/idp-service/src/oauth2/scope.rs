@@ -6,7 +6,7 @@ use alloc::{
     vec::Vec,
 };
 
-use idp_model::contract::{ErrorCode, ErrorResponse, ErrorResponseResult};
+use of_model::idp::contract::{ErrorCode, ErrorResponse, ErrorResponseResult};
 
 pub fn parse_scopes(scope: &str) -> Vec<String> {
     scope

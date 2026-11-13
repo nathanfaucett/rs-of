@@ -3,7 +3,7 @@ use db::{
     FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue, QueryFrom,
     QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid, Value,
 };
-use idp_model::{
+use of_model::idp::{
     model::{Id, OAuth2UserConsent},
     replica::{SecurityRow, SecurityTable, allows_authorization},
 };
@@ -317,7 +317,7 @@ fn select(predicate: Option<QueryExpr>) -> Query {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use idp_model::replica::up;
+    use of_model::idp::replica::up;
     use std::sync::Arc;
     #[tokio::test]
     async fn upserts_and_deletes_uuid_consents() {

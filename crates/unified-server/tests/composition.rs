@@ -9,7 +9,7 @@ use unified_server::{SetupHost, UnifiedConfig};
 async fn owner_surfaces_share_one_endpoint_and_exactly_one_prefix() {
     let root = std::env::temp_dir().join(format!(
         "owner-composition-{}",
-        idp_model::model::Id::now_v7()
+        of_model::idp::model::Id::now_v7()
     ));
     let config = UnifiedConfig::local(&root, "127.0.0.1:37443".parse().expect("loopback"));
     let host = SetupHost::prepare(config).expect("composed owner setup");

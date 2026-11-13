@@ -1,6 +1,6 @@
 use core::any::Any;
 
-use idp_model::{
+use of_model::idp::{
     contract::EntityType,
     model::{Client, Id, Key, User},
 };

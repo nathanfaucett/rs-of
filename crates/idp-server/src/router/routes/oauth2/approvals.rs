@@ -1,5 +1,5 @@
 use axum::{Json, extract::State};
-use idp_model::contract::{
+use of_model::idp::contract::{
     ApproveForUserRequest, ErrorResponse, IsAllowedForUserRequest, IsAllowedForUserResponse,
 };
 

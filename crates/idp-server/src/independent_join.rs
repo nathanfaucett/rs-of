@@ -5,7 +5,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use api::SecurityAddon;
+use server_common::SecurityAddon;
 use axum::{
     Json, Router,
     extract::State,
@@ -16,7 +16,7 @@ use device_service::independent_join::IndependentJoinApproval;
 use device_service::join_history::CheckJoinHistory;
 use device_service::join_history::JoinHistoryContext;
 use device_service::join_history::JoinHistorySource;
-use idp_model::contract::{IdpSignerRecord, ReplicaMembership};
+use of_model::idp::contract::{IdpSignerRecord, ReplicaMembership};
 use tokio_util::sync::CancellationToken;
 
 use crate::{AppConfig, IdpRuntime, RouterState};
@@ -54,7 +54,7 @@ pub async fn build_independent_idp(
             .setup_http_client
             .clone()
             .map(Ok)
-            .unwrap_or_else(api::LocalTls::verification_client)?,
+            .unwrap_or_else(server_common::LocalTls::verification_client)?,
     });
     let checked = source.clone();
     let check: CheckJoinHistory = Arc::new(move |approval| {
@@ -171,9 +171,9 @@ async fn enroll(
         &source.state,
         &actor,
         management_service::MANAGEMENT_APPLICATION_URI,
-        idp_model::contract::IdentityAction::ReplicaSignersEnroll,
-        idp_model::contract::PermissionTarget::Installation {
-            resource: idp_model::contract::IdentityResource::ReplicaSigner { member_id: None },
+        of_model::idp::contract::IdentityAction::ReplicaSignersEnroll,
+        of_model::idp::contract::PermissionTarget::Installation {
+            resource: of_model::idp::contract::IdentityResource::ReplicaSigner { member_id: None },
         },
     )
     .await

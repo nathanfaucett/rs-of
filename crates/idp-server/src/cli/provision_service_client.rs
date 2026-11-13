@@ -6,7 +6,7 @@ use std::{
 };
 
 use db::Database;
-use idp_model::contract::{
+use of_model::idp::contract::{
     ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, EntityType, GrantType,
     TokenEndpointAuthMethod,
 };
@@ -259,7 +259,7 @@ mod tests {
     };
 
     use db::Database;
-    use idp_model::contract::{
+    use of_model::idp::contract::{
         ClientCredentialsGrantRequest, EntityType, IntrospectionRequest, OAuth2ClientAuth,
         TokenRequest,
     };
@@ -278,13 +278,13 @@ mod tests {
     use iroh::{Endpoint, SecretKey, endpoint::presets};
     use key::{DerivationPath, DerivedKey};
     use management_service::LocalPermissions;
-    use model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
+    use of_model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
 
     struct ModifierTolerantTestStore {
         inner: Arc<keyring_core::mock::Store>,
     }
 
-    impl keyring_core::api::CredentialStoreApi for ModifierTolerantTestStore {
+    impl keyring_core::server_common::CredentialStoreApi for ModifierTolerantTestStore {
         fn vendor(&self) -> String {
             self.inner.vendor()
         }
@@ -299,14 +299,14 @@ mod tests {
             user: &str,
             _modifiers: Option<&HashMap<&str, &str>>,
         ) -> keyring_core::Result<keyring_core::Entry> {
-            keyring_core::api::CredentialStoreApi::build(&*self.inner, service, user, None)
+            keyring_core::server_common::CredentialStoreApi::build(&*self.inner, service, user, None)
         }
 
         fn search(
             &self,
             spec: &HashMap<&str, &str>,
         ) -> keyring_core::Result<Vec<keyring_core::Entry>> {
-            keyring_core::api::CredentialStoreApi::search(&*self.inner, spec)
+            keyring_core::server_common::CredentialStoreApi::search(&*self.inner, spec)
         }
 
         fn as_any(&self) -> &dyn Any {
@@ -428,14 +428,14 @@ mod tests {
                         let root = std::env::temp_dir().join(format!(
                             "idp-service-client-metadata-{}-{}",
                             std::process::id(),
-                            idp_model::model::Id::now_v7()
+                            of_model::idp::model::Id::now_v7()
                         ));
                         fs::create_dir_all(&root).expect("create temporary test directory");
                         let database_path = root.join("idp.redb");
                         let credentials_path = root.join("credentials.json");
                         let engine =
                             Arc::new(Database::open(&database_path).expect("open test database"));
-                        idp_model::replica::up(&engine)
+                        of_model::idp::replica::up(&engine)
                             .await
                             .expect("initialize current IdP schema");
                         let applications = DbApplicationRepo::new(engine.client());
@@ -498,8 +498,8 @@ mod tests {
                         assert!(private_keys.keys.lock().expect("private store").is_empty());
 
                         let binding = idp_service::oauth2::NodeSignerBinding {
-                            member_id: idp_model::model::Id::now_v7(),
-                            key_id: idp_model::model::Id::now_v7(),
+                            member_id: of_model::idp::model::Id::now_v7(),
+                            key_id: of_model::idp::model::Id::now_v7(),
                             endpoint_id: "provider-denied-endpoint".into(),
                         };
                         let error = key_service
@@ -563,11 +563,11 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "idp-live-service-client-{}-{}",
             std::process::id(),
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         fs::create_dir_all(&root).expect("create temporary test directory");
         let engine = Arc::new(Database::open(root.join("idp.redb")).expect("open test database"));
-        idp_model::replica::up(&engine)
+        of_model::idp::replica::up(&engine)
             .await
             .expect("initialize current IdP schema");
         let applications = DbApplicationRepo::new(engine.client());
@@ -627,7 +627,7 @@ mod tests {
             .expect("bind temporary IdP Iroh endpoint");
         let policy_engine =
             Arc::new(Database::open(root.join("devices.redb")).expect("open local policy store"));
-        idp_model::replica::up_policy(&policy_engine)
+        of_model::idp::replica::up_policy(&policy_engine)
             .await
             .expect("initialize local policy schema");
         device_service::replica::up(&policy_engine)
@@ -635,8 +635,8 @@ mod tests {
             .expect("initialize local device schema");
         let endpoint_id = endpoint.id().to_string();
         let local_signer = idp_service::oauth2::NodeSignerBinding {
-            member_id: idp_model::model::Id::now_v7(),
-            key_id: idp_model::model::Id::now_v7(),
+            member_id: of_model::idp::model::Id::now_v7(),
+            key_id: of_model::idp::model::Id::now_v7(),
             endpoint_id: endpoint_id.clone(),
         };
         let public_jwk = key_service
@@ -644,7 +644,7 @@ mod tests {
             .expect("prepare independent local Node signer");
         idp_service::replica::DbReplicaSignerRepo::new(engine.client())
             .enroll(
-                &idp_model::contract::ReplicaMembership {
+                &of_model::idp::contract::ReplicaMembership {
                     installation_id: issuer.into(),
                     issuer: issuer.into(),
                     member_id: local_signer.member_id,
@@ -652,7 +652,7 @@ mod tests {
                     approved_at: 1,
                     revoked_at: None,
                 },
-                &idp_model::contract::IdpSignerRecord {
+                &of_model::idp::contract::IdpSignerRecord {
                     member_id: local_signer.member_id,
                     key_id: local_signer.key_id,
                     issuer: issuer.into(),
@@ -821,7 +821,7 @@ mod tests {
             Some(&refresh_auth),
         );
         assert!(issued.starts_with("HTTP/1.1 200"), "{issued}");
-        let issued: model::contract::TokenResponse =
+        let issued: of_model::contract::TokenResponse =
             serde_json::from_str(http_response_body(&issued)).expect("parse user token response");
         let user_access_token = issued.access_token.0;
         let (_, user_claims) = decode_jwt::<StandardClaims>(&user_access_token)
@@ -834,11 +834,11 @@ mod tests {
                 .kid,
             refresh_key.id.to_string()
         );
-        let member_id = idp_model::model::Id::now_v7();
+        let member_id = of_model::idp::model::Id::now_v7();
         let secondary_endpoint_id = SecretKey::generate().public().to_string();
         let peer_binding = idp_service::oauth2::NodeSignerBinding {
             member_id,
-            key_id: idp_model::model::Id::now_v7(),
+            key_id: of_model::idp::model::Id::now_v7(),
             endpoint_id: secondary_endpoint_id.clone(),
         };
         let signer_jwk = state
@@ -903,11 +903,11 @@ mod tests {
             "denied enrollment leaves only local membership"
         );
 
-        use idp_model::contract::IdentityAction;
+        use of_model::idp::contract::IdentityAction;
         let admin_role = policy
             .provision_initial_administrator(
                 refresh_user.id,
-                idp_model::model::Id::now_v7(),
+                of_model::idp::model::Id::now_v7(),
                 &[
                     IdentityAction::DevicePairingRead,
                     IdentityAction::DevicePairingUpdate,
@@ -915,7 +915,7 @@ mod tests {
                     IdentityAction::ReplicaSignersRotate,
                     IdentityAction::ReplicaSignersRevoke,
                 ]
-                .map(|action| (idp_model::model::Id::now_v7(), action)),
+                .map(|action| (of_model::idp::model::Id::now_v7(), action)),
             )
             .await
             .expect("grant local signer administration permissions");
@@ -960,7 +960,7 @@ mod tests {
         assert!(conflict.starts_with("HTTP/1.1 400"), "{conflict}");
 
         let replacement_binding = idp_service::oauth2::NodeSignerBinding {
-            key_id: idp_model::model::Id::now_v7(),
+            key_id: of_model::idp::model::Id::now_v7(),
             ..peer_binding
         };
         let replacement_jwk = state
@@ -1020,7 +1020,7 @@ mod tests {
             2
         );
 
-        let registration = serde_json::to_string(&idp_model::contract::ClientRegistration::from(
+        let registration = serde_json::to_string(&of_model::idp::contract::ClientRegistration::from(
             refresh_client.clone(),
         ))
         .expect("serialize valid registration body");
@@ -1110,7 +1110,7 @@ mod tests {
             Some(&refresh_auth),
         );
         assert!(rotated.starts_with("HTTP/1.1 200"), "{rotated}");
-        let rotated: model::contract::TokenResponse =
+        let rotated: of_model::contract::TokenResponse =
             serde_json::from_str(http_response_body(&rotated))
                 .expect("parse rotated token response");
         let replacement = rotated.refresh_token.expect("rotated refresh token").0;
@@ -1261,7 +1261,7 @@ mod tests {
             introspection_response.starts_with("HTTP/1.1 200"),
             "{introspection_response}"
         );
-        let introspected: idp_model::contract::IntrospectionResponse =
+        let introspected: of_model::idp::contract::IntrospectionResponse =
             serde_json::from_str(http_response_body(&introspection_response))
                 .expect("parse live introspection response");
         assert_eq!(introspected.claims.principal_type, PrincipalType::Client);
@@ -1366,7 +1366,7 @@ mod tests {
                         let root = std::env::temp_dir().join(format!(
                             "idp-service-client-{}-{}",
                             std::process::id(),
-                            idp_model::model::Id::now_v7()
+                            of_model::idp::model::Id::now_v7()
                         ));
                         fs::create_dir_all(&root).expect("create temporary test directory");
                         let database_path = root.join("idp.redb");
@@ -1374,7 +1374,7 @@ mod tests {
                         let engine = Arc::new(
                             Database::open(&database_path).expect("open test database"),
                         );
-                        idp_model::replica::up(&engine)
+                        of_model::idp::replica::up(&engine)
                             .await
                             .expect("initialize current IdP schema");
 
@@ -1441,7 +1441,7 @@ mod tests {
                         );
                         assert_eq!(
                             client.allowed_grant_types,
-                            vec![idp_model::contract::GrantType::ClientCredentials]
+                            vec![of_model::idp::contract::GrantType::ClientCredentials]
                         );
                         assert_eq!(
                             fs::metadata(&credentials_path)
@@ -1528,13 +1528,13 @@ mod tests {
                             assert_eq!(service_client.allowed_scopes, scopes);
                             assert_eq!(
                                 service_client.allowed_grant_types,
-                                vec![idp_model::contract::GrantType::ClientCredentials]
+                                vec![of_model::idp::contract::GrantType::ClientCredentials]
                             );
                         }
 
                         let local_signer = idp_service::oauth2::NodeSignerBinding {
-                            member_id: idp_model::model::Id::now_v7(),
-                            key_id: idp_model::model::Id::now_v7(),
+                            member_id: of_model::idp::model::Id::now_v7(),
+                            key_id: of_model::idp::model::Id::now_v7(),
                             endpoint_id: "test-endpoint".to_owned(),
                         };
                         let public_jwk = key_service
@@ -1542,7 +1542,7 @@ mod tests {
                             .expect("prepare local Node signer");
                         idp_service::replica::DbReplicaSignerRepo::new(engine.client())
                             .enroll(
-                                &idp_model::contract::ReplicaMembership {
+                                &of_model::idp::contract::ReplicaMembership {
                                     installation_id: "https://idp.example.test".into(),
                                     issuer: "https://idp.example.test".into(),
                                     member_id: local_signer.member_id,
@@ -1550,7 +1550,7 @@ mod tests {
                                     approved_at: 1,
                                     revoked_at: None,
                                 },
-                                &idp_model::contract::IdpSignerRecord {
+                                &of_model::idp::contract::IdpSignerRecord {
                                     member_id: local_signer.member_id,
                                     key_id: local_signer.key_id,
                                     issuer: "https://idp.example.test".into(),
@@ -1619,7 +1619,7 @@ mod tests {
                                     Some(OAuth2ClientAuth {
                                         client_id: client_id.clone(),
                                         client_secret: Some(client_secret.clone()),
-                                        method: idp_model::contract::TokenEndpointAuthMethod::ClientSecretPost,
+                                        method: of_model::idp::contract::TokenEndpointAuthMethod::ClientSecretPost,
                                     }),
                                 )
                                 .await
@@ -1657,7 +1657,7 @@ mod tests {
                                             Some(OAuth2ClientAuth {
                                                 client_id: client_id.clone(),
                                                 client_secret: Some(client_secret.clone()),
-                                                method: idp_model::contract::TokenEndpointAuthMethod::ClientSecretPost,
+                                                method: of_model::idp::contract::TokenEndpointAuthMethod::ClientSecretPost,
                                             }),
                                         )
                                         .await

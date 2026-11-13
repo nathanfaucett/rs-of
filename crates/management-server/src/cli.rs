@@ -1,6 +1,6 @@
 use std::{io, net::IpAddr, path::Path, sync::Arc};
 
-use api::{bind_addr, public_base_url};
+use server_common::{bind_addr, public_base_url};
 use clap::Parser;
 use cli::{CliArgs, shutdown_signal};
 use device_service::HostedControlPlane;
@@ -93,7 +93,7 @@ pub async fn run() -> io::Result<()> {
         )
             .into()
     };
-    let result = api::serve(router, addr, shutdown).await;
+    let result = server_common::serve(router, addr, shutdown).await;
     signal.abort();
     result
 }

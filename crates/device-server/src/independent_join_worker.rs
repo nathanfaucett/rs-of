@@ -2,13 +2,13 @@ use super::{Record, build, observe, open_existing, public, verify};
 use std::{io, path::Path, sync::Arc, time::Instant};
 
 use setup::{IndependentCreateCommand, IndependentCreateControl};
-use api::IndependentPeer;
+use server_common::IndependentPeer;
 use device_service::DeviceIdentity;
 use device_service::independent_join::IndependentJoinApproval;
 use device_service::independent_join::IndependentJoinRequest;
 use device_service::join_history::JoinHistoryContext;
 use device_service::join_history::import_join_history;
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use iroh_chain::{EndpointIdStore, Server};
 
 use crate::{AppConfig, IndependentDeviceRuntime, database_client::DeviceStore};

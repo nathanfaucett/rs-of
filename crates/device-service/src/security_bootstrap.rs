@@ -4,7 +4,7 @@ use std::{future::Future, io, pin::Pin, sync::Arc};
 use crate::push_sync_adapter::SyncAdapter;
 use db::DatabaseTransport;
 use db::SyncTransport as OldSyncTransport;
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use idp_service::replica::LocalIdentity;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use ofdb_sql::SyncRole;

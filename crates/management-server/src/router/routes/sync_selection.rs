@@ -4,7 +4,7 @@ use axum::{
     Json,
     extract::{Path, State},
 };
-use idp_model::{
+use of_model::idp::{
     contract::{ErrorCode, ErrorResponse},
     model::Id,
 };

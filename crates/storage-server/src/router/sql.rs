@@ -3,6 +3,9 @@ use axum::{
     extract::{Path, State, rejection::JsonRejection},
     http::{HeaderMap, StatusCode},
 };
+pub use of_model::server::storage::sql::{
+    DatabaseFailure, SqlRequest, SqlResponse, SqlResult, SqlStatement, SqlValue,
+};
 use ofdb_sql::{
     DataDefinition, ErrorKind, Query, QueryColumn, QueryExpr, QueryParams, SqlTranslator,
     Statement, Translator, Value,
@@ -12,89 +15,37 @@ use storage_service::DatabaseId;
 
 use super::{ResourceState, authorization, authorize_response, namespace};
 
-#[derive(Deserialize, Serialize, utoipa::ToSchema)]
-#[serde(
-    tag = "type",
-    content = "value",
-    rename_all = "camelCase",
-    deny_unknown_fields
-)]
-pub(super) enum SqlValue {
-    Null,
-    Boolean(bool),
-    Integer(String),
-    Float(f64),
-    Text(String),
-    Uuid(String),
-    Blob(Vec<u8>),
+fn into_owner(value: SqlValue) -> Result<Value, SqlError> {
+    Ok(match value {
+        SqlValue::Null => Value::Null,
+        SqlValue::Boolean(value) => Value::Bool(value),
+        SqlValue::Integer(value) => Value::Integer(value.parse().map_err(|_| invalid())?),
+        SqlValue::Float(value) if value.is_finite() => Value::Float(value),
+        SqlValue::Text(value) => Value::Text(value),
+        SqlValue::Uuid(value) => Value::Uuid(value.parse().map_err(|_| invalid())?),
+        SqlValue::Blob(value) => Value::Blob(value),
+        SqlValue::Float(_) => return Err(invalid()),
+    })
 }
 
-impl SqlValue {
-    fn into_owner(self) -> Result<Value, SqlError> {
-        Ok(match self {
-            Self::Null => Value::Null,
-            Self::Boolean(value) => Value::Bool(value),
-            Self::Integer(value) => Value::Integer(value.parse().map_err(|_| invalid())?),
-            Self::Float(value) if value.is_finite() => Value::Float(value),
-            Self::Text(value) => Value::Text(value),
-            Self::Uuid(value) => Value::Uuid(value.parse().map_err(|_| invalid())?),
-            Self::Blob(value) => Value::Blob(value),
-            Self::Float(_) => return Err(invalid()),
-        })
-    }
-
-    fn from_owner(value: Value) -> Result<Self, SqlError> {
-        Ok(match value {
-            Value::Null => Self::Null,
-            Value::Bool(value) => Self::Boolean(value),
-            Value::Integer(value) => Self::Integer(value.to_string()),
-            Value::Float(value) if value.is_finite() => Self::Float(value),
-            Value::Text(value) => Self::Text(value),
-            Value::Uuid(value) => Self::Uuid(value.to_string()),
-            Value::Blob(value) => Self::Blob(value),
-            _ => {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(DatabaseFailure {
-                        code: "unsupportedValue",
-                    }),
-                ));
-            }
-        })
-    }
-}
-
-#[derive(Deserialize, utoipa::ToSchema)]
-#[serde(deny_unknown_fields)]
-pub(super) struct SqlStatement {
-    /// SQL text, at most 16 KiB UTF-8; positional parameters only.
-    sql: String,
-    #[serde(default)]
-    #[schema(max_items = 128)]
-    params: Vec<SqlValue>,
-}
-
-#[derive(Deserialize, utoipa::ToSchema)]
-#[serde(deny_unknown_fields)]
-pub(super) struct SqlRequest {
-    #[schema(min_items = 1, max_items = 32)]
-    statements: Vec<SqlStatement>,
-}
-
-#[derive(Serialize, utoipa::ToSchema)]
-pub(super) struct SqlResult {
-    columns: Vec<String>,
-    rows: Vec<Vec<SqlValue>>,
-}
-
-#[derive(Serialize, utoipa::ToSchema)]
-pub(super) struct SqlResponse {
-    results: Vec<SqlResult>,
-}
-
-#[derive(Serialize, utoipa::ToSchema)]
-pub(in crate::router) struct DatabaseFailure {
-    code: &'static str,
+fn from_owner(value: Value) -> Result<SqlValue, SqlError> {
+    Ok(match value {
+        Value::Null => SqlValue::Null,
+        Value::Bool(value) => SqlValue::Boolean(value),
+        Value::Integer(value) => SqlValue::Integer(value.to_string()),
+        Value::Float(value) if value.is_finite() => SqlValue::Float(value),
+        Value::Text(value) => SqlValue::Text(value),
+        Value::Uuid(value) => SqlValue::Uuid(value.to_string()),
+        Value::Blob(value) => SqlValue::Blob(value),
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(DatabaseFailure {
+                    code: "unsupportedValue",
+                }),
+            ));
+        }
+    })
 }
 
 pub(super) type SqlError = (StatusCode, Json<DatabaseFailure>);
@@ -270,7 +221,7 @@ pub(super) async fn execute_sql(
             entry
                 .params
                 .into_iter()
-                .map(SqlValue::into_owner)
+                .map(into_owner)
                 .collect::<Result<_, _>>()?,
         );
         let translated = SqlTranslator
@@ -360,7 +311,7 @@ pub(super) async fn execute_sql(
                     rows: result
                         .rows
                         .into_iter()
-                        .map(|row| row.values.into_iter().map(SqlValue::from_owner).collect())
+                        .map(|row| row.values.into_iter().map(from_owner).collect())
                         .collect::<Result<_, _>>()?,
                 })
             })

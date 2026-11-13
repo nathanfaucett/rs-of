@@ -6,7 +6,7 @@ use std::{
 
 use db::{Database, Row, SqlTranslator, Value};
 use device_service::replica::{DbSelectionPolicyRepo, SelectionPolicy};
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 
 use crate::AppConfig;
 
@@ -190,7 +190,7 @@ pub async fn provision_initial_device(
 mod tests {
     use std::{fs, io};
 
-    use idp_model::model::Id;
+    use of_model::idp::model::Id;
 
     use crate::AppConfig;
 
@@ -321,7 +321,7 @@ mod tests {
     async fn remote_device_startup_never_falls_back_to_a_private_database() {
         let root = std::env::temp_dir().join(format!(
             "remote-device-startup-{}",
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         let config: crate::AppConfig = serde_json::from_value(serde_json::json!({
             "data_dir": root,

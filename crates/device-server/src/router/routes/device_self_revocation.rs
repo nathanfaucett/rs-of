@@ -3,7 +3,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use device_service::DeviceEnrollmentService;
 use device_service::DeviceSelfRevocationRequest;
 use device_service::device_self_revocation_payload;
-use idp_model::contract::{ErrorCode, ErrorResponse};
+use of_model::idp::contract::{ErrorCode, ErrorResponse};
 use iroh::{EndpointId, Signature};
 
 use crate::RouterState;

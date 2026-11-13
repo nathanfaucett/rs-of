@@ -1,6 +1,6 @@
 use std::{io, path::Path};
 
-use api::{Environment, ServerConfig};
+use server_common::{Environment, ServerConfig};
 use idp_service::{PasswordConfig, oauth2::OAuth2Config};
 use serde::{Deserialize, Serialize};
 

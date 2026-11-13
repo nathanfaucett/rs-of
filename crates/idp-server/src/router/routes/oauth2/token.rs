@@ -4,8 +4,8 @@ use axum::{
     http::HeaderMap,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
-use idp_model::contract::{ErrorResponse, OAuth2ClientAuth, TokenEndpointAuthMethod, TokenRequest};
-use model::contract::TokenResponse;
+use of_model::idp::contract::{ErrorResponse, OAuth2ClientAuth, TokenEndpointAuthMethod, TokenRequest};
+use of_model::contract::TokenResponse;
 
 use crate::router::RouterState;
 
@@ -44,24 +44,24 @@ pub(super) fn parse_basic_client_auth(
         return Ok(None);
     };
     let raw = value.to_str().map_err(|_| {
-        ErrorResponse::new(idp_model::contract::ErrorCode::InvalidClient)
+        ErrorResponse::new(of_model::idp::contract::ErrorCode::InvalidClient)
             .with_description("invalid authorization header encoding")
     })?;
 
     let Some(encoded) = raw.strip_prefix("Basic ") else {
         return Err(
-            ErrorResponse::new(idp_model::contract::ErrorCode::InvalidClient)
+            ErrorResponse::new(of_model::idp::contract::ErrorCode::InvalidClient)
                 .with_description("unsupported token endpoint authorization method"),
         );
     };
 
     let decoded = STANDARD.decode(encoded).map_err(|_| {
-        ErrorResponse::new(idp_model::contract::ErrorCode::InvalidClient)
+        ErrorResponse::new(of_model::idp::contract::ErrorCode::InvalidClient)
             .with_description("invalid basic authorization token")
     })?;
 
     let decoded = String::from_utf8(decoded).map_err(|_| {
-        ErrorResponse::new(idp_model::contract::ErrorCode::InvalidClient)
+        ErrorResponse::new(of_model::idp::contract::ErrorCode::InvalidClient)
             .with_description("invalid basic authorization token")
     })?;
 
@@ -71,7 +71,7 @@ pub(super) fn parse_basic_client_auth(
 
     if client_id.is_empty() {
         return Err(
-            ErrorResponse::new(idp_model::contract::ErrorCode::InvalidClient)
+            ErrorResponse::new(of_model::idp::contract::ErrorCode::InvalidClient)
                 .with_description("client_id is required in basic authorization"),
         );
     }

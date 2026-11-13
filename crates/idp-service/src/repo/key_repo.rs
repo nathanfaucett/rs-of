@@ -1,7 +1,7 @@
 use alloc::{string::String, vec::Vec};
 
 use chrono::{DateTime, Utc};
-use idp_model::{
+use of_model::idp::{
     contract::{EntityType, IdpSignerRecord, JwkPublic, ReplicaMembership},
     model::{Id, Key},
 };

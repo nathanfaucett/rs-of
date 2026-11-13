@@ -6,7 +6,7 @@ use db::{
     QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Transaction,
     Uuid, Value,
 };
-use idp_model::{
+use of_model::idp::{
     contract::{
         ClientProfile, ClientRegistration, ClientType, EntityType, TokenEndpointAuthMethod,
     },
@@ -73,7 +73,7 @@ where
         &self,
         registration: ClientRegistration,
         allow_application_creation: bool,
-        capture: impl FnOnce(&idp_model::model::Key, &[key::DerivationPath]) -> RepoResult<()> + Send,
+        capture: impl FnOnce(&of_model::idp::model::Key, &[key::DerivationPath]) -> RepoResult<()> + Send,
     ) -> RepoResult<Client> {
         let client_id = registration
             .client_id
@@ -957,7 +957,7 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    use idp_model::{
+    use of_model::idp::{
         contract::{ApplicationRegistration, ClientProfile, GrantType, ResponseType},
         replica::up,
     };

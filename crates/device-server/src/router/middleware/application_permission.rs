@@ -1,10 +1,10 @@
 use crate::router::{ManagementRouterService, middleware::DeviceAuthorization};
-use idp_model::contract::{ErrorCode, ErrorResponse};
+use of_model::idp::contract::{ErrorCode, ErrorResponse};
 
 pub(crate) async fn require_application_permission(
     management_service: &ManagementRouterService,
     authorization: &DeviceAuthorization,
-    application_id: idp_model::model::Id,
+    application_id: of_model::idp::model::Id,
     permission: &str,
 ) -> Result<(), ErrorResponse> {
     if application_id.is_nil() || authorization.application_id != application_id {

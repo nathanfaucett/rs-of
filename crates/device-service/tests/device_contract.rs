@@ -53,7 +53,7 @@ fn device_persistence_and_public_info_keep_their_wire_formats() {
 
 #[test]
 fn device_pairing_signed_payload_keeps_its_length_delimited_bytes() {
-    let id = idp_model::model::Id::parse_str("00000000-0000-0000-0000-000000000001")
+    let id = of_model::idp::model::Id::parse_str("00000000-0000-0000-0000-000000000001")
         .expect("fixed Device identity");
     assert_eq!(
         device_service::device_pairing_approval_payload(id, "é\n", "key", "local"),
@@ -88,7 +88,7 @@ fn device_contracts_export_api_schemas_from_management() {
 async fn approved_enrollment_preserves_exact_identity_and_denies_replacement_or_revocation() {
     use device_service::DeviceRepo;
     use device_service::replica::DbDeviceRepo;
-    use idp_model::model::Id;
+    use of_model::idp::model::Id;
     use std::sync::Arc;
 
     let engine = Arc::new(db::Database::in_memory());
@@ -154,7 +154,7 @@ async fn approved_enrollment_preserves_exact_identity_and_denies_replacement_or_
 async fn approved_enrollment_denies_tombstones_pending_and_timestamp_only_revocation() {
     use device_service::DeviceRepo;
     use device_service::replica::DbDeviceRepo;
-    use idp_model::model::Id;
+    use of_model::idp::model::Id;
     use std::sync::Arc;
 
     let engine = Arc::new(db::Database::in_memory());
@@ -201,7 +201,7 @@ async fn approved_enrollment_denies_unresolved_owner_conflicts_even_with_exact_v
     use std::{io, sync::Arc};
 
     use device_service::replica::DbDeviceRepo;
-    use idp_model::model::Id;
+    use of_model::idp::model::Id;
     use ofdb_sql::{SessionConfig, SyncRole, SyncTransport};
     use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 

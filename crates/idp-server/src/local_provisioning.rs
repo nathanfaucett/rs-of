@@ -245,7 +245,7 @@ mod tests {
     fn retained_identity_requires_existing_database_without_initialization() {
         let root = std::env::temp_dir().join(format!(
             "identity-retained-{}",
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         let config = crate::AppConfig {
             data_dir: root.to_string_lossy().into_owned(),

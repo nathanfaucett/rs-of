@@ -1,7 +1,7 @@
 use std::{future::Future, io, sync::Arc};
 
 use db::Database;
-use idp_model::contract::JwkPublic;
+use of_model::idp::contract::JwkPublic;
 use idp_service::oauth2::NodeSignerBinding;
 use iroh::EndpointId;
 

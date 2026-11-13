@@ -181,7 +181,7 @@ async fn request(
     let callback_at = Instant::now();
     let result = async {
         let configuration = of_idp_client::apis::configuration::Configuration {
-            base_path: base, client: api::LocalTls::verification_client()?, ..Default::default()
+            base_path: base, client: server_common::LocalTls::verification_client()?, ..Default::default()
         };
         of_idp_client::apis::owner_setup_api::owner_setup_history(&configuration,
             of_idp_client::apis::owner_setup_api::OwnerSetupHistoryParams {
@@ -342,7 +342,7 @@ pub async fn import_join_history(
         JoinHistoryContext::Idp => &approval.request.source.idp,
         JoinHistoryContext::Device => &approval.request.source.device,
     };
-    let client = api::LocalTls::verification_client()?;
+    let client = server_common::LocalTls::verification_client()?;
     let key = tokio_tungstenite::tungstenite::handshake::client::generate_key();
     let request = match context {
         JoinHistoryContext::Idp => {

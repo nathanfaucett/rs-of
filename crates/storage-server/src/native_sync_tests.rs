@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use idp_model::{contract::IntrospectionResponse, model::Id};
+use of_model::idp::{contract::IntrospectionResponse, model::Id};
 use iroh_chain::{EndpointIdStore, Server};
-use model::contract::SelectedResource;
+use of_model::contract::SelectedResource;
 use storage_service::{DatabaseRuntime, ScopedFileSystemRuntime};
 use tokio_util::sync::CancellationToken;
 
@@ -10,7 +10,7 @@ use crate::{IdpClient, StorageReplicationRuntime, StorageSyncDirection, StorageS
 use crate::execution_test_support::{DomainNode, IrohPair, TestDirectory, approved_signers, sql};
 
 struct Namespace { owner: String, application: Id }
-impl storage_model::StorageNamespace for Namespace {
+impl of_model::storage::StorageNamespace for Namespace {
     fn user_sub(&self) -> &str { &self.owner }
     fn application_id(&self) -> Id { self.application }
 }

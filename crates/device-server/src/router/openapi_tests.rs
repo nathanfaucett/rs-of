@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::{body::Body, http::Request};
 use device_service::HostedControlPlane;
 use device_service::replica::DbSelectionPolicyRepo;
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use management_service::ManagementService;
 use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;

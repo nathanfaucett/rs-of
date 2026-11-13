@@ -5,12 +5,12 @@ use alloc::{
     vec::Vec,
 };
 
-use idp_model::contract::{
+use of_model::idp::contract::{
     AuthorizationRequest, ClientType, CodeChallengeMethod, ErrorCode, ErrorResponse,
     ErrorResponseResult, GrantType, ResponseMode, ResponseType,
 };
-use idp_model::model::Client;
-use model::contract::AuthorizationDetail;
+use of_model::idp::model::Client;
+use of_model::contract::AuthorizationDetail;
 
 use super::scope::{parse_scopes, validate_scopes};
 
@@ -130,11 +130,11 @@ fn validate_response_mode(request: &AuthorizationRequest) -> ErrorResponseResult
 
 #[cfg(test)]
 mod tests {
-    use idp_model::{
+    use of_model::idp::{
         contract::{ClientProfile, GrantType, TokenEndpointAuthMethod},
         model::Id,
     };
-    use model::contract::{StorageAuthorizationAction, StorageAuthorizationDetail};
+    use of_model::contract::{StorageAuthorizationAction, StorageAuthorizationDetail};
 
     use super::*;
 

@@ -6,10 +6,10 @@ use iroh::{
     protocol::{AcceptError, ProtocolHandler},
 };
 use iroh_chain::{DATA_ALPN, Server};
-use model::contract::SelectedResource;
+use of_model::contract::SelectedResource;
 use ofdb_sql::{SessionConfig, SyncRole, SyncTransport};
 use serde::{Deserialize, Serialize};
-use storage_model::StorageNamespace;
+use of_model::storage::StorageNamespace;
 use storage_service::{DatabaseId, DatabaseRuntime};
 use tokio_util::sync::CancellationToken;
 
@@ -452,13 +452,13 @@ async fn write_frame(send: &mut iroh::endpoint::SendStream, frame: &[u8]) -> io:
 }
 struct Namespace {
     owner_subject: String,
-    application_id: idp_model::model::Id,
+    application_id: of_model::idp::model::Id,
 }
 impl StorageNamespace for Namespace {
     fn user_sub(&self) -> &str {
         &self.owner_subject
     }
-    fn application_id(&self) -> idp_model::model::Id {
+    fn application_id(&self) -> of_model::idp::model::Id {
         self.application_id
     }
 }

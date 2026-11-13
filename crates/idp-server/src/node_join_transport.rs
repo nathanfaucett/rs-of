@@ -1,7 +1,7 @@
 use std::{io, path::PathBuf};
 
 use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD};
-use idp_model::contract::{JwkPublic, JwkPublicParameters, JwsAlgorithm, KeyUse};
+use of_model::idp::contract::{JwkPublic, JwkPublicParameters, JwsAlgorithm, KeyUse};
 use idp_service::repo::{PrivateKeyKeyringRepo, PrivateKeyRepo};
 use iroh::{EndpointId, SecretKey, endpoint::presets::Preset};
 use iroh_chain::{EndpointIdStore, Server};

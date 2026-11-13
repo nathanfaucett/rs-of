@@ -108,7 +108,7 @@ fn independent_processes_share_remote_identity_and_consumer_reset_preserves_rows
 async fn acceptance() {
     let root = std::env::temp_dir().join(format!(
         "remote-identity-{}",
-        idp_model::model::Id::now_v7()
+        of_model::idp::model::Id::now_v7()
     ));
     fs::create_dir(&root).expect("fixture directory");
     let tools = root.join("os-tools");
@@ -330,7 +330,7 @@ fn remote_identity_child() {
             if mode == "sql" {
                 let database = db::Database::open(root.join("identity.redb"))
                     .expect("identity database owner");
-                idp_model::replica::up(&database)
+                of_model::idp::replica::up(&database)
                     .await
                     .expect("owner migrations");
                 fs::write(root.join("sql.ready"), "ready").expect("owner ready");

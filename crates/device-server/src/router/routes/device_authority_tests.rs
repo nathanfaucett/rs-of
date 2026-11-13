@@ -14,7 +14,7 @@ use device_service::HostedControlPlane;
 use device_service::replica::DbDeviceRepo;
 use device_service::replica::DbSelectionPolicyRepo;
 use device_service::replica::SelectionPolicy;
-use idp_model::{
+use of_model::idp::{
     contract::{IdentityAction, IntrospectionResponse},
     model::Id,
 };
@@ -22,7 +22,7 @@ use management_service::MANAGEMENT_APPLICATION_URI;
 use management_service::ManagementService;
 use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
-use model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
+use of_model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
 use tower::ServiceExt;
 
 struct Fixture {
@@ -38,7 +38,7 @@ struct Fixture {
 impl Fixture {
     async fn new() -> Self {
         let identity = Arc::new(Database::in_memory());
-        idp_model::replica::up_policy(&identity)
+        of_model::idp::replica::up_policy(&identity)
             .await
             .expect("identity policy schema");
         let database = Arc::new(Database::in_memory());

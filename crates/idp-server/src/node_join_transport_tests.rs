@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf, time::Duration};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use idp_service::{
     oauth2::NodeSignerBinding,
     repo::{PrivateKeyKeyringRepo, PrivateKeyRepo, RawKeyringRepo},

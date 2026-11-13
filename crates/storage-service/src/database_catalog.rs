@@ -6,17 +6,10 @@ use std::{
     sync::Mutex,
 };
 
+use of_model::storage::{ResourceCatalog, ResourceIdentity, ResourceKind, StorageNamespace};
 use serde::{Deserialize, Serialize};
-use storage_model::{ResourceCatalog, ResourceIdentity, ResourceKind, StorageNamespace};
 
-pub type DatabaseId = idp_model::model::Id;
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, utoipa::ToSchema)]
-pub struct DatabaseResource {
-    #[schema(value_type = String)]
-    pub id: DatabaseId,
-    pub name: Option<String>,
-}
+pub use of_model::storage::{DatabaseId, DatabaseResource};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct CatalogRecord {
@@ -48,7 +41,7 @@ impl DatabaseCatalog {
     pub(crate) fn owner_resources(
         &self,
         owner: &str,
-    ) -> io::Result<Vec<(idp_model::model::Id, DatabaseId)>> {
+    ) -> io::Result<Vec<(of_model::idp::model::Id, DatabaseId)>> {
         catalog_path(
             &self.root,
             &crate::local_copy::CopyScope(owner.to_owned(), DatabaseId::now_v7()),
@@ -338,7 +331,7 @@ impl StorageNamespace for NamespaceRef<'_> {
         self.0.user_sub()
     }
 
-    fn application_id(&self) -> idp_model::model::Id {
+    fn application_id(&self) -> of_model::idp::model::Id {
         self.0.application_id()
     }
 }
@@ -393,14 +386,14 @@ fn write_catalog(path: &Path, catalog: &Catalog) -> io::Result<()> {
 mod tests {
     use std::fs;
 
-    use storage_model::{ResourceCatalog, ResourceIdentity, ResourceKind, StorageNamespace};
+    use of_model::storage::{ResourceCatalog, ResourceIdentity, ResourceKind, StorageNamespace};
 
     use super::DatabaseCatalog;
 
     #[derive(Clone, Copy)]
     struct Scope {
         subject: &'static str,
-        application: idp_model::model::Id,
+        application: of_model::idp::model::Id,
     }
 
     impl StorageNamespace for Scope {
@@ -408,7 +401,7 @@ mod tests {
             self.subject
         }
 
-        fn application_id(&self) -> idp_model::model::Id {
+        fn application_id(&self) -> of_model::idp::model::Id {
             self.application
         }
     }
@@ -418,18 +411,18 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "database-catalog-{}-{}",
             std::process::id(),
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         let scope = Scope {
             subject: "subject-a",
-            application: idp_model::model::Id::now_v7(),
+            application: of_model::idp::model::Id::now_v7(),
         };
         let other_subject = Scope {
             subject: "subject-b",
             ..scope
         };
         let other_application = Scope {
-            application: idp_model::model::Id::now_v7(),
+            application: of_model::idp::model::Id::now_v7(),
             ..scope
         };
         let catalog = DatabaseCatalog::new(root.clone()).expect("catalog root is created");
@@ -519,13 +512,13 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "database-catalog-imported-tombstone-{}-{}",
             std::process::id(),
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         let scope = Scope {
             subject: "subject-a",
-            application: idp_model::model::Id::now_v7(),
+            application: of_model::idp::model::Id::now_v7(),
         };
-        let id = idp_model::model::Id::now_v7();
+        let id = of_model::idp::model::Id::now_v7();
         let catalog = DatabaseCatalog::new(root.clone()).expect("catalog root is created");
         catalog
             .apply_tombstone(&scope, id)
@@ -559,7 +552,7 @@ mod tests {
         let catalog = DatabaseCatalog::new(root.clone()).expect("catalog root is created");
         let scope = Scope {
             subject: "../other",
-            application: idp_model::model::Id::now_v7(),
+            application: of_model::idp::model::Id::now_v7(),
         };
         assert!(catalog.list(&scope).is_err());
         fs::remove_dir_all(root).expect("test catalog is removed");

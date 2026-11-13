@@ -4,7 +4,7 @@ use db::{
     QueryFrom, QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid,
     Value,
 };
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 
 use crate::{Device, DeviceError, DeviceRepo, DeviceResult, DeviceState, TrustedDevice};
 
@@ -1002,8 +1002,8 @@ mod tests {
     #[tokio::test]
     async fn pending_join_binding_allows_absence_but_denies_changed_or_revoked_management_device() {
         let repo = repo().await;
-        let device = idp_model::model::Id::now_v7();
-        let owner = idp_model::model::Id::now_v7();
+        let device = of_model::idp::model::Id::now_v7();
+        let owner = of_model::idp::model::Id::now_v7();
         let endpoint = iroh::SecretKey::generate().public().to_string();
         repo.check_pending_approved_binding(device, owner, "Joining", &endpoint)
             .await
@@ -1027,7 +1027,7 @@ mod tests {
         assert!(
             repo.check_pending_approved_binding(
                 device,
-                idp_model::model::Id::now_v7(),
+                of_model::idp::model::Id::now_v7(),
                 "Joining",
                 &endpoint
             )
@@ -1050,7 +1050,7 @@ mod tests {
     async fn enrollment_secrets_are_local_durable_and_removed_on_approval() {
         let path = std::env::temp_dir().join(format!(
             "local-enrollment-{}.redb",
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         let pending;
         let paired;
@@ -1615,7 +1615,7 @@ mod tests {
         );
         assert!(
             !repo
-                .revoke("owner-b", idp_model::model::Id::now_v7(), "key-a")
+                .revoke("owner-b", of_model::idp::model::Id::now_v7(), "key-a")
                 .await
                 .expect("unknown Device is not a successful revocation")
         );

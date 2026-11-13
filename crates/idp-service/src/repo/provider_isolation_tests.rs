@@ -6,7 +6,7 @@ use super::{PrivateKeyKeyringRepo, PrivateKeyRepo, RawKeyringRepo};
 
 struct Store(Arc<keyring_core::mock::Store>);
 
-impl keyring_core::api::CredentialStoreApi for Store {
+impl keyring_core::server_common::CredentialStoreApi for Store {
     fn vendor(&self) -> String {
         self.0.vendor()
     }

@@ -8,7 +8,7 @@ use base64::{
     Engine,
     engine::general_purpose::{STANDARD_NO_PAD, URL_SAFE_NO_PAD},
 };
-use idp_model::contract::{
+use of_model::idp::contract::{
     ErrorCode, ErrorResponse, ErrorResponseResult, JwkPrivate, JwkPrivateParameters, JwkPublic,
     JwkPublicParameters, JwsAlgorithm, KeyUse,
 };
@@ -221,7 +221,7 @@ mod tests {
         Engine,
         engine::general_purpose::{STANDARD_NO_PAD, URL_SAFE_NO_PAD},
     };
-    use idp_model::contract::{JwkPrivate, JwkPrivateParameters, JwkPublic, JwsAlgorithm, KeyUse};
+    use of_model::idp::contract::{JwkPrivate, JwkPrivateParameters, JwkPublic, JwsAlgorithm, KeyUse};
     use k256::ecdsa::SigningKey;
     use serde::{Deserialize, Serialize};
 

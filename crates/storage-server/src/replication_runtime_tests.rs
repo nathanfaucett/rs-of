@@ -8,10 +8,10 @@ use std::{
 };
 
 use device_service::DeviceState;
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets, protocol::Router};
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
-use model::contract::SelectedResource;
+use of_model::contract::SelectedResource;
 
 use storage_service::{DatabaseRuntime, ScopedFileSystemRuntime};
 use tokio_util::sync::CancellationToken;

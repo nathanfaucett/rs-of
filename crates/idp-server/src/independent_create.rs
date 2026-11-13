@@ -4,7 +4,7 @@ use setup::{
     IndependentCreateCommand, IndependentCreateControl, IndependentCreateIntent,
     IndependentOwnerPublic, IndependentSetupHost,
 };
-use idp_model::{
+use of_model::idp::{
     contract::{
         ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, GrantType,
         TokenEndpointAuthMethod,

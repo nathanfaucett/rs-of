@@ -1,5 +1,5 @@
 use axum::{Json, extract::State, http::StatusCode};
-use model::contract::{HealthResponse, HealthStatus};
+use of_model::contract::{HealthResponse, HealthStatus};
 
 use crate::RouterState;
 

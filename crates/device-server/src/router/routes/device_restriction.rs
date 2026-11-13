@@ -3,22 +3,17 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
-use idp_model::{
+use of_model::idp::{
     contract::{
         ErrorCode, ErrorResponse, IdentityAction, IdentityResource, PermissionEvaluationRequest,
         PermissionSubject, PermissionTarget,
     },
     model::Id,
 };
+pub use of_model::server::device::device_restriction::DeviceRestriction;
 use serde::{Deserialize, Serialize};
 
 use crate::router::{RouterState, middleware::DeviceAuthorization};
-
-#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct DeviceRestriction {
-    pub admin_allowed: bool,
-}
 
 async fn binding(
     state: &RouterState,

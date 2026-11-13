@@ -5,7 +5,7 @@ use device_service::independent_join::IndependentJoinApproval;
 use device_service::independent_join::IndependentJoinRequest;
 use device_service::join_history::JoinHistoryContext;
 use device_service::join_history::import_join_history;
-use idp_model::{contract::ClientRegistration, model::Id};
+use of_model::idp::{contract::ClientRegistration, model::Id};
 use idp_service::setup_credentials::{SetupRelationship, load_setup_secret};
 
 use super::{Record, binding, login, observe, open, public, runtime_config, service};

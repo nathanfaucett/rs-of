@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use api::{bind_addr, public_base_url, serve};
+use server_common::{bind_addr, public_base_url, serve};
 use clap::Parser;
 use cli::{CliArgs, shutdown_signal};
 

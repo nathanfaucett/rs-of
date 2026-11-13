@@ -2,7 +2,7 @@ use axum::{
     Json,
     extract::{Form, State},
 };
-use idp_model::contract::{
+use of_model::idp::contract::{
     DeviceAuthorization, DeviceAuthorizationRequest, ErrorCode, ErrorResponse,
 };
 

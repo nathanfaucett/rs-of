@@ -18,11 +18,11 @@ use device_service::{
     HostedControlPlane,
     replica::{DbDeviceRepo, DbSelectionPolicyRepo, SelectionPolicy},
 };
-use idp_model::{
+use of_model::idp::{
     contract::{IdentityAction, IntrospectionResponse},
     model::Id,
 };
-use model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
+use of_model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
 
 const CHILD: &str = "device_authority_tests::remote::remote_device_child";
 const SCOPES: &str =
@@ -321,7 +321,7 @@ async fn remote_device_child() {
             .parse()
             .expect("owner ID");
         let identity = Database::in_memory();
-        idp_model::replica::up(&identity)
+        of_model::idp::replica::up(&identity)
             .await
             .expect("identity schema");
         management_service::ManagementService::new(

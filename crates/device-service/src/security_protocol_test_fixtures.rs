@@ -7,7 +7,7 @@ use std::{
 
 use db::{Database, SqlTranslator};
 use futures_util::FutureExt;
-use idp_model::{
+use of_model::idp::{
     contract::{
         IdpSignerRecord, JwkPublic, JwkPublicParameters, JwsAlgorithm, KeyUse, ReplicaMembership,
     },

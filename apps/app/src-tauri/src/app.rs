@@ -161,7 +161,7 @@ pub async fn get_native_setup_code(
         if !matches!(owner.as_str(), "idp" | "device" | "storage") {
             return Err("unknown setup owner".into());
         }
-        api::SetupAdmission::protected_code(
+        server_common::SetupAdmission::protected_code(
             &data.join(format!("node/{owner}.setup-host/setup-admission")),
         )
         .map_err(|error| error.to_string())
@@ -239,7 +239,7 @@ pub async fn revoke_reset_on_peer(
     app: AppHandle<Wry>,
     peer_api: String,
     bearer: String,
-    member_id: idp_model::model::Id,
+    member_id: of_model::idp::model::Id,
 ) -> Result<(), String> {
     let _operation = LIFECYCLE.operation.lock().await;
     let data = app

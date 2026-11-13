@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use idp_model::{
+use of_model::idp::{
     contract::{
         ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, GrantType,
         INSTALLATION_POLICY_ID, IdentityAction, OAuth2ClientAuth, PasswordGrantRequest,
@@ -344,7 +344,7 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
         .oauth2
         .key_service
         .ensure_entity_master_key(
-            idp_model::contract::EntityType::User,
+            of_model::idp::contract::EntityType::User,
             owner,
             "valid-password",
         )
@@ -354,7 +354,7 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
         .key_service
         .create_key(
             None,
-            idp_model::contract::EntityType::User,
+            of_model::idp::contract::EntityType::User,
             owner,
             true,
             "User session key".into(),
@@ -414,7 +414,7 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
         db::Database::open(root.join("management/management.redb"))
             .expect("native Management owner"),
     );
-    idp_model::replica::up_policy(&management)
+    of_model::idp::replica::up_policy(&management)
         .await
         .expect("identity policy schema");
     device_service::replica::up(&management)
@@ -491,9 +491,9 @@ pub(crate) async fn user_token(fixture: &ApprovalFixture, audience: &str) -> Str
         .state
         .oauth2_service
         .token(
-            TokenRequest::TokenExchange(idp_model::contract::TokenExchangeGrantRequest {
+            TokenRequest::TokenExchange(of_model::idp::contract::TokenExchangeGrantRequest {
                 subject_token: token,
-                subject_token_type: idp_model::contract::SubjectTokenType::AccessToken,
+                subject_token_type: of_model::idp::contract::SubjectTokenType::AccessToken,
                 actor_token: None,
                 actor_token_type: None,
                 resource: Some(audience.into()),
@@ -1026,7 +1026,7 @@ impl TestStore {
         Arc::new(Self(keyring_core::mock::Store::new().expect("test keyring")))
     }
 }
-impl keyring_core::api::CredentialStoreApi for TestStore {
+impl keyring_core::server_common::CredentialStoreApi for TestStore {
     fn vendor(&self) -> String {
         self.0.vendor()
     }
@@ -1039,7 +1039,7 @@ impl keyring_core::api::CredentialStoreApi for TestStore {
         user: &str,
         _: Option<&std::collections::HashMap<&str, &str>>,
     ) -> keyring_core::Result<keyring_core::Entry> {
-        keyring_core::api::CredentialStoreApi::build(&*self.0, service, user, None)
+        keyring_core::server_common::CredentialStoreApi::build(&*self.0, service, user, None)
     }
     fn search(
         &self,

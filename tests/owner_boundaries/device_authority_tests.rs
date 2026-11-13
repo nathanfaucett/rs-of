@@ -10,17 +10,17 @@ use axum::{
 };
 use db::Database;
 use device_service::HostedControlPlane;
-use idp_model::{
+use of_model::idp::{
     contract::{IdentityAction, IntrospectionResponse},
     model::Id,
 };
-use model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
+use of_model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
 use tower::ServiceExt;
 
 #[tokio::test]
 async fn device_http_and_storage_share_isolated_authority_and_recheck_revocation() {
     let identity = Arc::new(Database::in_memory());
-    idp_model::replica::up(&identity)
+    of_model::idp::replica::up(&identity)
         .await
         .expect("identity owner schema");
     let devices = Arc::new(Database::in_memory());

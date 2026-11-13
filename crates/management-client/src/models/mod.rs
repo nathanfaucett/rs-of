@@ -1,56 +1,17 @@
-pub mod create_permission_request;
-pub use self::create_permission_request::CreatePermissionRequest;
-pub mod create_role_request;
-pub use self::create_role_request::CreateRoleRequest;
-pub mod health_response;
-pub use self::health_response::HealthResponse;
-pub mod health_status;
-pub use self::health_status::HealthStatus;
-pub mod health_status_one_of;
-pub use self::health_status_one_of::HealthStatusOneOf;
-pub mod identity_action;
-pub use self::identity_action::IdentityAction;
-pub mod identity_resource;
-pub use self::identity_resource::IdentityResource;
-pub mod identity_resource_one_of;
-pub use self::identity_resource_one_of::IdentityResourceOneOf;
-pub mod identity_resource_one_of_1;
-pub use self::identity_resource_one_of_1::IdentityResourceOneOf1;
-pub mod identity_resource_one_of_2;
-pub use self::identity_resource_one_of_2::IdentityResourceOneOf2;
-pub mod identity_resource_one_of_3;
-pub use self::identity_resource_one_of_3::IdentityResourceOneOf3;
-pub mod identity_resource_one_of_4;
-pub use self::identity_resource_one_of_4::IdentityResourceOneOf4;
-pub mod identity_resource_one_of_5;
-pub use self::identity_resource_one_of_5::IdentityResourceOneOf5;
-pub mod identity_resource_one_of_6;
-pub use self::identity_resource_one_of_6::IdentityResourceOneOf6;
-pub mod identity_resource_one_of_7;
-pub use self::identity_resource_one_of_7::IdentityResourceOneOf7;
-pub mod identity_resource_one_of_8;
-pub use self::identity_resource_one_of_8::IdentityResourceOneOf8;
-pub mod identity_resource_one_of_9;
-pub use self::identity_resource_one_of_9::IdentityResourceOneOf9;
-pub mod permission_audit_identity;
-pub use self::permission_audit_identity::PermissionAuditIdentity;
-pub mod permission_evaluation_request;
-pub use self::permission_evaluation_request::PermissionEvaluationRequest;
-pub mod permission_evaluation_response;
-pub use self::permission_evaluation_response::PermissionEvaluationResponse;
-pub mod permission_response;
-pub use self::permission_response::PermissionResponse;
-pub mod permission_subject;
-pub use self::permission_subject::PermissionSubject;
-pub mod permission_target;
-pub use self::permission_target::PermissionTarget;
-pub mod permission_target_one_of;
-pub use self::permission_target_one_of::PermissionTargetOneOf;
-pub mod permission_target_one_of_1;
-pub use self::permission_target_one_of_1::PermissionTargetOneOf1;
-pub mod role_response;
-pub use self::role_response::RoleResponse;
-pub mod user_application_role_response;
-pub use self::user_application_role_response::UserApplicationRoleResponse;
-pub mod version_response;
-pub use self::version_response::VersionResponse;
+pub use of_model::http::management::{
+    CreatePermissionRequest, CreateRoleRequest, HealthResponse, HealthStatus, HealthStatusOneOf,
+    IdentityAction, IdentityResource, IdentityResourceOneOf, IdentityResourceOneOf1,
+    IdentityResourceOneOf2, IdentityResourceOneOf3, IdentityResourceOneOf4, IdentityResourceOneOf5,
+    IdentityResourceOneOf6, IdentityResourceOneOf7, IdentityResourceOneOf8, IdentityResourceOneOf9,
+    PermissionAuditIdentity, PermissionEvaluationRequest, PermissionEvaluationResponse,
+    PermissionResponse, PermissionSubject, PermissionTarget, PermissionTargetOneOf,
+    PermissionTargetOneOf1, RoleResponse, UserApplicationRoleResponse, VersionResponse,
+    create_permission_request, create_role_request, health_response, health_status,
+    health_status_one_of, identity_action, identity_resource, identity_resource_one_of,
+    identity_resource_one_of_1, identity_resource_one_of_2, identity_resource_one_of_3,
+    identity_resource_one_of_4, identity_resource_one_of_5, identity_resource_one_of_6,
+    identity_resource_one_of_7, identity_resource_one_of_8, identity_resource_one_of_9,
+    permission_audit_identity, permission_evaluation_request, permission_evaluation_response,
+    permission_response, permission_subject, permission_target, permission_target_one_of,
+    permission_target_one_of_1, role_response, user_application_role_response, version_response,
+};

@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 
-use idp_model::model::{Id, Permission};
+use of_model::idp::model::{Id, Permission};
 
 use crate::{ManagementResult, SyncSelection};
 

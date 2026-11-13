@@ -1,6 +1,6 @@
 use std::io;
 
-use idp_model::{
+use of_model::idp::{
     contract::{
         ClientCredentialsGrantRequest, ErrorCode, ErrorResponse,
         MANAGEMENT_PERMISSION_EVALUATE_SCOPE, OAuth2ClientAuth, PermissionEvaluationRequest,
@@ -8,7 +8,7 @@ use idp_model::{
     },
     model::Id,
 };
-use model::contract::PrincipalType;
+use of_model::contract::PrincipalType;
 use of_management_client::apis::{
     Error,
     configuration::Configuration,
@@ -45,7 +45,7 @@ impl ManagementPermissionClient {
             base,
             client_id: config.client_id.clone(),
             client_secret: config.client_secret.clone(),
-            client: api::LocalTls::verification_client()?,
+            client: server_common::LocalTls::verification_client()?,
         })
     }
 

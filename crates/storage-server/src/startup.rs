@@ -54,7 +54,7 @@ mod tests {
     fn optional_cli_config_uses_an_independent_root_and_port() {
         let path = std::env::temp_dir().join(format!(
             "absent-storage-{}.yaml",
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         let config = super::load_config(&path).expect("optional configuration");
         assert_eq!(config.data_dir, "storage-data");
@@ -65,7 +65,7 @@ mod tests {
     fn retained_setup_keeps_the_default_listener_after_domain_creation() {
         let root = std::env::temp_dir().join(format!(
             "storage-retained-port-{}",
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         std::fs::create_dir(&root).expect("fixture root");
         let domain = root.join("storage");
@@ -117,7 +117,7 @@ mod tests {
     fn fresh_owner_routing_settings_are_not_relationship_credentials() {
         let root = std::env::temp_dir().join(format!(
             "storage-routing-{}",
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         let config = crate::AppConfig {
             data_dir: root.join("storage").to_string_lossy().into_owned(),
@@ -139,7 +139,7 @@ mod tests {
     fn fresh_owner_startup_requires_no_relationship_credentials() {
         let root = std::env::temp_dir().join(format!(
             "storage-independent-{}",
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         let config = crate::AppConfig {
             data_dir: root.join("storage").to_string_lossy().into_owned(),

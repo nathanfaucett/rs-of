@@ -1,7 +1,7 @@
 use std::{future::Future, io, pin::Pin};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use idp_model::{contract::JwkPublic, model::Id};
+use of_model::idp::{contract::JwkPublic, model::Id};
 use iroh::{EndpointAddr, EndpointId, Signature};
 use iroh_chain::{PairingOffer, Server};
 use serde::{Deserialize, Serialize};

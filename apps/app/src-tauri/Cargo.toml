@@ -60,11 +60,8 @@ tokio-util = { version = "0.7", default-features = false, features = ["rt"] }
 device-server = { path = "../../../crates/device-server", default-features = false }
 idp-server = { path = "../../../crates/idp-server", default-features = false }
 storage-server = { path = "../../../crates/storage-server", default-features = false }
-api = { path = "../../../crates/api", default-features = false, features = [] }
-idp-model = { path = "../../../crates/idp-model", default-features = false, features = [
-    "replica",
-    "std",
-] }
+server-common = { path = "../../../crates/server-common", default-features = false, features = [] }
+of-model = { path = "../../../crates/of-model", default-features = false, features = ["replica", "std"] }
 management-server = { path = "../../../crates/management-server", default-features = false, features = [
 ] }
 unified-server = { path = "../../../crates/unified-server", default-features = false, features = [

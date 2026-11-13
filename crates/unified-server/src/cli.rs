@@ -1,6 +1,6 @@
 use std::{io, path::PathBuf};
 
-use api::{bind_addr, public_base_url};
+use server_common::{bind_addr, public_base_url};
 use clap::{Args as ClapArgs, Parser, Subcommand};
 use tokio_util::sync::CancellationToken;
 
@@ -83,7 +83,7 @@ async fn submit(
     password: Option<String>,
     peer: Option<String>,
 ) -> io::Result<()> {
-    api::exact_https(&target.management)?;
+    server_common::exact_https(&target.management)?;
     let certificate = reqwest::Certificate::from_pem(&std::fs::read(&target.ca_path)?)
         .map_err(io::Error::other)?;
     let client = reqwest::Client::builder()
@@ -96,13 +96,13 @@ async fn submit(
         .map_err(io::Error::other)?;
     let issuer = match &peer {
         Some(peer) => {
-            api::IndependentPeer::discover_with_client(peer, client.clone())
+            server_common::IndependentPeer::discover_with_client(peer, client.clone())
                 .await?
                 .issuer
         }
         None => target.idp.clone(),
     };
-    let operation = api::IndependentCreateIntent {
+    let operation = server_common::IndependentCreateIntent {
         purpose: if peer.is_some() { "join" } else { "create" }.into(),
         operation_nonce: target.operation_nonce,
         administrator,
@@ -127,7 +127,7 @@ async fn submit(
         })?;
         let owner = ["idp", "device", "storage"][i];
         let Some(code) =
-            api::SetupAdmission::protected_code(admission).map_err(io::Error::other)?
+            server_common::SetupAdmission::protected_code(admission).map_err(io::Error::other)?
         else {
             observe_completed(&client, &operation, owner).await?;
             println!("Owner {owner} already completed the exact operation");
@@ -179,7 +179,7 @@ async fn submit(
 
 async fn observe_completed(
     client: &reqwest::Client,
-    operation: &api::IndependentCreateIntent,
+    operation: &server_common::IndependentCreateIntent,
     owner: &str,
 ) -> io::Result<()> {
     let base = operation.base(owner)?;
@@ -202,7 +202,7 @@ async fn observe_completed(
             "owner {owner} has no capability and is not currently ready; retain the exact operation for recovery"
         )));
     }
-    let public: api::IndependentOwnerPublic = client
+    let public: server_common::IndependentOwnerPublic = client
         .get(format!("{base}/setup/owner/public"))
         .send()
         .await

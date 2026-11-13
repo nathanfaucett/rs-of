@@ -3,7 +3,7 @@ use db::{
     FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue, QueryFrom,
     QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid, Value,
 };
-use idp_model::{
+use of_model::idp::{
     contract::{EntityType, JwkPublic},
     model::{Id, Key},
     replica::allows_authentication,
@@ -94,8 +94,8 @@ impl KeyRepo for DbKeyRepo {
         now: i64,
     ) -> RepoResult<
         Vec<(
-            idp_model::contract::ReplicaMembership,
-            idp_model::contract::IdpSignerRecord,
+            of_model::idp::contract::ReplicaMembership,
+            of_model::idp::contract::IdpSignerRecord,
         )>,
     > {
         super::DbReplicaSignerRepo::new(self.engine.clone())
@@ -454,7 +454,7 @@ fn select(predicate: Option<QueryExpr>) -> Query {
 mod tests {
     use std::sync::Arc;
 
-    use idp_model::replica::up;
+    use of_model::idp::replica::up;
 
     use super::*;
 

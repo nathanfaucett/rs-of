@@ -5,7 +5,7 @@ use std::{
 };
 
 use db::Database;
-use idp_model::{
+use of_model::idp::{
     contract::{
         ClientCredentialsGrantRequest, ClientRegistration, ErrorResponse, OAuth2ClientAuth,
         TokenRequest,
@@ -27,7 +27,7 @@ use crate::AppConfig;
 pub async fn open_local_identity_database(directory: &Path) -> io::Result<Arc<Database>> {
     fs::create_dir_all(directory)?;
     let engine = Arc::new(Database::open(directory.join("idp.redb")).map_err(io::Error::other)?);
-    idp_model::replica::up(&engine)
+    of_model::idp::replica::up(&engine)
         .await
         .map_err(io::Error::other)?;
     Ok(engine)
@@ -196,7 +196,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             expected.client_uri = Some(expected.application.uri.clone());
         }
         let mut current: ClientRegistration = client.into();
-        current.application = idp_model::contract::ApplicationRegistration {
+        current.application = of_model::idp::contract::ApplicationRegistration {
             name: Some(application.name),
             uri: application.uri,
             description: application.description,
@@ -243,7 +243,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
 mod tests {
     use std::{fs, io};
 
-    use idp_model::model::Id;
+    use of_model::idp::model::Id;
 
     use crate::AppConfig;
 
@@ -275,7 +275,7 @@ mod tests {
             let database = super::open_local_identity_database(&root)
                 .await
                 .expect("initialize or reopen identity owner");
-            idp_model::replica::validate_identity(&database.client())
+            of_model::idp::replica::validate_identity(&database.client())
                 .await
                 .expect("initialized identity schema");
         }

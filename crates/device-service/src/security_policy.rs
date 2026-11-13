@@ -1,7 +1,7 @@
 use std::{io, sync::Arc};
 
 use db::{Database, Value};
-use idp_model::{
+use of_model::idp::{
     contract::{
         IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
         PermissionTarget,
@@ -278,7 +278,7 @@ mod tests {
     use super::{SecurityContext, SecurityHistory, SecuritySync};
     use crate::sync_validation_direction::SyncValidationDirection;
     use db::{Database, Value};
-    use idp_model::{contract::IdentityAction, model::Id};
+    use of_model::idp::{contract::IdentityAction, model::Id};
     use management_service::{
         ManagementService,
         replica::{DbPermissionRepo, DbRoleRepo},
@@ -305,7 +305,7 @@ mod tests {
         assert_eq!(SecurityHistory::IdentityPolicy.name(), "policy-identity");
         assert_eq!(SecurityHistory::Devices.name(), "policy-devices");
         let idp = Database::in_memory();
-        idp_model::replica::up(&idp).await.expect("identity schema");
+        of_model::idp::replica::up(&idp).await.expect("identity schema");
         let devices = Database::in_memory();
         crate::replica::up(&devices).await.expect("Device schema");
         for history in [SecurityHistory::Idp, SecurityHistory::IdentityPolicy] {
@@ -421,7 +421,7 @@ mod tests {
     #[tokio::test]
     async fn current_owner_binding_and_context_permissions_are_rechecked() {
         let idp = Arc::new(Database::in_memory());
-        idp_model::replica::up(&idp).await.expect("identity schema");
+        of_model::idp::replica::up(&idp).await.expect("identity schema");
         let devices = Arc::new(Database::in_memory());
         crate::replica::up(&devices).await.expect("Device schema");
         let actor = Id::now_v7();

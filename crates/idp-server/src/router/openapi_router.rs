@@ -1,4 +1,4 @@
-use api::SecurityAddon;
+use server_common::SecurityAddon;
 use utoipa::OpenApi;
 use utoipa::openapi::{OpenApi as OpenApiDocument, Paths, RefOr, Schema, Server};
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -146,7 +146,7 @@ pub fn openapi_document(api_base_uri: &str, prefix: &str) -> OpenApiDocument {
 }
 
 pub fn openapi_router(router_state: RouterState, prefix: &str) -> OpenApiRouter {
-    let openapi_spec = api::canonical_openapi("idp", &router_state.api_base_uri, prefix);
+    let openapi_spec = server_common::canonical_openapi("idp", &router_state.api_base_uri, prefix);
     let prefix = if prefix == "/" { "" } else { prefix };
     let runtime_router = if prefix.is_empty() {
         OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(routes().with_state(router_state))

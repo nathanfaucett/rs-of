@@ -9,7 +9,7 @@ use std::{
 };
 
 use db::{Database, DatabaseTransport, Row, Value};
-use idp_model::{contract::IdentityAction, model::Id};
+use of_model::idp::{contract::IdentityAction, model::Id};
 use idp_service::oauth2::NodeSignerBinding;
 use iroh::{
     Endpoint,
@@ -195,14 +195,14 @@ impl Pair {
             );
             if let Some(default) = default {
                 let migration =
-                    include_str!("../../idp-model/replica_migrations/20241117224814_init.up.sql")
+                    include_str!("../../of-model/identity_migrations/0001_init.up.sql")
                         .replace(
                             "public_jwk TEXT\n",
                             &format!("public_jwk TEXT DEFAULT '{default}'\n"),
                         );
                 sql(&idp, &migration).await;
             }
-            idp_model::replica::up(&idp)
+            of_model::idp::replica::up(&idp)
                 .await
                 .expect("declare secret-free schema");
             sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{actor}' AS UUID), 'owner', 'Owner', 1, 1)")).await;

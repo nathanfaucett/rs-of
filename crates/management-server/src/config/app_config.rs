@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use api::ServerConfig;
+use server_common::ServerConfig;
 
 use serde::Deserialize;
 

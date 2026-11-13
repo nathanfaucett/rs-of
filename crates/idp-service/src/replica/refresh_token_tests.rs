@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use db::Database;
-use idp_model::{model::Id, replica::up};
+use of_model::idp::{model::Id, replica::up};
 
 use crate::repo::{OAuth2RefreshToken, OAuth2RefreshTokenRepo};
 

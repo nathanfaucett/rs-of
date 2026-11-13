@@ -1,7 +1,7 @@
 use std::{io, sync::Arc};
 
 use db::{Database, Row, SqlTranslator, Value};
-use idp_model::{contract::JwkPublic, model::Id};
+use of_model::idp::{contract::JwkPublic, model::Id};
 use idp_service::{oauth2::NodeSignerBinding, repo::PrivateKeyRepo};
 
 use super::{NodeJoinApproval, invalid, persist_exact, read_optional};

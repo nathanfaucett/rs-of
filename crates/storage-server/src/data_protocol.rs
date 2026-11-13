@@ -167,7 +167,7 @@ mod tests {
         });
         let root = std::env::temp_dir().join(format!(
             "storage-active-shutdown-{}",
-            idp_model::model::Id::now_v7()
+            of_model::idp::model::Id::now_v7()
         ));
         let databases = Arc::new(DatabaseRuntime::new(root.join("databases")).expect("open DB"));
         let file_systems = Arc::new(

@@ -1,5 +1,5 @@
 use db::{QueryError, SqlTranslator, Transaction, Value};
-use idp_model::contract::{IdpSignerRecord, JwsAlgorithm, KeyUse, ReplicaMembership};
+use of_model::idp::contract::{IdpSignerRecord, JwsAlgorithm, KeyUse, ReplicaMembership};
 
 use crate::repo::{RepoError, RepoResult};
 
@@ -8,8 +8,8 @@ pub struct DbReplicaSignerRepo {
 }
 
 impl DbReplicaSignerRepo {
-    pub fn validate_public_key(public: &idp_model::contract::JwkPublic) -> RepoResult<()> {
-        if matches!(&public.params, idp_model::contract::JwkPublicParameters::Ec { crv, .. } if crv == "secp256k1")
+    pub fn validate_public_key(public: &of_model::idp::contract::JwkPublic) -> RepoResult<()> {
+        if matches!(&public.params, of_model::idp::contract::JwkPublicParameters::Ec { crv, .. } if crv == "secp256k1")
             && public.r#use == KeyUse::Signature
             && public.alg == JwsAlgorithm::ES256K
             && crate::oauth2::verifing_key_from_jwt(public).is_ok()
@@ -282,7 +282,7 @@ impl DbReplicaSignerRepo {
 
     pub async fn rotate(
         &self,
-        member_id: idp_model::model::Id,
+        member_id: of_model::idp::model::Id,
         issuer: &str,
         signer: &IdpSignerRecord,
     ) -> RepoResult<bool> {
@@ -357,7 +357,7 @@ impl DbReplicaSignerRepo {
 
     pub async fn revoke(
         &self,
-        member_id: idp_model::model::Id,
+        member_id: of_model::idp::model::Id,
         issuer: &str,
         revoked_at: i64,
     ) -> RepoResult<bool> {
@@ -426,7 +426,7 @@ fn validate(membership: &ReplicaMembership, signer: &IdpSignerRecord) -> RepoRes
 
 fn validate_signer(
     signer: &IdpSignerRecord,
-    member_id: idp_model::model::Id,
+    member_id: of_model::idp::model::Id,
     issuer: &str,
 ) -> RepoResult<i64> {
     let approved_at = signer
@@ -486,7 +486,7 @@ mod tests {
     use db::{SqlTranslator, Value};
     use k256::ecdsa::SigningKey;
 
-    use idp_model::{
+    use of_model::idp::{
         contract::{
             IdpSignerRecord, JwkPublic, JwkPublicParameters, JwsAlgorithm, KeyUse,
             ReplicaMembership,

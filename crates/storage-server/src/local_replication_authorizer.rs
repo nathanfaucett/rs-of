@@ -1,9 +1,9 @@
 use std::{future::Future, pin::Pin, sync::Arc};
 
 use device_service::DeviceState;
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use iroh::EndpointId;
-use model::contract::{OwnerCopyCleanup, SelectedResource, SelectedResourcesResponse};
+use of_model::contract::{OwnerCopyCleanup, SelectedResource, SelectedResourcesResponse};
 
 /// Current evidence supplied by trusted IdP and Management services, not by a peer.
 #[derive(Clone, Debug)]
@@ -290,8 +290,8 @@ mod native_tests;
 mod tests {
     use super::{DeviceReplicationPolicy, LocalReplicationAuthorizer};
     use device_service::DeviceState;
-    use idp_model::model::Id;
-    use model::contract::SelectedResource;
+    use of_model::idp::model::Id;
+    use of_model::contract::SelectedResource;
 
     #[tokio::test]
     async fn learned_denial_and_failed_local_evaluation_are_checked_on_either_peer() {

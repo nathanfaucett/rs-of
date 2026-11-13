@@ -9,7 +9,7 @@ use alloc::{
     vec::Vec,
 };
 
-use model::contract::{
+use of_model::contract::{
     AccessToken, AuthorizationDetail, IdToken, PrincipalType, RefreshToken, StandardClaims,
     TokenResponse, TokenType, TokenUse,
 };
@@ -17,8 +17,8 @@ use model::contract::{
 use std::sync::Arc;
 
 use chrono::{Duration, Utc};
-use idp_model::model::{Application, Client, Id, Key};
-use idp_model::{
+use of_model::idp::model::{Application, Client, Id, Key};
+use of_model::idp::{
     contract::{
         ApproveForUserRequest, AuthorizationCodeGrantRequest, AuthorizationCodeResponse,
         AuthorizationRequest, AuthorizationServerMetadata, ClientConsentMetadata,
@@ -359,7 +359,7 @@ where
     ) -> ErrorResponseResult<ClientRegistration> {
         let application = self.get_application(client.application_id).await?;
         let mut registration: ClientRegistration = client.into();
-        registration.application = idp_model::contract::ApplicationRegistration {
+        registration.application = of_model::idp::contract::ApplicationRegistration {
             name: Some(application.name),
             uri: application.uri,
             description: application.description,
@@ -405,7 +405,7 @@ where
         }
         let application = self.get_application(client.application_id).await?;
         Ok(ClientConsentMetadata {
-            application: idp_model::contract::ApplicationRegistration {
+            application: of_model::idp::contract::ApplicationRegistration {
                 name: Some(application.name),
                 uri: application.uri,
                 description: application.description,
@@ -1708,7 +1708,7 @@ where
             scope: scopes.to_vec(),
             resource: resource.map(str::to_string),
             authorization_details: authorization_details
-                .map(<[model::contract::AuthorizationDetail]>::to_vec),
+                .map(<[of_model::contract::AuthorizationDetail]>::to_vec),
         };
 
         let access_token_value = encode_jwt(
@@ -1914,8 +1914,8 @@ where
             })?;
 
         let sex = match request.sex.as_deref() {
-            Some("male") => Some(idp_model::contract::Sex::Male),
-            Some("female") => Some(idp_model::contract::Sex::Female),
+            Some("male") => Some(of_model::idp::contract::Sex::Male),
+            Some("female") => Some(of_model::idp::contract::Sex::Female),
             Some(value) => {
                 return Err(ErrorResponse::new(ErrorCode::InvalidRequest)
                     .with_description(format!("unsupported sex value: {value}")));
@@ -2099,7 +2099,7 @@ where
         user_id: Id,
         offset: u32,
         limit: u32,
-    ) -> ErrorResponseResult<Vec<idp_model::model::OAuth2UserConsent>> {
+    ) -> ErrorResponseResult<Vec<of_model::idp::model::OAuth2UserConsent>> {
         if self
             .user_repo
             .find_user_by_id(user_id)

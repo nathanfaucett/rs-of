@@ -19,25 +19,25 @@ pub struct UnifiedConfig {
 impl UnifiedConfig {
     pub fn local_dynamic(root: &Path) -> io::Result<Self> {
         let path = root.join("listen.addr");
-        let address = if api::setup_files::present(&path)? {
-            String::from_utf8(api::setup_files::read_private(&path)?)
+        let address = if server_common::setup_files::present(&path)? {
+            String::from_utf8(server_common::setup_files::read_private(&path)?)
                 .map_err(io::Error::other)?
                 .parse()
                 .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
         } else {
-            if api::setup_files::present(root)? && std::fs::read_dir(root)?.next().is_some() {
+            if server_common::setup_files::present(root)? && std::fs::read_dir(root)?.next().is_some() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     "unsupported retained Unified Host layout; preserve the root and use the previous binary for recovery/reset, or choose a new empty directory",
                 ));
             }
-            api::setup_files::create_private_directory(root, true)?;
+            server_common::setup_files::create_private_directory(root, true)?;
             let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
             let address = listener.local_addr()?;
-            let mut file = api::setup_files::private_options(true).open(path)?;
+            let mut file = server_common::setup_files::private_options(true).open(path)?;
             write!(file, "{address}")?;
             file.sync_all()?;
-            api::setup_files::sync_ancestry(root)?;
+            server_common::setup_files::sync_ancestry(root)?;
             address
         };
         Ok(Self::local(root, address))
@@ -47,7 +47,7 @@ impl UnifiedConfig {
         let base = format!("https://{listen_addr}");
         let mut idp = idp_server::AppConfig {
             data_dir: root.join("idp").to_string_lossy().into_owned(),
-            server: api::ServerConfig {
+            server: server_common::ServerConfig {
                 prefix: Some("/idp".into()),
                 ..Default::default()
             },
@@ -57,7 +57,7 @@ impl UnifiedConfig {
         idp.oauth2.issuer = idp.api_public_uri.clone();
         let device = device_server::AppConfig {
             data_dir: root.join("device").to_string_lossy().into_owned(),
-            server: api::ServerConfig {
+            server: server_common::ServerConfig {
                 prefix: Some("/device".into()),
                 ..Default::default()
             },
@@ -66,7 +66,7 @@ impl UnifiedConfig {
         };
         let storage = storage_server::AppConfig {
             data_dir: root.join("storage").to_string_lossy().into_owned(),
-            server: api::ServerConfig {
+            server: server_common::ServerConfig {
                 prefix: Some("/storage".into()),
                 ..Default::default()
             },
@@ -75,7 +75,7 @@ impl UnifiedConfig {
         };
         let management = management_server::AppConfig {
             data_dir: root.join("management").to_string_lossy().into_owned(),
-            server: api::ServerConfig {
+            server: server_common::ServerConfig {
                 prefix: Some("/management".into()),
                 ..Default::default()
             },
@@ -93,7 +93,7 @@ impl UnifiedConfig {
     }
 }
 
-impl api::LocalTlsConfig for UnifiedConfig {
+impl server_common::LocalTlsConfig for UnifiedConfig {
     fn tls_directory(&self) -> std::path::PathBuf {
         self.endpoint_data_dir.with_extension("tls")
     }

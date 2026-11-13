@@ -5,7 +5,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use management_service::SyncSelection;
 use reqwest::{Client, Url, redirect::Policy};
 

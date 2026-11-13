@@ -2,7 +2,8 @@ use axum::{
     Json,
     extract::{Path, State},
 };
-use idp_model::contract::ErrorResponse;
+use of_model::idp::contract::ErrorResponse;
+pub use of_model::server::management::users::UserApplicationRoleResponse;
 use serde::{Deserialize, Serialize};
 
 use crate::router::{RouterState, middleware::ManagementAuthorization};
@@ -10,31 +11,6 @@ use crate::router::{RouterState, middleware::ManagementAuthorization};
 use super::roles::require_application_permission;
 
 const USERS_READ_PERMISSION: &str = "users.read";
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, utoipa::ToSchema)]
-pub(crate) struct UserApplicationRoleResponse {
-    #[schema(value_type = String)]
-    pub role_id: idp_model::model::Id,
-    #[schema(value_type = String)]
-    pub application_id: idp_model::model::Id,
-    pub role_name: String,
-    pub role_description: Option<String>,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-impl From<idp_model::model::Role> for UserApplicationRoleResponse {
-    fn from(value: idp_model::model::Role) -> Self {
-        Self {
-            role_id: value.id,
-            application_id: value.application_id,
-            role_name: value.name,
-            role_description: value.description,
-            created_at: value.created_at.timestamp(),
-            updated_at: value.updated_at.timestamp(),
-        }
-    }
-}
 
 #[utoipa::path(
     get,
@@ -49,7 +25,7 @@ impl From<idp_model::model::Role> for UserApplicationRoleResponse {
 )]
 pub(crate) async fn list_user_roles_across_applications(
     State(state): State<RouterState>,
-    Path(user_id): Path<idp_model::model::Id>,
+    Path(user_id): Path<of_model::idp::model::Id>,
     authorization: ManagementAuthorization,
 ) -> Result<Json<Vec<UserApplicationRoleResponse>>, ErrorResponse> {
     require_application_permission(

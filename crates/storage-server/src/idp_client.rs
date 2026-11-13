@@ -5,10 +5,10 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use idp_model::contract::IntrospectionResponse;
+use of_model::idp::contract::IntrospectionResponse;
 #[cfg(feature = "network")]
 use iroh::EndpointId;
-use model::contract::{TokenResponse, TokenType};
+use of_model::contract::{TokenResponse, TokenType};
 use of_idp_client::{
     apis::{
         Error,
@@ -387,7 +387,7 @@ mod tests {
                     "scope": "idp.token.validate", "iss": ISSUER
                 }))
             }))
-            .route("/idp/oauth2/introspect", post(|headers: HeaderMap, Json(request): Json<idp_model::contract::IntrospectionRequest>| async move {
+            .route("/idp/oauth2/introspect", post(|headers: HeaderMap, Json(request): Json<of_model::idp::contract::IntrospectionRequest>| async move {
                 assert_eq!(headers["authorization"], "Bearer service-token");
                 assert_eq!(request.token, "invalid-user-token");
                 StatusCode::UNAUTHORIZED
@@ -420,8 +420,8 @@ mod tests {
         use std::sync::{Arc, Mutex};
 
         use device_service::DeviceState;
-        use idp_model::{contract::IntrospectionResponse, model::Id};
-        use model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
+        use of_model::idp::{contract::IntrospectionResponse, model::Id};
+        use of_model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
 
         let endpoint = iroh::SecretKey::generate().public();
         let owner = Id::now_v7().to_string();

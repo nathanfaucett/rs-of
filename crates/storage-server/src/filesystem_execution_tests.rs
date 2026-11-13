@@ -10,11 +10,11 @@ use file_system::{
     FileHandle, FileOperation, FileSessionService, FileSystem, OpenRequest, OperationControl,
     RemoteOperation, SyncMessage, Transport,
 };
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 use iroh::{EndpointId, protocol::ProtocolHandler};
 use iroh_chain::{EndpointIdStore, Server};
-use model::contract::SelectedResource;
-use storage_model::StorageNamespace;
+use of_model::contract::SelectedResource;
+use of_model::storage::StorageNamespace;
 use storage_service::{DatabaseRuntime, ScopedFileSystemRuntime};
 use tokio_util::sync::CancellationToken;
 
@@ -395,7 +395,7 @@ async fn real_passthrough_read_uses_authorized_reachable_full_peer_without_local
             storage_service::ScopedStorageService::open_resource(&fixture.runtimes[0], scope, id)
                 .await
                 .expect("scoped Passthrough");
-        let read = || storage_model::StorageRequest::Read {
+        let read = || of_model::storage::StorageRequest::Read {
             path: "remote.txt".into(),
         };
         let result = session.execute(read()).await;
@@ -420,7 +420,7 @@ async fn real_passthrough_read_uses_authorized_reachable_full_peer_without_local
         }
         assert_eq!(
             result.expect("real authorized DATA content"),
-            storage_model::StorageResponse::Read {
+            of_model::storage::StorageResponse::Read {
                 content: b"authorized Full content".to_vec()
             }
         );

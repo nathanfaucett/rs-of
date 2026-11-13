@@ -4,7 +4,7 @@ use std::{fs, sync::Arc};
 
 use db::Database;
 use device_service::replica::{DbSelectionPolicyRepo, SelectionPolicy, up};
-use idp_model::model::Id;
+use of_model::idp::model::Id;
 
 #[tokio::test]
 async fn stale_cleanup_cannot_clear_current_binding_and_exact_retry_stays_restricted() {

@@ -254,7 +254,7 @@ impl PublicSecurityTable {
         if uuid {
             return value
                 .as_str()
-                .and_then(|text| idp_model::model::Id::parse_str(text).ok())
+                .and_then(|text| of_model::idp::model::Id::parse_str(text).ok())
                 .is_some_and(|id| {
                     let installation_scope = column == "application_id"
                         && matches!(
@@ -333,7 +333,7 @@ fn permits_public_jwk(text: &str) -> bool {
     public
         .keys()
         .all(|field| ["kid", "use", "alg", "kty", "crv", "x", "y"].contains(&field.as_str()))
-        && serde_json::from_str::<idp_model::contract::JwkPublic>(text)
+        && serde_json::from_str::<of_model::idp::contract::JwkPublic>(text)
             .ok()
             .is_some_and(|jwk| crate::oauth2::verifing_key_from_jwt(&jwk).is_ok())
 }
@@ -496,10 +496,10 @@ mod tests {
     #[tokio::test]
     async fn projections_match_query_columns_and_validate_record_types() {
         let engine = alloc::sync::Arc::new(db::Database::in_memory());
-        idp_model::replica::up(&engine)
+        of_model::idp::replica::up(&engine)
             .await
             .expect("initialize actual schema");
-        let public = serde_json::json!({"kid": idp_model::model::Id::now_v7(), "use": "sig", "alg": "ES256K", "kty": "Ec", "crv": "secp256k1",
+        let public = serde_json::json!({"kid": of_model::idp::model::Id::now_v7(), "use": "sig", "alg": "ES256K", "kty": "Ec", "crv": "secp256k1",
             "x": "eb5mfvncu6xVoGKVzocLBwKb/NstzijZWfKBWxb4F5g", "y": "SDradyajxGVdpPv8DhEIqP0XtEimhVQZnEfQj/sQ1Lg"});
         for table in public_security_tables() {
             let schema = engine
@@ -527,7 +527,7 @@ mod tests {
                             .contains(&column.name.as_str())
                         && !(column.name == "client_id" && table == PublicSecurityTable::Clients)
                 {
-                    serde_json::json!(idp_model::model::Id::now_v7())
+                    serde_json::json!(of_model::idp::model::Id::now_v7())
                 } else if column.name.ends_with("_at")
                     || [
                         "active",

@@ -1,3 +1,4 @@
+pub use of_model::server::storage::storage_socket::StorageQuery;
 use std::{future::Future, sync::Arc};
 
 use axum::{
@@ -10,7 +11,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use storage_model::{StorageErrorCode, StorageRequest, StorageResponse, StorageSession};
+use of_model::storage::{StorageErrorCode, StorageRequest, StorageResponse, StorageSession};
 
 pub struct StorageSocketAccess<S> {
     pub subject: String,
@@ -37,12 +38,6 @@ pub trait StorageSocketAuthorizer: Send + Sync + 'static {
     ) -> impl Future<
         Output = Result<StorageSocketAccess<Self::Session>, StorageSocketAuthorizationError>,
     > + Send;
-}
-
-#[derive(serde::Deserialize)]
-pub(super) struct StorageQuery {
-    access_token: String,
-    filesystem_id: String,
 }
 
 pub fn storage_router<A>(authorizer: Arc<A>) -> Router
@@ -197,7 +192,7 @@ async fn send_response(socket: &mut WebSocket, response: StorageResponse) -> Res
 #[cfg(test)]
 mod tests {
     use super::{StorageSocketAccess, allows};
-    use storage_model::{StorageRequest, StorageResponse, StorageSession};
+    use of_model::storage::{StorageRequest, StorageResponse, StorageSession};
 
     struct Session;
 

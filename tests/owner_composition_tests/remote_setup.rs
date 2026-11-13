@@ -7,8 +7,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use api::{IndependentCreateIntent, LocalTls};
-use idp_model::model::Id;
+use server_common::{IndependentCreateIntent, LocalTls};
+use of_model::idp::model::Id;
 use reqwest::StatusCode;
 use tokio_util::sync::CancellationToken;
 
@@ -152,7 +152,7 @@ async fn remote_setup_child() {
             .expect("address JSON");
     fs::create_dir(root.join("owners")).expect("separate domain owner roots");
     let identity = db::Database::open(root.join("owners/identity.redb")).expect("identity owner");
-    idp_model::replica::up(&identity)
+    of_model::idp::replica::up(&identity)
         .await
         .expect("identity migration");
     let devices = db::Database::open(root.join("owners/devices.redb")).expect("Device owner");

@@ -1,5 +1,5 @@
 use db::Client;
-use idp_model::contract::PermissionEvaluationRequest;
+use of_model::idp::contract::PermissionEvaluationRequest;
 
 use crate::{
     ManagementResult, ManagementService,
@@ -35,7 +35,7 @@ mod tests {
         replica::{DbPermissionRepo, DbRoleRepo, up},
     };
     use db::Database;
-    use idp_model::{
+    use of_model::idp::{
         contract::{
             IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
             PermissionTarget,
