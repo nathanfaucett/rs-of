@@ -6,17 +6,17 @@ app UI origin. Change it consistently for your actual browser/native deployment.
 
 | Command | Configuration | HTTPS base | Data |
 | --- | --- | --- | --- |
-| `just unified` | `config/unified/config.yaml` | `https://127.0.0.1:3000` | `data/unified` |
 | `just idp` | `config/idp/config.yaml` | `https://127.0.0.1:3000` | `data/idp` |
 | `just management` | `config/management/config.yaml` | `https://management-api.localhost:1355` | `data/management` |
 | `just device` | `config/device/config.yaml` | `https://127.0.0.1:3003` | `data/device` |
 | `just storage` | `config/storage/config.yaml` | `https://127.0.0.1:3002` | `data/storage` |
 
-Run Unified or standalone IdP, not both on port 3000. Unified explicitly mounts
-`/idp`, `/management`, `/device`, `/storage` once. Its local HTTPS listener owns one
-CA; it is not a Portless HTTP backend. Standalone setup owners keep their local
-HTTPS listeners/authorities and use their configured root bases. Browser callers
-need verified trust; CLI uses the actual CA path without installing OS trust.
+Unified local mode does not use YAML. Run `just unified --data-dir .data --port 1355
+--origin http://localhost:5173 --no-tls`. It mounts `/idp`, `/management`, `/device`,
+and `/storage` once. Omit `--no-tls` for a retained self-signed leaf certificate;
+there is no CA or admission flow. See the [local backend guide](../README.md#local-development-backend).
+The remaining configuration and setup instructions apply only to separate owners.
+
 Management is policy-only: its separate CLI serves loopback HTTP on port 3001, not
 a setup listener/authority. Arrange a verified HTTPS proxy for its advertised
 public base. This is not an additional setup owner or a fourth setup CA.
@@ -32,19 +32,12 @@ Submit one public exact Create/Join tuple separately under each owner's code; on
 IdP receives the Create password. Correlate each current status and public operation
 before login. See [CLI examples](../docs/operations.md#automatic-unified-cli-bootstrap).
 
-Preserve separate domain roots and each `<owner>.setup-host` directory. The sample
-Unified TLS root is `data/unified/endpoint.tls`; the `endpoint_data_dir` selector
-locates that authority, not an old endpoint credential file. The composed Device
-worker owns installation endpoint material. Dynamic desktop also retains
-`listen.addr`. There is no host metadata SQL database or bootstrap journal.
-Existing/partial unsupported state is refused intact; do not delete evidence to
-manufacture freshness. Owner-local stopped reset preserves sibling/shared SQL state;
-hosted reset preserves the shared CA. See [reset/recovery](../docs/operations.md#persistence-reset-and-recovery).
+Preserve separate owner domain roots and each `<owner>.setup-host` directory.
+See [reset/recovery](../docs/operations.md#persistence-reset-and-recovery).
 
 Pass an alternate config as the first recipe argument, then server arguments:
 
 ```sh
-just unified config/custom.yaml serve
 just device config/device/config.yaml serve --port 3103
 ```
 

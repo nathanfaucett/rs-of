@@ -9,16 +9,28 @@ async fn local_constructor_opens_its_owner_file_without_setup() {
         "idp-owner-local-{}",
         of_model::idp::model::Id::now_v7()
     ));
-    let router = idp_server::build_local_router(&root, 1355, "http://localhost:5173", None)
-        .await
-        .expect("local IdP owner");
+    let router = idp_server::build_local_router(
+        &root,
+        "http://127.0.0.1:1355/idp",
+        "http://localhost:5173",
+        None,
+        &[],
+    )
+    .await
+    .expect("local IdP owner");
     assert!(root.join("idp.redb").is_file());
     assert!(!root.join("unified.redb").exists());
     assert!(!root.join("idp.setup-host").exists());
     drop(router);
-    let router = idp_server::build_local_router(&root, 1355, "http://localhost:5173", None)
-        .await
-        .expect("reopen local IdP owner");
+    let router = idp_server::build_local_router(
+        &root,
+        "http://127.0.0.1:1355/idp",
+        "http://localhost:5173",
+        None,
+        &[],
+    )
+    .await
+    .expect("reopen local IdP owner");
     drop(router);
     std::fs::remove_dir_all(root).expect("remove local IdP owner");
 }
@@ -35,9 +47,10 @@ async fn local_constructor_seeds_frontends_and_admin_without_setup_and_is_repeat
     for _ in 0..2 {
         let router = idp_server::build_local_router(
             &root,
-            1355,
+            "http://127.0.0.1:1355/idp",
             "http://localhost:5173",
             Some(database.clone()),
+            &[],
         )
         .await
         .expect("local router without setup");

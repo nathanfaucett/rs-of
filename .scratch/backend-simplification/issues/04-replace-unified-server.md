@@ -1,6 +1,12 @@
 # Ticket 04: Replace Unified Server Binary
 
-**Status: ready-for-agent**
+**Status: claimed**
+
+**Owner:** `backend-simplification-unified` (`.scratch/worktrees/unified`)
+
+Complexity: medium. Risk: OAuth issuer paths, TLS trust, and existing dependency build errors. Priority: local HTTP acceptance.
+
+**Not resolved:** required owner HTTP smoke tests cannot run. See [validation and gaps](../unified-validation.md).
 
 **Blocked by:** 03
 

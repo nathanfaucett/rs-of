@@ -56,10 +56,11 @@ impl StorageRuntime {
 /// Builds local Storage with a shared SQL catalog and file-backed resource contents.
 pub fn build_local_runtime(
     data_dir: &Path,
-    port: u16,
+    _port: u16,
     idp_base: &str,
     device_base: &str,
     db: Option<Arc<dyn of_model::db::Database>>,
+    http_client: Option<reqwest::Client>,
 ) -> io::Result<StorageRuntime> {
     let client = embedded_db::local_client(data_dir, "storage", db)?;
     std::fs::create_dir_all(data_dir)?;
@@ -100,9 +101,19 @@ pub fn build_local_runtime(
         management_service::MANAGEMENT_APPLICATION_URI,
     )
     .map_err(io::Error::other)?;
-    let state = RouterState::new(format!("http://127.0.0.1:{port}/storage"), peer.to_string())
-        .with_idp_client(idp)
-        .with_device_client(device);
+    let (idp, device) = match http_client {
+        Some(client) => (
+            idp.with_http_client(client.clone()),
+            device.with_http_client(client),
+        ),
+        None => (idp, device),
+    };
+    let state = RouterState::new(
+        format!("{}/storage", idp_base.trim_end_matches("/idp")),
+        peer.to_string(),
+    )
+    .with_idp_client(idp)
+    .with_device_client(device);
     build_runtime_inner(
         state,
         data_dir,

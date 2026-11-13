@@ -23,10 +23,15 @@ async fn local_constructor_accepts_shared_and_owner_databases_without_setup() {
         } else {
             None
         };
-        let router =
-            device_server::build_local_router(&root, 1355, "http://127.0.0.1:1355/idp", shared)
-                .await
-                .expect("local constructor");
+        let router = device_server::build_local_router(
+            &root,
+            1355,
+            "http://127.0.0.1:1355/idp",
+            shared,
+            None,
+        )
+        .await
+        .expect("local constructor");
         let response = router
             .oneshot(
                 Request::builder()

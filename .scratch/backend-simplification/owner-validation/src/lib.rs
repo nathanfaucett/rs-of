@@ -15,3 +15,10 @@ mod tests;
 pub use database_catalog::{DatabaseCatalog, DatabaseId, DatabaseResource};
 pub use database_runtime::DatabaseRuntime;
 pub use identity::RouterState;
+
+#[path = "../../../../crates/unified-server/src/tls.rs"]
+mod tls;
+#[path = "../../../../crates/unified-server/src/config.rs"]
+mod unified_config;
+
+pub use unified_config::{SeedConfig, SeedUser, TlsConfig, UnifiedConfig};

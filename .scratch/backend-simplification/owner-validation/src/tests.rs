@@ -171,7 +171,7 @@ async fn local_seed_is_repeatable_and_supports_real_admin_credentials_and_public
             engine: client.clone(),
             oauth2_service: service,
         };
-        crate::local_seed::seed(&state, "http://localhost:5173", 1355)
+        crate::local_seed::seed(&state, "http://localhost:5173")
             .await
             .expect("local seed");
         use of_model::idp::contract::{
@@ -196,6 +196,22 @@ async fn local_seed_is_repeatable_and_supports_real_admin_credentials_and_public
             .await
             .expect("local service can obtain a signed token");
         assert!(!token.access_token.0.is_empty());
+        let login = state
+            .oauth2_service
+            .token(
+                TokenRequest::Password(of_model::idp::contract::PasswordGrantRequest {
+                    client_id: "local-login".into(),
+                    username: "admin@local.test".into(),
+                    password: "password".into(),
+                    scope: Some("openid profile email".into()),
+                    resource: None,
+                }),
+                None,
+            )
+            .await
+            .expect("seeded administrator can sign in");
+        assert!(!login.access_token.0.is_empty());
+
         let admin = state
             .oauth2_service
             .user_repo
@@ -225,4 +241,69 @@ async fn local_seed_is_repeatable_and_supports_real_admin_credentials_and_public
     let text = format!("{:?}", frontends[0].rows);
     assert!(text.contains("http://localhost:5173/callback"));
     assert!(text.contains("http://localhost:5174/callback"));
+}
+
+#[tokio::test]
+async fn local_tls_reuses_self_signed_material_and_rejects_partial_files() {
+    use crate::{TlsConfig, UnifiedConfig, tls};
+    let root = tempfile::tempdir().expect("TLS directory");
+    let mut config = UnifiedConfig {
+        listen_addr: "127.0.0.1:1355".parse().expect("loopback"),
+        data_dir: root.path().into(),
+        origin: "http://localhost:5173".into(),
+        tls: TlsConfig::Disabled,
+        seed: None,
+    };
+    assert!(tls::load(&config).expect("no TLS").is_none());
+    assert!(!root.path().join("tls").exists());
+    config.tls = TlsConfig::AutoGenerate;
+    let server_tls = tls::load(&config)
+        .expect("self-signed TLS")
+        .expect("TLS enabled");
+    let certificate = std::fs::read(root.path().join("tls/cert.pem")).expect("certificate");
+    let key = std::fs::read(root.path().join("tls/key.pem")).expect("private key");
+    tls::load(&config).expect("restart reuses TLS");
+    assert_eq!(
+        std::fs::read(root.path().join("tls/cert.pem")).expect("retained certificate"),
+        certificate
+    );
+    assert_eq!(
+        std::fs::read(root.path().join("tls/key.pem")).expect("retained key"),
+        key
+    );
+    assert_eq!(
+        std::fs::read_dir(root.path().join("tls"))
+            .expect("TLS files")
+            .count(),
+        2
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("HTTPS socket");
+    let address = listener.local_addr().expect("HTTPS address");
+    let router = axum::Router::new().route("/health", axum::routing::get(|| async { "ready" }));
+    let task = tokio::spawn(async move {
+        axum::serve(tls::TlsListener::new(listener, server_tls), router).await
+    });
+    let response = tls::http_client(&config)
+        .expect("pinned HTTP client")
+        .get(format!("https://{address}/health"))
+        .send()
+        .await
+        .expect("trusted HTTPS request");
+    assert_eq!(response.status(), 200);
+    task.abort();
+    let _ = task.await;
+    config.tls = TlsConfig::External {
+        cert_path: root.path().join("tls/cert.pem"),
+        key_path: root.path().join("tls/key.pem"),
+    };
+    assert!(tls::load(&config).expect("external TLS").is_some());
+    config.tls = TlsConfig::AutoGenerate;
+    std::fs::remove_file(root.path().join("tls/key.pem")).expect("partial TLS fixture");
+    assert!(tls::load(&config).is_err());
+    assert_eq!(
+        std::fs::read(root.path().join("tls/cert.pem")).expect("preserved certificate"),
+        certificate
+    );
 }

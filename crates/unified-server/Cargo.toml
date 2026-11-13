@@ -18,7 +18,7 @@ path = "src/main.rs"
 required-features = ["cli"]
 
 [features]
-default = []
+default = ["cli"]
 cli = ["dep:clap", "dep:cli", "dep:env_logger", "tokio/signal"]
 completions = ["cli", "dep:clap_complete"]
 swagger-ui = [
@@ -41,13 +41,9 @@ cli = { path = "../cli", default-features = false, features = [
     "std",
 ], optional = true }
 
-# Configuration
-config = { version = "0.15", default-features = false, features = ["yaml"] }
-
 # Internal
-server-common = { path = "../server-common", default-features = false }
-setup = { workspace = true }
 device-server = { path = "../device-server", default-features = false }
+embedded-db = { path = "../embedded-db", default-features = false }
 idp-server = { path = "../idp-server", default-features = false }
 management-server = { path = "../management-server", default-features = false }
 storage-server = { path = "../storage-server", default-features = false, features = [
@@ -81,25 +77,42 @@ tokio-util = { version = "0.7", default-features = false, features = [] }
 env_logger = { version = "0.10", default-features = false, features = [
 ], optional = true }
 
-# Web
-tower = { version = "0.5", default-features = false, features = ["util"] }
-axum = { version = "0.8", default-features = false, features = [
-    "http1",
-    "http2",
-    "tokio",
+# TLS
+rcgen = { version = "0.14", default-features = false, features = [
+    "crypto",
+    "pem",
+    "ring",
+] }
+rustls = { version = "0.23", default-features = false, features = [
+    "ring",
+    "std",
+    "tls12",
+] }
+tokio-rustls = { version = "0.26", default-features = false, features = [
+    "ring",
+    "tls12",
 ] }
 
+# Web
+axum = { version = "0.8", default-features = false, features = ["http1", "http2", "tokio"] }
+tower = { version = "0.5", default-features = false, features = ["util"] }
+tower-http = { version = "0.7", default-features = false, features = ["cors"] }
+
 [dev-dependencies]
-# Contract export and isolated composition fixtures
-device-service = { path = "../device-service", default-features = false, features = ["replica", "std", "utoipa"] }
-of-model = { path = "../of-model", default-features = false, features = ["replica", "std"] }
+# Contract export
+device-service = { path = "../device-service", default-features = false, features = [
+    "replica",
+    "std",
+    "utoipa",
+] }
+of-model = { path = "../of-model", default-features = false, features = [
+    "replica",
+    "std",
+] }
+server-common = { path = "../server-common", default-features = false }
+
 # OpenAPI contract export example
 utoipa = { version = "5.5", default-features = false }
 
-# Setup trust/verifier fault injection, never a production feature
-server-common = { path = "../server-common", default-features = false, features = ["test-support"] }
-
-# Identity fixtures
-keyring-core = { version = "1.0", default-features = false, features = [] }
-
-# Web
+# Process fixtures
+tempfile = { version = "3.27", default-features = false }

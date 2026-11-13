@@ -73,6 +73,7 @@ serde = { version = "1.0", default-features = false, features = [
 serde_json = { version = "1.0", default-features = false, features = ["std"] }
 
 # Web
+reqwest = { version = "0.12", default-features = false }
 axum = { version = "0.8", default-features = false, features = [
     "http1",
     "http2",

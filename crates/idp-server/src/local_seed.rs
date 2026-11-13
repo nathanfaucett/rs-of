@@ -1,14 +1,14 @@
 use std::io;
 
-use idp_service::repo::{ClientRepo, UserRepo};
+use idp_service::repo::{ClientRepo, KeyRepo, UserRepo};
 use management_service::{
     INITIAL_ADMINISTRATOR_ACTIONS, ManagementService,
     replica::{DbPermissionRepo, DbRoleRepo},
 };
 use of_model::idp::{
     contract::{
-        ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, GrantType,
-        ResponseType, TokenEndpointAuthMethod,
+        ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, EntityType,
+        GrantType, ResponseType, TokenEndpointAuthMethod,
     },
     model::Id,
 };
@@ -68,18 +68,10 @@ pub async fn signer(
     Ok(binding)
 }
 
-pub async fn seed(state: &RouterState, origin: &str, port: u16) -> io::Result<()> {
+pub async fn seed(state: &RouterState, origin: &str) -> io::Result<()> {
     let oauth = &state.oauth2_service;
     let user = Id::new_v5(&Id::NAMESPACE_URL, b"of:local:admin");
-    oauth
-        .ensure_initial_user(
-            user,
-            Id::new_v5(&user, b"password"),
-            "admin@local.test",
-            "password",
-        )
-        .await
-        .map_err(|error| io::Error::other(format!("local admin: {error:?}")))?;
+    seed_user(state, user, "admin@local.test", "password").await?;
 
     oauth
         .user_repo
@@ -122,15 +114,16 @@ pub async fn seed(state: &RouterState, origin: &str, port: u16) -> io::Result<()
         .map_err(|_| io::Error::other("frontend origin cannot use a port"))?;
     let password_redirect = frontend.to_string();
     let audiences = vec![
-        format!("http://127.0.0.1:{port}/idp"),
-        format!("http://127.0.0.1:{port}/device"),
-        format!("http://127.0.0.1:{port}/storage"),
+        state.api_base_uri.clone(),
+        state.api_base_uri.trim_end_matches("/idp").to_owned() + "/device",
+        state.api_base_uri.trim_end_matches("/idp").to_owned() + "/storage",
         management_service::MANAGEMENT_APPLICATION_URI.into(),
         "storage:databases".into(),
         "storage:filesystems".into(),
     ];
     for (id, redirect) in [
-        ("app", Some(app_redirect)),
+        ("app", Some(app_redirect.clone())),
+        ("local-login", Some(app_redirect)),
         ("password-manager", Some(password_redirect)),
         ("local-device", None),
         ("local-management", None),
@@ -177,7 +170,13 @@ pub async fn seed(state: &RouterState, origin: &str, port: u16) -> io::Result<()
                 ClientProfile::Web
             },
             redirect_uris: redirect.into_iter().collect(),
-            allowed_grant_types: if public {
+            allowed_grant_types: if id == "local-login" {
+                vec![
+                    GrantType::Password,
+                    GrantType::RefreshToken,
+                    GrantType::TokenExchange,
+                ]
+            } else if public {
                 vec![
                     GrantType::AuthorizationCode,
                     GrantType::RefreshToken,
@@ -216,6 +215,38 @@ pub async fn seed(state: &RouterState, origin: &str, port: u16) -> io::Result<()
         oauth
             .client_repo
             .create_client(registration)
+            .await
+            .map_err(io::Error::other)?;
+    }
+    Ok(())
+}
+
+pub async fn seed_user(
+    state: &RouterState,
+    user: Id,
+    username: &str,
+    password: &str,
+) -> io::Result<()> {
+    let oauth = &state.oauth2_service;
+    oauth
+        .ensure_initial_user(user, Id::new_v5(&user, b"password"), username, password)
+        .await
+        .map_err(|error| io::Error::other(format!("local user: {error:?}")))?;
+    if oauth
+        .key_service
+        .key_repo()
+        .find_by_entity_type_and_id(EntityType::User, user)
+        .await
+        .map_err(io::Error::other)?
+        .is_none()
+    {
+        oauth
+            .key_service
+            .ensure_entity_master_key(EntityType::User, user, password)
+            .map_err(io::Error::other)?;
+        oauth
+            .key_service
+            .create_key(None, EntityType::User, user, true, username.into(), None)
             .await
             .map_err(io::Error::other)?;
     }

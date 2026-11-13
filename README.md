@@ -38,41 +38,52 @@ Approved devices synchronize explicitly selected resources peer-to-peer over aut
 
 `ofnet`/`iroh-chain` owns reusable Iroh endpoints, mesh/pairing mechanics, endpoint allowlist enforcement, and generic connections/routing. `of` owns domain identity, policy, catalogs, endpoint-to-Installation-Device trust, local authorization, and protocol-specific transport adapters wiring persistence owners. `ofdb` owns SQL/KV persistence, CRDT sync, staging, batching, and cleanup through public `ofdb-sql`/`ofdb-kv` only. `offs` owns filesystem persistence/sync, not transport. Generic tests belong to these owners; `of` tests authorization integration. Each Node shares one `iroh-chain` endpoint/router, with endpoint identity and locally trusted membership persisted and restored by `of`. Allowlisting is not resource authorization; pairing is not general access. Mesh messages and direct streams are distinct, with no transparent multihop database/filesystem sync claim. See [networking composition and interfaces](docs/design.md#networking-composition-and-trust).
 
-## App-driven Node setup
+## Local development backend
 
-Start `just unified`, or the separate `just idp`, `just device`, `just management`
-and `just storage` services. See [configuration](config/README.md) for exact verified
-HTTPS bases, prefixes and retained roots. APIs do not serve UI assets.
+```sh
+cargo run -p unified-server -- local --data-dir .data --port 1355 --origin http://localhost:5173 --no-tls
+```
 
-Both layouts use IdP, Device and Storage's `/setup/owner/...` surfaces. Supply the
-four context bases and three owner codes once; each request carries only that owner's
-capability, and only IdP receives the administrator password. Management requires
-no fourth setup step. Bundled desktop retrieves each scoped code internally and
-installs the single local setup authority. CLI pins the authority by `--ca-path`
-without modifying OS trust. Codes/passwords never enter browser persistence or URLs.
+All four owners use one embedded database at `.data/unified.redb`:
+`/idp`, `/device`, `/management`, and `/storage`. Each exposes `/health`.
+No setup, admission code, CA, or mesh endpoint is required. APIs do not serve UI assets.
+Omit `--no-tls` for HTTPS with a self-signed certificate and private key in `.data/tls/`.
+The certificate and key are reused on restart. No OS trust is installed.
+For local HTTPS clients, trust `.data/tls/cert.pem` explicitly.
 
-Accepted work survives page closure; 202 is not completion. Observe all three owners
-and correlate their exact operation/issuer/bases before ordinary sign-in. Join uses
-the source Device HTTPS base plus pinned endpoint, with separately authorized source
-approval. Completed Nodes reopen offline without the original Join source. Reset
-uses protected stopped-owner boundaries; there is no deployment broker, aggregate
-setup endpoint, compatibility alias or migration of unsupported prior host state.
+The local administrator is `admin@local.test` / `password`. The local sign-in
+client is `local-login`. Public PKCE clients are `app` (callback at the supplied
+origin's `/callback`) and `password-manager` (same host and scheme, port 5174,
+`/callback`). The issuer is the actual backend base plus `/idp`, including its
+HTTP or HTTPS scheme. CORS permits the app and password-manager origins.
 
-[Ticket03](.scratch/unified-owner-lifecycle/ticket03-validation.md) records nine
-passing cross-layout production-process scenarios and limits.
-[Ticket04](.scratch/unified-owner-lifecycle/ticket04-validation.md) records current
-consumer checks and external Cargo blockers. No GUI, actual OS/provider installation,
-WAN or cross-platform certification is inferred.
+Optional additional users can be supplied with `--seed users.json`:
 
-## Optional CLI Node bootstrap
+```json
+{"users":[{"username":"test-user","password":"test-password"}]}
+```
 
-The CLI is an alternate client of the same running owner surfaces. Create/Join
-requires four explicit bases, three protected owner-code paths, a retained exact
-operation nonce and one CA path; Create additionally reads a protected password
-file. It never installs OS trust. See [complete examples](docs/operations.md#automatic-unified-cli-bootstrap)
-and [configuration](config/README.md). The canonical Create issuer is the IdP base;
-Join retains the authenticated source issuer. Neither accepts stale host journals
-or silently replaces missing retained identity.
+Seeding is repeatable. Conflicting retained credentials fail rather than being
+replaced. Local mode uses public test credentials and reduced password-hash cost;
+it binds loopback only. Do not expose it through a public proxy.
+
+Keep the entire data directory for restart and backup. The owner entrypoints also
+retain IdP private keys and Storage resource files. The database alone is not a
+complete backup. This is not a migration for the previous unified-server layout.
+
+**Validation is incomplete:** the owner HTTP constructors are blocked by existing
+Device replication and filesystem snapshot compile errors. See
+[ticket 04 validation](.scratch/backend-simplification/unified-validation.md).
+The fresh-start, restart, HTTPS and OAuth HTTP tests are written, but have not passed.
+
+## Independent Node setup
+
+The separate `idp-server`, `device-server`, `storage-server`, and
+`management-server` deployment paths retain their existing configuration and setup.
+IdP, Device and Storage each use their own `/setup/owner/...` surfaces and protected
+capability. Management has no fourth setup step. See [configuration](config/README.md)
+and [operations](docs/operations.md). The replacement unified-server has no `serve`,
+`create`, `join`, or YAML configuration commands.
 
 ## Applications
 

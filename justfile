@@ -22,7 +22,7 @@ help:
     @printf "  management [CONFIG] Run the Management server via portless (cargo run)\n"
     @printf "  device [CONFIG] Run the Device server via portless (cargo run)\n"
     @printf "  storage [CONFIG] Run the Storage server via portless (cargo run)\n"
-    @printf "  unified [CONFIG] Run the unified server via portless (cargo run)\n"
+    @printf "  unified        Run the local unified server (cargo run)\n"
 
 build:
     cargo build --workspace
@@ -81,8 +81,8 @@ device config="config/device/config.yaml" *args:
 storage config="config/storage/config.yaml" *args:
     npx portless run --name storage cargo run -p storage-server --features cli --bin storage-server -- --config "{{ config }}" {{ args }}
 
-unified config="config/unified/config.yaml" *args:
-    npx portless run --name unified cargo run -p unified-server --features cli --bin unified-server -- --config "{{ config }}" {{ args }}
+unified *args:
+    cargo run -p unified-server -- local {{ args }}
 
 openapi-export:
     cargo run -p unified-server --example export-openapi -- openapi

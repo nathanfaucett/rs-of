@@ -63,21 +63,26 @@ pub(crate) fn replication_policy_from_observation(
 /// Builds the local Device owner without setup or admission.
 pub async fn build_local_router(
     data_dir: &std::path::Path,
-    port: u16,
+    _port: u16,
     idp_base: &str,
     db: Option<Arc<dyn of_model::db::Database>>,
+    http_client: Option<reqwest::Client>,
 ) -> std::io::Result<Router> {
     let client = embedded_db::local_client(data_dir, "device", db)?;
-    let storage_base = format!("http://127.0.0.1:{port}/storage");
+    let storage_base = format!("{}/storage", idp_base.trim_end_matches("/idp"));
     let control = HostedControlPlane::new_with_services(idp_base, &storage_base, idp_base)
         .and_then(|control| {
             control.with_idp_service_client("local-device", "local-password", idp_base)
         })
         .map_err(std::io::Error::other)?;
+    let control = match http_client {
+        Some(client) => control.with_http_client(client),
+        None => control,
+    };
     build_router(
         client.clone(),
         client,
-        &format!("http://127.0.0.1:{port}/device"),
+        &format!("{}/device", idp_base.trim_end_matches("/idp")),
         "/device",
         &storage_base,
         Arc::new(control),

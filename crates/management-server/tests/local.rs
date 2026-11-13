@@ -29,6 +29,7 @@ async fn local_constructor_accepts_shared_and_owner_databases_without_setup() {
             "http://127.0.0.1:1355/idp",
             "http://127.0.0.1:1355/storage",
             shared,
+            None,
         )
         .await
         .expect("local constructor");

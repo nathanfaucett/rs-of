@@ -344,47 +344,6 @@ impl Node {
         file.to_string_lossy().into_owned()
     }
 
-    async fn start_unified(&mut self, source_roots: &[u8]) -> Vec<ApiKey> {
-        let addr = address();
-        let base = format!("https://{addr}");
-        self.idp = format!("{base}/idp");
-        self.management = format!("{base}/management");
-        self.device = format!("{base}/device");
-        self.storage = format!("{base}/storage");
-        self.issuer = self.idp.clone();
-        let domain = self.root.path().join("unified");
-        let config = unified_server::UnifiedConfig::local(&domain, addr);
-        let host =
-            unified_server::SetupHost::prepare(config).expect("prepare composed owner trust");
-        let capabilities = ["idp", "device", "storage"]
-            .map(|owner| capability(&host.admission_path(owner).expect("owner admission path")))
-            .to_vec();
-        let mut roots = source_roots.to_vec();
-        roots.extend(fs::read(host.tls().ca_path()).expect("single composed CA"));
-        fs::write(self.root.path().join("roots.pem"), &roots).expect("isolated native trust");
-        self.http = client(Some(&roots));
-        drop(host);
-        let file = self.write_config("unified", json!({
-            "listen_addr":addr, "endpoint_data_dir":domain.join("endpoint"),
-            "idp":{"data_dir":domain.join("idp"), "server":{"prefix":"/idp"}, "api_public_uri":self.idp,
-                "oauth2":{"issuer":self.idp}, "password":{"memory_mib":1,"iterations":1}},
-            "device":{"data_dir":domain.join("device"), "server":{"prefix":"/device"}, "api_public_uri":self.device},
-            "storage":{"data_dir":domain.join("storage"), "server":{"prefix":"/storage"}, "api_public_uri":self.storage},
-            "management":{"data_dir":domain.join("management"), "server":{"prefix":"/management"}, "api_public_uri":self.management}
-        }));
-        self.start(
-            "unified",
-            &binaries().join("examples/system-test-service"),
-            &["--config".into(), file, "serve".into()],
-            &[],
-        );
-        capabilities
-    }
-
-    async fn unified(&mut self) {
-        self.owner_create(false, true).await;
-    }
-
     async fn start_independent(&mut self, local: bool, source_roots: &[u8]) -> Vec<ApiKey> {
         let sql = address();
         self.sql = (!local).then_some(sql);
@@ -470,15 +429,11 @@ impl Node {
     }
 
     async fn independent_create(&mut self, local: bool) {
-        self.owner_create(local, false).await;
+        self.owner_create(local).await;
     }
 
-    async fn owner_create(&mut self, local: bool, unified: bool) {
-        let capabilities = if unified {
-            self.start_unified(&[]).await
-        } else {
-            self.start_independent(local, &[]).await
-        };
+    async fn owner_create(&mut self, local: bool) {
+        let capabilities = self.start_independent(local, &[]).await;
         let request = models::IndependentCreateRequest::new(
             "operator".into(),
             self.device.clone(),
@@ -585,9 +540,7 @@ impl Node {
             .as_str()
             .expect("published operator Client")
             .into();
-        if !unified {
-            self.start_management(None).await;
-        }
+        self.start_management(None).await;
         self.management_ready().await;
     }
 
@@ -787,28 +740,24 @@ fn client(roots: Option<&[u8]>) -> reqwest::Client {
     builder.build().expect("verified bounded client")
 }
 
-pub async fn scenario(independent_layout: bool) {
-    create_node(independent_layout, false, false).await;
+pub async fn scenario() {
+    create_node(false, false).await;
 }
 
-pub async fn restart_scenario(independent_layout: bool) {
-    create_node(independent_layout, true, false).await;
+pub async fn restart_scenario() {
+    create_node(true, false).await;
 }
 
 pub async fn local_restart_scenario() {
-    create_node(true, true, true).await;
+    create_node(true, true).await;
 }
 
-async fn create_node(independent_layout: bool, restart: bool, local: bool) {
+async fn create_node(restart: bool, local: bool) {
     let mut node = Node::new();
-    if independent_layout {
-        if local {
-            node.independent_create(true).await;
-        } else {
-            node.independent().await;
-        }
+    if local {
+        node.independent_create(true).await;
     } else {
-        node.unified().await;
+        node.independent().await;
     }
     let resource = use_node(&mut node, None, None).await;
     if restart {
@@ -945,14 +894,10 @@ fn device_config(node: &Node) -> of_device_client::apis::configuration::Configur
     }
 }
 
-pub async fn join_scenario(independent_layout: bool) {
+pub async fn join_scenario() {
     use of_device_client::apis::independent_join_api as independent_joins;
     let mut source = Node::new();
-    if independent_layout {
-        source.independent_create(true).await;
-    } else {
-        source.unified().await;
-    }
+    source.independent_create(true).await;
     let source_device = of_device_client::apis::default_api::device(&device_config(&source))
         .await
         .expect("public source endpoint");
@@ -982,11 +927,7 @@ pub async fn join_scenario(independent_layout: bool) {
     .unwrap_or_else(|_| panic!("authorized source acceptance"));
     let mut target = Node::new();
     let roots = fs::read(source.root.path().join("roots.pem")).expect("source trust");
-    let capabilities = if independent_layout {
-        target.start_independent(true, &roots).await
-    } else {
-        target.start_unified(&roots).await
-    };
+    let capabilities = target.start_independent(true, &roots).await;
     let roots = fs::read(target.root.path().join("roots.pem")).expect("mutual HTTPS trust");
     fs::write(source.root.path().join("roots.pem"), &roots).expect("verified history callbacks");
     source.http = client(Some(&roots));
@@ -1106,9 +1047,7 @@ pub async fn join_scenario(independent_layout: bool) {
     assert_eq!(endpoints[0], endpoints[1]);
     assert_eq!(endpoints[1], endpoints[2]);
     assert!(endpoints[0].as_str().is_some_and(|value| !value.is_empty()));
-    if independent_layout {
-        target.start_management(Some(&target_authority)).await;
-    }
+    target.start_management(Some(&target_authority)).await;
     target.management_ready().await;
     let mut user_config = source.config(&source.idp);
     user_config.bearer_access_token = Some(session);

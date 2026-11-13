@@ -10,10 +10,11 @@ use std::sync::Arc;
 /// Builds the local Management owner without setup or admission.
 pub async fn build_local_router(
     data_dir: &std::path::Path,
-    port: u16,
+    _port: u16,
     idp_base: &str,
     storage_base: &str,
     db: Option<Arc<dyn of_model::db::Database>>,
+    http_client: Option<reqwest::Client>,
 ) -> std::io::Result<Router> {
     let client = embedded_db::local_client(data_dir, "management", db)?;
     let control = HostedControlPlane::new_with_services(idp_base, storage_base, idp_base)
@@ -21,9 +22,13 @@ pub async fn build_local_router(
             control.with_idp_service_client("local-management", "local-password", idp_base)
         })
         .map_err(std::io::Error::other)?;
+    let control = match http_client {
+        Some(client) => control.with_http_client(client),
+        None => control,
+    };
     build_router(
         client,
-        &format!("http://127.0.0.1:{port}/management"),
+        &format!("{}/management", idp_base.trim_end_matches("/idp")),
         "/management",
         Arc::new(control),
     )

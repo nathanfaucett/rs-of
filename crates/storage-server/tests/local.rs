@@ -31,6 +31,7 @@ async fn local_runtime_accepts_shared_and_owner_databases_without_setup_or_mesh(
             "http://127.0.0.1:1355/idp",
             "http://127.0.0.1:1355/device",
             shared,
+            None,
         )
         .expect("local runtime");
         let response = runtime

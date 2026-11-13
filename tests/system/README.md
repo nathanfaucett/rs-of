@@ -8,41 +8,38 @@ cargo build -j 8 -p idp-unified --example system-test-service -p idp-server --bi
 cargo test -j 8 -p idp-unified --test system_create -- --ignored --test-threads=1 --nocapture
 ```
 
-Use the same Cargo target directory/profile for both commands. All nine expensive,
+Use the same Cargo target directory/profile for both commands. All five expensive,
 process-launching scenarios are opt-in and must run serially. They are not silent
 skips counted as qualification. The ordinary `create::root_is_private` regression
 runs without `--ignored`.
 
-## One suite, two production layouts
+## Independent production owners
 
-The `*_create_and_use`, `*_retained_restart`,
-`*_join_and_source_offline_reopen`, and `*_permission_resource_denial` pairs run
-the same scenario bodies for Unified and multi-process Nodes. The ninth scenario,
-`independent_local_owner_create_and_restart`, additionally checks local independent
-owners instead of the explicit remote-SQL Create fixture.
+The five process scenarios cover Create/use, retained restart, Join/offline
+reopen, resource denial, and local-owner Create/restart. Each uses the separate
+production IdP, Device, Storage, and Management CLI entrypoints. The independent
+setup and capability flow is unchanged.
 
-- **Unified:** one child calls the production Unified CLI `run`, using its actual
-  composed HTTPS endpoint and exact `/idp`, `/device`, `/storage`, `/management`
-  prefixes. The fixture prepares only local TLS/admission prerequisites, then
-  supplies ordinary configuration to the CLI. One CA protects all three owners;
-  three separate capabilities admit their respective operations. The canonical
-  issuer is the exact IdP base. No old aggregate host setup API is used.
-- **Multi-process:** production IdP, Device, Storage, and Management CLI entry
-  points run in separate children. IdP has its own origin with no prefix, Device
-  uses `/device`, Storage `/storage`, and Management `/policy`, on separately
-  allocated loopback ports. Create/restart also covers an explicit remote
-  `identity-database` process. The additional local-owner fixture and both sides
-  of Join use independent owner databases and the published local IdP socket,
-  not a shared source SQL connection.
+The removed unified setup lifecycle is no longer tested here. Its replacement
+local-mode HTTP tests are in `crates/unified-server/tests/composition.rs`:
+
+```sh
+cargo test -p unified-server --test composition
+```
+
+They start the actual binary from an empty directory, check all four health
+routes, discovery, administrator sign-in, both frontend PKCE exchanges, optional
+seed users, restart, and TLS certificate/key reuse. They are not currently
+qualified: existing dependency compilation errors prevent the binary from building.
+See [ticket 04 validation](../../.scratch/backend-simplification/unified-validation.md).
 
 `create::owner_create` admits the same correlated Create operation to all three
 owners, sending the password only to IdP and exactly one capability per request.
 It checks exact retries, conflicting retries (409), current owner-specific
 readiness, public exact operations, matching endpoint evidence and the published
-login Client. Management is not a fourth setup owner: Unified composes it from
-owner configuration; the existing independent fixture registers its local service
+login Client. Management is not a fourth setup owner. The independent fixture registers its local service
 relationship through generated IdP operations and starts its configured production
-CLI. Both layouts must pass the same ordinary authorized Management decision.
+CLI. The fixture checks ordinary authorized Management decisions.
 There is no extra operator interaction or deployment setup broker.
 
 `Node::restart` reuses retained commands, configuration, roots, and private
@@ -54,10 +51,10 @@ Management startup waits for its configured IdP socket as well as public readine
 
 `create::use_node` drives generated discovery, login/User info, Device health,
 Management authorization, and Storage resource creation/read/anonymous denial.
-`filesystem.rs` extends that same body in both layouts:
+`filesystem.rs` extends that same body for the independent owners:
 
 - Generated Storage clients create and read a filesystem in the authorized namespace.
-- Typed `storage-model` requests and responses write and read exact file bytes over
+- Typed `of-model` requests and responses write and read exact file bytes over
   the production Storage WebSocket. TLS verifies only the isolated fixture CAs.
 - Generated Residency operations switch an empty disposable resource to Passthrough
   and then Full; actual protocol writes must fail and then succeed respectively.

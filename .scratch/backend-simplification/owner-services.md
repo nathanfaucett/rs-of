@@ -6,14 +6,14 @@ All four public entrypoints are exported from their server crate:
 
 | Crate | Function | Routes |
 | --- | --- | --- |
-| `idp-server` | `build_local_router(data_dir, port, origin, db).await` | `/idp` |
-| `device-server` | `build_local_router(data_dir, port, idp_base, db).await` | `/device` |
-| `management-server` | `build_local_router(data_dir, port, idp_base, storage_base, db).await` | `/management` |
-| `storage-server` | `build_local_runtime(data_dir, port, idp_base, device_base, db)` | `/storage` |
+| `idp-server` | `build_local_router(data_dir, idp_base, origin, db, users).await` | `/idp` |
+| `device-server` | `build_local_router(data_dir, port, idp_base, db, http_client).await` | `/device` |
+| `management-server` | `build_local_router(data_dir, port, idp_base, storage_base, db, http_client).await` | `/management` |
+| `storage-server` | `build_local_runtime(data_dir, port, idp_base, device_base, db, http_client)` | `/storage` |
 
 Each accepts `Option<Arc<dyn of_model::db::Database>>`. `Some` uses that database's query client without opening an owner database or falling back to a private file. Initialize its unified schema first, for example with `EmbeddedDatabase::open` or `MemoryDatabase::new`. `None` opens `{owner}.redb` in `data_dir` and initializes the unified schema there. The shared client retains the underlying engine after the trait-object handle is dropped.
 
-The canonical local IdP issuer is `http://127.0.0.1:{port}/idp`. Pass this issuer as `idp_base` to the other owners. Backend URLs use `127.0.0.1`; frontend callback host and scheme come from `origin`.
+Pass the exact local IdP issuer, including scheme and `/idp`, as `idp_base` to every owner. For unified HTTP this is `http://127.0.0.1:{port}/idp`; HTTPS uses `https`. The optional `http_client` pins the local TLS certificate for owner-to-owner requests. IdP `users` is a slice of additional `(username, password)` pairs. Backend URLs use `127.0.0.1`; frontend callback host and scheme come from `origin`.
 
 These constructors do not run setup, admission, capability operations, TLS provisioning, CA generation, or mesh startup. They return the normal owner routers. Storage has no data protocol handler or replication task in this mode. Existing independent `serve` entrypoints, configuration, and setup paths are retained. The setup crate is unchanged.
 
@@ -21,6 +21,7 @@ These constructors do not run setup, admission, capability operations, TLS provi
 
 - Administrator username and verified email: `admin@local.test`; password: `password`.
 - Explicit initial administrator grants come from `management_service::INITIAL_ADMINISTRATOR_ACTIONS`.
+- Public local password-sign-in client: `local-login`; the administrator also has a retained User root key.
 - Public PKCE clients: `app` and `password-manager`, with authorization-code, refresh-token, and token-exchange grants.
 - App callback: `origin` with path `/callback`.
 - Password-manager callback: the same frontend host and scheme, port `5174`, path `/callback`.

@@ -135,23 +135,30 @@ impl IdpRuntime {
 /// Builds the local IdP without setup, admission, or a transport endpoint.
 pub async fn build_local_router(
     data_dir: &std::path::Path,
-    port: u16,
+    base: &str,
     origin: &str,
     db: Option<Arc<dyn of_model::db::Database>>,
+    users: &[(String, String)],
 ) -> io::Result<Router> {
     std::fs::create_dir_all(data_dir)?;
     let directory = std::fs::canonicalize(data_dir)?;
     let data_dir = directory.as_path();
     let engine = embedded_db::local_client(data_dir, "idp", db)?;
-    let base = format!("http://127.0.0.1:{port}/idp");
+
     let mut config = AppConfig {
         data_dir: data_dir.to_string_lossy().into_owned(),
         ui_public_uri: origin.trim_end_matches('/').into(),
-        api_public_uri: base.clone(),
+        api_public_uri: base.into(),
         key_namespace: format!("local:{}", data_dir.display()),
+        password: idp_service::PasswordConfig {
+            memory_mib: 1,
+            iterations: 1,
+            parallelism: 1,
+            ..Default::default()
+        },
         ..AppConfig::default()
     };
-    config.oauth2.issuer = base;
+    config.oauth2.issuer = base.into();
     config.oauth2.local_signer = Some(
         crate::local_seed::signer(
             engine.clone(),
@@ -165,7 +172,14 @@ pub async fn build_local_router(
     let keys =
         PrivateKeyKeyringRepo::new_local(&data_dir.join("idp-keys")).map_err(io::Error::other)?;
     let state = build_state_with_keys(&config, engine, None, None, Some(permissions), keys).await?;
-    crate::local_seed::seed(&state, origin, port).await?;
+    crate::local_seed::seed(&state, origin).await?;
+    for (username, password) in users {
+        let user = of_model::idp::model::Id::new_v5(
+            &of_model::idp::model::Id::NAMESPACE_URL,
+            format!("of:local:user:{username}").as_bytes(),
+        );
+        crate::local_seed::seed_user(&state, user, username, password).await?;
+    }
     Ok(openapi_router(state, "/idp").into())
 }
 

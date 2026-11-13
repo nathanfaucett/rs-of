@@ -9,14 +9,10 @@ use serde_json::json;
 
 use super::{Node, device_config, use_node};
 
-pub async fn denial_scenario(independent_layout: bool) {
+pub async fn denial_scenario() {
     use of_management_client::apis::default_api as policy;
     let mut node = Node::new();
-    if independent_layout {
-        node.independent_create(true).await;
-    } else {
-        node.unified().await;
-    }
+    node.independent_create(true).await;
     let resource = use_node(&mut node, None, None).await;
     let session = node.login().await;
     let mut user = node.config(&node.idp);
