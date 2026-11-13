@@ -93,6 +93,8 @@ jobs:
         run: pnpm e2e:prepare
       - name: Check E2E types
         run: pnpm test:e2e:check
+      - name: Check isolated frontend logic
+        run: pnpm --filter @ofsdk/app test
       - name: Build real backend before the startup deadline
         id: backend-build
         run: cargo build --locked -p unified-server
@@ -100,7 +102,7 @@ jobs:
         if: ${{ !cancelled() && steps.backend-build.outcome == 'success' }}
         env:
           E2E_BACKEND_BIN: ./target/debug/unified-server
-        run: pnpm --filter @ofsdk/app test
+        run: pnpm --filter @ofsdk/app test:backend
       - name: Password-manager browser integration (Vitest)
         if: ${{ !cancelled() && steps.backend-build.outcome == 'success' }}
         env:

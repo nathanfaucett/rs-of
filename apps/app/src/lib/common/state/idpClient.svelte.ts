@@ -17,6 +17,7 @@ import {
   getLocalhostBaseUrlCached,
 } from "./localhostBaseUrl.svelte";
 import { getOidcClient } from "./oidc.svelte";
+import { getDeviceApiUrl } from "./deviceClient.svelte";
 import { fetchSetupStatus } from "./setupApi";
 
 const idpApiUrl = createStorage<string | null>(
@@ -105,8 +106,15 @@ export async function ownerAccessToken(resource: string): Promise<string> {
   const base = await ensureTauriIdpApiUrl();
   const subjectToken = readAccessToken();
   if (!subjectToken) return "";
-  if (!base || (resource !== base && resource !== "idp-management"))
-    throw new Error("A current IdP or Management owner audience is required");
+  if (
+    !base ||
+    (resource !== base &&
+      resource !== "idp-management" &&
+      resource !== getDeviceApiUrl())
+  )
+    throw new Error(
+      "A current IdP, Device or Management owner audience is required",
+    );
   const owner = new DefaultApi(
     new Configuration({ basePath: base, fetchApi: fetch }),
   );

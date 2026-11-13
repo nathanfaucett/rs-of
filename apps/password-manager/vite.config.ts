@@ -40,10 +40,7 @@ export default defineConfig({
                 fileURLToPath(new URL(".", import.meta.url)),
                 fileURLToPath(new URL("../../", import.meta.url)),
                 fileURLToPath(
-                    new URL(
-                        "../../../ofdb/packages/sql",
-                        import.meta.url,
-                    ),
+                    new URL(".", import.meta.resolve("@ofsdk/sql/package.json")),
                 ),
             ],
         },

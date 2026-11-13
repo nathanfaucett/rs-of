@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 import { appURL, passwordManagerURL, root } from "./backend.mjs";
-import { frontendEnv as env } from "./frontend-env.mjs";
+import { appEnv, frontendEnv } from "./frontend-env.mjs";
 
 export default defineConfig({
   testDir: ".",
@@ -13,7 +13,10 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: 0,
   outputDir: "../.scratch/e2e-results",
-  reporter: [["list"], ["html", { outputFolder: `${root}.scratch/e2e-report`, open: "never" }]],
+  reporter: [
+    ["list"],
+    ["html", { outputFolder: `${root}.scratch/e2e-report`, open: "never" }],
+  ],
   use: { ...devices["Desktop Chrome"], trace: "retain-on-failure" },
   projects: [
     {
@@ -28,7 +31,7 @@ export default defineConfig({
         "pnpm --filter @ofsdk/app exec vite dev --mode test --host 127.0.0.1 --port 5173 --strictPort",
       cwd: root,
       url: appURL,
-      env,
+      env: appEnv,
       reuseExistingServer: false,
       timeout: 120000,
     },
@@ -37,7 +40,7 @@ export default defineConfig({
         "pnpm --filter @ofsdk/password-manager exec vite dev --mode test --host 127.0.0.1 --port 5174 --strictPort",
       cwd: root,
       url: passwordManagerURL,
-      env,
+      env: frontendEnv,
       reuseExistingServer: false,
       timeout: 120000,
     },

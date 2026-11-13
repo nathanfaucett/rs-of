@@ -9,7 +9,7 @@ let message = $state("");
 
 onMount(async () => {
   try {
-    await authState.initialize();
+
     if (authState.isAuthenticated) {
       status = "success";
       message = "Sign in successful. Redirecting…";
@@ -31,7 +31,7 @@ onMount(async () => {
     <Card>
       <div class="flex flex-col gap-4 items-center text-center">
         {#if status === "processing"}
-          <div class="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" />
+          <div class="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent"></div>
           <p>Completing sign in…</p>
         {:else if status === "success"}
           <svg class="h-12 w-12 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">

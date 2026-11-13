@@ -36,7 +36,7 @@ const oidcClient = $derived.by(
         responseType: "code",
         registration: {
           application: {
-            uri: "local.aicacia.com",
+            uri: env.PUBLIC_OIDC_APPLICATION_URI ?? "local.aicacia.com",
           },
           clientId: CLIENT_ID,
           clientName: "IdP",

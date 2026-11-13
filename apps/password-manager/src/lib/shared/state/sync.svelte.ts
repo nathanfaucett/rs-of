@@ -1,4 +1,5 @@
-import { createSync, type SyncSDK, type SyncConfig, type DatabaseHandle, type SyncState, type ChangeEvent, type SyncSession } from "@ofsdk/sync-sdk";
+import { createSync } from "@ofsdk/sync-sdk/browser";
+import type { SyncSDK, SyncConfig, DatabaseHandle, SyncSession } from "@ofsdk/sync-sdk";
 import { authState } from "$lib/auth/auth.svelte";
 import { env } from "$env/dynamic/public";
 
@@ -91,11 +92,3 @@ export const syncStateModule = {
   listDatabases,
   syncToDevice,
 };
-
-$effect(() => {
-  if (authState.isAuthenticated) {
-    void initializeSync();
-  } else {
-    void closeSync();
-  }
-});
