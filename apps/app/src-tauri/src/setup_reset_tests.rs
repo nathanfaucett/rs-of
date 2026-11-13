@@ -46,7 +46,7 @@ async fn interrupted_owner_completion_resumes_before_and_after_desktop_acknowled
                 uuid::Uuid::new_v4()
             ));
             drop(crate::native_host::prepare(&data.join("node")).expect("owner prerequisites"));
-            let config = unified_server::UnifiedConfig::local_dynamic(&data.join("node"))
+            let config = crate::desktop_config::DesktopConfig::open(&data.join("node"))
                 .expect("retained config");
             let mut completed = Vec::<String>::new();
             super::publish(&data, "reset-state.json", &serde_json::json!(completed))

@@ -6,7 +6,8 @@ use std::{
 };
 
 use serde_json::{Value, json};
-use unified_server::UnifiedConfig;
+
+use crate::desktop_config::DesktopConfig;
 
 const JOURNAL: &str = "reset-state.json";
 
@@ -50,7 +51,10 @@ pub(crate) fn publish(data: &Path, name: &str, value: &Value) -> io::Result<()> 
         return Err(io::Error::other("invalid native state filename"));
     }
     read_optional(&data.join(name))?;
-    let temporary = data.join(format!(".{name}-{}.tmp", of_model::idp::model::Id::now_v7()));
+    let temporary = data.join(format!(
+        ".{name}-{}.tmp",
+        of_model::idp::model::Id::now_v7()
+    ));
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -68,7 +72,7 @@ pub(crate) fn publish(data: &Path, name: &str, value: &Value) -> io::Result<()> 
 
 pub(crate) async fn run(data: &Path) -> io::Result<()> {
     let root = data.join("node");
-    let config = UnifiedConfig::local_dynamic(&root)?;
+    let config = DesktopConfig::open(&root)?;
     let path = data.join(JOURNAL);
     let mut completed = match read_optional(&path)? {
         Some(bytes) => serde_json::from_slice::<Vec<String>>(&bytes)?,
@@ -87,8 +91,11 @@ pub(crate) async fn run(data: &Path) -> io::Result<()> {
         || read_optional(&Path::new(&config.idp.data_dir).with_extension("setup-reset.json"))?
             .is_some()
     {
-        let reset =
-            server_common::IndependentReset::open("idp", std::path::Path::new(&config.idp.data_dir), true)?;
+        let reset = server_common::IndependentReset::open(
+            "idp",
+            std::path::Path::new(&config.idp.data_dir),
+            true,
+        )?;
         if let (Some(worker), Some(intent)) = (reset.worker(), reset.intent()) {
             if let Some(member) = worker["member"].as_str() {
                 let target = json!({"version":1, "issuer":intent.issuer, "member_id":member, "status":"pending"});

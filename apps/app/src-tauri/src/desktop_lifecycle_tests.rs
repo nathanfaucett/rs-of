@@ -1,6 +1,8 @@
 use std::{fs, io, path::PathBuf};
 
-use unified_server::{LocalTls, SetupHost};
+use server_common::LocalTls;
+
+use crate::{desktop_config::DesktopConfig, desktop_owners::DesktopOwners};
 
 use super::NativeHost;
 
@@ -9,12 +11,11 @@ fn directory() -> PathBuf {
 }
 
 pub(crate) fn retained_identity(root: &std::path::Path) -> serde_json::Value {
-    let config =
-        unified_server::UnifiedConfig::local_dynamic(root).expect("retained configuration");
+    let config = DesktopConfig::open(root).expect("retained configuration");
     serde_json::json!({"listen":config.listen_addr, "issuer":config.idp.oauth2.issuer})
 }
 
-fn fixture(root: &std::path::Path) -> (SetupHost, reqwest::Client) {
+fn fixture(root: &std::path::Path) -> (DesktopOwners, reqwest::Client) {
     let setup = super::prepare(root).expect("fresh neutral native host");
     let ca = fs::read(setup.tls().ca_path()).expect("isolated CA");
     let client = reqwest::Client::builder()
