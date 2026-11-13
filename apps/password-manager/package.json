@@ -17,6 +17,8 @@
         "format:fix": "biome format --write .",
         "postinstall": "svelte-kit sync",
         "test": "vitest run",
+        "test:backend": "vitest run --config vitest.e2e.config.ts",
+        "test:e2e": "playwright test --config ../../e2e/playwright.config.ts --project password-manager",
         "test:offline": "vite build && node scripts/check-offline.mjs && node scripts/check-json-export.mjs"
     },
     "devDependencies": {
@@ -51,7 +53,7 @@
         "@ofsdk/idp-client": "workspace:*",
         "@ofsdk/management-client": "workspace:*",
         "@ofsdk/oidc-client": "workspace:*",
-        "@ofsdk/sql": "link:/home/nathan/code/rust/aicacia/ofdb/packages/sql",
+        "@ofsdk/sql": "link:../../../ofdb/packages/sql",
         "@ofsdk/svelte-headless": "workspace:*",
         "@ofsdk/sync-sdk": "workspace:*",
         "@tanstack/db": "~0.15.2",

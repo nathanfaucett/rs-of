@@ -1,0 +1,98 @@
+name: Real backend E2E
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      RUSTUP_TOOLCHAIN: 1.99.1
+    defaults:
+      run:
+        working-directory: of
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: of
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: nathanfaucett/rs-ofdb
+          path: ofdb
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: nathanfaucett/rs-ofnet
+          path: ofnet
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: nathanfaucett/rs-offs
+          path: offs
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: of/.nvmrc
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.1
+          run_install: false
+      - name: Install native prerequisites
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libdbus-1-dev
+      - name: Install Rust
+        run: rustup toolchain install 1.99.1 --profile minimal --target wasm32-unknown-unknown
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --version 0.13.1 --locked
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            of/target
+          key: ${{ runner.os }}-e2e-cargo-${{ hashFiles('of/Cargo.lock', 'ofdb/Cargo.lock', 'ofnet/Cargo.lock', 'offs/Cargo.lock') }}
+      - name: Build the linked ofdb SQL package
+        working-directory: ofdb
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm --filter @ofsdk/sql run build:wasm
+          pnpm --filter @ofsdk/sql run build:esm
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Install browser
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Check lifecycle supervision
+        run: pnpm test:e2e:lifecycle
+      - name: Build frontend dependencies
+        run: pnpm e2e:prepare
+      - name: Check E2E types
+        run: pnpm test:e2e:check
+      - name: Build real backend before the startup deadline
+        run: cargo build --locked -p unified-server
+      - name: Browser HTTP integration (Vitest)
+        run: pnpm test:backend
+      - name: User flows (Playwright)
+        run: pnpm test:e2e
+      - name: Retain failure reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-backend-e2e
+          path: |
+            of/.scratch/e2e-results
+            of/.scratch/e2e-report
+            of/apps/*/.vitest-attachments
+          include-hidden-files: true
+          retention-days: 7
