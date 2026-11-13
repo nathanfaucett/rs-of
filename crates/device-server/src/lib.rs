@@ -3,9 +3,9 @@
 #[cfg(feature = "cli")]
 mod cli;
 mod config;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "independent"))]
 mod independent_reset;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "independent"))]
 pub use independent_reset::reset_independent;
 #[cfg(all(unix, feature = "cli"))]
 mod startup;
@@ -25,16 +25,16 @@ pub use provisioning::{
 pub use router::{RouterState, openapi_document, openapi_router, public_metadata_router};
 pub use runtime::{build_local_router, build_router};
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "independent"))]
 mod independent_create;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "independent"))]
 mod independent_join;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "independent"))]
 pub use independent_create::{run_owner_setup, serve_independent_create};
-#[cfg(unix)]
+#[cfg(all(unix, feature = "independent"))]
 pub use independent_join::{IndependentDeviceRuntime, build_independent_device};
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "independent"))]
 pub use independent_join::independent_join_openapi;
 
 mod node_join_source;

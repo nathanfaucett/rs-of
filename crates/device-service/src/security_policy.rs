@@ -1,6 +1,12 @@
 use std::{io, sync::Arc};
 
+use crate::security_candidates::SyncCandidateView;
 use db::{Database, Value};
+use idp_service::{
+    replica::LocalIdentity,
+    security_sync::{PUBLIC_IDENTITY_POLICY_TABLES, public_security_tables},
+};
+use management_service::LocalPermissions;
 use of_model::idp::{
     contract::{
         IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
@@ -8,12 +14,6 @@ use of_model::idp::{
     },
     model::Id,
 };
-use idp_service::{
-    replica::LocalIdentity,
-    security_sync::{PUBLIC_IDENTITY_POLICY_TABLES, public_security_tables},
-};
-use management_service::LocalPermissions;
-use ofdb_sql::SyncCandidateView;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -276,13 +276,13 @@ mod tests {
     use std::sync::Arc;
 
     use super::{SecurityContext, SecurityHistory, SecuritySync};
-    use crate::sync_validation_direction::SyncValidationDirection;
+    use crate::security_candidates::{CandidateTable, SyncCandidateView};
     use db::{Database, Value};
-    use of_model::idp::{contract::IdentityAction, model::Id};
     use management_service::{
         ManagementService,
         replica::{DbPermissionRepo, DbRoleRepo},
     };
+    use of_model::idp::{contract::IdentityAction, model::Id};
 
     const INSTALLATION: &str = "https://installation.example";
 
@@ -305,7 +305,9 @@ mod tests {
         assert_eq!(SecurityHistory::IdentityPolicy.name(), "policy-identity");
         assert_eq!(SecurityHistory::Devices.name(), "policy-devices");
         let idp = Database::in_memory();
-        of_model::idp::replica::up(&idp).await.expect("identity schema");
+        of_model::idp::replica::up(&idp)
+            .await
+            .expect("identity schema");
         let devices = Database::in_memory();
         crate::replica::up(&devices).await.expect("Device schema");
         for history in [SecurityHistory::Idp, SecurityHistory::IdentityPolicy] {
@@ -397,9 +399,7 @@ mod tests {
     #[test]
     fn candidate_validation_rejects_unreviewed_tables_in_every_history() {
         let view = SyncCandidateView {
-            direction: SyncValidationDirection::Incoming,
-            candidates: Vec::new(),
-            tables: vec![SyncTableView {
+            tables: vec![CandidateTable {
                 name: "local_device_enrollments".into(),
                 columns: Vec::new(),
                 rows: Vec::new(),
@@ -421,7 +421,9 @@ mod tests {
     #[tokio::test]
     async fn current_owner_binding_and_context_permissions_are_rechecked() {
         let idp = Arc::new(Database::in_memory());
-        of_model::idp::replica::up(&idp).await.expect("identity schema");
+        of_model::idp::replica::up(&idp)
+            .await
+            .expect("identity schema");
         let devices = Arc::new(Database::in_memory());
         crate::replica::up(&devices).await.expect("Device schema");
         let actor = Id::now_v7();

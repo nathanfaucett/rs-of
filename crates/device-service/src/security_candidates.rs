@@ -1,10 +1,9 @@
 use db::Value;
-use of_model::idp::{contract::JwkPublic, model::Id};
 use idp_service::security_sync::public_security_tables;
+use of_model::idp::{contract::JwkPublic, model::Id};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Mock candidate view for compatibility with deprecated sync API
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncCandidateView {
     pub tables: Vec<CandidateTable>,
@@ -19,13 +18,11 @@ pub struct CandidateTable {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CandidateRow {
+    pub id: Id,
     pub deleted: bool,
     pub cells: HashMap<String, Value>,
+    pub conflicts: HashMap<String, Vec<Value>>,
 }
-
-/// Deprecated placeholder types (replaced by new sync API)
-pub type SyncRowView = ();
-pub type SyncTableView = ();
 
 pub struct JoinCandidate<'a> {
     pub member_id: Id,
@@ -64,10 +61,15 @@ pub fn validate(
             if row.deleted {
                 continue;
             }
-            if row.row.values.len() != table.columns.len() {
+            if row.cells.len() != table.columns.len()
+                || row
+                    .cells
+                    .keys()
+                    .any(|column| !table.columns.contains(column))
+            {
                 return Err(invalid());
             }
-            for (column, value) in table.columns.iter().zip(&row.row.values) {
+            for (column, value) in &row.cells {
                 if !public.permits_historical_value(column, value)
                     || !permits_installation(&table.name, column, value, installation)
                 {
@@ -107,10 +109,13 @@ pub fn permits_installation(table: &str, column: &str, value: &Value, installati
 }
 
 fn field<'a>(table: &CandidateTable, row: &'a CandidateRow, column: &str) -> Option<&'a Value> {
-    if row.deleted || row.cells.contains_key(column) {
-        return row.cells.get(column);
+    if row.deleted
+        || row.conflicts.contains_key(column)
+        || !table.columns.iter().any(|name| name == column)
+    {
+        return None;
     }
-    None
+    row.cells.get(column)
 }
 
 fn uuid(table: &CandidateTable, row: &CandidateRow, column: &str) -> Option<Id> {
@@ -173,7 +178,7 @@ fn validate_member(
     Ok(())
 }
 
-fn validate_signer(table: &SyncTableView, row: &SyncRowView) -> Result<(), String> {
+fn validate_signer(table: &CandidateTable, row: &CandidateRow) -> Result<(), String> {
     if let (Some(member), Some(active)) = (
         uuid(table, row, "member_id"),
         uuid(table, row, "active_member_id"),
@@ -269,12 +274,10 @@ pub fn validate_device_history(
             if row.deleted {
                 continue;
             }
-            if row.row.values.len() != table.columns.len()
-                || table
-                    .columns
-                    .iter()
-                    .zip(&row.row.values)
-                    .any(|(column, value)| !permits_device_value(column, value))
+            if row.cells.len() != table.columns.len()
+                || row.cells.iter().any(|(column, value)| {
+                    !columns.contains(&column.as_str()) || !permits_device_value(column, value)
+                })
                 || row.conflicts.iter().any(|(column, values)| {
                     !columns.contains(&column.as_str())
                         || values

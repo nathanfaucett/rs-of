@@ -51,4 +51,4 @@ wasm-bindgen = { version = "0.2", default-features = false, features = ["std"], 
 futures = { version = "0.3", default-features = false, features = ["executor"] }
 tempfile = { version = "3.27", default-features = false }
 
-ofdb-sql = { path = "../../../ofdb/crates/sql", default-features = false, features = ["in-memory", "sync"] }
+ofdb-sql = { path = "../../../ofdb-buildfix/crates/sql", default-features = false, features = ["in-memory", "sync"] }

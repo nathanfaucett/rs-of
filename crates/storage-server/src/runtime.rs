@@ -31,7 +31,7 @@ impl StorageRuntime {
     }
 
     /// Install merged IdP/Management changes before starting replication.
-    pub fn set_policy_changes(&mut self, subscription: ofdb_sql::ChangeSubscription) {
+    pub fn set_policy_changes(&mut self, subscription: ofdb_sync::ChangeSubscription) {
         if let Some(replication) = self.replication.as_mut() {
             replication.set_policy_changes(subscription);
         }

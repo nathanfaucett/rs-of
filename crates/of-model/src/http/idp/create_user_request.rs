@@ -12,6 +12,7 @@ use alloc::string::String;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(deny_unknown_fields)]
 pub struct CreateUserRequest {
     #[serde(rename = "name")]

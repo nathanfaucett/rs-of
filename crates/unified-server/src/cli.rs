@@ -78,7 +78,7 @@ pub async fn run() -> io::Result<()> {
         },
         seed,
     };
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let cancellation = CancellationToken::new();
     let signal = tokio::spawn(cli::shutdown_signal(cancellation.clone()));
     let result = serve(config, cancellation).await;

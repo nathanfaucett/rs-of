@@ -7,14 +7,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::security_policy::{SecurityHistory, SecuritySync};
 use db::SyncTransport;
 use db::{Database, DatabaseTransport};
-use of_model::idp::model::Id;
 use idp_service::oauth2::NodeSignerBinding;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh_chain::Server;
-use ofdb_sql::SyncRole;
+use of_model::idp::model::Id;
+
 use ofdb_sync::{
-    Config, IrohTransport, Message, SyncResult, SyncTransport as OfdbSyncTransport,
-    SynchronizeConfig, SynchronizeError as SyncError, synchronize,
+    IrohTransport, Message, SyncResult, SyncTransport as OfdbSyncTransport, SynchronizeConfig,
+    SynchronizeError as SyncError,
 };
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
@@ -121,12 +121,12 @@ impl SecurityProtocol {
             .member;
         self.authorize(connection, remote_member, context).await?;
 
-        let (send, recv) = connection.open_bi().await.map_err(io::Error::other)?;
+        let (mut send, recv) = connection.open_bi().await.map_err(io::Error::other)?;
         self.authorize(connection, remote_member, context).await?;
         send.write_all(&[SECURITY_STREAM_KIND])
             .await
             .map_err(io::Error::other)?;
-        let mut transport = DatabaseTransport::new(send.clone(), recv.clone());
+        let mut transport = DatabaseTransport::new(send, recv);
         self.authorize(connection, remote_member, context).await?;
         transport
             .send(serde_json::to_vec(&handshake).map_err(io::Error::other)?)
@@ -142,16 +142,10 @@ impl SecurityProtocol {
         }
         self.authorize(connection, remote.member, context).await?;
 
-        // After handshake, create IrohTransport for sync protocol using cloned streams
+        let (send, recv) = transport.into_streams();
         let transport = IrohTransport::new(send, recv);
-        self.exchange_framed(
-            connection,
-            remote.member,
-            context,
-            transport,
-            SyncRole::Leader,
-        )
-        .await
+        self.exchange_framed(connection, remote.member, context, transport)
+            .await
     }
 
     pub async fn accept_data_stream(
@@ -176,7 +170,7 @@ impl SecurityProtocol {
         send: SendStream,
         recv: RecvStream,
     ) -> io::Result<()> {
-        let mut transport = DatabaseTransport::new(send.clone(), recv.clone());
+        let mut transport = DatabaseTransport::new(send, recv);
         let remote: Handshake =
             serde_json::from_slice(&transport.receive().await?).map_err(io::Error::other)?;
         let admission = async {
@@ -195,17 +189,11 @@ impl SecurityProtocol {
             .send(serde_json::to_vec(&Response::Accepted(local)).map_err(io::Error::other)?)
             .await?;
 
-        // After handshake, create IrohTransport for sync protocol using cloned streams
+        let (send, recv) = transport.into_streams();
         let transport = IrohTransport::new(send, recv);
-        self.exchange_framed(
-            &connection,
-            remote.member,
-            remote.context,
-            transport,
-            SyncRole::Follower,
-        )
-        .await
-        .map(|_| ())
+        self.exchange_framed(&connection, remote.member, remote.context, transport)
+            .await
+            .map(|_| ())
     }
 
     pub async fn validate_local_schema(&self, context: SecurityContext) -> io::Result<()> {
@@ -266,10 +254,9 @@ impl SecurityProtocol {
         member: Id,
         context: SecurityContext,
         mut transport: IrohTransport,
-        role: SyncRole,
     ) -> io::Result<SyncResult> {
         self.authorize(connection, member, context).await?;
-        log::debug!("starting scoped security session: {context:?} {role:?}");
+        log::debug!("starting scoped security session: {context:?}");
         let mut bindings = Vec::new();
         {
             let local = self.local_handshake(context).await?;
@@ -283,7 +270,7 @@ impl SecurityProtocol {
         }
         let mut total = SyncResult::default();
         for (database, _history, _tables) in self.sessions(context) {
-            let mut auth_transport = AuthorizedTransport {
+            let auth_transport = AuthorizedTransport {
                 transport: &mut transport,
                 protocol: self,
                 connection,
@@ -291,7 +278,7 @@ impl SecurityProtocol {
                 context,
             };
             let result = database
-                .synchronize(&mut auth_transport, &SynchronizeConfig::default())
+                .synchronize(auth_transport, SynchronizeConfig::default())
                 .await
                 .map_err(|error| match error {
                     SyncError::Apply(reason) => denied(reason),
@@ -302,6 +289,36 @@ impl SecurityProtocol {
         }
         Ok(total)
     }
+}
+
+struct TransportRef<'a, T>(&'a mut T);
+
+impl<T: OfdbSyncTransport + Send> OfdbSyncTransport for TransportRef<'_, T>
+where
+    T::Error: std::error::Error + Send + Sync + 'static,
+{
+    type Error = io::Error;
+
+    async fn send(&mut self, msg: Message) -> io::Result<()> {
+        require_validated_history(&msg)?;
+        self.0.send(msg).await.map_err(io::Error::other)
+    }
+
+    async fn receive(&mut self) -> io::Result<Message> {
+        let msg = self.0.receive().await.map_err(io::Error::other)?;
+        require_validated_history(&msg)?;
+        Ok(msg)
+    }
+}
+
+fn require_validated_history(msg: &Message) -> io::Result<()> {
+    if matches!(msg, Message::ChangeEvent(_) | Message::Snapshot { .. }) {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "security history requires scoped candidate validation; the current ofdb push API does not provide it",
+        ));
+    }
+    Ok(())
 }
 
 struct AuthorizedTransport<'a> {
@@ -319,11 +336,20 @@ impl<'a> OfdbSyncTransport for AuthorizedTransport<'a> {
         self.protocol
             .authorize(self.connection, self.member, self.context)
             .await?;
+        require_validated_history(&msg)?;
         self.transport.send(msg).await.map_err(io::Error::other)
     }
 
     async fn receive(&mut self) -> io::Result<Message> {
-        self.transport.receive().await.map_err(io::Error::other)
+        self.protocol
+            .authorize(self.connection, self.member, self.context)
+            .await?;
+        let msg = self.transport.receive().await.map_err(io::Error::other)?;
+        self.protocol
+            .authorize(self.connection, self.member, self.context)
+            .await?;
+        require_validated_history(&msg)?;
+        Ok(msg)
     }
 }
 

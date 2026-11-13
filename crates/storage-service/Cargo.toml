@@ -9,16 +9,16 @@ repository.workspace = true
 
 [dependencies]
 # Internal
-file-system = { path = "../../../offs/crates/file-system", default-features = false, features = [
+file-system = { path = "../../../offs-buildfix/crates/file-system", default-features = false, features = [
 ] }
 of-model = { path = "../of-model", default-features = false, features = [
     "std",
 ] }
-ofdb-kv = { path = "../../../ofdb/crates/kv", default-features = false, features = [
+ofdb-kv = { path = "../../../ofdb-buildfix/crates/kv", default-features = false, features = [
     "redb",
     "sync",
 ] }
-ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = [
+ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb-buildfix/crates/sql", default-features = false, features = [
     "redb",
     "sql",
 ] }

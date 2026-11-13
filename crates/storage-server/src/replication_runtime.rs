@@ -144,7 +144,7 @@ impl StorageReplicationRuntime {
     }
 
     /// Install the merged IdP/Management committed-change subscription before starting.
-    pub fn set_policy_changes(&mut self, mut subscription: ofdb_sql::ChangeSubscription) {
+    pub fn set_policy_changes(&mut self, mut subscription: ofdb_sync::ChangeSubscription) {
         if let Some(task) = self.policy_task.take() {
             task.abort();
         }
@@ -423,29 +423,7 @@ impl ReplicationHost {
         loop {
             let result = if resource.kind == "database" {
                 let descriptor = crate::database_protocol::descriptor(&resource);
-                if deleted {
-                    self.database.synchronize_peer(peer, descriptor).await
-                } else {
-                    match self.database.sync_changes(&descriptor) {
-                        Ok(Some(changes)) => {
-                            changes
-                                .run(|| async {
-                                    let result = self
-                                        .database
-                                        .synchronize_peer(peer, descriptor.clone())
-                                        .await;
-                                    if let Err(error) = &result {
-                                        log::debug!("database sync with {peer} pending: {error}");
-                                    }
-                                    result
-                                })
-                                .await;
-                            return false;
-                        }
-                        Ok(None) => return false,
-                        Err(error) => Err(error),
-                    }
-                }
+                self.database.synchronize_peer(peer, descriptor).await
             } else {
                 self.file_system
                     .synchronize_peer(peer, crate::storage_protocol::descriptor(&resource))

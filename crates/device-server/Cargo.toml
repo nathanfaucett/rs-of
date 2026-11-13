@@ -24,7 +24,8 @@ required-features = ["cli"]
 
 [features]
 default = ["cli", "completions", "swagger-ui"]
-cli = ["dep:dotenvy", "dep:clap", "dep:cli"]
+cli = ["independent", "dep:dotenvy", "dep:clap", "dep:cli"]
+independent = []
 completions = ["cli?/completions"]
 swagger-ui = ["utoipa-swagger-ui"]
 
@@ -55,14 +56,20 @@ cli = { path = "../cli", default-features = false, features = [
 
 # Internal
 embedded-db = { path = "../embedded-db", default-features = false }
-server-common = { path = "../server-common", default-features = false, features = [] }
+server-common = { path = "../server-common", default-features = false, features = [
+] }
 setup = { workspace = true }
 db = { package = "idp-db", path = "../db", default-features = false, features = [
     "replica",
     "remote",
     "server",
 ] }
-of-model = { path = "../of-model", default-features = false, features = ["axum", "replica", "std", "utoipa"] }
+of-model = { path = "../of-model", default-features = false, features = [
+    "axum",
+    "replica",
+    "std",
+    "utoipa",
+] }
 
 idp-service = { path = "../idp-service", default-features = false, features = [
     "replica",
@@ -70,7 +77,7 @@ idp-service = { path = "../idp-service", default-features = false, features = [
 ] }
 
 # Database
-ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = [
+ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb-buildfix/crates/sql", default-features = false, features = [
 
     "redb",
 ] }

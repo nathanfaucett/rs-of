@@ -7,9 +7,9 @@ use iroh::{
 };
 use iroh_chain::{DATA_ALPN, Server};
 use of_model::contract::SelectedResource;
-use ofdb_sql::{SessionConfig, SyncRole, SyncTransport};
-use serde::{Deserialize, Serialize};
 use of_model::storage::StorageNamespace;
+use ofdb_sync::{IrohTransport, Message, SyncTransport, SynchronizeConfig, SynchronizeError};
+use serde::{Deserialize, Serialize};
 use storage_service::{DatabaseId, DatabaseRuntime};
 use tokio_util::sync::CancellationToken;
 
@@ -63,25 +63,6 @@ impl DatabaseProtocolHandler {
             ),
             cancellation_token,
         }
-    }
-
-    pub(crate) fn sync_changes(
-        &self,
-        resource: &DatabaseResourceDescriptor,
-    ) -> io::Result<Option<ofdb_sql::ChangeSubscription>> {
-        let namespace = Namespace {
-            owner_subject: resource.owner_subject.clone(),
-            application_id: resource.application_id.parse().map_err(io::Error::other)?,
-        };
-        let id = resource.database_id.parse().map_err(io::Error::other)?;
-        let Some(sql) = self.databases.open_selected(&namespace, id)? else {
-            return Ok(None);
-        };
-        let kv = self
-            .databases
-            .open_kv_selected(&namespace, id)?
-            .ok_or_else(|| io::Error::other("selected KV database unavailable"))?;
-        Ok(Some(sql.sync_changes()?.merge(kv.sync_changes()?)))
     }
 
     pub(crate) async fn synchronize_peer(
@@ -147,8 +128,7 @@ impl DatabaseProtocolHandler {
         if deleted {
             return Ok(());
         }
-        self.exchange(connection, resource, send, recv, SyncRole::Initiator)
-            .await
+        self.exchange(connection, resource, send, recv).await
     }
 
     async fn authorize(
@@ -239,7 +219,7 @@ impl DatabaseProtocolHandler {
                 }
                 self.require_authorized(&handshake.resource, &connection).await?;
                 write_frame(&mut send, b"OK").await?;
-                self.exchange(connection, handshake.resource, send, recv, SyncRole::Responder).await
+                self.exchange(connection, handshake.resource, send, recv).await
             } => result,
         };
         if let Err(error) = result {
@@ -254,7 +234,6 @@ impl DatabaseProtocolHandler {
         resource: DatabaseResourceDescriptor,
         send: iroh::endpoint::SendStream,
         recv: iroh::endpoint::RecvStream,
-        role: SyncRole,
     ) -> io::Result<()> {
         self.require_authorized(&resource, &connection).await?;
         let database_id = resource
@@ -285,33 +264,27 @@ impl DatabaseProtocolHandler {
             let connection = connection.clone();
             Box::pin(async move { handler.authorize(&resource, &connection).await })
         });
-        let mut transport = AuthorizedTransport {
-            transport: DatabaseTransport::new(send, recv),
-            authorize: authorize.clone(),
-        };
+        let mut transport = IrohTransport::new(send, recv);
         database
-            .synchronize_with_stage_directory_checked(
-                &mut transport,
-                &SessionConfig::default(),
-                role,
-                &self.staging_directory,
-                || check_apply(authorize.clone(), self.cancellation_token.clone()),
+            .synchronize(
+                AuthorizedTransport {
+                    transport: &mut transport,
+                    authorize: authorize.clone(),
+                },
+                SynchronizeConfig::default(),
             )
             .await
-            .map_err(sql_sync_error)?;
-        kv.synchronize_checked(
-            &mut KvAuthorizedTransport {
+            .map_err(sync_error)?;
+        kv.synchronize(
+            AuthorizedTransport {
                 transport: &mut transport,
+                authorize,
             },
-            match role {
-                SyncRole::Initiator => ofdb_kv::SyncRole::Initiator,
-                SyncRole::Responder => ofdb_kv::SyncRole::Responder,
-            },
-            ofdb_kv::SyncConfig::default(),
-            || check_apply(authorize.clone(), self.cancellation_token.clone()),
+            SynchronizeConfig::default(),
         )
         .await
-        .map_err(kv_sync_error)
+        .map(|_| ())
+        .map_err(sync_error)
     }
 }
 
@@ -349,33 +322,24 @@ pub(crate) fn descriptor(resource: &SelectedResource) -> DatabaseResourceDescrip
     }
 }
 
-struct AuthorizedTransport<T = DatabaseTransport> {
-    transport: T,
+struct AuthorizedTransport<'a, T> {
+    transport: &'a mut T,
     authorize: FrameAuthorizer,
 }
-struct KvAuthorizedTransport<'a> {
-    transport: &'a mut AuthorizedTransport,
-}
-impl ofdb_kv::SyncTransport for KvAuthorizedTransport<'_> {
+impl<T: SyncTransport + Send> SyncTransport for AuthorizedTransport<'_, T>
+where
+    T::Error: std::error::Error + Send + Sync + 'static,
+{
     type Error = io::Error;
-    async fn receive(&mut self) -> io::Result<Vec<u8>> {
-        self.transport.receive().await
-    }
-    async fn send(&mut self, frame: Vec<u8>) -> io::Result<()> {
-        self.transport.send(frame).await
-    }
-}
-impl<T: SyncTransport<Error = io::Error>> SyncTransport for AuthorizedTransport<T> {
-    type Error = io::Error;
-    async fn receive(&mut self) -> io::Result<Vec<u8>> {
+    async fn receive(&mut self) -> io::Result<Message> {
         require_frame(&self.authorize).await?;
-        let frame = self.transport.receive().await?;
+        let frame = self.transport.receive().await.map_err(io::Error::other)?;
         require_frame(&self.authorize).await?;
         Ok(frame)
     }
-    async fn send(&mut self, frame: Vec<u8>) -> io::Result<()> {
+    async fn send(&mut self, frame: Message) -> io::Result<()> {
         require_frame(&self.authorize).await?;
-        self.transport.send(frame).await
+        self.transport.send(frame).await.map_err(io::Error::other)
     }
 }
 async fn require_frame(authorize: &FrameAuthorizer) -> io::Result<()> {
@@ -404,20 +368,10 @@ async fn check_apply(
         Err("database sync access revoked before apply".into())
     }
 }
-fn sql_sync_error(error: ofdb_sql::SyncError<io::Error>) -> io::Error {
+fn sync_error(error: SynchronizeError<io::Error>) -> io::Error {
     match error {
-        ofdb_sql::SyncError::PreApply(detail) => {
-            io::Error::new(io::ErrorKind::PermissionDenied, detail)
-        }
+        SynchronizeError::Transport(error) => error,
         error => io::Error::other(error),
-    }
-}
-fn kv_sync_error(error: ofdb_kv::SyncError<io::Error>) -> io::Error {
-    match error {
-        ofdb_kv::SyncError::PreApply(detail) => {
-            io::Error::new(io::ErrorKind::PermissionDenied, detail)
-        }
-        error => io::Error::other(format!("database KV sync failed: {error:?}")),
     }
 }
 async fn read_frame(recv: &mut iroh::endpoint::RecvStream, max: usize) -> io::Result<Vec<u8>> {

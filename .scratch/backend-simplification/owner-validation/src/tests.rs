@@ -143,7 +143,7 @@ async fn local_seed_is_repeatable_and_supports_real_admin_credentials_and_public
     let issuer = "http://127.0.0.1:1355/idp";
     let namespace = "owner-local-validation";
     let key_dir = root.path().join("keys");
-    for _ in 0..2 {
+    for pass in 0..2 {
         let binding = crate::local_seed::signer(client.clone(), &key_dir, namespace, issuer)
             .await
             .expect("local signer without setup");
@@ -196,6 +196,43 @@ async fn local_seed_is_repeatable_and_supports_real_admin_credentials_and_public
             .await
             .expect("local service can obtain a signed token");
         assert!(!token.access_token.0.is_empty());
+        if pass == 1 {
+            use idp_service::repo::ClientRepo;
+            let secret = state
+                .oauth2_service
+                .rotate_client_secret("local-storage")
+                .await
+                .expect("rotate confidential secret");
+            let stored = state
+                .oauth2_service
+                .client_repo
+                .find_client_by_client_id("local-storage")
+                .await
+                .expect("client lookup")
+                .expect("confidential client");
+            assert!(
+                argon2::verify_encoded(&stored.client_secret_hash, secret.as_bytes())
+                    .expect("new secret verifier")
+            );
+            assert!(
+                !argon2::verify_encoded(&stored.client_secret_hash, b"local-password")
+                    .expect("old secret rejected")
+            );
+            assert!(
+                state
+                    .oauth2_service
+                    .rotate_client_secret("app")
+                    .await
+                    .is_err()
+            );
+            assert!(
+                state
+                    .oauth2_service
+                    .rotate_client_secret("missing-client")
+                    .await
+                    .is_err()
+            );
+        }
         let login = state
             .oauth2_service
             .token(

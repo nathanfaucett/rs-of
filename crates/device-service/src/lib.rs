@@ -59,9 +59,6 @@ pub mod hosted_join;
 #[cfg(feature = "replica")]
 pub mod issuer_discovery;
 
-#[cfg(feature = "replica")]
-mod push_sync_adapter;
-
 #[cfg(all(test, feature = "replica"))]
 mod security_protocol_contract_tests;
 

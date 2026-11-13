@@ -23,11 +23,11 @@ of-model = { path = "../../../crates/of-model", default-features = false, featur
    "replica",
    "std",
 ] }
-ofdb-kv = { path = "../../../../ofdb/crates/kv", default-features = false, features = [
+ofdb-kv = { path = "../../../../ofdb-buildfix/crates/kv", default-features = false, features = [
    "redb",
    "sync",
 ] }
-ofdb-sql = { path = "../../../../ofdb/crates/sql", default-features = false, features = [
+ofdb-sql = { path = "../../../../ofdb-buildfix/crates/sql", default-features = false, features = [
    "redb",
    "sql",
 ] }

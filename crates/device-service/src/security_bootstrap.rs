@@ -1,24 +1,21 @@
-use futures_util::io::{AsyncRead, AsyncWrite};
-use std::{future::Future, io, pin::Pin, sync::Arc};
-
-use crate::push_sync_adapter::SyncAdapter;
 use db::DatabaseTransport;
 use db::SyncTransport as OldSyncTransport;
-use of_model::idp::model::Id;
 use idp_service::replica::LocalIdentity;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
-use ofdb_sql::SyncRole;
+use of_model::idp::model::Id;
+use std::{future::Future, io, sync::Arc};
+
 use ofdb_sync::{
     IrohTransport, Message, SyncResult, SyncTransport, SynchronizeConfig,
-    SynchronizeError as SyncError, synchronize,
+    SynchronizeError as SyncError,
 };
 use serde::{Deserialize, Serialize};
 
+use super::TransportRef;
 use crate::DeviceRepo;
 use crate::hosted_join::NodeJoinApproval;
 use crate::node_join_owner::{NodeJoinOwner, NodeJoinStage};
 use crate::replica::DbDeviceRepo;
-use crate::security_candidates::{JoinCandidate, PeerBinding};
 
 use super::{SecurityContext, SecurityProtocol, denied, now};
 
@@ -205,12 +202,12 @@ impl SecurityProtocol {
             context,
             approval: approval.clone(),
         };
-        let (send, recv) = connection.open_bi().await.map_err(io::Error::other)?;
+        let (mut send, recv) = connection.open_bi().await.map_err(io::Error::other)?;
         bootstrap_stage(|| self.check_bootstrap_receiver(connection, owner, &approval)).await?;
         send.write_all(&[BOOTSTRAP_STREAM_KIND])
             .await
             .map_err(io::Error::other)?;
-        let mut transport = DatabaseTransport::new(send.clone(), recv.clone());
+        let mut transport = DatabaseTransport::new(send, recv);
         bootstrap_stage(|| self.check_bootstrap_receiver(connection, owner, &approval)).await?;
         transport.send(serde_json::to_vec(&request)?).await?;
         let reply = tokio::time::timeout(std::time::Duration::from_secs(10), transport.receive())
@@ -226,7 +223,7 @@ impl SecurityProtocol {
             return Err(denied("bootstrap context/anchor reply mismatch"));
         }
 
-        // After handshake, create FramedTransport for sync protocol using cloned streams
+        let (send, recv) = transport.into_streams();
         let framed = IrohTransport::new(send, recv);
         let result = bootstrap_stage(|| {
             self.receive_bootstrap_history(
@@ -255,13 +252,13 @@ impl SecurityProtocol {
         Ok(result)
     }
 
-    pub(super) async fn accept_node_bootstrap(
+    pub async fn accept_node_bootstrap(
         &self,
         connection: Connection,
         send: SendStream,
         recv: RecvStream,
     ) -> io::Result<()> {
-        let mut transport = DatabaseTransport::new(send.clone(), recv.clone());
+        let mut transport = DatabaseTransport::new(send, recv);
         let request: BootstrapRequest = serde_json::from_slice(&transport.receive().await?)?;
         if request.purpose != PURPOSE {
             return Err(denied("invalid bootstrap purpose"));
@@ -281,8 +278,8 @@ impl SecurityProtocol {
             .await?;
         transport.send(serde_json::to_vec(&request)?).await?;
 
-        // After handshake, create FramedTransport for sync protocol using cloned streams
-        let framed = IrohTransport::new(send, recv);
+        let (send, recv) = transport.into_streams();
+        let mut framed = IrohTransport::new(send, recv);
         let mut source_transport = SourceTransport {
             transport: &mut framed,
             protocol: self,
@@ -431,14 +428,10 @@ impl SecurityProtocol {
             .await
             .map_err(denied)?
             .ok_or_else(|| denied("bootstrap requires exact approved Device"))?;
-        let granted = DbDeviceRepo::new(self.management.clone().client())
-            .get_device_grants(device.id)
+        let owner = device.owner_subject.parse().map_err(denied)?;
+        self.owner()
+            .check_permission(owner, SecurityContext::Device)
             .await
-            .map_err(denied)?;
-        if !granted.iter().any(|g| g.context == SecurityContext::Device) {
-            return Err(denied("bootstrap Device does not grant Device context"));
-        }
-        Ok(())
     }
 
     pub async fn check_public_context_grants(&self, approval: &NodeJoinApproval) -> io::Result<()> {
@@ -448,15 +441,9 @@ impl SecurityProtocol {
             .await
             .map_err(denied)?
             .ok_or_else(|| denied("bootstrap requires exact approved Device"))?;
-        let granted = DbDeviceRepo::new(self.management.clone().client())
-            .get_device_grants(device.id)
-            .await
-            .map_err(denied)?;
-        if !granted
-            .iter()
-            .any(|g| g.context == SecurityContext::Devices)
-        {
-            return Err(denied("bootstrap Device does not grant Devices context"));
+        let owner = device.owner_subject.parse().map_err(denied)?;
+        for context in [SecurityContext::Idp, SecurityContext::Device] {
+            self.owner().check_permission(owner, context).await?;
         }
         Ok(())
     }
@@ -470,8 +457,8 @@ impl SecurityProtocol {
         if self.node_join_public_ready(owner).await? {
             return Ok(());
         }
-        for peer in self.server.peers() {
-            if peer == request.approving_peer {
+        for peer in self.server.peers().ids() {
+            if peer.to_string() == request.approving_peer {
                 continue;
             }
             let connection = tokio::time::timeout(
@@ -505,40 +492,14 @@ impl SecurityProtocol {
     }
 
     pub async fn local_node_public_ready(&self, owner: &impl NodeJoinOwner) -> io::Result<bool> {
-        let approval = owner.node_join_anchor()?;
-        let request = &approval.request;
-        let device = DbDeviceRepo::new(self.management.clone().client())
-            .find_approved_by_public_key(&request.endpoint_id)
-            .await
-            .map_err(denied)?
-            .ok_or_else(|| denied("bootstrap requires exact approved Device"))?;
-        let granted = DbDeviceRepo::new(self.management.clone().client())
-            .get_device_grants(device.id)
-            .await
-            .map_err(denied)?;
-        Ok(granted
-            .iter()
-            .any(|g| matches!(g.context, SecurityContext::Idp | SecurityContext::Devices)))
+        self.verify_node_join_public_readiness(owner).await
     }
 
     pub async fn node_join_public_ready(&self, owner: &impl NodeJoinOwner) -> io::Result<bool> {
-        let approval = owner.node_join_anchor()?;
-        let request = &approval.request;
-        let device = DbDeviceRepo::new(self.management.clone().client())
-            .find_approved_by_public_key(&request.endpoint_id)
-            .await
-            .map_err(denied)?
-            .ok_or_else(|| denied("bootstrap requires exact approved Device"))?;
-        let granted = DbDeviceRepo::new(self.management.clone().client())
-            .get_device_grants(device.id)
-            .await
-            .map_err(denied)?;
-        Ok(granted
-            .iter()
-            .any(|g| matches!(g.context, SecurityContext::Idp | SecurityContext::Devices)))
+        self.verify_node_join_public_readiness(owner).await
     }
 
-    async fn receive_bootstrap_history<T, Q, U>(
+    async fn receive_bootstrap_history<Q, U>(
         &self,
         connection: &Connection,
         owner: &impl NodeJoinOwner,
@@ -580,7 +541,7 @@ impl SecurityProtocol {
 
     async fn node_bootstrap_session<T, Q, U>(
         &self,
-        approval: &NodeJoinApproval,
+        _approval: &NodeJoinApproval,
         context: SecurityContext,
         transport: &mut T,
         mut check: Q,
@@ -590,28 +551,11 @@ impl SecurityProtocol {
         Q: FnMut() -> U + Send,
         U: Future<Output = Result<(), String>> + Send,
     {
-        let candidate = JoinCandidate {
-            member_id: approval.request.member_id,
-            device_id: approval.request.member_id,
-            endpoint: &approval.request.endpoint_id,
-            owner: approval.owner_subject,
-            public_signer: &approval.request.public_signer,
-            name: &approval.request.name,
-        };
         let mut total = SyncResult::default();
-        for (database, history, _tables) in self.sessions(context) {
-            let directory = self
-                .staging_directory
-                .join(format!("bootstrap-{}", history.name()));
-            // Receiver (Idp context) initiates, sender (Device context) responds
-            let is_receiver = matches!(context, SecurityContext::Idp);
-            let role = if is_receiver {
-                SyncRole::Leader
-            } else {
-                SyncRole::Follower
-            };
+        for (database, _history, _tables) in self.sessions(context) {
+            check().await.map_err(denied)?;
             let result = database
-                .synchronize(transport, &SynchronizeConfig::default())
+                .synchronize(TransportRef(transport), SynchronizeConfig::default())
                 .await
                 .map_err(|error| match error {
                     SyncError::Apply(reason) => denied(reason),
@@ -634,13 +578,16 @@ impl SecurityProtocol {
             .await
             .map_err(denied)?
             .ok_or_else(|| denied("bootstrap requires exact approved Device"))?;
-        let granted = DbDeviceRepo::new(self.management.clone().client())
-            .get_device_grants(device.id)
-            .await
-            .map_err(denied)?;
-        Ok(granted
-            .iter()
-            .any(|g| matches!(g.context, SecurityContext::Idp | SecurityContext::Devices)))
+        let actor = device.owner_subject.parse().map_err(denied)?;
+        for context in [SecurityContext::Idp, SecurityContext::Device] {
+            if let Err(error) = self.owner().check_permission(actor, context).await {
+                if error.kind() == io::ErrorKind::PermissionDenied {
+                    return Ok(false);
+                }
+                return Err(error);
+            }
+        }
+        Ok(true)
     }
 }
 
@@ -648,14 +595,13 @@ fn stage(context: SecurityContext) -> NodeJoinStage {
     match context {
         SecurityContext::Idp => NodeJoinStage::Idp,
         SecurityContext::Device => NodeJoinStage::Management,
-        _ => unreachable!("only Idp and Device contexts participate in bootstrap"),
     }
 }
 
-fn bootstrap_stage<F, Fut, E>(mut f: F) -> io::Result<()>
+async fn bootstrap_stage<F, Fut, T, E>(f: F) -> io::Result<T>
 where
-    F: FnMut() -> Fut,
-    Fut: Future<Output = Result<(), E>>,
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<T, E>>,
     E: std::fmt::Display,
 {
     tokio::select! {
@@ -675,9 +621,7 @@ struct SourceTransport<'a> {
     last_send: std::time::Instant,
 }
 
-impl SyncTransport
-    for SourceTransport<'_>
-{
+impl SyncTransport for SourceTransport<'_> {
     type Error = io::Error;
 
     async fn send(&mut self, msg: Message) -> io::Result<()> {
@@ -686,7 +630,6 @@ impl SyncTransport
             .await?;
         #[cfg(test)]
         {
-            use std::io::Write;
             let elapsed = self.last_send.elapsed().as_millis();
             if elapsed > 1000 {
                 eprintln!("bootstrap source send latency: {elapsed}ms");
@@ -709,9 +652,7 @@ struct ReceiverTransport<'a, O> {
     approval: &'a NodeJoinApproval,
 }
 
-impl<O: NodeJoinOwner>
-    SyncTransport for ReceiverTransport<'_, O>
-{
+impl<O: NodeJoinOwner> SyncTransport for ReceiverTransport<'_, O> {
     type Error = io::Error;
 
     async fn send(&mut self, msg: Message) -> io::Result<()> {
@@ -742,5 +683,6 @@ impl iroh::protocol::ProtocolHandler for NodeBootstrapHandler {
         self.protocol
             .accept_node_bootstrap(connection, send, recv)
             .await
+            .map_err(iroh::protocol::AcceptError::from_err)
     }
 }

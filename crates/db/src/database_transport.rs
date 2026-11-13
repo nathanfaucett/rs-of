@@ -23,6 +23,10 @@ impl DatabaseTransport {
     pub fn new(send: SendStream, recv: RecvStream) -> Self {
         Self { send, recv }
     }
+
+    pub fn into_streams(self) -> (SendStream, RecvStream) {
+        (self.send, self.recv)
+    }
 }
 
 impl SyncTransport for DatabaseTransport {

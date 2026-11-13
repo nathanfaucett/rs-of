@@ -5112,6 +5112,7 @@ dependencies = [
  "ofdb-sync",
  "ofdb-value",
  "redb",
+ "serde",
  "serde_json",
  "uuid",
 ]
@@ -7225,6 +7226,7 @@ dependencies = [
  "of-model",
  "ofdb-kv",
  "ofdb-sql",
+ "ofdb-sync",
  "postcard",
  "reqwest 0.12.28",
  "serde",

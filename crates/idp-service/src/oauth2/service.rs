@@ -64,35 +64,7 @@ pub struct OAuth2Service<A, C, AC, RT, U, G, K, P> {
     pub oauth_config: OAuth2Config,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct UpdateUserInfoRequest {
-    pub name: Option<String>,
-    pub given_name: Option<String>,
-    pub family_name: Option<String>,
-    pub middle_name: Option<String>,
-    pub nickname: Option<String>,
-    pub profile: Option<String>,
-    pub picture: Option<String>,
-    pub website: Option<String>,
-    pub sex: Option<String>,
-    pub birthdate: Option<String>,
-    pub zoneinfo: Option<String>,
-    pub locale: Option<String>,
-    pub email: Option<String>,
-    pub email_verified: Option<bool>,
-    pub phone_number: Option<String>,
-    pub phone_number_verified: Option<bool>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct CreateUserRequest {
-    pub name: String,
-    pub email: String,
-    pub password: String,
-    pub email_verified: Option<bool>,
-}
+pub use of_model::http::idp::{CreateUserRequest, UpdateUserInfoRequest};
 
 impl<A, C, AC, RT, U, G, K, P> OAuth2Service<A, C, AC, RT, U, G, K, P>
 where
@@ -1391,6 +1363,30 @@ where
                 .map(|(_, signer)| signer.public_jwk)
                 .collect(),
         })
+    }
+
+    pub async fn rotate_client_secret(&self, client_id: &str) -> ErrorResponseResult<String> {
+        let mut client = self
+            .client_repo
+            .find_client_by_client_id(client_id)
+            .await
+            .map_err(ErrorResponse::from)?
+            .ok_or_else(|| ErrorResponse::new(ErrorCode::NotFound))?;
+        if client.client_type != ClientType::Confidential {
+            return Err(ErrorResponse::new(ErrorCode::InvalidRequest)
+                .with_description("secret rotation requires a confidential client"));
+        }
+        let secret = generate_random_string::<64>();
+        client.client_secret_hash =
+            encrypt_password(&PasswordConfig::default(), &secret).map_err(|error| {
+                ErrorResponse::new(ErrorCode::ServerError).with_description(error.to_string())
+            })?;
+        client.updated_at = Utc::now();
+        self.client_repo
+            .update_client(client)
+            .await
+            .map_err(ErrorResponse::from)?;
+        Ok(secret)
     }
 
     pub async fn rotate_client_key(&self, client_id: &str) -> ErrorResponseResult<Key> {

@@ -8,15 +8,24 @@ use crate::{DataProtocolHandler, StorageSyncDriver};
 #[derive(Clone)]
 pub struct StorageNetwork {
     pub server: Server,
-    pub policy_changes: ofdb_sql::ChangeSubscription,
+    pub policy_changes: ofdb_sync::ChangeSubscription,
     install: Arc<dyn Fn(DataProtocolHandler) -> io::Result<()> + Send + Sync>,
 }
 impl StorageNetwork {
-    pub fn new(server: Server, policy_changes: ofdb_sql::ChangeSubscription,
-        install: impl Fn(DataProtocolHandler) -> io::Result<()> + Send + Sync + 'static) -> Self {
-        Self { server, policy_changes, install: Arc::new(install) }
+    pub fn new(
+        server: Server,
+        policy_changes: ofdb_sync::ChangeSubscription,
+        install: impl Fn(DataProtocolHandler) -> io::Result<()> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            server,
+            policy_changes,
+            install: Arc::new(install),
+        }
     }
-    pub(crate) fn install(&self, handler: DataProtocolHandler) -> io::Result<()> { (self.install)(handler) }
+    pub(crate) fn install(&self, handler: DataProtocolHandler) -> io::Result<()> {
+        (self.install)(handler)
+    }
 }
 
 pub struct StorageNativeHost {

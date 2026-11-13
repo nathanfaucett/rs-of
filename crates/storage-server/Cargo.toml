@@ -48,11 +48,16 @@ cli = { path = "../cli", default-features = false, features = [
 embedded-db = { path = "../embedded-db", default-features = false }
 of-device-client = { path = "../device-client", default-features = false }
 of-idp-client = { path = "../idp-client", default-features = false }
-server-common = { path = "../server-common", default-features = false, features = [] }
-setup = { workspace = true }
-file-system = { path = "../../../offs/crates/file-system", default-features = false, features = [
+server-common = { path = "../server-common", default-features = false, features = [
 ] }
-of-model = { path = "../of-model", default-features = false, features = ["axum", "std", "utoipa"] }
+setup = { workspace = true }
+file-system = { path = "../../../offs-buildfix/crates/file-system", default-features = false, features = [
+] }
+of-model = { path = "../of-model", default-features = false, features = [
+    "axum",
+    "std",
+    "utoipa",
+] }
 idp-service = { path = "../idp-service", default-features = false, features = [
     "std",
 ] }
@@ -61,11 +66,12 @@ management-service = { path = "../management-service", default-features = false,
 ] }
 key = { path = "../key", default-features = false, features = ["std"] }
 
-ofdb-kv = { path = "../../../ofdb/crates/kv", default-features = false, features = [
+
+ofdb-kv = { path = "../../../ofdb-buildfix/crates/kv", default-features = false, features = [
     "redb",
     "sync",
 ] }
-ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = [
+ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb-buildfix/crates/sql", default-features = false, features = [
     "redb",
     "native-stage",
 ] }
@@ -146,6 +152,14 @@ crc32fast = { version = "1.5", default-features = false, optional = true }
 # Logging
 log = { version = "0.4", default-features = false, features = ["std"] }
 env_logger = { version = "0.10", default-features = false, features = [] }
+
+# Database synchronization
+[dependencies.ofdb-sync]
+package = "ofdb-sync"
+version = "0.1"
+path = "../../../ofdb-buildfix/crates/sync"
+default-features = false
+features = ["std", "iroh"]
 
 [dev-dependencies]
 # Async

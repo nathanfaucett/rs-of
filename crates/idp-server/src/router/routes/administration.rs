@@ -1,8 +1,8 @@
-pub use of_model::server::idp::administration::{Page, ResetPassword, SetUserMfaRequest, SetUserBlockedRequest};
 use axum::{
     Json,
     extract::{Path, Query, State},
 };
+use idp_service::oauth2::{CreateUserRequest, UpdateUserInfoRequest};
 use of_model::idp::{
     contract::{
         ApplicationRegistration, ErrorCode, ErrorResponse, IdentityAction, IdentityResource,
@@ -10,7 +10,9 @@ use of_model::idp::{
     },
     model::{Application, Id, Key, OAuth2UserConsent},
 };
-use idp_service::oauth2::{CreateUserRequest, UpdateUserInfoRequest};
+pub use of_model::server::idp::administration::{
+    Page, ResetPassword, SetUserBlockedRequest, SetUserMfaRequest,
+};
 use serde::Deserialize;
 
 use crate::router::{
@@ -163,7 +165,6 @@ pub(crate) async fn list_users(
             .oauth2_service
             .list_user_info(page.offset, page.limit.clamp(1, 100))
             .await?,
-    ))
     ))
 }
 
