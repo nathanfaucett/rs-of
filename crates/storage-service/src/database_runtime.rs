@@ -63,7 +63,9 @@ impl DatabaseRuntime {
         self.local_copies.require_owner(scope.user_sub())?;
         let resource = self.catalog.create(scope, name)?;
         let path = self.copy_path(scope, resource.id)?;
-        match Database::open(&path) {
+        let database = fs::create_dir_all(path.parent().expect("copy path has parent"))
+            .and_then(|()| Database::open(&path).map_err(io::Error::other));
+        match database {
             Ok(database) => {
                 let database = Arc::new(database);
                 open.insert(database_key(scope, resource.id), Arc::clone(&database));

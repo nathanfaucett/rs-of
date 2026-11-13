@@ -227,7 +227,10 @@ pub(super) async fn create_database(
         .as_ref()
         .ok_or(StatusCode::SERVICE_UNAVAILABLE)?
         .create(&scope, request.name)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|error| {
+            log::error!("Storage database creation failed: {error}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
     authorize_response(&state, &headers, &scope, "storage:databases", true).await?;
     Ok((StatusCode::CREATED, Json(resource)))
 }
