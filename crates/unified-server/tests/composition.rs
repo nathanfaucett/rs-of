@@ -66,6 +66,7 @@ async fn fresh_server_is_ready_within_three_seconds() {
                 started.elapsed() < Duration::from_secs(3),
                 "startup exceeded three seconds"
             );
+            eprintln!("fresh server ready in {:?}", started.elapsed());
             break;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -113,8 +114,8 @@ async fn smoke(tls: bool) {
                 "server exited"
             );
             assert!(
-                start.elapsed() < Duration::from_secs(60),
-                "startup exceeded readiness deadline"
+                start.elapsed() < Duration::from_secs(3),
+                "startup exceeded three seconds"
             );
             let mut builder = reqwest::Client::builder()
                 .no_proxy()
@@ -137,7 +138,12 @@ async fn smoke(tls: bool) {
                 .await
                 .is_ok_and(|r| r.status().is_success())
             {
-                startup_times.push(start.elapsed());
+                let elapsed = start.elapsed();
+                assert!(
+                    elapsed < Duration::from_secs(3),
+                    "startup exceeded three seconds: {elapsed:?}"
+                );
+                startup_times.push(elapsed);
                 break client;
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
