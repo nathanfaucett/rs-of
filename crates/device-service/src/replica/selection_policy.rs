@@ -1354,39 +1354,25 @@ mod tests {
         );
     }
 
-    struct Channel {
-        sender: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
-        receiver: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
-    }
-
-    impl ofdb_sql::SyncTransport for Channel {
-        type Error = &'static str;
-        async fn send(&mut self, frame: Vec<u8>) -> Result<(), Self::Error> {
-            self.sender.send(frame).map_err(|_| "closed")
-        }
-        async fn receive(&mut self) -> Result<Vec<u8>, Self::Error> {
-            self.receiver.recv().await.ok_or("closed")
-        }
-    }
-
     async fn sync_replica(source: &db::Database, destination: &db::Database) {
-        let (a, ar) = tokio::sync::mpsc::unbounded_channel();
-        let (b, br) = tokio::sync::mpsc::unbounded_channel();
-        let mut left = Channel {
-            sender: a,
-            receiver: br,
-        };
-        let mut right = Channel {
-            sender: b,
-            receiver: ar,
-        };
-        let config = ofdb_sql::SessionConfig::default();
-        let (sent, received) = tokio::join!(
-            source.synchronize(&mut left, &config, ofdb_sql::SyncRole::Initiator),
-            destination.synchronize(&mut right, &config, ofdb_sql::SyncRole::Responder),
-        );
-        sent.expect("sync trusted domain fixture");
-        received.expect("receive trusted domain fixture");
+        destination
+            .import_history(
+                source
+                    .export_history()
+                    .await
+                    .expect("source native history"),
+            )
+            .await
+            .expect("atomic native history import");
+        source
+            .import_history(
+                destination
+                    .export_history()
+                    .await
+                    .expect("merged native history"),
+            )
+            .await
+            .expect("atomic reverse native history import");
     }
 
     #[tokio::test]

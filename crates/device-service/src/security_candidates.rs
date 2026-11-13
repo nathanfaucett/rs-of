@@ -1,28 +1,9 @@
 use db::Value;
 use idp_service::security_sync::public_security_tables;
 use of_model::idp::{contract::JwkPublic, model::Id};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SyncCandidateView {
-    pub tables: Vec<CandidateTable>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CandidateTable {
-    pub name: String,
-    pub columns: Vec<String>,
-    pub rows: Vec<CandidateRow>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CandidateRow {
-    pub id: Id,
-    pub deleted: bool,
-    pub cells: HashMap<String, Value>,
-    pub conflicts: HashMap<String, Vec<Value>>,
-}
+pub use ofdb_sql::history::{
+    SyncCandidateView, SyncRowView as CandidateRow, SyncTableView as CandidateTable,
+};
 
 pub struct JoinCandidate<'a> {
     pub member_id: Id,
@@ -61,15 +42,10 @@ pub fn validate(
             if row.deleted {
                 continue;
             }
-            if row.cells.len() != table.columns.len()
-                || row
-                    .cells
-                    .keys()
-                    .any(|column| !table.columns.contains(column))
-            {
+            if row.row.values.len() != table.columns.len() {
                 return Err(invalid());
             }
-            for (column, value) in &row.cells {
+            for (column, value) in table.columns.iter().zip(&row.row.values) {
                 if !public.permits_historical_value(column, value)
                     || !permits_installation(&table.name, column, value, installation)
                 {
@@ -109,13 +85,14 @@ pub fn permits_installation(table: &str, column: &str, value: &Value, installati
 }
 
 fn field<'a>(table: &CandidateTable, row: &'a CandidateRow, column: &str) -> Option<&'a Value> {
-    if row.deleted
-        || row.conflicts.contains_key(column)
-        || !table.columns.iter().any(|name| name == column)
-    {
+    if row.deleted || row.conflicts.iter().any(|(name, _)| name == column) {
         return None;
     }
-    row.cells.get(column)
+    table
+        .columns
+        .iter()
+        .position(|name| name == column)
+        .and_then(|index| row.row.values.get(index))
 }
 
 fn uuid(table: &CandidateTable, row: &CandidateRow, column: &str) -> Option<Id> {
@@ -274,10 +251,14 @@ pub fn validate_device_history(
             if row.deleted {
                 continue;
             }
-            if row.cells.len() != table.columns.len()
-                || row.cells.iter().any(|(column, value)| {
-                    !columns.contains(&column.as_str()) || !permits_device_value(column, value)
-                })
+            if row.row.values.len() != table.columns.len()
+                || table
+                    .columns
+                    .iter()
+                    .zip(&row.row.values)
+                    .any(|(column, value)| {
+                        !columns.contains(&column.as_str()) || !permits_device_value(column, value)
+                    })
                 || row.conflicts.iter().any(|(column, values)| {
                     !columns.contains(&column.as_str())
                         || values

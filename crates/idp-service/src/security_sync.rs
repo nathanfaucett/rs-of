@@ -86,6 +86,11 @@ impl PublicSecurityTable {
                 "locale",
                 "created_at",
                 "updated_at",
+                "mfa_totp_secret",
+                "mfa_webauthn_credentials",
+                "blocked",
+                "blocked_at",
+                "blocked_by",
             ],
             Self::Credentials => &[
                 "id",
@@ -229,6 +234,9 @@ impl PublicSecurityTable {
         if value.is_null() {
             return self.nullable(column);
         }
+        if matches!(column, "mfa_totp_secret" | "mfa_webauthn_credentials") {
+            return false;
+        }
         if column == "public_jwk" {
             return value.as_str().is_some_and(permits_public_jwk);
         }
@@ -239,7 +247,8 @@ impl PublicSecurityTable {
         }
         let uuid = matches!(
             column,
-            "id" | "credential_id"
+            "id" | "blocked_by"
+                | "credential_id"
                 | "parent_id"
                 | "entity_id"
                 | "application_id"
@@ -268,6 +277,7 @@ impl PublicSecurityTable {
         let integer = matches!(
             column,
             "active"
+                | "blocked"
                 | "sex"
                 | "entity_type"
                 | "derivation_index"

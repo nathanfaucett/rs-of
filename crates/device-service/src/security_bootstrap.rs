@@ -1,21 +1,17 @@
 use db::DatabaseTransport;
-use db::SyncTransport as OldSyncTransport;
 use idp_service::replica::LocalIdentity;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use of_model::idp::model::Id;
 use std::{future::Future, io, sync::Arc};
 
-use ofdb_sync::{
-    IrohTransport, Message, SyncResult, SyncTransport, SynchronizeConfig,
-    SynchronizeError as SyncError,
-};
+use ofdb_sql::history::{SessionConfig, SyncError, SyncResult, SyncRole, SyncTransport};
 use serde::{Deserialize, Serialize};
 
-use super::TransportRef;
 use crate::DeviceRepo;
 use crate::hosted_join::NodeJoinApproval;
 use crate::node_join_owner::{NodeJoinOwner, NodeJoinStage};
 use crate::replica::DbDeviceRepo;
+use crate::security_candidates::JoinCandidate;
 
 use super::{SecurityContext, SecurityProtocol, denied, now};
 
@@ -223,8 +219,7 @@ impl SecurityProtocol {
             return Err(denied("bootstrap context/anchor reply mismatch"));
         }
 
-        let (send, recv) = transport.into_streams();
-        let framed = IrohTransport::new(send, recv);
+        let framed = transport;
         let result = bootstrap_stage(|| {
             self.receive_bootstrap_history(
                 connection,
@@ -278,8 +273,7 @@ impl SecurityProtocol {
             .await?;
         transport.send(serde_json::to_vec(&request)?).await?;
 
-        let (send, recv) = transport.into_streams();
-        let mut framed = IrohTransport::new(send, recv);
+        let mut framed = transport;
         let mut source_transport = SourceTransport {
             transport: &mut framed,
             protocol: self,
@@ -294,6 +288,7 @@ impl SecurityProtocol {
                 &request.approval,
                 request.context,
                 &mut source_transport,
+                SyncRole::Responder,
                 || async {
                     self.authorize_bootstrap_source(&connection, &request.approval, request.context)
                         .await
@@ -505,7 +500,7 @@ impl SecurityProtocol {
         owner: &impl NodeJoinOwner,
         approval: &NodeJoinApproval,
         context: SecurityContext,
-        mut transport: IrohTransport,
+        mut transport: DatabaseTransport,
         mut check: Q,
     ) -> io::Result<SyncResult>
     where
@@ -527,23 +522,30 @@ impl SecurityProtocol {
             owner,
             approval,
         };
-        self.node_bootstrap_session(approval, context, &mut auth_transport, || {
-            let additional = check();
-            async move {
-                bootstrap_stage(|| self.check_bootstrap_receiver(connection, owner, approval))
-                    .await
-                    .map_err(|_| "bootstrap receiver no longer authorized".to_owned())?;
-                additional.await
-            }
-        })
+        self.node_bootstrap_session(
+            approval,
+            context,
+            &mut auth_transport,
+            SyncRole::Initiator,
+            || {
+                let additional = check();
+                async move {
+                    bootstrap_stage(|| self.check_bootstrap_receiver(connection, owner, approval))
+                        .await
+                        .map_err(|_| "bootstrap receiver no longer authorized".to_owned())?;
+                    additional.await
+                }
+            },
+        )
         .await
     }
 
     async fn node_bootstrap_session<T, Q, U>(
         &self,
-        _approval: &NodeJoinApproval,
+        approval: &NodeJoinApproval,
         context: SecurityContext,
         transport: &mut T,
+        role: SyncRole,
         mut check: Q,
     ) -> io::Result<SyncResult>
     where
@@ -551,14 +553,35 @@ impl SecurityProtocol {
         Q: FnMut() -> U + Send,
         U: Future<Output = Result<(), String>> + Send,
     {
+        let candidate = JoinCandidate {
+            member_id: approval.request.member_id,
+            device_id: approval.request.member_id,
+            endpoint: &approval.request.endpoint_id,
+            owner: approval.owner_subject,
+            public_signer: &approval.request.public_signer,
+            name: &approval.request.name,
+        };
         let mut total = SyncResult::default();
-        for (database, _history, _tables) in self.sessions(context) {
-            check().await.map_err(denied)?;
+        for (database, history, tables) in self.sessions(context) {
             let result = database
-                .synchronize(TransportRef(transport), SynchronizeConfig::default())
+                .exchange_history(
+                    transport,
+                    &SessionConfig::default(),
+                    role,
+                    self.staging_directory
+                        .join(format!("bootstrap-{}", history.name())),
+                    &tables,
+                    |table, column, value| {
+                        history.validate_value(table, column, value, &self.installation)
+                    },
+                    |view| {
+                        history.validate_candidate(view, &self.installation, &[], Some(&candidate))
+                    },
+                    &mut check,
+                )
                 .await
                 .map_err(|error| match error {
-                    SyncError::Apply(reason) => denied(reason),
+                    SyncError::PreApply(reason) => denied(reason),
                     SyncError::Transport(error) => error,
                     error => io::Error::other(error.to_string()),
                 })?;
@@ -612,7 +635,7 @@ where
 }
 
 struct SourceTransport<'a> {
-    transport: &'a mut IrohTransport,
+    transport: &'a mut DatabaseTransport,
     protocol: &'a SecurityProtocol,
     connection: &'a Connection,
     approval: &'a NodeJoinApproval,
@@ -624,7 +647,7 @@ struct SourceTransport<'a> {
 impl SyncTransport for SourceTransport<'_> {
     type Error = io::Error;
 
-    async fn send(&mut self, msg: Message) -> io::Result<()> {
+    async fn send(&mut self, msg: Vec<u8>) -> io::Result<()> {
         self.protocol
             .authorize_bootstrap_source(self.connection, self.approval, self.context)
             .await?;
@@ -636,16 +659,16 @@ impl SyncTransport for SourceTransport<'_> {
             }
             self.last_send = std::time::Instant::now();
         }
-        self.transport.send(msg).await.map_err(io::Error::other)
+        self.transport.send(msg).await
     }
 
-    async fn receive(&mut self) -> io::Result<Message> {
-        self.transport.receive().await.map_err(io::Error::other)
+    async fn receive(&mut self) -> io::Result<Vec<u8>> {
+        self.transport.receive().await
     }
 }
 
 struct ReceiverTransport<'a, O> {
-    transport: &'a mut IrohTransport,
+    transport: &'a mut DatabaseTransport,
     protocol: &'a SecurityProtocol,
     connection: &'a Connection,
     owner: &'a O,
@@ -655,15 +678,15 @@ struct ReceiverTransport<'a, O> {
 impl<O: NodeJoinOwner> SyncTransport for ReceiverTransport<'_, O> {
     type Error = io::Error;
 
-    async fn send(&mut self, msg: Message) -> io::Result<()> {
+    async fn send(&mut self, msg: Vec<u8>) -> io::Result<()> {
         self.protocol
             .check_bootstrap_receiver(self.connection, self.owner, self.approval)
             .await?;
-        self.transport.send(msg).await.map_err(io::Error::other)
+        self.transport.send(msg).await
     }
 
-    async fn receive(&mut self) -> io::Result<Message> {
-        self.transport.receive().await.map_err(io::Error::other)
+    async fn receive(&mut self) -> io::Result<Vec<u8>> {
+        self.transport.receive().await
     }
 }
 

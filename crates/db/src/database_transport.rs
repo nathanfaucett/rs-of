@@ -2,14 +2,7 @@ use std::io::{self, ErrorKind};
 
 use iroh::endpoint::{RecvStream, SendStream};
 
-/// Transport for raw framed bytes (used for handshake protocols).
-/// This is a local trait to avoid depending on ofdb-sql's deprecated SyncTransport.
-pub trait SyncTransport {
-    type Error: core::fmt::Display + core::fmt::Debug + Send + Sync + 'static;
-    async fn send(&mut self, frame: Vec<u8>) -> Result<(), Self::Error>;
-    async fn receive(&mut self) -> Result<Vec<u8>, Self::Error>;
-    async fn close(&mut self) -> Result<(), Self::Error>;
-}
+pub use ofdb_sql::history::SyncTransport;
 
 const MAX_FRAME_BYTES: usize = 1024 * 1024;
 
@@ -22,10 +15,6 @@ pub struct DatabaseTransport {
 impl DatabaseTransport {
     pub fn new(send: SendStream, recv: RecvStream) -> Self {
         Self { send, recv }
-    }
-
-    pub fn into_streams(self) -> (SendStream, RecvStream) {
-        (self.send, self.recv)
     }
 }
 
@@ -65,10 +54,5 @@ impl SyncTransport for DatabaseTransport {
             .await
             .map_err(io::Error::other)?;
         self.send.write_all(&frame).await.map_err(io::Error::other)
-    }
-
-    async fn close(&mut self) -> io::Result<()> {
-        self.send.finish().map_err(io::Error::other)?;
-        Ok(())
     }
 }

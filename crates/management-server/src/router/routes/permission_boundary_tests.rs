@@ -5,7 +5,10 @@ use axum::{
     extract::{Path, Query, State},
 };
 use device_service::HostedControlPlane;
-use of_model::idp::replica::up_policy as up;
+use management_service::ManagementService;
+use management_service::replica::DbPermissionRepo;
+use management_service::replica::DbRoleRepo;
+use of_model::idp::replica::up;
 use of_model::idp::{
     contract::{
         ErrorCode, INSTALLATION_POLICY_ID, IdentityAction, IdentityResource,
@@ -13,9 +16,6 @@ use of_model::idp::{
     },
     model::Id,
 };
-use management_service::ManagementService;
-use management_service::replica::DbPermissionRepo;
-use management_service::replica::DbRoleRepo;
 
 use crate::router::{
     RouterState,

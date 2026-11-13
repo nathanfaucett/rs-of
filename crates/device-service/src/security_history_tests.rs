@@ -9,7 +9,6 @@ use std::{
 };
 
 use db::{Database, DatabaseTransport, Row, Value};
-use of_model::idp::{contract::IdentityAction, model::Id};
 use idp_service::oauth2::NodeSignerBinding;
 use iroh::{
     Endpoint,
@@ -21,8 +20,8 @@ use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
 use management_service::ManagementService;
 use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
-use ofdb_sql::{SyncRole, SessionConfig};
-use ofdb_sync::{SyncTransport, SynchronizeError as SyncError};
+use of_model::idp::{contract::IdentityAction, model::Id};
+use ofdb_sql::history::{SessionConfig, SyncMessage, SyncRole, SyncTransport};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -194,12 +193,11 @@ impl Pair {
                 Database::open(root.join("baseline-idp.redb")).expect("open public baseline"),
             );
             if let Some(default) = default {
-                let migration =
-                    include_str!("../../of-model/identity_migrations/0001_init.up.sql")
-                        .replace(
-                            "public_jwk TEXT\n",
-                            &format!("public_jwk TEXT DEFAULT '{default}'\n"),
-                        );
+                let migration = include_str!("../../of-model/identity_migrations/0001_init.up.sql")
+                    .replace(
+                        "public_jwk TEXT\n",
+                        &format!("public_jwk TEXT DEFAULT '{default}'\n"),
+                    );
                 sql(&idp, &migration).await;
             }
             of_model::idp::replica::up(&idp)
@@ -356,11 +354,14 @@ impl Pair {
                             SecurityHistory::Devices => &management,
                         };
                         database
-                            .synchronize_tables_checked(
+                            .exchange_history(
                                 &mut transport,
                                 &SessionConfig::default(),
                                 SyncRole::Responder,
+                                std::env::temp_dir(),
                                 &history.tables(),
+                                |_, _, _| Ok(()),
+                                |_| Ok(()),
                                 || async { Ok(()) },
                             )
                             .await
@@ -515,14 +516,24 @@ async fn sync_fixture_context(a: &Database, b: &Database, context: SecurityConte
     };
     let config = SessionConfig::default();
     let (a, b) = tokio::join!(
-        a.synchronize_tables_checked(&mut left, &config, SyncRole::Initiator, &tables, || async {
-            Ok(())
-        }),
-        b.synchronize_tables_checked(
+        a.exchange_history(
+            &mut left,
+            &config,
+            SyncRole::Initiator,
+            std::env::temp_dir(),
+            &tables,
+            |_, _, _| Ok(()),
+            |_| Ok(()),
+            || async { Ok(()) }
+        ),
+        b.exchange_history(
             &mut right,
             &config,
             SyncRole::Responder,
+            std::env::temp_dir(),
             &tables,
+            |_, _, _| Ok(()),
+            |_| Ok(()),
             || async { Ok(()) }
         )
     );
@@ -533,7 +544,7 @@ async fn sync_fixture_context(a: &Database, b: &Database, context: SecurityConte
 async fn unvalidated_initiate(
     pair: &Pair,
     connection: &Connection,
-) -> io::Result<ofdb_sql::SyncResult> {
+) -> io::Result<ofdb_sql::history::SyncResult> {
     unvalidated_initiate_context(pair, connection, SecurityContext::Idp).await
 }
 
@@ -541,7 +552,7 @@ async fn unvalidated_initiate_context(
     pair: &Pair,
     connection: &Connection,
     context: SecurityContext,
-) -> io::Result<ofdb_sql::SyncResult> {
+) -> io::Result<ofdb_sql::history::SyncResult> {
     let (mut send, recv) = connection.open_bi().await.map_err(io::Error::other)?;
     send.write_all(&[3]).await.map_err(io::Error::other)?;
     let mut inner = DatabaseTransport::new(send, recv);
@@ -558,18 +569,21 @@ async fn unvalidated_initiate_context(
         received: pair.received.clone(),
         recovery: pair.recovery.clone(),
     };
-    let mut total = ofdb_sql::SyncResult::default();
+    let mut total = ofdb_sql::history::SyncResult::default();
     for history in context.histories() {
         let database = match history {
             SecurityHistory::Idp | SecurityHistory::IdentityPolicy => &pair.idp_a,
             SecurityHistory::Devices => &pair.management_a,
         };
         let result = database
-            .synchronize_tables_checked(
+            .exchange_history(
                 &mut transport,
                 &SessionConfig::default(),
                 SyncRole::Initiator,
+                std::env::temp_dir(),
                 &history.tables(),
+                |_, _, _| Ok(()),
+                |_| Ok(()),
                 || async { Ok(()) },
             )
             .await
@@ -862,4 +876,48 @@ async fn marker3_valid_public_key_and_hash_histories_remain_syncable() {
         assert_eq!(sql(&pair.idp_b, "SELECT token_hash FROM oauth2_refresh_tokens").await[0].rows, before);
         pair.close().await;
     }).await.expect("bounded valid history/hash exchange");
+}
+
+#[tokio::test]
+async fn marker3_rejects_overwritten_mfa_secrets_before_disclosing_history() {
+    for column in ["mfa_totp_secret", "mfa_webauthn_credentials"] {
+        let mut pair = Pair::new().await;
+        let rows = sql(&pair.idp_a, "SELECT id FROM users").await;
+        let Value::Uuid(user) = rows[0].rows[0].values[0] else {
+            panic!("fixture has a User identity");
+        };
+        sql(&pair.idp_a, &format!("UPDATE users SET {column} = 'private-mfa-history' WHERE id = CAST('{user}' AS UUID); UPDATE users SET {column} = NULL WHERE id = CAST('{user}' AS UUID)")).await;
+        let before = pair
+            .idp_b
+            .history_manifest()
+            .await
+            .expect("recipient history");
+        pair.serve(false);
+        let connection = pair.connect().await;
+        pair.protocol_a
+            .synchronize(&connection, SecurityContext::Idp)
+            .await
+            .expect_err("overwritten MFA secrets cannot leave the owner");
+        assert_eq!(
+            pair.idp_b
+                .history_manifest()
+                .await
+                .expect("unchanged recipient"),
+            before
+        );
+        assert!(
+            pair.received
+                .lock()
+                .expect("recorded frames")
+                .iter()
+                .all(|frame| {
+                    !matches!(
+                        postcard::from_bytes::<SyncMessage>(frame),
+                        Ok(SyncMessage::State(_) | SyncMessage::Changes(_))
+                    )
+                }),
+            "source must reject private history before sending any payload"
+        );
+        pair.close().await;
+    }
 }

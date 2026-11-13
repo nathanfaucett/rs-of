@@ -5152,6 +5152,7 @@ dependencies = [
  "ofdb-sql-engine-automerge",
  "ofdb-sql-engine-indexeddb",
  "ofdb-sql-engine-redb",
+ "ofdb-sql-history",
  "ofdb-sql-macros",
  "ofdb-sql-query",
  "ofdb-sql-schema",
@@ -5237,6 +5238,22 @@ dependencies = [
  "ofdb-sql-engine",
  "ofdb-value",
  "redb",
+ "uuid",
+]
+
+[[package]]
+name = "ofdb-sql-history"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "ofdb-platform",
+ "ofdb-sql-engine",
+ "ofdb-value",
+ "postcard",
+ "serde",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.20",
  "uuid",
 ]
 
@@ -6876,6 +6893,7 @@ dependencies = [
  "axum",
  "log",
  "of-model",
+ "serde_json",
  "setup",
  "tokio",
  "tokio-util",

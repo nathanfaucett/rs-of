@@ -399,6 +399,8 @@ mod tests {
     #[test]
     fn candidate_validation_rejects_unreviewed_tables_in_every_history() {
         let view = SyncCandidateView {
+            direction: ofdb_sql::history::SyncValidationDirection::Incoming,
+            candidates: Vec::new(),
             tables: vec![CandidateTable {
                 name: "local_device_enrollments".into(),
                 columns: Vec::new(),

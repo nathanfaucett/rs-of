@@ -20,3 +20,6 @@ pub use setup::{
     read_private, require_absent, require_private, routes, serve_setup, setup_admission_middleware,
     setup_files, setup_origin, setup_origin_guard, setup_router, sync_ancestry, uninstall_local_ca,
 };
+
+#[cfg(all(unix, feature = "test-support"))]
+pub mod setup_https_fixture;

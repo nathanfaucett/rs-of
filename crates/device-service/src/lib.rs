@@ -44,9 +44,10 @@ pub use pairing_acceptance::{
 #[cfg(all(feature = "replica", unix))]
 pub mod independent_join;
 #[cfg(all(feature = "replica", unix))]
-// pub mod join_history; // TODO: update to new sync API
+pub mod join_history;
 #[cfg(feature = "replica")]
 pub mod security_candidates;
+#[cfg(feature = "replica")]
 mod sync_validation_direction;
 
 #[cfg(feature = "replica")]
