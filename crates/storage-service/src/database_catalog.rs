@@ -6,6 +6,9 @@ use std::{
     sync::Mutex,
 };
 
+#[path = "sql_catalog.rs"]
+mod sql_catalog;
+
 use of_model::storage::{ResourceCatalog, ResourceIdentity, ResourceKind, StorageNamespace};
 use serde::{Deserialize, Serialize};
 
@@ -26,6 +29,7 @@ struct Catalog {
 
 pub struct DatabaseCatalog {
     root: PathBuf,
+    client: Option<ofdb_sql::Client>,
     lock: Mutex<()>,
 }
 
@@ -34,8 +38,44 @@ impl DatabaseCatalog {
         fs::create_dir_all(&root)?;
         Ok(Self {
             root,
+            client: None,
             lock: Mutex::new(()),
         })
+    }
+
+    /// Uses the migrated shared Storage tables instead of namespace catalog files.
+    pub fn with_client(root: PathBuf, client: ofdb_sql::Client) -> io::Result<Self> {
+        let mut catalog = Self::new(root)?;
+        catalog.client = Some(client);
+        Ok(catalog)
+    }
+
+    fn with_catalog<R: Send>(
+        &self,
+        scope: &impl StorageNamespace,
+        write: bool,
+        edit: impl FnOnce(&mut Catalog) -> io::Result<R> + Send,
+    ) -> io::Result<R> {
+        let path = catalog_path(&self.root, scope)?;
+        let _guard = self
+            .lock
+            .lock()
+            .map_err(|_| io::Error::other("database catalog lock poisoned"))?;
+        if let Some(client) = &self.client {
+            return sql_catalog::edit(
+                client.clone(),
+                scope.user_sub().to_owned(),
+                scope.application_id(),
+                write,
+                edit,
+            );
+        }
+        let mut catalog = read_catalog(&path)?;
+        let result = edit(&mut catalog)?;
+        if write {
+            write_catalog(&path, &catalog)?;
+        }
+        Ok(result)
     }
 
     pub(crate) fn owner_resources(
@@ -50,6 +90,9 @@ impl DatabaseCatalog {
             .lock
             .lock()
             .map_err(|_| io::Error::other("database catalog lock poisoned"))?;
+        if let Some(client) = &self.client {
+            return sql_catalog::owner_resources(client.clone(), owner.to_owned());
+        }
         let applications = match fs::read_dir(self.root.join("databases").join(owner)) {
             Ok(entries) => entries,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -82,26 +125,21 @@ impl DatabaseCatalog {
         scope: &S,
         name: Option<String>,
     ) -> io::Result<DatabaseResource> {
-        let _guard = self
-            .lock
-            .lock()
-            .map_err(|_| io::Error::other("database catalog lock poisoned"))?;
-        let path = catalog_path(&self.root, scope)?;
-        let mut catalog = read_catalog(&path)?;
-        let resource = DatabaseResource {
-            id: DatabaseId::now_v7(),
-            name,
-        };
-        catalog.records.insert(
-            resource.id,
-            CatalogRecord {
-                resource: resource.clone(),
-                deleted: false,
-                initializing: false,
-            },
-        );
-        write_catalog(&path, &catalog)?;
-        Ok(resource)
+        self.with_catalog(scope, true, |catalog| {
+            let resource = DatabaseResource {
+                id: DatabaseId::now_v7(),
+                name,
+            };
+            catalog.records.insert(
+                resource.id,
+                CatalogRecord {
+                    resource: resource.clone(),
+                    deleted: false,
+                    initializing: false,
+                },
+            );
+            Ok(resource)
+        })
     }
 
     pub(crate) fn reserve<S: StorageNamespace>(
@@ -123,32 +161,27 @@ impl DatabaseCatalog {
             key,
         ])?;
         let id = DatabaseId::new_v5(&DatabaseId::NAMESPACE_URL, &identity);
-        let _guard = self
-            .lock
-            .lock()
-            .map_err(|_| io::Error::other("catalog lock poisoned"))?;
-        let path = catalog_path(&self.root, scope)?;
-        let mut catalog = read_catalog(&path)?;
-        if let Some(record) = catalog.records.get(&id) {
-            if record.deleted {
-                return Err(io::Error::new(
-                    io::ErrorKind::AlreadyExists,
-                    "database deleted",
-                ));
+        self.with_catalog(scope, true, |catalog| {
+            if let Some(record) = catalog.records.get(&id) {
+                if record.deleted {
+                    return Err(io::Error::new(
+                        io::ErrorKind::AlreadyExists,
+                        "database deleted",
+                    ));
+                }
+                return Ok((record.resource.clone(), record.initializing));
             }
-            return Ok((record.resource.clone(), record.initializing));
-        }
-        let resource = DatabaseResource { id, name };
-        catalog.records.insert(
-            id,
-            CatalogRecord {
-                resource: resource.clone(),
-                deleted: false,
-                initializing: true,
-            },
-        );
-        write_catalog(&path, &catalog)?;
-        Ok((resource, true))
+            let resource = DatabaseResource { id, name };
+            catalog.records.insert(
+                id,
+                CatalogRecord {
+                    resource: resource.clone(),
+                    deleted: false,
+                    initializing: true,
+                },
+            );
+            Ok((resource, true))
+        })
     }
 
     pub(crate) fn finish_creation<S: StorageNamespace>(
@@ -156,33 +189,27 @@ impl DatabaseCatalog {
         scope: &S,
         id: DatabaseId,
     ) -> io::Result<()> {
-        let _guard = self
-            .lock
-            .lock()
-            .map_err(|_| io::Error::other("catalog lock poisoned"))?;
-        let path = catalog_path(&self.root, scope)?;
-        let mut catalog = read_catalog(&path)?;
-        let record = catalog
-            .records
-            .get_mut(&id)
-            .filter(|r| !r.deleted)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "database not found"))?;
-        record.initializing = false;
-        write_catalog(&path, &catalog)
+        self.with_catalog(scope, true, |catalog| {
+            let record = catalog
+                .records
+                .get_mut(&id)
+                .filter(|r| !r.deleted)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "database not found"))?;
+            record.initializing = false;
+            Ok(())
+        })
     }
 
     pub fn list<S: StorageNamespace>(&self, scope: &S) -> io::Result<Vec<DatabaseResource>> {
-        let _guard = self
-            .lock
-            .lock()
-            .map_err(|_| io::Error::other("database catalog lock poisoned"))?;
-        let catalog = read_catalog(&catalog_path(&self.root, scope)?)?;
-        Ok(catalog
-            .records
-            .into_values()
-            .filter(|record| !record.deleted && !record.initializing)
-            .map(|record| record.resource)
-            .collect())
+        self.with_catalog(scope, false, |catalog| {
+            Ok(catalog
+                .records
+                .values()
+                .cloned()
+                .filter(|record| !record.deleted && !record.initializing)
+                .map(|record| record.resource)
+                .collect())
+        })
     }
 
     pub fn register_selected<S: StorageNamespace>(
@@ -190,26 +217,21 @@ impl DatabaseCatalog {
         scope: &S,
         id: DatabaseId,
     ) -> io::Result<bool> {
-        let _guard = self
-            .lock
-            .lock()
-            .map_err(|_| io::Error::other("database catalog lock poisoned"))?;
-        let path = catalog_path(&self.root, scope)?;
-        let mut catalog = read_catalog(&path)?;
-        if let Some(record) = catalog.records.get(&id) {
-            return Ok(!record.deleted && !record.initializing);
-        }
-        let resource = DatabaseResource { id, name: None };
-        catalog.records.insert(
-            id,
-            CatalogRecord {
-                resource,
-                deleted: false,
-                initializing: false,
-            },
-        );
-        write_catalog(&path, &catalog)?;
-        Ok(true)
+        self.with_catalog(scope, true, |catalog| {
+            if let Some(record) = catalog.records.get(&id) {
+                return Ok(!record.deleted && !record.initializing);
+            }
+            let resource = DatabaseResource { id, name: None };
+            catalog.records.insert(
+                id,
+                CatalogRecord {
+                    resource,
+                    deleted: false,
+                    initializing: false,
+                },
+            );
+            Ok(true)
+        })
     }
 
     pub(crate) fn lifecycle<S: StorageNamespace>(
@@ -217,12 +239,9 @@ impl DatabaseCatalog {
         scope: &S,
         id: DatabaseId,
     ) -> io::Result<Option<bool>> {
-        let _guard = self
-            .lock
-            .lock()
-            .map_err(|_| io::Error::other("database catalog lock poisoned"))?;
-        let catalog = read_catalog(&catalog_path(&self.root, scope)?)?;
-        Ok(catalog.records.get(&id).map(|record| record.initializing))
+        self.with_catalog(scope, false, |catalog| {
+            Ok(catalog.records.get(&id).map(|record| record.initializing))
+        })
     }
 
     pub fn get<S: StorageNamespace>(
@@ -230,35 +249,27 @@ impl DatabaseCatalog {
         scope: &S,
         id: DatabaseId,
     ) -> io::Result<Option<DatabaseResource>> {
-        let _guard = self
-            .lock
-            .lock()
-            .map_err(|_| io::Error::other("database catalog lock poisoned"))?;
-        let catalog = read_catalog(&catalog_path(&self.root, scope)?)?;
-        Ok(catalog
-            .records
-            .get(&id)
-            .filter(|record| !record.deleted && !record.initializing)
-            .map(|record| record.resource.clone()))
+        self.with_catalog(scope, false, |catalog| {
+            Ok(catalog
+                .records
+                .get(&id)
+                .filter(|record| !record.deleted && !record.initializing)
+                .map(|record| record.resource.clone()))
+        })
     }
 
     pub fn delete<S: StorageNamespace>(&self, scope: &S, id: DatabaseId) -> io::Result<bool> {
-        let _guard = self
-            .lock
-            .lock()
-            .map_err(|_| io::Error::other("database catalog lock poisoned"))?;
-        let path = catalog_path(&self.root, scope)?;
-        let mut catalog = read_catalog(&path)?;
-        let Some(record) = catalog
-            .records
-            .get_mut(&id)
-            .filter(|record| !record.deleted && !record.initializing)
-        else {
-            return Ok(false);
-        };
-        record.deleted = true;
-        write_catalog(&path, &catalog)?;
-        Ok(true)
+        self.with_catalog(scope, true, |catalog| {
+            let Some(record) = catalog
+                .records
+                .get_mut(&id)
+                .filter(|record| !record.deleted && !record.initializing)
+            else {
+                return Ok(false);
+            };
+            record.deleted = true;
+            Ok(true)
+        })
     }
 
     pub fn apply_tombstone<S: StorageNamespace>(
@@ -266,27 +277,22 @@ impl DatabaseCatalog {
         scope: &S,
         id: DatabaseId,
     ) -> io::Result<()> {
-        let _guard = self
-            .lock
-            .lock()
-            .map_err(|_| io::Error::other("database catalog lock poisoned"))?;
-        let path = catalog_path(&self.root, scope)?;
-        let mut catalog = read_catalog(&path)?;
-        if catalog
-            .records
-            .get(&id)
-            .is_some_and(|record| record.deleted)
-        {
-            return Ok(());
-        }
-        let record = catalog.records.entry(id).or_insert_with(|| CatalogRecord {
-            resource: DatabaseResource { id, name: None },
-            deleted: true,
-            initializing: false,
-        });
-        record.deleted = true;
-        write_catalog(&path, &catalog)?;
-        Ok(())
+        self.with_catalog(scope, true, |catalog| {
+            if catalog
+                .records
+                .get(&id)
+                .is_some_and(|record| record.deleted)
+            {
+                return Ok(());
+            }
+            let record = catalog.records.entry(id).or_insert_with(|| CatalogRecord {
+                resource: DatabaseResource { id, name: None },
+                deleted: true,
+                initializing: false,
+            });
+            record.deleted = true;
+            Ok(())
+        })
     }
 
     pub fn is_tombstoned<S: StorageNamespace>(
@@ -294,15 +300,12 @@ impl DatabaseCatalog {
         scope: &S,
         id: DatabaseId,
     ) -> io::Result<bool> {
-        let _guard = self
-            .lock
-            .lock()
-            .map_err(|_| io::Error::other("database catalog lock poisoned"))?;
-        let catalog = read_catalog(&catalog_path(&self.root, scope)?)?;
-        Ok(catalog
-            .records
-            .get(&id)
-            .is_some_and(|record| record.deleted))
+        self.with_catalog(scope, false, |catalog| {
+            Ok(catalog
+                .records
+                .get(&id)
+                .is_some_and(|record| record.deleted))
+        })
     }
 }
 

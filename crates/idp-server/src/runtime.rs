@@ -7,7 +7,6 @@ use device_service::HostedControlPlane;
 use device_service::PairingAcceptanceController;
 use device_service::TimedPairingAcceptanceController;
 use device_service::replica::DbDeviceRepo;
-use of_model::idp::model::Id;
 use idp_service::{
     oauth2::OAuth2Service,
     replica::{
@@ -19,6 +18,7 @@ use idp_service::{
 use iroh::protocol::{ProtocolHandler, Router as IrohRouter};
 use iroh_chain::Server;
 use management_service::LocalPermissions;
+use of_model::idp::model::Id;
 
 use crate::{
     AppConfig, BootstrapProtocolHandler, ManagementPermissionClient, RouterState,
@@ -50,8 +50,10 @@ impl IdpRuntime {
     pub async fn authorize_storage_bearer(
         &self,
         bearer: &str,
-    ) -> Result<of_model::idp::contract::IntrospectionResponse, of_model::idp::contract::ErrorResponse>
-    {
+    ) -> Result<
+        of_model::idp::contract::IntrospectionResponse,
+        of_model::idp::contract::ErrorResponse,
+    > {
         crate::storage_owner::authorize_storage_bearer(&self.join_state, bearer).await
     }
 
@@ -128,6 +130,43 @@ impl IdpRuntime {
     {
         server.router_with_protocol(data_protocol, BOOTSTRAP_ALPN, self.bootstrap_protocol())
     }
+}
+
+/// Builds the local IdP without setup, admission, or a transport endpoint.
+pub async fn build_local_router(
+    data_dir: &std::path::Path,
+    port: u16,
+    origin: &str,
+    db: Option<Arc<dyn of_model::db::Database>>,
+) -> io::Result<Router> {
+    std::fs::create_dir_all(data_dir)?;
+    let directory = std::fs::canonicalize(data_dir)?;
+    let data_dir = directory.as_path();
+    let engine = embedded_db::local_client(data_dir, "idp", db)?;
+    let base = format!("http://127.0.0.1:{port}/idp");
+    let mut config = AppConfig {
+        data_dir: data_dir.to_string_lossy().into_owned(),
+        ui_public_uri: origin.trim_end_matches('/').into(),
+        api_public_uri: base.clone(),
+        key_namespace: format!("local:{}", data_dir.display()),
+        ..AppConfig::default()
+    };
+    config.oauth2.issuer = base;
+    config.oauth2.local_signer = Some(
+        crate::local_seed::signer(
+            engine.clone(),
+            &data_dir.join("idp-keys"),
+            &config.key_namespace,
+            &config.oauth2.issuer,
+        )
+        .await?,
+    );
+    let permissions = LocalPermissions::new(engine.clone());
+    let keys =
+        PrivateKeyKeyringRepo::new_local(&data_dir.join("idp-keys")).map_err(io::Error::other)?;
+    let state = build_state_with_keys(&config, engine, None, None, Some(permissions), keys).await?;
+    crate::local_seed::seed(&state, origin, port).await?;
+    Ok(openapi_router(state, "/idp").into())
 }
 
 /// Composes serving from an already initialized IdP database and optional host-owned Management capability.
@@ -218,6 +257,26 @@ pub(crate) async fn build_state(
     device_identity: Option<Arc<DeviceIdentity>>,
     local_permissions: Option<LocalPermissions>,
 ) -> io::Result<RouterState> {
+    let keys = PrivateKeyKeyringRepo::new(&config.oauth2.issuer).map_err(io::Error::other)?;
+    build_state_with_keys(
+        config,
+        engine,
+        devices,
+        device_identity,
+        local_permissions,
+        keys,
+    )
+    .await
+}
+
+async fn build_state_with_keys(
+    config: &AppConfig,
+    engine: db::Client,
+    devices: Option<Arc<DbDeviceRepo>>,
+    device_identity: Option<Arc<DeviceIdentity>>,
+    local_permissions: Option<LocalPermissions>,
+    keys: PrivateKeyKeyringRepo,
+) -> io::Result<RouterState> {
     let remote_permissions = if local_permissions.is_some() {
         None
     } else if let Some(remote) = config.management_permissions.as_ref() {
@@ -233,7 +292,7 @@ pub(crate) async fn build_state(
     };
     let key_service = Arc::new(KeyService::new(
         DbKeyRepo::new(engine.clone()),
-        PrivateKeyKeyringRepo::new(&config.oauth2.issuer).map_err(io::Error::other)?,
+        keys,
         config.key_namespace.clone(),
     ));
     if let Some(binding) = config.oauth2.local_signer.as_ref() {
@@ -471,13 +530,11 @@ mod tests {
             "{}:node:{}:{}",
             config.key_namespace, binding.member_id, binding.key_id
         );
-        let private = PrivateKeyKeyringRepo::new_with_store(
-            &config.oauth2.issuer,
-            fixture.store.clone(),
-        )
-        .load(&namespace, &key::DerivationPath::default())
-        .expect("load fixture signer")
-        .expect("fixture signer private material");
+        let private =
+            PrivateKeyKeyringRepo::new_with_store(&config.oauth2.issuer, fixture.store.clone())
+                .load(&namespace, &key::DerivationPath::default())
+                .expect("load fixture signer")
+                .expect("fixture signer private material");
         PrivateKeyKeyringRepo::new_with_store(&config.oauth2.issuer, store)
             .store(&namespace, &private)
             .expect("install fixture signer in the default store");

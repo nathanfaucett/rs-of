@@ -8,9 +8,19 @@ use key::{DerivationPath, DerivedKey, create_secret_entry, init_credential_store
 
 use crate::repo::{PrivateKeyRepo, RepoError, RepoResult};
 
+#[cfg(feature = "std")]
+#[path = "local_private_keys.rs"]
+mod local_private_keys;
+
+enum PrivateKeyStorage {
+    Keyring(Arc<keyring_core::CredentialStore>),
+    #[cfg(feature = "std")]
+    Local(local_private_keys::LocalPrivateKeys),
+}
+
 pub struct PrivateKeyKeyringRepo {
     service_name: String,
-    store: Arc<keyring_core::CredentialStore>,
+    storage: PrivateKeyStorage,
 }
 
 impl PrivateKeyKeyringRepo {
@@ -18,7 +28,9 @@ impl PrivateKeyKeyringRepo {
         init_credential_store()?;
         Ok(Self {
             service_name: service_name.into(),
-            store: keyring_core::get_default_store().expect("initialized credential store"),
+            storage: PrivateKeyStorage::Keyring(
+                keyring_core::get_default_store().expect("initialized credential store"),
+            ),
         })
     }
 
@@ -29,8 +41,19 @@ impl PrivateKeyKeyringRepo {
     ) -> Self {
         Self {
             service_name: service_name.into(),
-            store,
+            storage: PrivateKeyStorage::Keyring(store),
         }
+    }
+
+    /// Uses owner-private files for local development, without an OS keyring.
+    #[cfg(feature = "std")]
+    pub fn new_local(directory: &std::path::Path) -> RepoResult<Self> {
+        Ok(Self {
+            service_name: String::new(),
+            storage: PrivateKeyStorage::Local(local_private_keys::LocalPrivateKeys::new(
+                directory,
+            )?),
+        })
     }
 }
 
@@ -40,8 +63,13 @@ impl PrivateKeyRepo for PrivateKeyKeyringRepo {
         namespace: &str,
         derivation_path: &DerivationPath,
     ) -> RepoResult<Option<DerivedKey>> {
+        let store = match &self.storage {
+            PrivateKeyStorage::Keyring(store) => store,
+            #[cfg(feature = "std")]
+            PrivateKeyStorage::Local(files) => return files.load(namespace, derivation_path),
+        };
         let entry_name = derived_key_entry_name(namespace, &derivation_path.to_string());
-        let entry = create_secret_entry(&*self.store, &self.service_name, &entry_name, "IdP")?;
+        let entry = create_secret_entry(&**store, &self.service_name, &entry_name, "IdP")?;
 
         match entry.get_secret() {
             Ok(secret_bytes) => {
@@ -55,16 +83,26 @@ impl PrivateKeyRepo for PrivateKeyKeyringRepo {
     }
 
     fn store(&self, namespace: &str, derived_key: &DerivedKey) -> RepoResult<()> {
+        let store = match &self.storage {
+            PrivateKeyStorage::Keyring(store) => store,
+            #[cfg(feature = "std")]
+            PrivateKeyStorage::Local(files) => return files.store(namespace, derived_key),
+        };
         let entry_name =
             derived_key_entry_name(namespace, &derived_key.derivation_path().to_string());
-        let entry = create_secret_entry(&*self.store, &self.service_name, &entry_name, "IdP")?;
+        let entry = create_secret_entry(&**store, &self.service_name, &entry_name, "IdP")?;
         entry.set_secret(derived_key.to_xprv_string().as_bytes())?;
         Ok(())
     }
 
     fn delete(&self, namespace: &str, derivation_path: &DerivationPath) -> RepoResult<()> {
+        let store = match &self.storage {
+            PrivateKeyStorage::Keyring(store) => store,
+            #[cfg(feature = "std")]
+            PrivateKeyStorage::Local(files) => return files.delete(namespace, derivation_path),
+        };
         let entry_name = derived_key_entry_name(namespace, &derivation_path.to_string());
-        let entry = create_secret_entry(&*self.store, &self.service_name, &entry_name, "IdP")?;
+        let entry = create_secret_entry(&**store, &self.service_name, &entry_name, "IdP")?;
         entry.delete_credential()?;
         Ok(())
     }

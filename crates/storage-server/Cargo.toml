@@ -45,6 +45,7 @@ cli = { path = "../cli", default-features = false, features = [
 ], optional = true }
 
 # Internal
+embedded-db = { path = "../embedded-db", default-features = false }
 of-device-client = { path = "../device-client", default-features = false }
 of-idp-client = { path = "../idp-client", default-features = false }
 server-common = { path = "../server-common", default-features = false, features = [] }

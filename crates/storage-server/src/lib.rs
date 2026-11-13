@@ -26,9 +26,9 @@ mod execution_test_support;
 #[cfg(feature = "network")]
 mod filesystem_transport;
 mod idp_client;
-mod management_client;
 #[cfg(feature = "network")]
 mod local_replication_authorizer;
+mod management_client;
 #[cfg(feature = "network")]
 mod provisioning;
 #[cfg(feature = "network")]
@@ -54,9 +54,9 @@ pub use data_protocol::DataProtocolHandler;
 pub use db::DatabaseTransport;
 pub use device_client::DeviceClient;
 pub use idp_client::{IdpClient, IdpIntrospectionError};
-pub use management_client::ManagementClient;
 #[cfg(feature = "network")]
 pub use local_replication_authorizer::{DeviceReplicationPolicy, LocalReplicationAuthorizer};
+pub use management_client::ManagementClient;
 #[cfg(feature = "network")]
 pub use replication_runtime::StorageReplicationRuntime;
 pub use router::{
@@ -68,7 +68,7 @@ pub use router::{
     scoped_file_system_socket_authorizer, scoped_file_system_socket_router,
 };
 #[cfg(feature = "network")]
-pub use runtime::{StorageRuntime, build_http_runtime, build_runtime};
+pub use runtime::{StorageRuntime, build_http_runtime, build_local_runtime, build_runtime};
 #[cfg(feature = "sync")]
 pub use sync::{SyncState, sync_router};
 

@@ -29,7 +29,7 @@ macro_rules! decode {
     };
 }
 
-const USER_COLUMNS: [&str; 16] = [
+const USER_COLUMNS: [&str; 21] = [
     "id",
     "name",
     "given_name",
@@ -46,6 +46,11 @@ const USER_COLUMNS: [&str; 16] = [
     "created_at",
     "updated_at",
     "handle",
+    "mfa_totp_secret",
+    "mfa_webauthn_credentials",
+    "blocked",
+    "blocked_at",
+    "blocked_by",
 ];
 const EMAIL_COLUMNS: [&str; 7] = [
     "id",
@@ -574,14 +579,21 @@ impl UserRepo for DbUserRepo {
         Ok(())
     }
 
-
-    async fn set_user_mfa_totp_secret(&self, user_id: Id, secret: Option<String>) -> RepoResult<()> {
+    async fn set_user_mfa_totp_secret(
+        &self,
+        user_id: Id,
+        secret: Option<String>,
+    ) -> RepoResult<()> {
         let now = now().timestamp();
         self.engine
             .execute(vec![Statement::Query(Query::Update(QueryUpdate {
                 from: from(USERS),
                 assignments: vec![
-                    assignment(USERS, "mfa_totp_secret", secret.map(Value::Text).unwrap_or(Value::Null)),
+                    assignment(
+                        USERS,
+                        "mfa_totp_secret",
+                        secret.map(Value::Text).unwrap_or(Value::Null),
+                    ),
                     assignment(USERS, "updated_at", Value::Integer(now)),
                 ],
                 predicate: Some(equals(USERS, "id", Value::Uuid(user_id))),
@@ -592,13 +604,21 @@ impl UserRepo for DbUserRepo {
         Ok(())
     }
 
-    async fn set_user_mfa_webauthn_credentials(&self, user_id: Id, credentials: Option<String>) -> RepoResult<()> {
+    async fn set_user_mfa_webauthn_credentials(
+        &self,
+        user_id: Id,
+        credentials: Option<String>,
+    ) -> RepoResult<()> {
         let now = now().timestamp();
         self.engine
             .execute(vec![Statement::Query(Query::Update(QueryUpdate {
                 from: from(USERS),
                 assignments: vec![
-                    assignment(USERS, "mfa_webauthn_credentials", credentials.map(Value::Text).unwrap_or(Value::Null)),
+                    assignment(
+                        USERS,
+                        "mfa_webauthn_credentials",
+                        credentials.map(Value::Text).unwrap_or(Value::Null),
+                    ),
                     assignment(USERS, "updated_at", Value::Integer(now)),
                 ],
                 predicate: Some(equals(USERS, "id", Value::Uuid(user_id))),
@@ -609,7 +629,12 @@ impl UserRepo for DbUserRepo {
         Ok(())
     }
 
-    async fn set_user_blocked(&self, user_id: Id, blocked: bool, blocked_by: Option<Id>) -> RepoResult<()> {
+    async fn set_user_blocked(
+        &self,
+        user_id: Id,
+        blocked: bool,
+        blocked_by: Option<Id>,
+    ) -> RepoResult<()> {
         let now = now().timestamp();
         let blocked_at = if blocked {
             Some(Value::Integer(now))
@@ -693,7 +718,7 @@ impl FromRow for UserRow {
             locale: decode!(row, columns, "locale")?,
             mfa_totp_secret: decode!(row, columns, "mfa_totp_secret")?,
             mfa_webauthn_credentials: decode!(row, columns, "mfa_webauthn_credentials")?,
-            blocked: decode!(row, columns, "blocked")?,
+            blocked: decode!(i64, row, columns, "blocked")? != 0,
             blocked_at: decode!(row, columns, "blocked_at")?,
             blocked_by: decode!(row, columns, "blocked_by")?,
             created_at: decode!(row, columns, "created_at")?,
@@ -773,10 +798,22 @@ impl UserRow {
             assignment(USERS, "zoneinfo", option_text(row.zoneinfo)),
             assignment(USERS, "locale", option_text(row.locale)),
             assignment(USERS, "mfa_totp_secret", option_text(row.mfa_totp_secret)),
-            assignment(USERS, "mfa_webauthn_credentials", option_text(row.mfa_webauthn_credentials)),
+            assignment(
+                USERS,
+                "mfa_webauthn_credentials",
+                option_text(row.mfa_webauthn_credentials),
+            ),
             assignment(USERS, "blocked", bool_value(row.blocked)),
-            assignment(USERS, "blocked_at", row.blocked_at.map_or(Value::Null, Value::Integer)),
-            assignment(USERS, "blocked_by", row.blocked_by.map_or(Value::Null, Value::Uuid)),
+            assignment(
+                USERS,
+                "blocked_at",
+                row.blocked_at.map_or(Value::Null, Value::Integer),
+            ),
+            assignment(
+                USERS,
+                "blocked_by",
+                row.blocked_by.map_or(Value::Null, Value::Uuid),
+            ),
             assignment(USERS, "updated_at", Value::Integer(updated_at.timestamp())),
         ]
     }
@@ -800,6 +837,11 @@ impl From<UserRow> for Row {
             option_text(row.locale),
             Value::Integer(row.created_at),
             Value::Integer(row.updated_at),
+            option_text(row.mfa_totp_secret),
+            option_text(row.mfa_webauthn_credentials),
+            bool_value(row.blocked),
+            row.blocked_at.map_or(Value::Null, Value::Integer),
+            row.blocked_by.map_or(Value::Null, Value::Uuid),
         ])
     }
 }

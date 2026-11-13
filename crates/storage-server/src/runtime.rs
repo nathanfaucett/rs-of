@@ -53,6 +53,68 @@ impl StorageRuntime {
     }
 }
 
+/// Builds local Storage with a shared SQL catalog and file-backed resource contents.
+pub fn build_local_runtime(
+    data_dir: &Path,
+    port: u16,
+    idp_base: &str,
+    device_base: &str,
+    db: Option<Arc<dyn of_model::db::Database>>,
+) -> io::Result<StorageRuntime> {
+    let client = embedded_db::local_client(data_dir, "storage", db)?;
+    std::fs::create_dir_all(data_dir)?;
+    let peer_path = data_dir.join("storage-local.peer");
+    let peer = match std::fs::read_to_string(&peer_path) {
+        Ok(peer) => peer.parse::<EndpointId>().map_err(io::Error::other)?,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            use std::io::Write;
+            let peer = iroh::SecretKey::generate().public();
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            let mut file = options.open(&peer_path)?;
+            file.write_all(peer.to_string().as_bytes())?;
+            file.sync_all()?;
+            peer
+        }
+        Err(error) => return Err(error),
+    };
+    let idp = crate::IdpClient::new(
+        idp_base,
+        "local-storage",
+        "local-password",
+        idp_base,
+        idp_base,
+    )
+    .map_err(io::Error::other)?;
+    let device = crate::DeviceClient::new(
+        device_base,
+        idp_base,
+        "local-storage",
+        "local-password",
+        idp_base,
+        management_service::MANAGEMENT_APPLICATION_URI,
+    )
+    .map_err(io::Error::other)?;
+    let state = RouterState::new(format!("http://127.0.0.1:{port}/storage"), peer.to_string())
+        .with_idp_client(idp)
+        .with_device_client(device);
+    build_runtime_inner(
+        state,
+        data_dir,
+        "/storage",
+        "",
+        None,
+        Some(peer),
+        CancellationToken::new(),
+        Some(client),
+    )
+}
+
 pub fn build_runtime(
     state: RouterState,
     data_dir: &Path,
@@ -70,6 +132,7 @@ pub fn build_runtime(
         server,
         endpoint,
         cancellation_token,
+        None,
     )
 }
 
@@ -89,6 +152,7 @@ pub fn build_http_runtime(
         None,
         Some(management_endpoint),
         cancellation_token,
+        None,
     )
 }
 
@@ -100,8 +164,13 @@ fn build_runtime_inner(
     server: Option<Server>,
     endpoint: Option<EndpointId>,
     cancellation_token: CancellationToken,
+    catalog_client: Option<db::Client>,
 ) -> io::Result<StorageRuntime> {
-    let databases = Arc::new(DatabaseRuntime::new(data_dir.join("databases"))?);
+    let local = catalog_client.is_some();
+    let databases = Arc::new(match catalog_client {
+        Some(client) => DatabaseRuntime::with_client(data_dir.join("databases"), client)?,
+        None => DatabaseRuntime::new(data_dir.join("databases"))?,
+    });
     let file_systems = endpoint
         .map(|endpoint| {
             ScopedFileSystemRuntime::<EndpointId>::new(data_dir.join("filesystems"), endpoint)
@@ -116,7 +185,7 @@ fn build_runtime_inner(
             databases: Arc::clone(&databases),
             file_systems: Arc::clone(file_systems),
         });
-    if state.local_replication_authorizer.is_none() {
+    if !local && state.local_replication_authorizer.is_none() {
         state.local_replication_authorizer =
             state
                 .device_client

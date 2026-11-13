@@ -6,9 +6,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use of_model::storage::StorageNamespace;
 use ofdb_kv::Database as KvDatabase;
 use ofdb_sql::Database;
-use of_model::storage::StorageNamespace;
 
 use crate::{DatabaseCatalog, DatabaseId, DatabaseResource};
 
@@ -38,6 +38,13 @@ impl DatabaseRuntime {
             cleanup: tokio::sync::Mutex::new(()),
             changes: tokio::sync::watch::channel(()).0,
         })
+    }
+
+    /// Uses migrated shared SQL for the catalog; resource contents remain under `root`.
+    pub fn with_client(root: PathBuf, client: ofdb_sql::Client) -> io::Result<Self> {
+        let mut runtime = Self::new(root.clone())?;
+        runtime.catalog = DatabaseCatalog::with_client(root, client)?;
+        Ok(runtime)
     }
 
     pub fn catalog_changes(&self) -> tokio::sync::watch::Receiver<()> {
@@ -506,8 +513,8 @@ fn database_path(
 mod tests {
     use std::fs;
 
-    use ofdb_sql::SqlTranslator;
     use of_model::storage::StorageNamespace;
+    use ofdb_sql::SqlTranslator;
 
     use super::DatabaseRuntime;
 
@@ -806,8 +813,10 @@ mod tests {
 
     #[tokio::test]
     async fn transfer_cleanup_covers_created_copies_but_preserves_other_owner() {
-        let root =
-            std::env::temp_dir().join(format!("owner-cleanup-{}", of_model::idp::model::Id::now_v7()));
+        let root = std::env::temp_dir().join(format!(
+            "owner-cleanup-{}",
+            of_model::idp::model::Id::now_v7()
+        ));
         let scope = Scope {
             subject: "old",
             application: of_model::idp::model::Id::now_v7(),
@@ -858,8 +867,10 @@ mod tests {
 
     #[tokio::test]
     async fn sql_phase_survives_kv_owner_failure_and_restart_retry() {
-        let root =
-            std::env::temp_dir().join(format!("phase-retry-{}", of_model::idp::model::Id::now_v7()));
+        let root = std::env::temp_dir().join(format!(
+            "phase-retry-{}",
+            of_model::idp::model::Id::now_v7()
+        ));
         let scope = Scope {
             subject: "owner",
             application: of_model::idp::model::Id::now_v7(),

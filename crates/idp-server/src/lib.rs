@@ -18,6 +18,7 @@ mod bootstrap;
 mod management_owner;
 mod management_permission_client;
 
+mod local_seed;
 mod node_join;
 #[cfg(test)]
 mod node_join_review_tests;
@@ -47,7 +48,9 @@ pub use router::{
     RouterState, authorize_bearer, openapi_document, openapi_router, public_metadata_router,
 };
 pub(crate) use router::{authorize_bearer_any_principal, authorize_bearer_client};
-pub use runtime::{IdpRuntime, build_oauth_runtime, build_runtime, identity_client};
+pub use runtime::{
+    IdpRuntime, build_local_router, build_oauth_runtime, build_runtime, identity_client,
+};
 
 #[cfg(unix)]
 mod independent_create;
@@ -64,5 +67,5 @@ pub use independent_join::independent_join_openapi;
 
 pub mod issuer_discovery;
 pub mod local_provisioning;
-pub use server_common::LocalTls;
 pub use issuer_discovery::discover_installation_issuer;
+pub use server_common::LocalTls;

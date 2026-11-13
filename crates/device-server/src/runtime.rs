@@ -7,11 +7,11 @@ use device_service::HostedControlPlane;
 use device_service::replica::DbDeviceRepo;
 use device_service::replica::DbSelectionPolicyRepo;
 use device_service::replica::OwnerPolicyObservation;
-use of_model::idp::model::Id;
 use management_service::ManagementService;
 use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
 use of_model::contract::SelectedResource;
+use of_model::idp::model::Id;
 
 use crate::{RouterState, router::openapi_router};
 
@@ -60,6 +60,33 @@ pub(crate) fn replication_policy_from_observation(
     ))
 }
 
+/// Builds the local Device owner without setup or admission.
+pub async fn build_local_router(
+    data_dir: &std::path::Path,
+    port: u16,
+    idp_base: &str,
+    db: Option<Arc<dyn of_model::db::Database>>,
+) -> std::io::Result<Router> {
+    let client = embedded_db::local_client(data_dir, "device", db)?;
+    let storage_base = format!("http://127.0.0.1:{port}/storage");
+    let control = HostedControlPlane::new_with_services(idp_base, &storage_base, idp_base)
+        .and_then(|control| {
+            control.with_idp_service_client("local-device", "local-password", idp_base)
+        })
+        .map_err(std::io::Error::other)?;
+    build_router(
+        client.clone(),
+        client,
+        &format!("http://127.0.0.1:{port}/device"),
+        "/device",
+        &storage_base,
+        Arc::new(control),
+        None,
+    )
+    .await
+    .map_err(std::io::Error::other)
+}
+
 /// Composes serving from an already initialized owner database.
 pub async fn build_router(
     identity: Client,
@@ -102,8 +129,8 @@ mod tests {
     use device_service::replica::DbSelectionPolicyRepo;
     use device_service::replica::SelectionPolicy;
     use device_service::replica::up;
-    use of_model::idp::model::Id;
     use of_model::contract::SelectedResource;
+    use of_model::idp::model::Id;
     use std::{fs, sync::Arc};
 
     async fn replication_policy(

@@ -17,4 +17,4 @@ pub use provisioning::{
     InitialAdministratorGrant, identity_client, provision_initial_administrator,
 };
 pub use router::{RouterState, openapi_document, openapi_router, public_metadata_router};
-pub use runtime::build_router;
+pub use runtime::{build_local_router, build_router};

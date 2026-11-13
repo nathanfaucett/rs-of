@@ -56,6 +56,7 @@ cli = { path = "../cli", default-features = false, features = [
 rust-argon2 = { version = "3.0", default-features = false }
 
 # Internal
+embedded-db = { path = "../embedded-db", default-features = false }
 server-common = { path = "../server-common", default-features = false, features = [] }
 setup = { workspace = true }
 db = { package = "idp-db", path = "../db", default-features = false, features = [

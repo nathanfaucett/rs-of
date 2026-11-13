@@ -23,7 +23,7 @@ pub use provisioning::{
     open_device_database, open_local_device_database, provision_initial_device,
 };
 pub use router::{RouterState, openapi_document, openapi_router, public_metadata_router};
-pub use runtime::build_router;
+pub use runtime::{build_local_router, build_router};
 
 #[cfg(unix)]
 mod independent_create;
