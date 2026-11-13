@@ -14,7 +14,7 @@ test("browser authenticates and reads real User info", async () => {
   const user = await json(
     await fetch(`${backendURL}/idp/userinfo`, {
       headers: { Authorization: `Bearer ${login.access_token}` },
-    })
+    }),
   );
   expect(user.email).toBe("admin@local.test");
 });
@@ -31,12 +31,12 @@ test("browser exchanges its session for Device access", async () => {
         resource: `${backendURL}/device`,
         client_id: "local-login",
       }),
-    })
+    }),
   );
   const devices = await json(
     await fetch(`${backendURL}/device/devices`, {
       headers: { Authorization: `Bearer ${token.access_token}` },
-    })
+    }),
   );
   expect(devices).toEqual(expect.any(Array));
 });
@@ -50,29 +50,41 @@ test("browser persists real Storage writes", async () => {
     bearerToken: () => login.access_token,
     fetch: checkedFetch,
   });
-  const resource = await storage.createDatabase(`browser-${crypto.randomUUID()}`);
+  const resource = await storage.createDatabase(
+    `browser-${crypto.randomUUID()}`,
+  );
   try {
     await storage.executeSql(
       resource.id,
       {
         statements: [
-          { sql: "CREATE TABLE notes (value TEXT NOT NULL)", params: [] },
           {
-            sql: "INSERT INTO notes (value) VALUES (?)",
-            params: [{ type: "text", value: "browser write" }],
+            sql: "CREATE TABLE notes (id TEXT PRIMARY KEY, value TEXT NOT NULL)",
+            params: [],
+          },
+          {
+            sql: "INSERT INTO notes (id, value) VALUES (?, ?)",
+            params: [
+              { type: "text", value: "note" },
+              { type: "text", value: "browser write" },
+            ],
           },
         ],
       },
-      ["write"]
+      ["write"],
     );
     const read = await storage.executeSql(
       resource.id,
       { statements: [{ sql: "SELECT value FROM notes", params: [] }] },
-      ["read"]
+      ["read"],
     );
-    expect(read.results[0].rows).toEqual([[{ type: "text", value: "browser write" }]]);
+    expect(read.results[0].rows).toEqual([
+      [{ type: "text", value: "browser write" }],
+    ]);
   } finally {
     await storage.deleteDatabase(resource.id);
   }
-  expect((await storage.listDatabases()).map((entry) => entry.id)).not.toContain(resource.id);
+  expect(
+    (await storage.listDatabases()).map((entry) => entry.id),
+  ).not.toContain(resource.id);
 });

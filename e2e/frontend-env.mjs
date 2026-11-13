@@ -1,6 +1,7 @@
 import { appURL, backendURL, passwordManagerURL } from "./backend.mjs";
 
 export const frontendEnv = {
+  CHOKIDAR_USEPOLLING: "true",
   PUBLIC_IDP_BASE_URL: `${backendURL}/idp`,
   PUBLIC_DEVICE_BASE_URL: `${backendURL}/device`,
   PUBLIC_STORAGE_BASE_URL: `${backendURL}/storage`,

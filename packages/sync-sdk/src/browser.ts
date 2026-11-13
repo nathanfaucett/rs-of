@@ -7,7 +7,7 @@ import {
   StoreIdentity,
   SyncDirection,
 } from "@ofsdk/storage-sync-client";
-import {
+import initializeSql, {
   SqlDatabase,
   SqlSessionConfig,
   SqlSyncRole,
@@ -272,9 +272,42 @@ class BrowserDatabaseHandle<T = unknown> implements DatabaseHandle<T> {
     const client = this.sqlDatabase.client();
     const result = await client.execute(
       sql,
-      params ? JSON.stringify(params) : undefined,
+      params
+        ? JSON.stringify(
+            params.map((value) => {
+              if (value === null) return { type: "null" };
+              if (typeof value === "string") return { type: "text", value };
+              if (typeof value === "boolean") return { type: "bool", value };
+              if (
+                typeof value === "bigint" ||
+                (typeof value === "number" && Number.isSafeInteger(value))
+              ) {
+                return { type: "integer", value: String(value) };
+              }
+              throw new TypeError(
+                "SQL parameters must be text, booleans, integers or null",
+              );
+            }),
+          )
+        : undefined,
     );
-    return JSON.parse(result);
+    const results = JSON.parse(result);
+    const last = results.at(-1) ?? { columns: [], rows: [] };
+    return {
+      columns: last.columns,
+      rows: last.rows.map((row: { type: string; value?: unknown }[]) =>
+        row.map((value) => {
+          if (value.type === "null") return null;
+          if (value.type === "integer") {
+            const integer = BigInt(value.value as string);
+            return Number.isSafeInteger(Number(integer))
+              ? Number(integer)
+              : integer;
+          }
+          return value.value;
+        }),
+      ),
+    };
   }
 
   get changes$(): Observable<ChangeEvent<T>> {
@@ -478,6 +511,7 @@ class BrowserFilesystemHandle implements FilesystemHandle {
 
 /** Create sync SDK instance for browser */
 export async function createSync(config: SyncConfig): Promise<SyncSDK> {
+  await initializeSql();
   const sdk = new BrowserSyncSDK(config);
   return sdk;
 }
