@@ -87,7 +87,7 @@ async fn smoke(tls: bool) {
     let base = format!("{}://127.0.0.1:{port}", if tls { "https" } else { "http" });
     let mut retained_tls = None;
     let mut startup_times = Vec::new();
-    for _ in 0..2 {
+    for restart in 0..2 {
         let start = Instant::now();
         let mut command = Command::new(env!("CARGO_BIN_EXE_unified-server"));
         command
@@ -202,7 +202,15 @@ async fn smoke(tls: bool) {
                 .expect("CORS preflight");
             assert_eq!(response.headers()["access-control-allow-origin"], origin);
         }
-        authenticate(&client, &base).await;
+        let response = client
+            .get(format!("{base}/idp/.well-known/jwks.json"))
+            .send()
+            .await
+            .expect("local JWKS over HTTP");
+        assert_eq!(response.status(), 200);
+        let jwks: Value = response.json().await.expect("JWKS JSON");
+        assert!(!jwks["keys"].as_array().expect("JWKS keys").is_empty());
+        authenticate(&client, &base, restart == 0).await;
         if !tls {
             let token = client
                 .post(format!("{base}/idp/oauth2/token"))
@@ -217,6 +225,14 @@ async fn smoke(tls: bool) {
                 .await
                 .expect("seed user sign-in");
             assert_eq!(token.status(), 200);
+            let token: Value = token.json().await.expect("seed User token");
+            storage_roundtrip(
+                &client,
+                &base,
+                "local-login",
+                token["access_token"].as_str().expect("seed User bearer"),
+            )
+            .await;
         } else {
             let material = (
                 std::fs::read(root.path().join("tls/cert.pem")).expect("certificate"),
@@ -252,7 +268,7 @@ async fn smoke(tls: bool) {
     }
 }
 
-async fn authenticate(client: &reqwest::Client, base: &str) {
+async fn authenticate(client: &reqwest::Client, base: &str, first_start: bool) {
     let response = client
         .post(format!("{base}/idp/oauth2/token"))
         .form(&[
@@ -269,6 +285,102 @@ async fn authenticate(client: &reqwest::Client, base: &str) {
     let login: Value = response.json().await.expect("token JSON");
     assert_eq!(login["iss"], format!("{base}/idp"));
     let bearer = login["access_token"].as_str().expect("access token");
+    for id in ["local-device", "local-storage", "local-management"] {
+        let response = client
+            .post(format!("{base}/idp/oauth2/token"))
+            .form(&[
+                ("grant_type", "client_credentials"),
+                ("client_id", id),
+                ("client_secret", "local-password"),
+                ("scope", "idp.token.validate idp.user.lookup"),
+                ("audience", &format!("{base}/idp")),
+            ])
+            .send()
+            .await
+            .expect("local owner service token");
+        let status = response.status();
+        let body = response.text().await.expect("service token response");
+        assert_eq!(status, 200, "{id}: {body}");
+    }
+    let response = client
+        .post(format!("{base}/idp/oauth2/token"))
+        .form(&[
+            (
+                "grant_type",
+                "urn:ietf:params:oauth:grant-type:token-exchange",
+            ),
+            ("subject_token", bearer),
+            (
+                "subject_token_type",
+                "urn:ietf:params:oauth:token-type:access_token",
+            ),
+            ("client_id", "local-login"),
+            ("resource", &format!("{base}/device")),
+        ])
+        .send()
+        .await
+        .expect("Device token exchange");
+    assert_eq!(response.status(), 200);
+    let token: Value = response.json().await.expect("Device token");
+    let response = client
+        .get(format!("{base}/device/devices"))
+        .bearer_auth(token["access_token"].as_str().expect("Device bearer"))
+        .send()
+        .await
+        .expect("Device list");
+    let status = response.status();
+    let body = response.text().await.expect("Device list response");
+    assert_eq!(status, 200, "Device list: {body}");
+    assert_eq!(
+        client
+            .get(format!("{base}/device/devices"))
+            .send()
+            .await
+            .expect("unauthenticated Device list")
+            .status(),
+        401,
+    );
+    let device_bearer = token["access_token"].as_str().expect("Device bearer");
+    let listed: Value = serde_json::from_str(&body).expect("Device list JSON");
+    if first_start {
+        assert_eq!(listed, json!([]));
+        let enrollment = client
+            .post(format!("{base}/device/devices/enrollments"))
+            .bearer_auth(device_bearer)
+            .json(&json!({
+                "name": "Local HTTP device",
+                "publicKey": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+                "address": "127.0.0.1:23456",
+            }))
+            .send()
+            .await
+            .expect("Device enrollment");
+        let status = enrollment.status();
+        let body = enrollment.text().await.expect("Device enrollment response");
+        assert_eq!(status, 200, "Device enrollment: {body}");
+        let enrollment: Value = serde_json::from_str(&body).expect("enrollment JSON");
+        let device_id = enrollment["id"].as_str().expect("enrollment ID");
+        assert_eq!(enrollment["state"], "approved");
+        let devices: Value = client
+            .get(format!("{base}/device/devices"))
+            .bearer_auth(device_bearer)
+            .send()
+            .await
+            .expect("approved Device list")
+            .json()
+            .await
+            .expect("Device list JSON");
+        assert!(
+            devices
+                .as_array()
+                .expect("Device array")
+                .iter()
+                .any(|device| device["id"] == device_id)
+        );
+    } else {
+        assert_eq!(listed.as_array().expect("retained Device array").len(), 1);
+        assert_eq!(listed[0]["name"], "Local HTTP device");
+    }
     let user: Value = client
         .get(format!("{base}/idp/userinfo"))
         .bearer_auth(bearer)
@@ -321,5 +433,113 @@ async fn authenticate(client: &reqwest::Client, base: &str) {
         assert_eq!(token["iss"], format!("{base}/idp"));
         assert!(token["access_token"].is_string());
         assert!(token["id_token"].is_string());
+        storage_roundtrip(
+            client,
+            base,
+            id,
+            token["access_token"].as_str().expect("frontend bearer"),
+        )
+        .await;
     }
+}
+
+async fn exchange_storage(
+    client: &reqwest::Client,
+    base: &str,
+    client_id: &str,
+    bearer: &str,
+    resource: &str,
+    action: &str,
+) -> String {
+    let response = client
+        .post(format!("{base}/idp/oauth2/token"))
+        .form(&[
+            (
+                "grant_type",
+                "urn:ietf:params:oauth:grant-type:token-exchange",
+            ),
+            ("subject_token", bearer),
+            (
+                "subject_token_type",
+                "urn:ietf:params:oauth:token-type:access_token",
+            ),
+            ("client_id", client_id),
+            ("resource", resource),
+            (
+                "authorization_details",
+                &json!([{"type":"storage","actions":[action]}]).to_string(),
+            ),
+        ])
+        .send()
+        .await
+        .expect("Storage token exchange");
+    let status = response.status();
+    let body = response.text().await.expect("Storage token response");
+    assert_eq!(status, 200, "{client_id} Storage exchange: {body}");
+    let token: Value = serde_json::from_str(&body).expect("Storage token JSON");
+    token["access_token"]
+        .as_str()
+        .expect("Storage bearer")
+        .to_owned()
+}
+
+async fn storage_roundtrip(client: &reqwest::Client, base: &str, client_id: &str, bearer: &str) {
+    let write = exchange_storage(
+        client,
+        base,
+        client_id,
+        bearer,
+        "storage:databases",
+        "write",
+    )
+    .await;
+    let response = client
+        .post(format!("{base}/storage/databases"))
+        .bearer_auth(&write)
+        .json(&json!({"name":"Local HTTP roundtrip"}))
+        .send()
+        .await
+        .expect("Storage create");
+    let status = response.status();
+    let body = response.text().await.expect("Storage create response");
+    assert_eq!(status, 201, "{client_id} Storage create: {body}");
+    let resource: Value = serde_json::from_str(&body).expect("Storage resource JSON");
+    let id = resource["id"].as_str().expect("Storage resource ID");
+
+    let url = format!("{base}/storage/databases/{id}/sql");
+    let response = client.post(&url).bearer_auth(&write).json(&json!({"statements":[
+        {"sql":"CREATE TABLE notes (id TEXT PRIMARY KEY, value TEXT NOT NULL)","params":[]},
+        {"sql":"INSERT INTO notes (id, value) VALUES (?, ?)","params":[{"type":"text","value":"note"},{"type":"text","value":"saved"}]}
+    ]})).send().await.expect("Storage SQL write");
+    let status = response.status();
+    let body = response.text().await.expect("Storage write response");
+    assert_eq!(status, 200, "Storage write: {body}");
+    let read = exchange_storage(client, base, client_id, bearer, "storage:databases", "read").await;
+    let response = client
+        .post(&url)
+        .bearer_auth(&read)
+        .json(&json!({"statements":[
+            {"sql":"SELECT value FROM notes WHERE id = ?","params":[{"type":"text","value":"note"}]}
+        ]}))
+        .send()
+        .await
+        .expect("Storage SQL read");
+    let status = response.status();
+    let body = response.text().await.expect("Storage read response");
+    assert_eq!(status, 200, "Storage read: {body}");
+    let result: Value = serde_json::from_str(&body).expect("Storage read JSON");
+    assert_eq!(
+        result["results"][0]["rows"],
+        json!([[{"type":"text","value":"saved"}]])
+    );
+    let response = client
+        .post(&url)
+        .bearer_auth(&read)
+        .json(&json!({"statements":[
+            {"sql":"DELETE FROM notes","params":[]}
+        ]}))
+        .send()
+        .await
+        .expect("read-only write denial");
+    assert_eq!(response.status(), 403);
 }

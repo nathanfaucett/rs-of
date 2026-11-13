@@ -8,7 +8,7 @@ use management_service::{
 use of_model::idp::{
     contract::{
         ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, EntityType,
-        GrantType, ResponseType, TokenEndpointAuthMethod,
+        GrantType, IdentityAction, ResponseType, TokenEndpointAuthMethod,
     },
     model::Id,
 };
@@ -88,6 +88,7 @@ pub async fn seed(state: &RouterState, origin: &str) -> io::Result<()> {
         Id::new_v5(&user, b"administrator"),
         &INITIAL_ADMINISTRATOR_ACTIONS
             .iter()
+            .chain([IdentityAction::DevicesEnroll].iter())
             .map(|action| (Id::new_v5(&user, format!("{action:?}").as_bytes()), *action))
             .collect::<Vec<_>>(),
     )
@@ -205,7 +206,7 @@ pub async fn seed(state: &RouterState, origin: &str) -> io::Result<()> {
             token_endpoint_auth_method: if public {
                 TokenEndpointAuthMethod::None
             } else {
-                TokenEndpointAuthMethod::ClientSecretBasic
+                TokenEndpointAuthMethod::ClientSecretPost
             },
             software_statement: None,
             software_id: None,

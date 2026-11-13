@@ -114,7 +114,7 @@ for (const [clientId, origin] of [
   });
 }
 
-test("app session enrolls, approves and lists a Device through the Device owner", async ({
+test("app session enrolls and lists the first approved Device through the Device owner", async ({
   request,
 }) => {
   const session = await frontendSession(request, "app", appURL);
@@ -148,7 +148,7 @@ test("app session enrolls, approves and lists a Device through the Device owner"
     },
   });
   expect(enrollment.id).toEqual(expect.any(String));
-  await device.approveEnrollment({ deviceId: enrollment.id });
+  expect(enrollment.state).toBe("approved");
   expect(await device.listDevices()).toEqual(
     expect.arrayContaining([
       expect.objectContaining({

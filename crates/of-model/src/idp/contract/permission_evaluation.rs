@@ -240,6 +240,7 @@ impl PermissionEvaluationRequest {
             (A::DevicesRead | A::DevicesEnroll, IdentityResource::Device { id: None }) => true,
             (
                 A::DevicesRead
+                | A::DevicesEnroll
                 | A::DevicesRename
                 | A::DevicesRevoke
                 | A::DevicesTransfer
@@ -304,6 +305,34 @@ mod tests {
         PermissionSubject, PermissionTarget,
     };
     use crate::idp::model::Id;
+
+    #[test]
+    fn enrollment_approval_permission_requires_valid_device_and_installation_scope() {
+        let mut request = PermissionEvaluationRequest {
+            request_id: Id::now_v7(),
+            subject: PermissionSubject::User { id: Id::now_v7() },
+            action: IdentityAction::DevicesEnroll,
+            target: PermissionTarget::Installation {
+                resource: IdentityResource::Device {
+                    id: Some(Id::from_u128(1)),
+                },
+            },
+        };
+        assert_eq!(request.policy_namespace(), Some(INSTALLATION_POLICY_ID));
+        request.target = PermissionTarget::Installation {
+            resource: IdentityResource::Device {
+                id: Some(Id::nil()),
+            },
+        };
+        assert_eq!(request.policy_namespace(), None);
+        request.target = PermissionTarget::Application {
+            application_id: Id::from_u128(2),
+            resource: IdentityResource::Device {
+                id: Some(Id::from_u128(1)),
+            },
+        };
+        assert_eq!(request.policy_namespace(), None);
+    }
 
     #[test]
     fn device_mutation_permission_requires_exact_device_and_installation_scope() {

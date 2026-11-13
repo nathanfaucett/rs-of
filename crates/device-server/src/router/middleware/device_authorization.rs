@@ -1,10 +1,10 @@
 use axum::extract::{FromRef, FromRequestParts};
 use http::{HeaderValue, header::AUTHORIZATION, request::Parts};
+use of_model::contract::StandardClaims;
 use of_model::idp::{
     contract::{ErrorCode, ErrorResponse},
     model::Id,
 };
-use of_model::contract::StandardClaims;
 
 use crate::RouterState;
 
@@ -46,7 +46,7 @@ where
                         ErrorResponse::new(ErrorCode::TemporarilyUnavailable)
                     }
                 })?;
-            if !management_audience(&claims) {
+            if !device_audience(&claims, &router_state.api_base_uri) {
                 return Err(ErrorResponse::new(ErrorCode::NotAuthorized));
             }
             let subject = claims
@@ -61,9 +61,8 @@ where
     }
 }
 
-fn management_audience(claims: &StandardClaims) -> bool {
-    claims.principal_type == of_model::contract::PrincipalType::User
-        && claims.aud == management_service::MANAGEMENT_APPLICATION_URI
+fn device_audience(claims: &StandardClaims, audience: &str) -> bool {
+    claims.principal_type == of_model::contract::PrincipalType::User && claims.aud == audience
 }
 
 fn authorization_from_header(
@@ -106,10 +105,10 @@ fn authorization_from_header(
 mod tests {
     use of_model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
 
-    use super::management_audience;
+    use super::device_audience;
 
     #[test]
-    fn only_user_principals_with_management_audience_are_accepted() {
+    fn only_user_principals_with_device_audience_are_accepted() {
         let mut claims = StandardClaims {
             r#type: TokenType::Bearer,
             r#use: TokenUse::Access,
@@ -125,10 +124,13 @@ mod tests {
             authorization_details: None,
             scope: vec!["storage".into()],
         };
-        assert!(!management_audience(&claims));
+        let audience = "https://device.example";
+        assert!(!device_audience(&claims, audience));
         claims.aud = management_service::MANAGEMENT_APPLICATION_URI.into();
-        assert!(management_audience(&claims));
+        assert!(!device_audience(&claims, audience));
+        claims.aud = audience.into();
+        assert!(device_audience(&claims, audience));
         claims.principal_type = PrincipalType::Client;
-        assert!(!management_audience(&claims));
+        assert!(!device_audience(&claims, audience));
     }
 }

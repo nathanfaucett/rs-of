@@ -14,7 +14,7 @@ use device_service::HostedControlPlane;
 use device_service::replica::DbDeviceRepo;
 use device_service::replica::DbSelectionPolicyRepo;
 use device_service::replica::SelectionPolicy;
-use management_service::MANAGEMENT_APPLICATION_URI;
+
 use management_service::ManagementService;
 use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
@@ -58,7 +58,7 @@ impl Fixture {
         .with_local_idp(
             move |token| async move {
                 let (principal_type, audience, scopes) = match token.as_str() {
-                    "user" => (PrincipalType::User, MANAGEMENT_APPLICATION_URI, vec![]),
+                    "user" => (PrincipalType::User, "https://device.example", vec![]),
                     "wrong-audience" => (PrincipalType::User, "idp-services", vec![]),
                     "list" => (
                         PrincipalType::Client,
