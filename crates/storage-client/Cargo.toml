@@ -8,74 +8,82 @@ license = "MIT OR Apache-2.0"
 [features]
 default = ["native"]
 native = [
-    "ofdb-sql/sync",
     "ofdb-sql/redb",
-    "ofdb-sql/sql",
-    "ofdb-kv/sync",
     "ofdb-kv/redb",
+    "dep:tokio-tungstenite",
+    "dep:tokio",
+    "reqwest/rustls-tls-native-roots",
 ]
-browser = [
-    "ofdb-sql/sync",
-    "ofdb-sql/indexeddb",
-    "ofdb-sql/sql",
-    "ofdb-kv/sync",
-    "ofdb-kv/indexeddb",
-    # "file-system/browser",
-]
+browser = ["ofdb-sql/indexeddb", "ofdb-kv/indexeddb", "dep:gloo-net"]
 
 [dependencies]
+# Data engines
+ofdb-kv = { version = "0.1", path = "../../../ofdb/crates/kv", default-features = false, features = [
+    "sync",
+    "in-memory",
+] }
+ofdb-platform = { version = "0.1", path = "../../../ofdb/crates/platform", default-features = false }
+ofdb-sql = { version = "0.1", path = "../../../ofdb/crates/sql", default-features = false, features = [
+    "validated-history",
+    "sql",
+] }
+
 # Serialization
+crc32fast = { version = "1.5", default-features = false }
+postcard = { version = "1.1", default-features = false, features = ["alloc"] }
 serde = { version = "1.0", default-features = false, features = [
     "derive",
-    "std",
+    "alloc",
 ] }
-serde_json = { version = "1.0", default-features = false, features = ["std"] }
-serde_with = { version = "3.8", default-features = false, features = [
-    "std",
-    "macros",
-] }
-serde_repr = { version = "0.1", default-features = false }
-url = { version = "2.5", default-features = false, features = ["std"] }
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 uuid = { version = "1.29", default-features = false, features = [
     "serde",
+    "v7",
+    "js",
+] }
+
+# Transport
+futures-util = { version = "0.3", default-features = false, features = [
+    "sink",
     "std",
 ] }
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+url = { version = "2.5", default-features = false, features = ["std"] }
 
-# Verified HTTP transport
-reqwest = { version = "0.12", default-features = false, features = [
-    "json",
-    "multipart",
+# Errors
+thiserror = { version = "2.0", default-features = false }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Native transport
+tokio = { version = "1.52", default-features = false, features = [
+    "net",
+], optional = true }
+tokio-tungstenite = { version = "0.29", default-features = false, features = [
+    "connect",
     "rustls-tls-native-roots",
+], optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Browser transport
+gloo-net = { version = "0.6", default-features = false, features = [
+    "websocket",
+], optional = true }
+
+[dev-dependencies]
+# Owner protocol fixtures
+axum = { version = "0.8", default-features = false, features = [
+    "form",
+    "http1",
+    "json",
+    "tokio",
 ] }
 
-# Internal
-of-model = { path = "../of-model", default-features = false, features = [] }
-storage-service = { version = "0.1", path = "../storage-service", default-features = false, optional = true }
-of-management-client = { version = "0.1", path = "../management-client", default-features = false, optional = true }
-
-# Data engines
-ofdb-sql = { version = "0.1", path = "../../../ofdb/crates/sql", package = "ofdb-sql", default-features = false }
-ofdb-sync = { package = "ofdb-sync", path = "../../../ofdb/crates/sync", default-features = false }
-ofdb-kv = { version = "0.1", path = "../../../ofdb/crates/kv", package = "ofdb-kv", default-features = false }
-# file-system = { version = "0.1", path = "../../../offs/crates/file-system", package = "file-system", default-features = false }
-
-# Async
-tokio = { version = "1.44", default-features = false, features = [
-    "rt-multi-thread",
+# Test runtime and staging
+tempfile = { version = "3.27", default-features = false }
+tokio = { version = "1.52", default-features = false, features = [
     "macros",
+    "rt-multi-thread",
     "sync",
+    "net",
     "time",
-], optional = true }
-futures-util = { version = "0.3", default-features = false, features = ["std"] }
-async-trait = { version = "0.1", default-features = false }
-
-# Error handling
-thiserror = { version = "2.0", default-features = false }
-anyhow = { version = "1.0", default-features = false, optional = true }
-
-# Sync
-# ofdb-sql-sync was renamed to ofdb-sync in ofdb
-# ofdb-sql-sync = { version = "0.1", path = "../../../ofdb/crates/sql-sync", package = "ofdb-sql-sync", default-features = false, features = ["native-stage"] }
-
-# Platform
-ofdb-platform = { version = "0.1", path = "../../../ofdb/crates/platform", package = "ofdb-platform", default-features = false, optional = true }
+] }
