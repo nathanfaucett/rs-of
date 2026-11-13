@@ -1,21 +1,17 @@
 use std::{io, path::Path, time::Duration};
 
 use axum::http::HeaderValue;
+#[cfg(unix)]
+use server_common::LocalTls;
 use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
-#[cfg(unix)]
-use unified_server::{LocalTls, SetupHost, UnifiedConfig};
 
 #[cfg(unix)]
-pub(crate) fn prepare(root: &Path) -> io::Result<SetupHost> {
-    let mut config = UnifiedConfig::local_dynamic(root)?;
-    config.idp.ui_public_uri = native_origin()
-        .to_str()
-        .map_err(io::Error::other)?
-        .to_owned();
-    config.device.server.setup_ui_origin = Some(config.idp.ui_public_uri.clone());
-    config.storage.server.setup_ui_origin = Some(config.idp.ui_public_uri.clone());
-    SetupHost::prepare(config).map_err(|error| match error.kind() {
+use crate::{desktop_config::DesktopConfig, desktop_owners::DesktopOwners};
+
+#[cfg(unix)]
+pub(crate) fn prepare(root: &Path) -> io::Result<DesktopOwners> {
+    DesktopOwners::prepare(DesktopConfig::open(root)?).map_err(|error| match error.kind() {
         io::ErrorKind::NotFound | io::ErrorKind::NotADirectory | io::ErrorKind::IsADirectory => {
             io::Error::new(io::ErrorKind::InvalidData, error)
         }
@@ -73,7 +69,7 @@ impl NativeHost {
 
     #[cfg(all(unix, test))]
     async fn start_with(
-        setup: SetupHost,
+        setup: DesktopOwners,
         install: impl FnOnce(LocalTls) -> io::Result<()> + Send + 'static,
         client: impl FnMut() -> io::Result<reqwest::Client>,
     ) -> io::Result<Self> {
@@ -82,7 +78,7 @@ impl NativeHost {
 
     #[cfg(unix)]
     async fn start_cancellable(
-        setup: SetupHost,
+        setup: DesktopOwners,
         install: impl FnOnce(LocalTls) -> io::Result<()> + Send + 'static,
         mut client: impl FnMut() -> io::Result<reqwest::Client>,
         cancellation: CancellationToken,
@@ -246,7 +242,7 @@ impl Drop for NativeHost {
     }
 }
 
-fn native_origin() -> HeaderValue {
+pub fn native_origin() -> HeaderValue {
     #[cfg(dev)]
     {
         HeaderValue::from_static("https://idp-desktop.localhost:1355")

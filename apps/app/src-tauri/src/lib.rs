@@ -1,4 +1,8 @@
 mod app;
+#[cfg(unix)]
+mod desktop_config;
+#[cfg(unix)]
+mod desktop_owners;
 mod lifecycle;
 mod localhost_trust;
 mod native_host;
