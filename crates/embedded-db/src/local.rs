@@ -3,7 +3,7 @@ use std::{io, path::Path, sync::Arc};
 use db::Client;
 use of_model::db::Database;
 
-pub fn open_private_database(path: &Path) -> io::Result<db::Database> {
+pub fn open_private_storage(path: &Path) -> io::Result<db::SharedDatabase> {
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -33,7 +33,7 @@ pub fn open_private_database(path: &Path) -> io::Result<db::Database> {
             ));
         }
     }
-    db::Database::open(path).map_err(io::Error::other)
+    db::SharedDatabase::create(path)
 }
 
 /// Opens a fresh local owner database, or uses the supplied query client unchanged.
@@ -42,8 +42,16 @@ pub fn local_client(
     owner: &str,
     database: Option<Arc<dyn Database>>,
 ) -> io::Result<Client> {
+    Ok(local_database(data_dir, owner, database)?.client())
+}
+
+pub fn local_database(
+    data_dir: &Path,
+    owner: &str,
+    database: Option<Arc<dyn Database>>,
+) -> io::Result<Arc<dyn Database>> {
     if let Some(database) = database {
-        return Ok(database.client());
+        return Ok(database);
     }
     if !matches!(owner, "idp" | "device" | "storage" | "management") {
         return Err(io::Error::new(
@@ -52,16 +60,14 @@ pub fn local_client(
         ));
     }
     std::fs::create_dir_all(data_dir)?;
-    let database = open_private_database(&data_dir.join(format!("{owner}.redb")))?;
-    let client = database.client();
-    // Storage's public constructor is synchronous, including inside a Tokio runtime.
-    std::thread::spawn(move || {
+    let path = data_dir.join(format!("{owner}.redb"));
+    let database = std::thread::spawn(move || {
         tokio::runtime::Builder::new_current_thread()
             .build()?
-            .block_on(of_model::replica::up(&database))
+            .block_on(crate::EmbeddedDatabase::open_file(path))
             .map_err(io::Error::other)
     })
     .join()
     .map_err(|_| io::Error::other("local schema worker panicked"))??;
-    Ok(client)
+    Ok(Arc::new(database))
 }

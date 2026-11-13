@@ -45,12 +45,12 @@ impl PrivateKeyKeyringRepo {
         }
     }
 
-    /// Uses a local database, which must be private and must never be replicated.
+    /// Uses a private KV namespace in the local shared host, separate from every SQL catalog.
     #[cfg(feature = "replica")]
-    pub fn new_local(client: db::Client) -> RepoResult<Self> {
+    pub fn new_local(storage: &db::SharedDatabase) -> RepoResult<Self> {
         Ok(Self {
             service_name: String::new(),
-            storage: PrivateKeyStorage::Local(local_private_keys::LocalPrivateKeys::new(client)?),
+            storage: PrivateKeyStorage::Local(local_private_keys::LocalPrivateKeys::new(storage)?),
         })
     }
 }

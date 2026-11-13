@@ -53,7 +53,7 @@ impl StorageRuntime {
     }
 }
 
-/// Builds local Storage with a shared SQL catalog and lazily opened resource files.
+/// Builds local Storage with all resource state inside the shared embedded host.
 pub fn build_local_runtime(
     data_dir: &Path,
     _port: u16,
@@ -62,7 +62,11 @@ pub fn build_local_runtime(
     db: Option<Arc<dyn of_model::db::Database>>,
     http_client: Option<reqwest::Client>,
 ) -> io::Result<StorageRuntime> {
-    let client = embedded_db::local_client(data_dir, "storage", db)?;
+    let database = embedded_db::local_database(data_dir, "storage", db)?;
+    let client = database.client();
+    let storage = database
+        .local_storage()
+        .ok_or_else(|| io::Error::other("local Storage requires shared embedded storage"))?;
     let peer = local_peer(client.clone())?;
     let idp = crate::IdpClient::new(
         idp_base,
@@ -103,6 +107,7 @@ pub fn build_local_runtime(
         Some(peer),
         CancellationToken::new(),
         Some(client),
+        Some(storage),
     )
 }
 
@@ -146,6 +151,7 @@ pub fn build_runtime(
         endpoint,
         cancellation_token,
         None,
+        None,
     )
 }
 
@@ -166,6 +172,7 @@ pub fn build_http_runtime(
         Some(management_endpoint),
         cancellation_token,
         None,
+        None,
     )
 }
 
@@ -178,17 +185,24 @@ fn build_runtime_inner(
     endpoint: Option<EndpointId>,
     cancellation_token: CancellationToken,
     catalog_client: Option<db::Client>,
+    shared_storage: Option<db::SharedDatabase>,
 ) -> io::Result<StorageRuntime> {
     let local = catalog_client.is_some();
     let databases = Arc::new(match catalog_client {
-        Some(client) => DatabaseRuntime::with_client(data_dir.join("databases"), client)?,
+        Some(client) => DatabaseRuntime::with_shared(
+            shared_storage.clone().expect("local storage supplied"),
+            client,
+        )?,
         None => DatabaseRuntime::new(data_dir.join("databases"))?,
     });
     let file_systems = endpoint
         .map(|endpoint| {
             let root = data_dir.join("filesystems");
             if local {
-                ScopedFileSystemRuntime::<EndpointId>::new_local(root, endpoint)
+                ScopedFileSystemRuntime::<EndpointId>::with_shared(
+                    shared_storage.clone().expect("local storage supplied"),
+                    endpoint,
+                )
             } else {
                 ScopedFileSystemRuntime::<EndpointId>::new(root, endpoint)
             }

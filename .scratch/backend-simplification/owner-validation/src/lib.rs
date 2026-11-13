@@ -9,6 +9,8 @@ mod identity;
 mod local_copy;
 #[path = "../../../../crates/idp-server/src/local_seed.rs"]
 mod local_seed;
+#[path = "../../../../crates/storage-service/src/persistence.rs"]
+mod persistence;
 #[cfg(test)]
 mod tests;
 

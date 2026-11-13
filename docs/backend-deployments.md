@@ -9,12 +9,16 @@ self-signed leaf certificate, not the independent setup CA or OS trust changes.
 See the [local backend commands](../README.md#local-development-backend).
 
 This mode is for loopback development. It does not establish Installation
-membership or qualify production Node setup. Fresh startup creates `unified.redb`
-and optional `tls/` only. Local IdP private keys and the Storage peer label are in
-the database. Resource stores are opened lazily and still use separate files.
-Back up the entire data directory after using resources, not just the database.
-Never replicate the local private-key table or expose the owner database through
-a resource SQL endpoint.
+membership or qualify production Node setup. Startup, resource use and restart
+retain `unified.redb` and optional `tls/` only. All owner and resource state uses
+one shared redb host. Each resource SQL catalog and KV store has its own
+namespace; neither can query control-plane SQL or the private-key KV namespace.
+Retiring a local copy removes only that copy's namespace and retains a durable
+fence, not a file-level deletion of the host.
+
+Stop the server before copying the database for backup. Retain `tls/` to keep the
+HTTPS identity. Local private keys are not encrypted at rest and are not part of
+resource synchronization. Independent deployment storage remains separate.
 
 ## Independent deployments
 

@@ -67,19 +67,20 @@ Seeding is repeatable. Conflicting retained credentials fail rather than being
 replaced. Local mode uses public test credentials and reduced password-hash cost;
 it binds loopback only. Do not expose it through a public proxy.
 
-Fresh startup creates only `unified.redb` and, for HTTPS, `tls/`. Local IdP private
-keys and the Storage peer label are stored in `unified.redb`. On Unix, this file
-must deny group and other access. Private keys are not encrypted at rest. Local
-private-key tables must never be replicated or exposed as resource databases.
+Local startup, resource use and restart retain only `unified.redb` and optional
+`tls/`. The database holds owner state, IdP private keys, resource SQL/KV stores,
+filesystem catalogs and file contents, local copy policies, and sync staging.
+Resource SQL catalogs are isolated from control-plane SQL and private-key KV.
+On Unix, the database must deny group and other access. Private keys are not
+encrypted at rest; their namespace is local-only and is never resource-synced.
 
-Keep the entire data directory for restart and backup. Used Storage resources
-still create separate SQL/KV files, filesystem catalogs and contents, and copy
-journals. The database alone is not a complete backup. This is not a migration
-for the previous unified-server layout.
+Stop the server before copying `unified.redb` for backup. Copy `tls/` as well to
+retain the HTTPS identity. No resource sidecars are required. This is not a
+migration for the previous unified-server layout; use a fresh data directory.
 
-Full single-file resource persistence and broad validation remain incomplete.
-See the [persistence assessment and test results](.scratch/backend-simplification/persistence-validation.md).
-The fresh-start, restart, HTTPS and OAuth HTTP tests are written, but have not passed.
+HTTP/HTTPS startup, OAuth, resource restart and single-file layout tests pass.
+Broad validation still has limits. See the
+[persistence assessment and test results](.scratch/backend-simplification/persistence-validation.md).
 
 ## Independent Node setup
 

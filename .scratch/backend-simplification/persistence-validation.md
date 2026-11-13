@@ -1,81 +1,119 @@
-# Local persistence follow-up
+# Single-file local persistence
 
-Branch: `backend-simplification-persistence`, based on `f9209c816`.
-Worktree: `.scratch/worktrees/persistence`. No merge back.
+Branch: `backend-simplification-persistence`. Integration `52ac21c7b` was merged
+first (fast-forward). Worktree: `.scratch/worktrees/persistence`. No merge back.
 
-Status: **minimum startup/key requirements implemented; full single-file resource persistence incomplete**.
-The spec is unchanged. Independent deployment constructors and layout are unchanged.
-`storage-server/src/sync.rs` and sibling repositories are unchanged.
+Dependencies, on their own `backend-simplification-persistence` branches:
 
-## Changes
+| Repository | Base      | Required commit |
+| ---------- | --------- | --------------- |
+| ofdb       | `544b627` | `a15e05a`       |
+| offs       | `860f63f` | `3087684`       |
 
-- Fresh local startup creates only `unified.redb`, plus `tls/` when HTTPS is enabled. Owner resource roots are opened lazily, not created during startup.
-- Local IdP private keys use the existing ofdb SQL client and native extended-private-key representation in a local-only `local_private_keys` table. No directory archives, resource snapshots, or custom key serialization were added. Independent IdP still uses its existing keyring implementation.
-- All local IdP key purposes use this repository: Node signing and the User/Application/Client key service. The namespace is independent of the data directory path.
-- Local Storage's retained public peer label uses a local-only SQL table rather than `storage-local.peer`.
-- Local database files are created with mode `0600` on Unix. Existing files with group/other access, symlinks, and non-regular paths are rejected without changing their permissions. TLS files retain their existing handling.
-- The owner database is not used as a resource SQL database. Process tests check that resource SQL cannot select the private-key table.
+The sibling root checkouts were not changed. Validation used temporary manifest
+paths to these isolated worktrees. Normal relative dependency paths were then
+restored. Apply all three repository commits together before building against
+the normal sibling checkouts. No worktree path is part of the committed runtime.
 
-Private keys are plaintext at rest, as the former private files were. File access control is the protection; this is not encrypted storage. Local mode has no mesh synchronization. The local private-key table must never enter replication or be exposed to resource SQL. SQL history can retain old secret values; delete removes logical access, not historical bytes. A KV-based private store remains preferable once shared-handle APIs exist.
+## Result
 
-## Concrete persistence assessment
+**The single-file local persistence requirement is implemented.** Fresh startup,
+resource use, sync, copy retirement, reselection and restart retain only
+`unified.redb` and optional `tls/` in the local data directory. The spec is
+unchanged. This is a fresh-layout change, not a migration from earlier local
+layouts. Independent constructors and file layouts remain separate.
 
-| State | Restart durability | In `unified.redb`? |
-| --- | --- | --- |
-| IdP users, credentials, public keys, clients, grants, permissions and signer metadata | Existing owner SQL persistence | Yes |
-| Device identities, enrollments, selections and policy; Management selections | Existing owner SQL persistence | Yes |
-| Local IdP private keys | New local-only SQL records; key repository and process restart tests pass | Yes |
-| Local Storage peer label | New retained SQL record | Yes |
-| Database identities, names, creation intent, namespace ownership and tombstones | Existing shared Storage SQL catalog | Yes |
-| Resource SQL schemas, rows and history | Existing dedicated redb files; HTTP pre-shutdown row is readable after restart | **No** |
-| Resource KV values and history | Existing KV sidecar files; existing restart test passes in Storage suite | **No** |
-| Filesystem identities, names and tombstones | Existing ofdb KV filesystem catalogs | **No** |
-| Filesystem metadata, contents, revisions and residency | Existing managed filesystem stores; new lazy-runtime content/tombstone restart test passes | **No** |
-| SQL initialization, copy generations, pending cleanup, retired owners, passthrough selection | Existing durable copy-policy journals | **No** |
-| Transport sessions, open handles, runtime caches | Intentionally process-local; reopen from durable state | Not applicable |
-| Sync staging | Separate existing path; local sync handling belongs to the other agent | **No** |
-| TLS certificate and key | Existing retained PEM files | Allowed `tls/` exception |
+| Durable state                                                            | Storage in the shared host                                           |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| IdP, Device and Management records, migrations and permissions           | Control-plane SQL namespace                                          |
+| IdP private keys                                                         | Dedicated local KV namespace, never a resource SQL table             |
+| Storage public peer label and database resource catalog                  | Control-plane SQL                                                    |
+| Resource schemas, indexes, rows, tombstones and SQL history              | Isolated SQL namespace per User/Application/resource/copy generation |
+| Resource KV values, generations and history                              | Separate KV namespace for the same resource/copy generation          |
+| Filesystem names and identity/tombstone catalogs                         | Existing filesystem KV catalog API                                   |
+| Filesystem namespace discovery                                           | Durable KV records, not directory scanning                           |
+| Filesystem metadata, revisions, file bytes and staged publication        | Existing managed-copy/content/root interfaces over durable KV stores |
+| Per-path residency and whole-resource mode                               | Local KV state, separate from replicated metadata                    |
+| Pending cleanup, retired owners, SQL initialization and copy generations | Typed local KV policy records                                        |
+| SQL sync staging                                                         | Ordered native redb records inside the resource namespace            |
+| TLS identity                                                             | Existing allowed `tls/` exception                                    |
 
-After resources are used, **back up the entire data directory**. `unified.redb` alone is not a complete resource backup.
+Open handles, transaction write sets, session counters and caches remain
+process-local. Acknowledged resource data is durable. There is no memory-only
+persistence fallback and no directory archive or whole-resource snapshot blob.
+Filesystem KV Blobs hold individual file revisions, not serialized filesystem
+roots.
 
-## Why full resource consolidation is not implemented
+## Architecture and safety
 
-`of-model::db::Database` exposes a query client and transactions, not a shared native store factory. The current public ofdb SQL `Database::open/open_existing` APIs own dedicated files. KV `Database::open_with_table` accepts a path and opens its own redb owner; it does not accept an already-open shared handle. Opening a second owner on the live unified file is not a supported solution.
+- `Database::local_storage` exposes the embedded host capability to local owner composition. Network adapters do not acquire a local store or silently create files.
+- Embedded and explicit test-memory adapters share one native host. Local owner fallback still uses its named owner file. Independent deployment entrypoints keep their original storage implementations.
+- Each resource has an isolated SQL catalog and KV store. User scope and copy generation form the store identity. Resource queries cannot reach control-plane SQL or private-key KV.
+- Shared transactions use native read snapshots and a write set. They validate durable versions of every read table and commit all writes in one native transaction. Stale writes fail; there is no automatic replay.
+- The initial shared-writer implementation deadlocked when a resource transaction rechecked control-plane policy. The snapshot implementation fixes that cause. No pre-commit or response authorization check was removed.
+- Retirement fences old handles and sessions, erases idle transactions, then atomically records a namespace fence and removes only its tables. Durable copy-policy intent permits restart/retry. Reselection uses a new generation without changing resource identity or reviving old contents.
+- Local filesystem discovery uses durable namespace records. The independent directory scan now checks the actual existing `catalog.redb` name instead of the obsolete `filesystem-catalog.redb` name. This fixes the previously failing owner-cleanup test without moving independent files.
+- The old partial `DatabaseRuntime::with_client` and lazy file-based local filesystem constructor were removed. Callers use the shared-host constructor or the independent path constructor.
+- Local database files use mode `0600` on Unix. Unsafe existing permissions, symlinks and non-regular paths are rejected. Private keys are plaintext at rest and their retained KV history is private host state, not resource sync data.
 
-The lower redb kernel has shared database machinery, but the application-facing SQL/KV owners do not expose it. Their retirement APIs also remove dedicated files and retain file-level fences. They cannot safely retire one resource inside `unified.redb` without new namespace-level lifecycle semantics.
+Stop the server before copying `unified.redb` for backup. Copy `tls/` as well to
+retain the HTTPS identity. Resource sidecars are not required.
 
-`FileSystemCatalog::open` opens its own KV catalog and its resources use native roots. Metadata, staged content, revision publication, leases, retirement markers and removal are tied to those roots. There is no public constructor for a shared KV catalog plus a durable database content store. Archiving those roots into a blob would bypass the existing store/lifecycle APIs and was not done.
+## TDD
 
-The remaining design must expose shared-handle, namespaced SQL/KV owners in ofdb, including resource-scoped retirement that cannot delete the host database. Offs then needs catalog/content/root construction over those stores. Copy-policy and namespace discovery must move into durable records as part of that change; directory scanning cannot remain authoritative. Existing KV namespaces and catalogs should be reused rather than converted to custom archives. These sibling library APIs were not changed on this branch.
+Tests use the requested public SQL/KV, filesystem/catalog, local runtime and HTTP
+seams. Missing shared constructors failed first. A cross-namespace control-read
+test then failed on the writer deadlock. Filesystem residency failed across
+reopen before local residency persistence was added. Tests now cover actual
+redb reopen, database-only restore to another directory, resource isolation,
+rollback/index/schema behavior, stale writes, cleanup/reselection, and issued
+handle/transaction fencing.
 
-## Complexity, risk and priority
+The real process test now checks exact disk layout after resource use and on
+restart, not just before the first resource is created. It also checks unchanged
+JWKS, actual OAuth login, TLS reuse, retained SQL rows, retained filesystem
+identity and residency, and rejection of private-key queries through resource
+SQL. No startup deadline was relaxed.
 
-The minimum change has moderate risk: it moves secret ownership and changes when resource roots are created. Tests cover private-file rejection, key load/delete/replacement across reopen, local constructors, HTTP isolation, filesystem content/tombstones, and process restart. Full resource consolidation has high risk because it changes retirement, cancellation, staged publication, and issued-handle fencing. It remains required for the full single-file specification; fresh-start layout is not proof of completion.
+## Validation
 
-## TDD and validation
+Native tests used `RUST_MIN_STACK=67108864` where required.
 
-- The new private-file test failed first: the original database allowed group/other permissions. It passes after private creation and retained-file checks.
-- The replacement key-repository test failed first against the old path-based constructor. It then exposed strict SQL parameter counting; the fixed transaction uses separate lookup parameters. Reopen, namespace separation, deletion, retained deletion and replacement pass.
-- The fresh-layout process assertion failed with an extra `idp/` directory. Passing the shared root to local IdP removed it. Resource restart and filesystem tests are additional behavior coverage, not claimed as separate red/green fixes.
+| Check                                                                                            | Result                                                                                         |
+| ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `cargo test -p unified-server --features cli --test composition -- --nocapture --test-threads=1` | **3 passed**                                                                                   |
+| `cargo test -p storage-service --lib`                                                            | **29 passed**, including the former owner-retirement failure                                   |
+| `cargo test -p storage-server --features network,sync --lib sync::tests`                         | **6 passed**, including actual shared-host WebSocket sync and retirement without staging files |
+| Local IdP and Storage constructor tests                                                          | **3 passed**                                                                                   |
+| Embedded local database tests                                                                    | **4 passed**                                                                                   |
+| Private-key restart, deletion/replacement and database-only restore test                         | **1 passed**                                                                                   |
+| Shared SQL/KV and filesystem restart/retirement tests in sibling repositories                    | Passed; see sibling validation notes                                                           |
+| Full offs file-system all-target suite                                                           | **72 passed**                                                                                  |
+| ofdb native BTree and full native SQL facade test suites                                         | Passed; existing ignored SQL tests remain ignored                                              |
+| Changed-library Clippy in of; focused all-target Clippy in ofdb/offs                             | Completed with repository warnings                                                             |
+| Rustfmt on owned Rust files; `git diff --check`                                                  | Passed                                                                                         |
 
-Final focused results:
+Final process measurements: fresh HTTP **1.689 s**, HTTP restart **0.464 s**,
+fresh HTTPS **1.499 s**, HTTPS restart **0.508 s**, dedicated startup **1.597 s**.
+Earlier runs during compilation/load exceeded the unchanged three-second
+startup deadline. The initial HTTP resource write also exposed the shared-writer
+deadlock; that was fixed and the complete process suite then passed.
 
-| Command | Result |
-| --- | --- |
-| `cargo test -p embedded-db --test local` | 4 passed |
-| `cargo test -p idp-service --features replica --test local_private_keys` | 1 passed |
-| `cargo test -p storage-server --features network --test local` | 1 passed |
-| `cargo test -p idp-server --test local` | 2 passed |
-| `cargo test -p storage-service --lib local_runtime_defers_files_and_retains_resource_content_and_tombstones` | 1 passed |
-| `cargo test -p unified-server --features cli --test composition -- --nocapture --test-threads=1` | 3 passed |
-| Clippy on embedded-db, idp-service, storage-service, storage-server and unified-server, with replica/network/cli, `--lib` | Passed, with repository warnings |
-| Rustfmt on changed Rust files; `git diff --check` | Passed |
+Broad validation is not fully green:
 
-The final composition run measured fresh HTTP 1.842 s, HTTP restart 0.491 s, fresh HTTPS 1.715 s, HTTPS restart 0.493 s, and dedicated startup 1.690 s. It checks exact fresh disk layout, Unix file permissions, unchanged JWKS, actual login/token exchanges, retained TLS, resource isolation, and a SQL row from the previous process. An earlier combined run exceeded the unchanged three-second HTTPS deadline; a subsequent individual run and the final complete run passed. No deadline was relaxed.
+- of workspace feature powerset: timed out after 200 seconds during compilation.
+- ofdb feature powerset: blocked by unchanged no_std sharded-BTree test errors (`ToString`/`std` imports).
+- offs feature powerset: timed out after 200 seconds during compilation.
+- `just crap` in of and ofdb: each timed out after 200 seconds during coverage compilation. No scores are claimed for those repositories.
+- `just crap` in offs completed but reports 41/315 functions above threshold 30 and missing coverage for the new shared module. This is not a clean CRAP result.
+- The historical isolated owner-validation harness has updated call sites; its separate test command timed out during dependency compilation. It is not the process acceptance test.
 
-Broader checks are not green:
+Complexity and risk are high at the snapshot transaction, staged publication and
+retirement seams. These are tested through public interfaces. Shared filesystem
+stages currently buffer one revision in RAM; committed bytes are durable, but
+constant-memory large-file streaming is not promised. Full browser, desktop and
+independent deployment end-to-end qualification was not added to this task.
 
-- `cargo test -p storage-service --lib`: **27 passed, 1 failed**. `deselection_retires_projected_and_created_copies_without_tombstones` reports that an issued domain session remains usable after retirement. This path was not repaired. A base-checkout reproduction was blocked by its missing `ofdb-buildfix` path alias, so no baseline pass/fail claim is made.
-- Clippy `--all-targets`: blocked by an unchanged `async fn delete_user_by_id(&self, ...)` outside an impl in the test module at `idp-service/src/replica/user_repo.rs:1200`. Library-only Clippy passed.
-- `cargo hack test --feature-powerset --workspace --all-targets`: two bounded 200-second attempts timed out; the first waited on a build lock, the second compiled feature combinations. No complete powerset result.
-- `just crap`: bounded at 200 seconds and timed out during coverage dependency compilation. No CRAP score.
+The ofdb commit hook ran automatic unrelated Clippy fixes. Those hook-only edits
+were restored. Commits use disabled hooks after the explicit checks above; no
+validation-agent edits to `user_repo` or storage-client tests are included.
