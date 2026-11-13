@@ -60,7 +60,7 @@ HTTP or HTTPS scheme. CORS permits the app and password-manager origins.
 Optional additional users can be supplied with `--seed users.json`:
 
 ```json
-{"users":[{"username":"test-user","password":"test-password"}]}
+{ "users": [{ "username": "test-user", "password": "test-password" }] }
 ```
 
 Seeding is repeatable. Conflicting retained credentials fail rather than being
@@ -84,6 +84,14 @@ IdP, Device and Storage each use their own `/setup/owner/...` surfaces and prote
 capability. Management has no fourth setup step. See [configuration](config/README.md)
 and [operations](docs/operations.md). The replacement unified-server has no `serve`,
 `create`, `join`, or YAML configuration commands.
+
+The `setup` crate is unchanged. Independent owner modules and `server-common`
+still require it, so it remains in `cargo tree -p unified-server` through those
+shared crates. Local mode does not run the old unified setup lifecycle. The
+legacy `api`, `idp-model`, `storage-model`, and `management-model` crates are gone;
+shared contracts now live in `of-model`. Tracked legacy `data/unified` files are
+absent. Existing local data is not deleted or migrated by this cleanup.
+See [deployment boundaries](docs/backend-deployments.md) for the dependency limit.
 
 ## Applications
 

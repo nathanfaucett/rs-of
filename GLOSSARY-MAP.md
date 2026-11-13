@@ -2,6 +2,8 @@
 
 ## Shared domain
 
+- [Backend deployment boundaries](docs/backend-deployments.md): local composition, retained independent setup dependencies, and legacy data handling.
+
 - [Shared control-plane deployment](docs/control-plane.md): identity/Device owners, injected and remote clients, default local independent socket setup, scoped policy history, reset boundaries, and qualification limits.
 
 - [Public persistence and protocol integration](docs/public-persistence.md): owner facade contracts, shared-router adapters, authenticated scoped security history, local credential separation, and qualification boundaries.
@@ -33,6 +35,6 @@ Definitions belong in the relevant `GLOSSARY.md`. Current design, contracts, and
 - Management owns roles, permissions, and assignments in the identity domain. It does not own Device or User lifecycle.
 - Device owns Devices, endpoint-ID bindings, User ownership, approval/enrollment, transfer/revocation, restrictions, selections, and replication policy. It consumes IdP identity and Management permissions through owner interfaces. Transport endpoints need Device approval and exact policy, not their own IdP token signer.
 - Storage owns domain catalogs, namespaces, resource lifecycle, and authorization. `ofdb` owns SQL/KV persistence/sync/staging/batching/cleanup through public `ofdb-sql`/`ofdb-kv`; `offs` owns filesystem persistence/sync, not transport. `ofnet`/`iroh-chain` owns reusable endpoint/mesh/pairing mechanics, allowlist enforcement, and generic connections/routing. `of` owns Installation/Device endpoint trust binding, local authorization, and protocol-specific adapters wiring `ofdb`/`offs`.
-- A Unified Host coordinates owner-local setup and service lifecycle without merging context state ownership. Joining uses a trusted reachable peer; completed Nodes work offline and after restart. Revocation takes effect when learned, including before subsequent operations on existing connections. Endpoint allowlisting is not resource authorization, pairing is not general access, and mesh messages do not imply transparent multihop database/filesystem streams.
+- A Unified Host composes the four contexts without merging domain ownership. Local development shares a database and seeds test identities without Installation Setup or mesh membership. Independent Nodes retain owner-local setup; joining uses a trusted reachable peer. Completed Nodes are intended to work offline and after restart. Revocation takes effect when learned, including before subsequent operations on existing connections. Endpoint allowlisting is not resource authorization, pairing is not general access, and mesh messages do not imply transparent multihop database/filesystem streams.
 
 Read shared docs and every context relevant to the work. State conflicts with existing definitions and design contracts rather than silently overriding them.

@@ -15,10 +15,12 @@ Aggressive breaking changes: delete old code, no compat shims, replace unified-s
 - Auto-seed: admin user + OIDC clients for frontends
 - TLS: auto-generate self-signed or `--no-tls` for HTTP
 - E2E tests: Playwright globalSetup spawns real backend, hits HTTP endpoints
-- setup crate preserved ONLY for independent deployments
+- Setup lifecycle is retained for independent deployments. The unchanged setup crate remains a required transitive dependency of local composition through owner servers and server-common; graph exclusion needs a separate owner/common split. [Ticket 06](issues/06-cleanup-legacy-setup.md) removes only Management's unused direct edge and records [cleanup validation](cleanup-validation.md).
 - Delete: api, idp-model, storage-model, management-model, setup_host, provisioning, bootstrap, independent__, node_join_, of/data/unified/
 
 ## Fog
+
+- Ticket 06 remains claimed: legacy paths are already absent, but required transitive setup edges remain. The setup library builds; unchanged setup test targets fail. Workspace checking fails on sibling snapshot serde support; feature/test matrices and CRAP checks did not complete. Independent owner HTTPS tests retain deleted API fixture paths. No further tracked obsolete data or crates can safely be deleted in the cleanup scope.
 
 - Unified SQL schema is initialized through `of_model::replica::up`; Embedded/Memory/Network adapters use that same schema. Strict alloc-only runtime scope conflicts with redb and the reused SQL engine's std requirements.
 - Ticket 01 still has domain/wire contract duplication (OAuth user requests, setup/join payloads, SDK sync status). TLS listeners, host controls, and authenticated extractors are runtime types, not duplicate domain entities. See its assessment before further consolidation.
@@ -36,4 +38,4 @@ Aggressive breaking changes: delete old code, no compat shims, replace unified-s
 | 03  | Refactor Owner Services for Shared Database      | task | ready-for-agent | 01, 02     |
 | 04  | Replace Unified Server Binary                    | task | ready-for-agent | 03         |
 | 05  | E2E Test Integration (Playwright + Vitest)       | task | ready-for-agent | 04         |
-| 06  | Cleanup Legacy Setup Code                        | task | ready-for-agent | 04         |
+| 06  | Cleanup Legacy Setup Code                        | task | claimed         | 04         |
