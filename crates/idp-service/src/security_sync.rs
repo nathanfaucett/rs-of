@@ -531,7 +531,12 @@ mod tests {
                     "{table:?} missing actual column {}",
                     column.name
                 );
-                let value = if column.name == "id"
+                let value = if matches!(
+                    column.name.as_str(),
+                    "mfa_totp_secret" | "mfa_webauthn_credentials"
+                ) {
+                    serde_json::Value::Null
+                } else if matches!(column.name.as_str(), "id" | "blocked_by")
                     || column.name.ends_with("_id")
                         && !["installation_id", "endpoint_id", "software_id"]
                             .contains(&column.name.as_str())
@@ -541,6 +546,7 @@ mod tests {
                 } else if column.name.ends_with("_at")
                     || [
                         "active",
+                        "blocked",
                         "sex",
                         "entity_type",
                         "derivation_index",

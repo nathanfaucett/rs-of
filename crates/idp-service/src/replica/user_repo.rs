@@ -1197,15 +1197,29 @@ mod tests {
         );
     }
 
-    async fn delete_user_by_id(&self, user_id: Id) -> RepoResult<()> {
-        self.engine
-            .execute(vec![Statement::Query(Query::Delete(QueryDelete {
-                from: from(USERS),
-                predicate: Some(equals(USERS, "id", Value::Uuid(user_id))),
-                returning: None,
-            }))])
+    #[tokio::test]
+    async fn deletes_user_by_id() {
+        let database = Arc::new(Database::in_memory());
+        up(&database).await.expect("initialize user schema");
+        let repo = DbUserRepo::new(database.client(), PasswordConfig::default());
+        let user = repo
+            .create_user_with_password("alice", "password")
             .await
-            .map_err(db_error)?;
-        Ok(())
+            .expect("create user");
+
+        repo.delete_user_by_id(user.id).await.expect("delete user");
+
+        assert_eq!(
+            repo.find_user_by_id(user.id)
+                .await
+                .expect("find deleted user"),
+            None
+        );
+        assert_eq!(
+            repo.find_user_by_username_or_email("alice")
+                .await
+                .expect("find deleted username"),
+            None
+        );
     }
 }

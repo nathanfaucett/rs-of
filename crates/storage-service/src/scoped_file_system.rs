@@ -591,7 +591,7 @@ where
                     user_sub: user_sub.clone(),
                     application_id,
                 };
-                if application.path().join("filesystem-catalog.redb").is_file() {
+                if application.path().join("catalog.redb").is_file() {
                     catalogs.push((namespace.clone(), self.catalog(&namespace)?));
                 }
             }
