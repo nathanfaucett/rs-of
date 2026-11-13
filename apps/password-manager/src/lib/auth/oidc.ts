@@ -6,6 +6,7 @@ export interface OidcAuthConfig {
   clientId: string;
   redirectUri: string;
   scopes?: string;
+  applicationUri?: string;
 }
 
 export class OidcAuth {
@@ -14,6 +15,7 @@ export class OidcAuth {
   private refreshTimeout: ReturnType<typeof setTimeout> | null = null;
 
   async initialize(config: OidcAuthConfig): Promise<void> {
+    if (!config.applicationUri) throw new Error("Configure the expected OIDC Application URI");
     this.config = config;
 
     const clientConfig: OidcClientOptions = {
@@ -24,6 +26,7 @@ export class OidcAuth {
         redirectUri: config.redirectUri,
         responseType: "code",
         registration: {
+          application: { uri: config.applicationUri },
           clientId: config.clientId,
           clientName: "Password Manager",
           scope: config.scopes ?? "openid profile email storage:read storage:write",
@@ -36,7 +39,7 @@ export class OidcAuth {
           profile: "web_application",
         },
       },
-      storage: "memory",
+      storage: "local",
       disableNativeRequests: true,
     };
 

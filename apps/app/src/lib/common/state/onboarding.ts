@@ -1,4 +1,7 @@
+import { Configuration, DefaultApi } from "@ofsdk/idp-client";
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { env } from "$env/dynamic/public";
+import { configuredWebLoginClient } from "./webLoginClient";
 import { getStorageApiUrl } from "./storageApiUrl.svelte";
 import { getIdpApiUrl, usesRemoteApis } from "./idpClient.svelte";
 import { getDeviceApiUrl } from "./deviceClient.svelte";
@@ -104,6 +107,32 @@ export async function observeOnboarding(): Promise<OnboardingObservation> {
     let target = publicTarget(selected);
     let hosts: SetupHost[];
     try {
+        const clientId = configuredWebLoginClient(env, selected.idp, isTauri());
+        if (clientId) {
+          const metadata = await new DefaultApi(
+            new Configuration({
+              basePath: selected.idp,
+              fetchApi: fetch,
+            }),
+          ).openidConfiguration();
+          if (
+            !sameSelection(selected) ||
+            metadata.issuer !== selected.idp ||
+            metadata.tokenEndpoint !== `${selected.idp}/oauth2/token`
+          ) {
+            return blocked(selection(), "repair");
+          }
+          return {
+            target: { ...target, idp: selected.idp },
+            hosts: [],
+            state: "ready",
+            action: "sign_in",
+            loginClient: {
+              client_id: clientId,
+              scopes: ["openid", "profile", "email"],
+            },
+          };
+        }
         if (selected.kind === "bundled") {
             const native = await invoke<NativeHostObservation>(
                 "get_onboarding_host",

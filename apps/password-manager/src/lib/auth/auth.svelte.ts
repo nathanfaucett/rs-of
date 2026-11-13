@@ -37,9 +37,10 @@ async function initialize(): Promise<void> {
   try {
     const config: OidcAuthConfig = {
       authority: getIdpBaseUrl(),
+      applicationUri: env.PUBLIC_OIDC_APPLICATION_URI,
       clientId: getClientId(),
       redirectUri: getRedirectUri(),
-      scopes: DEFAULT_SCOPES,
+      scopes: env.PUBLIC_OIDC_SCOPES ?? DEFAULT_SCOPES,
     };
 
     await oidcAuth.initialize(config);

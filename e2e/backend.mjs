@@ -14,16 +14,26 @@ export const passwordManagerURL = "http://127.0.0.1:5174";
 export async function startBackend({
   port = 1355,
   timeoutMs = Number(process.env.E2E_START_TIMEOUT_MS ?? 180000),
-  command = "cargo",
+  binary = process.env.E2E_BACKEND_BIN,
+  command = binary ?? "cargo",
   args,
   env = {},
 } = {}) {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     throw new Error("E2E_START_TIMEOUT_MS must be a positive number");
   }
+  console.info(`Starting backend ${command} on port ${port} (launcher PID ${process.pid})`);
   const probe = createServer();
   await new Promise((resolve, reject) => {
-    probe.once("error", () => reject(new Error(`Backend port ${port} is already in use`)));
+    probe.once("error", (error) =>
+      reject(
+        error.code === "EADDRINUSE"
+          ? new Error(`Backend port ${port} is already in use`, {
+              cause: error,
+            })
+          : error
+      )
+    );
     probe.listen(port, "127.0.0.1", resolve);
   });
   await new Promise((resolve, reject) =>
@@ -34,10 +44,7 @@ export async function startBackend({
   const child = spawn(
     command,
     args ?? [
-      "run",
-      "-p",
-      "unified-server",
-      "--",
+      ...(binary ? [] : ["run", "--locked", "-p", "unified-server", "--"]),
       "local",
       "--data-dir",
       dataDir,

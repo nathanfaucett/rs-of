@@ -43,6 +43,20 @@ jobs:
           repository: nathanfaucett/rs-offs
           path: offs
           persist-credentials: false
+      - name: Checkout qualified ofdb Rust dependency
+        uses: actions/checkout@v4
+        with:
+          repository: nathanfaucett/rs-ofdb
+          ref: 503dc0808b304fcc21dc91b44a3c037099061e61
+          path: ofdb-buildfix
+          persist-credentials: false
+      - name: Checkout qualified offs Rust dependency
+        uses: actions/checkout@v4
+        with:
+          repository: nathanfaucett/rs-offs
+          ref: ce2051b9173ff6de5582667155180298b0562b86
+          path: offs-buildfix
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version-file: of/.nvmrc
@@ -62,7 +76,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             of/target
-          key: ${{ runner.os }}-e2e-cargo-${{ hashFiles('of/Cargo.lock', 'ofdb/Cargo.lock', 'ofnet/Cargo.lock', 'offs/Cargo.lock') }}
+          key: ${{ runner.os }}-e2e-cargo-${{ hashFiles('of/Cargo.lock', 'ofdb-buildfix/Cargo.lock', 'ofnet/Cargo.lock', 'offs-buildfix/Cargo.lock') }}
       - name: Build the linked ofdb SQL package
         working-directory: ofdb
         run: |
@@ -79,11 +93,25 @@ jobs:
         run: pnpm e2e:prepare
       - name: Check E2E types
         run: pnpm test:e2e:check
+      - name: Check isolated frontend logic
+        run: pnpm --filter @ofsdk/app test
       - name: Build real backend before the startup deadline
+        id: backend-build
         run: cargo build --locked -p unified-server
-      - name: Browser HTTP integration (Vitest)
-        run: pnpm test:backend
+      - name: App browser HTTP integration (Vitest)
+        if: ${{ !cancelled() && steps.backend-build.outcome == 'success' }}
+        env:
+          E2E_BACKEND_BIN: ./target/debug/unified-server
+        run: pnpm --filter @ofsdk/app test:backend
+      - name: Password-manager browser integration (Vitest)
+        if: ${{ !cancelled() && steps.backend-build.outcome == 'success' }}
+        env:
+          E2E_BACKEND_BIN: ./target/debug/unified-server
+        run: pnpm --filter @ofsdk/password-manager test:backend
       - name: User flows (Playwright)
+        if: ${{ !cancelled() && steps.backend-build.outcome == 'success' }}
+        env:
+          E2E_BACKEND_BIN: ./target/debug/unified-server
         run: pnpm test:e2e
       - name: Retain failure reports
         if: failure()
@@ -94,5 +122,6 @@ jobs:
             of/.scratch/e2e-results
             of/.scratch/e2e-report
             of/apps/*/.vitest-attachments
+            of/apps/**/__screenshots__
           include-hidden-files: true
           retention-days: 7

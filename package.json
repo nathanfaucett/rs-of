@@ -7,7 +7,7 @@
     "test:e2e": "playwright test --config e2e/playwright.config.ts",
     "test:e2e:lifecycle": "node --test e2e/backend.test.mjs",
     "test:e2e:check": "pnpm --filter @ofsdk/app exec tsc --project ../../e2e/tsconfig.json",
-    "test:backend": "pnpm --filter @ofsdk/app test && pnpm --filter @ofsdk/password-manager test:backend",
+    "test:backend": "pnpm --filter @ofsdk/app --filter @ofsdk/password-manager --workspace-concurrency=1 --no-bail run test:backend",
     "e2e:prepare": "pnpm sdk:build && pnpm --filter @ofsdk/native-fetch --filter @ofsdk/oidc-client run build:esm && pnpm --filter @ofsdk/svelte-headless exec svelte-kit sync && pnpm --filter @ofsdk/svelte-headless exec svelte-package && pnpm --filter @ofsdk/sync-sdk run build:browser && pnpm --filter @ofsdk/app --filter @ofsdk/password-manager exec svelte-kit sync",
     "coverage": "pnpm -r run coverage",
     "lint": "pnpm -r run lint",

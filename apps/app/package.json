@@ -17,7 +17,8 @@
     "format": "biome format .",
     "format:fix": "biome format --write .",
     "postinstall": "svelte-kit sync",
-    "test": "vitest run",
+    "test": "vitest run --config vitest.unit.config.ts",
+    "test:backend": "vitest run",
     "test:e2e": "playwright test --config ../../e2e/playwright.config.ts --project app"
   },
   "devDependencies": {

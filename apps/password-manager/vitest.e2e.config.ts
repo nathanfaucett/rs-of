@@ -10,9 +10,10 @@ export default defineConfig({
     ...config.test,
     include: ["src/test/*.backend.test.ts"],
     exclude: [],
-    globalSetup: ["../../e2e/backend.mjs"],
+
     browser: {
       ...config.test?.browser,
+      instances: [{ browser: "chromium", globalSetup: ["../../e2e/backend.mjs"] }],
       api: { host: "127.0.0.1", port: 5174, strictPort: true },
     },
     setupFiles: [],

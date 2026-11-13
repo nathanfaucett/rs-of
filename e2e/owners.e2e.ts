@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import { Configuration, DefaultApi } from "../packages/device-client/src/index";
 import { appURL, backendURL, passwordManagerURL } from "./backend.mjs";
 import { frontendSession, json, storageClient } from "./session";
+import { checkedFetch } from "./http";
 
 test("fresh backend exposes four healthy owners and real OIDC metadata", async ({ request }) => {
   for (const owner of ["idp", "device", "storage", "management"]) {
@@ -28,6 +29,12 @@ for (const [clientId, origin] of [
   ["app", appURL],
   ["password-manager", passwordManagerURL],
 ]) {
+  test(`${clientId}: sign-in, consent and PKCE establish a real User session`, async ({
+    request,
+  }) => {
+    await frontendSession(request, clientId, origin);
+  });
+
   test(`${clientId}: PKCE consent session can create, read, update and delete Storage data`, async ({
     request,
   }) => {
@@ -126,6 +133,7 @@ test("app session enrolls, approves and lists a Device through the Device owner"
     new Configuration({
       basePath: `${backendURL}/device`,
       accessToken: token.access_token,
+      fetchApi: checkedFetch,
     })
   );
   const key = generateKeyPairSync("ed25519").publicKey.export({

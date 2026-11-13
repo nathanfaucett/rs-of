@@ -35,9 +35,15 @@ function isSyncEnabled(): boolean {
     return authState.isAuthenticated && !!syncStateModule.sdk;
 }
 
+async function openMainDatabase() {
+    const databases = await syncStateModule.listDatabases();
+    const database = databases.find((entry) => entry.name === "password-manager-main");
+    return database ? syncStateModule.openDatabase(database.id) : null;
+}
+
 async function loadVaults() {
     if (isSyncEnabled()) {
-        const handle = await syncStateModule.openDatabase("password-manager-main");
+        const handle = await openMainDatabase();
         if (handle) {
             const vaults = await listSyncVaults(handle);
             handle.close();
@@ -84,7 +90,7 @@ async function createVault(password: string, name: string) {
 
 async function unlockExistingVault(password: string, id: string) {
     if (isSyncEnabled()) {
-        const handle = await syncStateModule.openDatabase("password-manager-main");
+        const handle = await openMainDatabase();
         if (!handle) throw new Error("Failed to open sync database");
         const syncSDK = syncStateModule.getSyncSDK();
 

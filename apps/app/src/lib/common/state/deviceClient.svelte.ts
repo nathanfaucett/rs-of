@@ -20,7 +20,9 @@ const deviceApiUrl = createStorage<string | null>(
 );
 
 function readAccessToken(): Promise<string> {
-  return ownerAccessToken("idp-management");
+  const base = getDeviceApiUrl();
+  if (!base) throw new Error("A Device endpoint is required");
+  return ownerAccessToken(base);
 }
 
 function readBasePath(): string | undefined {
