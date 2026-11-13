@@ -137,19 +137,19 @@ async fn local_seed_is_repeatable_and_supports_real_admin_credentials_and_public
         },
         repo::{KeyService, PrivateKeyKeyringRepo, UserRepo},
     };
-    let root = tempfile::tempdir().expect("local keys root");
+
     let database = MemoryDatabase::new().await.expect("schema");
     let client = database.client();
     let issuer = "http://127.0.0.1:1355/idp";
     let namespace = "owner-local-validation";
-    let key_dir = root.path().join("keys");
+
     for pass in 0..2 {
-        let binding = crate::local_seed::signer(client.clone(), &key_dir, namespace, issuer)
+        let binding = crate::local_seed::signer(client.clone(), namespace, issuer)
             .await
             .expect("local signer without setup");
         let keys = Arc::new(KeyService::new(
             DbKeyRepo::new(client.clone()),
-            PrivateKeyKeyringRepo::new_local(&key_dir).expect("local keys"),
+            PrivateKeyKeyringRepo::new_local(client.clone()).expect("local keys"),
             namespace,
         ));
         let service = Arc::new(OAuth2Service::new(

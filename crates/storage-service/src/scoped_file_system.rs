@@ -13,9 +13,9 @@ use file_system::{
     CatalogEntry, FileSystem, FileSystemCatalog, FileSystemId, FileSystemResource, Residency,
 };
 
-use serde::{Serialize, de::DeserializeOwned};
 use of_model::storage::StorageNamespace;
 use of_model::storage::{ResourceCatalog, ResourceIdentity, ResourceKind};
+use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::Mutex;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -72,6 +72,11 @@ where
 {
     pub fn new(root: PathBuf, local_peer: PeerId) -> io::Result<Self> {
         std::fs::create_dir_all(&root)?;
+        Self::new_local(root, local_peer)
+    }
+
+    /// Defers resource files until a local resource is used.
+    pub fn new_local(root: PathBuf, local_peer: PeerId) -> io::Result<Self> {
         Ok(Self {
             changes: tokio::sync::watch::channel(()).0,
             local_copies: Arc::new(crate::local_copy::LocalCopyPolicy::new(
@@ -698,6 +703,76 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn local_runtime_defers_files_and_retains_resource_content_and_tombstones() {
+        let namespace = Namespace {
+            user_sub: "local-user",
+            application_id: of_model::idp::model::Id::now_v7(),
+        };
+        let root = env::temp_dir().join(format!("local-filesystem-{}", namespace.application_id));
+        let runtime =
+            ScopedFileSystemRuntime::new_local(root.clone(), 1_u8).expect("lazy local runtime");
+        assert!(!root.exists());
+        let resource = runtime
+            .create_resource(&namespace, Some("Documents".into()))
+            .await
+            .expect("create local filesystem");
+        let filesystem = runtime
+            .open_resource(&namespace, resource.id)
+            .await
+            .expect("open filesystem");
+        filesystem
+            .write("saved.txt", b"durable local content")
+            .await
+            .expect("write file");
+        drop(filesystem);
+        drop(runtime);
+        let runtime =
+            ScopedFileSystemRuntime::new_local(root.clone(), 1_u8).expect("reopen runtime");
+        assert_eq!(
+            runtime
+                .list_resources(&namespace)
+                .await
+                .expect("retained catalog"),
+            vec![resource.clone()]
+        );
+        let filesystem = runtime
+            .open_resource(&namespace, resource.id)
+            .await
+            .expect("reopen filesystem");
+        assert_eq!(
+            filesystem
+                .read("saved.txt")
+                .await
+                .expect("retained content"),
+            b"durable local content"
+        );
+        drop(filesystem);
+        assert!(
+            runtime
+                .delete_resource(&namespace, resource.id)
+                .await
+                .expect("delete filesystem")
+        );
+        drop(runtime);
+        let runtime =
+            ScopedFileSystemRuntime::new_local(root.clone(), 1_u8).expect("reopen tombstone");
+        assert!(
+            runtime
+                .is_tombstoned(&namespace, resource.id)
+                .await
+                .expect("retained tombstone")
+        );
+        assert!(
+            runtime
+                .open_resource(&namespace, resource.id)
+                .await
+                .is_err()
+        );
+        drop(runtime);
+        fs::remove_dir_all(root).expect("remove local filesystem");
+    }
+
+    #[tokio::test]
     async fn overlapping_residency_updates_preserve_live_and_reopened_mode_order() {
         use std::{
             future::Future,
@@ -958,8 +1033,10 @@ mod tests {
 
     #[tokio::test]
     async fn retirement_reselection_preserves_id_but_revokes_old_scoped_session() {
-        let root =
-            env::temp_dir().join(format!("fs-generation-{}", of_model::idp::model::Id::now_v7()));
+        let root = env::temp_dir().join(format!(
+            "fs-generation-{}",
+            of_model::idp::model::Id::now_v7()
+        ));
         let scope = Namespace {
             user_sub: "owner",
             application_id: of_model::idp::model::Id::now_v7(),

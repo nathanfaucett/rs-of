@@ -45,9 +45,11 @@ impl DatabaseCatalog {
 
     /// Uses the migrated shared Storage tables instead of namespace catalog files.
     pub fn with_client(root: PathBuf, client: ofdb_sql::Client) -> io::Result<Self> {
-        let mut catalog = Self::new(root)?;
-        catalog.client = Some(client);
-        Ok(catalog)
+        Ok(Self {
+            root,
+            client: Some(client),
+            lock: Mutex::new(()),
+        })
     }
 
     fn with_catalog<R: Send>(

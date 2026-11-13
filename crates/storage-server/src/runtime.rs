@@ -53,7 +53,7 @@ impl StorageRuntime {
     }
 }
 
-/// Builds local Storage with a shared SQL catalog and file-backed resource contents.
+/// Builds local Storage with a shared SQL catalog and lazily opened resource files.
 pub fn build_local_runtime(
     data_dir: &Path,
     _port: u16,
@@ -63,27 +63,7 @@ pub fn build_local_runtime(
     http_client: Option<reqwest::Client>,
 ) -> io::Result<StorageRuntime> {
     let client = embedded_db::local_client(data_dir, "storage", db)?;
-    std::fs::create_dir_all(data_dir)?;
-    let peer_path = data_dir.join("storage-local.peer");
-    let peer = match std::fs::read_to_string(&peer_path) {
-        Ok(peer) => peer.parse::<EndpointId>().map_err(io::Error::other)?,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            use std::io::Write;
-            let peer = iroh::SecretKey::generate().public();
-            let mut options = std::fs::OpenOptions::new();
-            options.write(true).create_new(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            let mut file = options.open(&peer_path)?;
-            file.write_all(peer.to_string().as_bytes())?;
-            file.sync_all()?;
-            peer
-        }
-        Err(error) => return Err(error),
-    };
+    let peer = local_peer(client.clone())?;
     let idp = crate::IdpClient::new(
         idp_base,
         "local-storage",
@@ -124,6 +104,28 @@ pub fn build_local_runtime(
         CancellationToken::new(),
         Some(client),
     )
+}
+
+fn local_peer(client: db::Client) -> io::Result<EndpointId> {
+    std::thread::spawn(move || {
+        tokio::runtime::Builder::new_current_thread().build()?.block_on(async {
+            client.execute_sql("CREATE TABLE IF NOT EXISTS local_storage_peer (id UUID PRIMARY KEY, public_key TEXT NOT NULL)", None).await.map_err(io::Error::other)?;
+            let rows = client.execute_sql("SELECT public_key FROM local_storage_peer", None).await.map_err(io::Error::other)?;
+            match rows[0].rows.as_slice() {
+                [] => {
+                    let peer = iroh::SecretKey::generate().public();
+                    let id = of_model::idp::model::Id::now_v7();
+                    client.execute_sql(&format!("INSERT INTO local_storage_peer (id, public_key) VALUES (CAST('{id}' AS UUID), '{peer}')"), None).await.map_err(io::Error::other)?;
+                    Ok(peer)
+                }
+                [row] => {
+                    let value: String = db::decode(&row.values[0], "public_key").map_err(|error| io::Error::other(error.to_string()))?;
+                    value.parse().map_err(io::Error::other)
+                }
+                _ => Err(io::Error::new(io::ErrorKind::InvalidData, "multiple local Storage peers")),
+            }
+        })
+    }).join().map_err(|_| io::Error::other("local Storage identity worker panicked"))?
 }
 
 pub fn build_runtime(
@@ -184,8 +186,13 @@ fn build_runtime_inner(
     });
     let file_systems = endpoint
         .map(|endpoint| {
-            ScopedFileSystemRuntime::<EndpointId>::new(data_dir.join("filesystems"), endpoint)
-                .map(Arc::new)
+            let root = data_dir.join("filesystems");
+            if local {
+                ScopedFileSystemRuntime::<EndpointId>::new_local(root, endpoint)
+            } else {
+                ScopedFileSystemRuntime::<EndpointId>::new(root, endpoint)
+            }
+            .map(Arc::new)
         })
         .transpose()
         .map_err(io::Error::other)?;

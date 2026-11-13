@@ -3,6 +3,44 @@ use std::sync::Arc;
 use embedded_db::{MemoryDatabase, local_client};
 use of_model::db::Database;
 
+#[cfg(unix)]
+#[tokio::test]
+async fn embedded_database_is_private_and_rejects_unsafe_existing_files() {
+    use embedded_db::EmbeddedDatabase;
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    let root = tempfile::tempdir().expect("private database root");
+    let path = root.path().join("unified.redb");
+    let database = EmbeddedDatabase::open(root.path())
+        .await
+        .expect("open private database");
+    assert_eq!(
+        std::fs::metadata(&path)
+            .expect("database metadata")
+            .permissions()
+            .mode()
+            & 0o077,
+        0
+    );
+    drop(database);
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644))
+        .expect("unsafe permissions");
+    assert!(EmbeddedDatabase::open(root.path()).await.is_err());
+    assert_eq!(
+        std::fs::metadata(&path)
+            .expect("retained metadata")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o644
+    );
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+        .expect("restore permissions");
+    let linked = tempfile::tempdir().expect("symlink root");
+    symlink(&path, linked.path().join("unified.redb")).expect("database symlink");
+    assert!(EmbeddedDatabase::open(linked.path()).await.is_err());
+}
+
 #[tokio::test]
 async fn local_clients_use_the_injected_database_without_owner_files() {
     let root = tempfile::tempdir().expect("local owner root");

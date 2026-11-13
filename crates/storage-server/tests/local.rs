@@ -46,10 +46,14 @@ async fn local_runtime_accepts_shared_and_owner_databases_without_setup_or_mesh(
             .expect("health response");
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(root.join("storage.redb").exists(), !injected);
-        assert!(root.join("storage-local.peer").is_file());
+        assert!(!root.join("storage-local.peer").exists());
+        assert!(!root.join("databases").exists());
+        assert!(!root.join("filesystems").exists());
         assert!(!root.join("storage.setup-host").exists());
         assert!(runtime.data_handler().is_none());
         runtime.shutdown().await.expect("stop runtime");
-        std::fs::remove_dir_all(root).expect("remove local data");
+        if root.exists() {
+            std::fs::remove_dir_all(root).expect("remove local data");
+        }
     }
 }
