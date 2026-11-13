@@ -2,7 +2,7 @@
 
 use std::{net::TcpListener, time::Duration};
 
-use embedded_db::{NetworkDatabase, RemoteDatabaseConfig};
+use embedded_db::{RemoteDatabase, RemoteDatabaseConfig};
 use of_model::db::Database;
 
 #[tokio::test]
@@ -21,7 +21,7 @@ async fn network_database_rejects_unsafe_configuration_before_connecting() {
         "http://127.0.0.1:50051/path",
     ] {
         config.endpoint = endpoint.into();
-        let error = match NetworkDatabase::connect(&config).await {
+        let error = match RemoteDatabase::connect(&config).await {
             Ok(_) => panic!("reject unsafe SQL endpoint"),
             Err(error) => error,
         };
@@ -29,7 +29,7 @@ async fn network_database_rejects_unsafe_configuration_before_connecting() {
     }
     config.endpoint = "http://127.0.0.1:50051".into();
     config.deadline_ms = 0;
-    assert!(NetworkDatabase::connect(&config).await.is_err());
+    assert!(RemoteDatabase::connect(&config).await.is_err());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -67,7 +67,7 @@ async fn network_database_migrates_and_shares_real_remote_transactions() {
         client_key: None,
         deadline_ms: 5000,
     };
-    let database = NetworkDatabase::connect(&config)
+    let database = RemoteDatabase::connect(&config)
         .await
         .expect("connect and migrate remote SQL");
     let shared: &dyn Database = &database;
@@ -115,7 +115,7 @@ async fn network_database_migrates_and_shares_real_remote_transactions() {
         .await
         .expect("remote committed update");
     transaction.commit().await.expect("remote commit");
-    let reconnected = NetworkDatabase::connect(&config)
+    let reconnected = RemoteDatabase::connect(&config)
         .await
         .expect("repeat remote migration");
     let result = reconnected

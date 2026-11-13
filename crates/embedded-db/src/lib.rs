@@ -5,8 +5,10 @@ mod local;
 
 pub use local::{local_client, local_database};
 
-#[cfg(feature = "network")]
+#[cfg(feature = "postgres")]
 pub use database::NetworkDatabase;
+#[cfg(feature = "network")]
+pub use database::RemoteDatabase;
 pub use database::{EmbeddedDatabase, MemoryDatabase};
 #[cfg(feature = "network")]
 pub use db::RemoteDatabaseConfig;

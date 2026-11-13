@@ -51,12 +51,12 @@ impl MemoryDatabase {
 
 #[cfg(feature = "network")]
 #[derive(Clone)]
-pub struct NetworkDatabase {
+pub struct RemoteDatabase {
     client: Client,
 }
 
 #[cfg(feature = "network")]
-impl NetworkDatabase {
+impl RemoteDatabase {
     /// Connects to the existing ofdb SQL service and initializes the shared schema.
     pub async fn connect(config: &db::RemoteDatabaseConfig) -> Result<Self, DatabaseError> {
         let database = Self {
@@ -68,6 +68,25 @@ impl NetworkDatabase {
                 };
                 DatabaseError::new(kind, error.to_string())
             })?,
+        };
+        replica::up(&database).await?;
+        Ok(database)
+    }
+}
+
+#[cfg(feature = "postgres")]
+#[derive(Clone)]
+pub struct NetworkDatabase {
+    client: Client,
+}
+
+#[cfg(feature = "postgres")]
+impl NetworkDatabase {
+    /// Connects to PostgreSQL and initializes all owner tables.
+    /// Requires explicit `sslmode=disable`; use a Unix socket or trusted TLS tunnel.
+    pub async fn connect(config: &str) -> Result<Self, DatabaseError> {
+        let database = Self {
+            client: Client::connect_postgres(config).await?,
         };
         replica::up(&database).await?;
         Ok(database)
@@ -133,9 +152,15 @@ database!(
     |database: &MemoryDatabase| database.database.client(),
     |database: &MemoryDatabase| Some(database.storage.clone())
 );
-#[cfg(feature = "network")]
+#[cfg(feature = "postgres")]
 database!(
     NetworkDatabase,
     |database: &NetworkDatabase| database.client.clone(),
     |_: &NetworkDatabase| None
+);
+#[cfg(feature = "network")]
+database!(
+    RemoteDatabase,
+    |database: &RemoteDatabase| database.client.clone(),
+    |_: &RemoteDatabase| None
 );

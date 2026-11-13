@@ -11,6 +11,7 @@ description = "Shared SQL database adapters for embedded, memory, and network ac
 [features]
 default = []
 network = ["db/remote"]
+postgres = ["db/postgres"]
 
 [dependencies]
 # Internal

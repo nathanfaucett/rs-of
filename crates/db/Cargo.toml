@@ -16,6 +16,7 @@ name = "db"
 default = ["native", "replica"]
 native = ["dep:ofdb-sql", "ofdb-sql/redb"]
 replica = ["native", "ofdb-sql/in-memory", "ofdb-sql/macros"]
+postgres = ["replica", "ofdb-sql/postgres"]
 remote = ["replica", "ofdb-sql/remote", "dep:serde", "dep:tokio", "dep:url"]
 network = ["native", "ofdb-sql/validated-history", "dep:iroh"]
 server = ["native", "ofdb-sql/server"]
