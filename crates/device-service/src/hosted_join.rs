@@ -12,7 +12,11 @@ pub use of_model::node_join::{NodeJoinApproval, NodeJoinRequest};
 pub trait NodeJoinRequestExt: Sized {
     fn validate_trusted_peer(peer: &str) -> io::Result<()>;
     fn validate(&self) -> io::Result<()>;
-    async fn send(&self, server: &Server, peer: EndpointAddr) -> io::Result<NodeJoinApproval>;
+    fn send<'a>(
+        &'a self,
+        server: &'a Server,
+        peer: EndpointAddr,
+    ) -> impl Future<Output = io::Result<NodeJoinApproval>> + Send + 'a;
 }
 
 impl NodeJoinRequestExt for NodeJoinRequest {
@@ -44,21 +48,27 @@ impl NodeJoinRequestExt for NodeJoinRequest {
         Ok(())
     }
 
-    async fn send(&self, server: &Server, peer: EndpointAddr) -> io::Result<NodeJoinApproval> {
-        self.validate()?;
-        if server.endpoint().id().to_string() != self.endpoint_id
-            || peer.id.to_string() != self.approving_peer
-        {
-            return Err(invalid(
-                "join endpoint or pinned peer does not match request",
-            ));
+    fn send<'a>(
+        &'a self,
+        server: &'a Server,
+        peer: EndpointAddr,
+    ) -> impl Future<Output = io::Result<NodeJoinApproval>> + Send + 'a {
+        async move {
+            self.validate()?;
+            if server.endpoint().id().to_string() != self.endpoint_id
+                || peer.id.to_string() != self.approving_peer
+            {
+                return Err(invalid(
+                    "join endpoint or pinned peer does not match request",
+                ));
+            }
+            let reply = server
+                .send_pairing_offer(peer, &serde_json::to_vec(self)?)
+                .await?;
+            let approval: NodeJoinApproval = serde_json::from_slice(&reply)?;
+            approval.verify(self)?;
+            Ok(approval)
         }
-        let reply = server
-            .send_pairing_offer(peer, &serde_json::to_vec(self)?)
-            .await?;
-        let approval: NodeJoinApproval = serde_json::from_slice(&reply)?;
-        approval.verify(self)?;
-        Ok(approval)
     }
 }
 

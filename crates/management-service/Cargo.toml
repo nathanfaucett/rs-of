@@ -20,7 +20,7 @@ std = ["of-model/std"]
 
 [dependencies]
 # Internal
-of-model = { path = "../of-model", default-features = false, features = [] }
+of-model = { path = "../model", default-features = false, features = [] }
 db = { package = "idp-db", path = "../db", default-features = false, optional = true }
 
 # Error handling
@@ -33,15 +33,23 @@ serde = { version = "1.0", default-features = false }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 # OpenAPI
-utoipa = { version = "5.5", default-features = false, features = ["macros", "uuid"], optional = true }
-utoipa-gen = { version = "5.5", default-features = false, features = ["uuid"], optional = true }
+utoipa = { version = "5.5", default-features = false, features = [
+    "macros",
+    "uuid",
+], optional = true }
+utoipa-gen = { version = "5.5", default-features = false, features = [
+    "uuid",
+], optional = true }
 
 [dev-dependencies]
 # Internal
-of-model = { path = "../of-model", default-features = false, features = ["std"] }
+of-model = { path = "../model", default-features = false, features = ["std"] }
 
 # Async
 tokio = { version = "1.52", default-features = false, features = [
     "macros",
     "rt",
 ] }
+
+[lints]
+workspace = true

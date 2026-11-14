@@ -306,7 +306,7 @@ try {
     run("rustfmt", ["--edition", "2024", path.join(shared, "mod.rs")]);
     replacements.push([
       shared,
-      path.join(root, "crates/of-model/src/http", modelOwner),
+      path.join(root, "crates/model/src/http", modelOwner),
     ]);
     const crateName =
       name === "storage" ? "storage-api-client" : `${name}-client`;

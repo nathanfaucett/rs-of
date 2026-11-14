@@ -11,8 +11,6 @@ use of_model::idp::{
     contract::{ErrorCode, ErrorResponse},
     model::Id,
 };
-use of_model::storage::ResourceKind;
-use serde::Deserialize;
 
 use crate::router::{RouterState, middleware::DeviceAuthorization};
 

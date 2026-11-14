@@ -1,6 +1,6 @@
 pub use of_model::server::storage::resources::{
     CreateResourceRequest, DatabaseDetailResponse, EnsureDatabaseRequest, FileSystemDetailResponse,
-    FileSystemResourceResponse, SyncConnectRequest, SyncDirection, SyncSessionResponse, SyncStatus,
+    FileSystemResourceResponse, SyncConnectRequest, SyncSessionResponse, SyncStatus,
 };
 use std::sync::Arc;
 
@@ -12,7 +12,6 @@ use axum::{
 };
 use iroh::EndpointId;
 use of_model::idp::model::Id;
-use serde::{Deserialize, Serialize};
 use storage_service::{
     DatabaseId, DatabaseResource, FileSystemId, FileSystemResource, ScopedFileSystemRuntime,
 };
@@ -504,7 +503,7 @@ pub(super) async fn delete_file_system(
 #[cfg(test)]
 mod tests {
     use std::{
-        io::{Read, Write},
+        io::Write,
         net::TcpListener,
         thread,
     };

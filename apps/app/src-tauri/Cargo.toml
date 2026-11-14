@@ -61,7 +61,7 @@ tokio-util = { version = "0.7", default-features = false, features = ["rt"] }
 device-server = { path = "../../../crates/device-server", default-features = false }
 idp-server = { path = "../../../crates/idp-server", default-features = false }
 management-server = { path = "../../../crates/management-server", default-features = false }
-of-model = { path = "../../../crates/of-model", default-features = false, features = [
+of-model = { path = "../../../crates/model", default-features = false, features = [
     "replica",
     "std",
 ] }
@@ -94,3 +94,6 @@ keyring-core = { version = "1.0", default-features = false, features = [] }
 
 # Utilities
 uuid = { version = "1.29", default-features = false, features = ["std", "v4"] }
+
+[lints]
+workspace = true

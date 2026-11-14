@@ -1,5 +1,6 @@
 use std::{collections::BTreeMap, io, path::PathBuf, sync::Arc, time::Duration};
 
+use futures::stream::StreamExt;
 use iroh::EndpointId;
 use iroh_chain::Server;
 use of_model::contract::SelectedResource;
@@ -154,16 +155,19 @@ impl StorageReplicationRuntime {
         admission.fence();
         changes.send_replace(true);
         self.policy_task = Some(tokio::spawn(async move {
+            let events = subscription.events();
+            futures::pin_mut!(events);
             loop {
-                let changed = tokio::select! {
+                tokio::select! {
                     biased;
                     () = lifetime.cancelled() => break,
-                    result = subscription.changed() => result,
-                };
-                admission.fence();
-                if changed.is_err() {
-                    break;
+                    event = events.as_mut().next() => {
+                        if event.is_none() {
+                            break;
+                        }
+                    }
                 }
+                admission.fence();
                 changes.send_modify(|_| {});
             }
             admission.fence();

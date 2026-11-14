@@ -38,7 +38,7 @@ function digest() {
     "crates/device-client",
     "crates/storage-client",
     "crates/storage-api-client",
-    "crates/of-model/src/http",
+    "crates/model/src/http",
   ])
     visit(path.join(root, dir));
   return hash.digest("hex");
@@ -145,7 +145,7 @@ if (args.includes("generate")) {
     if (language === "rust") {
         const models = path.join(output, "src/models");
         rmSync(models, {recursive: true});
-        cpSync(path.join(${JSON.stringify(root)}, "crates/of-model/src/http/idp"), models, {recursive: true});
+        cpSync(path.join(${JSON.stringify(root)}, "crates/model/src/http/idp"), models, {recursive: true});
         for (const file of readdirSync(models)) {
             const target = path.join(models, file);
             const source = readFileSync(target, "utf8").replace(/use alloc::[^;]+;\\n/g, "").replaceAll("use crate::http::idp as models;", "use crate::models;").replaceAll("core::fmt", "std::fmt");

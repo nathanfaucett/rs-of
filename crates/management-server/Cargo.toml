@@ -18,9 +18,8 @@ path = "src/main.rs"
 required-features = ["cli"]
 
 [features]
-default = ["cli", "swagger-ui"]
+default = ["cli"]
 cli = ["dep:clap", "dep:cli", "dep:dotenvy", "dep:tokio-util"]
-swagger-ui = ["dep:utoipa-swagger-ui"]
 
 [dependencies]
 # Async
@@ -52,7 +51,7 @@ device-service = { path = "../device-service", default-features = false, feature
     "std",
     "utoipa",
 ] }
-of-model = { path = "../of-model", default-features = false, features = [
+of-model = { path = "../model", default-features = false, features = [
     "axum",
     "replica",
     "std",
@@ -94,21 +93,3 @@ uuid = { version = "1.29", default-features = false, features = [
 ] }
 utoipa = { version = "5.5", default-features = false, features = ["macros"] }
 utoipa-axum = { version = "0.2", default-features = false }
-utoipa-swagger-ui = { version = "9.0", default-features = false, features = [
-    "axum",
-], optional = true }
-
-[dev-dependencies]
-# Database test owner
-db = { package = "idp-db", path = "../db", default-features = false, features = [
-    "server",
-] }
-
-# Async
-tokio = { version = "1.52", default-features = false, features = [
-    "macros",
-    "rt-multi-thread",
-] }
-
-# Web
-tower = { version = "0.5", default-features = false, features = ["util"] }

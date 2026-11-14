@@ -510,7 +510,7 @@ where
 mod tests {
     use std::sync::Arc;
 
-    use of_model::idp::{contract::INSTALLATION_POLICY_ID, model::Id};
+    use of_model::idp::model::Id;
 
     use crate::{
         ManagementService,

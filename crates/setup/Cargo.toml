@@ -86,3 +86,6 @@ tempfile = { version = "3.27", default-features = false }
 tokio = { version = "1.52", default-features = false, features = [
     "rt-multi-thread",
 ] }
+
+[lints]
+workspace = true

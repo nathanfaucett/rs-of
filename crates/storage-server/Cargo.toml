@@ -18,13 +18,17 @@ path = "src/main.rs"
 required-features = ["cli"]
 
 [features]
-default = ["cli", "completions", "swagger-ui"]
-independent = ["network", "dep:setup", "server-common/independent", "device-service/independent"]
+default = ["cli", "completions"]
+independent = [
+    "network",
+    "dep:setup",
+    "server-common/independent",
+    "device-service/independent",
+]
 cli = ["independent", "network", "dep:dotenvy", "dep:clap", "dep:cli"]
 network = ["dep:tokio", "dep:tokio-util"]
 sync = ["network", "dep:futures-util", "dep:crc32fast"]
 completions = ["cli?/completions"]
-swagger-ui = ["utoipa-swagger-ui"]
 
 [dependencies]
 # Shared SQL stream framing
@@ -54,7 +58,7 @@ server-common = { path = "../server-common", default-features = false, features 
 setup = { workspace = true, optional = true }
 file-system = { path = "../../../offs/crates/file-system", default-features = false, features = [
 ] }
-of-model = { path = "../of-model", default-features = false, features = [
+of-model = { path = "../model", default-features = false, features = [
     "axum",
     "std",
     "utoipa",
@@ -92,7 +96,6 @@ serde = { version = "1.0", default-features = false, features = [
     "std",
 ] }
 serde_json = { version = "1.0", default-features = false, features = ["std"] }
-serde_qs = { version = "1.1", default-features = false, features = ["axum"] }
 
 # Utilities
 bytes = { version = "1.11", default-features = false, features = ["std"] }
@@ -101,6 +104,25 @@ uuid = { version = "1.29", default-features = false, features = [
     "std",
     "v4",
     "v7",
+] }
+tokio = { version = "1.52", default-features = false, features = [
+    "macros",
+    "rt-multi-thread",
+], optional = true }
+tokio-util = { version = "0.7", default-features = false, features = [
+], optional = true }
+futures = { version = "0.3", default-features = false, features = [
+    "std",
+], optional = true }
+futures-util = { version = "0.3", default-features = false, features = [
+    "sink",
+    "std",
+], optional = true }
+crc32fast = { version = "1.5", default-features = false, optional = true }
+log = { version = "0.4", default-features = false, features = ["std"] }
+env_logger = { version = "0.10", default-features = false, optional = true }
+ofdb-sync = { path = "../../../ofdb/crates/sync", default-features = false, features = [
+    "std",
 ] }
 
 # Web
@@ -126,70 +148,3 @@ utoipa = { version = "5.5", default-features = false, features = [
     "uuid",
 ] }
 utoipa-axum = { version = "0.2", default-features = false, features = [] }
-utoipa-swagger-ui = { version = "9.0", default-features = false, features = [
-    "axum",
-], optional = true }
-
-# Iroh
-iroh-chain = { path = "../../../ofnet/crates/iroh-chain", default-features = false, features = [
-] }
-
-# Async
-tokio = { version = "1.52", default-features = false, features = [
-    "fs",
-    "io-util",
-    "macros",
-    "rt-multi-thread",
-    "time",
-], optional = true }
-tokio-util = { version = "0.7", default-features = false, features = [
-], optional = true }
-futures-util = { version = "0.3", default-features = false, features = [
-    "sink",
-    "std",
-], optional = true }
-crc32fast = { version = "1.5", default-features = false, optional = true }
-
-# Logging
-log = { version = "0.4", default-features = false, features = ["std"] }
-env_logger = { version = "0.10", default-features = false, features = [] }
-
-# Database synchronization
-[dependencies.ofdb-sync]
-package = "ofdb-sync"
-version = "0.1"
-path = "../../../ofdb/crates/sync"
-default-features = false
-features = ["std", "iroh"]
-
-[dev-dependencies]
-# Async
-tokio = { version = "1.52", default-features = false, features = [
-    "macros",
-    "rt-multi-thread",
-] }
-
-# Local owner services
-idp-db = { path = "../db", default-features = false, features = ["replica"] }
-
-idp-service = { path = "../idp-service", default-features = false, features = [
-    "replica",
-] }
-management-service = { path = "../management-service", default-features = false, features = [
-    "replica",
-] }
-
-# Web
-
-tower = { version = "0.5", default-features = false, features = ["util"] }
-
-# WebSocket protocol tests
-[dev-dependencies.tokio-tungstenite]
-version = "0.29"
-default-features = false
-features = ["connect", "handshake"]
-
-[dev-dependencies.server-common]
-path = "../server-common"
-default-features = false
-features = ["test-support"]

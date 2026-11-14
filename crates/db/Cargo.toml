@@ -43,3 +43,6 @@ ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-fe
 iroh = { version = "1.4", default-features = false, features = [
     "tls-ring",
 ], optional = true }
+
+[lints]
+workspace = true

@@ -4,7 +4,6 @@ use axum::{
 };
 use of_model::idp::contract::ErrorResponse;
 pub use of_model::server::management::users::UserApplicationRoleResponse;
-use serde::{Deserialize, Serialize};
 
 use crate::router::{RouterState, middleware::ManagementAuthorization};
 

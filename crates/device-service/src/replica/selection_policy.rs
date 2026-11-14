@@ -1,6 +1,6 @@
 use crate::DeviceState;
 use db::{
-    Client, FromRow, FromRowError, Query, QueryColumn, QueryExpr, QueryExprValue, QueryFrom,
+    Client, Query, QueryColumn, QueryExpr, QueryExprValue, QueryFrom,
     QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid, Value,
 };
 use of_model::device::ResourceSelection;

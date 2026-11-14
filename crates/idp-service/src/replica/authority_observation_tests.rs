@@ -2,6 +2,7 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD};
 use chrono::Utc;
+use k256::ecdsa::SigningKey;
 use of_model::idp::{
     contract::{
         EntityType, IdpSignerRecord, JwkPublic, JwkPublicParameters, JwsAlgorithm, KeyUse,
@@ -9,7 +10,6 @@ use of_model::idp::{
     },
     model::Id,
 };
-use k256::ecdsa::SigningKey;
 use ofdb_sql::{
     AutomergeRowCodec, Engine, EngineExecutor, Kernel, KernelTransaction, RedbKernel, RowCodec,
     Server, redb,
@@ -47,8 +47,7 @@ impl Fixture {
             reads: Arc::clone(&reads),
         };
         let engine = Engine::new(kernel.clone(), AutomergeRowCodec::new());
-        let migration =
-            include_str!("../../../of-model/identity_migrations/0001_init.up.sql");
+        let migration = include_str!("../../../model/identity_migrations/0001_init.up.sql");
         for statement in migration.split(';').map(str::trim).filter(|statement| {
             statement.starts_with("CREATE TABLE IF NOT EXISTS keys (")
                 || statement.starts_with("CREATE TABLE IF NOT EXISTS idp_replica_members (")

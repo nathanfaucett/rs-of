@@ -6,7 +6,6 @@ use of_model::idp::contract::{ErrorCode, ErrorResponse};
 pub use of_model::server::management::permissions::{
     CreatePermissionRequest, ListPermissionsQuery, PermissionResponse,
 };
-use serde::{Deserialize, Serialize};
 
 use crate::router::{RouterState, middleware::ManagementAuthorization};
 

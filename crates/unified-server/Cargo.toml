@@ -28,12 +28,6 @@ independent-contracts = [
 ]
 cli = ["dep:clap", "dep:cli", "dep:env_logger", "tokio/signal"]
 completions = ["cli", "dep:clap_complete"]
-swagger-ui = [
-    "idp-server/swagger-ui",
-    "management-server/swagger-ui",
-    "device-server/swagger-ui",
-    "storage-server/swagger-ui",
-]
 
 [dependencies]
 # CLI
@@ -116,7 +110,7 @@ device-service = { path = "../device-service", default-features = false, feature
     "std",
     "utoipa",
 ] }
-of-model = { path = "../of-model", default-features = false, features = [
+of-model = { path = "../model", default-features = false, features = [
     "replica",
     "std",
 ] }
@@ -131,3 +125,6 @@ tempfile = { version = "3.27", default-features = false }
 [[example]]
 name = "export-openapi"
 required-features = ["independent-contracts"]
+
+[lints]
+workspace = true

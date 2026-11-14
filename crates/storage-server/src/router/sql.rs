@@ -4,13 +4,12 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 pub use of_model::server::storage::sql::{
-    DatabaseFailure, SqlRequest, SqlResponse, SqlResult, SqlStatement, SqlValue,
+    DatabaseFailure, SqlRequest, SqlResponse, SqlResult, SqlValue,
 };
 use ofdb_sql::{
     DataDefinition, ErrorKind, Query, QueryColumn, QueryExpr, QueryParams, SqlTranslator,
     Statement, Translator, Value,
 };
-use serde::{Deserialize, Serialize};
 use storage_service::DatabaseId;
 
 use super::{ResourceState, authorization, authorize_response, namespace};

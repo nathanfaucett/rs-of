@@ -35,12 +35,12 @@ db = { package = "idp-db", path = "../db", default-features = false, features = 
 ] }
 
 key = { path = "../key", default-features = false, features = ["secure-store"] }
-of-model = { path = "../of-model", default-features = false, features = [
-    "std",
-] }
+of-model = { path = "../model", default-features = false, features = ["std"] }
 
 # Local private storage
-ofdb-kv = { path = "../../../ofdb/crates/kv", default-features = false, features = ["redb"], optional = true }
+ofdb-kv = { path = "../../../ofdb/crates/kv", default-features = false, features = [
+    "redb",
+], optional = true }
 
 # Cryptography
 k256 = { version = "0.13", default-features = false, features = ["ecdsa"] }
@@ -87,12 +87,13 @@ ofdb-sql = { path = "../../../ofdb/crates/sql", default-features = false, featur
 ] }
 
 # Existing test dependencies
-of-model = { path = "../of-model", default-features = false, features = [
-    "std",
-] }
+of-model = { path = "../model", default-features = false, features = ["std"] }
 tokio = { version = "1.4", default-features = false, features = [
     "macros",
     "rt",
     "sync",
     "time",
 ] }
+
+[lints]
+workspace = true

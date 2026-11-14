@@ -35,7 +35,6 @@ std = [
 
 [dependencies]
 # Cryptography
-ripemd = { version = "0.2", default-features = false, features = [] }
 bip32 = { version = "0.5", default-features = false, features = [
     "bip39",
     "secp256k1",
@@ -76,3 +75,6 @@ apple-native-keyring-store = { version = "1.0", default-features = false, featur
 [target.'cfg(target_os = "android")'.dependencies]
 android-native-keyring-store = { version = "1.0", default-features = false, features = [
 ], optional = true }
+
+[lints]
+workspace = true

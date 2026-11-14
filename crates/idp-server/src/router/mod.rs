@@ -14,5 +14,5 @@ pub(crate) use middleware::{
     require_identity_permission_for_audience,
 };
 pub use openapi_router::{openapi_document, openapi_router};
-pub use public_metadata::{public_metadata_router, version_router};
+pub use public_metadata::public_metadata_router;
 pub use state::RouterState;

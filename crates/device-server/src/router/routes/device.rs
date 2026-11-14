@@ -1,7 +1,5 @@
 use axum::{Json, extract::State, http::StatusCode};
 pub use of_model::server::device::device::Device;
-use serde::Serialize;
-use utoipa::ToSchema;
 
 use crate::RouterState;
 

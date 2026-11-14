@@ -4,11 +4,10 @@ use axum::{
     response::Redirect,
 };
 use of_model::idp::contract::{
-    ApplicationRegistration, AuthorizationCodeResponse, AuthorizationRequest,
+    AuthorizationCodeResponse, AuthorizationRequest,
     AuthorizationUiRequest, ErrorCode, ErrorResponse, ResponseType,
 };
 pub use of_model::server::idp::auth::OnboardingRegistration;
-use serde::Deserialize;
 
 use crate::router::{RouterState, middleware::StandardAuthorization};
 

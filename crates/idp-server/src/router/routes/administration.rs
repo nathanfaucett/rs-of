@@ -13,7 +13,6 @@ use of_model::idp::{
 pub use of_model::server::idp::administration::{
     Page, ResetPassword, SetUserBlockedRequest, SetUserMfaRequest,
 };
-use serde::Deserialize;
 
 use crate::router::{
     RouterState,

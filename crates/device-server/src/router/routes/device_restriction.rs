@@ -11,7 +11,6 @@ use of_model::idp::{
     model::Id,
 };
 pub use of_model::server::device::device_restriction::DeviceRestriction;
-use serde::{Deserialize, Serialize};
 
 use crate::router::{RouterState, middleware::DeviceAuthorization};
 

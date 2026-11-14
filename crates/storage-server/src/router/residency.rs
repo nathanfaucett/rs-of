@@ -5,7 +5,6 @@ use axum::{
 };
 use iroh::EndpointId;
 pub use of_model::server::storage::residency::{ResidencyMode, ResourceResidency};
-use serde::{Deserialize, Serialize};
 use storage_service::{FileSystemId, ScopedFileSystemRuntime};
 
 use super::{ResourceState, StorageNamespace, authorization, authorize_response, namespace};

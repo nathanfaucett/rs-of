@@ -47,8 +47,7 @@ impl Fixture {
             reads: Arc::clone(&reads),
         };
         let engine = Engine::new(kernel.clone(), AutomergeRowCodec::new());
-        let migration =
-            include_str!("../../../of-model/identity_migrations/0001_init.up.sql");
+        let migration = include_str!("../../../model/identity_migrations/0001_init.up.sql");
         for statement in migration.split(';').map(str::trim).filter(|statement| {
             statement.starts_with("CREATE TABLE IF NOT EXISTS clients (")
                 || statement.starts_with("CREATE TABLE IF NOT EXISTS local_client_credentials (")

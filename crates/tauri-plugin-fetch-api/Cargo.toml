@@ -31,3 +31,6 @@ linux = { level = "full" }
 macos = { level = "full" }
 android = { level = "full" }
 ios = { level = "full" }
+
+[lints]
+workspace = true

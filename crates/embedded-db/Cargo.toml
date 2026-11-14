@@ -18,7 +18,7 @@ postgres = ["db/postgres"]
 db = { package = "idp-db", path = "../db", default-features = false, features = [
     "replica",
 ] }
-of-model = { path = "../of-model", default-features = false, features = [
+of-model = { path = "../model", default-features = false, features = [
     "replica",
 ] }
 
@@ -38,3 +38,6 @@ tokio = { version = "1.52", default-features = false, features = [
     "sync",
     "time",
 ] }
+
+[lints]
+workspace = true

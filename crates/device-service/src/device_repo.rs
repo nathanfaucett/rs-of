@@ -1,6 +1,6 @@
 use alloc::{string::String, vec::Vec};
 
-use crate::{Device, DeviceState, TrustedDevice};
+use crate::{Device, TrustedDevice};
 
 use crate::DeviceResult;
 

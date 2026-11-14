@@ -6,14 +6,12 @@ use axum::{
 use idp_service::repo::RepoError;
 use of_model::idp::{
     contract::{
-        ErrorCode, ErrorResponse, IdentityAction, IdentityResource, IdpSignerRecord, JwkPublic,
+        ErrorCode, ErrorResponse, IdentityAction, IdentityResource, IdpSignerRecord,
         PermissionTarget, ReplicaMembership,
     },
     model::Id,
 };
 pub use of_model::server::idp::replica_signers::{EnrollReplicaSigner, RotateReplicaSigner};
-use serde::Deserialize;
-use utoipa::ToSchema;
 
 use crate::router::{
     RouterState,
