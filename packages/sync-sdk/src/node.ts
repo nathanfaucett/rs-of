@@ -25,6 +25,9 @@ import {
   FileEntry,
 } from "./core";
 
+/** Document type that must have an id property for database operations. */
+type WithId = { id: string; [key: string]: unknown };
+
 /** Node.js sync SDK implementation */
 export class NodeSyncSDK extends EventEmitter implements SyncSDK {
   private storageClient: StorageClient;
@@ -271,10 +274,11 @@ class NodeDatabaseHandle<T = unknown> implements DatabaseHandle<T> {
   }
 
   async upsert(doc: T): Promise<void> {
-    const id = (doc as any).id;
-    const keys = Object.keys(doc as object).filter((k) => k !== "id");
+    const withId = doc as WithId;
+    const { id, ...rest } = withId;
+    const keys = Object.keys(rest);
     const columns = keys.join(", ");
-    const values = keys.map((k) => (doc as any)[k]);
+    const values = keys.map((k) => rest[k]);
     const placeholders = values.map(() => "?").join(", ");
     const sqlQuery = `INSERT OR REPLACE INTO data (id, ${columns}) VALUES (?, ${placeholders})`;
     await this.execute(sqlQuery, [id, ...values]);
@@ -306,6 +310,7 @@ class NodeDatabaseHandle<T = unknown> implements DatabaseHandle<T> {
       const transport = new JsSqlSyncTransport({
         send: (data: Uint8Array) => {
           syncSession.send(data);
+          return Promise.resolve();
         },
         receive: () => syncSession.receive(),
       });

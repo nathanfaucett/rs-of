@@ -5360,7 +5360,6 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "iroh",
- "js-sys",
  "ofdb-btree",
  "ofdb-platform",
  "postcard",
@@ -5368,9 +5367,6 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "uuid",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
 ]
 
 [[package]]

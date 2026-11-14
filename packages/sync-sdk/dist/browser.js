@@ -239,10 +239,11 @@ class BrowserDatabaseHandle {
         return this._changes$.asObservable();
     }
     async upsert(doc) {
-        const id = doc.id;
-        const keys = Object.keys(doc).filter((k) => k !== "id");
+        const withId = doc;
+        const { id, ...rest } = withId;
+        const keys = Object.keys(rest);
         const columns = keys.join(", ");
-        const values = keys.map((k) => doc[k]);
+        const values = keys.map((k) => rest[k]);
         const placeholders = values.map(() => "?").join(", ");
         const sql = `INSERT OR REPLACE INTO data (id, ${columns}) VALUES (?, ${placeholders})`;
         await this.execute(sql, [id, ...values]);
@@ -268,6 +269,7 @@ class BrowserDatabaseHandle {
             const transport = new JsSqlSyncTransport({
                 send: (data) => {
                     syncSession.send(data);
+                    return Promise.resolve();
                 },
                 receive: () => syncSession.receive(),
             });
