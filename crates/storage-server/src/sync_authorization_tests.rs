@@ -115,7 +115,7 @@ async fn local_ws_requires_database_capability_and_rechecks_revocation() {
     };
     let response = Arc::new(Mutex::new(json!({
         "claims": { "type": "Bearer", "use": "Access", "exp": i64::MAX, "iat": 0, "nbf": 0,
-            "iss": "https://idp.example", "aud": "storage:databases", "resource": "storage:databases",
+            "iss": "https://idp.example", "aud": "storage:sync", "resource": "storage:sync",
             "authorization_details": [{ "type": "storage", "actions": ["read", "write"] }],
             "client_id": "client", "sub": "alice", "principal_type": "user", "scope": "" },
         "applicationId": uuid::Uuid::now_v7().to_string()

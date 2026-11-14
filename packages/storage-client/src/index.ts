@@ -484,6 +484,15 @@ export class StorageClient {
     return new StorageSocket(socket);
   }
 
+  /** Get a Storage capability token for a resource and actions */
+  async getStorageToken(
+    resource: string,
+    actions: ("read" | "write")[],
+    signal?: AbortSignal,
+  ): Promise<string> {
+    return this.exchangeToken(actions, signal, resource);
+  }
+
   private async exchangeToken(
     actions: ("read" | "write")[],
     signal?: AbortSignal,
@@ -575,44 +584,47 @@ function opened(socket: WebSocket, signal?: AbortSignal): Promise<void> {
     };
     const onError = () => {
       cleanup();
-      reject(new Error("Storage socket failed to open"));
+      reject(new Error("Storage socket opening failed"));
     };
+    socket.addEventListener("open", onOpen, { once: true });
+    socket.addEventListener("error", onError, { once: true });
+    socket.addEventListener("close", onError, { once: true });
     signal?.addEventListener("abort", onAbort, { once: true });
-    socket.addEventListener("close", onError);
-    socket.addEventListener("open", onOpen);
-    socket.addEventListener("error", onError);
   });
 }
 
 function receive(socket: WebSocket): Promise<StorageResponse> {
+  if (socket.readyState !== WebSocket.OPEN) {
+    return Promise.reject(new Error("Storage socket not open"));
+  }
   return new Promise((resolve, reject) => {
     const cleanup = () => {
       socket.removeEventListener("message", onMessage);
-      socket.removeEventListener("close", onClose);
       socket.removeEventListener("error", onError);
+      socket.removeEventListener("close", onError);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const onAbort = () => {
+      cleanup();
+      reject(new Error("Storage request cancelled"));
     };
     const onMessage = (event: MessageEvent) => {
       cleanup();
-      if (typeof event.data !== "string") {
-        reject(new Error("Storage socket returned a non-text response"));
-        return;
-      }
       try {
-        resolve(JSON.parse(event.data) as StorageResponse);
+        const response = JSON.parse(event.data) as StorageResponse;
+        resolve(response);
       } catch {
-        reject(new Error("Storage socket returned an invalid response"));
+        reject(new Error("Invalid storage response"));
       }
-    };
-    const onClose = () => {
-      cleanup();
-      reject(new Error("Storage socket closed"));
     };
     const onError = () => {
       cleanup();
-      reject(new Error("Storage socket failed"));
+      reject(new Error("Storage socket error"));
     };
-    socket.addEventListener("message", onMessage);
-    socket.addEventListener("close", onClose);
-    socket.addEventListener("error", onError);
+    socket.addEventListener("message", onMessage, { once: true });
+    socket.addEventListener("error", onError, { once: true });
+    socket.addEventListener("close", onError, { once: true });
+    const signal = new AbortController().signal;
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 }

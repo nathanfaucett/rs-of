@@ -173,8 +173,8 @@ impl Fixture {
                 "applicationId": application.to_string()
             });
             if local {
-                response["claims"]["aud"] = json!("storage:databases");
-                response["claims"]["resource"] = json!("storage:databases");
+                response["claims"]["aud"] = json!("storage:sync");
+                response["claims"]["resource"] = json!("storage:sync");
                 response["claims"]["authorization_details"] =
                     json!([{ "type": "storage", "actions": ["read", "write"] }]);
             }

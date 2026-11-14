@@ -272,7 +272,7 @@ async fn authorize_session(
                 SyncAuthError::BackendUnavailable
             }
         })?;
-    if authorization.resource != "storage:databases"
+    if authorization.resource != "storage:sync"
         || !authorization.can_read
         || !authorization.can_write
     {

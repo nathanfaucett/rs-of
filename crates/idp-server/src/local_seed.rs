@@ -121,6 +121,7 @@ pub async fn seed(state: &RouterState, origin: &str) -> io::Result<()> {
         management_service::MANAGEMENT_APPLICATION_URI.into(),
         "storage:databases".into(),
         "storage:filesystems".into(),
+        "storage:sync".into(),
     ];
     for (id, redirect) in [
         ("app", Some(app_redirect.clone())),

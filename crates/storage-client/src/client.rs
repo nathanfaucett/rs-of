@@ -202,7 +202,7 @@ impl StorageClient {
             .map_err(|e| StorageClientError::KvStore(e.to_string()))?;
         Ok(KvStoreHandle::new(database, self.identity(id)))
     }
-    async fn get_storage_token(&self, resource: &str, actions: &[&str]) -> Result<String> {
+    pub async fn get_storage_token(&self, resource: &str, actions: &[&str]) -> Result<String> {
         let subject_token = (self.token_provider)(resource, actions).await?;
         let details = serde_json::json!([{"type": "storage", "actions": actions}]).to_string();
         let response = self

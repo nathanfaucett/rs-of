@@ -26,6 +26,9 @@ export class BrowserSyncSDK {
             clientId: config.appId,
             bearerToken: config.getToken,
         });
+        // Provide Storage capability token exchange using the StorageClient
+        const storageClient = this.storageClient;
+        config.getStorageToken = async (resource, actions) => storageClient.getStorageToken(resource, actions);
     }
     /** Initialize the sync client */
     async initSyncClient() {
@@ -291,7 +294,7 @@ class BrowserDatabaseHandle {
             return this.syncClient;
         this.syncClient = new SyncClient({
             storageApiUrl: this.config.apiUrl,
-            tokenProvider: () => this.config.getToken(),
+            tokenProvider: () => this.config.getStorageToken("storage:sync", ["read", "write"]),
         });
         return this.syncClient;
     }

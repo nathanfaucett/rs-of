@@ -6,8 +6,10 @@ export interface SyncConfig {
     appId: string;
     /** User ID */
     userId: string;
-    /** Function to get sync access token */
+    /** Function to get sync access token (OIDC) */
     getToken: () => Promise<string>;
+    /** Function to get Storage capability token for a resource and actions */
+    getStorageToken: (resource: string, actions: ("read" | "write")[]) => Promise<string>;
 }
 /** Change event types */
 export type ChangeEventType = "local-upsert" | "local-delete" | "remote-upsert" | "remote-delete" | "ack" | "conflict";
