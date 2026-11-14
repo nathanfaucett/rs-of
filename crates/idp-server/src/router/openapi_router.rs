@@ -191,7 +191,7 @@ mod tests {
                 .filter_map(|operation| operation["operationId"].as_str())
                 .collect::<Vec<_>>();
             assert_eq!(operations.len(), 44, "complete IdP operation inventory");
-            assert_eq!(operations.iter().collect::<BTreeSet<_>>().len(), 40);
+            assert_eq!(operations.iter().collect::<BTreeSet<_>>().len(), 44);
             assert!(document["paths"]["/openapi.json"]["get"]["operationId"].is_string());
             let mut registered_paths = paths.clone();
             registered_paths.remove("/openapi.json");
