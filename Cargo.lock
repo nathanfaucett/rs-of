@@ -5077,6 +5077,7 @@ dependencies = [
  "async-lock",
  "async-stream",
  "automerge 0.10.0",
+ "base64 0.21.7",
  "futures",
  "ofdb-btree",
  "ofdb-platform",
