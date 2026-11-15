@@ -107,8 +107,6 @@ jobs:
         with:
           name: real-backend-e2e
           path: |
-            of/.scratch/e2e-results
-            of/.scratch/e2e-report
             of/apps/*/.vitest-attachments
             of/apps/**/__screenshots__
           include-hidden-files: true

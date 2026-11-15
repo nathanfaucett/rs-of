@@ -1,6 +1,4 @@
 /target
-/.scratch/e2e-results/
-/.scratch/e2e-report/
 /node_modules
 /.env*
 !/.env.example

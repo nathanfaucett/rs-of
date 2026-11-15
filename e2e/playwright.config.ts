@@ -12,7 +12,7 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0,
-  outputDir: "../.scratch/e2e-results",
+  outputDir: "./.results",
   reporter: [
     ["list"],
     ["html", { outputFolder: `${root}.scratch/e2e-report`, open: "never" }],
