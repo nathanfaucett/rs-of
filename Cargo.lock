@@ -1624,7 +1624,6 @@ dependencies = [
  "config",
  "device-service",
  "dotenvy",
- "embedded-db",
  "env_logger",
  "http",
  "idp-db",
@@ -3206,8 +3205,11 @@ name = "idp-db"
 version = "0.1.0"
 dependencies = [
  "iroh",
+ "of-model",
+ "ofdb-btree-redb",
  "ofdb-sql",
  "serde",
+ "thiserror 2.0.21",
  "tokio",
  "url",
 ]
@@ -3224,7 +3226,6 @@ dependencies = [
  "config",
  "device-service",
  "dotenvy",
- "embedded-db",
  "env_logger",
  "http",
  "idp-db",
@@ -4040,7 +4041,6 @@ dependencies = [
  "config",
  "device-service",
  "dotenvy",
- "embedded-db",
  "http",
  "idp-db",
  "log",
@@ -5156,7 +5156,6 @@ dependencies = [
  "ofdb-sql-engine-indexeddb",
  "ofdb-sql-engine-redb",
  "ofdb-sql-history",
- "ofdb-sql-macros",
  "ofdb-sql-query",
  "ofdb-sql-schema",
  "ofdb-sql-server",
@@ -5262,15 +5261,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "uuid",
-]
-
-[[package]]
-name = "ofdb-sql-macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro-crate 3.5.0",
- "quote",
- "syn 2.0.119",
 ]
 
 [[package]]
@@ -7295,7 +7285,6 @@ dependencies = [
  "crc32fast",
  "device-service",
  "dotenvy",
- "embedded-db",
  "env_logger",
  "file-system",
  "futures",
@@ -8631,8 +8620,8 @@ dependencies = [
  "cli",
  "device-server",
  "device-service",
- "embedded-db",
  "env_logger",
+ "idp-db",
  "idp-server",
  "management-server",
  "of-model",

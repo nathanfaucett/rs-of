@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use axum::Router;
+use db::local_database;
 use device_service::hosted_control_plane::HostedControlPlane;
 use device_service::ofdb::device_repo::DbDeviceRepo;
 use device_service::ofdb::selection_policy::DbSelectionPolicyRepo;
@@ -12,6 +13,7 @@ use of_model::device::contract::device_endpoint_identity::DeviceEndpointIdentity
 use of_model::device::selection_policy::OwnerPolicyObservation;
 use of_model::id::Id;
 use ofdb_sql::Client;
+use ofdb_sql::Database as SqlDatabase;
 
 use crate::router::{openapi_router::openapi_router, state::RouterState};
 
@@ -65,10 +67,11 @@ pub async fn build_local_router(
     data_dir: &std::path::Path,
     _port: u16,
     idp_base: &str,
-    db: Option<Arc<dyn of_model::db::Database>>,
+    db: Option<Arc<SqlDatabase>>,
     http_client: Option<reqwest::Client>,
 ) -> std::io::Result<Router> {
-    let client = embedded_db::local::local_client(data_dir, "device", db)?;
+    let database = local_database(data_dir, db).await?;
+    let client = database.client();
     let storage_base = format!("{}/storage", idp_base.trim_end_matches("/idp"));
     let control = HostedControlPlane::new_with_services(idp_base, &storage_base, idp_base)
         .and_then(|control| {

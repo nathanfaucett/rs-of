@@ -1,11 +1,11 @@
 use crate::router::{openapi_router::openapi_router, state::RouterState};
 use axum::Router;
+use db::local_client;
 use device_service::hosted_control_plane::HostedControlPlane;
-use management_service::{
-    replica::{permission_repo::DbPermissionRepo, role_repo::DbRoleRepo},
-    service::ManagementService,
-};
+use management_service::ofdb::{permission_repo::DbPermissionRepo, role_repo::DbRoleRepo};
+use management_service::service::ManagementService;
 use ofdb_sql::Client;
+use ofdb_sql::Database as SqlDatabase;
 use std::sync::Arc;
 /// Builds the local Management owner without setup or admission.
 pub async fn build_local_router(
@@ -13,10 +13,10 @@ pub async fn build_local_router(
     _port: u16,
     idp_base: &str,
     storage_base: &str,
-    db: Option<Arc<dyn of_model::db::Database>>,
+    db: Option<Arc<SqlDatabase>>,
     http_client: Option<reqwest::Client>,
 ) -> std::io::Result<Router> {
-    let client = embedded_db::local::local_client(data_dir, "management", db)?;
+    let client = local_client(data_dir, db).await?;
     let control = HostedControlPlane::new_with_services(idp_base, storage_base, idp_base)
         .and_then(|control| {
             control.with_idp_service_client("local-management", "local-password", idp_base)

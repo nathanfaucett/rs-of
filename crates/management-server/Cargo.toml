@@ -45,10 +45,10 @@ cli = { path = "../cli", default-features = false, optional = true }
 dotenvy = { version = "0.15", default-features = false, optional = true }
 
 # Internal
-embedded-db = { path = "../embedded-db", default-features = false }
 server-common = { path = "../server-common", default-features = false }
 
 db = { package = "idp-db", path = "../db", default-features = false, features = [
+    "native",
     "ofdb",
     "remote",
 ] }

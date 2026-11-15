@@ -64,14 +64,12 @@ pub fn build_local_runtime(
     _port: u16,
     idp_base: &str,
     device_base: &str,
-    db: Option<Arc<dyn of_model::db::Database>>,
+    db: Option<Arc<ofdb_sql::Database>>,
     http_client: Option<reqwest::Client>,
 ) -> io::Result<StorageRuntime> {
-    let database = embedded_db::local::local_database(data_dir, "storage", db)?;
+    let database = db::local_database(data_dir, db).await?;
     let client = database.client();
-    let storage = database
-        .local_storage()
-        .ok_or_else(|| io::Error::other("local Storage requires shared embedded storage"))?;
+    let storage = database.storage();
     let peer = local_peer(client.clone())?;
     let idp = crate::idp_client::IdpClient::new(
         idp_base,

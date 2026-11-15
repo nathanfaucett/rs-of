@@ -1,12 +1,23 @@
-# 05: Strip `of-model` to pure domain
+**Status:** resolved
 
-**What to build:** Remove the owner-view database traits (`Database`, `IdpDatabase`, `DeviceDatabase`, `StorageDatabase`, `ManagementDatabase`) and the migration runner/validator modules from `of-model`. The domain crate keeps only structs, error types, and `ofdb::MIGRATION`. The migration runner (`up`, formerly `up`/`up_device`) and the schema validators move into the `db` helper crate as `db::ofdb::up(&client)` and `db::ofdb` validators. `of-model` must build with no default features and no engine dependencies.
+- [x] `of-model` compiles with `--no-default-features` and has no `ofdb-sql`/`btree-redb` dependencies
+- [x] `db::ofdb::up` applies `of_model::ofdb::MIGRATION` and is the single runner used by all entry points
+- [x] Schema validators are reachable from `db::ofdb` and take a plain SQL client
+- [x] No owner-view trait remains in `of-model`
 
-**Blocked by:** 02 (Migrate `of-model` to `ofdb`)
+## Answer
 
-**Status:** ready-for-agent
+Stripped `of-model` to pure domain:
 
-- [ ] `of-model` compiles with `--no-default-features` and has no `ofdb-sql`/`btree-redb` dependencies
-- [ ] `db::ofdb::up` applies `of_model::ofdb::MIGRATION` and is the single runner used by all entry points
-- [ ] Schema validators are reachable from `db::ofdb` and take a plain SQL client
-- [ ] No owner-view trait remains in `of-model`
+- Shrunk `ofdb` feature to `["std"]` (no engine deps); kept `replica = ["ofdb"]` alias temporarily for `embedded-db` compat
+- Removed optional deps `btree-redb`, `ofdb-sql`, `include_dir`
+- Deleted `db.rs` (owner-view traits `Database`, `IdpDatabase`, `DeviceDatabase`, `StorageDatabase`, `ManagementDatabase` and `database!` macro)
+- Deleted `error.rs` (SQL-layer `DatabaseError` re-export)
+- Replaced `ofdb.rs` with minimal `pub const MIGRATION: &str = include_str!(...)`
+- Deleted `idp/ofdb.rs` entirely (migration runner `up`, validators `validate_identity`, `SecurityTable`, `SecurityRow`, `allows_*` functions)
+- Removed `FromRow` impls from `device/selection_policy.rs` (SQL-layer code)
+- Updated `lib.rs`: removed `db`, `error` modules; made `ofdb` module unconditional
+- Updated `idp/mod.rs`: removed `ofdb` module declaration
+- Updated `embedded-db/Cargo.toml` to use `ofdb` feature instead of `replica`
+
+Verified: `cargo check -p of-model --no-default-features` ✓, `--features ofdb` ✓, `--features replica` ✓; workspace lib check ✓.

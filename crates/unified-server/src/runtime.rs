@@ -1,7 +1,7 @@
 use std::{io, sync::Arc};
 
 use axum::{Router, extract::Request, http::StatusCode, response::IntoResponse};
-use embedded_db::database::EmbeddedDatabase;
+use db::adapters::EmbeddedDatabase;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
 use tower_http::cors::{Any, CorsLayer};
@@ -53,11 +53,12 @@ pub async fn compose_local_router(config: &UnifiedConfig) -> io::Result<Router> 
     }
     tls::load(config)?;
     let http_client = tls::http_client(config)?;
-    let db = Arc::new(
+    let shared_db = Arc::new(
         EmbeddedDatabase::open(&config.data_dir)
             .await
             .map_err(io::Error::other)?,
     );
+    let shared_sql = shared_db.database.client();
     let scheme = if matches!(config.tls, crate::config::TlsConfig::Disabled) {
         "http"
     } else {
@@ -72,7 +73,7 @@ pub async fn compose_local_router(config: &UnifiedConfig) -> io::Result<Router> 
         &config.data_dir,
         &idp_base,
         &config.origin,
-        Some(db.clone()),
+        Some(shared_sql.clone()),
         &config
             .seed
             .as_ref()
@@ -89,7 +90,7 @@ pub async fn compose_local_router(config: &UnifiedConfig) -> io::Result<Router> 
         &config.data_dir.join("device"),
         port,
         &idp_base,
-        Some(db.clone()),
+        Some(shared_sql.clone()),
         Some(http_client.clone()),
     )
     .await?;
@@ -98,7 +99,7 @@ pub async fn compose_local_router(config: &UnifiedConfig) -> io::Result<Router> 
         port,
         &idp_base,
         &storage_base,
-        Some(db.clone()),
+        Some(shared_sql.clone()),
         Some(http_client.clone()),
     )
     .await?;
@@ -107,7 +108,7 @@ pub async fn compose_local_router(config: &UnifiedConfig) -> io::Result<Router> 
         port,
         &idp_base,
         &device_base,
-        Some(db),
+        Some(shared_sql),
         Some(http_client),
     )?;
     let app_origin: axum::http::HeaderValue = origin
