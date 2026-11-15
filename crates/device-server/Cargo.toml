@@ -61,7 +61,7 @@ cli = { path = "../cli", default-features = false, features = [
 server-common = { path = "../server-common", default-features = false, features = [
 ] }
 setup = { workspace = true, optional = true }
-db = { package = "idp-db", path = "../db", default-features = false, features = [
+db = { package = "of-db", path = "../db", default-features = false, features = [
     "native",
     "ofdb",
     "remote",

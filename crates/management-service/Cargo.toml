@@ -22,7 +22,7 @@ std = ["of-model/std"]
 [dependencies]
 # Internal
 of-model = { path = "../model", default-features = false, features = [] }
-db = { package = "idp-db", path = "../db", default-features = false, optional = true }
+db = { package = "of-db", path = "../db", default-features = false, optional = true }
 ofdb-sql = { path = "../../../ofdb/crates/sql", default-features = false, optional = true, features = [
     "redb",
     "sql",

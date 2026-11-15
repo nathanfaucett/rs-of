@@ -44,7 +44,7 @@ cli = { path = "../cli", default-features = false, features = [
 
 # Internal
 device-server = { path = "../device-server", default-features = false }
-db = { package = "idp-db", path = "../db", default-features = false, features = [
+db = { package = "of-db", path = "../db", default-features = false, features = [
     "native",
 ] }
 idp-server = { path = "../idp-server", default-features = false }

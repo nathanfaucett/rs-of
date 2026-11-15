@@ -64,7 +64,7 @@ rust-argon2 = { version = "3.0", default-features = false }
 server-common = { path = "../server-common", default-features = false, features = [
 ] }
 setup = { workspace = true, optional = true }
-db = { package = "idp-db", path = "../db", default-features = false, features = [
+db = { package = "of-db", path = "../db", default-features = false, features = [
     "native",
     "ofdb",
     "remote",

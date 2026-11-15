@@ -630,7 +630,7 @@ mod tests {
             subject: "owner",
             application: of_model::id::Id::now_v7(),
         };
-        let database = embedded_db::database::EmbeddedDatabase::open(&root)
+        let database = db::adapters::EmbeddedDatabase::open(&root)
             .await
             .expect("host database");
         let runtime = DatabaseRuntime::with_shared(
@@ -666,7 +666,7 @@ mod tests {
             .expect("restore only the database file");
         std::fs::remove_dir(root).expect("remove original directory");
         let root = restored;
-        let database = embedded_db::database::EmbeddedDatabase::open(&root)
+        let database = db::adapters::EmbeddedDatabase::open(&root)
             .await
             .expect("restart host");
         let runtime = DatabaseRuntime::with_shared(
@@ -722,7 +722,7 @@ mod tests {
         drop(sql);
         drop(runtime);
         drop(database);
-        let database = embedded_db::database::EmbeddedDatabase::open(&root)
+        let database = db::adapters::EmbeddedDatabase::open(&root)
             .await
             .expect("restart retired host");
         let runtime = DatabaseRuntime::with_shared(

@@ -42,7 +42,6 @@ members = [
     "crates/storage-client",
     "crates/storage-api-client",
     "crates/db",
-    "crates/embedded-db",
     "crates/cli",
     "crates/server-common",
     "crates/key",
@@ -200,7 +199,7 @@ axum = { version = "0.8", default-features = false, features = [
     "http2",
     "tokio",
 ] }
-db = { package = "idp-db", path = "crates/db", default-features = false, features = [
+db = { package = "of-db", path = "crates/db", default-features = false, features = [
     "ofdb",
 ] }
 device-service = { path = "crates/device-service", default-features = false, features = [

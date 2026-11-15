@@ -1,5 +1,5 @@
 [package]
-name = "idp-db"
+name = "of-db"
 version = "0.1.0"
 publish = false
 authors.workspace = true

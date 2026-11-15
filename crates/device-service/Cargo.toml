@@ -66,7 +66,7 @@ of-device-client = { path = "../device-client", default-features = false, option
 of-storage-api-client = { path = "../storage-api-client", default-features = false, optional = true }
 server-common = { path = "../server-common", default-features = false, optional = true }
 setup = { path = "../setup", default-features = false, optional = true }
-db = { package = "idp-db", path = "../db", default-features = false, features = [
+db = { package = "of-db", path = "../db", default-features = false, features = [
     "network",
 ], optional = true }
 of-model = { path = "../model", default-features = false, features = [] }

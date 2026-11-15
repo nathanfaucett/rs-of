@@ -32,7 +32,7 @@ completions = ["cli?/completions"]
 
 [dependencies]
 # Shared SQL stream framing
-idp-db = { path = "../db", default-features = false, features = [
+db = { package = "of-db", path = "../db", default-features = false, features = [
     "native",
     "network",
 ] }

@@ -48,7 +48,9 @@ uuid = { version = "1.29", default-features = false, features = [
 
 [dev-dependencies]
 # Shared host fixture
-embedded-db = { path = "../embedded-db", default-features = false }
+db = { package = "of-db", path = "../db", default-features = false, features = [
+    "native",
+] }
 
 # Async
 tokio = { version = "1.52", default-features = false, features = [
