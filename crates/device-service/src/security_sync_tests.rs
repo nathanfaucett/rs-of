@@ -7,8 +7,8 @@ use idp_service::{oauth2::{node_signer::{NodeSignerBinding}}, password_config::{
 use iroh::{Endpoint, address_lookup::{MemoryLookup}, endpoint::{presets}, protocol::{Router}};
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
 use management_service::service::ManagementService;
-use management_service::replica::permission_repo::DbPermissionRepo;
-use management_service::replica::role_repo::DbRoleRepo;
+use management_service::ofdb::permission_repo::DbPermissionRepo;
+use management_service::ofdb::role_repo::DbRoleRepo;
 use of_model::idp::contract::permission_evaluation::IdentityAction;
 use of_model::id::Id;
 use tokio_util::sync::CancellationToken;
@@ -57,13 +57,13 @@ async fn exchange_history() {
     let key_b = Id::now_v7();
     {
         let idp = Arc::new(Database::open(root.join("a-idp.redb")).expect("seed IdP"));
-        of_model::idp::replica::up(&idp)
+        of_model::idp::ofdb::up(&idp)
             .await
             .expect("fresh secret-free schemas");
         sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{actor}' AS UUID), 'administrator', 'Administrator', 1, 1)")).await;
         let management =
             Arc::new(Database::open(root.join("a-management.redb")).expect("seed Management"));
-        crate::replica::schema::up(&management)
+        crate::ofdb::schema::up(&management)
             .await
             .expect("Management schemas");
         for (member, key, endpoint) in [
@@ -145,8 +145,8 @@ async fn exchange_history() {
         created_at: 100,
     };
     use idp_service::repo::oauth2_refresh_token_repo::OAuth2RefreshTokenRepo;
-    let grants_a = idp_service::replica::oauth2_refresh_token_repo::DbOAuth2RefreshTokenRepo::new(idp_a.client());
-    let grants_b = idp_service::replica::oauth2_refresh_token_repo::DbOAuth2RefreshTokenRepo::new(idp_b.client());
+    let grants_a = idp_service::ofdb::oauth2_refresh_token_repo::DbOAuth2RefreshTokenRepo::new(idp_a.client());
+    let grants_b = idp_service::ofdb::oauth2_refresh_token_repo::DbOAuth2RefreshTokenRepo::new(idp_b.client());
     grants_a
         .issue_refresh_token(grant("private-bearer-original"), None)
         .await
@@ -377,8 +377,8 @@ async fn exchange_history() {
     );
     let restricted = Id::now_v7();
     let ambiguous = Id::now_v7();
-    let selection_a = crate::replica::selection_policy::DbSelectionPolicyRepo::new(management_a.clone().client());
-    let selection_b = crate::replica::selection_policy::DbSelectionPolicyRepo::new(management_b.clone().client());
+    let selection_a = crate::ofdb::selection_policy::DbSelectionPolicyRepo::new(management_a.clone().client());
+    let selection_b = crate::ofdb::selection_policy::DbSelectionPolicyRepo::new(management_b.clone().client());
     for device_id in [restricted, ambiguous] {
         selection_a
             .set_prevalidated(of_model::device::selection_policy::SelectionPolicy {
@@ -605,7 +605,7 @@ async fn exchange_history() {
     let reopened_management =
         Arc::new(Database::open(root.join("b-management.redb")).expect("native Management reopen"));
     let reopened_selection =
-        crate::replica::selection_policy::DbSelectionPolicyRepo::new(reopened_management.clone().client());
+        crate::ofdb::selection_policy::DbSelectionPolicyRepo::new(reopened_management.clone().client());
     assert!(
         !reopened_selection
             .get(restricted, &actor.to_string(), actor)

@@ -139,7 +139,7 @@ async fn approved_endpoints_without_idp_signers_exchange_and_device_revocation_d
             )
             .await;
             assert!(
-                idp_service::replica::replica_signer_repo::DbReplicaSignerRepo::new(database.client())
+                idp_service::ofdb::replica_signer_repo::DbReplicaSignerRepo::new(database.client())
                     .trusted_signers(super::INSTALLATION, 10)
                     .await
                     .expect("no token-signing trust")
@@ -168,7 +168,7 @@ async fn approved_endpoints_without_idp_signers_exchange_and_device_revocation_d
         )
         .await;
         assert!(
-            idp_service::replica::replica_signer_repo::DbReplicaSignerRepo::new(pair.idp_b.client())
+            idp_service::ofdb::replica_signer_repo::DbReplicaSignerRepo::new(pair.idp_b.client())
                 .trusted_signers(super::INSTALLATION, 10)
                 .await
                 .expect("IdP signing trust is independent of revoked Device")
@@ -207,7 +207,7 @@ async fn approved_devices_reject_conflicted_public_device_bindings() {
         }
         let fork = Database::open(pair.root.join("device-binding-fork.redb"))
             .expect("independent Device contender");
-        crate::replica::schema::up(&fork).await.expect("public schema");
+        crate::ofdb::schema::up(&fork).await.expect("public schema");
         super::sync_fixture_context(&pair.management_a, &fork, SecurityContext::Device).await;
         for (column, member) in &bindings {
             for database in [pair.management_a.as_ref(), &fork] {
@@ -243,7 +243,7 @@ async fn marker3_persists_pending_conflicts_and_tombstones_without_trust() {
         let pending = seed_device(&pair.management_a).await;
         let conflicted = seed_device(&pair.management_a).await;
         let fork = Database::open(pair.root.join("candidate-fork.redb")).expect("independent native contender");
-        crate::replica::schema::up(&fork).await.expect("Management schema");
+        crate::ofdb::schema::up(&fork).await.expect("Management schema");
         super::sync_fixture_context(&pair.management_a, &fork, SecurityContext::Device).await;
         for database in [pair.management_a.as_ref(), &fork] {
             let endpoint = iroh::SecretKey::generate().public();
@@ -262,7 +262,7 @@ async fn marker3_persists_pending_conflicts_and_tombstones_without_trust() {
         assert!(sql(&pair.management_b, &format!("SELECT * FROM devices WHERE id = CAST('{pending}' AS UUID)")).await[0].rows.is_empty(), "tombstone retained");
         pair.protocol_a.synchronize(&connection, SecurityContext::Idp).await.expect("revoked IdP history persists independently");
         assert_eq!(sql(&pair.idp_b, &format!("SELECT revoked_at FROM idp_replica_signers WHERE id = CAST('{}' AS UUID)", revoked_signer.signer)).await[0].rows[0].values[0], Value::Integer(2));
-        assert!(!idp_service::replica::replica_signer_repo::DbReplicaSignerRepo::new(pair.idp_b.client()).trusted_signers(super::INSTALLATION, 10).await.expect("current signer trust").iter().any(|(member, _)| member.member_id == revoked_signer.member));
+        assert!(!idp_service::ofdb::replica_signer_repo::DbReplicaSignerRepo::new(pair.idp_b.client()).trusted_signers(super::INSTALLATION, 10).await.expect("current signer trust").iter().any(|(member, _)| member.member_id == revoked_signer.member));
         drop(fork);
         pair.close().await;
     }).await.expect("bounded genuine Management conflict/tombstone exchange");

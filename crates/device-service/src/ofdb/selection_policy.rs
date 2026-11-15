@@ -24,7 +24,7 @@ use crate::device_repo::DeviceRepo;
 
 use of_model::device_error::DeviceResult;
 
-use crate::replica::device_repo::DbDeviceRepo;
+use crate::ofdb::device_repo::DbDeviceRepo;
 
 const TABLE: &str = "device_selection_policies";
 const RESOURCE_TABLE: &str = "device_resource_selections";
@@ -1190,7 +1190,7 @@ mod tests {
 
     use crate::{device_repo::DeviceRepo, replica::device_repo::DbDeviceRepo};
 
-    use crate::replica::selection_policy::DbSelectionPolicyRepo;
+    use crate::ofdb::selection_policy::DbSelectionPolicyRepo;
 
     use of_model::device::selection_policy::OwnerPolicyObservation;
 
@@ -1218,7 +1218,7 @@ mod tests {
         let cleanup_id;
         {
             let engine = Arc::new(Database::open(&path).expect("open Management owner"));
-            crate::replica::schema::up(&engine)
+            crate::ofdb::schema::up(&engine)
                 .await
                 .expect("Management schema");
             let repo = DbSelectionPolicyRepo::new(engine.client());
@@ -1330,7 +1330,7 @@ mod tests {
     async fn owner_observation_denies_concurrent_deselection_and_ambiguous_resource_bindings() {
         let first = Arc::new(Database::in_memory());
         let second = Database::in_memory();
-        crate::replica::schema::up(&first)
+        crate::ofdb::schema::up(&first)
             .await
             .expect("Management schema");
         let repo = DbSelectionPolicyRepo::new(first.clone().client());
@@ -1423,7 +1423,7 @@ mod tests {
         {
             let first = Arc::new(Database::open(&path).expect("open local policy"));
             let second = ofdb_sql::Database::in_memory();
-            crate::replica::schema::up(&first)
+            crate::ofdb::schema::up(&first)
                 .await
                 .expect("initialize management only");
             let repo = DbSelectionPolicyRepo::new(Arc::clone(&first).client());
@@ -1501,7 +1501,7 @@ mod tests {
     #[tokio::test]
     async fn sync_requires_two_approved_matching_selected_devices() {
         let engine = Arc::new(ofdb_sql::Database::in_memory());
-        crate::replica::schema::up(&engine)
+        crate::ofdb::schema::up(&engine)
             .await
             .expect("initialize replica");
         let devices = DbDeviceRepo::new(Arc::clone(&engine).client());
@@ -1688,7 +1688,7 @@ mod tests {
     async fn replicated_revocation_blocks_previously_selected_peer() {
         let source = Arc::new(ofdb_sql::Database::in_memory());
         let destination = Arc::new(ofdb_sql::Database::in_memory());
-        crate::replica::schema::up(&source)
+        crate::ofdb::schema::up(&source)
             .await
             .expect("initialize source replica");
 
@@ -1796,7 +1796,7 @@ mod tests {
     async fn selection_cannot_lift_local_or_replicated_admin_restriction() {
         let first = Arc::new(ofdb_sql::Database::in_memory());
         let second = Arc::new(ofdb_sql::Database::in_memory());
-        crate::replica::schema::up(&first)
+        crate::ofdb::schema::up(&first)
             .await
             .expect("initialize replica");
         let first_repo = DbSelectionPolicyRepo::new(Arc::clone(&first).client());
@@ -1890,7 +1890,7 @@ mod tests {
         let application_id = ofdb_sql::Uuid::now_v7();
         {
             let engine = Arc::new(Database::open(&path).expect("open database"));
-            crate::replica::schema::up(&engine)
+            crate::ofdb::schema::up(&engine)
                 .await
                 .expect("create schema");
             let repo = DbSelectionPolicyRepo::new(engine.client());
@@ -1960,7 +1960,7 @@ mod tests {
             let engine = std::sync::Arc::new(ofdb_sql::Database::open(&root).expect("open policy"));
             super::super::up(&engine).await.expect("initialize policy");
             let repo =
-                crate::replica::selection_policy::DbSelectionPolicyRepo::new(engine.client());
+                crate::ofdb::selection_policy::DbSelectionPolicyRepo::new(engine.client());
             repo.set_prevalidated(of_model::device::selection_policy::SelectionPolicy {
                 device_id,
                 owner_subject: old.clone(),
@@ -2001,7 +2001,7 @@ mod tests {
             let engine =
                 std::sync::Arc::new(ofdb_sql::Database::open(&root).expect("reopen policy"));
             let repo =
-                crate::replica::selection_policy::DbSelectionPolicyRepo::new(engine.client());
+                crate::ofdb::selection_policy::DbSelectionPolicyRepo::new(engine.client());
             assert!(repo.get(device_id, &new, app).await.is_err());
             assert!(
                 !repo
@@ -2029,7 +2029,7 @@ mod tests {
     async fn completed_local_transfer_rebinds_empty_policy_without_lifting_restriction() {
         let engine = Arc::new(ofdb_sql::Database::in_memory());
         super::super::up(&engine).await.expect("schema");
-        let repo = crate::replica::selection_policy::DbSelectionPolicyRepo::new(engine.client());
+        let repo = crate::ofdb::selection_policy::DbSelectionPolicyRepo::new(engine.client());
         let device = ofdb_sql::Uuid::now_v7();
         let old = ofdb_sql::Uuid::now_v7().to_string();
         let new = ofdb_sql::Uuid::now_v7().to_string();
@@ -2104,7 +2104,7 @@ mod tests {
     async fn concurrent_reselection_and_deselection_resolves_to_deselected() {
         let first = Arc::new(ofdb_sql::Database::in_memory());
         let second = Arc::new(ofdb_sql::Database::in_memory());
-        crate::replica::schema::up(&first)
+        crate::ofdb::schema::up(&first)
             .await
             .expect("initialize first replica");
         let first_devices = DbDeviceRepo::new(Arc::clone(&first).client());
@@ -2265,7 +2265,7 @@ mod tests {
     async fn owner_and_admin_conflicts_cannot_be_deselected() {
         let first = Arc::new(ofdb_sql::Database::in_memory());
         let second = Arc::new(ofdb_sql::Database::in_memory());
-        crate::replica::schema::up(&first)
+        crate::ofdb::schema::up(&first)
             .await
             .expect("initialize replica");
         let first_repo = DbSelectionPolicyRepo::new(Arc::clone(&first).client());
@@ -2384,7 +2384,7 @@ mod tests {
         };
         {
             let engine: Arc<Database> = Arc::new(Database::open(&path).expect("open database"));
-            crate::replica::schema::up(&engine)
+            crate::ofdb::schema::up(&engine)
                 .await
                 .expect("migrate database");
             DbSelectionPolicyRepo::new(engine.client())
@@ -2409,7 +2409,7 @@ mod tests {
     #[tokio::test]
     async fn offline_deselection_keeps_admin_restriction_and_checks_owner() {
         let engine = Arc::new(ofdb_sql::Database::in_memory());
-        crate::replica::schema::up(&engine)
+        crate::ofdb::schema::up(&engine)
             .await
             .expect("initialize replica schema");
         let repo = DbSelectionPolicyRepo::new(engine.client());
@@ -2468,7 +2468,7 @@ mod tests {
     #[tokio::test]
     async fn admin_restriction_without_selection_and_switch_after_deselect() {
         let engine = Arc::new(ofdb_sql::Database::in_memory());
-        crate::replica::schema::up(&engine)
+        crate::ofdb::schema::up(&engine)
             .await
             .expect("initialize replica schema");
         let repo = DbSelectionPolicyRepo::new(engine.client());

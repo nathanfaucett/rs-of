@@ -1,8 +1,8 @@
 use of_model::id::Id;
 use of_model::idp::model::application::Application;
-use of_model::idp::replica::SecurityRow;
-use of_model::idp::replica::SecurityTable;
-use of_model::idp::replica::allows_token_issuance;
+use of_model::idp::ofdb::SecurityRow;
+use of_model::idp::ofdb::SecurityTable;
+use of_model::idp::ofdb::allows_token_issuance;
 use ofdb_sql::FromRow;
 use ofdb_sql::FromRowError;
 use ofdb_sql::Query;
@@ -318,7 +318,7 @@ fn select(predicate: Option<QueryExpr>) -> Query {
 mod tests {
     use std::sync::Arc;
 
-    use of_model::idp::replica::up;
+    use of_model::idp::ofdb::up;
 
     use super::*;
 

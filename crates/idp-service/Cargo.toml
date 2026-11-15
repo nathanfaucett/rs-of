@@ -16,15 +16,15 @@ name = "idp_service"
 default = ["std"]
 
 headless = ["key/headless"]
-replica = [
+ofdb = [
     "std",
-    "db/replica",
-    "of-model/replica",
+    "db/ofdb",
+    "of-model/ofdb",
     "dep:tokio",
     "dep:ofdb-kv",
     "dep:ofdb-sql",
 ]
-ofdb = ["replica"]
+replica = ["ofdb"]
 std = [
     "bip32/std",
     "key/std",

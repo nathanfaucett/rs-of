@@ -1035,7 +1035,7 @@ mod tests {
 
     async fn repo() -> DbDeviceRepo {
         let engine = Arc::new(ofdb_sql::Database::in_memory());
-        crate::replica::schema::up(&engine)
+        crate::ofdb::schema::up(&engine)
             .await
             .expect("initialize replica schema");
         DbDeviceRepo::new(engine.client())
@@ -1098,7 +1098,7 @@ mod tests {
         let paired;
         {
             let database = Arc::new(Database::open(&path).expect("open local identity"));
-            crate::replica::schema::up(&database)
+            crate::ofdb::schema::up(&database)
                 .await
                 .expect("initialize new schema");
             let repo = DbDeviceRepo::new(Arc::clone(&database).client());
@@ -1434,7 +1434,7 @@ mod tests {
     #[tokio::test]
     async fn approved_identity_requires_no_local_enrollment_workflow() {
         let source_owner = Database::in_memory();
-        crate::replica::schema::up(&source_owner)
+        crate::ofdb::schema::up(&source_owner)
             .await
             .expect("source schema");
         let source = DbDeviceRepo::new(source_owner.client());
@@ -1461,7 +1461,7 @@ mod tests {
             .await
             .expect("create unrelated local enrollment");
         let public = Arc::new(Database::in_memory());
-        crate::replica::schema::up(&public)
+        crate::ofdb::schema::up(&public)
             .await
             .expect("initialize public Device schema");
         public
@@ -1546,7 +1546,7 @@ mod tests {
     #[tokio::test]
     async fn approved_identity_requires_current_conflict_clear_owner() {
         let first_owner = Database::in_memory();
-        crate::replica::schema::up(&first_owner)
+        crate::ofdb::schema::up(&first_owner)
             .await
             .expect("first schema");
         let first = DbDeviceRepo::new(first_owner.client());
@@ -1577,7 +1577,7 @@ mod tests {
             "new-owner"
         );
         let second_owner = Database::in_memory();
-        crate::replica::schema::up(&second_owner)
+        crate::ofdb::schema::up(&second_owner)
             .await
             .expect("second schema");
         let second = DbDeviceRepo::new(second_owner.client());
@@ -1693,7 +1693,7 @@ mod tests {
         {
             let engine: Arc<Database> =
                 Arc::new(Database::open(&path).expect("open durable test database"));
-            crate::replica::schema::up(&engine)
+            crate::ofdb::schema::up(&engine)
                 .await
                 .expect("initialize replica schema");
             let repo = DbDeviceRepo::new(engine.client());

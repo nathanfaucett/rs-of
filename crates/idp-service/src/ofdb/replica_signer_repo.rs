@@ -510,9 +510,9 @@ mod tests {
 
     use of_model::id::Id;
 
-    use of_model::idp::replica;
+    use of_model::idp::ofdb;
 
-    use crate::replica::replica_signer_repo::DbReplicaSignerRepo;
+    use crate::ofdb::replica_signer_repo::DbReplicaSignerRepo;
 
     fn records() -> (ReplicaMembership, IdpSignerRecord) {
         let member_id = Id::from_u128(1);
@@ -573,7 +573,7 @@ mod tests {
 
     #[tokio::test]
     async fn local_identity_requires_exact_enrollment_active_user_and_current_trust() {
-        use crate::replica::local_identity::LocalIdentity;
+        use crate::ofdb::local_identity::LocalIdentity;
         let (engine, member, signer) = public_trust_fixture().await;
         let identity = LocalIdentity::new(engine.client());
         let owner = Id::now_v7();
@@ -1111,7 +1111,7 @@ mod tests {
                     .is_err(),
                 "{table} ambiguity must deny"
             );
-            let error = crate::replica::local_identity::LocalIdentity::new(engine.client())
+            let error = crate::ofdb::local_identity::LocalIdentity::new(engine.client())
                 .check_join_identity(
                     &member.issuer,
                     member.member_id,

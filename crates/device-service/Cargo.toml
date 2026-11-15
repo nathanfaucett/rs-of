@@ -14,20 +14,20 @@ name = "device_service"
 
 [features]
 default = []
-independent = ["replica", "server-common/independent", "setup"]
+independent = ["ofdb", "server-common/independent", "setup"]
 utoipa = ["std", "dep:utoipa", "of-model/utoipa"]
 
-replica = [
+ofdb = [
     "dep:log",
     "dep:management-service",
-    "management-service/replica",
+    "management-service/ofdb",
     "dep:of-idp-client",
     "dep:of-device-client",
     "std",
     "dep:db",
     "db/network",
-    "of-model/replica",
-    "idp-service/replica",
+    "of-model/ofdb",
+    "idp-service/ofdb",
     "dep:server-common",
     "dep:axum",
     "dep:futures-util",
@@ -38,7 +38,7 @@ replica = [
     "dep:tokio-tungstenite",
     "dep:tokio-util",
 ]
-ofdb = ["replica"]
+replica = ["ofdb"]
 
 std = [
     "dep:of-idp-client",

@@ -55,7 +55,7 @@ mod tests {
     #[tokio::test]
     async fn public_device_columns_match_only_the_owned_schema() {
         let database = ofdb_sql::Database::in_memory();
-        crate::replica::schema::up(&database)
+        crate::ofdb::schema::up(&database)
             .await
             .expect("declare policy schema");
         for table in crate::security_sync::PUBLIC_DEVICE_TABLES {

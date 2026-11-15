@@ -15,8 +15,8 @@ name = "management_service"
 [features]
 default = ["std"]
 utoipa = ["std", "of-model/utoipa", "dep:utoipa", "dep:utoipa-gen"]
-replica = ["std", "dep:db", "dep:ofdb-sql", "of-model/replica"]
-ofdb = ["replica"]
+ofdb = ["std", "dep:db", "dep:ofdb-sql", "of-model/ofdb"]
+replica = ["ofdb"]
 std = ["of-model/std"]
 
 [dependencies]

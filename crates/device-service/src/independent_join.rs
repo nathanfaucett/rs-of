@@ -28,7 +28,7 @@ pub struct IndependentJoinRequest {
 impl IndependentJoinRequest {
     pub fn validate(&self) -> io::Result<()> {
         self.operation.canonical()?;
-        idp_service::replica::replica_signer_repo::DbReplicaSignerRepo::validate_public_key(
+        idp_service::ofdb::replica_signer_repo::DbReplicaSignerRepo::validate_public_key(
             &self.public_signer,
         )
         .map_err(io::Error::other)?;

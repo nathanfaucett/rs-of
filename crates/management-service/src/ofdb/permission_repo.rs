@@ -1,9 +1,9 @@
 use chrono::{DateTime, Timelike, Utc};
 use of_model::id::Id;
 use of_model::idp::model::permission::Permission;
-use of_model::idp::replica::SecurityRow;
-use of_model::idp::replica::SecurityTable;
-use of_model::idp::replica::allows_authorization;
+use of_model::idp::ofdb::SecurityRow;
+use of_model::idp::ofdb::SecurityTable;
+use of_model::idp::ofdb::allows_authorization;
 use ofdb_sql::FromRow;
 use ofdb_sql::FromRowError;
 use ofdb_sql::Query;

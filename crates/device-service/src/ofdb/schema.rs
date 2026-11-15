@@ -2,7 +2,7 @@ use ofdb_sql::SqlTranslator;
 use ofdb_sql::Database;
 
 pub async fn up(engine: &Database) -> Result<(), ofdb_sql::QueryError> {
-    of_model::replica::up_device(&engine.client()).await?;
+    of_model::ofdb::up_device(&engine.client()).await?;
     let devices = engine
         .client()
         .translate_and_execute("SELECT * FROM devices LIMIT 0", &SqlTranslator)
@@ -85,15 +85,15 @@ pub async fn validate_device(
 #[cfg(test)]
 mod tests {
 
-    use crate::replica::schema::up;
+    use crate::ofdb::schema::up;
 
     #[tokio::test]
     async fn device_owner_does_not_migrate_identity_policy() {
         let engine = ofdb_sql::Database::in_memory();
-        crate::replica::schema::up(&engine)
+        crate::ofdb::schema::up(&engine)
             .await
             .expect("Device migration");
-        crate::replica::schema::up(&engine)
+        crate::ofdb::schema::up(&engine)
             .await
             .expect("idempotent Device migration");
         for table in [
@@ -129,7 +129,7 @@ mod tests {
     async fn rejects_mixed_public_device_enrollment_history_without_repair() {
         let engine = ofdb_sql::Database::in_memory();
         engine.client().translate_and_execute("CREATE TABLE devices (id UUID PRIMARY KEY, owner_subject TEXT NOT NULL, name TEXT, public_key TEXT, address TEXT, state INTEGER, approved_at INTEGER, revoked_at INTEGER, created_at INTEGER, updated_at INTEGER, enrollment_code_hash BLOB)", &ofdb_sql::SqlTranslator).await.expect("unsupported retained public layout");
-        assert!(crate::replica::schema::up(&engine).await.is_err());
+        assert!(crate::ofdb::schema::up(&engine).await.is_err());
         let result = engine
             .client()
             .translate_and_execute(

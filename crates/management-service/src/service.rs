@@ -522,11 +522,11 @@ mod tests {
 
     use crate::service::ManagementService;
 
-    use crate::replica::DbPermissionRepo;
+    use crate::ofdb::DbPermissionRepo;
 
-    use crate::replica::DbRoleRepo;
+    use crate::ofdb::DbRoleRepo;
 
-    use of_model::idp::replica::up;
+    use of_model::idp::ofdb::up;
 
     #[tokio::test]
     async fn initial_administrator_has_explicit_client_registration_permission() {

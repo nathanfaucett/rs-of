@@ -5,9 +5,9 @@ use of_model::management_error::ManagementResult;
 
 use crate::service::ManagementService;
 
-use crate::replica::DbPermissionRepo;
+use crate::ofdb::DbPermissionRepo;
 
-use crate::replica::DbRoleRepo;
+use crate::ofdb::DbRoleRepo;
 
 #[derive(Clone)]
 pub struct LocalPermissions {
@@ -33,8 +33,8 @@ impl LocalPermissions {
 #[cfg(test)]
 mod tests {
     use crate::local_permissions::LocalPermissions;
-    use crate::replica::DbPermissionRepo;
-    use crate::replica::DbRoleRepo;
+    use crate::ofdb::DbPermissionRepo;
+    use crate::ofdb::DbRoleRepo;
     use crate::service::ManagementService;
     use of_model::id::Id;
     use of_model::idp::contract::permission_evaluation::IdentityAction;
@@ -42,7 +42,7 @@ mod tests {
     use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
     use of_model::idp::contract::permission_evaluation::PermissionSubject;
     use of_model::idp::contract::permission_evaluation::PermissionTarget;
-    use of_model::idp::replica::up;
+    use of_model::idp::ofdb::up;
     use ofdb_sql::Database;
     use std::sync::Arc;
 

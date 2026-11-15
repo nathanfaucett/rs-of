@@ -5,7 +5,7 @@ use of_model::idp::model::user::User;
 use of_model::idp::model::user_email::UserEmail;
 use of_model::idp::model::user_password::UserPassword;
 use of_model::idp::model::user_phone_number::UserPhoneNumber;
-use of_model::idp::replica::allows_authentication;
+use of_model::idp::ofdb::allows_authentication;
 use ofdb_sql::FromRow;
 use ofdb_sql::FromRowError;
 use ofdb_sql::Query;
@@ -136,10 +136,10 @@ impl DbUserRepo {
             .map(User::try_from)
             .collect::<RepoResult<Vec<_>>>()?;
         for user in &users {
-            if !of_model::idp::replica::allows_authorization(
+            if !of_model::idp::ofdb::allows_authorization(
                 &self.engine,
-                &[of_model::idp::replica::SecurityRow::new(
-                    of_model::idp::replica::SecurityTable::User,
+                &[of_model::idp::ofdb::SecurityRow::new(
+                    of_model::idp::ofdb::SecurityTable::User,
                     user.id,
                 )],
             )
@@ -1101,7 +1101,7 @@ use ofdb_sql::Database;
 mod tests {
     use std::sync::Arc;
 
-    use of_model::idp::replica::up;
+    use of_model::idp::ofdb::up;
 
     use super::*;
 

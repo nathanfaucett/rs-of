@@ -11,7 +11,7 @@ use of_model::idp::contract::jws_algorithm::JwsAlgorithm;
 use of_model::idp::contract::key_use::KeyUse;
 use of_model::idp::contract::idp_signer::ReplicaMembership;
 use of_model::id::Id;
-use idp_service::replica::replica_signer_repo::DbReplicaSignerRepo;
+use idp_service::ofdb::replica_signer_repo::DbReplicaSignerRepo;
 
 const INSTALLATION: &str = "https://installation.example";
 pub(super) async fn sql(database: &Database, statement: &str) -> Vec<ofdb_sql::QueryResult> {

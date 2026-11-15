@@ -37,7 +37,7 @@ use crate::device_identity::DeviceIdentity;
 #[cfg(feature = "replica")]
 use crate::device_repo::DeviceRepo;
 use crate::pairing_acceptance::PairingAcceptanceController;
-use crate::replica::device_repo::DbDeviceRepo;
+use crate::ofdb::device_repo::DbDeviceRepo;
 use of_model::device::contract::device_state::DeviceState;
 
 #[derive(Clone)]

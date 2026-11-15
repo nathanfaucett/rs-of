@@ -2,7 +2,7 @@ use of_model::id::Id;
 use of_model::idp::contract::entity_type::EntityType;
 use of_model::idp::contract::jwk_public::JwkPublic;
 use of_model::idp::model::key::Key;
-use of_model::idp::replica::allows_authentication;
+use of_model::idp::ofdb::allows_authentication;
 use ofdb_sql::FromRow;
 use ofdb_sql::FromRowError;
 use ofdb_sql::Query;
@@ -108,7 +108,7 @@ impl KeyRepo for DbKeyRepo {
             of_model::idp::contract::idp_signer::IdpSignerRecord,
         )>,
     > {
-        crate::replica::replica_signer_repo::DbReplicaSignerRepo::new(self.engine.clone())
+        crate::ofdb::replica_signer_repo::DbReplicaSignerRepo::new(self.engine.clone())
             .trusted_signers(issuer, now)
             .await
     }
@@ -482,7 +482,7 @@ fn select(predicate: Option<QueryExpr>) -> Query {
 mod tests {
     use std::sync::Arc;
 
-    use of_model::idp::replica::up;
+    use of_model::idp::ofdb::up;
 
     use super::*;
 

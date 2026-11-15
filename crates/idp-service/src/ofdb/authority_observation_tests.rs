@@ -19,9 +19,9 @@ use tokio::{sync::oneshot, task::JoinHandle};
 
 use crate::repo::KeyRepo;
 
-use crate::replica::key_repo::DbKeyRepo;
+use crate::ofdb::key_repo::DbKeyRepo;
 
-use crate::replica::replica_signer_repo::DbReplicaSignerRepo;
+use crate::ofdb::replica_signer_repo::DbReplicaSignerRepo;
 
 use super::observation_test_kernel::CatalogReads;
 

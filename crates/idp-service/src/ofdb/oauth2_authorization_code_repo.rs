@@ -2,9 +2,9 @@ use chrono::{DateTime, Timelike, Utc};
 use of_model::id::Id;
 use of_model::idp::contract::code_challenge_method::CodeChallengeMethod;
 use of_model::idp::model::oauth2_authorization_code::OAuth2AuthorizationCode;
-use of_model::idp::replica::SecurityRow;
-use of_model::idp::replica::SecurityTable;
-use of_model::idp::replica::allows_token_issuance;
+use of_model::idp::ofdb::SecurityRow;
+use of_model::idp::ofdb::SecurityTable;
+use of_model::idp::ofdb::allows_token_issuance;
 use ofdb_sql::FromRow;
 use ofdb_sql::FromRowError;
 use ofdb_sql::Query;
@@ -410,7 +410,7 @@ fn select(predicate: Option<QueryExpr>) -> Query {
 mod tests {
     use super::*;
     use chrono::Duration;
-    use of_model::idp::replica::up;
+    use of_model::idp::ofdb::up;
     use std::sync::Arc;
 
     #[tokio::test]

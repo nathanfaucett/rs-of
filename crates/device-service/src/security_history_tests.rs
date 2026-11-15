@@ -22,8 +22,8 @@ use iroh::{
     protocol::Router,
 };
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
-use management_service::replica::permission_repo::DbPermissionRepo;
-use management_service::replica::role_repo::DbRoleRepo;
+use management_service::ofdb::permission_repo::DbPermissionRepo;
+use management_service::ofdb::role_repo::DbRoleRepo;
 use management_service::service::ManagementService;
 use of_model::id::Id;
 use of_model::idp::contract::permission_evaluation::IdentityAction;
@@ -206,14 +206,14 @@ impl Pair {
                 );
                 sql(&idp, &migration).await;
             }
-            of_model::idp::replica::up(&idp)
+            of_model::idp::ofdb::up(&idp)
                 .await
                 .expect("declare secret-free schema");
             sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{actor}' AS UUID), 'owner', 'Owner', 1, 1)")).await;
             let management = Arc::new(
                 Database::open(root.join("baseline-management.redb")).expect("open local policy"),
             );
-            crate::replica::schema::up(&management)
+            crate::ofdb::schema::up(&management)
                 .await
                 .expect("declare Management schema");
             for (member, key, endpoint) in [

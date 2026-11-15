@@ -4,9 +4,9 @@ use of_model::id::Id;
 use of_model::idp::contract::jwk_public::JwkPublic;
 use ofdb_sql::Client;
 
-use crate::replica::replica_signer_repo::DbReplicaSignerRepo;
+use crate::ofdb::replica_signer_repo::DbReplicaSignerRepo;
 
-use crate::replica::user_repo::DbUserRepo;
+use crate::ofdb::user_repo::DbUserRepo;
 use crate::{
     oauth2::node_signer::NodeSignerBinding, password_config::PasswordConfig,
     repo::user_repo::UserRepo,
