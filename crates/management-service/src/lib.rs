@@ -6,6 +6,8 @@ mod local_permissions;
 mod permission_repo;
 #[cfg(feature = "replica")]
 pub mod replica;
+#[cfg(feature = "ofdb")]
+pub use replica as ofdb;
 mod role_repo;
 mod service;
 

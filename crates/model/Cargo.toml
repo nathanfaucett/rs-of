@@ -29,6 +29,7 @@ replica = [
     "ofdb-sql/redb",
     "ofdb-sql/sql",
 ]
+ofdb = ["replica"]
 utoipa = ["dep:utoipa", "std"]
 axum = ["dep:axum"]
 wasm = ["dep:tsify", "dep:serde-wasm-bindgen", "dep:wasm-bindgen"]

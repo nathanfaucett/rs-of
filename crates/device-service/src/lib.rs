@@ -3,17 +3,19 @@
 
 extern crate alloc;
 
+pub use of_model::device::contract::DeviceState;
 pub use of_model::device::contract::{
-    ApprovedDeviceEndpoints, DeviceApprovalRequest, DeviceEndpointIdentity,
-    DeviceEnrollment, DeviceEnrollmentRequest, DeviceInfo, DevicePairingApprovalPayload,
+    ApprovedDeviceEndpoints, DeviceApprovalRequest, DeviceEndpointIdentity, DeviceEnrollment,
+    DeviceEnrollmentRequest, DeviceInfo, DevicePairingApprovalPayload,
     DevicePairingApprovalRequest, DevicePairingRequest, DeviceSelfRevocationRequest,
     DeviceTransferRequest, PairingAcceptance, TrustedDevice, UpdateDeviceRequest,
 };
 pub use of_model::device::device::Device;
-pub use of_model::device::contract::DeviceState;
 
 #[cfg(feature = "replica")]
 pub mod replica;
+#[cfg(feature = "ofdb")]
+pub use replica as ofdb;
 
 #[cfg(feature = "std")]
 mod device_enrollment;

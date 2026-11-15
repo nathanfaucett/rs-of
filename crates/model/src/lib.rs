@@ -13,6 +13,8 @@ pub mod json_vec;
 pub mod management;
 #[cfg(feature = "replica")]
 pub mod replica;
+#[cfg(feature = "ofdb")]
+pub use replica as ofdb;
 pub mod space_delimited;
 pub mod storage;
 

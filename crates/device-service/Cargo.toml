@@ -38,6 +38,7 @@ replica = [
     "dep:tokio-tungstenite",
     "dep:tokio-util",
 ]
+ofdb = ["replica"]
 
 std = [
     "dep:of-idp-client",
