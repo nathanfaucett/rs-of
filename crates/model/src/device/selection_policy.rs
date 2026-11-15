@@ -33,10 +33,10 @@ pub enum OwnerPolicyObservation {
     },
 }
 
-#[cfg(feature = "replica")]
+#[cfg(feature = "ofdb")]
 use ofdb_sql::{FromRow, FromRowError, Row};
 
-#[cfg(feature = "replica")]
+#[cfg(feature = "ofdb")]
 impl FromRow for SelectionPolicy {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
         Ok(Self {
@@ -76,7 +76,7 @@ pub struct ResourceSelection {
     pub selected: bool,
 }
 
-#[cfg(feature = "replica")]
+#[cfg(feature = "ofdb")]
 impl FromRow for ResourceSelection {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
         Ok(Self {

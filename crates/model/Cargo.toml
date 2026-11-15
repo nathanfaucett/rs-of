@@ -19,7 +19,7 @@ std = [
     "base64/std",
     "uuid/std",
 ]
-replica = [
+ofdb = [
     "std",
     "dep:btree-redb",
     "dep:include_dir",
@@ -29,7 +29,7 @@ replica = [
     "ofdb-sql/redb",
     "ofdb-sql/sql",
 ]
-ofdb = ["replica"]
+replica = ["ofdb"]
 utoipa = ["dep:utoipa", "std"]
 axum = ["dep:axum"]
 wasm = ["dep:tsify", "dep:serde-wasm-bindgen", "dep:wasm-bindgen"]

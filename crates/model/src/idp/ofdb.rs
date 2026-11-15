@@ -9,7 +9,7 @@ pub async fn up(engine: &Database) -> Result<(), ofdb_sql::QueryError> {
     for file in MIGRATIONS.files() {
         for statement in file
             .contents_utf8()
-            .expect("replica migration must be UTF-8")
+            .expect("ofdb migration must be UTF-8")
             .split(';')
             .map(str::trim)
             .filter(|statement| !statement.is_empty())
