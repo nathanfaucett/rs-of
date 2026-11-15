@@ -24,7 +24,6 @@ ofdb = [
     "dep:ofdb-kv",
     "dep:ofdb-sql",
 ]
-replica = ["ofdb"]
 std = [
     "bip32/std",
     "key/std",

@@ -3,11 +3,9 @@
 extern crate alloc;
 #[cfg(feature = "ofdb")]
 mod local_permissions;
+mod permission_repo;
 #[cfg(feature = "ofdb")]
 pub mod ofdb;
-mod permission_repo;
-#[cfg(feature = "replica")]
-pub use ofdb as replica;
 mod role_repo;
 mod service;
 

@@ -20,7 +20,6 @@ postgres = ["ofdb", "ofdb-sql/postgres"]
 remote = ["ofdb", "ofdb-sql/remote", "dep:serde", "dep:tokio", "dep:url"]
 network = ["native", "ofdb-sql/validated-history", "dep:iroh"]
 server = ["native", "ofdb-sql/server"]
-replica = ["ofdb"]
 
 [dependencies]
 # Configuration

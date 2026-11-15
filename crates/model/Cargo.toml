@@ -20,7 +20,6 @@ std = [
     "uuid/std",
 ]
 ofdb = ["std"]
-replica = ["ofdb"]
 utoipa = ["dep:utoipa", "std"]
 axum = ["dep:axum"]
 wasm = ["dep:tsify", "dep:serde-wasm-bindgen", "dep:wasm-bindgen"]

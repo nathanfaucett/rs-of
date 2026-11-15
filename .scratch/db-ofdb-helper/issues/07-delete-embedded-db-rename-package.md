@@ -1,11 +1,15 @@
-# 07: Delete `embedded-db`; rename package to `of-db`
+**Status:** resolved
 
-**What to build:** Remove the `embedded-db` crate from the workspace and rename the `db` helper package from `idp-db` to `of-db` while keeping lib name `db`, so every existing `db::...` import keeps working. Update workspace members and every dependent manifest (server crates, services' dev-dependencies, root manifest).
+- [x] `embedded-db` is gone from the workspace and no manifest references it
+- [x] Dependents reference the package as `of-db` with lib name `db`; all `db::...` imports unchanged
+- [x] Workspace compiles and tests pass
 
-**Blocked by:** 06 (Merge adapters into `db` as concrete structs)
+## Answer
 
-**Status:** ready-for-agent
+Deleted `crates/embedded-db` directory and removed it from workspace members.
+Renamed `db` package from `idp-db` to `of-db` (lib name remains `db`).
+Updated all dependent manifests (device-server, idp-server, management-server, storage-server, device-service, idp-service, management-service, unified-server, storage-service, workspace root) to reference `package = "of-db"`.
+Updated `storage-service` dev-dependency and source files to use `db::adapters::EmbeddedDatabase`.
+Updated `storage-server` dependency from `idp-db` to `db` (of-db).
 
-- [ ] `embedded-db` is gone from the workspace and no manifest references it
-- [ ] Dependents reference the package as `of-db` with lib name `db`; all `db::...` imports unchanged
-- [ ] Workspace compiles and tests pass
+Workspace lib check passes.

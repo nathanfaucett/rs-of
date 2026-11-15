@@ -8,9 +8,6 @@ extern crate self as idp_service;
 pub mod oauth2;
 #[cfg(feature = "ofdb")]
 pub mod ofdb;
-mod password_config;
-#[cfg(feature = "replica")]
-pub use ofdb as replica;
 pub mod repo;
 pub mod security_sync;
 #[cfg(feature = "std")]
